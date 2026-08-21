@@ -7,9 +7,12 @@
 import { readfile, readlink, stat, popen, writefile } from 'fs';
 import { avatar_tokenize, catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
 
-const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
-const MANAGED_ROOT = '/etc/zapret2-manager/catalog/avatar-active';
-const READ_INDEX_PATH = '/etc/zapret2-manager/strategy-catalog-index.json';
+const DEFAULT_ROOT = getenv('Z2M_STRATEGY_CATALOG_PACKAGE_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
+const MANAGED_ROOT = getenv('Z2M_STRATEGY_CATALOG_MANAGED_ROOT') || '/etc/zapret2-manager/catalog/avatar-active';
+const MANAGED_PREVIOUS_ROOT = MANAGED_ROOT + '.previous';
+const MANAGED_PREVIOUS_NEW_ROOT = MANAGED_ROOT + '.previous.new';
+const READ_INDEX_PATH = getenv('Z2M_STRATEGY_CATALOG_INDEX_PATH') || '/etc/zapret2-manager/strategy-catalog-index.json';
+const ACTIVE_POINTER_PATH = getenv('Z2M_STRATEGY_CATALOG_ACTIVE_POINTER') || '/etc/zapret2-manager/catalog/active.json';
 const DERIVED_CACHE_PREFIX = '/tmp/zapret2-manager/strategy-catalog.';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const PINNED_REPOSITORY = 'avatarDD/zapret-gui';
@@ -23,7 +26,21 @@ const WINDIVERT_PREFIXES = ['--wf-tcp', '--wf-udp', '--wf-raw', '--wf-l3', '--wf
 
 let loaded = null;
 let loadedRoot = null;
-function catalog_root() { try { let managed = stat(MANAGED_ROOT + '/manifest.json'); if (managed != null && managed.type == 'file') return MANAGED_ROOT; } catch (e) {} return DEFAULT_ROOT; }
+let activeResolution = null;
+
+function is_object(value) { return type(value) == 'object' && value != null; }
+function starts(text, prefix) { return type(text) == 'string' && index(text, prefix) == 0; }
+function ends(text, suffix) {
+	return type(text) == 'string' && length(text) >= length(suffix)
+		&& substr(text, length(text) - length(suffix), length(suffix)) == suffix;
+}
+function symlink_target(path) { try { return readlink(path); } catch (e) { return null; } }
+function is_safe_root(root) {
+	if (type(root) != 'string' || length(root) < 2 || substr(root, 0, 1) != '/') return false;
+	if (index(root, chr(0)) >= 0 || index(root, '//') >= 0 || index(root, '/../') >= 0
+		|| ends(root, '/..')) return false;
+	return true;
+}
 
 function error_result(code, message, path) {
 	let result = { ok: false, error: { code: code, message: message } };
@@ -31,11 +48,42 @@ function error_result(code, message, path) {
 	return result;
 }
 
-function is_object(value) { return type(value) == 'object' && value != null; }
-function starts(text, prefix) { return type(text) == 'string' && index(text, prefix) == 0; }
-function ends(text, suffix) {
-	return type(text) == 'string' && length(text) >= length(suffix)
-		&& substr(text, length(text) - length(suffix), length(suffix)) == suffix;
+function read_active_pointer() {
+	let metadata = null;
+	try { metadata = stat(ACTIVE_POINTER_PATH); } catch (e) { return null; }
+	if (!metadata || metadata.type != 'file' || metadata.size > MAX_FILE_BYTES
+		|| symlink_target(ACTIVE_POINTER_PATH) != null) return null;
+	let pointer = null;
+	try { pointer = json(readfile(ACTIVE_POINTER_PATH)); } catch (e) { return null; }
+	if (!is_object(pointer) || pointer.schema != 'z2m.strategy-active.v1'
+		|| !is_safe_root(pointer.root) || (pointer.kind != 'package' && pointer.kind != 'managed')
+		|| pointer.verified != true || type(pointer.sourceCommit) != 'string'
+		|| !match(pointer.aggregateDigest || '', /^[0-9a-f]{64}$/)) return null;
+	return pointer;
+}
+
+function configured_root() { return getenv('Z2M_STRATEGY_CATALOG_ROOT') || null; }
+function catalog_root() {
+	let pointer = read_active_pointer();
+	if (pointer != null && pointer.root != null) return pointer.root;
+	return configured_root() || DEFAULT_ROOT;
+}
+
+function source_commit(catalog) {
+	return is_object(catalog) && is_object(catalog.source) ? catalog.source.commit : null;
+}
+
+function identity_matches(record, pointer, root) {
+	if (!is_object(record) || record.schema != 'z2m.strategy-read-index.v2'
+		|| record.root != root || !is_object(record.catalog)) return false;
+	let catalog = record.catalog;
+	if (pointer != null && (record.kind != pointer.kind || record.sourceCommit != pointer.sourceCommit
+		|| record.aggregateDigest != pointer.aggregateDigest)) return false;
+	return record.sourceRepository == (catalog.source && catalog.source.repository)
+		&& record.sourceCommit == source_commit(catalog)
+		&& record.aggregateDigest == catalog.aggregateDigest
+		&& record.entryCount == catalog.physicalEntryCount
+		&& type(record.generatedAt) == 'int';
 }
 
 function sort_strings(values) {
@@ -64,6 +112,37 @@ function shell_quote(value) {
 	return result + chr(39);
 }
 
+function atomic_write(path, content) {
+	let parent = path == ACTIVE_POINTER_PATH ? '/etc/zapret2-manager/catalog'
+		: path == READ_INDEX_PATH ? '/etc/zapret2-manager' : null;
+	if (parent != null) {
+		let prep = null;
+		try { prep = popen('mkdir -p ' + shell_quote(parent) + ' 2>/dev/null', 'r'); } catch (e) { prep = null; }
+		if (!prep || prep.close() != 0) return false;
+	}
+	let temporary = path + '.tmp.' + time();
+	try { writefile(temporary, content); } catch (e) { return false; }
+	let move = null, rc = -1;
+	try { move = popen('mv ' + shell_quote(temporary) + ' ' + shell_quote(path) + ' 2>/dev/null', 'r'); if (move) rc = move.close(); } catch (e) { rc = -1; }
+	if (rc != 0) { try { popen('rm -f ' + shell_quote(temporary) + ' 2>/dev/null', 'r').close(); } catch (e) {} }
+	return rc == 0;
+}
+
+function command_rc(command) {
+	let process = null, rc = -1;
+	try { process = popen(command + ' 2>/dev/null', 'r'); if (process) rc = process.close(); } catch (e) { rc = -1; }
+	return rc;
+}
+
+function active_pointer_write(root, kind, catalog, fallbackUsed, verificationError) {
+	if (!is_object(catalog) || !is_object(catalog.source)) return false;
+	let payload = sprintf('%J', { schema: 'z2m.strategy-active.v1', root: root, kind: kind,
+		sourceRepository: catalog.source.repository, sourceCommit: source_commit(catalog),
+		aggregateDigest: catalog.aggregateDigest, verified: true, fallbackUsed: fallbackUsed == true,
+		verificationError: verificationError || null, verifiedAt: time() });
+	return atomic_write(ACTIVE_POINTER_PATH, payload);
+}
+
 function sha256_file(path) {
 	let process = null;
 	try { process = popen('sha256sum ' + shell_quote(path) + ' 2>/dev/null', 'r'); }
@@ -88,10 +167,6 @@ function directory(path) {
 	return metadata != null && metadata.type == 'directory';
 }
 
-function symlink_target(path) {
-	try { return readlink(path); } catch (e) { return null; }
-}
-
 function has_symlink_component(path) {
 	let prefix = '';
 	for (let component in split(path, '/')) {
@@ -100,13 +175,6 @@ function has_symlink_component(path) {
 		if (symlink_target(prefix) != null) return true;
 	}
 	return false;
-}
-
-function is_safe_root(root) {
-	if (type(root) != 'string' || length(root) < 2 || substr(root, 0, 1) != '/') return false;
-	if (index(root, chr(0)) >= 0 || index(root, '//') >= 0 || index(root, '/../') >= 0
-		|| ends(root, '/..')) return false;
-	return true;
 }
 
 function safe_relative_path(path) {
@@ -312,15 +380,14 @@ function compact_catalog(catalog) {
 }
 
 function read_persisted_index(root) {
-	if (root != catalog_root()) return null;
 	let metadata = null;
 	try { metadata = stat(READ_INDEX_PATH); } catch (e) { return null; }
 	if (!metadata || metadata.type != 'file' || metadata.size > MAX_FILE_BYTES
 		|| symlink_target(READ_INDEX_PATH) != null) return null;
 	let raw = null, record = null;
 	try { raw = readfile(READ_INDEX_PATH); record = raw == null ? null : json(raw); } catch (e) { return null; }
-	if (!is_object(record) || record.schema != 'z2m.strategy-read-index.v2'
-		|| record.root != root || !is_object(record.catalog)) return null;
+	let pointer = read_active_pointer();
+	if (!identity_matches(record, pointer, root)) return null;
 	let catalog = record.catalog;
 	if (type(catalog.aggregateDigest) != 'string'
 		|| !match(catalog.aggregateDigest, /^[0-9a-f]{64}$/)
@@ -332,13 +399,18 @@ function read_persisted_index(root) {
 	return catalog;
 }
 
-function persist_read_index(catalog) {
+function persist_read_index(catalog, root, kind) {
 	if (!is_object(catalog) || catalog.manifestPath == null) return false;
 	let compact = compact_catalog(catalog);
 	if (compact == null) return false;
-	try { writefile(READ_INDEX_PATH, sprintf('%J', {
-		schema: 'z2m.strategy-read-index.v2', root: catalog_root(), catalog: compact
-	})); return true; } catch (e) { return false; }
+	let actualRoot = root || catalog_root();
+	let record = { schema: 'z2m.strategy-read-index.v2', root: actualRoot,
+		kind: kind || (actualRoot == MANAGED_ROOT ? 'managed' : 'package'),
+		sourceRepository: catalog.source && catalog.source.repository,
+		sourceCommit: source_commit(catalog), aggregateDigest: catalog.aggregateDigest,
+		entryCount: catalog.physicalEntryCount, generatedAt: time(), catalog: compact };
+	if (!identity_matches(record, null, actualRoot)) return false;
+	return atomic_write(READ_INDEX_PATH, sprintf('%J', record));
 }
 
 function protocol_for(filename) {
@@ -718,6 +790,94 @@ function build_catalog(root, manifest, manifestPath) {
 	} };
 }
 
+function verify_candidate(root) {
+	let manifestResult = read_manifest(root);
+	if (!manifestResult.ok) return manifestResult;
+	return build_catalog(root, manifestResult.manifest, manifestResult.manifestPath);
+}
+
+function verification_error(result) {
+	return is_object(result) && is_object(result.error) ? result.error
+		: { code: 'EVERIFY', message: 'catalog verification failed' };
+}
+
+function resolution_from(kind, root, result, fallbackUsed, verificationError) {
+	let catalog = result.catalog;
+	return { ok: true, root: root, kind: kind, sourceCommit: source_commit(catalog),
+		aggregateDigest: catalog.aggregateDigest, verified: true, fallbackUsed: fallbackUsed == true,
+		verificationError: verificationError || null, catalog: catalog };
+}
+
+function persist_active_resolution(resolution) {
+	if (!is_object(resolution) || !is_object(resolution.catalog)) return false;
+	if (!persist_read_index(resolution.catalog, resolution.root, resolution.kind)) return false;
+	return active_pointer_write(resolution.root, resolution.kind, resolution.catalog,
+		resolution.fallbackUsed, resolution.verificationError);
+}
+
+function recover_interrupted_managed() {
+	let managedMetadata = null, stagedMetadata = null;
+	try { managedMetadata = stat(MANAGED_ROOT); } catch (e) { managedMetadata = null; }
+	try { stagedMetadata = stat(MANAGED_PREVIOUS_NEW_ROOT); } catch (e) { stagedMetadata = null; }
+	if (managedMetadata != null || !stagedMetadata || stagedMetadata.type != 'directory') return;
+	let verified = verify_candidate(MANAGED_PREVIOUS_NEW_ROOT);
+	if (verified.ok) command_rc('mv ' + shell_quote(MANAGED_PREVIOUS_NEW_ROOT) + ' ' + shell_quote(MANAGED_ROOT));
+}
+
+function full_resolve(packageRoot, managedRoot, persist) {
+	recover_interrupted_managed();
+	let managedResult = verify_candidate(managedRoot), packageResult = null;
+	if (managedResult.ok) {
+		let selected = resolution_from('managed', managedRoot, managedResult, false, null);
+		if (persist == true && !persist_active_resolution(selected))
+			return error_result('EWRITE', 'verified catalog identity could not be materialized');
+		return selected;
+	}
+	packageResult = verify_candidate(packageRoot);
+	if (packageResult.ok) {
+		let selected = resolution_from('package', packageRoot, packageResult, true, verification_error(managedResult));
+		if (persist == true && !persist_active_resolution(selected))
+			return error_result('EWRITE', 'verified package catalog identity could not be materialized');
+		return selected;
+	}
+	let failed = error_result('EVERIFY', 'no verified Strategy catalog is available');
+	failed.error.managed = verification_error(managedResult);
+	failed.error.package = verification_error(packageResult);
+	return failed;
+}
+
+function fast_resolve(packageRoot, managedRoot) {
+	let pointer = read_active_pointer();
+	if (pointer == null || (pointer.root != packageRoot && pointer.root != managedRoot)) return null;
+	let catalog = read_persisted_index(pointer.root);
+	if (catalog == null || (pointer.aggregateDigest != catalog.aggregateDigest
+		|| pointer.sourceCommit != source_commit(catalog))) return null;
+	let kind = pointer.root == managedRoot ? 'managed' : 'package';
+	return { ok: true, root: pointer.root, kind: kind, sourceCommit: source_commit(catalog),
+		aggregateDigest: catalog.aggregateDigest, verified: pointer.verified == true,
+		fallbackUsed: pointer.fallbackUsed == true,
+		verificationError: pointer.verificationError || null, catalog: catalog };
+}
+
+export const strategy_catalog_resolve = function(options) {
+	options = is_object(options) ? options : {};
+	let packageRoot = options.packageRoot || DEFAULT_ROOT, managedRoot = options.managedRoot || MANAGED_ROOT;
+	let explicit = options.root || configured_root();
+	if (explicit != null) {
+		let result = verify_candidate(explicit);
+		if (!result.ok) return result;
+		let kind = explicit == managedRoot ? 'managed' : explicit == packageRoot ? 'package' : 'explicit';
+		return resolution_from(kind, explicit, result, false, null);
+	}
+	if (options.forceVerify != true) {
+		let fast = fast_resolve(packageRoot, managedRoot);
+		if (fast != null) { activeResolution = fast; return fast; }
+	}
+	let resolved = full_resolve(packageRoot, managedRoot, options.persist != false);
+	if (resolved.ok) activeResolution = resolved;
+	return resolved;
+};
+
 function derived_cache_path(root, digest) {
 	return root == catalog_root() && match(digest || '', /^[0-9a-f]{64}$/)
 		? DERIVED_CACHE_PREFIX + digest + '.json' : null;
@@ -759,25 +919,44 @@ function load_catalog(root, bypassCache) {
 	if (!result.ok) { loaded = null; loadedRoot = null; return result; }
 	loaded = result.catalog; loadedRoot = actualRoot;
 	persist_derived_catalog(actualRoot, loaded);
-	persist_read_index(loaded);
 	return result;
 }
 
 function ensure_loaded(root) {
 	if (loaded != null && (root == null || root == loadedRoot)) return loaded;
-	let result = load_catalog(root == null ? catalog_root() : root);
+	let result = root == null ? strategy_catalog_load(null) : load_catalog(root);
 	return result.ok ? loaded : null;
 }
 
 export const strategy_catalog_load = function(root) {
-	let actualRoot = root == null ? catalog_root() : root;
+	if (root == null) {
+		let resolved = strategy_catalog_resolve();
+		if (!resolved.ok) { loaded = null; loadedRoot = null; return resolved; }
+		loaded = resolved.catalog; loadedRoot = resolved.root;
+		return { ok: true, catalog: loaded, resolution: {
+			root: resolved.root, kind: resolved.kind, sourceCommit: resolved.sourceCommit,
+			aggregateDigest: resolved.aggregateDigest, verified: resolved.verified,
+			fallbackUsed: resolved.fallbackUsed, verificationError: resolved.verificationError
+		} };
+	}
+	let actualRoot = root;
 	if (loaded != null && loadedRoot == actualRoot)
 		return { ok: true, catalog: loaded };
-	return load_catalog(root);
+	return load_catalog(actualRoot, true);
 };
 
 export const strategy_catalog_read_index = function(root) {
-	let actualRoot = root == null ? catalog_root() : root;
+	if (root == null) {
+		let resolved = strategy_catalog_resolve();
+		if (!resolved.ok) { loaded = null; loadedRoot = null; return resolved; }
+		loaded = resolved.catalog; loadedRoot = resolved.root;
+		return { ok: true, catalog: loaded, resolution: {
+			root: resolved.root, kind: resolved.kind, sourceCommit: resolved.sourceCommit,
+			aggregateDigest: resolved.aggregateDigest, verified: resolved.verified,
+			fallbackUsed: resolved.fallbackUsed, verificationError: resolved.verificationError
+		} };
+	}
+	let actualRoot = root;
 	if (loaded != null && loadedRoot == actualRoot)
 		return { ok: true, catalog: loaded };
 	let persisted = read_persisted_index(actualRoot);
@@ -793,15 +972,16 @@ export const strategy_catalog_read_index = function(root) {
 		return error_result('EDECLARATION', 'catalog manifest read index is incomplete', result.manifestPath);
 	}
 	loaded = catalog; loadedRoot = actualRoot;
-	persist_read_index(catalog);
 	return { ok: true, catalog: catalog };
 };
 
 export const strategy_catalog_write_read_index = function(root) {
 	let result = load_catalog(root == null ? catalog_root() : root, true);
 	if (!result.ok) return result;
+	let actualRoot = root == null ? catalog_root() : root;
+	let kind = actualRoot == MANAGED_ROOT ? 'managed' : 'package';
 	return { ok: true, digest: result.catalog.aggregateDigest,
-		written: persist_read_index(result.catalog) };
+		written: persist_read_index(result.catalog, actualRoot, kind) && active_pointer_write(actualRoot, kind, result.catalog) };
 };
 
 export const strategy_catalog_list = function(protocol, set) {
@@ -824,7 +1004,7 @@ export const strategy_catalog_get_detail = function(id) {
 	let fast = strategy_catalog_read_index(null);
 	if (!fast.ok || !is_object(fast.catalog) || fast.catalog.winners[id] == null)
 		return { error: { code: 'ENOENT', message: 'strategy is not present in the catalog' } };
-	let indexed = fast.catalog.winners[id], path = safe_file_path(catalog_root(), indexed.sourceFile);
+	let indexed = fast.catalog.winners[id], path = safe_file_path(loadedRoot || catalog_root(), indexed.sourceFile);
 	if (path == null) return { error: { code: 'EPATH', message: 'strategy source path is unavailable' } };
 	let raw = null, entries = [];
 	try { raw = readfile(path); entries = raw == null ? [] : parse_file(raw, indexed.sourceFile, indexed.level, indexed.protocol); }
@@ -843,12 +1023,14 @@ export const strategy_catalog_get_detail = function(id) {
 // parsed only for those selected ids and are never expanded into the planner's
 // full working set on the Quick path.
 export const strategy_catalog_materialize = function(ids, root) {
-	let actualRoot = root == null ? catalog_root() : root;
+	let resolved = root == null ? strategy_catalog_resolve() : null;
+	if (root == null && (!resolved || !resolved.ok)) return resolved || error_result('EVERIFY', 'verified catalog is unavailable');
+	let actualRoot = root == null ? resolved.root : root;
 	if (actualRoot != catalog_root() && getenv('Z2M_SCANNER_SERVER_TEST') != '1')
 		return error_result('EPATH', 'catalog root override is available only in server tests', 'root');
 	if (type(ids) != 'array' || length(ids) > 64)
 		return error_result('EINPUT', 'catalog materialization ids are bounded', 'ids');
-	let persisted = read_persisted_index(actualRoot), indexed = persisted;
+	let persisted = read_persisted_index(actualRoot), indexed = persisted || (resolved && resolved.catalog);
 	if (indexed == null) {
 		let manifestResult = read_manifest(actualRoot);
 		if (!manifestResult.ok) return manifestResult;
@@ -889,19 +1071,92 @@ export const strategy_catalog_materialize = function(ids, root) {
 };
 
 export const strategy_catalog_status = function() {
-	let catalog = ensure_loaded(null);
-	if (catalog == null) return { ok: false, error: { code: 'ESTATE', message: 'Avatar catalog is unavailable' } };
+	let resolved = strategy_catalog_resolve();
+	if (!resolved.ok) return resolved;
+	let catalog = resolved.catalog;
 	return { ok: true, digest: catalog.aggregateDigest, counts: {
 		files: catalog.physicalFileCount, physicalEntries: catalog.physicalEntryCount,
 		uniqueStrategies: catalog.uniqueStrategyIdCount, duplicateGroups: catalog.duplicateIdGroupCount
-	}, source: catalog.manifestPath };
+	}, source: catalog.manifestPath, resolution: {
+		root: resolved.root, kind: resolved.kind, sourceCommit: resolved.sourceCommit,
+		aggregateDigest: resolved.aggregateDigest, verified: resolved.verified,
+		fallbackUsed: resolved.fallbackUsed, verificationError: resolved.verificationError
+	} };
 };
 
 export const strategy_catalog_reload = function() {
-	let root = loadedRoot == null ? catalog_root() : loadedRoot;
+	let result = strategy_catalog_resolve({ forceVerify: true });
+	if (!result.ok) return result;
+	loaded = result.catalog; loadedRoot = result.root;
+	return strategy_catalog_status();
+};
+
+export const strategy_catalog_prepare_snapshot = function(root) {
+	if (!is_safe_root(root)) return error_result('EPATH', 'staged catalog root is not a safe absolute path', 'root');
 	let result = load_catalog(root, true);
 	if (!result.ok) return result;
-	return strategy_catalog_status();
+	let compact = compact_catalog(result.catalog);
+	if (compact == null) return error_result('EINDEX', 'verified catalog index could not be built');
+	let record = { schema: 'z2m.strategy-read-index.v2', root: root, kind: 'managed',
+		sourceRepository: result.catalog.source && result.catalog.source.repository,
+		sourceCommit: source_commit(result.catalog), aggregateDigest: result.catalog.aggregateDigest,
+		entryCount: result.catalog.physicalEntryCount, generatedAt: time(), catalog: compact };
+	if (!identity_matches(record, null, root)) return error_result('EINDEX', 'verified catalog index identity is inconsistent');
+	return { ok: true, root: root, catalog: result.catalog, index: record };
+};
+
+function remove_exact(path) { return command_rc('rm -rf ' + shell_quote(path)) == 0; }
+function restore_file(path, raw) {
+	if (raw == null) return command_rc('rm -f ' + shell_quote(path)) == 0;
+	return atomic_write(path, raw);
+}
+
+export const strategy_catalog_activate_snapshot = function(root, prepared) {
+	if (!is_object(prepared) || prepared.ok != true || prepared.root != root || !is_object(prepared.catalog))
+		return error_result('EINPUT', 'verified staged catalog preparation is required');
+	let catalog = prepared.catalog, old = strategy_catalog_resolve();
+	if (!old.ok) return old;
+	let metadata = null;
+	try { metadata = stat(root); } catch (e) { metadata = null; }
+	if (!metadata || metadata.type != 'directory' || has_symlink_component(root))
+		return error_result('EPATH', 'verified staged catalog root is unavailable', root);
+	let oldIndex = null, oldPointer = null;
+	try { oldIndex = readfile(READ_INDEX_PATH); } catch (e) { oldIndex = null; }
+	try { oldPointer = readfile(ACTIVE_POINTER_PATH); } catch (e) { oldPointer = null; }
+	let previousNew = MANAGED_PREVIOUS_NEW_ROOT, previous = MANAGED_PREVIOUS_ROOT;
+	remove_exact(previousNew);
+	let managedMetadata = null;
+	try { managedMetadata = stat(MANAGED_ROOT); } catch (e) { managedMetadata = null; }
+	let hadManaged = managedMetadata != null && managedMetadata.type == 'directory';
+	if (command_rc('mkdir -p ' + shell_quote('/etc/zapret2-manager/catalog')) != 0)
+		return error_result('EWRITE', 'managed catalog directory could not be prepared');
+	if (hadManaged && command_rc('mv ' + shell_quote(MANAGED_ROOT) + ' ' + shell_quote(previousNew)) != 0)
+		return error_result('EWRITE', 'current managed catalog could not be staged for replacement');
+	if (command_rc('mv ' + shell_quote(root) + ' ' + shell_quote(MANAGED_ROOT)) != 0) {
+		if (hadManaged) command_rc('mv ' + shell_quote(previousNew) + ' ' + shell_quote(MANAGED_ROOT));
+		return error_result('EWRITE', 'verified staged catalog activation failed');
+	}
+	let activated = null;
+	try { activated = json(sprintf('%J', catalog)); } catch (e) { activated = null; }
+	if (!is_object(activated)) activated = catalog;
+	activated.manifestPath = MANAGED_ROOT + '/manifest.json';
+	let indexOk = persist_read_index(activated, MANAGED_ROOT, 'managed');
+	let pointerOk = indexOk && active_pointer_write(MANAGED_ROOT, 'managed', activated, false, null);
+	if (!pointerOk) {
+		remove_exact(MANAGED_ROOT);
+		if (hadManaged) command_rc('mv ' + shell_quote(previousNew) + ' ' + shell_quote(MANAGED_ROOT));
+		restore_file(READ_INDEX_PATH, oldIndex); restore_file(ACTIVE_POINTER_PATH, oldPointer);
+		return error_result('EWRITE', 'catalog identity activation failed; previous verified catalog restored');
+	}
+	if (hadManaged) {
+		remove_exact(previous);
+		command_rc('mv ' + shell_quote(previousNew) + ' ' + shell_quote(previous));
+	}
+	activeResolution = { ok: true, root: MANAGED_ROOT, kind: 'managed', sourceCommit: source_commit(activated),
+		aggregateDigest: activated.aggregateDigest, verified: true, fallbackUsed: false,
+		verificationError: null, catalog: compact_catalog(activated) };
+	loaded = activeResolution.catalog; loadedRoot = MANAGED_ROOT;
+	return { ok: true, resolution: activeResolution, previousRoot: hadManaged ? previous : old.root };
 };
 
 export const catalog_entry_to_strategy = function(entry) {

@@ -4,7 +4,7 @@
 // candidate construction to the shared Strategy compiler.
 
 import { readfile, stat, readlink, lsdir, popen } from 'fs';
-import { strategy_catalog_read_index, strategy_catalog_get_detail,
+import { strategy_catalog_read_index, strategy_catalog_load, strategy_catalog_get_detail,
  strategy_catalog_status, strategy_catalog_reload, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
  strategy_selection_get, strategy_apply_uncertain_get,
@@ -358,11 +358,12 @@ function minimal_dependencies() {
 }
 
 function catalog() {
-	let root = getenv('Z2M_STRATEGY_CATALOG_ROOT') || DEFAULT_CATALOG_ROOT;
+	let root = getenv('Z2M_STRATEGY_CATALOG_ROOT');
 	let loaded = null;
-	try { loaded = strategy_catalog_load(root); } catch (e) { loaded = null; }
+	try { loaded = root != null ? strategy_catalog_load(root) : strategy_catalog_read_index(null); } catch (e) { loaded = null; }
 	if (!is_object(loaded) || loaded.ok != true || !is_object(loaded.catalog))
-		return error_result('EVERIFY', 'verified Strategy catalog is unavailable');
+		return error_result('EVERIFY', 'verified Strategy catalog is unavailable: '
+			+ (loaded && loaded.error && loaded.error.message || 'resolver returned no verified identity'));
 	return loaded.catalog;
 }
 
@@ -865,9 +866,10 @@ function catalog_root() {
 
 function load_request_catalog() {
 	let loaded = null;
-	try { loaded = strategy_catalog_read_index(catalog_root()); } catch (e) { loaded = null; }
+	try { loaded = strategy_catalog_read_index(null); } catch (e) { loaded = null; }
 	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
-		? loaded.catalog : error_result('EVERIFY', 'verified Strategy catalog is unavailable');
+		? loaded.catalog : error_result('EVERIFY', 'verified Strategy catalog is unavailable: '
+			+ (loaded && loaded.error && loaded.error.message || 'resolver returned no verified identity'));
 }
 
 function catalog_strategy(entry) {

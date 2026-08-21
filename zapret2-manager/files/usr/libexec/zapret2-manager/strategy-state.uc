@@ -17,7 +17,6 @@ const APPLY_LASTGOOD_DIR = getenv('Z2M_STRATEGY_APPLY_LASTGOOD') || '/tmp/zapret
 const APPLY_BLOCK_PATH = getenv('Z2M_STRATEGY_APPLY_BLOCK') || APPLY_LASTGOOD_DIR + '/strategy-apply-block.json';
 const APPLY_LEASE_PATH = getenv('Z2M_STRATEGY_APPLY_LEASE') || APPLY_LASTGOOD_DIR + '/strategy-apply-lease.json';
 const LOCK_PATH = getenv('Z2M_STRATEGY_LOCK') || '/tmp/zapret2-manager/strategy-state.lock';
-const CATALOG_ROOT = getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
 const EXTENSION_MANIFEST_PATH = getenv('Z2M_STRATEGY_EXTENSION_MANIFEST') || '/usr/share/zapret2-manager/strategies/extensions.json';
 const MAX_BYTES = 521028;
 const MAX_ID = 128;
@@ -66,7 +65,7 @@ function load_catalog_ids() {
 	if (catalog_loaded) return catalog_available;
 	catalog_loaded = true;
 	let loaded = null;
-	try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+	try { loaded = strategy_catalog_load(null); } catch (e) { loaded = null; }
 	if (!is_object(loaded) || loaded.ok != true || !is_object(loaded.catalog) ||
 		!is_object(loaded.catalog.winners)) return false;
 	for (let id in loaded.catalog.winners) catalog_ids[id] = true;
@@ -621,7 +620,7 @@ export const strategy_duplicate = function(input) {
 		if (source == null && sourceResult.error && sourceResult.error.code != 'ENOENT') return sourceResult;
 		if (source == null) {
 			let loaded = null;
-			try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+			try { loaded = strategy_catalog_load(null); } catch (e) { loaded = null; }
 			let entry = loaded && loaded.ok == true && loaded.catalog && loaded.catalog.winners
 				? loaded.catalog.winners[requested] : null;
 			try { source = entry == null ? null : catalog_entry_to_strategy(entry); } catch (e) { source = null; }
@@ -715,7 +714,7 @@ function apply_block_clear() {
 
 function apply_catalog_digest() {
 	let loaded = null;
-	try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+	try { loaded = strategy_catalog_load(null); } catch (e) { loaded = null; }
 	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
 		&& sha256(loaded.catalog.aggregateDigest) ? loaded.catalog.aggregateDigest : null;
 }

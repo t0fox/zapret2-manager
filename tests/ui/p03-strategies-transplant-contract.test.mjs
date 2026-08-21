@@ -75,7 +75,7 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc'), 'utf8');
   const cli = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc'), 'utf8');
   assert.match(catalog, /strategy_catalog_load[\s\S]*if \(loaded != null[\s\S]*return \{ ok: true, catalog: loaded \}/);
-  assert.match(catalog, /strategy_catalog_reload[\s\S]*let result = load_catalog\(root, true\)/);
+  assert.match(catalog, /strategy_catalog_reload[\s\S]*strategy_catalog_resolve\(\{ forceVerify: true \}\)/);
   assert.match(catalog, /DERIVED_CACHE_PREFIX/);
   assert.match(catalog, /cached_catalog\(actualRoot, manifestResult\)/);
   assert.match(catalog, /load_catalog\(root, true\)/);
