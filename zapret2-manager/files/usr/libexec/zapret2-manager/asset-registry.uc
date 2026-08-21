@@ -10,6 +10,9 @@ const STAGE_ROOT = '/tmp/z2m-resource-update';
 const MAX_STATE_BYTES = 1024 * 1024;
 const MAX_BUNDLE_ASSETS = 64;
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
+const MAX_IMPORT_BYTES = 16 * 1024 * 1024;
+const MAX_REMOTE_URL_BYTES = 2048;
+const MAX_ASN_PREFIXES = 4096;
 const LIMITS = { lua: 4 * 1024 * 1024, blob: 16 * 1024 * 1024, ipset: 1024 * 1024,
 	hostlist: 1024 * 1024, geosite: 32 * 1024 * 1024, geoip: 32 * 1024 * 1024, hosts: 1024 * 1024 };
 const EXT = { lua: 'lua', blob: 'bin', ipset: 'txt', hostlist: 'txt', geosite: 'db', geoip: 'db', hosts: 'txt' };
@@ -118,6 +121,20 @@ function base64_decode(value) {
 	for (let i = 0; i < length(value); i++) { let c = substr(value, i, 1); if (c == '=') break; let n = index(alphabet, c); if (n < 0) return null; buffer = buffer * 64 + n; bits += 6; if (bits >= 8) { bits -= 8; out += chr((buffer >> bits) & 255); buffer = buffer & ((1 << bits) - 1); } }
 	return out;
 }
+function base64_encode(value, max_bytes) {
+	max_bytes = type(max_bytes) == 'int' ? max_bytes : MAX_IMPORT_BYTES;
+	if (!string(value) || length(value) > max_bytes) return null;
+	let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', i = 0;
+	while (i < length(value)) {
+		let a = ord(substr(value, i++, 1)), haveB = i < length(value), b = haveB ? ord(substr(value, i++, 1)) : 0;
+		let haveC = i < length(value), c = haveC ? ord(substr(value, i++, 1)) : 0;
+		out += substr(alphabet, (a >> 2) & 63, 1);
+		out += substr(alphabet, ((a & 3) << 4) | (b >> 4), 1);
+		out += haveB ? substr(alphabet, ((b & 15) << 2) | (c >> 6), 1) : '=';
+		out += haveC ? substr(alphabet, c & 63, 1) : '=';
+	}
+	return out;
+}
 function valid_utf8_text(value) {
 	for (let i = 0; i < length(value); i++) {
 		let byte = ord(substr(value, i, 1)); if (byte == 0) return false;
@@ -138,7 +155,7 @@ function normalized_ip(line) {
 	if (!family || (prefix != null && decimal(prefix, family == 4 ? 32 : 128) == null)) return null;
 	return lower_ascii(address) + (prefix == null ? '' : '/' + (+prefix));
 }
-function hostname(value) { let s = lower_ascii(value); while (substr(s, 0, 1) == '.') s = substr(s, 1); while (substr(s, length(s) - 1, 1) == '.') s = substr(s, 0, length(s) - 1); if (!length(s) || length(s) > 253 || !match(s, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/)) return null; return s; }
+function hostname(value) { let s = lower_ascii(value); for (let i = 0; i < 3; i++) { let prefix = ['https://', 'http://', '//'][i]; if (substr(s, 0, length(prefix)) == prefix) s = substr(s, length(prefix)); } s = split(s, '/')[0]; s = split(s, '?')[0]; s = split(s, '#')[0]; if (index(s, ':') >= 0 && substr(s, 0, 1) != '[') s = substr(s, 0, rindex(s, ':')); if (substr(s, 0, 4) == 'www.') s = substr(s, 4); while (substr(s, 0, 1) == '.') s = substr(s, 1); while (substr(s, length(s) - 1, 1) == '.') s = substr(s, 0, length(s) - 1); if (!length(s) || length(s) > 253 || !match(s, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/)) return null; return s; }
 function normalize_content(kind, content) {
 	if (!string(content)) return fail('EINPUT', 'decoded content is unavailable');
 	if (kind == 'blob' || kind == 'geosite' || kind == 'geoip') return { ok: true, content: content };
@@ -176,6 +193,90 @@ export const asset_registry_import = function(request) {
 	let slug = substr(request.id, length(request.type) + 1), path = server_asset_path(request.type, slug); if (!asset_parent_safe(request.type)) return fail('ESAFETY', 'asset parent is not a safe directory'); if (stat(path) != null) return regular(path) ? fail('ECONFLICT', 'canonical asset path already exists') : fail('ESAFETY', 'canonical asset path is not a regular file'); let text = normalized.content; if (!atomic_write(path, text)) return fail('EWRITE', 'asset atomic write failed');
 	let asset = { schema: 1, type: request.type, id: request.id, name: string(request.name) && length(request.name) ? request.name : slug, ownership: provenance.kind == 'builtin/package' ? 'package' : 'manager', mutable: provenance.kind != 'builtin/package', provenance: copy(provenance), contentSha256: sha256_file(path), byteSize: content_size(path), revision: 1, path: path, legacyPath: null, references: [], validation: { status: request.type == 'lua' ? 'passed-structural-only' : 'passed', errors: [] } };
 	if (asset.contentSha256 == null || asset.byteSize < 0) { try { unlink(path); } catch (e) {} return fail('EWRITE', 'asset evidence could not be read back'); } if (provenance.kind == 'builtin/package' && asset.contentSha256 != provenance.expectedSha256) { try { unlink(path); } catch (e) {} return fail('EVERIFY', 'package hash does not match provenance'); } push(state.assets, asset); state.revision++; if (!state_save(state)) { try { unlink(path); } catch (e) {} return fail('EWRITE', 'asset registry metadata atomic write failed'); } return ok(asset);
+};
+function remote_url_safe(url) {
+	if (!string(url) || length(url) > MAX_REMOTE_URL_BYTES || !match(url, /^https?:\/\/[^\/?#]+(?:[\/?#].*)?$/i)) return false;
+	let authority = match(url, /^https?:\/\/([^\/?#]+)/i);
+	if (!authority || !string(authority[1]) || index(authority[1], '@') >= 0) return false;
+	let authority_host = authority[1];
+	if (substr(authority_host, 0, 1) == '[') return false;
+	let host = lower_ascii(split(authority_host, ':')[0]);
+	if (!length(host) || host == 'localhost' || host == 'localhost.localdomain' || substr(host, -6) == '.local' || substr(host, -9) == '.internal' || substr(host, 0, 4) == '127.' || substr(host, 0, 3) == '10.' || substr(host, 0, 8) == '192.168.') return false;
+	if (match(host, /^172\.(1[6-9]|2[0-9]|3[0-1])\./) || match(host, /^169\.254\./) || match(host, /^0\./) || host == '::1' || substr(host, 0, 1) == '[') return false;
+	return true;
+}
+function remote_url_host(url) { let authority = match(url, /^https?:\/\/([^\/?#]+)/i); if (!authority) return null; let host = authority[1]; if (substr(host, 0, 1) == '[') return null; return lower_ascii(split(host, ':')[0]); }
+function remote_host_public(host) {
+	if (!string(host) || !length(host)) return false;
+	if (ipv4(host) || ipv6(host)) return !match(host, /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.|169\.254\.|0\.)/) && host != '::1';
+	let lookup = command('getent ahosts ' + shell_quote(host)), seen = false;
+	if (lookup.rc != 0 || !string(lookup.out)) return false;
+	let rows = split(lookup.out, '\n');
+	for (let i = 0; i < length(rows); i++) { let address_match = match(trim(rows[i]), /^([^ \t]+)/), address = address_match ? address_match[1] : null; if (!string(address) || !length(address)) continue; if (match(address, /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.|169\.254\.|0\.)/) || address == '::1' || substr(address, 0, 5) == 'fc00:' || substr(address, 0, 4) == 'fd00:') return false; seen = true; }
+	return seen;
+}
+function remote_fetch(url, target, max_bytes) {
+	if (!remote_url_safe(url)) return fail('EPOLICY', 'only public http/https URLs are allowed');
+	let host = remote_url_host(url); if (!remote_host_public(host)) return fail('EPOLICY', 'remote host does not resolve to a public address');
+	let command_result = command('curl -fsSL --proto "=http,https" --proto-redir "=http,https" --max-redirs 0 --connect-timeout 10 --max-time 30 --max-filesize ' + max_bytes + ' -o ' + shell_quote(target) + ' ' + shell_quote(url));
+	if (command_result.rc != 0 || !regular(target)) return fail('EUNAVAILABLE', 'remote source is unavailable');
+	let size = content_size(target);
+	if (size < 0 || size > max_bytes) { try { unlink(target); } catch (e) {} return fail('ESIZE', 'remote source exceeds bounded size'); }
+	return { ok: true, size: size };
+}
+function lua_validate_content(content) {
+	let path = '/tmp/z2m-lua-validate.' + time(), result = null;
+	try { writefile(path, content); } catch (e) { return { status: 'unavailable', errors: [], message: 'Синтаксическая проверка недоступна' }; }
+	let probe = command('if command -v luac >/dev/null 2>&1; then luac -p ' + shell_quote(path) + '; else exit 127; fi');
+	try { unlink(path); } catch (e) {}
+	if (probe.rc == 127) return { status: 'unavailable', errors: [], message: 'Синтаксическая проверка недоступна' };
+	if (probe.rc == 0) return { status: 'passed', errors: [], checker: 'luac' };
+	let match_line = match(probe.out || '', /:(\d+):\s*(.*)/);
+	return { status: 'failed', errors: [{ line: match_line ? +match_line[1] : null, message: match_line ? match_line[2] : trim(probe.out || 'Lua syntax error') }], checker: 'luac' };
+}
+export const asset_registry_get_content = function(id) {
+	let result = asset_registry_get(id); if (!result.ok) return result;
+	let content = readfile(result.asset.path);
+	if (content == null || length(content) > LIMITS[result.asset.type]) return fail('ESAFETY', 'asset content is unavailable or exceeds its type limit');
+	let encoded = base64_encode(content, LIMITS[result.asset.type]); if (encoded == null) return fail('EIO', 'asset content could not be encoded');
+	return { ok: true, asset: result.asset, contentBase64: encoded };
+};
+export const asset_registry_validate_content = function(id, contentBase64) {
+	let result = asset_registry_get(id); if (!result.ok) return result;
+	let content = base64_decode(contentBase64); if (content == null) return fail('EINPUT', 'contentBase64 is invalid');
+	if (length(content) > LIMITS[result.asset.type]) return fail('ESIZE', 'asset exceeds bounded size');
+	if (result.asset.type == 'lua') { let lua = lua_validate_content(content); return { ok: true, asset: result.asset, validation: lua }; }
+	let normalized = normalize_content(result.asset.type, content); if (!normalized.ok) return normalized;
+	return { ok: true, asset: result.asset, validation: { status: 'passed', errors: [], canonicalContentBase64: base64_encode(normalized.content, LIMITS[result.asset.type]) } };
+};
+export const asset_registry_import_url = function(request) {
+	let checked = validate_request(request); if (!checked.ok) return checked;
+	if (!remote_url_safe(request.url)) return fail('EPOLICY', 'only public http/https URLs are allowed');
+	let path = '/tmp/z2m-asset-import.' + time(), fetched = remote_fetch(request.url, path, LIMITS[request.type]);
+	if (!fetched.ok) return fetched;
+	let content = readfile(path); try { unlink(path); } catch (e) {}
+	if (content == null) return fail('EIO', 'remote content could not be read');
+	let normalized = normalize_content(request.type, content); if (!normalized.ok) return normalized;
+	let validation = request.type == 'lua' ? lua_validate_content(normalized.content) : { status: 'passed', errors: [] };
+	return { ok: true, preview: true, type: request.type, id: request.id, url: request.url,
+		contentBase64: base64_encode(normalized.content, LIMITS[request.type]), byteSize: length(normalized.content),
+		validation: validation, provenance: copy(request.provenance || { kind: 'imported', source: request.url }) };
+};
+export const asset_registry_asn = function(request) {
+	if (!object(request) || !string(request.asn) || !match(request.asn, /^AS?[0-9]{1,10}$/i)) return fail('EINPUT', 'ASN must be numeric or AS<number>');
+	let number = lower_ascii(request.asn), asn = substr(number, 0, 2) == 'as' ? substr(number, 2) : number;
+	if (+asn < 1 || +asn > 4294967295) return fail('EINPUT', 'ASN is out of range');
+	let path = '/tmp/z2m-asn.' + time(), url = 'https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS' + asn, fetched = remote_fetch(url, path, 2 * 1024 * 1024);
+	if (!fetched.ok) return fetched;
+	let raw = readfile(path); try { unlink(path); } catch (e) {}
+	let payload = null; try { payload = json(raw); } catch (e) { return fail('EVALIDATION', 'RIPE response is not valid JSON'); }
+	if (!object(payload) || !object(payload.data) || type(payload.data.prefixes) != 'array' || length(payload.data.prefixes) > MAX_ASN_PREFIXES) return fail('EVALIDATION', 'RIPE response schema or prefix count is invalid');
+	let prefixes = [], seen = {};
+	for (let i = 0; i < length(payload.data.prefixes); i++) { let prefix = object(payload.data.prefixes[i]) ? normalized_ip(payload.data.prefixes[i].prefix) : null; if (prefix == null) return fail('EVALIDATION', 'RIPE response contains an invalid prefix'); if (!seen[prefix]) { seen[prefix] = true; push(prefixes, prefix); } }
+	for (let i = 0; i < length(prefixes); i++) for (let j = i + 1; j < length(prefixes); j++) { let ai = index(prefixes[i], ':') >= 0 ? 1 : 0, aj = index(prefixes[j], ':') >= 0 ? 1 : 0, swap = ai > aj || (ai == aj && prefixes[i] > prefixes[j]); if (swap) { let tmp = prefixes[i]; prefixes[i] = prefixes[j]; prefixes[j] = tmp; } }
+	let counts = { ipv4: 0, ipv6: 0 };
+	for (let i = 0; i < length(prefixes); i++) counts[index(prefixes[i], ':') >= 0 ? 'ipv6' : 'ipv4']++;
+	return { ok: true, source: 'RIPE', asn: 'AS' + asn, prefixes: prefixes, counts: counts };
 };
 export const asset_registry_register_builtin = function(request) {
 	if (!object(request) || !valid_type(request.type) || !valid_id(request.type, request.id) || !provenance_valid(request.provenance) || request.provenance.kind != 'builtin/package') return fail('EINPUT', 'builtin registration is invalid'); let path = legacy_path(request.type, request.canonicalPath); if (path == null || !regular(path)) return fail('EINPUT', 'builtin path is not a trusted canonical regular file'); let actual = sha256_file(path); if (actual == null || actual != request.provenance.expectedSha256) return fail('EVERIFY', 'builtin hash does not match provenance'); let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (find_asset(state, request.id) != null) return fail('ECONFLICT', 'asset ID already exists'); let asset = { schema: 1, type: request.type, id: request.id, name: request.name || substr(path, rindex(path, '/') + 1), ownership: 'package', mutable: false, provenance: copy(request.provenance), contentSha256: actual, byteSize: content_size(path), revision: 1, path: path, legacyPath: path, references: [], validation: { status: 'passed', errors: [] } }; push(state.assets, asset); state.revision++; if (!state_save(state)) return fail('EWRITE', 'asset registry metadata atomic write failed'); return ok(asset); };

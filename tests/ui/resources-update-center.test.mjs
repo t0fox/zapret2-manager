@@ -27,3 +27,15 @@ test('Resources UI has stable catalog geometry and narrow layout rules', () => {
   for (const selector of ['.z2m-resource-row', '.z2m-resource-source-card', '.z2m-resource-type-icon', '.z2m-resource-change-summary', '@media(max-width:760px)']) assert.match(css, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   for (const method of ['resourcesStatus', 'resourcesCheck', 'resourcesUpdate']) assert.match(api, new RegExp(method));
 });
+
+test('Resource Center exposes one lazy route-aware workspace for first-class assets', () => {
+  for (const fragment of [
+    'assets.content', 'assets.validateContent', 'expectedRevision', 'contentBase64',
+    'generateTlsClientHello', 'generateHttpRequest', 'boundedHexView',
+    'assets.asn', 'Синтаксическая проверка недоступна', 'references',
+    'assets.importUrl', 'Дублировать как пользовательский ресурс',
+  ]) assert.match(page, new RegExp(fragment.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), fragment);
+  assert.match(page, /assetTypeForRoute/);
+  assert.match(page, /routeParams/);
+  assert.doesNotMatch(page, /fetch\s*\(/);
+});

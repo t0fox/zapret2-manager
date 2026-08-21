@@ -231,9 +231,13 @@ function asset_edit_action(mode, req, trailing) {
 function asset_id(req) { let args = asset_args(req); return args && type(args.id) == 'string' ? args.id : null; }
 function assets_list_method(req) { let args = asset_args(req); return asset_cli_action('list', args && type(args.type) == 'string' ? args.type : null); }
 function assets_get_method(req) { let id = asset_id(req); return id == null ? { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } } : asset_cli_action('get', id); }
+function assets_content_method(req) { let id = asset_id(req); return id == null ? { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } } : asset_cli_action('content', id); }
 function assets_validate_method(req) { let id = asset_id(req); return id == null ? { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } } : asset_cli_action('validate', id); }
+function assets_validate_content_method(req) { let args = asset_args(req); return args && type(args.id) == 'string' ? asset_edit_action('validate-content', req, args.id) : { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } }; }
 function assets_delete_method(req) { let id = asset_id(req); return id == null ? { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } } : asset_cli_action('delete', id); }
 function assets_import_method(req) { return asset_edit_action('import', req); }
+function assets_import_url_method(req) { return asset_edit_action('import-url', req); }
+function assets_asn_method(req) { return asset_edit_action('asn', req); }
 function assets_update_method(req) { let args = asset_args(req); return args && type(args.id) == 'string' ? asset_edit_action('update', req, args.id) : { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } }; }
 function assets_register_builtin_method(req) { return asset_edit_action('register-builtin', req); }
 function assets_references_method(req) { return asset_edit_action('references', req); }
@@ -1008,9 +1012,13 @@ return {
 		lists_set:         { args: { edit: 'string' }, call: function (req) { return lists_set_method(req); } },
 		assets_list:       { call: function (req) { return assets_list_method(req); } },
 		assets_get:        { args: { edit: 'string' }, call: function (req) { return assets_get_method(req); } },
+		assets_content:    { args: { edit: 'string' }, call: function (req) { return assets_content_method(req); } },
 		assets_validate:   { args: { edit: 'string' }, call: function (req) { return assets_validate_method(req); } },
+		assets_validate_content: { args: { edit: 'string' }, call: function (req) { return assets_validate_content_method(req); } },
 		assets_resolve:    { args: { edit: 'string' }, call: function (req) { return assets_resolve_method(req); } },
 		assets_import:     { args: { edit: 'string' }, call: function (req) { return assets_import_method(req); } },
+		assets_import_url: { args: { edit: 'string' }, call: function (req) { return assets_import_url_method(req); } },
+		assets_asn:        { args: { edit: 'string' }, call: function (req) { return assets_asn_method(req); } },
 		assets_update:     { args: { edit: 'string' }, call: function (req) { return assets_update_method(req); } },
 		assets_register_builtin: { args: { edit: 'string' }, call: function (req) { return assets_register_builtin_method(req); } },
 		assets_delete:     { args: { edit: 'string' }, call: function (req) { return assets_delete_method(req); } },
