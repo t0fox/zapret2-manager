@@ -71,6 +71,16 @@
 
 .z2m-muted{color:var(--tx2)}
 .z2m-dim{color:var(--tx3);font-size:12px}
+.z2m-health-grid{grid-template-columns:repeat(4,1fr)}
+.z2m-health-reason{font-size:12px;line-height:1.35;margin-top:7px;min-height:32px;color:var(--tx2)}
+.z2m-health-freshness{margin-top:6px}
+.z2m-health-action{display:inline-block;margin-top:8px;font-size:12px;color:var(--blue)}
+.z2m-health-details{margin-top:10px;border-top:1px solid var(--border)}
+.z2m-health-details summary{padding:7px 0;font-size:11px}
+.z2m-health-details .inner{padding:0 0 8px}
+.z2m-health-warnings{display:grid;gap:8px}
+.z2m-health-warning{display:grid;grid-template-columns:auto minmax(130px,1fr) minmax(180px,2fr) auto;align-items:center;gap:10px;padding:10px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;font-size:12px}
+.z2m-health-warning a{color:var(--blue);white-space:nowrap}
 
 .z2m-btn{background:var(--raised);border:1px solid var(--border2);color:var(--tx);padding:7px 13px;border-radius:6px;cursor:pointer;font-size:13px;min-height:32px}
 .z2m-btn:hover{background:#343940;border-color:#4b515a}
