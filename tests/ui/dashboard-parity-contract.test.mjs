@@ -50,7 +50,7 @@ test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
 test('P01 Dashboard initial load does not wait for unused Orchestra reads', () => {
   const page = read('z2m-overview.js');
   const load = page.slice(page.indexOf('function load(ctx)'), page.indexOf('\n}\n\nfunction render(ctx)'));
-  assert.match(load, /ctx\.api\.service\.status\(\)/);
+  assert.match(load, /\(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)\(\)/);
   assert.match(load, /ctx\.api\.strategy\.preview\(\)/);
   assert.match(load, /ctx\.api\.monitor\.eventsTail/);
   assert.match(load, /ctx\.rerender/);

@@ -98,6 +98,21 @@ function load(ctx) {
       if (token === runtime.loadToken) ctx.rerender();
     }, 0);
   }
+  function loadOptionalTelegramStatus() {
+    window.setTimeout(function () {
+      if (token !== runtime.loadToken || !ctx.api.tg || !ctx.api.tg.product ||
+          typeof ctx.api.tg.product.status !== 'function') return;
+      ctx.api.tg.product.status().then(function (answer) {
+        if (token !== runtime.loadToken) return;
+        runtime.deferred.tgStatus = { value: answer || {} };
+        rerender();
+      }).catch(function (error) {
+        if (token !== runtime.loadToken) return;
+        runtime.deferred.tgStatus = { error: ctx.api.normalizeError(error) };
+        rerender();
+      });
+    }, 0);
+  }
   var secondary = Promise.allSettled([
     ctx.api.strategy.preview(),
     edit(ctx.api.monitor.eventsTail, { limit: 8 }),
@@ -111,8 +126,9 @@ function load(ctx) {
     };
     secondaryReady = true;
     if (initialReady) rerender();
+    loadOptionalTelegramStatus();
   });
-  return Promise.allSettled([ctx.api.service.status(), ctx.api.engine.status(), ctx.api.maintenance.status(), ctx.api.maintenance.versions()]).then(function (results) {
+  return Promise.allSettled([(ctx.api.service.statusFast || ctx.api.service.status)(), ctx.api.engine.status(), ctx.api.maintenance.status(), ctx.api.maintenance.versions()]).then(function (results) {
     var data = {
       status: settled(results[0], ctx.api),
       engineStatus: settled(results[1], ctx.api),
