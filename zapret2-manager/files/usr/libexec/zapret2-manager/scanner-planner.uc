@@ -5,9 +5,10 @@
 
 import { scanner_target_profile } from './scanner-targets.uc';
 import { avatar_tokenize } from './strategy-model.uc';
-import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
+import { strategy_catalog_read_index, strategy_catalog_materialize, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list } from './strategy-state.uc';
 import { strategy_candidate } from './strategy-compiler.uc';
+import { strategy_runtime_environment } from './strategy-cli.uc';
 import { scanner_compiler_authority } from './scanner-compiler-authority.uc';
 import { scanner_generator_policy, scanner_generator_records } from './scanner-generator.uc';
 
@@ -189,6 +190,11 @@ function full_preset(value) {
 
 function integer_value(value) {
 	return type(value) == 'int' && value >= 0 ? value : 0;
+}
+
+function monotonic_ms() {
+	let now = clock(true);
+	return now[0] * 1000 + int(now[1] / 1000000);
 }
 
 function complexity(value) {
@@ -397,6 +403,27 @@ function catalog_strategy(entry) {
 	return catalog_entry_to_strategy(entry);
 }
 
+// The compact index already carries the canonical args and ordering metadata.
+// Keep Quick selection on that bounded shape; full Profile normalization is
+// reserved for the selected entries after the shortlist is known.
+function catalog_lightweight_strategy(entry) {
+	if (!is_object(entry) || !is_string(entry.id) || !is_string(entry.args)) return null;
+	let metadata = is_object(entry.metadata) ? entry.metadata : {};
+	return {
+		id: entry.id, name: metadata.name == null ? entry.id : metadata.name,
+		metadata: metadata, sourceFile: entry.sourceFile, sourceOrdinal: entry.sourceOrdinal,
+		sectionOrdinal: entry.sectionOrdinal, effectiveOrdinal: entry.effectiveOrdinal,
+		level: entry.level, protocol: entry.protocol, fullPreset: entry.fullPreset,
+		complexity: copy(entry.complexity),
+		profiles: [{ id: 'indexed', name: 'indexed', enabled: true, args: entry.args }]
+	};
+}
+
+function catalog_entry_full_preset(entry) {
+	return is_object(entry) && exists(entry, 'fullPreset')
+		? entry.fullPreset == true : full_preset(entry?.args || '');
+}
+
 function dependency_closure(value) {
 	let source = is_object(value) ? value : {};
 	if (type(source.available) != 'bool' || type(source.structurallyCompilable) != 'bool'
@@ -405,7 +432,8 @@ function dependency_closure(value) {
 		let item = source.items[i];
 		if (!is_object(item) || !is_string(item.key) || !is_string(item.kind)
 			|| !is_string(item.id) || !is_string(item.reference)
-			|| type(item.available) != 'bool' || !exists(item, 'reason')
+			|| type(item.available) != 'bool'
+			|| (!item.available && (!exists(item, 'reason') || !is_string(item.reason)))
 			|| (item.reason != null && !is_string(item.reason))) return null;
 	}
 	for (let i = 0; i < length(source.missing); i++) {
@@ -580,7 +608,8 @@ export const scanner_candidate_canonicalize = function(candidate, existingStrate
 function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal,
 		environment, generated, existingStrategies, catalog, generatedInput, compilerAuthority, trustedServerAuthority) {
 	let compiled = compile_view(strategy, environment);
-	if (compiled == null || compiled.compiledDigest == null) return null;
+	if (compiled == null || compiled.compiledDigest == null)
+		return error_result('EPLANNER', 'Scanner Strategy candidate could not be compiled.', strategy?.id || 'unknown');
 	let dependencyDigest = dependency_digest(strategy, catalog, generatedInput, compiled.closure);
 	if (dependencyDigest == null) return error_result('EVERIFY', 'Scanner dependency authority is unavailable or mismatched.');
 	let full = full_preset(strategy_argument_text(strategy)), recommended = source_metadata(strategy, 'label', '') == 'recommended';
@@ -669,8 +698,9 @@ function lightweight_descriptor(strategy, protocol, source, sourcePath, ordinal,
 		ordinal: ordinal, generated: generated, sourceInput: sourceInput,
 		scannerId: (generated ? 'generated:' : '') + strategy.id,
 		strategyId: generated ? null : strategy.id,
-		fullPreset: full_preset(args), recommended: source_metadata(strategy, 'label', '') == 'recommended',
-		complexity: complexity(args),
+		fullPreset: exists(strategy, 'fullPreset') ? strategy.fullPreset == true : full_preset(args),
+		recommended: source_metadata(strategy, 'label', '') == 'recommended',
+		complexity: type(strategy.complexity) == 'array' ? copy(strategy.complexity) : complexity(args),
 		sourceOrdinal: integer_value(strategy.sourceOrdinal != null ? strategy.sourceOrdinal
 			: (is_object(sourceInput) && sourceInput.sourceOrdinal != null ? sourceInput.sourceOrdinal
 				: source_metadata(sourceInput, 'sourceOrdinal', 0))),
@@ -851,8 +881,11 @@ function profile_matches_authority(profile, authoritative, request) {
 	return true;
 }
 
-function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, authoritativeProfile, compilerAuthority, trustedServerAuthority) {
-	let validated = request_normalize(request);
+function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, authoritativeProfile,
+		compilerAuthority, trustedServerAuthority, materializeCatalog, initialTimings) {
+	let planningStarted = monotonic_ms(), timings = initialTimings == null ? {} : initialTimings;
+	let normalizeStarted = monotonic_ms(), validated = request_normalize(request);
+	timings.normalizeMs = monotonic_ms() - normalizeStarted;
 	if (!validated.ok) return validated;
 	let value = validated.value, catalog = catalog_snapshot(catalogSnapshot);
 	if (catalog == null) return error_result('EVERIFY', 'Scanner Catalog authority is unavailable.');
@@ -866,6 +899,7 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
 	let environment = is_object(catalog.compilerEnvironment)
 		? copy(catalog.compilerEnvironment) : {};
+	let lookupStarted = monotonic_ms();
 	let ids = raw_entry_ids(catalog, value.protocol, value.mode), catalogEntriesConsidered = length(ids);
 	let lightweight = [], ordinal = 1, lightweightEligible = 0;
 	let prefix = [], prefixLimit = value.mode == 'quick' ? 10 : 20;
@@ -874,11 +908,11 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		for (let i = 0; i < length(order) && length(prefix) < prefixLimit; i++) {
 			let item = entry_for(catalog, order[i]);
 			if (item != null && item.protocol == value.protocol && item.level == 'builtin'
-				&& full_preset(item.args) && contains(ids, item.id) && !contains(prefix, item.id)) push(prefix, item.id);
+				&& catalog_entry_full_preset(item) && contains(ids, item.id) && !contains(prefix, item.id)) push(prefix, item.id);
 		}
 	}
 	let add_catalog_lightweight = function(entry) {
-		let strategy = catalog_strategy(entry);
+		let strategy = catalog_lightweight_strategy(entry);
 		if (strategy == null) return;
 		let sourcePath = strategy.sourceFile || entry.sourceFile || 'catalog';
 		let item = lightweight_descriptor(strategy, value.protocol, 'catalog', sourcePath,
@@ -903,11 +937,13 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		for (let i = 0; i < length(ids) && tail < tailLimit; i++) {
 			let entry = entry_for(catalog, ids[i]);
 			if (entry == null || entry.protocol != value.protocol
-				|| (entry.level == 'builtin' && full_preset(entry.args))) continue;
+				|| (entry.level == 'builtin' && catalog_entry_full_preset(entry))) continue;
 			add_catalog_lightweight(entry);
 			tail++;
 		}
 	}
+	timings.candidateLookupMs = monotonic_ms() - lookupStarted;
+	timings.quickCandidateLookupMs = value.mode == 'quick' ? timings.candidateLookupMs : 0;
 	if ((value.mode == 'standard' || value.mode == 'full') && is_object(catalog.policy)
 		&& catalog.policy.useGenerated == true) {
 		if (!trustedServerAuthority && !generator_valid(catalog, compilerAuthority)) return error_result('EVERIFY', 'Scanner generator authority is unavailable or stale.');
@@ -926,7 +962,31 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 			shortlist_lightweight(lightweight, item);
 		}
 	}
+	let materializeStarted = monotonic_ms(), materializeIds = [];
+	if (materializeCatalog) {
+		for (let i = 0; i < length(lightweight); i++)
+			if (!lightweight[i].generated) push(materializeIds, lightweight[i].strategy.id);
+		if (length(materializeIds)) {
+			let preserved = { targetProfile: copy(catalog.targetProfile),
+				compilerEnvironment: copy(catalog.compilerEnvironment), policy: copy(catalog.policy),
+				compilerDigest: catalog.compilerDigest, serverOwned: catalog.serverOwned,
+				authority: copy(catalog.authority), generator: copy(catalog.generator) };
+			let materialized = strategy_catalog_materialize(materializeIds,
+				getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? getenv('Z2M_STRATEGY_CATALOG_ROOT') || null : null);
+			if (!materialized.ok) return error_result('EDEPENDENCY', 'Scanner selected Strategy Catalog entries could not be verified.');
+			catalog = materialized.catalog;
+			for (let key in preserved) catalog[key] = preserved[key];
+			for (let i = 0; i < length(lightweight); i++) if (!lightweight[i].generated) {
+				let entry = entry_for(catalog, lightweight[i].strategy.id);
+				lightweight[i].strategy = entry == null ? null : catalog_strategy(entry);
+				if (lightweight[i].strategy == null)
+					return error_result('EVERIFY', 'Scanner selected Strategy Catalog entry is not canonical.');
+			}
+		}
+	}
+	timings.strategyMaterializationMs = monotonic_ms() - materializeStarted;
 	let candidates = [], compileAttempts = 0;
+	let compileStarted = monotonic_ms();
 	for (let i = 0; i < length(lightweight); i++) {
 		let item = lightweight[i];
 		compileAttempts++;
@@ -934,13 +994,18 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 			item.sourcePath, item.ordinal, environment, item.generated, users, catalog,
 			item.sourceInput, compilerAuthority, trustedServerAuthority);
 		if (candidate != null && candidate.ok == false) return candidate;
+		if (candidate != null && (!is_object(candidate.dependencyClosure) || candidate.dependencyClosure.available != true)) continue;
 		if (candidate != null && dpi_keep(candidate, value.dpi_type)) push(candidates, candidate);
 	}
+	timings.compileMs = monotonic_ms() - compileStarted;
+	let rankingStarted = monotonic_ms();
 	candidates = dedup_candidates(sort_candidates(candidates));
 	let compiledAccepted = length(candidates);
 	if (length(candidates) > MAX_EXECUTION_CANDIDATES) candidates = slice(candidates, 0, MAX_EXECUTION_CANDIDATES);
 	let shortlisted = length(candidates);
 	for (let i = 0; i < length(candidates); i++) candidates[i].ordinal = i + 1;
+	timings.rankingMs = monotonic_ms() - rankingStarted;
+	timings.planningMs = monotonic_ms() - planningStarted;
 	return { ok: true, plan: {
 		schema: 1, request: copy(value), targetProfile: copy(profile),
 		catalogDigest: catalog.aggregateDigest || null,
@@ -948,7 +1013,8 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		candidates: copy(candidates), execution: { catalogEntriesConsidered,
 			lightweightEligible, compileAttempts, compiledAccepted,
 			candidatesCompiled: compiledAccepted, candidatesEligible: lightweightEligible,
-			candidatesShortlisted: shortlisted, maxCandidates: MAX_EXECUTION_CANDIDATES },
+			candidatesShortlisted: shortlisted, maxCandidates: MAX_EXECUTION_CANDIDATES,
+			timings: copy(timings) },
 	} };
 }
 
@@ -1039,9 +1105,16 @@ export const scanner_plan_build_synthetic_test = function(request, count) {
 	return scanner_plan_build_pure(request, catalog, users, profile, compilerAuthority);
 };
 
-function scanner_plan_build_server(request, catalog, strategies, profile, compilerAuthority, trustedServerAuthority) {
+function scanner_plan_build_server(request, catalog, strategies, profile, compilerAuthority,
+		trustedServerAuthority, materializeCatalog, initialTimings) {
 	catalog.targetProfile = copy(profile);
-	catalog.compilerEnvironment = {};
+	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1') catalog.compilerEnvironment = {};
+	else {
+		let runtime = strategy_runtime_environment();
+		if (!is_object(runtime) || runtime.ok != true || !is_object(runtime.environment))
+			return error_result('EDEPENDENCY', 'Scanner live runtime composition is unavailable.');
+		catalog.compilerEnvironment = copy(runtime.environment);
+	}
 	catalog.policy = scanner_generator_policy();
 	if (trustedServerAuthority) {
 		catalog.serverOwned = true;
@@ -1050,7 +1123,9 @@ function scanner_plan_build_server(request, catalog, strategies, profile, compil
 		catalog = catalog_authority(catalog, compilerAuthority);
 		if (catalog.policy.useGenerated == true) catalog.generator = generator_authority(catalog, compilerAuthority);
 	}
-	return scanner_plan_build_pure(request, catalog, user_authority(strategies, catalog, compilerAuthority, trustedServerAuthority), profile, compilerAuthority, trustedServerAuthority);
+	return scanner_plan_build_pure(request, catalog,
+		user_authority(strategies, catalog, compilerAuthority, trustedServerAuthority), profile,
+		compilerAuthority, trustedServerAuthority, materializeCatalog, initialTimings);
 }
 
 export const scanner_plan_build_server_test = function(request, catalog, strategies, profile) {
@@ -1073,11 +1148,14 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		try { profile = json(getenv('Z2M_SCANNER_TARGET_PROFILE') || 'null'); } catch (e) { profile = null; }
 	}
 	if (!target_profile_valid(profile)) return error_result('EINPUT', 'Scanner target profile is unavailable.', 'target');
-	let loaded = strategy_catalog_load(getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? getenv('Z2M_STRATEGY_CATALOG_ROOT') || null : null);
+	let catalogOpenStarted = monotonic_ms();
+	let loaded = strategy_catalog_read_index(getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? getenv('Z2M_STRATEGY_CATALOG_ROOT') || null : null);
+	let catalogTimings = { catalogIndexOpenMs: monotonic_ms() - catalogOpenStarted };
 	if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
 	let listed = strategy_user_list();
 	if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
 	let compilerAuthority = scanner_compiler_authority();
 	if (compiler_digest(compilerAuthority) == null) return error_result('EVERIFY', 'Scanner compiler authority is unavailable.');
-	return scanner_plan_build_server(validated.value, loaded.catalog, listed.strategies, profile, compilerAuthority, true);
+	return scanner_plan_build_server(validated.value, loaded.catalog, listed.strategies, profile,
+		compilerAuthority, true, true, catalogTimings);
 };

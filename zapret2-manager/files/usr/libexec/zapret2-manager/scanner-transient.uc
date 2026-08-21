@@ -236,14 +236,7 @@ export const scanner_candidate_activate = function(candidate, seams) {
 };
 
 export const scanner_candidate_cleanup = function(attempt) {
-	if (!object(attempt) || !ownership_valid(attempt.activation)) return error('cleanup', 'EIDENTITY', 'cleanup ownership evidence is incomplete');
-	let supplied = attempt.seams != null && attempt.seams.runtime != null ? attempt.seams.runtime.cleanup : null;
-	if (type(supplied) == 'array') supplied = supplied[0];
-	let result = profiles_transient_cleanup(attempt, supplied);
-	if (!cleanup_valid(result)) return error('cleanup', 'ECLEANUP', 'owned candidate cleanup was not verified', { cleanup: result });
-	return { ok: true, cleanup: { ok: true, processRemoved: true, firewallRemoved: true,
-		nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true,
-		ownedOnly: true, evidence: result } };
+	return candidate_cleanup(attempt);
 };
 
 // Task 7 boundary marker: terminal runtime restoration is intentionally not a

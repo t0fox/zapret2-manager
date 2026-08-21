@@ -344,8 +344,9 @@ function scanner_start_async_impl(req) {
 		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	}
 	try { writefile(tmp, serialized); } catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
-	let cmd = '( /usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
-		+ ' >/dev/null 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1 ) >/dev/null 2>&1 &';
+	let workerCommand = '/usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
+		+ ' >/dev/null 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1';
+	let cmd = 'setsid sh -c ' + shell_escape(workerCommand) + ' >/dev/null 2>&1 &';
 	let launched = popen(cmd, 'r');
 	if (!launched) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } }; }
 	launched.close();

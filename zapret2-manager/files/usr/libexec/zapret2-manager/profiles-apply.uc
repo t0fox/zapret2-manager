@@ -188,11 +188,21 @@ function scanner_runtime_id(value) {
 	return scanner_safe_id(id) ? id : null;
 }
 
+function scanner_secure_temp(template) {
+	let p = popen('umask 077; mktemp ' + shell_escape(template) + ' 2>/dev/null', 'r');
+	if (!p) return null;
+	let path = trim(p.read('all')), rc = p.close();
+	if (rc != 0 || !length(path)) return null;
+	let checked = run('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
+	if (checked.rc != 0) { try { unlink(path); } catch (e) { } return null; }
+	return path;
+}
+
 function scanner_candidate_tokens(candidate) {
 	let tokens = type(candidate.compiledTokens) == 'array' ? candidate.compiledTokens : null;
 	if (tokens == null) {
 		let parsed = z2m_tokenize(candidate.compiledCandidate);
-		if (parsed == null || parsed.ok != true || type(parsed.tokens) != 'array') return null;
+		if (parsed == null || type(parsed.tokens) != 'array') return null;
 		tokens = [];
 		for (let token in parsed.tokens) push(tokens, token.value);
 	}
@@ -205,35 +215,46 @@ function scanner_candidate_tokens(candidate) {
 function scanner_stage_candidate(candidate, compiled) {
 	let tokens = scanner_candidate_tokens({ compiledCandidate: compiled.candidate }), expected = scanner_candidate_tokens(candidate), sessionId = candidate.sessionId;
 	let runtimeId = scanner_runtime_id(candidate.scannerId);
-	if (tokens == null || !scanner_safe_id(sessionId) || runtimeId == null
-		|| type(compiled) != 'object' || compiled == null || type(compiled.candidate) != 'string'
-		|| expected == null || sprintf('%J', tokens) != sprintf('%J', expected)
-		|| compiled.candidate != join(' ', tokens) || compiled.compiledDigest != candidate.compiledDigest
-		|| type(candidate.generation) != 'int' || candidate.generation < 0
-		|| type(candidate.argvNonce) != 'string' || !match(candidate.argvNonce, /^[a-f0-9]{32,128}$/)) return false;
+	let identityChecks = {
+		tokens: tokens != null, session: scanner_safe_id(sessionId) != null, runtimeId: runtimeId != null,
+		compiledObject: type(compiled) == 'object' && compiled != null,
+		compiledCandidate: type(compiled?.candidate) == 'string', expectedTokens: expected != null,
+		tokensEqual: tokens != null && expected != null && sprintf('%J', tokens) == sprintf('%J', expected),
+		candidateEqual: tokens != null && type(compiled?.candidate) == 'string' && compiled.candidate == join(' ', tokens),
+		digestEqual: type(compiled?.compiledDigest) == 'string' && compiled.compiledDigest == candidate.compiledDigest,
+		generation: type(candidate.generation) == 'int' && candidate.generation >= 0,
+		nonce: (type(candidate.argvNonce) == 'string' && match(candidate.argvNonce, /^[a-f0-9]{32,128}$/) != null) ? true : false
+	};
+	for (let key in identityChecks) if (identityChecks[key] !== true)
+		return { ok: false, reason: 'identity', checks: identityChecks };
 	let dir = SCANNER_RUNTIME_ROOT + '/' + sessionId, path = dir + '/' + runtimeId + '.argv';
 	try { mkdir(SCANNER_RUNTIME_ROOT); } catch (e) { }
 	try { mkdir(dir); } catch (e) { }
 	let rootMeta = stat(SCANNER_RUNTIME_ROOT), dirMeta = stat(dir);
 	if (rootMeta == null || rootMeta.type != 'directory' || readlink(SCANNER_RUNTIME_ROOT) != null
-		|| dirMeta == null || dirMeta.type != 'directory' || readlink(dir) != null) return false;
-	if (run('chmod 700 ' + shell_escape(SCANNER_RUNTIME_ROOT) + ' ' + shell_escape(dir)).rc != 0) return false;
+		|| dirMeta == null || dirMeta.type != 'directory' || readlink(dir) != null)
+		return { ok: false, reason: 'path_safety' };
+	if (run('chmod 700 ' + shell_escape(SCANNER_RUNTIME_ROOT) + ' ' + shell_escape(dir)).rc != 0)
+		return { ok: false, reason: 'chmod' };
 	let text = '';
 	for (let token in tokens) text += token + '\n';
 	let stage = function(destination, content) {
 		let tmp = scanner_secure_temp(destination + '.tmp.XXXXXX');
 		if (tmp == null) return false;
 		try { writefile(tmp, content); } catch (e) { cleanup(tmp); return false; }
-		let moved = command('mv -f ' + shell_escape(tmp) + ' ' + shell_escape(destination));
+		let moved = run('mv -f ' + shell_escape(tmp) + ' ' + shell_escape(destination));
 		if (moved.rc != 0) { cleanup(tmp); return false; }
 		let metadata = stat(destination);
 		return metadata != null && metadata.type == 'file' && readlink(destination) == null;
 	};
 	let sidecar = sprintf('%J', { schema: 1, session: sessionId, candidate: runtimeId,
 		generation: candidate.generation, nonce: candidate.argvNonce, compiledDigest: candidate.compiledDigest }) + '\n';
-	if (!stage(path, text) || !stage(path + '.digest', candidate.compiledDigest + '\n') || !stage(path + '.meta', sidecar)) return false;
+	if (!stage(path, text)) return { ok: false, reason: 'argv' };
+	if (!stage(path + '.digest', candidate.compiledDigest + '\n')) return { ok: false, reason: 'digest' };
+	if (!stage(path + '.meta', sidecar)) return { ok: false, reason: 'meta' };
 	return readfile(path) == text && readfile(path + '.digest') == candidate.compiledDigest + '\n'
-		&& readfile(path + '.meta') == sidecar;
+		&& readfile(path + '.meta') == sidecar
+		? { ok: true, reason: 'verified' } : { ok: false, reason: 'readback' };
 }
 
 function scanner_process_identity(value, owner) {
@@ -268,16 +289,6 @@ function scanner_dependency_closure_valid(value) {
 function scanner_dependency_digest(value) {
 	if (!scanner_dependency_closure_valid(value)) return null;
 	return sha256_text_via_file(sprintf('%J', value));
-}
-
-function scanner_secure_temp(template) {
-	let p = popen('umask 077; mktemp ' + shell_escape(template) + ' 2>/dev/null', 'r');
-	if (!p) return null;
-	let path = trim(p.read('all')), rc = p.close();
-	if (rc != 0 || !length(path)) return null;
-	let checked = run('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
-	if (checked.rc != 0) { try { unlink(path); } catch (e) { } return null; }
-	return path;
 }
 
 function dq_escape(s) {
@@ -996,8 +1007,9 @@ export const profiles_transient_restore = function(snapshot, supplied) {
 export const profiles_transient_activate = function(candidate, compiled, supplied) {
 	let injected = transient_test_value('activate', supplied);
 	if (injected != null) return injected;
-	if (!scanner_input_safe(candidate) || type(candidate) != 'object' || candidate == null || !scanner_stage_candidate(candidate, compiled))
-		return err('activate', 'EINPUT', 'server-owned compiled candidate staging failed');
+	let staged = scanner_stage_candidate(candidate, compiled);
+	if (!scanner_input_safe(candidate) || type(candidate) != 'object' || candidate == null || staged.ok !== true)
+		return err('activate', 'EINPUT', 'server-owned compiled candidate staging failed', { staging: staged });
 	return scanner_runtime_call('activate', candidate.sessionId, scanner_runtime_id(candidate.scannerId),
 		type(candidate.generation) == 'int' ? candidate.generation : 0);
 };

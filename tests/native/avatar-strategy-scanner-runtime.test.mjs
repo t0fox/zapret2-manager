@@ -53,7 +53,7 @@ test('Scanner runtime adapter exposes only fixed operation vectors and fixed pro
     'production shell adapter must not own the compare-delete mutation');
   assert.doesNotMatch(source, /eval\s|nft\s+flush\s+ruleset|\$\{[^}]*\b(?:command|exec|argv|path)\b/);
   assert.match(source, /hostlist=\*\|--hostlist-exclude=\*\|--hostlist-auto=\*\|--ipset=\*/);
-  assert.match(source, /\/opt\/zapret2\/\*\|\/tmp\/zapret2-manager\/scanner\/\*/);
+  assert.match(source, /\/opt\/zapret2\/\*\|\/tmp\/zapret2-manager\/scanner\/\*\|\/etc\/zapret2-manager\/lists\/whitelist\.txt/);
 });
 
 test('fixed Scanner runtime admits only bounded ownership-bound NFQUEUE phases', () => {

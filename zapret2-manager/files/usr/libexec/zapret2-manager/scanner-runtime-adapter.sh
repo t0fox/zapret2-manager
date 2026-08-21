@@ -77,8 +77,9 @@ starttime() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null || true; }
 argv_digest() { sha256sum "/proc/$1/cmdline" 2>/dev/null | awk '{print $1}' || true; }
 queue_peer() { awk -v q="$queue_num" '$1 == q { print $2; exit }' "$NFQ_PROC" 2>/dev/null || true; }
 queue_available() { [ -z "$(awk -v q="$1" '$1 == q { print $2; exit }' "$NFQ_PROC" 2>/dev/null || true)" ]; }
-process_alive() { [ -r "/proc/$1/stat" ] && [ "$(starttime "$1")" = "$2" ]; }
+process_alive() { [ -r "/proc/$1/stat" ] && [ "$(starttime "$1")" = "$2" ] && [ "$(awk '{print $3}' "/proc/$1/stat" 2>/dev/null || true)" != Z ]; }
 process_exe() { readlink "/proc/$1/exe" 2>/dev/null || true; }
+text_digest() { printf '%s' "$1" | sha256sum 2>/dev/null | awk '{print $1}'; }
 
 reap_holder() {
 	record=$(cat "$LOCK_OWNER" 2>/dev/null | tr -d '\n' || true)
@@ -445,18 +446,44 @@ activate() {
 	[ ! -L "$ARGV_META_FILE" ] || fail ETAMPERED activate
 	meta=$(cat "$ARGV_META_FILE" 2>/dev/null || true)
 	expected_meta=$(printf '{ "schema": 1, "session": "%s", "candidate": "%s", "generation": %s, "nonce": "%s", "compiledDigest": "%s" }\n' "$session" "$candidate" "$generation" "$lock_nonce" "$compiled_digest")
-	[ "$meta" = "$expected_meta" ] || fail ETAMPERED activate
-	argv_before=$(sha256sum "$ARGV_FILE" | awk '{print $1}'); [ "$argv_before" = "$compiled_digest" ] || fail ETAMPERED activate
+	if [ "$meta" != "$expected_meta" ]; then
+		printf '%s\n' "{\"ok\":false,\"code\":\"ETAMPERED\",\"stage\":\"activate\",\"check\":\"meta\",\"metaSha256\":\"$(text_digest "$meta")\",\"expectedMetaSha256\":\"$(text_digest "$expected_meta")\"}"
+		exit 1
+	fi
+	argv_stream=$(awk 'BEGIN { sep="" } { printf "%s%s", sep, $0; sep=" " }' "$ARGV_FILE")
+	argv_before=$(printf '%s' "$argv_stream" | sha256sum | awk '{print $1}'); if [ "$argv_before" != "$compiled_digest" ]; then
+		printf '%s\n' "{\"ok\":false,\"code\":\"ETAMPERED\",\"stage\":\"activate\",\"check\":\"argv-digest\",\"actual\":\"$argv_before\",\"expected\":\"$compiled_digest\"}"
+		exit 1
+	fi
 	set --
 	while IFS= read -r token || [ -n "$token" ]; do
 		[ -n "$token" ] || fail EINPUT activate
 		case "$token" in
 			--qnum=*|--daemon*|--pidfile=*|--user=*|--log*=*|--lua-init=*) fail EINPUT activate ;;
-			--hostlist=*|--hostlist-exclude=*|--hostlist-auto=*|--ipset=*) value=${token#*=}; case "$value" in /opt/zapret2/*|/tmp/zapret2-manager/scanner/*) ;; *) fail EINPUT activate ;; esac ;;
+			--hostlist=*|--hostlist-exclude=*|--hostlist-auto=*|--ipset=*) value=${token#*=}; case "$value" in /opt/zapret2/*|/tmp/zapret2-manager/scanner/*|/etc/zapret2-manager/lists/whitelist.txt) ;; *) fail EINPUT activate ;; esac ;;
 			*[!A-Za-z0-9_.,:=+/@%~#-]*) fail EINPUT activate ;;
 		esac
 		set -- "$@" "$token"
-	done < "$ARGV_FILE"
+		done < "$ARGV_FILE"
+	for init in \
+		/opt/zapret2/lua/zapret-lib.lua \
+		/opt/zapret2/lua/zapret-antidpi.lua \
+		/opt/zapret2/lua/zapret-auto.lua \
+		/opt/zapret2/lua/z2k-modern-core.lua \
+		/opt/zapret2/lua/z2k-detectors.lua \
+		/opt/zapret2/lua/z2k-fooling-ext.lua \
+		/opt/zapret2/lua/z2k-state-persist.lua; do
+		[ -r "$init" ] && [ ! -L "$init" ] || fail EDEPENDENCY runtime
+	done
+	set -- \
+		--lua-init=@/opt/zapret2/lua/zapret-lib.lua \
+		--lua-init=@/opt/zapret2/lua/zapret-antidpi.lua \
+		--lua-init=@/opt/zapret2/lua/zapret-auto.lua \
+		--lua-init=@/opt/zapret2/lua/z2k-modern-core.lua \
+		--lua-init=@/opt/zapret2/lua/z2k-detectors.lua \
+		--lua-init=@/opt/zapret2/lua/z2k-fooling-ext.lua \
+		--lua-init=@/opt/zapret2/lua/z2k-state-persist.lua \
+		"$@"
 	operation_id="$session:$candidate:$generation"
 	operation_nonce="$lock_nonce"
 	table_name=""

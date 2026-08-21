@@ -16,3 +16,9 @@ test('Scanner start declares its implementation before the caller for target uco
     && root < implementation && implementation < guard && guard < action,
     'ucode requires Scanner start dependencies to be declared before their callers');
 });
+
+test('Scanner async worker is detached from the serial rpcd request process group', () => {
+  const source = readFileSync(RPC, 'utf8');
+  assert.match(source, /let workerCommand = '[^;]+SCANNER_CLI[\s\S]*setsid sh -c/,
+    'async Scanner work must survive the rpcd request lifetime');
+});

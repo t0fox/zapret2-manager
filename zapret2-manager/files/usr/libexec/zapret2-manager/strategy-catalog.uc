@@ -5,7 +5,7 @@
 // full catalog loads still verify every raw file and declaration.
 
 import { readfile, readlink, stat, popen, writefile } from 'fs';
-import { catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
+import { avatar_tokenize, catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
 
 const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const READ_INDEX_PATH = '/etc/zapret2-manager/strategy-catalog-index.json';
@@ -226,10 +226,43 @@ function index_profiles(entry) {
 	return result;
 }
 
+function index_tokens(value) {
+	let tokenized = avatar_tokenize(value), result = [];
+	if (!tokenized.ok) return result;
+	for (let token in tokenized.tokens) push(result, token.value);
+	return result;
+}
+
+function index_full_preset(value) {
+	for (let token in index_tokens(value))
+		if (token == '--new' || starts(token, '--filter-tcp=') || starts(token, '--filter-udp=')
+			|| starts(token, '--hostlist=') || starts(token, '--hostlist-domains=')
+			|| starts(token, '--ipset=') || starts(token, '--ipset-exclude=')
+			|| starts(token, '--blob=')) return true;
+	return false;
+}
+
+function index_complexity(value) {
+	let actions = 0, repeats = 0, multi = 0;
+	for (let token in index_tokens(value)) {
+		if (starts(token, '--lua-desync=')) actions++;
+		if (token == '--new' || starts(token, '--lua-desync=send')) multi = 1;
+		let repeatAt = index(token, 'repeats=');
+		if (repeatAt >= 0) {
+			let text = substr(token, repeatAt + 8), end = index(text, ':');
+			if (end >= 0) text = substr(text, 0, end);
+			let parsed = int(text);
+			if (parsed > repeats) repeats = parsed;
+		}
+	}
+	return [actions, repeats, multi];
+}
+
 function index_entry(entry) {
 	if (!is_object(entry) || type(entry.id) != 'string' || type(entry.args) != 'string') return null;
 	let metadata = is_object(entry.metadata) ? entry.metadata : {};
-	let result = { indexEntry: true, profiles: index_profiles(entry) };
+	let result = { indexEntry: true, args: entry.args, fullPreset: index_full_preset(entry.args),
+		complexity: index_complexity(entry.args), profiles: index_profiles(entry) };
 	for (let key in ['id', 'name', 'description', 'is_builtin', 'source', 'level',
 		'label', 'author', 'protocol', 'featured', 'metadata', 'sourceFile',
 		'sourceOrdinal', 'cacheKey', 'cacheOrdinal', 'duplicateGroup',
@@ -796,6 +829,56 @@ export const strategy_catalog_get_detail = function(id) {
 		return entry;
 	}
 	return { error: { code: 'ENOENT', message: 'strategy source entry is unavailable' } };
+};
+
+// Materialize only the bounded winner set selected by the Scanner planner.
+// The compact index remains the selection authority; raw catalog files are
+// parsed only for those selected ids and are never expanded into the planner's
+// full working set on the Quick path.
+export const strategy_catalog_materialize = function(ids, root) {
+	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	if (actualRoot != DEFAULT_ROOT && getenv('Z2M_SCANNER_SERVER_TEST') != '1')
+		return error_result('EPATH', 'catalog root override is available only in server tests', 'root');
+	if (type(ids) != 'array' || length(ids) > 64)
+		return error_result('EINPUT', 'catalog materialization ids are bounded', 'ids');
+	let persisted = read_persisted_index(actualRoot), indexed = persisted;
+	if (indexed == null) {
+		let manifestResult = read_manifest(actualRoot);
+		if (!manifestResult.ok) return manifestResult;
+		indexed = manifest_read_index(manifestResult);
+		if (indexed == null) return error_result('EDECLARATION', 'catalog manifest read index is incomplete', manifestResult.manifestPath);
+	}
+	let materialized;
+	try { materialized = json(sprintf('%J', indexed)); } catch (e) {
+		return error_result('EINTERNAL', 'catalog read index could not be copied');
+	}
+	let parsed = {}, seen = {};
+	for (let id in ids) {
+		if (type(id) != 'string' || id == '' || seen[id])
+			return error_result('EINPUT', 'catalog materialization ids must be unique strings', 'ids');
+		seen[id] = true;
+		let indexedEntry = indexed.winners[id];
+		if (!is_object(indexedEntry) || type(indexedEntry.sourceFile) != 'string')
+			return error_result('ENOENT', 'strategy is not present in the catalog', id);
+		let relative = indexedEntry.sourceFile, path = safe_file_path(actualRoot, relative);
+		if (path == null) return error_result('EPATH', 'strategy source path is unavailable', id);
+		if (parsed[relative] == null) {
+			let raw = null, entries = [];
+			try { raw = readfile(path); entries = raw == null ? [] : parse_file(raw, relative, indexedEntry.level, indexedEntry.protocol); }
+			catch (e) { entries = []; }
+			parsed[relative] = entries;
+		}
+		let detail = null;
+		for (let entry in parsed[relative]) if (entry.id == id) { detail = entry; break; }
+		if (detail == null) return error_result('ENOENT', 'strategy source entry is unavailable', id);
+		for (let key in ['sourceFile', 'sourceOrdinal', 'cacheKey', 'cacheOrdinal',
+			'duplicateGroup', 'winner', 'effectiveOrdinal'])
+			if (indexedEntry[key] != null) detail[key] = indexedEntry[key];
+		materialized.winners[id] = detail;
+	}
+	loaded = materialized;
+	loadedRoot = actualRoot;
+	return { ok: true, catalog: materialized, materialized: length(ids), files: length(keys(parsed)) };
 };
 
 export const strategy_catalog_status = function() {

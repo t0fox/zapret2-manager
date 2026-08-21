@@ -29,6 +29,10 @@ function task7_dependency(stage, exception) {
 		dependency: 'Task 7 reconciliation', recovery: 'required', exception: exception || null } };
 }
 function stale_heartbeat(value) { return !integer(value) || value > time() || time() - value > HEARTBEAT_MAX_AGE; }
+function monotonic_ms() {
+	let now = clock(true);
+	return now[0] * 1000 + int(now[1] / 1000000);
+}
 function deadline(start) { return start + PROBE_BUDGET_MS; }
 function budget(start) { return int(time() * 1000) <= deadline(start); }
 function test_mode() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1'; }
@@ -69,14 +73,24 @@ function event(record, type, message) { if (!record.events) record.events = []; 
 function publish(record) {
 	if (lifecycle?.seams?.publishFailureAt == lifecycle.stage) return error('EIO', 'Scanner checkpoint publication failed.');
 	if (lifecycle?.seams?.saveFailureAt == lifecycle.stage) return error('EIO', 'Scanner recovery publication failed.');
+	let stateWriteStarted = monotonic_ms();
 	let saved = state.scanner_state_save(record);
+	let stateWriteMs = monotonic_ms() - stateWriteStarted;
+	if (object(record.planAuthority?.execution?.timings)) {
+		record.planAuthority.execution.timings.stateWriteMs = stateWriteMs;
+		if (object(saved?.state?.planAuthority?.execution?.timings))
+			saved.state.planAuthority.execution.timings.stateWriteMs = stateWriteMs;
+	}
 	if (!saved.ok) return saved;
 	record.revision = saved.revision; record.id = saved.id; return saved;
 }
 function checkpoint(record, stage) {
 	if (lifecycle) lifecycle.stage = stage;
 	let saved = publish(record);
-	if (!saved.ok) { let failure = null; failure(); }
+	if (!saved.ok) {
+		if (lifecycle) lifecycle.checkpointFailure = saved.error || { code: 'EIO', message: 'Scanner checkpoint publication failed.' };
+		let failure = null; failure();
+	}
 	return saved;
 }
 function candidate_evidence(value) {
@@ -91,6 +105,17 @@ function cleanup_verified(value) {
 	return object(value) && value.ok == true && value.processRemoved == true && value.firewallRemoved == true
 		&& value.nfqueueRemoved == true && value.hostlistRemoved == true && value.temporaryFilesRemoved == true
 		&& value.ownedOnly == true;
+}
+function activation_cleanup(value) {
+	let pending = [value], visited = 0;
+	while (length(pending) > 0 && visited < 32) {
+		let current = pop(pending); visited++;
+		if (cleanup_verified(current)) return current;
+		if (!object(current)) continue;
+		for (let key in ['cleanup', 'adapter', 'activation', 'error'])
+			if (object(current[key])) push(pending, current[key]);
+	}
+	return null;
 }
 function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	let raw = seam(seams, 'probe');
@@ -131,7 +156,8 @@ function release_claim(claimed) {
 	catch (exception) { return { ok: false, error: exception }; }
 }
 function recover(record, seams, context, message) {
-	let recovery = merge_recovery(record.recovery, { state: 'uncertain', message, exception: context?.exception || null, activation: context?.attempt?.activation || null, candidateCleanup: null, sessionCleanup: null, lockRelease: null, activeRelease: null, reconciliation: task7_dependency('recovery', message) });
+	let lifecycleFailure = lifecycle?.checkpointFailure || context?.exception || null;
+	let recovery = merge_recovery(record.recovery, { state: 'uncertain', message, exception: lifecycleFailure, activation: context?.attempt?.activation || null, candidateCleanup: null, sessionCleanup: null, lockRelease: null, activeRelease: null, reconciliation: task7_dependency('recovery', message) });
 	if (context?.attempt) recovery.candidateCleanup = cleanup_attempt(context.attempt);
 	if (context?.session) { try { recovery.sessionCleanup = scanner_session_finish(context.session, seam(seams, 'transient')); recovery.lockRelease = recovery.sessionCleanup.lockRelease; } catch (e) { recovery.sessionCleanup = { ok: false, error: e, reconciliation: task7_dependency('session_cleanup', e) }; recovery.lockRelease = recovery.sessionCleanup; } }
 	recovery.activeRelease = release_claim(lifecycle?.claimed || (context?.record?.id && context?.record?.worker ? { id: context.record.id, identity: context.record.worker } : null));
@@ -143,7 +169,7 @@ function recover(record, seams, context, message) {
 	else { recovery.publication = { ok: false, durable: false, retryRequired: true, result: published }; let released = release_claim(lifecycle?.claimed); recovery.activeRelease = released; }
 	return { ok: false, state: record, error: { code: 'EINTERNAL', message: record.error }, recovery };
 }
-function terminal_reconciliation(record, transition) {
+function terminal_reconciliation(record, transition, cleanupEvidence) {
 	let journal = null;
 	if (record.id) {
 		try { journal = state.scanner_journal_load(record.id); } catch (e) { journal = null; }
@@ -151,7 +177,12 @@ function terminal_reconciliation(record, transition) {
 	let entry = journal?.ok && journal.journal.entries?.length ? journal.journal.entries[length(journal.journal.entries) - 1] : null;
 	let evidence = object(record.recovery) ? record.recovery : {};
 	let table = evidence.table || entry?.evidence?.table || entry?.evidence?.expectedTable;
-	if (!table) return task7_dependency('terminal_reconciliation', null);
+	if (!table) {
+		let cleanup = cleanupEvidence || evidence.sessionCleanup;
+		if (object(cleanup) && cleanup.ok === true && cleanup.verifiedCleanup === true)
+			return { ok: true, decision: 'no_scanner_table_created', recovery: { state: 'verified', tablePresent: false, tableChecked: true } };
+		return task7_dependency('terminal_reconciliation', null);
+	}
 	return scanner_terminal_reconcile({
 		sid: record.id,
 		cid: record.currentCandidate || 'terminal',
@@ -165,9 +196,11 @@ function terminal_reconciliation(record, transition) {
 	});
 }
 function finish(record, session, seams, transition, message) {
-	let cleanup = scanner_session_finish(session, seam(seams, 'transient'));
+	let cleanup = null;
+	try { cleanup = scanner_session_finish(session, seam(seams, 'transient')); }
+	catch (exception) { cleanup = { ok: false, error: exception, recovery: task7_dependency('session_finish', exception), verifiedCleanup: false }; }
 	if (lifecycle) lifecycle.sessionCleanup = cleanup;
-	let reconciliation = seam(seams, 'reconcile') || terminal_reconciliation(record, transition);
+	let reconciliation = seam(seams, 'reconcile') || terminal_reconciliation(record, transition, cleanup);
 	if (!object(reconciliation) || reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') {
 		record.status = 'error';
 		record.phase = 'recovery';
@@ -268,9 +301,14 @@ export const scanner_worker_resume = function(input, seams) {
 	let resumableStatus = record.status == 'running'
 		|| (record.status == 'cancelled' && record.recovery?.state == 'verified'
 			&& integer(record.cursor?.nextCandidate) && record.cursor.nextCandidate < length(plan?.candidates || []));
-	if (!resumableStatus || stale_heartbeat(record.heartbeatAt) || !plan || state.scanner_state_digest(record.request) != record.requestDigest || plan.catalogDigest != record.catalogDigest
-		|| plan.compilerDigest != record.compilerDigest || plan_identity(plan) != record.planDigest || !checkpoint_valid(record, plan))
-		return error('ESTALE', 'Scanner resume identity does not match the checkpoint.');
+	let staleHeartbeat = stale_heartbeat(record.heartbeatAt), requestIdentity = state.scanner_state_digest(record.request) == record.requestDigest;
+	let planIdentity = plan != null && plan.catalogDigest == record.catalogDigest && plan.compilerDigest == record.compilerDigest
+		&& plan_identity(plan) == record.planDigest;
+	let checkpointIdentity = plan != null && checkpoint_valid(record, plan);
+	if (!resumableStatus || (!staleOwnerRecovered && staleHeartbeat) || !plan || !requestIdentity || !planIdentity || !checkpointIdentity)
+		return error('ESTALE', 'Scanner resume identity does not match the checkpoint.',
+			{ resumableStatus: resumableStatus, staleOwnerRecovered: staleOwnerRecovered, staleHeartbeat: staleHeartbeat,
+				requestIdentity: requestIdentity, planIdentity: planIdentity, checkpointIdentity: checkpointIdentity });
 	if (!baseline_valid(record.baseline, record.request?.protocol) || !digest(record.baselineIdentity) || state.scanner_state_digest(record.baseline) != record.baselineIdentity)
 		return error('EDEPENDENCY', 'Retained baseline authority is unavailable.');
 	let identity = self_identity(seams);
@@ -342,7 +380,13 @@ scanner_worker_run_impl = function(input, seams) {
 		candidate.argvNonce = session.lock?.nonce && match(session.lock.nonce, /^[a-f0-9]{32,128}$/) ? session.lock.nonce : zero_nonce();
 		phase(record, 'executing', candidate.scannerId); checkpoint(record, 'candidate-start');
 		let activated = scanner_candidate_activate(candidate, transient);
-		if (!activated.ok) { record.counts.infrastructure++; record.error = activated.error?.message || 'Candidate activation failed.'; record.recovery = { state: cleanup_verified(activated.cleanup) ? 'verified' : 'uncertain', evidence: activated.cleanup || activated.error }; return finish(record, session, seams, 'error', record.error); }
+		if (!activated.ok) {
+			record.counts.infrastructure++;
+			record.error = activated.error?.message || 'Candidate activation failed.';
+			let activationCleanup = activation_cleanup(activated);
+			record.recovery = { state: cleanup_verified(activationCleanup) ? 'verified' : 'uncertain', cleanup: activationCleanup, evidence: activated };
+			return finish(record, session, seams, 'error', record.error);
+		}
 		activated.attempt.seams = transient;
 		lifecycle.attempt = activated.attempt;
 		if (seams?.throwAfterActivation === true) { let failure = null; failure(); }
