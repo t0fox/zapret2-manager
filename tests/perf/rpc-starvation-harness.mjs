@@ -20,6 +20,10 @@ const calls = [
   ['service_dns_tiktok_status'],
   ['resources_status'],
   ['maintenance_status'],
+  ['diagnostics_export'],
+  ['orchestra_status'],
+  ['orchestra_history'],
+  ['orchestra_history_paginated', JSON.stringify({ limit: '50' })],
   ['engine_gate_status', null, 'zapret2-manager-engine'],
   ['engine_status', null, 'zapret2-manager-engine']
 ];

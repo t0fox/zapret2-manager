@@ -345,7 +345,10 @@ function normalize_domain(value) {
 function read_history_events() {
 	try {
 		if (!stat(HISTORY_FILE)) return [];
-		let raw = readfile(HISTORY_FILE);
+		// Retention caps this journal at HISTORY_MAX_EVENTS. Read only the
+		// retained suffix so read-only status/history RPCs cannot scale with
+		// stale rotated content or an unexpectedly oversized file.
+		let raw = run('tail -n ' + HISTORY_MAX_EVENTS + ' ' + HISTORY_FILE);
 		if (!raw) return [];
 		let lines = split(raw, '\n');
 		let events = [];
