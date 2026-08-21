@@ -8,11 +8,16 @@ const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/reso
 const strategyUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-update.uc');
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
+const z2kComponentPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-component.uc';
+const z2kComponent = fs.existsSync(z2kComponentPath) ? read(z2kComponentPath) : '';
 
 test('Asset Registry exposes a staged, hash-verified, all-or-nothing bundle transaction', () => {
-  for (const fragment of ['asset_registry_apply_bundle', 'stagedPath', 'sha256_file(item.stagedPath)', 'atomic_write(path, entry.content)', 'oldStateRaw', 'EDEPENDENCY', 'EPOLICY', 'ECONFLICT'])
+  for (const fragment of ['asset_registry_apply_bundle', 'asset_registry_rollback_bundle', 'stagedPath', 'sha256_file(item.stagedPath)', 'atomic_write(path, entry.content)', 'oldStateRaw', 'EDEPENDENCY', 'EPOLICY', 'ECONFLICT'])
     assert.match(registry, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), fragment);
   assert.match(registry, /MAX_BUNDLE_BYTES/);
+  assert.match(registry, /\.previous/);
+  assert.match(registry, /postflight/);
+  assert.match(registry, /rollbackAvailable: true/);
   assert.match(registry, /old.provenance.kind != 'catalog\/upstream'/);
   assert.match(registry, /item.expectedRevision == null/);
 });
@@ -23,6 +28,9 @@ test('Resource coordinator checks manifests cheaply and downloads only changed a
   assert.match(coordinator, /asset_registry_apply_bundle/);
   assert.match(coordinator, /row.state == 'current'/);
   assert.match(coordinator, /state_label/);
+  assert.match(coordinator, /z2k_upstream_check/);
+  assert.match(coordinator, /signed Z2K manifest/);
+  assert.match(coordinator, /sourceId == 'z2k-resources'/);
 });
 
 test('Resource Center RPCs and ACL expose read checks separately from update', () => {
@@ -39,6 +47,15 @@ test('Package-owned resource content is read-only and hash-verified from the pac
   assert.match(registry, /ownership: 'package'/);
   assert.match(registry, /actual != item\.sha256/);
   assert.match(registry, /asset_registry_get_content/);
+});
+
+test('Z2K component resolver only stages exact-managed files and blocks adapted/platform lifecycle', () => {
+  for (const fragment of ['z2k_component_plan', 'z2k_component_apply', 'exact-managed', 'adapted', 'ignored-platform', 'EZ2K_REBASE_REQUIRED', 'asset_registry_apply_bundle', 'postflight'])
+    assert.match(z2kComponent, new RegExp(fragment.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), fragment);
+  assert.match(z2kComponent, /request\.signed !== true/);
+  assert.match(z2kComponent, /request\.confirm !== true/);
+  const applyBody = z2kComponent.slice(z2kComponent.indexOf('export const z2k_component_apply'));
+  assert.doesNotMatch(applyBody, /init\.d|webpanel|z2k\.sh.*write|scheduler/);
 });
 
 test('Strategy catalog updates require a complete verified snapshot and retain last known good', () => {

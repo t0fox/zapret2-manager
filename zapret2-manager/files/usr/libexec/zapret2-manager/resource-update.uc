@@ -4,6 +4,8 @@
 // Asset Registry remains the only writer of managed asset metadata and bytes.
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
 import { asset_registry_list, asset_registry_apply_bundle } from './asset-registry.uc';
+import { z2k_upstream_check } from './z2k-upstream.uc';
+import { z2k_component_apply } from './z2k-component.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -65,12 +67,23 @@ function inline_bundle(request) {
 	for (let i = 0; i < length(bundle.assets); i++) { let item = bundle.assets[i], content = base64_decode(item.contentBase64); if (!object(item) || content == null || !string(item.id) || !string(item.type)) { cleanup(root, paths); return fail('EINPUT', 'controlled bundle asset is invalid'); } let path = root + '/' + i + '.asset'; try { writefile(path, content); } catch (e) { cleanup(root, paths); return fail('EWRITE', 'controlled bundle staging failed'); } push(paths, path); push(staged, { type: item.type, id: item.id, name: item.name, stagedPath: path, sha256: item.sha256, byteSize: item.byteSize, dependencies: item.dependencies || [], provenance: { kind: 'catalog/upstream', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', sourcePath: item.sourcePath || item.id, bundleId: bundle.bundleId, version: bundle.version || 'test' } }); }
 	let answer = asset_registry_apply_bundle({ bundleId: bundle.bundleId, version: bundle.version || 'test', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', assets: staged }); cleanup(root, paths); return answer;
 }
-export const resource_center_status = function () { let loaded = load_manifest(); return loaded.ok ? build_status(loaded.manifest, null) : loaded; };
-export const resource_center_check = function () { let loaded = load_manifest(); return loaded.ok ? build_status(loaded.manifest, time()) : loaded; };
+export const resource_center_status = function () {
+	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, null);
+	if (answer.ok) answer.signedSources = { z2k: { state: 'unknown', status: 'Проверка подписи выполняется только явно', checkMode: 'signed-manifest', verified: false } };
+	return answer;
+};
+export const resource_center_check = function () {
+	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, time()); if (!answer.ok) return answer;
+	let signed = z2k_upstream_check(); answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? signed.status : 'Ошибка проверки подписи', checkMode: 'signed-manifest', verified: signed.ok === true, evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, trustRoot: signed.trustRoot, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'signed Z2K manifest check failed' } } };
+	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') { answer.sources[i].checkMode = 'signed-manifest'; answer.sources[i].verification = answer.signedSources.z2k; if (!signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); } }
+	return answer;
+};
 export const resource_center_update = function (request) {
 	if (!object(request) || request.confirm !== true) return fail('EINPUT', 'explicit update confirmation is required');
+	if (request.component == 'z2k-runtime') return z2k_component_apply(request);
 	let controlled = inline_bundle(request); if (controlled != null) return controlled;
 	let loaded = load_manifest(); if (!loaded.ok) return loaded; let selected = bundle(loaded.manifest, request.bundleId); if (selected == null) return fail('EINPUT', 'resource bundle is not configured'); let sourceValue = source(loaded.manifest, selected.sourceId); if (sourceValue == null) return fail('EINPUT', 'resource bundle source is not configured'); let listed = asset_registry_list(null); if (!listed.ok) return listed;
+	if (selected.sourceId == 'z2k-resources') { let signed = z2k_upstream_check(); if (!signed.ok) return fail('EVERIFY', 'signed Z2K manifest verification failed; update is blocked', { cause: signed.error }); if (signed.status == 'rebase-required') return fail('EZ2K_REBASE_REQUIRED', 'signed Z2K manifest requires adapted-file rebase', { rebases: signed.plan.rebases }); if (signed.status == 'review-required') return fail('EZ2K_REVIEW_REQUIRED', 'signed Z2K manifest requires semantic review', { reviews: signed.plan.reviews }); }
 	let root = make_stage_root(); if (root == null) return fail('ETARGET', 'resource staging directory is unavailable'); let paths = [], staged = [];
 	for (let i = 0; i < length(selected.assets || []); i++) { let item = selected.assets[i], row = row_for({ ...item, sourceId: selected.sourceId, sourceCommit: selected.sourceCommit }, listed.assets); if (row.state == 'current') continue; let registered = registry_asset(listed.assets, item.id); if (registered != null && (registered.ownership == 'package' || !registered.provenance || registered.provenance.kind != 'catalog/upstream')) { cleanup(root, paths); return fail('EPOLICY', 'user or package resource is protected', { id: item.id }); } let path = root + '/' + i + '.asset', fetched = command('uclient-fetch -q -O ' + shell_quote(path) + ' ' + shell_quote(item.contentUrl)); if (fetched.rc != 0 || !regular(path)) { cleanup(root, paths); return fail('EUNAVAILABLE', 'resource source is unavailable', { id: item.id, source: sourceValue.repository }); } push(paths, path); push(staged, { type: item.type, id: item.id, name: item.name, stagedPath: path, sha256: item.sha256, byteSize: item.byteSize, expectedRevision: registered && registered.revision || null, dependencies: item.dependencies || [], provenance: { kind: 'catalog/upstream', source: sourceValue.repository, sourceCommit: selected.sourceCommit, sourcePath: item.sourcePath, bundleId: selected.id, version: selected.version } }); }
 	if (!length(staged)) { cleanup(root, paths); return { ok: true, bundleId: selected.id, version: selected.version, updated: 0, state: 'current', status: state_label('current') }; }

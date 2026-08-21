@@ -7,6 +7,7 @@ import { readfile, writefile, stat, readlink, unlink, mkdir, lsdir, popen } from
 const STATE = '/etc/zapret2-manager/asset-registry.json';
 const USER_ROOT = '/etc/zapret2-manager/assets';
 const STAGE_ROOT = '/tmp/z2m-resource-update';
+const ROLLBACK_STATE = '/etc/zapret2-manager/asset-registry.previous.json';
 const MAX_STATE_BYTES = 1024 * 1024;
 const MAX_BUNDLE_ASSETS = 64;
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
@@ -115,6 +116,10 @@ function atomic_write(path, content) {
 	return readfile(path) == content;
 }
 function state_save(state) { return atomic_write(STATE, sprintf('%J', state) + '\n'); }
+function rollback_path(path) { return path + '.previous'; }
+function rollback_save(value) { return atomic_write(ROLLBACK_STATE, sprintf('%J', value) + '\n'); }
+function rollback_load() { let raw = readfile(ROLLBACK_STATE); if (raw == null || length(raw) > MAX_STATE_BYTES + 64 * 1024) return null; try { let value = json(raw); return object(value) && value.schema == 1 && type(value.records) == 'array' ? value : null; } catch (e) { return null; } }
+function postflight(path, item) { let actual = sha256_file(path), size = content_size(path); return actual != null && actual == item.sha256 && size == item.byteSize; }
 function sha256_file(path) { if (!regular(path)) return null; let r = command("sha256sum " + shell_quote(path) + " | awk '{print $1}'"), digest = trim(r.out); return r.rc == 0 && match(digest, /^[a-f0-9]{64}$/) ? digest : null; }
 function base64_decode(value) {
 	if (!string(value) || length(value) > 32 * 1024 * 1024 || !match(value, /^[A-Za-z0-9+\/=]*$/)) return null;
@@ -337,15 +342,28 @@ export const asset_registry_apply_bundle = function(request) {
 			if (!string(dependencyId) || (!seen[dependencyId] && find_asset(state, dependencyId) == null)) return fail('EDEPENDENCY', 'resource dependency is missing', { id: item.id, dependency: dependencyId });
 		}
 	}
-	let changed = [], result = null;
+	let changed = [], rollbackRecords = [], result = null, oldRollbackRaw = readfile(ROLLBACK_STATE);
+	// Preflight every target before creating the rollback snapshot or mutating
+	// any asset. This keeps a multi-asset bundle all-or-nothing.
 	for (let i = 0; i < length(prepared); i++) {
 		let entry = prepared[i], item = entry.item, old = entry.old, path = old != null ? old.path : server_asset_path(item.type, substr(item.id, length(item.type) + 1));
 		if (old == null && (!asset_parent_safe(item.type) || stat(path) != null)) { result = fail('ESAFETY', 'resource target path is not safe', { id: item.id }); break; }
 		if (old != null && (!mutable_asset_path_safe(old) || old.path != path)) { result = fail('ESAFETY', 'resource target path is not manager-owned', { id: item.id }); break; }
-		let previous = stat(path) != null && regular(path) ? readfile(path) : null;
+		let previous = stat(path) != null && regular(path) ? readfile(path) : null, previousPath = rollback_path(path), oldPrevious = null;
 		if (previous == null && stat(path) != null) { result = fail('ESAFETY', 'resource target is not a regular file', { id: item.id }); break; }
-		push(changed, { path: path, previous: previous });
-		if (!atomic_write(path, entry.content)) { result = fail('EWRITE', 'resource activation failed', { id: item.id }); break; }
+		if (stat(previousPath) != null) { if (!regular(previousPath)) { result = fail('ESAFETY', 'resource rollback path is not a regular file', { id: item.id }); break; } oldPrevious = readfile(previousPath); }
+		push(changed, { path: path, previous: previous, previousPath: previousPath, oldPrevious: oldPrevious });
+		push(rollbackRecords, { path: path, previousPath: previousPath, hadPrevious: previous != null });
+	}
+	if (result == null && !rollback_save({ schema: 1, bundleId: request.bundleId, version: request.version, sourceCommit: request.sourceCommit, oldStateRaw: oldStateRaw, records: rollbackRecords })) result = fail('EWRITE', 'resource rollback snapshot could not be saved');
+	if (result == null) for (let i = 0; i < length(changed); i++) {
+		let backup = changed[i];
+		if (backup.previous != null && !atomic_write(backup.previousPath, backup.previous)) { result = fail('EWRITE', 'resource rollback backup could not be saved'); break; }
+		if (backup.previous == null && stat(backup.previousPath) != null) { try { unlink(backup.previousPath); } catch (e) { result = fail('EWRITE', 'resource rollback backup could not be cleared'); break; } }
+	}
+	if (result == null) for (let i = 0; i < length(prepared); i++) {
+		let entry = prepared[i], item = entry.item, old = entry.old, path = changed[i].path;
+		if (!atomic_write(path, entry.content) || !postflight(path, item)) { result = fail('EVERIFY', 'resource activation postflight failed', { id: item.id }); break; }
 		if (old == null) {
 			push(state.assets, { schema: 1, type: item.type, id: item.id, name: item.name || substr(item.id, length(item.type) + 1), ownership: 'manager', mutable: true, provenance: copy(entry.provenance), contentSha256: item.sha256, byteSize: item.byteSize, revision: 1, lastChecked: time(), lastUpdated: time(), path: path, legacyPath: null, references: [], validation: { status: 'passed', errors: [] } });
 		} else {
@@ -354,11 +372,31 @@ export const asset_registry_apply_bundle = function(request) {
 	}
 	if (result == null) { state.revision++; if (!state_save(state)) result = fail('EWRITE', 'resource registry metadata write failed'); }
 	if (result != null) {
-		for (let i = length(changed) - 1; i >= 0; i--) { let item = changed[i]; if (item.previous == null) { try { unlink(item.path); } catch (e) {} } else atomic_write(item.path, item.previous); }
+		for (let i = length(changed) - 1; i >= 0; i--) { let item = changed[i]; if (item.previous == null) { try { unlink(item.path); } catch (e) {} } else atomic_write(item.path, item.previous); if (item.oldPrevious == null) { try { unlink(item.previousPath); } catch (e) {} } else atomic_write(item.previousPath, item.oldPrevious); }
 		if (oldStateRaw == null) { try { unlink(STATE); } catch (e) {} } else atomic_write(STATE, oldStateRaw);
+		if (oldRollbackRaw == null) { try { unlink(ROLLBACK_STATE); } catch (e) {} } else atomic_write(ROLLBACK_STATE, oldRollbackRaw);
 		return result;
 	}
-	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), revision: state.revision };
+	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), revision: state.revision, rollbackAvailable: true, postflight: { verified: true, assets: length(prepared) } };
+};
+export const asset_registry_rollback_bundle = function(request) {
+	if (!object(request) || !string(request.bundleId)) return fail('EINPUT', 'rollback bundle identity is required');
+	let snapshot = rollback_load(); if (snapshot == null || snapshot.bundleId != request.bundleId) return fail('EDEPENDENCY', 'no matching resource rollback snapshot is available');
+	let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid');
+	if (request.expectedRevision != null && request.expectedRevision != state.revision) return fail('ECONFLICT', 'resource rollback revision is stale', { actual: state.revision });
+	let restored = [];
+	for (let i = 0; i < length(snapshot.records); i++) {
+		let record = snapshot.records[i], previous = record.hadPrevious ? readfile(record.previousPath) : null;
+		if (record.hadPrevious && previous == null) return fail('EROLLBACK', 'resource rollback backup is incomplete', { path: record.path });
+		let restoredOk = record.hadPrevious ? atomic_write(record.path, previous) : true;
+		if (!record.hadPrevious && stat(record.path) != null) { try { unlink(record.path); } catch (e) { restoredOk = false; } }
+		if (!restoredOk) return fail('EROLLBACK', 'resource rollback activation failed', { path: record.path });
+		try { unlink(record.previousPath); } catch (e) {}
+		push(restored, record.path);
+	}
+	if (snapshot.oldStateRaw == null) { try { unlink(STATE); } catch (e) {} } else if (!atomic_write(STATE, snapshot.oldStateRaw)) return fail('EROLLBACK', 'resource registry rollback metadata failed');
+	try { unlink(ROLLBACK_STATE); } catch (e) {}
+	return { ok: true, bundleId: snapshot.bundleId, version: snapshot.version, restored: restored, rollbackAvailable: false };
 };
 export const asset_registry_delete = function(id) { let state = state_load(), asset = state == null ? null : find_asset(state, id); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (asset == null) return fail('EDEPENDENCY', 'asset dependency is missing'); if (length(asset.references)) return fail('EREFERENCED', 'asset is referenced', { references: references_copy(asset) }); if (asset.mutable != true) return fail('EPOLICY', 'builtin/package asset is read-only'); if (!mutable_asset_path_safe(asset) || !regular(asset.path)) return fail('ESAFETY', 'asset path is not a manager-owned regular file'); let oldContent = readfile(asset.path); if (oldContent == null) return fail('ESAFETY', 'asset content could not be read before delete'); try { unlink(asset.path); } catch (e) { return fail('EWRITE', 'asset delete failed'); } let kept = []; for (let i = 0; i < length(state.assets); i++) if (state.assets[i].id != id) push(kept, state.assets[i]); state.assets = kept; state.revision++; if (state_save(state)) return { ok: true, deleted: id }; atomic_write(asset.path, oldContent); return fail('EWRITE', 'asset registry metadata atomic write failed'); };
 export const asset_registry_set_references = function(consumer, references) { if (!string(consumer) || type(references) != 'array' || length(consumer) > 128) return fail('EINPUT', 'consumer references are invalid'); let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); for (let i = 0; i < length(references); i++) { let ref = references[i], asset = object(ref) ? find_asset(state, ref.id) : null; if (!object(ref) || !valid_type(ref.type) || !valid_id(ref.type, ref.id) || asset == null) return fail('EDEPENDENCY', 'referenced asset is missing'); if (asset.type != ref.type) return fail('ETYPE', 'referenced asset type is wrong'); } for (let i = 0; i < length(state.assets); i++) { let kept = []; for (let j = 0; j < length(state.assets[i].references); j++) if (state.assets[i].references[j].consumer != consumer) push(kept, state.assets[i].references[j]); state.assets[i].references = kept; } for (let i = 0; i < length(references); i++) { let ref = references[i], asset = find_asset(state, ref.id); push(asset.references, { consumer: consumer, type: ref.type, id: ref.id, revision: ref.revision == null ? null : ref.revision, contentSha256: ref.contentSha256 == null ? null : ref.contentSha256 }); } state.revision++; return state_save(state) ? { ok: true } : fail('EWRITE', 'asset registry metadata atomic write failed'); };
