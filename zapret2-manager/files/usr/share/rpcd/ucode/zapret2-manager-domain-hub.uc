@@ -49,12 +49,12 @@ function action(mode, edit) {
 return {
 	'zapret2-manager-domain-hub': {
 		domain_hub_get: { call: function (req) { return action('get', null); } },
-		domain_hub_preview: { call: function (req) {
+		domain_hub_preview: { args: { edit: 'string' }, call: function (req) {
 			let edit = request_edit(req);
 			if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
 			return action('preview', edit);
 		} },
-		domain_hub_apply: { call: function (req) {
+		domain_hub_apply: { args: { edit: 'string' }, call: function (req) {
 			let edit = request_edit(req);
 			if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
 			return action('apply', edit);
