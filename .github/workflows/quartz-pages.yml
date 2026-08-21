@@ -8,7 +8,7 @@ on:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
 
     # Grant pages write permission for deployment
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node 22
         uses: actions/setup-node@v4
@@ -51,5 +51,5 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      # Explicit guard: never push generated HTML back to main
-      # (deployment uses Pages artifact only; no git push occurs)
+      # Deployment uses only the public artifact; generated HTML is never
+      # committed or pushed back to main.

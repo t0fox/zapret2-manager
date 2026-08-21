@@ -157,6 +157,9 @@ async function applyConfig(mode) {
   let config = await readFile(source, 'utf8')
   config = config.replace(/^  pageTitle:.*$/m, `  pageTitle: "zapret2-manager${mode === 'internal' ? ' (internal)' : ''}"`)
   config = config.replace(/^  baseUrl:.*$/m, `  baseUrl: "${mode === 'internal' ? 'localhost' : 't0fox.github.io/zapret2-manager'}"`)
+  if (mode === 'public') {
+    config = config.replace(/(  ignorePatterns:\r?\n(?:    - .*\r?\n)*)/, '$1    - 09-work\n    - 12-ai\n    - 99-archive\n')
+  }
   config = config.replace(
     /(source: github:quartz-community\/explicit-publish\r?\n\s+enabled:) false/,
     `$1 ${mode === 'public' ? 'true' : 'false'}`,

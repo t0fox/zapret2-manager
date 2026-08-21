@@ -1,3 +1,14 @@
+---
+id: z2k-p5-parity-matrix
+title: "Z2K P5 staged prober parity matrix"
+type: parity
+status: current
+authority: evidence
+updated: 2026-08-22
+publish: true
+tags: [parity, z2k, scanner, p5]
+---
+
 # Z2K-P5 staged prober parity matrix
 
 Source of truth: `necronicle/z2k`, `z2k-enhanced`, commit

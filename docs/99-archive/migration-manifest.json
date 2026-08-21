@@ -163,5 +163,49 @@
     "REFERENCED_BY": ["docs/09-work/index.md"],
     "NOTES": "Git rename recorded by 6cd640b.",
     "OLD_BLOB_SHA": "e17958a2be962d226e55051e4f0b813c5f825770"
+  },
+  {
+    "OLD_PATH": "docs/superpowers/plans/2026-08-20-product-ia-scanner-nfqueue.md",
+    "TYPE": "plan",
+    "AUTHORITY": "plan",
+    "STATUS": "done",
+    "TARGET_PATH": "docs/99-archive/superpowers/plans/2026-08-20-product-ia-scanner-nfqueue.md",
+    "ACTION": "move",
+    "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
+    "NOTES": "Superseded scratch-plan path archived during Knowledge Vault cleanup.",
+    "OLD_BLOB_SHA": "ddbce0e226d4d312e05e1c33a69e3ea0908a61eb"
+  },
+  {
+    "OLD_PATH": "docs/superpowers/plans/2026-08-21-system-components-ia.md",
+    "TYPE": "plan",
+    "AUTHORITY": "plan",
+    "STATUS": "done",
+    "TARGET_PATH": "docs/99-archive/superpowers/plans/2026-08-21-system-components-ia.md",
+    "ACTION": "move",
+    "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
+    "NOTES": "Superseded scratch-plan path archived during Knowledge Vault cleanup.",
+    "OLD_BLOB_SHA": "be41c7b1df51add2f14cf4e4316e366f1d8ac5f0"
+  },
+  {
+    "OLD_PATH": "docs/superpowers/specs/2026-08-20-product-ia-scanner-nfqueue-design.md",
+    "TYPE": "spec",
+    "AUTHORITY": "spec",
+    "STATUS": "done",
+    "TARGET_PATH": "docs/99-archive/superpowers/specs/2026-08-20-product-ia-scanner-nfqueue-design.md",
+    "ACTION": "move",
+    "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
+    "NOTES": "Superseded scratch-spec path archived during Knowledge Vault cleanup.",
+    "OLD_BLOB_SHA": "dadcfa1e0e33133f34153ab2dc14a799fe209672"
+  },
+  {
+    "OLD_PATH": "docs/superpowers/specs/2026-08-21-system-components-ia-design.md",
+    "TYPE": "spec",
+    "AUTHORITY": "spec",
+    "STATUS": "done",
+    "TARGET_PATH": "docs/99-archive/superpowers/specs/2026-08-21-system-components-ia-design.md",
+    "ACTION": "move",
+    "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
+    "NOTES": "Superseded scratch-spec path archived during Knowledge Vault cleanup.",
+    "OLD_BLOB_SHA": "027dac86edb16ebcc515305633a3d3977e94f1be"
   }
 ]

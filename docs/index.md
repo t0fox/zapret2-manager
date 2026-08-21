@@ -12,6 +12,7 @@ tags: [home, knowledge]
 # zapret2-manager Knowledge Home
 
 - [Current state](./00-home/current-state.md)
+- [Knowledge inventory](./00-home/knowledge-inventory.md)
 - [Project](./01-project/index.md)
 - [Architecture](./02-architecture/index.md)
 - [Products](./03-products/index.md)

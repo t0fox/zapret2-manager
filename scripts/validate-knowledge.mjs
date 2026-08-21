@@ -145,6 +145,10 @@ function collectFiles(root) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.worktrees' || entry.name === '.artifacts' || entry.name === '.superpowers') continue;
       const path = join(dir, entry.name);
+      // docs/superpowers is an ignored local scratch area. Tracked material
+      // must be migrated to docs/99-archive; local scratch files must not make
+      // the canonical repository validation fail.
+      if (entry.isDirectory() && entry.name === 'superpowers' && /[\\/]docs$/.test(dir)) continue;
       if (entry.isDirectory()) walk(path);
       else files.push(path);
     }
@@ -312,10 +316,10 @@ function validateContextMap(path, value, repoRoot, errors) {
       if ('sections' in value && (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.path !== 'string')) addError(errors, `${source}: context map required doc must declare id and path`);
       if (typeof doc !== 'string' || !existsSync(resolve(repoRoot, doc))) addError(errors, `${source}: context map required doc does not exist ${doc ?? '<invalid>'}`);
     }
-    for (const field of ['contracts', 'parity_references']) {
+    for (const field of ['contracts', 'parity_references', 'parityReferences']) {
       for (const item of section[field] ?? []) if (typeof item !== 'string' || !existsSync(resolve(repoRoot, item))) addError(errors, `${source}: context map ${field} reference does not exist ${item ?? '<invalid>'}`);
     }
-    for (const field of ['active_spec', 'active_plan']) if (section[field] !== null && section[field] !== undefined && (typeof section[field] !== 'string' || !existsSync(resolve(repoRoot, section[field])))) addError(errors, `${source}: context map ${field} reference does not exist`);
+    for (const field of ['active_spec', 'active_plan', 'activeSpec', 'activePlan']) if (section[field] !== null && section[field] !== undefined && (typeof section[field] !== 'string' || !existsSync(resolve(repoRoot, section[field])))) addError(errors, `${source}: context map ${field} reference does not exist`);
   }
 }
 

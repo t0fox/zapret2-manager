@@ -12,3 +12,6 @@ tags: [product, strategy]
 # Strategy
 
 Strategy owns permanent Apply. See [Strategy Apply Authority](../../07-decisions/adr-005-strategy-apply-authority.md).
+
+The catalog and provenance boundary is documented in
+[Strategy source provenance](./source-provenance.md).

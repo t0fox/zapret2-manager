@@ -86,3 +86,10 @@ test('accepts schema-shaped context maps with generated metadata', async () => {
   const result = await validate('tests/knowledge/fixtures/valid-real-tree/docs/12-ai/context-map.yaml');
   assert.equal(result.passed, true, result.errors.join('\n'));
 });
+
+test('checked-in context map uses the schema-shaped canonical form', async () => {
+  const result = await validate('docs/12-ai/context-map.yaml');
+  assert.equal(result.passed, true, result.errors.join('\n'));
+  assert.match(readFileSync('docs/12-ai/context-map.yaml', 'utf8'), /sections:/);
+  assert.match(readFileSync('docs/12-ai/context-map.yaml', 'utf8'), /parityReferences:/);
+});

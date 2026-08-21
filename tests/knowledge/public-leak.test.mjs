@@ -6,7 +6,7 @@
  *   node --test tests/knowledge/public-leak.test.mjs
  *
  * The test expects a public build output at:
- *   .artifacts/quartz/<tag>/public
+ *   .artifacts/docs-public
  *
  * It scans the generated HTML/JS for:
  *   - Any occurrence of "publish: false" or 'publish:false'
@@ -35,7 +35,7 @@ const FORBIDDEN_PATTERNS = [
   /publish:\s*false/i,
   /INTERNAL_ONLY/i,
   /zapret2-internal/i,
-  /docs\/(09-work|12-ai|07-decisions)\/.*\.md/i,
+  /(?:href|src|data-src)=["'][^"']*docs\/(09-work|12-ai)\//i,
 ]
 
 async function scanDirectory(dir) {
@@ -46,7 +46,7 @@ async function scanDirectory(dir) {
     if (entry.isDirectory()) {
       const subLeaks = await scanDirectory(fullPath)
       leaks.push(...subLeaks)
-    } else if (entry.isFile() && (entry.name.endsWith('.html') || entry.name.endsWith('.js'))) {
+    } else if (entry.isFile() && /\.(html|js|json|xml|css|txt)$/i.test(entry.name)) {
       const content = await readFile(fullPath, 'utf8')
       for (const pattern of FORBIDDEN_PATTERNS) {
         if (pattern.test(content)) {
@@ -99,6 +99,9 @@ test('public Quartz build must not contain publish:false notes or internal asset
 
   const leaks = await scanDirectory(publicDir)
   assert.equal(leaks.length, 0, `Found ${leaks.length} leaks in public build:\n${leaks.map(l => `${l.file} matched ${l.pattern}`).join('\n')}`)
+  const files = await listFiles(publicDir)
+  const internalFiles = files.filter((file) => /^(09-work|12-ai|99-archive)(\/|$)/.test(file))
+  assert.deepEqual(internalFiles, [], `Internal public output files found:\n${internalFiles.join('\n')}`)
 })
 
 test('public Quartz navigation points only to generated pages and assets', async () => {

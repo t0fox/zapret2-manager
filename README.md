@@ -24,7 +24,25 @@ The current compatibility contracts are:
 
 ## Build
 
-Use the normal OpenWrt package build flow. `zapret2-manager/Makefile` compiles `z2m-core-helper` with `TARGET_CC` and links `libjson-c`; no repository-local manual APK builder is required.
+The reproducible release build is pinned to the OpenWrt 25.12.5 mediatek/filogic SDK and builds exactly the three manager packages. The canonical local entrypoint is:
+
+```sh
+scripts/release/build-apk.sh
+node scripts/release/verify-artifacts.mjs dist
+```
+
+The generated `dist/` contains the three APKs, `build-manifest.json`, and `SHA256SUMS`. The same entrypoint runs in GitHub Actions on every push to `main`; explicit tags matching `v<version>-r<release>-rc<N>` publish immutable GitHub prereleases.
+
+For downloaded files, install all three packages from the same GitHub Release:
+
+```sh
+apk add --allow-untrusted \
+  ./zapret2-manager-<version>.apk \
+  ./luci-app-zapret2-manager-<version>.apk \
+  ./zapret2-manager-full-<version>.apk
+```
+
+`zapret2-manager` is the backend, `luci-app-zapret2-manager` is the LuCI UI, and `zapret2-manager-full` is the mediatek/filogic convenience meta-package. The zapret2 engine is installed separately from System → Components. Telegram Proxy is installed separately from Proxy and Routing → Telegram Proxy; neither is bundled in these APKs. APK signing and a custom feed are intentionally out of scope.
 
 Typical SDK target:
 

@@ -47,6 +47,12 @@ test('uses stable output paths for every build mode', () => {
   assert.equal(outputPathFor(root, 'internal'), path.join(root, '.artifacts', 'docs-internal'))
 })
 
+test('public Pages base URL stays under the repository subpath', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile('scripts/docs.mjs', 'utf8')
+  assert.match(script, /t0fox\.github\.io\/zapret2-manager/)
+})
+
 test('accepts clean and verify without a build mode', () => {
   assert.deepEqual(normalizeArgs(['verify']), {
     command: 'verify',

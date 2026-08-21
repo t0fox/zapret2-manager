@@ -25,9 +25,18 @@ jobs:
       - name: Metadata + link + authority + legacy validation
         run: node scripts/validate-knowledge.mjs
 
+      - name: Verify pinned Quartz checkout
+        run: node scripts/docs.mjs verify
+
+      - name: Build internal Quartz site
+        run: node scripts/docs.mjs build internal
+
       - name: Quartz public production build
         run: |
           node scripts/docs.mjs build public --production
 
       - name: Post-build privacy/leak smoke test
         run: node tests/knowledge/public-leak.test.mjs
+
+      - name: Knowledge contract tests
+        run: node --test tests/knowledge/*.test.mjs
