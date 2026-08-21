@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-icons as Icons';
 'require view.zapret2-manager.z2m-product-ux-model as ProductUX';
 
 var PANES = [
@@ -21,6 +22,7 @@ var state = {
   allProvidersBusy: false, benchRunning: false,
   dnsCheck: null,
   operation: null, lastOperation: null,
+  tiktokAuto: null, tiktokAutoBusy: false, tiktokAutoTimer: null,
   serviceOperationTimer: null, serviceOperationInFlight: false,
   openPane: null, disposed: false
 };
@@ -154,17 +156,11 @@ function serviceCatalogRows(value, profileValue) {
 function serviceCategoryLabel(category) {
   return ({ AI: _('ИИ'), social: _('Соцсети'), messaging: _('Мессенджеры'), video: _('Видео'), music: _('Музыка'), games: _('Игры'), developer: _('Разработка'), media: _('Медиа'), other: _('Другое') })[category] || category;
 }
-var SERVICE_ICON_DATA = {
-  'chatgpt-openai': ['AI', '#10a37f'], 'google-gemini': ['G', '#4285f4'], claude: ['C', '#cc9b7a'], 'microsoft-copilot': ['MS', '#00bcf2'],
-  grok: ['X', '#1da1f2'], manus: ['M', '#7c3aed'], 'meta-ai': ['AI', '#1877f2'], 'trae-ai': ['TR', '#7c3aed'], windsurf: ['WS', '#00a6ff'],
-  tiktok: ['TK', '#ff0050'], spotify: ['SP', '#1db954'], twitch: ['TW', '#9146ff'], notion: ['N', '#ffffff'], deepl: ['DL', '#0f2b46'],
-  canva: ['CV', '#00c4cc'], elevenlabs: ['11', '#ffffff'], jetbrains: ['JB', '#fe315d'], mangalib: ['ML', '#f28c28'], parsec: ['PS', '#5e5ce6'],
-  square: ['SQ', '#006aff'], discord: ['DC', '#5865f2'], youtube: ['YT', '#ff0000'], github: ['GH', '#8b949e'], whatsapp: ['WA', '#25d366'],
-  'x-twitter': ['X', '#1da1f2'], rutor: ['RT', '#e74c3c'], 'ntc-party': ['NT', '#3498db'], 'flowseal-discord': ['FS', '#5865f2'],
-  supercell: ['SC', '#f4b400'], instagram: ['IG', '#e4405f']
-};
 function serviceIconData(item) {
-  return SERVICE_ICON_DATA[item.id] || [String(item.name || item.id || '?').slice(0, 1).toUpperCase(), '#4b9fd5'];
+  var id = String(item && item.id || '').toLowerCase();
+  var aliases = { 'flowseal-discord': 'discord', 'x-twitter': 'x-twitter', 'chatgpt-openai': 'chatgpt-openai' };
+  var colors = { tiktok: '#ff0050', spotify: '#1db954', twitch: '#9146ff', instagram: '#e4405f', youtube: '#ff0000', discord: '#5865f2', github: '#8b949e', whatsapp: '#25d366', 'x-twitter': '#e7e9ea', 'chatgpt-openai': '#10a37f', claude: '#cc9b7a' };
+  return { name: 'service:' + (aliases[id] || id), color: colors[id] || '#4b9fd5' };
 }
 function normalizeServiceSelections(selections, items) {
   var out = Object.assign({}, selections || {});
@@ -255,6 +251,15 @@ function resetDraft(scope) {
   if (!scope || scope === 'dns') { state.manual = null; state.manualBaseline = null; }
   if (!scope || scope === 'dns-global') { state.globalDraft = null; state.globalBaseline = null; }
 }
+function scheduleTiktokAutoCheck(ctx) {
+  if (state.tiktokAutoTimer) window.clearTimeout(state.tiktokAutoTimer);
+  state.tiktokAutoTimer = null;
+  if (!state.tiktokAuto || state.tiktokAuto.enabled !== true || !ctx.api.dns.serviceTiktokCheck) return;
+  state.tiktokAutoTimer = window.setTimeout(function () {
+    state.tiktokAutoTimer = null;
+    ctx.api.dns.serviceTiktokCheck().then(function () { return ctx.refresh('dns'); }).catch(function () {}).then(function () { scheduleTiktokAutoCheck(ctx); });
+  }, 60000);
+}
 function collectMessages(value, out, depth) {
   if (depth > 5 || value == null) return out;
   if (typeof value === 'string') { out.push(value); return out; }
@@ -332,6 +337,9 @@ function render(ctx) {
   var global = data.global && data.global.value || {};
   var globalApplied = global || {};
   var productOverrides = product.applied && product.applied.overrides;
+  state.tiktokAuto = serviceStatus.tiktokAuto || state.tiktokAuto || { enabled: false, state: 'off' };
+  if (!state.operation && serviceStatus.pending && serviceStatus.pending.operationId) state.operation = serviceStatus.pending;
+  scheduleTiktokAutoCheck(ctx);
 
   if (state.manual == null) {
     state.manualBaseline = cloneEntries({ entries: Array.isArray(productOverrides) ? productOverrides : dns });
@@ -756,9 +764,13 @@ function render(ctx) {
     });
     var providerNames = {};
     serviceProviders.forEach(function (provider) { providerNames[provider.id || provider.providerId] = provider.name || provider.label || provider.id; });
+    var providerLabel = function (id) {
+      var labels = { 'comss-dns': _('Comss DNS'), cloudflare: _('Cloudflare DNS'), 'google-dns': _('Google Public DNS') };
+      return labels[id] || providerNames[id] || id || _('По умолчанию');
+    };
     var profileName = function (item, id) {
       var profile = item && item.profiles.filter(function (candidate) { return candidate.id === id; })[0];
-      return profile ? (providerNames[profile.providerId] || profile.providerId) : _('По умолчанию');
+      return profile ? providerLabel(profile.providerId) : _('По умолчанию');
     };
     var categoryOrder = ['AI', 'social', 'messaging', 'video', 'music', 'games', 'developer', 'media', 'other'];
     var groups = {}, records = [], groupNodes = {};
@@ -782,20 +794,30 @@ function render(ctx) {
       var groupNode = E('section', { 'class': 'z2m-service-dns-group', 'data-category': category }, [E('div', { 'class': 'z2m-service-dns-group-head' }, [E('span', { 'class': 'z2m-service-dns-group-mark' }, '☆'), E('h3', {}, serviceCategoryLabel(category)), E('span', { 'class': 'z2m-service-dns-count' }, String(groups[category].length)), E('span', { 'class': 'z2m-service-dns-chevron' }, '⌃')]), groupBody]);
       groupNodes[category] = groupNode;
       groups[category].sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }).forEach(function (item) {
-        var id = item.id, before = state.serviceBaseline[id] || '', after = state.selections[id] || '', iconData = serviceIconData(item);
+        var id = item.id, before = state.serviceBaseline[id] || '', after = state.selections[id] || '', iconData = serviceIconData(item), changed = before !== after;
         var select = E('select', { 'class': 'z2m-service-dns-select', 'aria-label': _('DNS-профиль для ') + item.name });
         select.appendChild(E('option', { value: '' }, _('По умолчанию')));
-        item.profiles.forEach(function (profile) { select.appendChild(E('option', { value: profile.id }, providerNames[profile.providerId] || profile.providerId || profile.id)); });
+        item.profiles.forEach(function (profile) { select.appendChild(E('option', { value: profile.id }, providerLabel(profile.providerId || profile.id))); });
         select.value = after;
         var domains = asArray(item.domains).slice(0, 3).join(' · ') || _('Домены сервиса');
         var currentName = profileName(item, before);
-        var row = E('div', { 'class': 'z2m-service-dns-row' + (before !== after ? ' changed' : ''), 'data-service-dns-id': id, 'data-service-name': (item.name + ' ' + domains).toLowerCase() }, [
-          E('div', { 'class': 'z2m-service-info' }, [E('span', { 'class': 'z2m-service-dns-icon', style: 'color:' + iconData[1] + ';background:' + iconData[1] + '22' }, iconData[0]), E('div', {}, [E('strong', { 'class': 'z2m-service-name' }, item.name), E('small', { 'class': 'z2m-service-domains', title: domains }, domains)])]),
-          E('div', { 'class': 'z2m-service-controls' }, [E('span', { 'class': 'z2m-chip z2m-applied-badge' + (before ? ' b' : '') }, _('Применено: ') + currentName), select])
-        ]);
+        var icon = E('span', { 'class': 'z2m-service-dns-icon', style: 'color:' + iconData.color + ';background:' + iconData.color + '22' }, [Icons.wrappedNode(iconData.name, { size: 20, fallback: 'network' })]);
+        var stateNode = changed ? E('div', { 'class': 'z2m-service-dns-state draft' }, [E('span', {}, _('Сейчас: ') + currentName), E('span', {}, _('Будет: ') + profileName(item, after)), E('span', { 'class': 'z2m-unsaved-state' }, _('● Есть несохранённое изменение'))])
+          : E('span', { 'class': 'z2m-service-dns-state' }, _('Используется: ') + currentName);
+        var rowChildren = [E('div', { 'class': 'z2m-service-info' }, [icon, E('div', {}, [E('strong', { 'class': 'z2m-service-name' }, item.name), E('small', { 'class': 'z2m-service-domains', title: domains }, domains)])]), E('div', { 'class': 'z2m-service-controls' }, [stateNode, select])];
+        if (id === 'tiktok') {
+          var auto = state.tiktokAuto || {}, autoSwitch = E('span', { 'class': 'z2m-sw sm z2m-tiktok-auto-switch' + (auto.enabled ? ' on' : ''), role: 'switch', tabindex: '0', 'aria-checked': auto.enabled ? 'true' : 'false', 'aria-label': _('Автоисправление ленты') }, [E('i')]);
+          autoSwitch.addEventListener('click', function () {
+            if (!ctx.api.dns.serviceTiktokSet || state.tiktokAutoBusy) return;
+            state.tiktokAutoBusy = true;
+            ctx.api.dns.serviceTiktokSet(edit(ctx.api.dns.serviceTiktokSet, { enabled: !auto.enabled })).then(function (answer) { if (answer && answer.operationId) state.operation = answer; return ctx.refresh('dns'); }).catch(showError).then(function () { state.tiktokAutoBusy = false; });
+          });
+          rowChildren.push(E('div', { 'class': 'z2m-tiktok-auto' }, [autoSwitch, E('div', {}, [E('strong', {}, _('Автоисправление ленты')), E('small', {}, _('Проверяет v77.tiktokcdn.com и управляет только своим override.'))])]), E('div', { 'class': 'z2m-tiktok-auto-status' }, [E('span', { 'class': 'z2m-chip' }, display(auto.state || 'off')), auto.selectedIp ? E('code', {}, auto.selectedIp + (auto.latencyMs ? ' · ' + auto.latencyMs + ' ms' : '')) : null]));
+        }
+        var row = E('div', { 'class': 'z2m-service-dns-row' + (changed ? ' changed' : '') + (id === 'tiktok' ? ' tiktok-row' : ''), 'data-service-dns-id': id, 'data-service-name': (item.name + ' ' + domains).toLowerCase() }, rowChildren);
         select.addEventListener('change', function () { state.selections[id] = select.value; updateServiceDnsDraft(ctx); renderPane(); });
         groupBody.appendChild(row);
-        records.push({ row: row, category: category, name: (item.name + ' ' + domains).toLowerCase(), configured: !!after, changed: before !== after });
+        records.push({ row: row, category: category, name: (item.name + ' ' + domains).toLowerCase(), configured: !!after, changed: changed });
       });
       groupsRoot.appendChild(groupNode);
     });
@@ -810,19 +832,20 @@ function render(ctx) {
     }
     search.addEventListener('input', applyFilter); categoryFilter.addEventListener('change', applyFilter); assignmentFilter.addEventListener('change', applyFilter); changedOnly.addEventListener('change', applyFilter);
     var toolbar = E('div', { 'class': 'z2m-dns-access-toolbar' }, [search, categoryFilter, assignmentFilter, E('label', { 'class': 'z2m-dns-access-toggle' }, [changedOnly, _('Показывать только изменённые')]), E('span', { 'class': 'z2m-dns-access-draft' }, changeIds.length ? _('Черновик: есть изменения') : _('Черновик пуст'))]);
+    var draftActions = changeIds.length ? E('div', { 'class': 'z2m-dns-service-actions' }, [E('strong', {}, _('Изменено сервисов: ') + changeIds.length), shell.button(_('Отменить'), 'sm', function () { state.selections = Object.assign({}, state.serviceBaseline); updateServiceDnsDraft(ctx); renderPane(); }), shell.button(_('Предпросмотр'), 'sm', function () { ctx.openSemanticDiff(); }), shell.button(_('Применить'), 'primary sm', function () { ctx.openSemanticDiff(); })]) : null;
     var previewRows = changeIds.slice(0, 6).map(function (id) { var item = items.filter(function (candidate) { return candidate.id === id; })[0]; var change = changes[id]; return E('div', { 'class': 'z2m-dns-preview-row' }, [E('span', { 'class': 'z2m-dns-preview-dot' }), E('span', {}, item ? item.name : id), E('span', { 'class': 'z2m-dns-preview-arrow' }, '→'), E('strong', {}, item ? profileName(item, change.after) : change.after || _('По умолчанию'))]); });
     var rulesSummary = E('div', { 'class': 'z2m-dns-rule-summary' }, [
       E('div', {}, [E('span', {}, _('Глобальный DNS')), E('strong', {}, globalApplied.wanDns || _('Системный DNS'))]),
       E('div', {}, [E('span', {}, _('Переопределений')), E('strong', {}, String(configured))]),
       E('div', {}, [E('span', {}, _('Изменений в черновике')), E('strong', {}, String(changeIds.length))]),
-      E('div', {}, [E('span', {}, _('Конфликтов')), E('strong', { 'class': 'ok' }, _('Нет'))]),
-      E('div', {}, [E('span', {}, _('Файл правил')), E('code', {}, '/etc/zapret2-manager/dns-overrides.hosts')])
+      E('div', {}, [E('span', {}, _('Конфликтов')), E('strong', { 'class': 'ok' }, _('Нет'))])
     ]);
     var sidebarChildren = [shell.panel(_('Текущие правила для сервисов'), rulesSummary)];
     if (previewRows.length) sidebarChildren.push(shell.panel(_('Предпросмотр изменений'), E('div', { 'class': 'z2m-dns-preview-list' }, previewRows)));
     sidebarChildren.push(shell.panel(_('Важно'), E('div', { 'class': 'z2m-dns-access-note' }, _('Изменения сначала сохраняются в черновик. Конфигурация применяется к системе только после нажатия кнопки «Применить».'))));
+    sidebarChildren.push(E('details', { 'class': 'z2m-dns-technical-details' }, [E('summary', {}, _('Технические детали')), E('div', {}, [E('div', {}, _('Override ownership: service_dns_tiktok_auto')), E('code', {}, '/etc/config/dhcp · address=/v77.tiktokcdn.com/<IP>')])]))
     var sidebar = E('aside', { 'class': 'z2m-dns-access-sidebar' }, sidebarChildren);
-    return E('div', { 'class': 'z2m-dns-access-layout' }, [E('div', { 'class': 'z2m-dns-access-main' }, [shell.panel(_('Доступ сервисов'), E('div', {}, [stats, toolbar, groupsRoot]), _('Профиль DNS выбирается отдельно для каждого сервиса.'))]), sidebar]);
+    return E('div', { 'class': 'z2m-dns-access-layout' }, [E('div', { 'class': 'z2m-dns-access-main' }, [shell.panel(_('Доступ сервисов'), E('div', {}, [stats, toolbar, draftActions, groupsRoot]), _('Профиль DNS выбирается отдельно для каждого сервиса.'))]), sidebar]);
   }
 
   /* ---- donor-adapted per-domain routing pane ---- */
@@ -1068,7 +1091,9 @@ function unmount() {
   state.disposed = true;
   state.openPane = null;
   if (state.serviceOperationTimer) window.clearTimeout(state.serviceOperationTimer);
+  if (state.tiktokAutoTimer) window.clearTimeout(state.tiktokAutoTimer);
   state.serviceOperationTimer = null;
+  state.tiktokAutoTimer = null;
   state.serviceOperationInFlight = false;
 }
 

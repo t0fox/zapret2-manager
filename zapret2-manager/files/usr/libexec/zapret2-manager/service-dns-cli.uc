@@ -29,7 +29,8 @@ import {
 	service_dns_apply,
 	service_dns_rollback,
 	service_dns_apply_async,
-	service_dns_apply_status
+	service_dns_apply_status,
+	service_dns_tiktok_set, service_dns_tiktok_status, service_dns_tiktok_check
 } from './service-dns.uc';
 
 let cmd = ARGV[0];
@@ -63,6 +64,14 @@ if (cmd == 'providers') {
 	let obj = null;
 	if (file) { let raw = readfile(file); if (raw) { try { obj = json(raw); } catch (e) {} } }
 	print(sprintf("%J", service_dns_apply_status({ args: obj || {} })) + '\n');
+} else if (cmd == 'tiktok-status') {
+	print(sprintf("%J", service_dns_tiktok_status()) + '\n');
+} else if (cmd == 'tiktok-check') {
+	print(sprintf("%J", service_dns_tiktok_check()) + '\n');
+} else if (cmd == 'tiktok-set') {
+	let file = ARGV[1], raw = file ? readfile(file) : null, obj = null;
+	if (raw) { try { obj = json(raw); } catch (e) {} }
+	print(sprintf("%J", service_dns_tiktok_set({ args: obj || {} })) + '\n');
 } else if (cmd == 'rollback') {
 	print(sprintf("%J", service_dns_rollback()) + '\n');
 } else {

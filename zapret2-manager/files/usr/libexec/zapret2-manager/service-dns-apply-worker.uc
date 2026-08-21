@@ -54,6 +54,15 @@ function remove_manager_confdir(values) {
 	return out;
 }
 function contains(values, value) { for (let i = 0; i < length(values); i++) if (values[i] == value) return true; return false; }
+function rollback_address_snapshot(current) {
+	let nowState = {}, oldState = {};
+	try { nowState = json(readfile(statePath)) || {}; } catch (e) {}
+	try { oldState = json(job.previousState) || {}; } catch (e) {}
+	let currentManaged = nowState.serviceDns && nowState.serviceDns.applied && nowState.serviceDns.applied.managedAddressEntries || [], previousManaged = oldState.serviceDns && oldState.serviceDns.applied && oldState.serviceDns.applied.managedAddressEntries || [], external = [];
+	for (let i = 0; i < length(current || []); i++) if (!contains(currentManaged, current[i])) push(external, current[i]);
+	for (let i = 0; i < length(previousManaged); i++) push(external, previousManaged[i]);
+	return external;
+}
 
 function active_dnsmasq() {
 	let r = run("ubus call service list '{\"name\":\"dnsmasq\"}'");
@@ -92,6 +101,7 @@ function restore_uci() {
 	let lc = load_cursor(job.nativeUciPrecondition.activeSection);
 	if (!lc) return false;
 	if (set_list(lc.cursor, job.nativeUciPrecondition.activeSection, 'server', job.previousUciServerEntries) === false) return false;
+	if (job.previousUciAddressEntries != null && set_list(lc.cursor, job.nativeUciPrecondition.activeSection, 'address', job.previousUciAddressEntries) === false) return false;
 	if (set_list(lc.cursor, job.nativeUciPrecondition.activeSection, 'confdir', job.previousUciConfdirEntries) === false) return false;
 	return lc.cursor.commit('dhcp') !== false;
 }
@@ -124,7 +134,9 @@ function rollback_job() {
 	let loaded = load_cursor(active.section);
 	if (!loaded) fail_before_write('ETARGET', 'active dnsmasq UCI section unavailable');
 	let current = list_value(loaded.all, 'server');
-	if (!same_list(current, job.expectedCurrentServer || [])) fail_before_write('ECONFLICT', 'dnsmasq server list changed since apply');
+	let currentAddress = list_value(loaded.all, 'address');
+	if (!same_list(current, job.expectedCurrentServer || []) || !same_list(currentAddress, job.expectedCurrentAddress || [])) fail_before_write('ECONFLICT', 'dnsmasq UCI list changed since apply');
+	job.previousUciAddressEntries = rollback_address_snapshot(currentAddress);
 	write_job({ phase: 'mutating', finished: false });
 	if (!restore_uci() || !restore_legacy_files()) fail_before_write('EUCIWRITE', 'cannot restore native dnsmasq snapshot');
 	write_job({ phase: 'reloading' });
@@ -156,8 +168,9 @@ if (!active || active.section != pre.activeSection) fail_before_write('ECONFLICT
 let loaded = load_cursor(active.section);
 if (!loaded) fail_before_write('ETARGET', 'active dnsmasq UCI section unavailable');
 let currentServer = list_value(loaded.all, 'server');
+let currentAddress = list_value(loaded.all, 'address');
 let currentConfdir = list_value(loaded.all, 'confdir');
-if (list_hash(currentServer) != pre.serverListHash || list_hash(currentConfdir) != pre.confdirListHash)
+if (list_hash(currentServer) != pre.serverListHash || (pre.addressListHash != null && list_hash(currentAddress) != pre.addressListHash) || list_hash(currentConfdir) != pre.confdirListHash)
 	fail_before_write('ECONFLICT', 'dnsmasq UCI list changed since preview');
 
 write_job({ phase: 'mutating', finished: false });
@@ -165,6 +178,8 @@ write_job({ phase: 'mutating', finished: false });
 // disconnected before any config or runtime verification takes place.
 if (set_list(loaded.cursor, active.section, 'server', job.resultingServerEntries) === false)
 	fail_before_write('EUCIWRITE', 'cannot set native server entries');
+if (job.resultingAddressEntries != null && set_list(loaded.cursor, active.section, 'address', job.resultingAddressEntries) === false)
+	fail_before_write('EUCIWRITE', 'cannot set managed address overrides');
 if (set_list(loaded.cursor, active.section, 'confdir', remove_manager_confdir(currentConfdir)) === false)
 	fail_before_write('EUCIWRITE', 'cannot remove manager confdir');
 if (loaded.cursor.commit('dhcp') === false) fail_and_rollback('EUCICOMMIT', 'dhcp commit failed');
@@ -172,6 +187,8 @@ if (loaded.cursor.commit('dhcp') === false) fail_and_rollback('EUCICOMMIT', 'dhc
 loaded = load_cursor(active.section);
 if (!loaded || !same_list(list_value(loaded.all, 'server'), job.resultingServerEntries))
 	fail_and_rollback('EUCIREADBACK', 'server list readback mismatch');
+if (job.resultingAddressEntries != null && (!loaded || !same_list(list_value(loaded.all, 'address'), job.resultingAddressEntries)))
+	fail_and_rollback('EUCIREADBACK', 'address override readback mismatch');
 if (contains(list_value(loaded.all, 'confdir'), MANAGER_CONFDIR))
 	fail_and_rollback('EUCIREADBACK', 'legacy confdir remains registered');
 
@@ -195,13 +212,18 @@ for (let i = 0; i < length(job.resultingServerEntries); i++) {
 	if (substr(entry, 0, 1) == '/' && index(effective, 'server=' + entry) < 0)
 		fail_and_rollback('EVERIFY', 'effective config misses native server entry');
 }
+if (job.resultingAddressEntries != null) for (let j = 0; j < length(job.resultingAddressEntries); j++) {
+	let address = job.resultingAddressEntries[j];
+	if (substr(address, 0, 1) == '/' && index(effective, 'address=' + address) < 0)
+		fail_and_rollback('EVERIFY', 'effective config misses managed address override');
+}
 let check = load_cursor(active.section);
 if (!check || contains(list_value(check.all, 'confdir'), MANAGER_CONFDIR))
 	fail_and_rollback('EVERIFY', 'legacy confdir remains registered');
 
 let state = {}; try { state = json(readfile(statePath)) || {}; } catch (e) {}
 let sd = state.serviceDns || {};
-sd.applied = { selections: job.desiredSelections || {}, revision: job.revision, managedServerEntries: job.managedServerEntries || [], externallySatisfiedEntries: job.externallySatisfiedEntries || [], verification: { config: 'ok', dnsmasq: 'ok', routingRegistered: true, providerRouting: 'unverified' }, verifiedAt: now() };
+sd.applied = { selections: job.desiredSelections || {}, revision: job.revision, managedServerEntries: job.managedServerEntries || [], externallySatisfiedEntries: job.externallySatisfiedEntries || [], managedAddressEntries: job.managedAddressEntries || [], externallySatisfiedAddressEntries: job.externallySatisfiedAddressEntries || [], verification: { config: 'ok', dnsmasq: 'ok', routingRegistered: true, providerRouting: 'unverified' }, verifiedAt: now() };
 sd.pending = null;
 sd.lastOperation = { operationId: job.operationId, state: 'success', phase: 'success', error: null, finishedAt: now() };
 state.serviceDns = sd;
