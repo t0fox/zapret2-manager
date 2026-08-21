@@ -16,3 +16,20 @@ test('Task 3: native-preflight.uc implements dual-layer capability gating', () =
   assert.match(content, /engineCapabilities/, 'Coverage must include engineCapabilities');
   assert.match(content, /Z2K_TLS_MOD|EENGINE_CAPABILITY_MISSING/, 'Must check for Z2K_TLS_MOD and report capability missing');
 });
+
+test('Task 3b: native preflight executes the production Lua init chain', () => {
+  const preflightPath = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/native-preflight.uc');
+  const content = fs.readFileSync(preflightPath, 'utf8');
+  for (const file of [
+    'zapret-lib.lua',
+    'zapret-antidpi.lua',
+    'zapret-auto.lua',
+    'z2k-modern-core.lua',
+    'z2k-detectors.lua',
+    'z2k-fooling-ext.lua',
+    'z2k-state-persist.lua'
+  ]) {
+    assert.match(content, new RegExp(`'${file}'`), `preflight must load ${file}`);
+  }
+  assert.match(content, /--lua-init=' \+ shell_escape\('\@' \+ RUNTIME_LUA_ROOT/);
+});

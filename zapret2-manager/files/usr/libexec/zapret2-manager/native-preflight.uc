@@ -10,6 +10,16 @@ import { z2m_tokenize, z2m_parse, z2m_validate } from './profiles.uc';
 const NFQWS2_BIN = '/opt/zapret2/nfq2/nfqws2';
 const MANIFEST = '/usr/share/zapret2-manager/native-preflight.json';
 const ALLOWED_LUA_ROOT = '/opt/zapret2/';
+const RUNTIME_LUA_ROOT = '/opt/zapret2/lua/';
+const RUNTIME_LUA_FILES = [
+	'zapret-lib.lua',
+	'zapret-antidpi.lua',
+	'zapret-auto.lua',
+	'z2k-modern-core.lua',
+	'z2k-detectors.lua',
+	'z2k-fooling-ext.lua',
+	'z2k-state-persist.lua'
+];
 
 function shell_escape(value) {
 	let s = '' + value, out = "'";
@@ -94,6 +104,8 @@ function probe_binary_capabilities(binaryPath) {
 function command_for(candidate, mode) {
 	let tokens = z2m_tokenize(candidate).tokens;
 	let cmd = shell_escape(NFQWS2_BIN) + ' ' + mode + ' --qnum=30999';
+	for (let i = 0; i < length(RUNTIME_LUA_FILES); i++)
+		cmd += ' --lua-init=' + shell_escape('@' + RUNTIME_LUA_ROOT + RUNTIME_LUA_FILES[i]);
 	for (let i = 0; i < length(tokens); i++) cmd += ' ' + shell_escape(tokens[i].value);
 	return cmd;
 }

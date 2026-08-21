@@ -1586,7 +1586,7 @@
   .z2m-view#z2m-view-strategy .learned-modal-toolbar-left { width:100%; }
   .z2m-view#z2m-view-strategy .learned-search-wrap { width:100%; max-width:none; }
 }
-@media(max-width:1200px){
+@media(max-width:1600px){
   .z2m-view#z2m-view-strategy .learned-modal-table-wrap { overflow-x:hidden !important; }
   .z2m-view#z2m-view-strategy .learned-modal-table,
   .z2m-view#z2m-view-strategy .learned-modal-table tbody { display:block; width:100%; }

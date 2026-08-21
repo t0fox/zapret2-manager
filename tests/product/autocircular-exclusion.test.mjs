@@ -106,7 +106,7 @@ test('Lua persistence contract recognizes excluded as a user mode and has a per-
   assert.match(lua, /plan_clear\(desync\)/);
 });
 
-test('Discord enable validates, creates, and applies through canonical Strategy lifecycle', () => {
+test('Discord enable uses the existing canonical Discord preview/apply lifecycle', () => {
   const donor = fs.readFileSync(donorPath, 'utf8');
   const cli = fs.readFileSync(cliPath, 'utf8');
   const api = fs.readFileSync(apiPath, 'utf8');
@@ -114,13 +114,16 @@ test('Discord enable validates, creates, and applies through canonical Strategy 
   assert.match(donor, /key=discord_udp/);
   assert.match(donor, /hostkey=z2k_nohost_key/);
   assert.match(cli, /mode == 'discord_donor'/);
-  assert.match(api, /strategiesDiscordDonor/);
-  assert.doesNotMatch(fs.readFileSync(viewPath, 'utf8'), /discordProfileApply/);
+  assert.match(api, /discordProfilePreview/);
+  assert.match(api, /discordProfileApply/);
   const view = fs.readFileSync(viewPath, 'utf8');
   const enable = view.slice(view.indexOf('function enableDiscord'), view.indexOf('function excludeLearned'));
-  assert.match(enable, /api\.validate/);
-  assert.match(enable, /api\.create/);
+  assert.match(enable, /api\.preview/);
   assert.match(enable, /api\.apply/);
-  assert.match(enable, /api\.delete/);
+  assert.match(enable, /changeHash/);
+  assert.match(enable, /idempotencyToken/);
+  assert.match(enable, /refreshData\(true\)[\s\S]*renderLearnedModal/);
+  assert.doesNotMatch(enable, /api\.create/);
+  assert.doesNotMatch(enable, /api\.validate/);
   assert.doesNotMatch(enable, /renderEditorForm/);
 });

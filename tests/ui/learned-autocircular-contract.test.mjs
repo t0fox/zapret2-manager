@@ -94,13 +94,13 @@ test('LEARNED_TABLE_LAYOUT: wide tables remain scrollable and narrow tables do n
   assert.match(css, /learned-modal-table[^}]*table-layout:fixed/);
   assert.match(css, /learned-modal-table th:nth-child\(5\)[^}]*display:none/);
   assert.match(css, /learned-modal-table th:nth-child\(6\)[^}]*display:none/);
-  assert.match(css, /@media\(max-width:1200px\)[\s\S]*learned-modal-table tr[^}]*display:grid/);
+  assert.match(css, /@media\(max-width:1600px\)[\s\S]*learned-modal-table tr[^}]*display:grid/);
   assert.match(css, /@media\(max-width:700px\)[\s\S]*learned-modal-table[^}]*display:block/);
   assert.match(css, /@media\(max-width:700px\)[\s\S]*learned-modal-table-wrap[^}]*overflow-x:visible/);
   assert.match(css, /learned-modal-table td:nth-child\(1\)[^}]*width:auto !important/);
   assert.match(css, /learned-modal-table td:nth-child\(4\)[^}]*width:100% !important/);
   assert.match(css, /learned-modal-table td:nth-child\(4\) \.btn[^}]*min-width:86px/);
-  assert.match(shell, /learned-table-2/);
+  assert.match(shell, /learned-table-4/);
   assert.match(page, /title="Исключить из DPI-обхода">Исключить<\/button>/);
 });
 
@@ -109,4 +109,12 @@ test('CATALOG_PRIMARY_SUMMARY: catalog identity stays out of the primary strateg
   assert.doesNotMatch(page, /catalog-summary-provenance/);
   assert.doesNotMatch(page, /Управляемый snapshot/);
   assert.doesNotMatch(page, /Пакетный baseline/);
+});
+
+test('DISCORD_RUNTIME_STATUS: active canonical Discord profile is recognized after reload', () => {
+  const page = read('z2m-strategies.js');
+  assert.match(page, /function discordRuntimeActive\(data\)/);
+  assert.match(page, /--filter-udp=19294-19344,50000-50100/);
+  assert.match(page, /--filter-l7=discord,stun/);
+  assert.match(page, /discordRuntimeActive\(state\.data\)/);
 });
