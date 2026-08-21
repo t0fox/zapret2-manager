@@ -10,20 +10,20 @@ function routeTitle(route) { return { warp: _('WARP / MASQUE'), 'warp-setup': _(
 
 function render(ctx) {
   var route = ctx.routeParams && ctx.routeParams.tab === 'setup' ? 'warp-setup' : (ctx.routeParams && ctx.routeParams.tab === 'warp-in-warp' ? 'warp-in-warp' : ctx.route), title = routeTitle(route), root = E('section', { 'class': 'z2m-view on' });
-  var reason = _('Backend пока не реализован: нет подтверждённого WARP RPC-контракта для состояния, настройки или применения.');
-  root.appendChild(E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, title), E('p', {}, _('Полный UI-контур подготовлен; backend-зависимые действия отключены до появления поддержанного контракта.'))])]));
-  root.appendChild(Shell.statePanel({ title: _('Функция недоступна'), message: reason, kind: 'info' }));
+  var reason = _('Компонент WARP / MASQUE не установлен: в текущем Z2M runtime нет поддержанного backend owner.');
+  root.appendChild(E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, title), E('p', {}, _('Компонент показывается честно; установка и управление станут доступны только вместе с поддержанным provider и RPC-контрактом.'))])]));
+  root.appendChild(Shell.statePanel({ title: _('Компонент не установлен'), message: reason, kind: 'info' }));
 
   if (route === 'warp') {
     root.appendChild(Shell.panel(_('Состояние туннеля'), E('div', { 'class': 'z2m-kv-grid' }, [
-      E('div', {}, [E('span', {}, _('Состояние')), E('strong', {}, _('Не проверено'))]),
+      E('div', {}, [E('span', {}, _('Состояние')), E('strong', {}, _('Не установлен'))]),
       E('div', {}, [E('span', {}, _('Протокол')), E('strong', {}, _('WARP / MASQUE'))]),
       E('div', {}, [E('span', {}, _('Endpoint')), E('strong', {}, _('Неизвестно'))]),
       E('div', {}, [E('span', {}, _('Маршруты')), E('strong', {}, _('Не загружены'))])
     ]), _('Фальшивые runtime-данные не показываются.')));
     root.appendChild(Shell.panel(_('Управление'), E('div', { 'class': 'z2m-page-actions' }, [
-      disabledButton(_('Подключить'), 'primary'), disabledButton(_('Отключить')), disabledButton(_('Обновить состояние'))
-    ]), _('Действия станут доступны после появления backend owner.')));
+      disabledButton(_('Установить'), 'primary'), disabledButton(_('Обновить состояние'))
+    ]), _('Установка отключена: owner/provider отсутствует, поэтому UI не имитирует install или runtime state.')));
   } else if (route === 'warp-setup') {
     root.appendChild(Shell.panel(_('Параметры подключения'), E('div', { 'class': 'z2m-form-grid' }, [
       input(_('Endpoint')), input(_('Account / token'), 'password'), input(_('Регион / маршрут')),
@@ -44,4 +44,4 @@ function render(ctx) {
   return root;
 }
 
-return baseclass.extend({ id: 'warp', title: _('WARP / MASQUE'), subtitle: _('Backend пока не реализован'), load: function () { return Promise.resolve({}); }, render: render });
+return baseclass.extend({ id: 'warp', title: _('WARP / MASQUE'), subtitle: _('Компонент не установлен'), load: function () { return Promise.resolve({}); }, render: render });

@@ -24,7 +24,7 @@ test('WARP routes expose complete truthful disabled UI without backend calls', (
   for (const route of ['warp', 'warp-setup', 'warp-in-warp']) {
     assert.match(app, new RegExp(`(?:['"]${route}['"]|${route})\\s*:\\s*Warp`), `route ${route} is not wired`);
   }
-  for (const label of ['WARP / MASQUE', 'Настройка WARP', 'WARP-in-WARP', 'Подключить', 'Автозапуск', 'Endpoint', 'Backend пока не реализован']) {
+  for (const label of ['WARP / MASQUE', 'Настройка WARP', 'WARP-in-WARP', 'Установить', 'Автозапуск', 'Endpoint', 'Компонент не установлен']) {
     assert.match(warp, new RegExp(label, 'i'), `missing WARP UI surface: ${label}`);
   }
   assert.doesNotMatch(warp, /ctx\.api\./, 'disabled WARP UI must not invent RPC calls');
