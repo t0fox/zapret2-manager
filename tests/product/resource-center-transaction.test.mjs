@@ -18,6 +18,7 @@ test('Asset Registry exposes a staged, hash-verified, all-or-nothing bundle tran
   assert.match(registry, /\.previous/);
   assert.match(registry, /postflight/);
   assert.ok(registry.indexOf('function sha256_file') < registry.indexOf('function postflight'), 'postflight must use a previously declared hash helper in router ucode');
+  assert.ok(registry.indexOf('function content_size') < registry.indexOf('function postflight'), 'postflight must use a previously declared size helper in router ucode');
   assert.match(registry, /rollbackAvailable: true/);
   assert.match(registry, /old.provenance.kind != 'catalog\/upstream'/);
   assert.match(registry, /item.expectedRevision == null/);

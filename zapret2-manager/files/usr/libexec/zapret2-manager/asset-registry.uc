@@ -119,6 +119,7 @@ function state_save(state) { return atomic_write(STATE, sprintf('%J', state) + '
 function rollback_path(path) { return path + '.previous'; }
 function rollback_save(value) { return atomic_write(ROLLBACK_STATE, sprintf('%J', value) + '\n'); }
 function rollback_load() { let raw = readfile(ROLLBACK_STATE); if (raw == null || length(raw) > MAX_STATE_BYTES + 64 * 1024) return null; try { let value = json(raw); return object(value) && value.schema == 1 && type(value.records) == 'array' ? value : null; } catch (e) { return null; } }
+function content_size(path) { let s = stat(path); return object(s) && type(s.size) == 'int' ? s.size : -1; }
 function sha256_file(path) { if (!regular(path)) return null; let r = command("sha256sum " + shell_quote(path) + " | awk '{print $1}'"), digest = trim(r.out); return r.rc == 0 && match(digest, /^[a-f0-9]{64}$/) ? digest : null; }
 function postflight(path, item) { let actual = sha256_file(path), size = content_size(path); return actual != null && actual == item.sha256 && size == item.byteSize; }
 function base64_decode(value) {
@@ -182,7 +183,6 @@ function find_asset(state, id) { for (let i = 0; i < length(state.assets); i++) 
 function server_asset_path(kind, slug) { return USER_ROOT + '/' + kind + '/' + slug + '.' + EXT[kind]; }
 function mutable_asset_path_safe(asset) { let slug = substr(asset.id, length(asset.type) + 1); return asset.mutable == true && asset.path == server_asset_path(asset.type, slug) && under(asset.path, USER_ROOT); }
 function references_copy(asset) { return copy_array(asset.references); }
-function content_size(path) { let s = stat(path); return object(s) && type(s.size) == 'int' ? s.size : -1; }
 function staged_path_safe(path) { return string(path) && under(path, STAGE_ROOT) && regular(path); }
 function valid_sha(value) { return string(value) && match(value, /^[a-f0-9]{64}$/); }
 function package_manifest_asset(id) {
