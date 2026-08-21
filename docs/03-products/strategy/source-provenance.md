@@ -32,6 +32,25 @@ The installed runtime catalog is the verified, package-owned Avatar-derived
 snapshot. Upstream metadata and donor references are provenance only; they do
 not replace the Z2M runtime authority or change execution semantics.
 
+## Donor renderer trace
+
+The current Avatar behavioral donor for the editor is
+`avatarDD/zapret-gui@8c44df2bed98872d1348db053623ee6bf2902408`,
+`web/js/pages/strategies.js`. The Z2M page keeps the donor renderer boundary
+and adapts only the platform transport and safety contract:
+
+| Donor renderer behavior | Z2M transplant boundary |
+|---|---|
+| `openEditor` opens `#strategy-modal` before editor work | `openEdit` opens the same modal with a loading/error state before one targeted `strategies_get` |
+| `renderEditorForm` and `renderProfileEditor` own the editor surface | `z2m-strategies.js` keeps those surfaces and adds lossless Visual/Raw controls |
+| profile filter/hostlist pickers and raw args editor | canonical Z2M Asset Registry and `profile-args` editor |
+| Preview and Save operate on the aggregate Strategy | `strategies_preview`, `strategies_validate`, `strategies_create/update` |
+| modal resize and editor lifecycle cleanup | v2 geometry migration, scoped workspace controls, and `unbindWorkspaceResize` |
+
+This is a donor transplant with an OpenWrt/LuCI adapter, not a second Strategy
+page or a second compiler. Unknown syntax remains Raw-only and the canonical
+Strategy API remains the sole mutation authority.
+
 ## Lossless identity
 
 The semantic fingerprint includes globals, ordered profile boundaries,
