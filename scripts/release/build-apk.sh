@@ -87,12 +87,12 @@ SDK_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print -quit)
 PACKAGE_ROOT="$SDK_DIR/package/z2m"
 
 printf 'release build: updating and installing OpenWrt feeds\n'
-FEED_NAMES='base packages luci routing telephony video'
+FEED_NAMES='base packages luci'
 FEEDS_READY=0
 for FEED_ATTEMPT in 1 2 3; do
 	if (
 		cd "$SDK_DIR"
-		./scripts/feeds update -a
+		./scripts/feeds update $FEED_NAMES
 	); then
 		FEEDS_READY=1
 		for FEED_NAME in $FEED_NAMES; do
@@ -104,7 +104,7 @@ for FEED_ATTEMPT in 1 2 3; do
 	fi
 	if [ "$FEEDS_READY" -eq 1 ] && (
 		cd "$SDK_DIR"
-		./scripts/feeds install -a
+		./scripts/feeds install $FEED_NAMES
 	); then
 		break
 	fi
