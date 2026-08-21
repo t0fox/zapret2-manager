@@ -41,5 +41,8 @@ test('start and restart verify the live nfqws2 contract before committing identi
 });
 
 test('status collector treats a table without NFQUEUE 300 rules as not ready', () => {
-  assert.ok(collector().includes("index(raw, 'queue num ' + NFQUEUE)"));
+  const text = collector();
+  assert.ok(text.includes("index(raw, 'queue num ' + NFQUEUE)"));
+  assert.ok(text.includes("index(raw, ' to ' + NFQUEUE)"),
+    'collector must accept the current nftables queue ... to 300 rendering');
 });

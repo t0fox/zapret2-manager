@@ -588,6 +588,10 @@ test('package target-builds the complete production helper with json-c', () => {
 
   assert.match(makefile, /^\s*DEPENDS:=[^\n]*\+libjson-c(?:\s|$)/m,
     'package must declare the libjson-c runtime dependency');
+  assert.match(makefile, /^\s*DEPENDS:=[^\n]*\+kmod-nfnetlink-queue(?:\s|$)/m,
+    'package must declare the NFNETLINK_QUEUE kernel dependency');
+  assert.match(makefile, /^\s*DEPENDS:=[^\n]*\+kmod-nft-queue(?:\s|$)/m,
+    'package must declare the nft queue kernel dependency');
 });
 
 test('package builds and installs the fixed Scanner firewall ownership helper', () => {

@@ -195,7 +195,12 @@ function health_block() {
 function rules_present() {
 	try {
 		let raw = sh('nft list table inet ' + NFT_TABLE);
-		return length(raw) && index(raw, 'chain ') >= 0 && index(raw, 'queue num ' + NFQUEUE) >= 0;
+		// nftables renders the queue target as either `queue num 300` (older
+		// versions) or `queue ... to 300` (current nft syntax). Both are an
+		// actual production rule targeting our queue.
+		let legacy = index(raw, 'queue num ' + NFQUEUE) >= 0;
+		let current = index(raw, 'queue ') >= 0 && index(raw, ' to ' + NFQUEUE) >= 0;
+		return length(raw) && index(raw, 'chain ') >= 0 && (legacy || current);
 	} catch (e) {
 		return false;
 	}
