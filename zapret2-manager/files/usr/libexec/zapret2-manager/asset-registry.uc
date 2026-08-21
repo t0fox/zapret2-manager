@@ -119,8 +119,8 @@ function state_save(state) { return atomic_write(STATE, sprintf('%J', state) + '
 function rollback_path(path) { return path + '.previous'; }
 function rollback_save(value) { return atomic_write(ROLLBACK_STATE, sprintf('%J', value) + '\n'); }
 function rollback_load() { let raw = readfile(ROLLBACK_STATE); if (raw == null || length(raw) > MAX_STATE_BYTES + 64 * 1024) return null; try { let value = json(raw); return object(value) && value.schema == 1 && type(value.records) == 'array' ? value : null; } catch (e) { return null; } }
-function postflight(path, item) { let actual = sha256_file(path), size = content_size(path); return actual != null && actual == item.sha256 && size == item.byteSize; }
 function sha256_file(path) { if (!regular(path)) return null; let r = command("sha256sum " + shell_quote(path) + " | awk '{print $1}'"), digest = trim(r.out); return r.rc == 0 && match(digest, /^[a-f0-9]{64}$/) ? digest : null; }
+function postflight(path, item) { let actual = sha256_file(path), size = content_size(path); return actual != null && actual == item.sha256 && size == item.byteSize; }
 function base64_decode(value) {
 	if (!string(value) || length(value) > 32 * 1024 * 1024 || !match(value, /^[A-Za-z0-9+\/=]*$/)) return null;
 	let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', buffer = 0, bits = 0;
