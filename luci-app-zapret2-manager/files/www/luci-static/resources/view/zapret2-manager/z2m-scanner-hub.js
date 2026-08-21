@@ -645,6 +645,7 @@ function renderHandoffModal() {
     (m.status === 'saved' ? '<div class="z2m-form-hint text-success mb-3">' + Icons.html('check-circle', { size: 14 }) + ' Стратегия успешно сохранена в Z2M!</div>' : '') +
     '</div>' +
     '<div class="modal-footer">' +
+    '<button type="button" class="btn btn-primary" data-action="openInStrategies">Открыть в Стратегии / Strategies IDE</button>' +
     '<button type="button" class="btn btn-ghost" data-action="closeHandoffModal">Закрыть</button>' +
     '<button type="button" class="btn btn-primary" data-action="confirmSaveStrategy" ' + (m.status === 'saving' || m.status === 'saved' ? 'disabled' : '') + '>' +
     (m.status === 'saving' ? 'Сохранение...' : 'Сохранить стратегию в Z2M') +
@@ -759,6 +760,8 @@ function handleAction(action, el, ev) {
     var prod = el.getAttribute('data-product');
     var idx = parseInt(el.getAttribute('data-idx'), 10);
     openHandoffModal(prod, idx);
+  } else if (action === 'openInStrategies') {
+    openInStrategies();
   } else if (action === 'closeHandoffModal') {
     state.handoffModal = null;
     render();
@@ -908,6 +911,13 @@ function openHandoffModal(product, idx) {
   }
 
   if (strat) {
+    strat.metadata = Object.assign({}, strat.metadata || {}, {
+      provenance: {
+        source: 'scanner', scan: product, scanId: (state[product === 'blockcheckw' ? 'bcwJob' : 'bc2Job'] || {}).id || 'transient',
+        catalog: product === 'blockcheckw' ? state.bcw.strategy_source : state.bc2.strategy_source,
+        finding: idx, revision: null
+      }
+    });
     state.handoffModal = {
       open: true,
       product: product,
@@ -918,6 +928,24 @@ function openHandoffModal(product, idx) {
     };
     render();
   }
+}
+
+function openInStrategies() {
+  if (!state.handoffModal || !state.handoffModal.strategy) return;
+  var strategy = state.handoffModal.strategy, provenance = strategy.metadata && strategy.metadata.provenance || {};
+  var payload = { version: 1, strategy: strategy, provenance: provenance };
+  try {
+    var encoded = JSON.stringify(payload);
+    if (encoded.length > 65536) throw new Error('Scanner handoff is too large');
+    sessionStorage.setItem('z2m.strategy.scanner-handoff.v1', encoded);
+  } catch (error) {
+    state.activeError = 'Не удалось подготовить transient Scanner handoff: ' + error.message;
+    render(); return;
+  }
+  state.handoffModal = null;
+  render();
+  // Canonical navigation boundary; Strategies/IDE performs Preview -> Validate -> Save -> Apply.
+  if (state.ctx && state.ctx.navigate) state.ctx.navigate('strategy');
 }
 
 function saveHandoffStrategy() {
