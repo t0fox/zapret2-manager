@@ -45,6 +45,22 @@ function engine_contract() {
 	return { installed: config && binary && init, runtimeContract: config && binary && init };
 }
 
+// Keep this observation cheap enough for the fast status path.  The full
+// collector exposes the same shape, and the Dashboard uses it for the
+// autostart card when status_fast is the selected transport.
+function autostart_observation() {
+	let enabled = false, links = [];
+	try {
+		let entries = lsdir('/etc/rc.d') || [];
+		for (let i = 0; i < length(entries); i++) {
+			if (index(entries[i], 'zapret2') < 0) continue;
+			push(links, entries[i]);
+			if (substr(entries[i], 0, 1) == 'S') enabled = true;
+		}
+	} catch (e) { }
+	return { enabled: enabled, symlinks: links };
+}
+
 function queue_observation(rows) {
 	let q = parse_queue(), ownerConflict = false, ownerPid = null;
 	if (q.registered) {
@@ -87,7 +103,7 @@ function collect() {
 	let state = service_state(contract, rows, queue);
 	return { ok: true, schema: 'status-fast.v1', generatedAt: time(), generation: selected ? selected.revision : null,
 		serviceState: state, engine: contract, runtime: { present: length(rows) > 0, instances: rows, count: length(rows), rulesPresent: null },
-		health: { queue: queue }, strategyStatus: selected, runtimeSummary: runtime_summary(state, rows, queue),
+		health: { queue: queue }, strategyStatus: selected, system: { autostart: autostart_observation() }, runtimeSummary: runtime_summary(state, rows, queue),
 		warnings: queue.ownerConflict ? [{ code: 'queue_owner_conflict', message: 'NFQUEUE зарегистрирован не процессом nfqws2.', severity: 'error' }] : [] };
 }
 
