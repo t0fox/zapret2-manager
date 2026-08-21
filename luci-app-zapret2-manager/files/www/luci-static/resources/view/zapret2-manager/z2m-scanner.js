@@ -4,8 +4,9 @@
 var state = {
   request: { target: 'youtube.com', protocol: 'tcp', mode: 'quick', resume: false, dpi_type: '' },
   scanId: null, status: null, report: null, error: null,
-  timer: null, disposed: true, generation: 0
+  timer: null, disposed: true, generation: 0, statusRetries: 0
 };
+var MAX_STATUS_RETRIES = 20;
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -32,6 +33,11 @@ function answerId(value) {
   value = object(value);
   return text(value.id || value.scanId || object(value.state).id || object(value.record).id || state.scanId) || null;
 }
+function recordPending(value) {
+  value = object(value);
+  var error = object(value.error);
+  return error.code === 'ENOENT' || /Scanner record is unavailable/i.test(text(error.message || value.message || value.error));
+}
 function reference(value) {
   value = object(value);
   return object(value.strategy || value.best || value.bestReference || value.strategyReference || value);
@@ -56,6 +62,8 @@ function schedule(ctx) {
     if (state.disposed || generation !== state.generation) return;
     call(ctx, 'status', { id: state.scanId }).then(function (value) {
       if (state.disposed || generation !== state.generation) return;
+      state.statusRetries = 0;
+      state.error = null;
       state.status = value || {};
       if (!terminal(state.status)) return schedule(ctx);
       return call(ctx, 'results', { id: state.scanId }).then(function (report) {
@@ -65,7 +73,13 @@ function schedule(ctx) {
       });
     }).catch(function (error) {
       if (state.disposed || generation !== state.generation) return;
-      state.error = error;
+      if (recordPending(error) && state.statusRetries < MAX_STATUS_RETRIES) {
+        state.statusRetries++;
+        state.status = { status: 'starting', phase: 'waiting-record' };
+        state.error = null;
+      } else {
+        state.error = error;
+      }
       schedule(ctx);
     });
   }, 1000);
@@ -75,6 +89,8 @@ function load(ctx) {
   if (!state.scanId) return Promise.resolve({ scanId: null, status: null, report: null });
   var id = state.scanId;
   return call(ctx, 'status', { id: id }).then(function (status) {
+    state.statusRetries = 0;
+    state.error = null;
     state.status = status || {};
     if (!terminal(state.status)) return { scanId: id, status: state.status, report: state.report };
     return call(ctx, 'results', { id: id }).then(function (report) {
@@ -82,6 +98,11 @@ function load(ctx) {
       return { scanId: id, status: state.status, report: state.report };
     });
   }).catch(function (error) {
+    if (recordPending(error)) {
+      state.status = { status: 'starting', phase: 'waiting-record' };
+      state.error = null;
+      return { scanId: id, status: state.status, report: state.report };
+    }
     state.error = error;
     return { scanId: id, status: { error: errorText(error) }, report: state.report };
   });
@@ -93,6 +114,7 @@ function start(ctx, controls) {
   if (state.status && state.status.status === 'running') return;
   state.request = safeRequest({ target: controls.target.value, protocol: controls.protocol.value, mode: controls.mode.value, resume: controls.resume.checked, dpi_type: controls.dpi.value });
   state.error = null; state.report = null; state.status = { status: 'starting', phase: 'validating' };
+  state.statusRetries = 0;
   call(ctx, 'start', { request: state.request }).then(function (answer) {
     var accepted = object(answer);
     if (accepted.status == null && accepted.state != null) accepted.status = accepted.state;
