@@ -30,7 +30,7 @@ jobs:
           node-version: 22
 
       - name: Run release contract tests
-        run: node --test tests/release/*.test.mjs
+        run: node --test tests/release/version-contract.test.mjs tests/release/build-manifest.test.mjs
 
       - name: Install OpenWrt SDK host tools
         run: |
