@@ -167,9 +167,28 @@
     if (ctx.type === 'file') return { title: 'Asset ' + ctx.fileType, text: 'Выберите файл из canonical Asset Registry; путь не вводится вручную.' };
     return { title: ctx.flag || ctx.type, text: 'Значение проверяется серверным compiler/validation.' };
   }
+  function workspaceBounds(viewport) {
+    var w = viewport || {}, width = Number(w.width || 960), height = Number(w.height || 720), desktop = width >= 1200;
+    return { minWidth: desktop ? 960 : 420, minHeight: desktop ? 640 : 360, maxWidth: Math.max(desktop ? 960 : 420, width - 32), maxHeight: Math.max(desktop ? 640 : 360, height - 32) };
+  }
   function clampWorkspace(value, viewport) {
-    var v = value || {}, w = viewport || {}, maxW = Math.max(420, Number(w.width || 960) - 40), maxH = Math.max(360, Number(w.height || 720) - 40);
-    return { width: Math.max(420, Math.min(maxW, Number(v.width || 880))), height: Math.max(360, Math.min(maxH, Number(v.height || 640))) };
+    var v = value || {}, bounds = workspaceBounds(viewport), defaults = workspaceDefaults(viewport);
+    return { width: Math.max(bounds.minWidth, Math.min(bounds.maxWidth, Number(v.width || defaults.width))), height: Math.max(bounds.minHeight, Math.min(bounds.maxHeight, Number(v.height || defaults.height))) };
+  }
+  function workspaceDefaults(viewport) {
+    var w = viewport || {}, width = Number(w.width || 960), height = Number(w.height || 720), bounds = workspaceBounds(viewport);
+    return { version: 2, width: Math.min(bounds.maxWidth, Math.max(bounds.minWidth, width >= 1200 ? width - 32 : width - 40)), height: Math.min(bounds.maxHeight, Math.max(bounds.minHeight, height >= 800 ? height - 32 : height - 40)) };
+  }
+  function migrateWorkspaceGeometry(value, viewport) {
+    var v = value || {}, bounds = workspaceBounds(viewport);
+    if (Number(v.version) !== 2 || Number(v.width || 0) < bounds.minWidth || Number(v.height || 0) < bounds.minHeight)
+      return workspaceDefaults(viewport);
+    var clamped = clampWorkspace(v, viewport);
+    return { version: 2, width: clamped.width, height: clamped.height };
+  }
+  function visualSummary(parsed) {
+    var visual = parsed && parsed.visual || {}, ports = visual.ports || {}, targets = [].concat(visual.hostlists || [], visual.ipsets || []), steps = visual.circularSteps || [], desync = visual.circular ? 'Circular · ' + steps.length + ' шага' : ((visual.desync || [])[0] && (visual.desync || [])[0].name) || 'Не задан';
+    return { protocol: (visual.protocols || []).join(', ') || 'Авто', ports: ['TCP ' + ((ports.tcp || []).join(', ') || '—'), 'UDP ' + ((ports.udp || []).join(', ') || '—')].join(' · '), target: targets.join(', ') || 'Не задан', payload: (visual.payloads || []).join(', ') || 'Не задан', desync: desync };
   }
   function circularSteps(value) {
     var parts = splitLua(value), name = valueOf(parts.shift() || ''), steps = [];
@@ -358,7 +377,7 @@
     detachAll: function () { attached.slice().forEach(function (item) { NfqwsAutocomplete.detach(item.textarea); }); if (popup) popup.style.display = 'none'; }
   };
   root.NfqwsSyntax = NfqwsSyntax; root.Nfqws2Lint = Nfqws2Lint; root.NfqwsAutocomplete = NfqwsAutocomplete;
-  root.NfqwsIde = { tokenize: tokenize, parseProfile: parseProfile, serializeProfile: serializeProfile, diagnostics: diagnostics, contextFor: contextFor, suggestions: suggestions, tokenHelp: tokenHelp, circularSteps: circularSteps, clampWorkspace: clampWorkspace };
+  root.NfqwsIde = { tokenize: tokenize, parseProfile: parseProfile, serializeProfile: serializeProfile, diagnostics: diagnostics, contextFor: contextFor, suggestions: suggestions, tokenHelp: tokenHelp, circularSteps: circularSteps, clampWorkspace: clampWorkspace, workspaceDefaults: workspaceDefaults, migrateWorkspaceGeometry: migrateWorkspaceGeometry, visualSummary: visualSummary };
 }(window));
 
 return baseclass.extend({
@@ -373,5 +392,8 @@ return baseclass.extend({
   suggestions: window.NfqwsIde.suggestions,
   tokenHelp: window.NfqwsIde.tokenHelp,
   circularSteps: window.NfqwsIde.circularSteps,
-  clampWorkspace: window.NfqwsIde.clampWorkspace
+  clampWorkspace: window.NfqwsIde.clampWorkspace,
+  workspaceDefaults: window.NfqwsIde.workspaceDefaults,
+  migrateWorkspaceGeometry: window.NfqwsIde.migrateWorkspaceGeometry,
+  visualSummary: window.NfqwsIde.visualSummary
 });

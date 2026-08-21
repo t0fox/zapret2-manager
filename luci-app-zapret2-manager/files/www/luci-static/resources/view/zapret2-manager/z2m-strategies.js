@@ -27,12 +27,12 @@ var FILTER_PRESETS = {
 };
 var state = {
   ctx: null, root: null, data: {}, rows: [], selectedId: null,
-  pending: null, editor: null, preview: null, selectedIds: {},
+  pending: null, operationPending: null, editorLoadingId: null, editor: null, preview: null, selectedIds: {},
   detailLoading: {},
   listUI: null, pollTimer: null, disposed: false, loaded: false,
   healthcheck: null, healthcheckCatalog: [], healthcheckSettings: { open: false, loading: false, draft: null, error: null },
   learned: null, debug: false, clipboardFallback: false,
-  modalResize: null,
+  modalResize: null, editorMaximized: false, editorSidebarCollapsed: false,
   clickHandler: null, changeHandler: null, inputHandler: null,
   keyHandler: null, beforeUnloadHandler: null,
   handoffConsumed: false
@@ -352,6 +352,7 @@ function strategyMeta(strategy) {
 }
 function renderStrategyCard(strategy) {
   var pending = !!state.pending;
+  var editorLoading = state.editorLoadingId === strategy.id;
   var active = strategy.current || strategy.applied;
   var selected = strategy.selected || strategy.id === state.selectedId || !!state.selectedIds[strategy.id];
   var is_favorite = strategy.favorite;
@@ -364,7 +365,7 @@ function renderStrategyCard(strategy) {
     '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
     '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap" id="strategy-details-' + escapeAttr(strategy.id) + '" data-details-loaded="' + (args ? 'true' : 'false') + '">' + args + '</div><div class="strategy-card-actions">' + actions +
     '<button class="strategy-card-toggle" data-action="toggleDetails" data-strategy-id="' + escapeAttr(strategy.id) + '" data-list-ui-toggle type="button" aria-expanded="false" aria-controls="strategy-details-' + escapeAttr(strategy.id) + '" title="Развернуть подробности">' + svgIcon('chevronDown', 12) + '<span class="strategy-card-toggle-label">Подробнее</span></button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Превью команды">' + svgIcon('terminal', 14) + '<span>Превью</span></button><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Скопировать стратегию со всеми профилями">' + svgIcon('clipboard', 14) + '<span>В буфер</span></button><button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Копировать как пользовательскую">' + svgIcon('copy', 14) + '<span>Копировать</span></button>' +
-    (!strategy.isBuiltin ? '<button class="btn btn-ghost btn-sm" data-action="openEdit" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Изменить">' + svgIcon('edit', 14) + '<span>Изменить</span></button><button class="btn btn-ghost btn-sm" data-action="deleteStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Удалить">' + svgIcon('trash', 14) + '<span>Удалить</span></button>' : '') +
+    (!strategy.isBuiltin ? '<button class="btn btn-ghost btn-sm" data-action="openEdit" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending || editorLoading ? ' disabled' : '') + ' title="Изменить">' + svgIcon(editorLoading ? 'loader' : 'edit', 14) + '<span>' + (editorLoading ? 'Открываем…' : 'Изменить') + '</span></button><button class="btn btn-ghost btn-sm" data-action="deleteStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Удалить">' + svgIcon('trash', 14) + '<span>Удалить</span></button>' : '') +
     '</div></div>';
 }
 function renderActiveCard() {
@@ -1118,7 +1119,10 @@ function renderAll() {
   renderFiltersAndList();
   renderBulkBar();
   renderOperationalCards();
-  if (state.editor) renderEditorForm();
+  if (state.editor) {
+    if (state.editor.mode === 'loading' || state.editor.mode === 'loading-error') renderEditorLoading();
+    else renderEditorForm();
+  }
   if (state.preview) renderPreviewModal();
 }
 function strategyById(id) { return state.rows.find(function (strategy) { return strategy.id === id; }); }
@@ -1187,7 +1191,8 @@ function openConfirm(title, message, yes) {
   var button = modal.querySelector('[data-action="confirmYes"]');
   button.onclick = function () { modal.style.display = 'none'; yes(); };
 }
-function workspaceStorageKey(strategy) { return 'z2m.strategy.ide.workspace.v1.' + text(strategy && (strategy.id || 'new')); }
+function workspaceStorageKey(strategy) { return 'z2m.strategy.ide.workspace.v2.' + text(strategy && (strategy.id || 'new')); }
+function legacyWorkspaceStorageKey(strategy) { return 'z2m.strategy.ide.workspace.v1.' + text(strategy && (strategy.id || 'new')); }
 function unbindWorkspaceResize() {
   var resize = state.modalResize; if (!resize) return;
   document.removeEventListener('mousemove', resize.move); document.removeEventListener('mouseup', resize.up); if (resize.handle) resize.handle.removeEventListener('mousedown', resize.down); state.modalResize = null;
@@ -1196,18 +1201,38 @@ function bindWorkspaceResize(strategy) {
   unbindWorkspaceResize();
   var modal = state.root && state.root.querySelector('#strategy-modal .modal-content'); if (!modal) return;
   var handle = modal.querySelector('.workspace-resize-handle'); if (!handle) { handle = document.createElement('button'); handle.type = 'button'; handle.className = 'workspace-resize-handle'; handle.title = 'Изменить размер рабочей области'; handle.setAttribute('aria-label', 'Изменить размер рабочей области'); handle.innerHTML = svgIcon('arrow-down', 12); modal.appendChild(handle); }
-  var saved = null; try { saved = JSON.parse(localStorage.getItem(workspaceStorageKey(strategy)) || 'null'); } catch (_e) {}
-  var geometry = Nfqws2Ide.clampWorkspace(saved || { width: modal.offsetWidth, height: modal.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
+  var saved = null; try { saved = JSON.parse(localStorage.getItem(workspaceStorageKey(strategy)) || localStorage.getItem(legacyWorkspaceStorageKey(strategy)) || 'null'); } catch (_e) {}
+  var geometry = Nfqws2Ide.migrateWorkspaceGeometry ? Nfqws2Ide.migrateWorkspaceGeometry(saved || {}, { width: window.innerWidth, height: window.innerHeight }) : Nfqws2Ide.clampWorkspace(saved || { width: modal.offsetWidth, height: modal.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
   modal.style.width = geometry.width + 'px'; modal.style.height = geometry.height + 'px';
   var origin = null;
   function down(event) { event.preventDefault(); origin = { x: event.clientX, y: event.clientY, width: modal.offsetWidth, height: modal.offsetHeight }; document.addEventListener('mousemove', move); document.addEventListener('mouseup', up); }
   function move(event) { if (!origin) return; var next = Nfqws2Ide.clampWorkspace({ width: origin.width + event.clientX - origin.x, height: origin.height + event.clientY - origin.y }, { width: window.innerWidth, height: window.innerHeight }); modal.style.width = next.width + 'px'; modal.style.height = next.height + 'px'; }
-  function up() { if (!origin) return; origin = null; try { localStorage.setItem(workspaceStorageKey(strategy), JSON.stringify({ width: modal.offsetWidth, height: modal.offsetHeight })); } catch (_e) {} document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); }
+  function up() { if (!origin) return; origin = null; try { localStorage.setItem(workspaceStorageKey(strategy), JSON.stringify({ version: 2, width: modal.offsetWidth, height: modal.offsetHeight })); } catch (_e) {} document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); }
   handle.addEventListener('mousedown', down); state.modalResize = { handle: handle, down: down, move: move, up: up };
 }
-function closeModal() { if (!editorCloseAllowed()) return; unbindWorkspaceResize(); var modal = state.root && state.root.querySelector('#strategy-modal'); if (modal) modal.style.display = 'none'; state.editor = null; }
+function applyEditorWorkspaceClasses() {
+  var modal = state.root && state.root.querySelector('#strategy-modal .modal-content'), layout = state.root && state.root.querySelector('.strat-editor-layout');
+  if (modal) modal.classList.toggle('is-maximized', !!state.editorMaximized);
+  if (layout) layout.classList.toggle('sidebar-collapsed', !!state.editorSidebarCollapsed);
+  var toggle = state.root && state.root.querySelector('[data-action="toggleEditorSidebar"]');
+  if (toggle) { toggle.textContent = state.editorSidebarCollapsed ? 'Показать подсказки' : 'Скрыть подсказки'; toggle.setAttribute('aria-expanded', state.editorSidebarCollapsed ? 'false' : 'true'); }
+  var maximize = state.root && state.root.querySelector('[data-action="toggleWorkspaceMaximize"]');
+  if (maximize) { maximize.textContent = state.editorMaximized ? '⛶' : '⛶'; maximize.title = state.editorMaximized ? 'Восстановить размер' : 'Развернуть'; maximize.setAttribute('aria-label', maximize.title); }
+}
+function toggleWorkspaceMaximize() { state.editorMaximized = !state.editorMaximized; applyEditorWorkspaceClasses(); }
+function toggleEditorSidebar() { state.editorSidebarCollapsed = !state.editorSidebarCollapsed; applyEditorWorkspaceClasses(); }
+function closeModal() { if (!editorCloseAllowed()) return; unbindWorkspaceResize(); var modal = state.root && state.root.querySelector('#strategy-modal'); if (modal) modal.style.display = 'none'; state.editor = null; state.editorLoadingId = null; state.editorMaximized = false; }
 function closePreview() { var modal = state.root && state.root.querySelector('#preview-modal'); if (modal) modal.style.display = 'none'; state.preview = null; }
 function closeConfirm() { var modal = state.root && state.root.querySelector('#strategy-confirm-modal'); if (modal) modal.style.display = 'none'; }
+function renderEditorLoading() {
+  if (!state.editor || !state.root) return;
+  var modal = state.root.querySelector('#strategy-modal'), body = state.root.querySelector('#modal-body'), title = modal && modal.querySelector('.modal-title');
+  if (title) title.textContent = state.editor.mode === 'loading-error' ? 'Редактировать стратегию' : 'Редактировать стратегию';
+  if (body) body.innerHTML = state.editor.mode === 'loading-error'
+    ? '<div class="editor-loading-state editor-loading-error"><div class="editor-loading-card"><div class="editor-loading-icon">!</div><h4 class="editor-loading-title">Не удалось загрузить стратегию</h4><p class="editor-loading-subtitle">' + escapeHtml(errorText(state.ctx, state.editor.loadError)) + '</p><div class="editor-loading-actions"><button class="btn btn-primary" data-action="retryEditorLoad" data-strategy-id="' + escapeAttr(state.editor.strategy.id) + '" type="button">Повторить</button><button class="btn btn-ghost" data-action="closeModal" type="button">Закрыть</button></div></div></div>'
+    : '<div class="editor-loading-state"><div class="editor-loading-card"><div class="editor-loading-spinner" aria-hidden="true">⟳</div><h4 class="editor-loading-title">Загружаем стратегию…</h4><p class="editor-loading-subtitle">Получаем полные профили и ресурсы</p><div class="editor-loading-skeleton"><span></span><span></span><span></span></div></div></div>';
+  if (modal) modal.style.display = 'flex';
+}
 function openCreate() {
   state.editor = { mode: 'create', viewByProfile: { 0: 'visual' }, strategy: { id: '', name: '', description: '', origin: 'user', isBuiltin: false, profiles: [{ id: 'profile-1', name: 'TLS', enabled: true, args: FILTER_PRESETS.tls443 }] } };
   renderEditorForm();
@@ -1233,18 +1258,27 @@ function consumeScannerHandoff() {
   } catch (_error) { try { sessionStorage.removeItem('z2m.strategy.scanner-handoff.v1'); } catch (_ignore) {} }
 }
 function openEdit(id) {
-  var source = strategyById(id); if (!source || state.pending) return;
-  state.pending = 'details'; renderAll();
+  var source = strategyById(id); if (!source || state.editorLoadingId || state.pending) return;
+  state.editorLoadingId = id;
+  state.editor = { mode: 'loading', strategy: source, dirty: false };
+  renderAll();
+  renderEditorLoading();
   call(state.ctx.api.strategies.get, { id: id }).then(function (answer) {
+    if (!answer || answer.ok === false) throw answer || new Error('Strategy read failed');
     var raw = answer && answer.strategy ? answer.strategy : answer;
     var full = Model.normalize(raw, statusValue(state.data), state.selectedId);
     full.metadata = object(raw && raw.metadata);
     full.provenance = strategyProvenance(raw);
-    state.editor = { mode: 'edit', viewByProfile: {}, strategy: JSON.parse(JSON.stringify(full)) };
-    renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
-  }).catch(function (error) { notify('err', errorText(state.ctx, error));
-  }).then(function () { state.pending = null; renderAll(); });
+    if (state.editorLoadingId !== id) return;
+    state.editor = { mode: 'edit', viewByProfile: {}, collapsedProfiles: {}, strategy: JSON.parse(JSON.stringify(full)) };
+    state.editorLoadingId = null;
+    renderAll(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+  }).catch(function (error) {
+    if (state.editorLoadingId !== id) return;
+    state.editorLoadingId = null; state.editor = { mode: 'loading-error', strategy: source, loadError: error, dirty: false }; renderAll(); renderEditorLoading();
+  });
 }
+function retryEditorLoad(id) { if (!id) return; state.editor = null; state.editorLoadingId = null; openEdit(id); }
 function duplicateStrategy(id) {
   var source = strategyById(id); if (!source) return;
   openConfirm('Копировать стратегию', 'Создать пользовательскую копию «' + source.name + '»?', function () {
@@ -1275,14 +1309,12 @@ function addCircularStep(index) { if (!state.editor) return; collectEditor(); va
 function removeCircularStep(index, stepIndex) { if (!state.editor) return; collectEditor(); var profile = state.editor.strategy.profiles[index], parsed = ideProfile(profile); if (!parsed.visual || !parsed.visual.circular) return; parsed.visual.circularSteps.splice(stepIndex, 1); profile.args = Nfqws2Ide.serializeProfile(parsed, { circularSteps: parsed.visual.circularSteps }); renderEditorForm(); }
 function structuredFieldsHtml(parsed) {
   if (!parsed || parsed.mode !== 'structured') return '<div class="ide-raw-only" data-ide-mode="raw-only">Raw-only: syntax is preserved exactly; structured editing is disabled for unknown fragments.</div>';
-  var fields = parsed.fields || {}, ports = fields.ports || {}, desync = (fields.desync || []).map(function (entry) {
-    return entry.name + (Object.keys(entry.options || {}).length ? ':' + Object.keys(entry.options).map(function (key) { return key + '=' + entry.options[key]; }).join(':') : '');
-  }).join(', ');
+  var summary = Nfqws2Ide.visualSummary ? Nfqws2Ide.visualSummary(parsed) : { protocol: 'Авто', ports: '—', target: 'Не задан', payload: 'Не задан', desync: 'Не задан' };
   return '<div class="ide-structured-fields" data-ide-mode="structured">' +
-    '<span><b>Protocol</b>: ' + escapeHtml((fields.protocols || []).join(', ') || '—') + '</span>' +
-    '<span><b>Ports</b>: TCP ' + escapeHtml((ports.tcp || []).join(', ') || '—') + ' · UDP ' + escapeHtml((ports.udp || []).join(', ') || '—') + '</span>' +
-    '<span><b>Hostlist/IPSet</b>: ' + escapeHtml([].concat(fields.hostlists || [], fields.ipsets || []).join(', ') || '—') + '</span>' +
-    '<span><b>Payload</b>: ' + escapeHtml((fields.payloads || []).join(', ') || '—') + ' · <b>Desync</b>: ' + escapeHtml(desync || '—') + '</span>' +
+    '<span><b>Protocol</b>: ' + escapeHtml(summary.protocol) + '</span>' +
+    '<span><b>Ports</b>: ' + escapeHtml(summary.ports) + '</span>' +
+    '<span><b>Hostlist/IPSet</b>: ' + escapeHtml(summary.target) + '</span>' +
+    '<span><b>Payload</b>: ' + escapeHtml(summary.payload) + ' · <b>Desync</b>: ' + escapeHtml(summary.desync) + '</span>' +
     '</div>';
 }
 function circularBuilderHtml(parsed, index) {
@@ -1302,20 +1334,26 @@ function visualProfileHtml(parsed, index) {
     '<label>IPSet<select class="form-input form-input-sm ide-asset-picker" data-visual-field="ipset" data-asset-type="ipset"><option value="">Выберите canonical asset…</option>' + ((visual.ipsets || [])[0] ? '<option selected value="' + escapeAttr((visual.ipsets || [])[0]) + '">' + escapeHtml((visual.ipsets || [])[0]) + '</option>' : '') + '</select></label>' +
     '<label>L7<input class="form-input form-input-sm" data-visual-field="l7" value="' + escapeAttr((parsed.fields.filters || []).filter(function (item) { return typeof item === 'string'; }).join(',')) + '" placeholder="tls,quic"></label>' +
     '<label>Payload<input class="form-input form-input-sm" data-visual-field="payload" value="' + escapeAttr((visual.payloads || []).join(',')) + '" placeholder="tls_client_hello"></label>' +
-    '</div>' + circularBuilderHtml(parsed, index) + '</div>';
+    '</div><div class="asset-loading-note">Загружаем ресурсы…</div>' + circularBuilderHtml(parsed, index) + '</div>';
 }
+function toggleProfileCollapse(index) { if (!state.editor) return; collectEditor(); state.editor.collapsedProfiles = state.editor.collapsedProfiles || {}; state.editor.collapsedProfiles[index] = !state.editor.collapsedProfiles[index]; renderEditorForm(); }
 function renderProfileEditor(profile, index) {
-  var args = profile.args || '', parsed = ideProfile(profile), missing = parsed.diagnostics && parsed.diagnostics.some(function (item) { return item.code === 'missing-target'; }), view = state.editor && state.editor.viewByProfile && state.editor.viewByProfile[index] || (parsed.mode === 'structured' ? 'visual' : 'raw');
-  return '<div class="profile-editor-item" data-index="' + index + '" data-id="' + escapeAttr(profile.id) + '">' +
-    '<div class="profile-editor-header"><label class="toggle-label"><input class="profile-toggle" type="checkbox"' + (profile.enabled !== false ? ' checked' : '') + '> <input class="form-input form-input-sm profile-name" type="text" value="' + escapeAttr(profile.name || profile.id) + '"></label><select class="form-input form-input-sm profile-filter-picker"><option value="">+ фильтр…</option><option value="tls443">TCP 443 · TLS</option><option value="http80">TCP 80 · HTTP</option><option value="quic443">UDP 443 · QUIC</option></select><button class="btn-icon-only" data-action="removeProfile" data-index="' + index + '" title="Удалить профиль">×</button></div>' +
+  var args = profile.args || '', parsed = ideProfile(profile), missing = parsed.diagnostics && parsed.diagnostics.some(function (item) { return item.code === 'missing-target'; }), view = state.editor && state.editor.viewByProfile && state.editor.viewByProfile[index] || (parsed.mode === 'structured' ? 'visual' : 'raw'), collapsed = !!(state.editor && state.editor.collapsedProfiles && state.editor.collapsedProfiles[index]), summary = Nfqws2Ide.visualSummary ? Nfqws2Ide.visualSummary(parsed) : null;
+  var header = '<div class="profile-editor-header"><label class="toggle-label"><input class="profile-toggle" type="checkbox"' + (profile.enabled !== false ? ' checked' : '') + '> <input class="form-input form-input-sm profile-name" type="text" value="' + escapeAttr(profile.name || profile.id) + '"></label><select class="form-input form-input-sm profile-filter-picker"><option value="">+ фильтр…</option><option value="tls443">TCP 443 · TLS</option><option value="http80">TCP 80 · HTTP</option><option value="quic443">UDP 443 · QUIC</option></select><button class="btn btn-ghost btn-sm profile-collapse-toggle" data-action="toggleProfileCollapse" data-index="' + index + '" aria-expanded="' + (!collapsed) + '">' + (collapsed ? 'Развернуть' : 'Свернуть') + '</button><button class="btn-icon-only" data-action="removeProfile" data-index="' + index + '" title="Удалить профиль">×</button></div>';
+  if (collapsed) return '<div class="profile-editor-item profile-collapsed" data-index="' + index + '" data-id="' + escapeAttr(profile.id) + '">' + header + '<div class="profile-collapsed-summary"><b>' + escapeHtml((summary && summary.protocol) || 'Raw-only') + '</b><span>' + escapeHtml((summary && summary.ports) || '') + '</span><span>' + escapeHtml((summary && summary.desync) || '') + '</span><span>' + escapeHtml((summary && summary.target) || '') + '</span>' + (missing ? '<span class="profile-warning-badge">Проверить target</span>' : '') + '</div><textarea class="profile-args" style="display:none">' + escapeHtml(args) + '</textarea></div>';
+  return '<div class="profile-editor-item" data-index="' + index + '" data-id="' + escapeAttr(profile.id) + '">' + header +
     '<div class="ide-mode-tabs"><button class="btn btn-ghost btn-sm' + (view === 'visual' ? ' is-active' : '') + '" data-action="setProfileView" data-index="' + index + '" data-view="visual"' + (parsed.mode !== 'structured' ? ' disabled' : '') + '>Визуально</button><button class="btn btn-ghost btn-sm' + (view === 'raw' ? ' is-active' : '') + '" data-action="setProfileView" data-index="' + index + '" data-view="raw">Raw</button></div>' +
     structuredFieldsHtml(parsed) +
     '<div class="ide-view-region" data-ide-view="visual" style="display:' + (view === 'visual' && parsed.mode === 'structured' ? 'block' : 'none') + '">' + visualProfileHtml(parsed, index) + '</div>' +
-    '<div class="profile-args-wrap nfq-editor" data-ide-view="raw" style="display:' + (view === 'raw' || parsed.mode !== 'structured' ? 'block' : 'none') + '"><pre class="nfq-editor-overlay" aria-hidden="true">' + escapeHtml(args) + '</pre><textarea class="form-textarea profile-args nfq-editor-ta" rows="4" wrap="off" spellcheck="false">' + escapeHtml(args) + '</textarea><span class="profile-args-hint">Ctrl+Space · автодополнение · Raw сохраняется lossless</span></div><div class="profile-hint-msg' + (missing ? ' missing-target' : '') + '">' + (missing ? 'Для desync не задан target scope: добавьте hostlist или ipset.' : 'Неизвестные Z2K-флаги остаются Raw-only и не перезаписываются.') + '</div><div class="nfq-diagnostics" data-diagnostics-for="' + index + '"></div></div>';
+    '<div class="profile-args-wrap nfq-editor" data-ide-view="raw" style="display:' + (view === 'raw' || parsed.mode !== 'structured' ? 'block' : 'none') + '"><pre class="nfq-editor-overlay" aria-hidden="true">' + escapeHtml(args) + '</pre><textarea class="form-textarea profile-args nfq-editor-ta" rows="8" wrap="off" spellcheck="false">' + escapeHtml(args) + '</textarea><span class="profile-args-hint">Ctrl+Space · автодополнение · Raw сохраняется lossless</span></div><div class="profile-hint-msg' + (missing ? ' missing-target' : '') + '">' + (missing ? 'Для desync не задан target scope: добавьте hostlist или ipset.' : 'Неизвестные Z2K-флаги остаются Raw-only и не перезаписываются.') + '</div><div class="nfq-diagnostics" data-diagnostics-for="' + index + '"></div></div>';
 }
 function renderEditorForm() {
   if (!state.editor) return;
-  var strategy = state.editor.strategy, root = state.root.querySelector('#modal-body'), testAvailable = !!(state.ctx && state.ctx.api && state.ctx.api.strategies && state.ctx.api.strategies.test);
+  var strategy = state.editor.strategy, root = state.root.querySelector('#modal-body'), modal = state.root.querySelector('#strategy-modal'), testAvailable = !!(state.ctx && state.ctx.api && state.ctx.api.strategies && state.ctx.api.strategies.test);
+  state.editor.collapsedProfiles = state.editor.collapsedProfiles || {};
+  var modalTitle = modal && modal.querySelector('.modal-title'); if (modalTitle) modalTitle.textContent = state.editor.mode === 'edit' ? 'Редактировать стратегию' : 'Стратегия';
+  var header = modal && modal.querySelector('.modal-header');
+  if (header && !header.querySelector('[data-action="toggleWorkspaceMaximize"]')) { var maximize = document.createElement('button'); maximize.type = 'button'; maximize.className = 'btn btn-ghost btn-sm workspace-maximize'; maximize.dataset.action = 'toggleWorkspaceMaximize'; maximize.title = 'Развернуть'; maximize.setAttribute('aria-label', 'Развернуть'); maximize.textContent = '⛶'; header.insertBefore(maximize, header.querySelector('[data-action="closeModal"]')); }
   var testControl = testAvailable
     ? '<button class="btn btn-ghost btn-sm" data-action="editorTest">Test</button>'
     : '<span class="ide-capability-note">Временный runtime-тест не предоставлен этим backend; сначала используйте Validate и Preview.</span>';
@@ -1325,10 +1363,10 @@ function renderEditorForm() {
     '<div class="form-group"><label class="form-label">Название</label><input id="edit-name" class="form-input" type="text" value="' + escapeAttr(strategy.name) + '"></div>' +
     '<div class="form-group"><label class="form-label">Описание</label><input id="edit-desc" class="form-input" type="text" value="' + escapeAttr(strategy.description || '') + '"></div>' +
     '<div class="form-group"><div class="profile-editor-heading"><label class="form-label">Профили стратегии</label><button class="btn btn-ghost btn-sm" data-action="addProfile">Добавить профиль</button></div><div id="profiles-editor">' + array(strategy.profiles).map(renderProfileEditor).join('') + '</div></div>' +
-    '<div class="form-group"><div class="editor-actions"><button class="btn btn-ghost btn-sm" data-action="editorValidate">Validate</button><button class="btn btn-ghost btn-sm" data-action="editorPreview">Preview</button>' + testControl + '</div><div id="editor-validation-output" class="nfq-diagnostics"></div><pre id="editor-preview-output" class="log-viewer nfq-resizable" style="display:none"></pre></div>' +
-    '<div class="editor-footer"><button class="btn btn-ghost" data-action="closeModal">Отмена</button><button class="btn btn-primary" data-action="saveEditor"' + (state.pending ? ' disabled' : '') + '>' + (state.editor.mode === 'create' ? 'Создать' : 'Сохранить') + '</button></div></div>' +
-    '<aside class="strat-editor-side" id="editor-sidepanel"><div class="nfq-side-card token-help"><div class="nfq-side-title">Справка по синтаксису</div><div class="nfq-side-note nfq-side-token-help">Поставьте курсор на флаг, значение или asset.</div><div class="nfq-side-note">Визуальный режим изменяет только распознанные поля. Raw-only сохраняется byte-for-byte.</div><div class="nfq-side-note">' + (testAvailable ? 'Временный runtime-тест доступен.' : 'Временный runtime-тест не предоставлен backend-контрактом; используйте Validate и Preview.') + '</div></div></aside></div>';
-  bindEditorIDE(); bindWorkspaceResize(strategy);
+    '<div class="form-group"><div class="editor-actions"><button class="btn btn-ghost btn-sm" data-action="editorValidate" data-operation="validate">Validate</button><button class="btn btn-ghost btn-sm" data-action="editorPreview" data-operation="preview">Preview</button>' + testControl + '</div><div id="editor-validation-output" class="nfq-diagnostics"></div><pre id="editor-preview-output" class="log-viewer nfq-resizable" style="display:none"></pre></div>' +
+    '<div class="editor-footer"><button class="btn btn-ghost" data-action="closeModal">Отмена</button><button class="btn btn-primary" data-action="saveEditor" data-operation="save"' + (state.pending ? ' disabled' : '') + '>' + (state.editor.mode === 'create' ? 'Создать' : 'Сохранить') + '</button></div></div>' +
+    '<aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть подсказки</button></div><div class="nfq-side-card token-help"><div class="nfq-side-title">Справка по синтаксису</div><div class="nfq-side-note nfq-side-token-help">Поставьте курсор на флаг, значение или asset.</div><div class="nfq-side-note">Визуальный режим изменяет только распознанные поля. Raw-only сохраняется byte-for-byte.</div><div class="nfq-side-note">' + (testAvailable ? 'Временный runtime-тест доступен.' : 'Временный runtime-тест не предоставлен backend-контрактом; используйте Validate и Preview.') + '</div></div></aside></div>';
+  bindEditorIDE(); bindWorkspaceResize(strategy); applyEditorWorkspaceClasses();
 }
 function bindEditorIDE() {
   if (!state.root || !state.editor) return;
@@ -1345,7 +1383,8 @@ function bindEditorIDE() {
           var value = asset.path || asset.name || asset.id, option = document.createElement('option'); option.value = value; option.textContent = (asset.name || asset.id || value) + (asset.revision != null ? ' · rev ' + asset.revision : ''); option.dataset.assetId = asset.id || ''; option.dataset.assetRevision = asset.revision == null ? '' : asset.revision; option.dataset.assetDigest = asset.contentSha256 || ''; if (value === current) option.selected = true; select.appendChild(option);
         });
       });
-    }).catch(function () {});
+      state.root.querySelectorAll('.asset-loading-note').forEach(function (note) { note.textContent = assets.length ? 'Ресурсы готовы · можно выбрать canonical asset.' : 'Canonical Asset Registry не вернул доступных ресурсов.'; note.classList.add('asset-loading-complete'); });
+    }).catch(function (error) { state.root.querySelectorAll('.asset-loading-note').forEach(function (note) { note.textContent = 'Не удалось загрузить ресурсы: ' + errorText(state.ctx, error); note.classList.add('asset-loading-error'); }); });
   }
   state.root.querySelectorAll('.nfq-editor-ta').forEach(function (textarea) {
     if (autocomplete && autocomplete.attach) autocomplete.attach(textarea);
@@ -1382,6 +1421,15 @@ function bindEditorIDE() {
   });
 }
 function editorDraft() { collectEditor(); return strategyInput(state.editor.strategy); }
+function setEditorOperationBusy(operation, busy) {
+  if (!state.root) return;
+  var labels = { validate: 'Проверяем…', preview: 'Готовим превью…', save: 'Сохраняем…' };
+  state.root.querySelectorAll('[data-operation]').forEach(function (button) {
+    if (busy) { if (!button.dataset.idleLabel) button.dataset.idleLabel = button.textContent; button.disabled = true; if (button.dataset.operation === operation) button.textContent = labels[operation] || 'Выполняем…'; }
+    else { button.disabled = false; if (button.dataset.idleLabel) { button.textContent = button.dataset.idleLabel; delete button.dataset.idleLabel; } }
+  });
+  var cancel = state.root.querySelector('#strategy-modal [data-action="closeModal"]'); if (cancel) cancel.disabled = false;
+}
 function editorValidationText(answer) {
   if (!answer) return 'Сервис не вернул результат';
   if (answer.ok === false) return errorText(state.ctx, answer);
@@ -1390,18 +1438,19 @@ function editorValidationText(answer) {
   return answer.ok === true ? 'Validate: OK · ' + Object.keys(coverage).filter(function (key) { return coverage[key] === 'passed'; }).join(', ') : 'Validate: ' + text(validation.status || 'unknown');
 }
 function validateEditor() {
-  if (!state.editor || state.editor.validationPending) return;
+  if (!state.editor || state.editor.validationPending || state.editor.operationPending) return;
+  var editor = state.editor;
   var draft = editorDraft(), local = [];
   array(state.editor.strategy.profiles).forEach(function (profile, index) {
     Nfqws2Ide.diagnostics(profile.args).forEach(function (item) { local.push(Object.assign({}, item, { path: 'profiles[' + index + '].' + (item.path || 'raw') })); });
   });
   var output = state.root.querySelector('#editor-validation-output');
   if (output) output.innerHTML = local.length ? local.map(function (item) { return '<div class="nfq-diag-' + (item.severity === 'error' ? 'error' : 'warning') + '">' + escapeHtml(item.path + ': ' + item.message) + '</div>'; }).join('') : '<span class="nfq-diag-ok">local diagnostics: ok</span>';
-  state.editor.validationPending = true;
+  state.editor.validationPending = true; state.editor.operationPending = 'validate'; setEditorOperationBusy('validate', true);
   call(state.ctx.api.strategies.validate, { strategy_data: draft, catalog_digest: catalogDigest(state.data), validate: true }).then(function (answer) {
-    state.editor.validationPending = false; state.editor.serverValidated = answer && answer.ok === true;
+    if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = answer && answer.ok === true; setEditorOperationBusy('validate', false);
     if (output) output.innerHTML += '<div class="strategy-validation-result">' + escapeHtml(editorValidationText(answer)) + '</div>';
-  }).catch(function (error) { state.editor.validationPending = false; state.editor.serverValidated = false; if (output) output.innerHTML += '<div class="nfq-diag-error">server: ' + escapeHtml(errorText(state.ctx, error)) + '</div>'; });
+  }).catch(function (error) { if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = false; setEditorOperationBusy('validate', false); if (output) output.innerHTML += '<div class="nfq-diag-error">server: ' + escapeHtml(errorText(state.ctx, error)) + '</div>'; });
 }
 function strategyDiffHtml(strategy) {
   var active = state.rows.find(function (item) { return item.current || item.applied; });
@@ -1426,18 +1475,31 @@ function editorPreviewRequest(strategy, data) {
 function showPreview(id) { var strategy = strategyById(id); if (!strategy) return; state.preview = { strategy: strategy, validation: null, answer: null, output: 'Загрузка…', pending: true }; renderPreviewModal(); state.root.querySelector('#preview-modal').style.display = 'flex'; call(state.ctx.api.strategies.preview, previewRequest(strategy, state.data, false)).then(function (answer) { state.preview.pending = false; state.preview.answer = answer; state.preview.output = previewOutput(state.ctx, answer); renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.output = errorText(state.ctx, error); renderPreviewModal(); }); }
 function validatePreview() { if (!state.preview || state.preview.pending) return; state.preview.pending = true; state.preview.validation = 'Проверка…'; renderPreviewModal(); call(state.ctx.api.strategies.validate, previewRequest(state.preview.strategy, state.data, true)).then(function (answer) { state.preview.pending = false; state.preview.validation = answer && answer.ok === true ? 'Стратегия прошла проверку' : 'Стратегия не прошла проверку'; renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.validation = errorText(state.ctx, error); renderPreviewModal(); }); }
 function renderPreviewModal() { if (!state.preview) return; var body = state.root.querySelector('#preview-body'); if (!body) return; body.innerHTML = '<pre id="preview-command" class="log-viewer nfq-resizable">' + escapeHtml(state.preview.output) + '</pre>' + (state.preview.answer ? previewDetails(state.preview.answer, state.preview.strategy) : '') + (state.preview.validation ? '<div class="strategy-validation-result">' + escapeHtml(state.preview.validation) + '</div>' : '') + '<div class="editor-footer"><button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled' : '') + '>Проверить</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button></div>'; }
+function previewEditor() {
+  if (!state.editor || state.editor.operationPending) return;
+  var editor = state.editor, output = state.root.querySelector('#editor-preview-output');
+  collectEditor(); if (!output) return;
+  editor.operationPending = 'preview'; setEditorOperationBusy('preview', true); output.style.display = 'block'; output.textContent = 'Готовим превью…';
+  call(state.ctx.api.strategies.preview, editorPreviewRequest(editor.strategy, state.data)).then(function (answer) {
+    if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.innerHTML = '<div>' + escapeHtml(previewOutput(state.ctx, answer)) + '</div>' + previewDetails(answer, editor.strategy);
+  }).catch(function (error) {
+    if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.textContent = errorText(state.ctx, error);
+  });
+}
 function saveEditor() {
-  if (!state.editor || state.pending) return;
+  if (!state.editor || state.pending || state.editor.operationPending) return;
+  var editor = state.editor;
   collectEditor();
   var strategy = state.editor.strategy;
   if (!strategy.id || !strategy.name || !strategy.profiles.length) { notify('err', 'Укажите ID, название и хотя бы один профиль'); return; }
   var localErrors = [];
   strategy.profiles.forEach(function (profile, index) { Nfqws2Ide.diagnostics(profile.args).forEach(function (item) { if (item.severity === 'error') localErrors.push('profiles[' + index + ']: ' + item.message); }); });
   if (localErrors.length) { notify('err', 'Исправьте ошибки IDE: ' + localErrors[0]); return; }
+  editor.operationPending = 'save'; setEditorOperationBusy('save', true);
   var payload = state.editor.mode === 'create' ? { strategy: strategyInput(strategy) } : { id: strategy.id, expectedRevision: strategy.revision, strategy: strategyInput(strategy) };
   var operation = state.editor.mode === 'create' ? 'create' : 'update';
   var request = operation === 'create' ? call(state.ctx.api.strategies.create, payload) : call(state.ctx.api.strategies.update, payload);
-  mutate(operation, request).then(function (answer) { if (answer) { state.editor.dirty = false; closeModal(); renderAll(); } });
+  mutate(operation, request).then(function (answer) { if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('save', false); if (answer) { editor.dirty = false; closeModal(); renderAll(); } });
 }
 function testEditor() {
   if (!state.ctx || !state.ctx.api || !state.ctx.api.strategies || !state.ctx.api.strategies.test) { notify('info', 'Test unavailable: canonical temporary Strategy test RPC is not exposed.'); return; }
@@ -1480,6 +1542,10 @@ function onClick(event) {
   else if (action === 'closePreview') closePreview();
   else if (action === 'closeConfirm') closeConfirm();
   else if (action === 'closeModal') closeModal();
+  else if (action === 'retryEditorLoad') retryEditorLoad(id);
+  else if (action === 'toggleWorkspaceMaximize') toggleWorkspaceMaximize();
+  else if (action === 'toggleEditorSidebar') toggleEditorSidebar();
+  else if (action === 'toggleProfileCollapse') toggleProfileCollapse(Number(el.dataset.index));
   else if (action === 'addProfile') addProfile();
   else if (action === 'removeProfile') removeProfile(Number(el.dataset.index));
   else if (action === 'setProfileView') setProfileView(Number(el.dataset.index), el.dataset.view);
@@ -1488,7 +1554,7 @@ function onClick(event) {
   else if (action === 'saveEditor') saveEditor();
   else if (action === 'editorValidate') validateEditor();
   else if (action === 'editorTest') testEditor();
-  else if (action === 'editorPreview') { collectEditor(); var output = state.root.querySelector('#editor-preview-output'); output.style.display = 'block'; output.textContent = 'Загрузка…'; call(state.ctx.api.strategies.preview, editorPreviewRequest(state.editor.strategy, state.data)).then(function (answer) { output.innerHTML = '<div>' + escapeHtml(previewOutput(state.ctx, answer)) + '</div>' + previewDetails(answer, state.editor.strategy); }).catch(function (error) { output.textContent = errorText(state.ctx, error); }); }
+  else if (action === 'editorPreview') previewEditor();
   else if (action === 'mergeSelected') mergeSelected();
   else if (action === 'clearSelection') clearSelection();
   else if (action === 'runHealthcheck') runHealthcheck();
