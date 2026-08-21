@@ -27,6 +27,18 @@ test('IDE keeps unknown/Z2K syntax in explicit raw-only mode and round-trips byt
   assert.ok(parsed.unknown.some(item => item.flag === '--z2k-new-flag'));
 });
 
+test('bulk selection and merge use the new lossless IDE handler exactly once', () => {
+  const page = read('z2m-strategies.js');
+  assert.equal((page.match(/function mergeSelected\(\)/g) || []).length, 1,
+    'a later legacy declaration must not shadow the new merge handler');
+  const merge = page.match(/function mergeSelected\(\)\s*\{[\s\S]*?\n\}/)[0];
+  assert.match(merge, /state\.pending\s*=\s*['"]combine['"]/);
+  assert.match(merge, /strategies\.get/);
+  assert.match(merge, /argsTruncated/);
+  assert.match(merge, /renderEditorForm\(\)/);
+  assert.doesNotMatch(page, /state\.editor\s*=\s*\{\s*mode:\s*['"]create['"],\s*strategy:\s*Model\.combineStrategies\(sources\)/);
+});
+
 test('IDE extracts structured TCP/QUIC semantics without rewriting the source text', () => {
   const ide = loadIde();
   const raw = '--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --hostlist=lists/video.txt --lua-desync=fake:repeats=2';

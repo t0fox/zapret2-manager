@@ -1374,12 +1374,6 @@ function toggleFavorite(id) { var strategy = strategyById(id); if (!strategy) re
 function deleteStrategy(id) { var strategy = strategyById(id); if (!strategy || strategy.isBuiltin) return; openConfirm('Удалить стратегию', 'Удалить «' + strategy.name + '»? Это действие нельзя отменить.', function () { mutate('delete', call(state.ctx.api.strategies.delete, { id: id, expectedRevision: strategy.revision })); }); }
 function selectStrategy(id) { state.selectedId = id; renderAll(); }
 function clearSelection() { state.selectedIds = {}; renderBulkBar(); }
-function mergeSelected() {
-  var sources = state.rows.filter(function (strategy) { return !!state.selectedIds[strategy.id]; });
-  if (sources.length < 2) { notify('warn', 'Выберите хотя бы две стратегии'); return; }
-  state.editor = { mode: 'create', strategy: Model.combineStrategies(sources) };
-  renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
-}
 function onClick(event) {
   var el = event.target.closest('[data-action]'); if (!el || !state.root.contains(el)) return;
   var action = el.dataset.action, id = el.dataset.strategyId;
