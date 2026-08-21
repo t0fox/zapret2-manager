@@ -54,7 +54,7 @@ function dispatch(command, input, seams) {
 			if (!report.ok) return report;
 			return bounded(response({ ok: true, id: input.id, report: report.report }));
 		}
-		return bounded(response({ ok: true, id: input.id, status: loaded.state.status, phase: loaded.state.phase, progress: loaded.state.progress, total: loaded.state.total, currentCandidate: loaded.state.currentCandidate, counts: loaded.state.counts, recovery: loaded.state.recovery, error: loaded.state.error, heartbeatAt: loaded.state.heartbeatAt }));
+		return bounded(response({ ok: true, id: input.id, revision: loaded.state.revision, status: loaded.state.status, phase: loaded.state.phase, progress: loaded.state.progress, total: loaded.state.total, currentCandidate: loaded.state.currentCandidate, counts: loaded.state.counts, recovery: loaded.state.recovery, error: loaded.state.error, heartbeatAt: loaded.state.heartbeatAt }));
 	}
 	if (command == 'history') return bounded(response(state.scanner_state_history_list(input || {})));
 	if (command == 'history-get') {
@@ -78,14 +78,23 @@ function dispatch(command, input, seams) {
 			if (r.candidateId == input.candidateId || r.identity?.candidate == input.candidateId) { cand = r; break; }
 		}
 	if (!object(cand)) return result('ENOENT', 'candidate not found in scan results');
-	if (cand.success !== true || (cand.saveRequired !== true && cand.identityKind != 'generated'))
-		return result('EBOUNDARY', 'only a successful unmatched generated candidate can be saved');
-	if (cand.saveRequired !== true && cand.identityKind != 'generated')
-		return result('EBOUNDARY', 'catalog and user Strategies use the existing Strategy reference');
 	let authority = rec.planAuthority && type(rec.planAuthority.candidates) == 'array' ? rec.planAuthority.candidates : null;
 	let bound = null;
 	if (authority != null) for (let item in authority)
 		if (item.scannerId == cand.candidateId) { bound = item; break; }
+	if (object(bound)) {
+		let enriched = {};
+		for (let key in cand) enriched[key] = cand[key];
+		for (let key in ['compiledTokens', 'compiledDigest', 'dependencyClosure', 'dependencyDigest'])
+			if (enriched[key] == null && bound[key] != null) enriched[key] = bound[key];
+		if (enriched.candidateCatalogDigest == null) enriched.candidateCatalogDigest = rec.catalogDigest;
+		if (enriched.candidateCompilerDigest == null) enriched.candidateCompilerDigest = rec.compilerDigest;
+		cand = enriched;
+	}
+	if (cand.success !== true || (cand.saveRequired !== true && cand.identityKind != 'generated'))
+		return result('EBOUNDARY', 'only a successful unmatched generated candidate can be saved');
+	if (cand.saveRequired !== true && cand.identityKind != 'generated')
+		return result('EBOUNDARY', 'catalog and user Strategies use the existing Strategy reference');
 	if (!object(bound) || bound.identityKind != 'generated' || bound.saveRequired !== true
 		|| sprintf('%J', bound.compiledTokens) != sprintf('%J', cand.compiledTokens)
 		|| bound.compiledDigest != cand.compiledDigest || bound.dependencyDigest != cand.dependencyDigest

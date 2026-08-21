@@ -6,9 +6,11 @@ import path from 'node:path';
 const ROOT = process.cwd();
 const read = relativePath => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
+const state = read('zapret2-manager/files/usr/libexec/zapret2-manager/scanner-state.uc');
 const acl = JSON.parse(read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json'));
 const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 const ui = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js');
+const product = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner-product.js');
 const app = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js');
 
 const managerAcl = acl['zapret2-manager'];
@@ -58,4 +60,16 @@ test('Scanner API and view use server-owned lifecycle data', () => {
   assert.match(app, /z2m-scanner as Scanner/);
   assert.match(app, /z2m-scanner-product as ScannerProduct/);
   assert.match(app, /MODULES = \{[\s\S]*scan: ScannerProduct/);
+});
+
+test('Scanner refresh keeps the user on the canonical Scanner route', () => {
+  assert.match(ui, /function refresh\(ctx\) \{\s*return ctx\.refresh\('scan'\);\s*\}/);
+  assert.doesNotMatch(ui, /function refresh\(ctx\) \{\s*return ctx\.refresh\('strategy'\);\s*\}/);
+  assert.match(product, /function childContext\(ctx, tab\) \{[\s\S]*refresh: function \(\) \{ return ctx\.refresh\('scan'\); \}/);
+});
+
+test('Scanner history reads one record per scan and applies the bound after sorting', () => {
+  assert.ok(state.includes("substr(name, -12) != '.record.json'"));
+  assert.match(state, /return \{ ok: true, items: slice\(rows, 0, limit\), limit: limit \};/);
+  assert.doesNotMatch(state, /if \(length\(rows\) >= limit\) break;/);
 });

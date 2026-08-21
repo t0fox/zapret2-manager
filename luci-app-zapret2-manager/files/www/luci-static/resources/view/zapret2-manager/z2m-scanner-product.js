@@ -36,7 +36,12 @@ function loadTab(ctx, tab) {
   return child && child.load ? child.load(ctx) : Promise.resolve({});
 }
 function childContext(ctx, tab) {
-  return Object.assign({}, ctx, { route: 'scan', routeParams: { tab: tab }, root: state.host });
+  return Object.assign({}, ctx, {
+    route: 'scan',
+    routeParams: { tab: tab },
+    root: state.host,
+    refresh: function () { return ctx.refresh('scan'); }
+  });
 }
 function unmountChild() {
   if (state.child && state.child.unmount && state.childContext) state.child.unmount(state.childContext);

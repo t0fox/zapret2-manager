@@ -13,10 +13,19 @@ import * as state from './scanner-state.uc';
 const MAX_RESULTS = 128;
 const HEARTBEAT_MAX_AGE = 120;
 const PROBE_BUDGET_MS = 120000;
+const SCAN_BUDGET_MS = 300000;
 function object(value) { return type(value) == 'object' && value != null; }
+function array(value) { return type(value) == 'array'; }
 function string(value) { return type(value) == 'string'; }
 function integer(value) { return type(value) == 'int' && value >= 0; }
 function digest(value) { return string(value) && match(value, /^[a-f0-9]{64}$/); }
+function exception_summary(value) {
+	if (value == null) return null;
+	if (!object(value)) return string(value) ? value : '' + value;
+	let out = {};
+	for (let key in ['name', 'code', 'message', 'stage']) if (value[key] != null && (string(value[key]) || integer(value[key]))) out[key] = value[key];
+	return length(keys(out)) ? out : 'Scanner lifecycle exception';
+}
 function copy(value) {
 	if (type(value) == 'array') { let out = []; for (let i = 0; i < length(value); i++) push(out, copy(value[i])); return out; }
 	if (object(value)) { let out = {}; for (let key in value) out[key] = copy(value[key]); return out; }
@@ -26,14 +35,14 @@ function zero_nonce() { let out = ''; for (let i = 0; i < 64; i++) out += '0'; r
 function error(code, message, extra) { let out = { ok: false, error: { code, message } }; for (let key in extra || {}) out[key] = extra[key]; return out; }
 function task7_dependency(stage, exception) {
 	return { ok: false, error: { code: 'EDEPENDENCY', message: 'Task 7 reconciliation evidence is required.', stage,
-		dependency: 'Task 7 reconciliation', recovery: 'required', exception: exception || null } };
+		dependency: 'Task 7 reconciliation', recovery: 'required', exception: exception_summary(exception) } };
 }
 function stale_heartbeat(value) { return !integer(value) || value > time() || time() - value > HEARTBEAT_MAX_AGE; }
 function monotonic_ms() {
 	let now = clock(true);
 	return now[0] * 1000 + int(now[1] / 1000000);
 }
-function deadline(start) { return start + PROBE_BUDGET_MS; }
+function deadline(start) { return start + SCAN_BUDGET_MS; }
 function budget(start) { return int(time() * 1000) <= deadline(start); }
 function test_mode() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1'; }
 function seam(seams, name) { return test_mode() && object(seams) ? seams[name] : null; }
@@ -47,7 +56,9 @@ function request_validate(input) {
 	let mode = input.mode == null ? 'quick' : input.mode;
 	let resume = input.resume == null ? false : input.resume;
 	if ((protocol != 'tcp' && protocol != 'udp') || (mode != 'quick' && mode != 'standard' && mode != 'full') || type(resume) != 'bool') return error('EINPUT', 'Scanner request fields are invalid.');
-	return { ok: true, value: { target, protocol, mode, resume, dpi_type: input.dpi_type == null ? null : input.dpi_type } };
+	let dpi_type = input.dpi_type == null ? null : input.dpi_type;
+	if (dpi_type == '') dpi_type = null;
+	return { ok: true, value: { target, protocol, mode, resume, dpi_type } };
 }
 function identity_test(seams) { return object(seams) && object(seams.identity) ? seams.identity : null; }
 function process_starttime(pid) {
@@ -93,10 +104,19 @@ function checkpoint(record, stage) {
 	}
 	return saved;
 }
+function metrics_evidence(value) {
+	if (!object(value)) return null;
+	let out = {};
+	for (let key in ['protocol', 'failureCode', 'failureReason', 'pathVerdict', 'pathReason', 'averageKbps', 'averageLatencyMs', 'successRate', 'attempts', 'mappedFamily', 'bytesReceived', 'latencyMs'])
+		if (value[key] != null) out[key] = copy(value[key]);
+	if (array(value.resolvedIps)) out.resolvedIps = copy(value.resolvedIps);
+	if (array(value.perProbe)) out.perProbe = copy(value.perProbe);
+	return out;
+}
 function candidate_evidence(value) {
 	if (!object(value)) return null;
 	let evidence = { infrastructure: value.infrastructure === true, failureClass: string(value.failureClass) ? value.failureClass : null, baselineSuppressed: value.baselineSuppressed === true };
-	if (object(value.metrics)) evidence.metrics = copy(value.metrics);
+	if (object(value.metrics)) evidence.metrics = metrics_evidence(value.metrics);
 	for (let key in ['pathVerdict', 'pathReason', 'failureCode', 'failureReason', 'resolvedIps', 'stages'])
 		if (value[key] != null) evidence[key] = copy(value[key]);
 	return evidence;
@@ -123,7 +143,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	if (raw == null) {
 		let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
 		if (candidate.protocol == 'udp') {
-			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_profile_digest(plan.targetProfile) });
 			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 			if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
@@ -131,7 +151,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 		}
 		else {
 			let adapted = scanner_probe_adapter_staged(candidate, plan.targetProfile, { nowMs: int(time() * 1000), deadlineMs: end,
-				mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+				mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_profile_digest(plan.targetProfile) });
 			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 			if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
@@ -157,7 +177,7 @@ function release_claim(claimed) {
 }
 function recover(record, seams, context, message) {
 	let lifecycleFailure = lifecycle?.checkpointFailure || context?.exception || null;
-	let recovery = merge_recovery(record.recovery, { state: 'uncertain', message, exception: lifecycleFailure, activation: context?.attempt?.activation || null, candidateCleanup: null, sessionCleanup: null, lockRelease: null, activeRelease: null, reconciliation: task7_dependency('recovery', message) });
+	let recovery = merge_recovery(record.recovery, { state: 'uncertain', message, exception: exception_summary(lifecycleFailure), activation: context?.attempt?.activation || null, candidateCleanup: null, sessionCleanup: null, lockRelease: null, activeRelease: null, reconciliation: task7_dependency('recovery', message) });
 	if (context?.attempt) recovery.candidateCleanup = cleanup_attempt(context.attempt);
 	if (context?.session) { try { recovery.sessionCleanup = scanner_session_finish(context.session, seam(seams, 'transient')); recovery.lockRelease = recovery.sessionCleanup.lockRelease; } catch (e) { recovery.sessionCleanup = { ok: false, error: e, reconciliation: task7_dependency('session_cleanup', e) }; recovery.lockRelease = recovery.sessionCleanup; } }
 	recovery.activeRelease = release_claim(lifecycle?.claimed || (context?.record?.id && context?.record?.worker ? { id: context.record.id, identity: context.record.worker } : null));
@@ -246,6 +266,30 @@ function finish(record, session, seams, transition, message) {
 	}
 	return saved.ok ? { ok: record.status != 'error', state: record, cleanup } : saved;
 }
+function persistable_candidate(value) {
+	let out = {
+		scannerId: value.scannerId, identityKind: value.identityKind, strategyId: value.strategyId,
+		strategyRevision: value.strategyRevision, source: value.source, sourcePath: value.sourcePath,
+		protocol: value.protocol, compiledTokens: copy(value.compiledTokens), compiledDigest: value.compiledDigest,
+		dependencyDigest: value.dependencyDigest, ordinal: value.ordinal,
+		saveRequired: value.saveRequired === true
+	};
+	if (value.saveRequired === true || value.identityKind == 'generated') out.dependencyClosure = copy(value.dependencyClosure);
+	return out;
+}
+function persistable_plan(value) {
+	let out = { schema: value.schema, request: copy(value.request), targetProfile: copy(value.targetProfile),
+		catalogDigest: value.catalogDigest, compilerDigest: value.compilerDigest, candidates: [] };
+	for (let candidate in value.candidates || []) push(out.candidates, persistable_candidate(candidate));
+	if (object(value.execution)) {
+		out.execution = { catalogEntriesConsidered: value.execution.catalogEntriesConsidered,
+			lightweightEligible: value.execution.lightweightEligible, compileAttempts: value.execution.compileAttempts,
+			compiledAccepted: value.execution.compiledAccepted, candidatesCompiled: value.execution.candidatesCompiled,
+			candidatesEligible: value.execution.candidatesEligible, candidatesShortlisted: value.execution.candidatesShortlisted,
+			maxCandidates: value.execution.maxCandidates, timings: copy(value.execution.timings || {}) };
+	}
+	return out;
+}
 function request_and_plan(input, seams) {
 	let checked = request_validate(input.request);
 	if (!checked.ok) return checked;
@@ -257,9 +301,18 @@ function request_and_plan(input, seams) {
 	}
 	let plan = planned?.plan;
 	if (!object(plan) || type(plan.candidates) != 'array' || !digest(plan.catalogDigest) || !digest(plan.compilerDigest)) return error('EDEPENDENCY', 'Scanner plan authority is unavailable.');
-	return { ok: true, request: checked.value, plan };
+	return { ok: true, request: checked.value, plan, persistedPlan: persistable_plan(plan) };
 }
 function plan_identity(plan) { return state.scanner_state_digest({ schema: plan.schema, request: plan.request, targetProfile: plan.targetProfile, catalogDigest: plan.catalogDigest, compilerDigest: plan.compilerDigest, candidates: plan.candidates }); }
+function rehydrate_plan(persisted) {
+	if (!object(persisted) || !object(persisted.request)) return error('ESTALE', 'Scanner plan authority is unavailable.');
+	let rebuilt = null;
+	try { rebuilt = scanner_plan_build(persisted.request); } catch (e) { rebuilt = null; }
+	if (!object(rebuilt) || rebuilt.ok !== true || !object(rebuilt.plan)) return error('ESTALE', 'Scanner plan authority could not be reconstructed.');
+	let projection = persistable_plan(rebuilt.plan);
+	if (plan_identity(projection) != plan_identity(persisted)) return error('ESTALE', 'Scanner plan authority changed since the retained checkpoint.');
+	return { ok: true, plan: rebuilt.plan };
+}
 function checkpoint_valid(record, plan) {
 	let start = integer(record.cursor?.nextCandidate) ? record.cursor.nextCandidate : -1;
 	if (start < 0 || start > length(plan.candidates) || record.progress != start || type(record.results) != 'array' || length(record.results) != start) return false;
@@ -285,7 +338,9 @@ function scanner_worker_resume_impl(input, seams) { return scanner_worker_run_im
 export const scanner_worker_resume = function(input, seams) {
 	let loaded = state.scanner_state_load(input?.id);
 	if (!loaded.ok) return loaded;
-	let record = loaded.state, plan = record.planAuthority;
+	let record = loaded.state, persistedPlan = record.planAuthority, plan = null;
+	let rebuilt = rehydrate_plan(persistedPlan);
+	if (rebuilt.ok) plan = rebuilt.plan;
 	let staleOwnerRecovered = false;
 	if (object(record.worker) && stale_heartbeat(record.heartbeatAt)) {
 		let journal = state.scanner_journal_load(record.id);
@@ -303,7 +358,7 @@ export const scanner_worker_resume = function(input, seams) {
 			&& integer(record.cursor?.nextCandidate) && record.cursor.nextCandidate < length(plan?.candidates || []));
 	let staleHeartbeat = stale_heartbeat(record.heartbeatAt), requestIdentity = state.scanner_state_digest(record.request) == record.requestDigest;
 	let planIdentity = plan != null && plan.catalogDigest == record.catalogDigest && plan.compilerDigest == record.compilerDigest
-		&& plan_identity(plan) == record.planDigest;
+		&& plan_identity(persistable_plan(plan)) == record.planDigest;
 	let checkpointIdentity = plan != null && checkpoint_valid(record, plan);
 	if (!resumableStatus || (!staleOwnerRecovered && staleHeartbeat) || !plan || !requestIdentity || !planIdentity || !checkpointIdentity)
 		return error('ESTALE', 'Scanner resume identity does not match the checkpoint.',
@@ -321,7 +376,7 @@ scanner_worker_run_impl = function(input, seams) {
 	if (!object(input) || !object(input.request)) return error('EINPUT', 'Scanner worker request is invalid.');
 	let prepared = input.resume === true && input.resumePlan != null ? request_validate(input.request) : request_and_plan(input, seams);
 	if (!prepared.ok) return prepared;
-	let req = prepared.value || prepared.request, plan = input.resume === true && input.resumePlan != null ? input.resumePlan : prepared.plan, identity = self_identity(seams);
+	let req = prepared.value || prepared.request, plan = input.resume === true && input.resumePlan != null ? input.resumePlan : prepared.plan, persistedPlan = input.resume === true && input.record ? input.record.planAuthority : prepared.persistedPlan, identity = self_identity(seams);
 	if (!integer(identity.pid) || !integer(identity.startTime)) return error('EDEPENDENCY', 'Scanner worker identity is unavailable.');
 	lifecycle = { seams, stage: 'start', session: null, attempt: null, record: null, claimed: null };
 	let record = input.record || {
@@ -330,16 +385,16 @@ scanner_worker_run_impl = function(input, seams) {
 		status: 'idle', phase: 'idle', progress: 0, total: length(plan.candidates), cursor: { nextCandidate: 0 },
 		currentCandidate: null, counts: { working: 0, failed: 0, infrastructure: 0 }, results: [], baseline: null, baselineIdentity: null, baselineExecutorCalls: 0,
 		error: null, recovery: { state: 'not_required' }, cancellationRequested: false, worker: null,
-		heartbeatAt: time(), startedAt: null, finishedAt: null, events: [], planAuthority: copy(plan)
+		heartbeatAt: time(), startedAt: null, finishedAt: null, events: [], planAuthority: copy(persistedPlan)
 	};
 	if (!input.record && input.id) {
 		let existing = state.scanner_state_load(input.id);
 		if (existing.ok && existing.state.status == 'error' && existing.state.recovery?.state == 'uncertain') record = existing.state;
 	}
-	if (input.record) plan = input.record.planAuthority;
+	if (input.record) { persistedPlan = input.record.planAuthority; }
 	lifecycle.record = record;
 	record.id = input.id || record.id || 'scan-' + time(); record.request = copy(req); record.requestDigest = state.scanner_state_digest(req);
-	record.catalogDigest = plan.catalogDigest; record.compilerDigest = plan.compilerDigest; record.planDigest = plan_identity(plan);
+	record.catalogDigest = persistedPlan.catalogDigest; record.compilerDigest = persistedPlan.compilerDigest; record.planDigest = plan_identity(persistedPlan);
 	if (!digest(record.requestDigest) || !digest(record.planDigest)) return error('EDEPENDENCY', 'Scanner identity digests are unavailable.');
 	let dependencies = seam(seams, 'dependencyPreflight') || scanner_dependency_preflight();
 	if (!dependencies.ok) return dependencies;
@@ -355,10 +410,10 @@ scanner_worker_run_impl = function(input, seams) {
 	let session = started.session, transient = seam(seams, 'transient'); lifecycle.session = session;
 	phase(record, 'snapshotting', null); checkpoint(record, 'snapshot');
 	let baseline = input.resume === true ? record.baseline : seam(seams, 'baseline');
-	let probeStarted = int(time() * 1000), probeDeadline = probeStarted + PROBE_BUDGET_MS;
+	let probeStarted = int(time() * 1000), probeDeadline = probeStarted + SCAN_BUDGET_MS;
 	if (baseline == null) {
 		let baselineProfile = { ...plan.targetProfile, protocol: req.protocol };
-		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, mode: req.mode, cancelToken: record.id, profileDigest: state.scanner_state_digest(baselineProfile) });
+		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, mode: req.mode, cancelToken: record.id, profileDigest: state.scanner_profile_digest(baselineProfile) });
 		if (!adapted.ok) return finish(record, session, seams, 'error', 'Scanner baseline adapter failed.');
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 		record.baselineExecutorCalls = (record.baselineExecutorCalls || 0) + 1;
@@ -411,8 +466,8 @@ scanner_worker_run_impl = function(input, seams) {
 		compiledDigest: digest(candidate.compiledDigest) ? candidate.compiledDigest : null,
 		dependencyClosure: object(candidate.dependencyClosure) ? copy(candidate.dependencyClosure) : null,
 		dependencyDigest: digest(candidate.dependencyDigest) ? candidate.dependencyDigest : null,
-		candidateCatalogDigest: digest(candidate.catalogDigest) ? candidate.catalogDigest : null,
-		candidateCompilerDigest: digest(candidate.compilerDigest) ? candidate.compilerDigest : null,
+		candidateCatalogDigest: digest(candidate.catalogDigest) ? candidate.catalogDigest : record.catalogDigest,
+		candidateCompilerDigest: digest(candidate.compilerDigest) ? candidate.compilerDigest : record.compilerDigest,
 			verdict: verdict.verdict, success: verdict.success === true,
 			score: type(verdict.score) == 'double' || type(verdict.score) == 'int' ? verdict.score : null,
 			reason: verdict.reason, evidence: candidate_evidence(verdict.evidence) };

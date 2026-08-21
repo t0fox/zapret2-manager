@@ -49,7 +49,21 @@ export const scanner_report_build = function(ranked) {
 export const scanner_report_from_record = function(record) {
   if (!object(record) || record.recovery && record.recovery.state === 'uncertain')
     return { ok:false, error:{code:'EUNAVAILABLE',message:'Scanner results are unavailable until recovery is verified.'} };
-  let results = array(record.results) ? record.results : [], ranked = { ranked:[], failed:[], infra:[] };
+  let results = [], stored = array(record.results) ? record.results : [], authority = record.planAuthority && array(record.planAuthority.candidates) ? record.planAuthority.candidates : [];
+  for (let i = 0; i < length(stored); i++) {
+    let row = stored[i], bound = null;
+    if (object(row)) for (let j = 0; j < length(authority); j++)
+      if (object(authority[j]) && authority[j].scannerId == row.candidateId) { bound = authority[j]; break; }
+    if (object(row) && object(bound)) {
+      let enriched = copy(row);
+      for (let key in ['identityKind', 'strategyId', 'strategyRevision', 'saveRequired', 'source', 'protocol', 'sourcePath', 'compiledTokens', 'compiledDigest', 'dependencyClosure', 'dependencyDigest'])
+        if (enriched[key] == null && bound[key] != null) enriched[key] = copy(bound[key]);
+      if (enriched.candidateCatalogDigest == null && digest(record.catalogDigest)) enriched.candidateCatalogDigest = record.catalogDigest;
+      if (enriched.candidateCompilerDigest == null && digest(record.compilerDigest)) enriched.candidateCompilerDigest = record.compilerDigest;
+      push(results, enriched);
+    } else push(results, row);
+  }
+  let ranked = { ranked:[], failed:[], infra:[] };
   for (let i = 0; i < length(results); i++) {
     let row = results[i];
     if (!object(row) || row.verdict === 'infrastructure') push(ranked.infra, row);

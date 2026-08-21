@@ -115,20 +115,39 @@ function error(code, message, extra) {
 	if (object(extra)) for (let key in extra) result[key] = extra[key];
 	return result;
 }
-function request_digest(request) { return hash(sprintf('%J', request)); }
-function plan_digest(plan) { return hash(sprintf('%J', { schema: plan?.schema, request: plan?.request, targetProfile: plan?.targetProfile, catalogDigest: plan?.catalogDigest, compilerDigest: plan?.compilerDigest, candidates: plan?.candidates })); }
+function canonical_escape(value) {
+	let out = '';
+	for (let i = 0; i < length(value); i++) {
+		let c = substr(value, i, 1), code = ord(c);
+		if (c == '\\') out += '\\\\';
+		else if (c == chr(34)) out += '\\' + chr(34);
+		else if (code < 32) out += sprintf('\\u%04x', code);
+		else out += c;
+	}
+	return out;
+}
+function canonical_json(value) {
+	let t = type(value);
+	if (value == null) return 'null';
+	if (t == 'boolean') return value ? 'true' : 'false';
+	if (t == 'int' || t == 'double') return '' + value;
+	if (t == 'string') return chr(34) + canonical_escape(value) + chr(34);
+	if (t == 'array') { let out = '['; for (let i = 0; i < length(value); i++) out += (i ? ',' : '') + canonical_json(value[i]); return out + ']'; }
+	if (t == 'object') {
+		let names = keys(value);
+		for (let i = 1; i < length(names); i++) { let item = names[i], j = i - 1; while (j >= 0 && names[j] > item) { names[j + 1] = names[j]; j--; } names[j + 1] = item; }
+		let out = '{';
+		for (let i = 0; i < length(names); i++) out += (i ? ',' : '') + canonical_json(names[i]) + ':' + canonical_json(value[names[i]]);
+		return out + '}';
+	}
+	return 'null';
+}
+function request_digest(request) { return hash(canonical_json(request)); }
+function plan_digest(plan) { return hash(canonical_json({ schema: plan?.schema, request: plan?.request, targetProfile: plan?.targetProfile, catalogDigest: plan?.catalogDigest, compilerDigest: plan?.compilerDigest, candidates: plan?.candidates })); }
 function result_projection(value) {
 	if (!object(value)) return null;
 	return {
 		candidateId: text(value.candidateId), ordinal: integer(value.ordinal) ? value.ordinal : 0,
-		identityKind: text(value.identityKind), strategyId: text(value.strategyId), strategyRevision: integer(value.strategyRevision) ? value.strategyRevision : null,
-		saveRequired: value.saveRequired === true, source: text(value.source),
-		compiledTokens: type(value.compiledTokens) == 'array' ? copy(value.compiledTokens) : null,
-		compiledDigest: digest(value.compiledDigest) ? value.compiledDigest : null,
-		dependencyClosure: object(value.dependencyClosure) ? copy(value.dependencyClosure) : null,
-		dependencyDigest: digest(value.dependencyDigest) ? value.dependencyDigest : null,
-		catalogDigest: digest(value.candidateCatalogDigest) ? value.candidateCatalogDigest : null,
-		compilerDigest: digest(value.candidateCompilerDigest) ? value.candidateCompilerDigest : null,
 		verdict: text(value.verdict) || 'infrastructure', success: value.success == true,
 		score: type(value.score) == 'double' || type(value.score) == 'int' ? value.score : null,
 		reason: text(value.reason), evidence: object(value.evidence) ? copy(value.evidence) : null,
@@ -208,7 +227,8 @@ export const scanner_state_create = function(request, plan) {
 	};
 };
 
-export const scanner_state_digest = function(value) { return hash(sprintf('%J', value)); };
+export const scanner_state_digest = function(value) { return hash(canonical_json(value)); };
+export const scanner_profile_digest = function(value) { return hash(sprintf('%J', value)); };
 
 export const scanner_journal_load = function(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Scanner journal identity is invalid.');
@@ -255,8 +275,8 @@ function history_projection(value) {
 }
 
 function history_id(name) {
-	if (!string(name)) return null;
-	if (substr(name, -12) == '.record.json') name = substr(name, 0, length(name) - 12);
+	if (!string(name) || substr(name, -12) != '.record.json') return null;
+	name = substr(name, 0, length(name) - 12);
 	return safe_id(name) ? name : null;
 }
 
@@ -266,7 +286,6 @@ export const scanner_state_history_list = function(input) {
 	try { names = lsdir(root()); } catch (e) { names = null; }
 	if (type(names) != 'array') return { ok: true, items: [], limit: limit };
 	for (let name in names) {
-		if (length(rows) >= limit) break;
 		let id = history_id(name);
 		if (!id) continue;
 		let loaded = scanner_state_load(id);
@@ -276,7 +295,7 @@ export const scanner_state_history_list = function(input) {
 		let left = rows[i].finishedAt || rows[i].startedAt || 0, right = rows[j].finishedAt || rows[j].startedAt || 0;
 		if (right > left) { let swap = rows[i]; rows[i] = rows[j]; rows[j] = swap; }
 	}
-	return { ok: true, items: rows, limit: limit };
+	return { ok: true, items: slice(rows, 0, limit), limit: limit };
 };
 
 export const scanner_state_history_get = function(id) {

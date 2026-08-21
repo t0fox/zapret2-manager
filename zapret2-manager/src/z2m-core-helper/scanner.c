@@ -69,6 +69,7 @@ static bool ipv4_value(const char *value)
 }
 
 static bool path_value(const char *url, const char *host, const char **path);
+static bool url_path_value(const char *url, const char **path, char *host, size_t host_size);
 
 static bool profile_digest_matches(json_object *profile, const char *expected)
 {
@@ -244,24 +245,36 @@ static bool profile_url_matches(json_object *profile, const char *host, const ch
 {
 	json_object *primary, *probe;
 	const char *primary_host, *probe_url, *path;
+	char probe_host[254];
 	if (!json_object_object_get_ex(profile, "primaryHost", &primary) || !json_object_object_get_ex(profile, "probeUrl", &probe) ||
 		!json_object_is_type(primary, json_type_string) || !json_object_is_type(probe, json_type_string)) return false;
 	primary_host = json_object_get_string(primary); probe_url = json_object_get_string(probe);
+	if (!strcmp(url, probe_url)) return url_path_value(probe_url, &path, probe_host, sizeof(probe_host)) && profile_host(profile, probe_host);
 	if (!strcmp(host, primary_host)) return !strcmp(url, probe_url);
 	return path_value(url, host, &path) && !strcmp(path, "/");
 }
 
 static bool port_range_value(const char *value, int64_t port)
 {
-	char *end;
-	long first, last;
+	const char *cursor = value;
+	bool matched = false;
 	if (!value || !*value) return false;
-	errno = 0; first = strtol(value, &end, 10);
-	if (errno || end == value || first < 1 || first > 65535) return false;
-	if (*end == '\0') return port == first;
-	if (*end != '-') return false;
-	errno = 0; last = strtol(end + 1, &end, 10);
-	return !errno && *end == '\0' && last >= first && last <= 65535 && port >= first && port <= last;
+	while (*cursor) {
+		char *end;
+		long first, last;
+		errno = 0; first = strtol(cursor, &end, 10);
+		if (errno || end == cursor || first < 1 || first > 65535) return false;
+		last = first;
+		if (*end == '-') {
+			errno = 0; last = strtol(end + 1, &end, 10);
+			if (errno || end == cursor || last < first || last > 65535) return false;
+		} else if (*end != ',' && *end != '\0') return false;
+		if (port >= first && port <= last) matched = true;
+		if (*end == '\0') break;
+		cursor = end + 1;
+		if (!*cursor) return false;
+	}
+	return matched;
 }
 
 static bool exact_transaction_id(json_object *probe)
@@ -346,6 +359,24 @@ static bool path_value(const char *url, const char *host, const char **path)
 	for (const char *cursor = start; *cursor; cursor++)
 		if (!((*cursor >= 'A' && *cursor <= 'Z') || (*cursor >= 'a' && *cursor <= 'z') || (*cursor >= '0' && *cursor <= '9') || strchr("/._~?=&%+-", *cursor))) return false;
 	*path = start;
+	return true;
+}
+
+static bool url_path_value(const char *url, const char **path, char *host, size_t host_size)
+{
+	const char *start, *slash;
+	size_t host_length;
+	if (strncmp(url, "https://", 8) || strchr(url, '@') || strchr(url, '#') || strchr(url, '\'' ) || strchr(url, '"') ||
+		strchr(url, ';') || strchr(url, '|') || strchr(url, '&') || strchr(url, '$') || strchr(url, '`') || strchr(url, '\n') || strchr(url, '\r')) return false;
+	start = url + 8; slash = strchr(start, '/');
+	if (!slash || slash == start) return false;
+	host_length = (size_t)(slash - start);
+	if (host_length >= host_size) return false;
+	memcpy(host, start, host_length); host[host_length] = '\0';
+	if (!host_value(host)) return false;
+	for (const char *cursor = slash; *cursor; cursor++)
+		if (!((*cursor >= 'A' && *cursor <= 'Z') || (*cursor >= 'a' && *cursor <= 'z') || (*cursor >= '0' && *cursor <= '9') || strchr("/._~?=&%+-", *cursor))) return false;
+	*path = slash;
 	return true;
 }
 
@@ -533,13 +564,13 @@ int z2m_scanner_probe(const struct z2m_request *request)
 			!json_object_object_get_ex(profile, "tcp", &tcp) || !json_object_object_get_ex(tcp, "ports", &tcp_ports) || !json_object_is_type(tcp_ports, json_type_string) ||
 			strcmp(probe_range, json_object_get_string(tcp_ports)) || !port_range_value(json_object_get_string(tcp_ports), port) || !profile_transport(profile, "tcp", json_object_get_string(tcp_ports), port, "tls", "tls_client_hello")) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 		if (!strcmp(transport, "tls+body")) {
-			if (!string_value(probe, "url", &url) || !path_value(url, host, &path) || !json_object_object_get_ex(probe, "body", &body) || !json_object_is_type(body, json_type_object) ||
+			if (!string_value(probe, "url", &url) || !json_object_object_get_ex(probe, "body", &body) || !json_object_is_type(body, json_type_object) ||
 				!int_value(body, "readLimitBytes", 1, 69633, &configured_limit) || configured_limit != 69633) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
-			const char *range; json_object *tcp, *tcp_ports;
+			const char *range; json_object *tcp, *tcp_ports; char url_host[254];
 			if (!exact_body_settings(probe) || !string_value(body, "range", &range) || strcmp(range, "bytes=0-69632") || !json_object_object_get_ex(profile, "tcp", &tcp) ||
 				!json_object_object_get_ex(tcp, "ports", &tcp_ports) || !json_object_is_type(tcp_ports, json_type_string) ||
 				!profile_transport(profile, "tcp", json_object_get_string(tcp_ports), port, "tls", "tls_client_hello") ||
-				!profile_url_matches(profile, host, url)) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+				!profile_url_matches(profile, host, url) || (!path_value(url, host, &path) && !url_path_value(url, &path, url_host, sizeof(url_host)))) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 			input = (unsigned char *)malloc(strlen(path) + strlen(host) + 128); if (!input) return z2m_fail(request->request_id, "EINTERNAL", "internal");
 			input_length = (size_t)snprintf((char *)input, strlen(path) + strlen(host) + 128, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nRange: bytes=0-69632\r\n\r\n", path, host);
 			output_limit = BODY_OUTPUT_LIMIT;

@@ -572,6 +572,8 @@ test('adapter rejects executable, shell, raw nfqws arguments, paths, and unbound
     udp: { ports: '443', l7: 'stun', payload: 'binding' } };
   const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
   const deadline = { nowMs: 1000, deadlineMs: 20000, mode: 'quick' };
+  const plannerMetadata = adapt('scanner_probe_adapter_tcp', { ...candidate, sourcePath: 'advanced/http80_zap2_advanced.txt', compiledTokens: ['--lua-desync=multisplit:pos=host+1'] }, profile, 'ipv4', deadline);
+  assert.equal(plannerMetadata.ok, true, JSON.stringify(plannerMetadata));
   for (const injected of [
     { executable: '/bin/sh' }, { executablePath: '/bin/sh' }, { exec: '/bin/sh' }, { binaryPath: '/bin/sh' },
     { command: 'curl example.com' }, { cmd: 'curl example.com' }, { cmdline: 'curl example.com' },

@@ -40,7 +40,7 @@ function call(ctx, method, value) {
   return ctx.api.scanner[method](edit(value));
 }
 function refresh(ctx) {
-  return ctx.refresh('strategy');
+  return ctx.refresh('scan');
 }
 function invalidateTimer() {
   state.generation++;
@@ -105,7 +105,8 @@ function start(ctx, controls) {
 function stop(ctx) {
   if (!state.scanId) return;
   state.status = Object.assign({}, state.status, { cancellationRequested: true, phase: 'cancelling' });
-  call(ctx, 'stop', { id: state.scanId }).then(function () { return refresh(ctx); }).catch(function (error) { state.error = error; refresh(ctx); });
+  var expectedRevision = Number(state.status && state.status.revision);
+  call(ctx, 'stop', { id: state.scanId, expectedRevision: Number.isInteger(expectedRevision) ? expectedRevision : null }).then(function () { return refresh(ctx); }).catch(function (error) { state.error = error; refresh(ctx); });
 }
 function resume(ctx) {
   if (!state.scanId) return;

@@ -24,7 +24,7 @@ function lower_key(value) {
 function forbidden_name(value) {
 	let key = lower_key(value);
 	let tokens = ['command', 'cmd', 'argv', 'arg', 'argument', 'executable', 'binary',
-		'shell', 'process', 'path', 'raw', 'strategyargs', 'nfqwsargs', 'workingdirectory', 'cwd'];
+		'shell', 'process', 'raw', 'strategyargs', 'nfqwsargs', 'workingdirectory', 'cwd'];
 	for (let i = 0; i < length(tokens); i++) if (index(key, tokens[i]) >= 0) return true;
 	return false;
 }

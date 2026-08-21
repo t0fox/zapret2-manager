@@ -80,6 +80,23 @@ test('fixed scanner binary receives argv without shell interpretation and uses d
   assert.match(fs.readFileSync(log, 'utf8'), /-u\n-4\n-w\n1\nstun\.example\.com\n19302\n/);
 });
 
+test('native scanner accepts comma-separated server-owned port lists', () => {
+  const target = { ...profile, tcp: { ports: '80,443', l7: 'tls', payload: 'tls_client_hello' } };
+  const digest = createHash('sha256').update(JSON.stringify(target)).digest('hex');
+  const result = run(request({ transport: 'tls', host: 'example.com', addressFamily: 'ipv4', port: 80,
+    portRange: '80,443', timeoutMs: 1000 }, { targetProfile: target, targetProfileDigest: digest }));
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test('native scanner accepts an exact server-owned probe URL on an allowed test host', () => {
+  const target = { ...profile, testHosts: ['example.com', 'i.example.com'], probeUrl: 'https://i.example.com/probe' };
+  const digest = createHash('sha256').update(JSON.stringify(target)).digest('hex');
+  const result = run(request({ transport: 'tls+body', host: 'example.com', addressFamily: 'ipv4', port: 443,
+    url: target.probeUrl, connectAddress: '127.0.0.1', serverName: 'example.com', tlsMaxVersion: 'any', httpVersion: '1.1',
+    p5Stage: 'tls', p5: true, timeoutMs: 1000 }, { targetProfile: target, targetProfileDigest: digest }));
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
 test('native scanner binds every transport setting to the server-owned profile', () => {
   const target = {
     ...profile,

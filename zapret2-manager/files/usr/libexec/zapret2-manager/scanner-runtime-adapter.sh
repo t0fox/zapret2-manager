@@ -52,6 +52,9 @@ OWNERSHIP_LOCK="$DIR/ownership.lock"
 CLEANUP_EVIDENCE="$DIR/cleanup.evidence"
 LIFECYCLE_JOURNAL="$DIR/$candidate.lifecycle"
 queue_num=$QUEUE
+helper_last_operation=""
+helper_last_code=""
+helper_last_message=""
 private_dir() {
 	path=$1
 	[ -d "$path" ] && [ ! -L "$path" ] || return 1
@@ -234,8 +237,20 @@ allocate_queue() {
 	return 1
 }
 
+wait_queue_peer() {
+	i=0
+	while [ "$i" -lt 5 ]; do
+		if awk -v expected_queue="$queue_num" -v expected_peer="$nfq_pid" \
+			'$1 == expected_queue && $2 == expected_peer { found = 1 } END { exit found ? 0 : 1 }' \
+			/proc/net/netfilter/nfnetlink_queue 2>/dev/null; then return 0; fi
+		short_sleep; i=$((i + 1))
+	done
+	return 1
+}
+
 helper_request() {
 	helper_operation_name=$1
+	helper_last_operation=$helper_operation_name
 	request_id="scanner:$session:$candidate:$generation:$(printf '%s' "$helper_operation_name" | tr -c 'A-Za-z0-9._:-' '_')"
 	if [ "$helper_operation_name" = ownership_create ]; then
 		table_name="z2m_sc_$(printf '%s' "$session" | sha256sum | cut -c1-8)_$(printf '%s' "$candidate" | sha256sum | cut -c1-8)_$(printf '%04x' "$generation")_$(printf '%s' "$operation_nonce" | cut -c1-32)"
@@ -266,6 +281,8 @@ helper_request() {
 	printf '%s\n' "$request" >&8 || { exec 8>&-; exec 9>&-; return 42; }
 	IFS= read -r response <&9 || { exec 8>&-; exec 9>&-; return 42; }
 	exec 8>&-; exec 9>&-
+	helper_last_code=$(printf '%s' "$response" | jsonfilter -e '@.error.code' 2>/dev/null || true)
+	helper_last_message=$(printf '%s' "$response" | jsonfilter -e '@.error.message' 2>/dev/null || true)
 	if ! helper_response_ok "$request_id" "$helper_operation_name" "$response"; then
 		[ "$helper_operation_name" = ownership_create ] && helper_start_abort || true
 		return 42
@@ -381,11 +398,15 @@ cleanup_internal() {
 
 fail() {
 	code=$1; stage=$2
+	extra=""
+	[ -n "${helper_last_operation:-}" ] && extra="$extra,\"helperOperation\":\"$helper_last_operation\""
+	[ -n "${helper_last_code:-}" ] && extra="$extra,\"helperCode\":\"$helper_last_code\""
+	[ -n "${helper_last_message:-}" ] && extra="$extra,\"helperMessage\":\"$helper_last_message\""
 	if [ "${RESOURCE_CREATED:-0}" = 1 ] && [ "${ROLLING_BACK:-0}" = 0 ]; then
 		ROLLING_BACK=1; cleanup=$(cleanup_internal)
-		printf '%s\n' "{\"ok\":false,\"code\":\"$code\",\"stage\":\"$stage\",\"cleanup\":$cleanup}"
+		printf '%s\n' "{\"ok\":false,\"code\":\"$code\",\"stage\":\"$stage\"$extra,\"cleanup\":$cleanup}"
 	else
-		printf '%s\n' "{\"ok\":false,\"code\":\"$code\",\"stage\":\"$stage\"}"
+		printf '%s\n' "{\"ok\":false,\"code\":\"$code\",\"stage\":\"$stage\"$extra}"
 	fi
 	exit 1
 }
@@ -507,6 +528,7 @@ activate() {
 	atomic_private_write "$PID_FILE" "$nfq_pid|$nfq_start\n" || fail EIO pid
 	atomic_private_write "$START_FILE" "$nfq_start\n" || fail EIO start
 	# Verify NFQUEUE registration and exact process identity before enabling final hook.
+	wait_queue_peer || fail EOWNERSHIP nfqueue
 	helper_request ownership_nfqueue_bind || fail EOWNERSHIP nfqueue
 	lifecycle_transition PROCESS_BOUND queue-peer-readback || fail EIO journal
 	# Atomically enable final redirect rule under the owned table only.

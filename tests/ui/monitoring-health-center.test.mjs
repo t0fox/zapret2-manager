@@ -97,7 +97,7 @@ test('Monitoring stays bounded and does not introduce a second log poller', () =
   const page = fs.readFileSync(PAGE, 'utf8');
   const log = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-log.js', 'utf8');
 
-  assert.match(page, /eventsTail\s*,?\s*\{ limit: 100 \}/);
+  assert.match(page, /eventsTail[\s\S]*limit["']?\s*:\s*100/);
   assert.match(log, /setInterval/);
   assert.match(log, /clearInterval/);
   assert.match(log, /visibilitychange/);

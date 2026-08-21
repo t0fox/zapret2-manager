@@ -244,7 +244,8 @@ function p5_probe(descriptor, host, ip, sni, stage, tlsMaxVersion, httpVersion) 
 	if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
 	let probe = { transport: 'tls+body', mode: request.mode, retries: 1, host, addressFamily: 'ipv4',
 		connectAddress: ip, serverName: sni, tlsMaxVersion: tlsMaxVersion || 'any', httpVersion: httpVersion || '1.1',
-		p5Stage: stage, p5: true, port: request.port, portRange: request.portRange, url: 'https://' + host + '/',
+		p5Stage: stage, p5: true, port: request.port, portRange: request.portRange,
+		url: host == descriptor.targetProfile.primaryHost ? descriptor.targetProfile.probeUrl : 'https://' + host + '/',
 		tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: TLS_READ_LIMIT },
 		body: { timeoutMs: BODY_TIMEOUT_MS, minimumBytes: 65536, readChunkBytes: 4096, markerScanBytes: 8192,
 			readLimitBytes: 69633, range: 'bytes=0-69632', markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] },
