@@ -56,6 +56,7 @@ test('Diagnostics has bounded loading and degraded/error retry states', () => {
   assert.match(source, /timeout/i);
   assert.match(source, /return Promise\.resolve\(\{\}\)/);
   assert.match(source, /function mount\(ctx\) \{ state\.disposed = false/);
+  assert.match(source, /state\.loadState === 'loading' && ctx\.shell\.loadingState \?/);
   assert.match(productSource, /function boundedChildLoad/);
   assert.match(productSource, /Promise\.race/);
   assert.doesNotMatch(source, /BlockCheck family|upstream blockcheck2\.sh|Deep Search — BlockCheckW Fast|Fast engine|Block Detector — фоновый DNS-мониторинг/);

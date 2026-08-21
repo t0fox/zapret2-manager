@@ -103,7 +103,7 @@ function findings(result) {
   return E('div', { 'class': 'z2m-stack' }, rows.map(function (row) { return E('article', { 'class': 'z2m-result-card' }, [E('strong', {}, text(row.classification || row.code || 'infrastructure')), E('span', {}, text(row.recommendation || row.message || ''))]); }));
 }
 function renderInto(ctx, root) {
-  var stateView = state.loadState === 'loading' ? ctx.shell.loadingState(_('Состояние системы')) : null;
+  var stateView = state.loadState === 'loading' && ctx.shell.loadingState ? ctx.shell.loadingState(_('Состояние системы')) : (state.loadState === 'loading' ? E('div', { 'class': 'z2m-avatar-state is-loading' }, [E('span', { 'class': 'z2m-spinner', 'aria-hidden': 'true' }), E('p', {}, _('Загружаем данные…'))]) : null);
   var warning = state.loadState === 'error' ? ctx.shell.statePanel({ title: _('Не удалось получить состояние'), message: _('Проверьте доступность служб и повторите запрос.'), kind: 'error', actions: [ctx.shell.button(_('Повторить'), 'sm', function () { tick(ctx, root); })] }) : (state.loadState === 'degraded' ? ctx.shell.statePanel({ title: _('Данные получены частично'), message: _('Некоторые проверки не ответили вовремя. Значения UNKNOWN не считаются нормой.'), kind: 'info', actions: [ctx.shell.button(_('Повторить'), 'sm', function () { tick(ctx, root); })] }) : null);
   root.replaceChildren(warning || stateView || E('div', {}, [panel(ctx, 'diagnostic'), panel(ctx, 'official'), fastPanel(ctx), detectorPanel(ctx)]));
 }
