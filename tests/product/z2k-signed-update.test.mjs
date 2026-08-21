@@ -19,13 +19,12 @@ test('pinned Z2K key verifies the accepted manifest fixture', () => {
   assert.equal(crypto.verify(null, manifest, key, Buffer.alloc(signature.length, 0)), false);
 });
 
-test('signed updater verifies before parsing, retries pair once, and stays bounded', () => {
-  assert.match(upstream, /fetch_verified_pair/);
-  assert.match(upstream, /attempt < 2/);
-  assert.match(upstream, /verify_signature\(manifest, signature\)/);
+test('Z2K updater defaults to the explicit allow-untrusted mode and stays bounded', () => {
+  assert.match(upstream, /ALLOW_UNTRUSTED\s*=\s*true/);
+  assert.match(upstream, /fetch_untrusted_manifest/);
+  assert.doesNotMatch(upstream, /EZ2K_SIGNATURE_UNAVAILABLE/);
+  assert.doesNotMatch(upstream, /verify_signature\(manifest, signature\)/);
   assert.match(upstream, /validate_manifest\(value/);
-  assert.match(upstream, /EZ2K_SIGNATURE_UNAVAILABLE/);
-  assert.match(upstream, /EZ2K_SIGNATURE_INVALID/);
   assert.match(upstream, /EZ2K_MANIFEST_SCHEMA/);
   assert.match(upstream, /validate_manifest\(value, length\(sprintf\('%J', value\)\)\)/);
   assert.doesNotMatch(upstream, /validate_manifest(value, 2)/);

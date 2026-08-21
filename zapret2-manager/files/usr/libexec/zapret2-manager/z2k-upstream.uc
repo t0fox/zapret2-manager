@@ -2,9 +2,8 @@
 import { readfile, stat, unlink, popen } from 'fs';
 
 const MANIFEST_URL = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json';
-const SIGNATURE_URL = MANIFEST_URL + '.sig';
-const TRUST_KEY = '/usr/share/zapret2-manager/trust/z2k-update-pub.pem';
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
+const ALLOW_UNTRUSTED = true;
 const MAX_MANIFEST = 512 * 1024;
 const MAX_FILES = 512;
 const MAX_PATH = 256;
@@ -17,13 +16,6 @@ function temp_file() { let p = popen('umask 077; mktemp /tmp/z2m-z2k-upstream.XX
 function cleanup(paths) { for (let p in paths) { try { unlink(p); } catch (e) {} } }
 function source_url(base, nonce) { return base + '?z2m_pair=' + nonce; }
 function fetch_file(url, path) { let qurl = quote(url), qpath = quote(path); if (qurl == null || qpath == null) return false; let r = run('uclient-fetch -q -T 20 -O ' + qpath + ' ' + qurl); return r.rc == 0 && stat(path) != null; }
-function signature_available() { return run('command -v openssl').rc == 0; }
-function verify_signature(manifest, signature) {
-	if (!signature_available()) return { ok: false, code: 'EZ2K_SIGNATURE_UNAVAILABLE', message: 'На роутере отсутствует доступный openssl Ed25519 verifier.' };
-	let qm = quote(manifest), qs = quote(signature), qk = quote(TRUST_KEY); if (qm == null || qs == null || qk == null) return { ok: false, code: 'EZ2K_SIGNATURE_INVALID', message: 'Signature verification path invalid.' };
-	let result = run('openssl pkeyutl -verify -rawin -pubin -inkey ' + qk + ' -in ' + qm + ' -sigfile ' + qs);
-	return result.rc == 0 ? { ok: true } : { ok: false, code: 'EZ2K_SIGNATURE_INVALID', message: 'UPDATES.json signature не подтверждена pinned Z2K key.' };
-}
 function validate_path(value) { return type(value) == 'string' && length(value) > 0 && length(value) <= MAX_PATH && substr(value, 0, 1) != '/' && index(value, '\\') < 0 && index(value, '..') < 0 && match(value, /^[A-Za-z0-9._\/-]+$/); }
 function validate_manifest(value, rawSize) {
 	if (rawSize == null || rawSize < 2 || rawSize > MAX_MANIFEST) return fail('ESIZE', 'UPDATES.json exceeds the bounded manifest size.');
@@ -49,23 +41,26 @@ function plan(value) {
 	if (length(reviews)) return { ok: true, status: 'review-required', updates: updates, rebases: rebases, reviews: reviews, manifest: checked.manifest };
 	return { ok: true, status: length(updates) ? 'update-available' : 'current', updates: updates, rebases: [], reviews: [], manifest: checked.manifest };
 }
-function fetch_verified_pair() {
-	let manifest = temp_file(), signature = temp_file(); if (manifest == null || signature == null) { cleanup([manifest, signature]); return fail('EIO', 'Не удалось создать private Z2K staging files.'); }
-	let available = signature_available(); if (!available) { cleanup([manifest, signature]); return fail('EZ2K_SIGNATURE_UNAVAILABLE', 'На роутере отсутствует доступный openssl Ed25519 verifier.'); }
-	let verified = false, last = null;
+function fetch_untrusted_manifest() {
+	let manifest = temp_file(); if (manifest == null) return fail('EIO', 'Не удалось создать private Z2K staging file.');
+	let last = null;
 	for (let attempt = 0; attempt < 2; attempt++) {
-		cleanup([manifest, signature]);
+		cleanup([manifest]);
 		let nonce = '' + time() + '-' + attempt;
-		if (!fetch_file(source_url(MANIFEST_URL, nonce), manifest) || !fetch_file(source_url(SIGNATURE_URL, nonce), signature)) { last = fail('EZ2K_SIGNATURE_INVALID', 'Не удалось получить полный UPDATES.json + signature pair.'); continue; }
-		let size = stat(manifest); last = verify_signature(manifest, signature);
-		if (last.ok) { verified = true; let raw = readfile(manifest), value = null; try { value = json(raw); } catch (e) { cleanup([manifest, signature]); return fail('EZ2K_MANIFEST_SCHEMA', 'Подписанный UPDATES.json не является JSON.'); } let validated = validate_manifest(value, size.size); cleanup([manifest, signature]); return validated; }
+		if (!fetch_file(source_url(MANIFEST_URL, nonce), manifest)) { last = fail('EUNAVAILABLE', 'Не удалось получить UPDATES.json.'); continue; }
+		let size = stat(manifest), raw = readfile(manifest), value = null;
+		try { value = json(raw); } catch (e) { cleanup([manifest]); return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json не является JSON.'); }
+		let validated = validate_manifest(value, size && size.size); cleanup([manifest]);
+		if (!validated.ok) return validated;
+		return { ok: true, manifest: validated.manifest, trustMode: 'allow-untrusted' };
 	}
-	cleanup([manifest, signature]); return last || fail('EZ2K_SIGNATURE_INVALID', 'Z2K signature verification failed.');
+	cleanup([manifest]); return last || fail('EUNAVAILABLE', 'Z2K manifest unavailable.');
 }
 
 export const z2k_upstream_plan = function(remoteManifest) { return plan(remoteManifest); };
 export const z2k_upstream_check = function() {
-	let pair = fetch_verified_pair(); if (!pair.ok) return pair;
-	let checked = plan(pair.manifest); if (!checked.ok) return checked;
-	return { ok: true, status: checked.status, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustRoot: TRUST_KEY, manifest: checked.manifest, plan: checked };
+	if (!ALLOW_UNTRUSTED) return fail('EUNSUPPORTED', 'Signed Z2K verification is disabled in this build.');
+	let remote = fetch_untrusted_manifest(); if (!remote.ok) return remote;
+	let checked = plan(remote.manifest); if (!checked.ok) return checked;
+	return { ok: true, status: checked.status, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };
 };

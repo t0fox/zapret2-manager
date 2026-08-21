@@ -69,13 +69,13 @@ function inline_bundle(request) {
 }
 export const resource_center_status = function () {
 	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, null);
-	if (answer.ok) answer.signedSources = { z2k: { state: 'unknown', status: 'Проверка подписи выполняется только явно', checkMode: 'signed-manifest', verified: false } };
+	if (answer.ok) answer.signedSources = { z2k: { state: 'unknown', status: 'Проверка источника выполняется только явно', checkMode: 'allow-untrusted', trustMode: 'allow-untrusted', verified: false } };
 	return answer;
 };
 export const resource_center_check = function () {
 	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, time()); if (!answer.ok) return answer;
-	let signed = z2k_upstream_check(); answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? signed.status : 'Ошибка проверки подписи', checkMode: 'signed-manifest', verified: signed.ok === true, evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, trustRoot: signed.trustRoot, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'signed Z2K manifest check failed' } } };
-	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') { answer.sources[i].checkMode = 'signed-manifest'; answer.sources[i].verification = answer.signedSources.z2k; if (!signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); } }
+	let signed = z2k_upstream_check(); answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? (signed.trustMode == 'allow-untrusted' ? 'Источник разрешён без проверки подписи' : signed.status) : 'Ошибка проверки источника', checkMode: signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest', trustMode: signed.trustMode || null, verified: signed.ok === true && signed.trustMode != 'allow-untrusted', evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, trustMode: signed.trustMode || null, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'Z2K source check failed' } } };
+	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') { answer.sources[i].checkMode = signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest'; answer.sources[i].verification = answer.signedSources.z2k; if (!signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); } }
 	return answer;
 };
 export const resource_center_update = function (request) {

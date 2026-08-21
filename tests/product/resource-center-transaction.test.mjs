@@ -54,7 +54,7 @@ test('Z2K component resolver only stages exact-managed files and blocks adapted/
     assert.match(z2kComponent, new RegExp(fragment.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), fragment);
   assert.match(z2kComponent, /request\.confirm !== true/);
   const applyBody = z2kComponent.slice(z2kComponent.indexOf('export const z2k_component_apply'));
-  assert.match(applyBody, /z2k_upstream_check\(\)/, 'apply must re-verify the signed manifest server-side');
+  assert.match(applyBody, /z2k_upstream_check\(\)/, 'apply must re-check the manifest server-side');
   assert.doesNotMatch(applyBody, /z2k_component_plan\(request\.remoteManifest\)/, 'apply must not trust a caller-supplied manifest');
   assert.doesNotMatch(applyBody, /init\.d|webpanel|z2k\.sh.*write|scheduler/);
 });

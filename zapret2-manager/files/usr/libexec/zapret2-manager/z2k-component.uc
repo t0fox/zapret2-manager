@@ -49,7 +49,7 @@ export const z2k_component_apply = function(request) {
 	for (let i = 0; i < length(request.assets); i++) {
 		let asset = request.assets[i], item = object(asset) ? class_for(map, asset.sourcePath) : null, typeName = item && asset_type(item);
 		if (item == null || item.class != 'exact-managed') return fail('EZ2K_REBASE_REQUIRED', 'Only exact-managed Z2K files may be activated.', { sourcePath: asset && asset.sourcePath || null });
-		if (!typeName || seen[asset.id] || !under(asset.stagedPath, STAGE_ROOT) || !regular(asset.stagedPath) || asset.sha256 != planned.manifest.files_sha256[asset.sourcePath]) return fail('EVERIFY', 'Z2K staged asset does not match the signed manifest.', { sourcePath: asset.sourcePath });
+		if (!typeName || seen[asset.id] || !under(asset.stagedPath, STAGE_ROOT) || !regular(asset.stagedPath) || asset.sha256 != planned.manifest.files_sha256[asset.sourcePath]) return fail('EVERIFY', 'Z2K staged asset does not match the checked manifest.', { sourcePath: asset.sourcePath });
 		seen[asset.id] = true;
 		push(staged, { type: typeName, id: asset.id, name: asset.name, stagedPath: asset.stagedPath, sha256: asset.sha256, byteSize: asset.byteSize, expectedRevision: asset.expectedRevision, dependencies: asset.dependencies || [], provenance: { kind: 'catalog/upstream', source: SOURCE_REPOSITORY, sourceCommit: planned.source.commit, sourcePath: asset.sourcePath, bundleId: request.bundleId, version: request.version } });
 	}
