@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-icons as Icons';
 'require view.zapret2-manager.z2m-maintenance-model as MaintenanceModel';
 'require view.zapret2-manager.z2m-engine-panel as EnginePanel';
 'require view.zapret2-manager.z2m-components-model as ComponentsModel';
@@ -17,6 +18,10 @@ var PANE_META = {
   backups: { title: _('Резервные копии'), subtitle: _('Сохранение и восстановление состояния менеджера') },
   settings: { title: _('Настройки'), subtitle: _('Параметры интерфейса менеджера') }
 };
+
+function engineRouteIsOpen() {
+  return /(?:[?&])component=engine(?:&|$)/.test(window.location.hash || '');
+}
 var state = {
   pane: 'system',
   paneInitialized: false,
@@ -209,20 +214,22 @@ function renderComponents(ctx, data) {
   var enginePanel = engineValue.length ? EnginePanel.render(engineCtx, engineValue) : null;
   ctx.enginePanelContext = engineCtx;
   var action = shell.button(_('Проверить'), 'sm', checkComponents.bind(null, ctx), state.componentBusy);
+  var engineManagementAttrs = { 'class': 'z2m-panel z2m-engine-management' };
+  if (engineRouteIsOpen()) engineManagementAttrs.open = true;
   return E('div', { 'class': 'z2m-components-page' }, [
     shell.panel(_('Состояние системы'), E('div', { 'class': 'z2m-components-summary' }, [
       E('strong', {}, page.health.ready + ' / ' + page.health.total + ' ' + _('готовы')),
       E('span', {}, page.health.message),
       E('span', { 'class': 'z2m-chip ' + (page.health.state === 'ready' ? 'g' : 'o') }, page.checkedAt ? _('Проверено') : _('Состояние доступно')),
       action
-    ]), _('Компоненты — единственное место, где пользователь видит обязательный состав системы.')),
+    ]), _('Что нужно для работы')),
     E('section', { 'class': 'z2m-components-section' }, [
       E('div', { 'class': 'z2m-components-section-head' }, [E('h2', {}, _('Обязательные компоненты')), E('span', { 'class': 'z2m-dim' }, _('2 из 2 готовы'))]),
       E('div', { 'class': 'z2m-components-grid' }, page.components.map(function (component) {
         return componentCard(ctx, component, component.id === 'engine');
       }))
     ]),
-    enginePanel ? E('details', { 'class': 'z2m-panel z2m-engine-management', open: ctx.routeParams && ctx.routeParams.component === 'engine' }, [
+    enginePanel ? E('details', engineManagementAttrs, [
       E('summary', {}, _('Управление Zapret2 Engine')),
       enginePanel
     ]) : null
@@ -405,7 +412,7 @@ function render(ctx) {
   });
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-system' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, meta.title), E('p', {}, meta.subtitle)])
+      E('div', {}, [E('h1', {}, [Icons.wrappedNode(pane === 'components' ? 'cpu' : pane === 'backups' ? 'archive' : 'settings', { size: 20, wrapperClass: 'z2m-system-page-icon' }), E('span', {}, meta.title)]), E('p', {}, meta.subtitle)])
     ]),
     errors.length ? E('div', {}, errors) : null,
     paneHost

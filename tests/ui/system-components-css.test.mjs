@@ -15,4 +15,7 @@ test('Components layout has a two-column desktop grid and one-column narrow fall
   assert.match(css, /\.z2m-components-page \.z2m-engine-pane \.z2m-proxy-kv>div\{align-items:flex-start;flex-direction:column/);
   assert.match(css, /\.z2m-components-page \.z2m-engine-hero,\.z2m-components-page \.z2m-engine-source\{display:grid/);
   assert.match(css, /\.z2m-components-page \.z2m-setting-row\{display:flex/);
+  assert.match(css, /\.z2m-components-grid\{[^}]*align-items:start/);
+  assert.match(css, /#z2m-view-system \.z2m-phead h1\{display:flex/);
+  assert.match(css, /@media\(min-width:980px\)\{[\s\S]*\.z2m-components-page \.z2m-engine-pane\{grid-template-columns/);
 });
