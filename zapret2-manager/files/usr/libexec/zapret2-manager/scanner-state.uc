@@ -10,6 +10,7 @@ const MAX_EVENTS = 32;
 const MAX_HISTORY = 50;
 const MAX_TEXT = 256;
 const ACTIVE = 'active.json';
+const HISTORY_INDEX = '.history.json';
 const JOURNAL_STATES = ['PREPARED', 'TABLE_CREATED', 'RULES_READY', 'PROCESS_BOUND', 'ACTIVE', 'CLEANING', 'CLEANED'];
 let sequence = 0;
 
@@ -280,21 +281,68 @@ function history_id(name) {
 	return safe_id(name) ? name : null;
 }
 
+// History is a read-only projection.  Use one bounded, locally validated read
+// per record instead of invoking the private helper transport once per file;
+// the latter made a 50-row history serially spend ~20 seconds on the router.
+// The canonical writer keeps these records as root-owned 0600 regular files
+// below the root-owned 0700 scanner directory.  Reject anything else before
+// parsing so the fast path does not widen the readable state boundary.
+function history_read_record(id) {
+	if (!safe_id(id)) return null;
+	let file = path(id, '.record.json'), metadata = null;
+	try { metadata = stat(file); } catch (e) { return null; }
+	if (!object(metadata) || metadata.type != 'file' || metadata.uid != 0 || metadata.gid != 0
+		|| metadata.mode != 384 || readlink(file) != null) return null;
+	return read_json(file);
+}
+
+function history_index_items() {
+	let value = test_mode() ? read_json(path('', HISTORY_INDEX)) : native_read('', HISTORY_INDEX);
+	if (!object(value) || value.schema != 1 || type(value.items) != 'array') return null;
+	return value.items;
+}
+
+function history_index_write(items) {
+	let raw = sprintf('%J', { schema: 1, items: slice(items, 0, MAX_HISTORY) }) + '\n';
+	if (length(raw) > 521028) return false;
+	let result = test_mode() ? atomic(path('', HISTORY_INDEX), { schema: 1, items: slice(items, 0, MAX_HISTORY) })
+		: native.atomic_write('runtime', native_path('', HISTORY_INDEX), b64enc(raw), true);
+	return test_mode() ? result : result.ok;
+}
+
+function history_index_upsert(candidate) {
+	let items = history_index_items();
+	if (items == null) return false;
+	let next = [];
+	for (let item in items) if (object(item) && item.id != candidate.id) push(next, item);
+	push(next, history_projection(candidate));
+	for (let i = 0; i < length(next); i++) for (let j = i + 1; j < length(next); j++) {
+		let left = next[i].finishedAt || next[i].startedAt || 0, right = next[j].finishedAt || next[j].startedAt || 0;
+		if (right > left) { let swap = next[i]; next[i] = next[j]; next[j] = swap; }
+	}
+	return history_index_write(next);
+}
+
 export const scanner_state_history_list = function(input) {
 	let requested = object(input) && integer(input.limit) && input.limit > 0 ? input.limit : MAX_HISTORY;
 	let limit = requested > MAX_HISTORY ? MAX_HISTORY : requested, names = null, rows = [];
+	if (!test_mode() && !ensure_root()) return { ok: true, items: [], limit: limit };
+	let indexed = history_index_items();
+	if (indexed != null) return { ok: true, items: slice(indexed, 0, limit), limit: limit, source: 'compact-index' };
 	try { names = lsdir(root()); } catch (e) { names = null; }
 	if (type(names) != 'array') return { ok: true, items: [], limit: limit };
 	for (let name in names) {
 		let id = history_id(name);
 		if (!id) continue;
-		let loaded = scanner_state_load(id);
+		let loaded = history_read_record(id);
+		loaded = loaded != null && valid_record(loaded) ? { ok: true, state: loaded } : { ok: false };
 		if (loaded.ok) push(rows, history_projection(loaded.state));
 	}
 	for (let i = 0; i < length(rows); i++) for (let j = i + 1; j < length(rows); j++) {
 		let left = rows[i].finishedAt || rows[i].startedAt || 0, right = rows[j].finishedAt || rows[j].startedAt || 0;
 		if (right > left) { let swap = rows[i]; rows[i] = rows[j]; rows[j] = swap; }
 	}
+	history_index_write(rows);
 	return { ok: true, items: slice(rows, 0, limit), limit: limit };
 };
 
@@ -316,9 +364,10 @@ export const scanner_state_save = function(input) {
 		return error('ESCHEMA', 'Scanner record digests are incomplete.');
 	if (length(sprintf('%J', candidate)) > MAX_RECORD_BYTES) return error('EOUTPUT', 'Scanner record exceeds volatile bounds.');
 	let expected = previous == null ? -1 : previous.revision;
-	return (test_mode() ? publish_json(candidate.id, '.record.json', candidate, null) : publish_revision(candidate.id, '.record.json', candidate, expected))
-		? { ok: true, id: candidate.id, revision: candidate.revision, state: candidate }
-		: error('EIO', 'Scanner record could not be atomically published.');
+	let published = test_mode() ? publish_json(candidate.id, '.record.json', candidate, null) : publish_revision(candidate.id, '.record.json', candidate, expected);
+	if (!published) return error('EIO', 'Scanner record could not be atomically published.');
+	if (index(['completed', 'cancelled', 'error'], candidate.status) >= 0) history_index_upsert(candidate);
+	return { ok: true, id: candidate.id, revision: candidate.revision, state: candidate };
 };
 
 export const scanner_control_load = function(id) {

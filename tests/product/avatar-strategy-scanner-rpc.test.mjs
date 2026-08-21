@@ -73,3 +73,18 @@ test('Scanner history reads one record per scan and applies the bound after sort
   assert.match(state, /return \{ ok: true, items: slice\(rows, 0, limit\), limit: limit \};/);
   assert.doesNotMatch(state, /if \(length\(rows\) >= limit\) break;/);
 });
+
+test('Scanner history uses a bounded secure fast reader instead of serial helper RPCs', () => {
+  assert.match(state, /function history_read_record\(id\)/);
+  assert.match(state, /metadata\.type != 'file'/);
+  assert.match(state, /metadata\.uid == 0/);
+  assert.match(state, /metadata\.gid == 0/);
+  assert.match(state, /metadata\.mode != 384/);
+  assert.match(state, /readlink\(file\) != null/);
+  assert.match(state, /let loaded = history_read_record\(id\)/);
+  assert.match(state, /if \(!test_mode\(\) && !ensure_root\(\)\)/);
+  assert.match(state, /const HISTORY_INDEX = '\.history\.json'/);
+  assert.match(state, /source: 'compact-index'/);
+  assert.match(state, /native\.atomic_write\('runtime', native_path\('', HISTORY_INDEX\)/);
+  assert.match(state, /history_index_upsert\(candidate\)/);
+});
