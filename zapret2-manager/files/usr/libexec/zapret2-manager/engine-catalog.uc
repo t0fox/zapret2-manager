@@ -5,6 +5,8 @@ import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 const CHECK_DIR = '/tmp/zapret2-manager/engine-checks';
 const STATE_FILE = '/etc/zapret2-manager/engine-state.json';
 const CACHE = '/etc/zapret2-manager/engine-cache';
+const RELEASE_CACHE = CACHE + '/release-catalog.json';
+const RELEASE_CACHE_TTL = 600;
 const API_URL = 'https://api.github.com/repos/bol-van/zapret2/releases?per_page=20';
 const UPSTREAM = 'bol-van/zapret2';
 const CHECK_TTL = 600;
@@ -39,7 +41,6 @@ function release_record(release, architecture_value) {
 }
 function metadata_allowed(url) { return url == API_URL; }
 function fetch_releases() { if (!metadata_allowed(API_URL)) return fail('ESECURITY', 'Official release URL не входит в allowlist.'); let file = private_tempfile(); if (file == null) return fail('EIO', 'Private metadata staging is unavailable.'); let qf = literal(file), qu = literal(API_URL); if (qf == null || qu == null) return fail('ESECURITY', 'Official release URL не прошёл shell boundary.'); let r = run('ulimit -f 8192; uclient-fetch -q -T 20 --user-agent zapret2-manager/engine -O ' + qf + ' ' + qu), s = stat(file); if (r.rc != 0 || s == null) { try { unlink(file); } catch (e) {} return fail('ENETWORK', 'Не удалось получить official release catalog.'); } if (s.size < 2 || s.size > MAX_METADATA) { try { unlink(file); } catch (e) {} return fail('EMETADATA', 'Official release catalog имеет недопустимый размер.'); } let doc = read_json(file, null); try { unlink(file); } catch (e) {} return type(doc) == 'array' ? { ok: true, releases: doc } : fail('EMETADATA', 'Official release catalog повреждён.'); }
-function catalog(architecture_value) { let fetched = fetch_releases(); if (!fetched.ok) return fetched; let out = []; for (let i = 0; i < length(fetched.releases); i++) { let c = release_record(fetched.releases[i], architecture_value); if (c != null) push(out, c); } return { ok: true, releases: out }; }
 function random_token() { return trim(run("cat /proc/sys/kernel/random/uuid /proc/sys/kernel/random/uuid | tr -d '\\n-' | cut -c1-48").out); }
 function runtime_version() { return stat('/opt/zapret2/nfq2/nfqws2') != null ? trim(run('/opt/zapret2/nfq2/nfqws2 --version | head -n 1').out) : ''; }
 function package_version() { let s = trim(run('apk info -e -v zapret2 | head -n 1').out); return substr(s, 0, 8) == 'zapret2-' ? substr(s, 8) : s; }
@@ -51,9 +52,41 @@ function valid_state(value) { return type(value) == 'object' && value != null &&
 function saved_state() { let current = read_json(STATE_FILE, null); return valid_state(current) ? current : null; }
 function public_candidate(c) { return { version: c.version, releaseTag: c.releaseTag, installedRelease: c.installedRelease, upstream: c.upstream, architecture: c.architecture, assetName: c.assetName, sha256: c.sha256, size: c.size, releaseId: c.releaseId, publishedAt: c.publishedAt, releaseUrl: c.releaseUrl, releaseNotes: c.releaseNotes, prerelease: c.prerelease, container: c.container, checksumName: c.checksumName, checksumUrl: c.checksumUrl, checksumSha256: c.checksumSha256, compatible: c.compatible, compatibilityMessage: c.compatibilityMessage }; }
 
-export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(a); if (!result.ok) return result; let releases = []; for (let i = 0; i < length(result.releases); i++) push(releases, public_candidate(result.releases[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases }; };
+function release_cache_read() {
+	let value = read_json(RELEASE_CACHE, null);
+	if (type(value) != 'object' || value == null || type(value.fetchedAt) != 'int' || type(value.releases) != 'array') return null;
+	return value;
+}
+function release_cache_write(releases) {
+	try { ensure_dir(CACHE); } catch (e) { return false; }
+	return atomic_json(RELEASE_CACHE, { schema: 'engine-release-catalog.v1', fetchedAt: time(), releases: releases });
+}
+function catalog(architecture_value, options) {
+	options = options || {};
+	let cached = release_cache_read(), age = cached ? time() - cached.fetchedAt : null;
+	if (options.cache === true && cached != null && age >= 0 && age <= RELEASE_CACHE_TTL) {
+		let fresh = [], raw = cached.releases;
+		for (let i = 0; i < length(raw); i++) { let candidate = release_record(raw[i], architecture_value); if (candidate != null) push(fresh, candidate); }
+		return { ok: true, releases: fresh, cacheHit: true, stale: false, fetchedAt: cached.fetchedAt };
+	}
+	let fetched = fetch_releases();
+	if (!fetched.ok) {
+		if (options.allowStale === true && cached != null) {
+			let stale = [], staleRaw = cached.releases;
+			for (let i = 0; i < length(staleRaw); i++) { let candidate = release_record(staleRaw[i], architecture_value); if (candidate != null) push(stale, candidate); }
+			return { ok: true, releases: stale, cacheHit: true, stale: true, fetchedAt: cached.fetchedAt, networkError: fetched.error };
+		}
+		return fetched;
+	}
+	let releases = [];
+	for (let i = 0; i < length(fetched.releases); i++) { let candidate = release_record(fetched.releases[i], architecture_value); if (candidate != null) push(releases, candidate); }
+	release_cache_write(fetched.releases);
+	return { ok: true, releases: releases, cacheHit: false, stale: false, fetchedAt: time() };
+}
+
+export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return result; let releases = []; for (let i = 0; i < length(result.releases); i++) push(releases, public_candidate(result.releases[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null }; };
 export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null ? saved.installedRelease : null; return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
-export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch); if (!result.ok) return result; let candidate = null, public_releases = []; for (let i = 0; i < length(result.releases); i++) { if (version == null || result.releases[i].version == version) candidate = result.releases[i]; push(public_releases, public_candidate(result.releases[i])); if (candidate != null && version != null) break; } if (candidate == null) return fail('ENOASSET', 'Официальный release asset для этой версии не найден.'); if (!candidate.compatible) return fail('EINCOMPATIBLE', candidate.compatibilityMessage); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить проверенный candidate.'); let installed = installed_engine(), latest = result.releases[0]; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest != null ? latest.installedRelease : null, updateAvailable: installed.installedOrigin == 'OFFICIAL' && installed.installedRelease != null && latest != null && installed.installedRelease != latest.installedRelease, candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
+export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: true, allowStale: false }); if (!result.ok) return result; let candidate = null, public_releases = []; for (let i = 0; i < length(result.releases); i++) { if (version == null || result.releases[i].version == version) candidate = result.releases[i]; push(public_releases, public_candidate(result.releases[i])); if (candidate != null && version != null) break; } if (candidate == null) return fail('ENOASSET', 'Официальный release asset для этой версии не найден.'); if (!candidate.compatible) return fail('EINCOMPATIBLE', candidate.compatibilityMessage); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latest = result.releases[0]; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest != null ? latest.installedRelease : null, updateAvailable: installed.installedOrigin == 'OFFICIAL' && installed.installedRelease != null && latest != null && installed.installedRelease != latest.installedRelease, candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
 export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if (!record.candidate.compatible) return fail('EINCOMPATIBLE', 'Совместимость версии не подтверждена.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
 export const save_engine_state = function (value) { ensure_dir('/etc/zapret2-manager'); return atomic_json(STATE_FILE, value); };
 export const clear_engine_state = function () { try { unlink(STATE_FILE); } catch (e) {} return stat(STATE_FILE) == null; };

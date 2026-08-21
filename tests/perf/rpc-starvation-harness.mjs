@@ -24,6 +24,7 @@ const calls = [
   ['orchestra_status'],
   ['orchestra_history'],
   ['orchestra_history_paginated', JSON.stringify({ limit: '50' })],
+  ['engine_releases', null, 'zapret2-manager-engine'],
   ['engine_gate_status', null, 'zapret2-manager-engine'],
   ['engine_status', null, 'zapret2-manager-engine']
 ];
