@@ -7,3 +7,6 @@
 # Preserve the byte-identical upstream patch; its nested diff context contains
 # intentional space-tab and blank context lines.
 tests/native/core/fixtures/*.patch -whitespace
+# The engine-sync fixture is a byte-exact upstream source snapshot; patch
+# application must preserve its intentional whitespace.
+tests/fixtures/engine-sync/base/** -whitespace

@@ -1,6 +1,7 @@
 {
   "schema": "zapret2-manager.native-preflight.v2",
   "status": "configured",
+  "engineIntegrationIdentity": "/usr/share/zapret2-manager/upstreams/engine-integration.json",
   "minNfqws2CompatVer": 1,
   "engineSourceCommit": "b08ae78778b602d246596435ea9b3f953f489828",
   "patchSeries": [

@@ -11,6 +11,7 @@ test('Task 2: native-preflight.json declares v2 schema with explicit patch capab
   const manifest = JSON.parse(raw);
 
   assert.equal(manifest.schema, 'zapret2-manager.native-preflight.v2');
+  assert.equal(manifest.engineIntegrationIdentity, '/usr/share/zapret2-manager/upstreams/engine-integration.json');
   assert.ok(Array.isArray(manifest.requiredCapabilities), 'requiredCapabilities must be an array');
   assert.ok(manifest.requiredCapabilities.includes('Z2K_TLS_MOD'), 'Must include Z2K_TLS_MOD');
   assert.ok(manifest.requiredCapabilities.includes('ANTIDPI_REPEATS_LOOP'), 'Must include ANTIDPI_REPEATS_LOOP');

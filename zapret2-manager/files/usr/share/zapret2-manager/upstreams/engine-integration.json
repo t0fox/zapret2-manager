@@ -1,0 +1,42 @@
+{
+  "schema": "zapret2-manager.engine-integration.v1",
+  "engineBase": {
+    "repository": "bol-van/zapret2",
+    "commit": "a0be7cbb40a4230e4b60fc33b7ea06102eb8ec15"
+  },
+  "z2kDelta": {
+    "repository": "necronicle/zapret2-z2k",
+    "branch": "z2k-master",
+    "commit": "8193742d8fde42fc646fbd10c0d2866572a54d3b"
+  },
+  "patchSeries": [
+    { "id": "001-z2k-tls-mod", "path": "patches/engine/001-z2k-tls-mod.patch", "sha256": "879e10f26c395c917134beaccbceb0171b5688bcc0f072bcee6cb16b2570bdbc" },
+    { "id": "002-z2k-antidpi-repeats-loop", "path": "patches/engine/002-z2k-antidpi-repeats-loop.patch", "sha256": "6d09e40fc8e66a2150f64a4f541ee582ce94fa95bf5d99d606d507734ed21309" },
+    { "id": "003-z2k-auto-family-split", "path": "patches/engine/003-z2k-auto-family-split.patch", "sha256": "ee486f02c0d9448d2fa5107b044d0e2454b96d9122b03dd2f8dea0668061dc40" }
+  ],
+  "requiredCapabilities": [
+    "Z2K_TLS_MOD",
+    "ANTIDPI_REPEATS_LOOP",
+    "AUTO_FAMILY_SPLIT"
+  ],
+  "runtimeCompatibility": {
+    "minZ2kComponentSchema": 1,
+    "requiredFunctions": [
+      "z2k_nohost_key",
+      "z2k_dynamic_ttl",
+      "z2k_quic_morph_v2",
+      "z2k_timing_morph"
+    ]
+  },
+  "generatedAt": "2026-08-21T00:00:00Z",
+  "audit": {
+    "bolVanBranch": "master",
+    "z2kDeltaBranch": "z2k-master",
+    "runtimeRepository": "necronicle/z2k",
+    "runtimeBranch": "z2k-enhanced",
+    "runtimeCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2",
+    "runtimeRelease": "r-77.5",
+    "avatarCatalogCommit": "f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "avatarUiDonorCommit": "8c44df2bed98872d1348db053623ee6bf2902408"
+  }
+}
