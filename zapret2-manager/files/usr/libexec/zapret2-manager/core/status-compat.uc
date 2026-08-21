@@ -32,7 +32,7 @@ export const legacy_status_v3 = function(native_state, observations) {
 		schema: 3,
 		generatedAt: observations.generatedAt,
 		generation: native_state.generation,
-		serviceState: native_state.serviceState,
+		serviceState: observations.serviceState != null ? observations.serviceState : native_state.serviceState,
 		engine: observations.engine,
 		runtime: observations.runtime,
 		applied: observations.applied,
