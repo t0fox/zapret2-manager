@@ -1,7 +1,7 @@
 {
   "zapret2-manager-engine": {
     "description": "Zapret2 Manager official engine lifecycle",
-    "read": { "ubus": { "zapret2-manager-engine": [ "engine_releases", "engine_status", "engine_check", "engine_operation_status" ] } },
+    "read": { "ubus": { "zapret2-manager-engine": [ "engine_releases", "engine_status", "engine_gate_status", "engine_check", "engine_operation_status" ] } },
     "write": { "ubus": { "zapret2-manager-engine": [ "engine_install", "engine_update", "engine_downgrade", "engine_reinstall", "engine_uninstall", "engine_operation_cancel" ] } }
   }
 }
