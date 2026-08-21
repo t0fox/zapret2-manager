@@ -19,6 +19,7 @@ var state = {
   selections: null, serviceBaseline: null, serviceLabels: {},
   globalDraft: null, globalBaseline: null, globalProviders: [],
   providerBusy: {}, providerResults: {}, providerErrors: {},
+  providerBatch: { total: 0, completed: 0, working: 0, failed: 0 },
   allProvidersBusy: false, benchRunning: false,
   dnsCheck: null,
   operation: null, lastOperation: null,
@@ -177,6 +178,16 @@ function normalizeServiceSelections(selections, items) {
 }
 function providerId(provider) { return String(provider && (provider.id || provider.providerId || provider.key) || ''); }
 function providerName(provider) { return provider && (provider.name || provider.label || provider.displayName || providerId(provider)) || '—'; }
+function tiktokAutoStateLabel(value) {
+  return ({
+    healthy: _('Работает штатно'),
+    active: _('Исправление активно'),
+    checking: _('Ищем рабочий CDN'),
+    degraded: _('Требует внимания'),
+    error: _('Ошибка'),
+    off: _('Выключено')
+  })[String(value || 'off').toLowerCase()] || _('Требует внимания');
+}
 function selectedProviderId(dns, providers) {
   var selected = dns && (dns.selectedProviderId || dns.providerId || dns.selectedProvider || dns.provider && (dns.provider.id || dns.provider.providerId));
   if (selected && typeof selected === 'object') selected = selected.id || selected.providerId;
@@ -396,12 +407,11 @@ function render(ctx) {
   var ownership = object(serviceHealth.ownership || dns.ownership || product.ownership);
   var dnsHealth = ProductUX.statusLabel(dnsState);
   var healthKind = ProductUX.kind(dnsState);
-  var taskSummary = E('div', { 'class': 'z2m-kpis z2m-dns-task-summary' }, [
-    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, shell.chip(dnsHealth, healthKind, true)), E('div', { 'class': 'l' }, _('Состояние DNS'))]),
-    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, providerName(activeProvider)), E('div', { 'class': 'l' }, _('Активный профиль / Provider'))]),
-    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, shell.chip(ProductUX.statusLabel(dnsmasqState), ProductUX.kind(dnsmasqState), true)), E('div', { 'class': 'l' }, _('dnsmasq'))]),
-    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, lastAppliedRevision == null ? _('Не подтверждено') : 'rev ' + String(lastAppliedRevision)), E('div', { 'class': 'l' }, _('Последнее применение'))]),
-    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, String(state.manual.length)), E('div', { 'class': 'l' }, _('Правила в черновике'))])
+  var taskSummary = E('div', { 'class': 'z2m-dns-task-summary-line' }, [
+    shell.chip(dnsHealth, healthKind, true),
+    E('span', {}, providerName(activeProvider)), E('span', { 'class': 'z2m-dns-summary-separator' }, '·'),
+    E('span', {}, _('dnsmasq ') + ProductUX.statusLabel(dnsmasqState)), E('span', { 'class': 'z2m-dns-summary-separator' }, '·'),
+    E('span', {}, String(state.manual.length) + ' ' + _('правил')), lastAppliedRevision == null ? null : E('span', { 'class': 'z2m-dns-summary-revision' }, 'rev ' + String(lastAppliedRevision))
   ]);
 
   function showError(error) {
@@ -595,29 +605,31 @@ function render(ctx) {
         var group = E('section', { 'class': 'z2m-provider-group' }, [E('div', { 'class': 'z2m-provider-group-head' }, [E('h3', {}, category), E('span', { 'class': 'z2m-service-dns-count' }, String(groups[category].length) + ' ' + _('провайдера'))]), body]);
         groups[category].forEach(function (provider) {
           var id = providerId(provider), busy = state.providerBusy[id] === true, selected = id && id === currentProviderId;
-          var icon = provider.name ? provider.name.slice(0, 1).toUpperCase() : '?';
+          var icon = Icons.wrappedNode('network', { size: 18, fallback: 'network' });
           var diagnose = shell.button(busy ? _('Проверяется…') : _('Проверить'), 'sm', function () { diagnoseProvider(provider, redraw); }, busy || state.allProvidersBusy);
           var select = shell.button(selected ? _('Выбран') : _('Выбрать'), selected ? 'sm' : 'primary sm', function () { selectProvider(provider); }, busy || selected);
           body.appendChild(E('div', { 'class': 'z2m-provider-row' + (selected ? ' selected' : '') }, [
-            E('span', { 'class': 'z2m-provider-icon' }, icon),
+            E('span', { 'class': 'z2m-provider-icon' }, [icon]),
             E('div', { 'class': 'z2m-provider-main' }, [E('strong', { 'class': 'z2m-provider-name' }, providerName(provider)), E('small', { 'class': 'z2m-provider-addresses' }, asArray(provider.ipv4 || provider.addresses).join(' · ') || _('Адрес не указан'))]),
             E('div', { 'class': 'z2m-provider-result-cell' }, [providerResultNode(provider)]),
-            diagnose,
-            select
+            E('div', { 'class': 'z2m-provider-actions' }, [diagnose, select])
           ]));
         });
         list.appendChild(group);
       });
       if (!providers.length) list.appendChild(shell.empty(_('Провайдеры недоступны.')));
       var benchBtn = shell.button(state.allProvidersBusy ? _('Проверка выполняется…') : _('Проверить все'), 'sm', function () { checkAllProviders(redraw); }, state.allProvidersBusy || !providers.length);
-      var checked = Object.keys(state.providerResults).length;
+      var batch = state.providerBatch && state.providerBatch.total ? state.providerBatch : { total: providers.length, completed: Object.keys(state.providerResults).length, working: 0, failed: 0 };
+      var checked = state.allProvidersBusy ? batch.completed : (batch.total ? batch.completed : Object.keys(state.providerResults).length);
       var chosen = currentProviderId ? providerName(providers.filter(function (provider) { return providerId(provider) === currentProviderId; })[0]) : '—';
+      var batchLabel = state.allProvidersBusy ? _('Проверяем ') + Math.min(batch.completed + 1, batch.total) + _(' из ') + batch.total + '…' :
+        batch.total && batch.completed < batch.total ? _('Проверено ') + batch.completed + _(' из ') + batch.total :
+        batch.total ? _('Работает: ') + batch.working + ' · ' + _('Недоступно: ') + batch.failed : _('Проверено 0 из 0');
       wrapper.replaceChildren(shell.panel(_('Проверка и выбор провайдера'), E('div', {}, [
-        E('div', { 'class': 'z2m-providers-summary' }, [E('div', { 'class': 'z2m-providers-summary-item' }, [E('strong', {}, String(providers.length)), E('span', {}, _('Всего провайдеров'))]), E('div', { 'class': 'z2m-providers-summary-item' }, [E('strong', {}, String(checked)), E('span', {}, _('Проверено'))]), E('div', { 'class': 'z2m-providers-summary-item' }, [E('strong', {}, chosen), E('span', {}, _('Выбранный провайдер'))]), benchBtn]),
-        E('div', { 'class': 'z2m-provider-columns' }, [E('span'), E('span', {}, _('Провайдер')), E('span', {}, _('Результат проверки')), E('span', { 'class': 'z2m-provider-actions-label', colspan: '2' }, _('Действия'))]),
+        E('div', { 'class': 'z2m-providers-summary' }, [E('span', { 'class': 'z2m-providers-progress' }, batchLabel), E('span', { 'class': 'z2m-providers-chosen' }, _('Выбран: ') + chosen), benchBtn]),
         state.allProvidersBusy ? E('div', { 'class': 'bar', style: 'margin:12px 0' }, [E('i', { class: 'g', style: 'width:100%', id: 'benchBar' })]) : E('span'),
         list
-      ]), _('Проверка измеряет ответ DNS и задержку каждого провайдера.')));
+      ]), _('Проверка измеряет только фактически полученный ответ DNS.')));
     }
     redraw();
     return wrapper;
@@ -628,7 +640,7 @@ function render(ctx) {
     var result = state.providerResults[id];
     if (!result) return '';
     var probe = providerProbe(result, id);
-    var ok = probe ? probe.working === true || probe.outcome === 'working' : result.ok === true || result.dnsAnswered === true || result.status === 'ready' || result.status === 'success' || result.status === 'ok';
+    var ok = probe ? probe.working === true || probe.partial === true || probe.outcome === 'working' || probe.outcome === 'partial' : result.ok === true || result.dnsAnswered === true || result.status === 'ready' || result.status === 'success' || result.status === 'ok';
     return ok ? 'z2m-provider-result-success' : 'z2m-provider-result-fail';
   }
   function providerProbe(result, id) {
@@ -636,7 +648,10 @@ function render(ctx) {
   }
   function providerLatency(result, id) {
     var probe = providerProbe(result, id);
-    var values = asArray(probe && probe.attempts).map(function (attempt) { return attempt.durationMs; }).filter(function (value) { return value != null && isFinite(value); });
+    var values = asArray(probe && probe.attempts).filter(function (attempt) {
+      return attempt && attempt.dnsAnswered === true && attempt.timedOut !== true &&
+        attempt.durationMeasured === true && attempt.durationSource === 'dns-query-monotonic';
+    }).map(function (attempt) { return Number(attempt.durationMs); }).filter(function (value) { return isFinite(value) && value >= 0; });
     return values.length ? Math.min.apply(Math, values) : null;
   }
   function formatLatency(value) {
@@ -659,10 +674,19 @@ function render(ctx) {
     var probe = providerProbe(result, id);
     var attempts = asArray(probe && probe.attempts);
     var answered = attempts.filter(function (attempt) { return attempt.dnsAnswered === true; }).length;
+    var partial = probe && (probe.partial === true || probe.outcome === 'partial');
+    var latency = providerLatency(result, id);
+    var detailRows = attempts.map(function (attempt) {
+      var measured = attempt && attempt.dnsAnswered === true && attempt.timedOut !== true && attempt.durationMeasured === true && attempt.durationSource === 'dns-query-monotonic';
+      var timing = measured ? formatLatency(attempt.durationMs) : attempt && attempt.timedOut === true ? _('тайм-аут') : _('не измерено');
+      return E('div', { 'class': 'z2m-provider-detail-row' }, [E('code', {}, display(attempt && attempt.resolverIp)), E('span', {}, timing)]);
+    });
     return E('div', { 'class': 'z2m-provider-result ' + providerResultClass(id) }, [
-      shell.chip(ok ? _('DNS работает') : _('DNS недоступен'), ok ? 'g' : 'r'),
-      E('span', { 'class': 'z2m-provider-latency' }, _('Задержка: ') + formatLatency(providerLatency(result, id))),
-      E('span', { 'class': 'z2m-provider-attempts' }, answered + '/' + attempts.length + ' ' + _('резолверов ответили'))
+      E('span', { 'class': 'z2m-provider-status-dot ' + (ok ? 'ok' : 'fail') }, '●'),
+      E('strong', {}, ok ? (partial ? _('Работает частично') : _('Работает')) : _('Недоступен')),
+      latency == null ? E('span', { 'class': 'z2m-provider-measurement-missing' }, _('Время не измерено')) : E('span', { 'class': 'z2m-provider-latency' }, formatLatency(latency)),
+      E('span', { 'class': 'z2m-provider-attempts' }, answered + '/' + attempts.length + ' ' + _('резолверов ответили')),
+      detailRows.length ? E('details', { 'class': 'z2m-provider-details' }, [E('summary', {}, _('Детали')), E('div', { 'class': 'z2m-provider-detail-list' }, detailRows)]) : null
     ]);
   }
   function diagnoseProvider(provider, refresh) {
@@ -682,15 +706,33 @@ function render(ctx) {
       state.providerErrors[id] = ctx.api.normalizeError(error).message;
     }).then(function () {
       state.providerBusy[id] = false;
+      if (!state.allProvidersBusy) {
+        state.providerBatch.total = providers.length;
+        state.providerBatch.completed = Object.keys(state.providerResults).length + Object.keys(state.providerErrors).length;
+        state.providerBatch.working = Object.keys(state.providerResults).filter(function (key) {
+          var probe = providerProbe(state.providerResults[key], key);
+          return probe && (probe.working === true || probe.partial === true || probe.outcome === 'working' || probe.outcome === 'partial');
+        }).length;
+        state.providerBatch.failed = state.providerBatch.completed - state.providerBatch.working;
+      }
       if (refresh) refresh();
     });
   }
   function checkAllProviders(refresh) {
     if (state.allProvidersBusy) return;
     state.allProvidersBusy = true;
+    state.providerResults = {};
+    state.providerErrors = {};
+    state.providerBatch = { total: providers.length, completed: 0, working: 0, failed: 0 };
     refresh();
     providers.reduce(function (chain, provider) {
-      return chain.then(function () { return diagnoseProvider(provider, refresh); });
+      return chain.then(function () { return diagnoseProvider(provider, refresh); }).then(function () {
+        state.providerBatch.completed++;
+        var id = providerId(provider), result = state.providerResults[id], probe = providerProbe(result, id);
+        if (probe && (probe.working === true || probe.partial === true || probe.outcome === 'working' || probe.outcome === 'partial')) state.providerBatch.working++;
+        else state.providerBatch.failed++;
+        refresh();
+      });
     }, Promise.resolve()).then(function () {
       state.allProvidersBusy = false;
       refresh();
@@ -763,9 +805,10 @@ function render(ctx) {
       if (id && !known[id]) { known[id] = true; items.push({ id: id, name: state.serviceLabels[id] || id, category: 'other', profiles: [] }); }
     });
     var providerNames = {};
+    providers.forEach(function (provider) { providerNames[provider.id || provider.providerId] = provider.name || provider.label || provider.id; });
     serviceProviders.forEach(function (provider) { providerNames[provider.id || provider.providerId] = provider.name || provider.label || provider.id; });
     var providerLabel = function (id) {
-      var labels = { 'comss-dns': _('Comss DNS'), cloudflare: _('Cloudflare DNS'), 'google-dns': _('Google Public DNS') };
+      var labels = { 'comss-dns': _('Comss DNS'), cloudflare: _('Cloudflare DNS'), 'google-dns': _('Google Public DNS'), dnssb: _('Dns.SB'), 'malw-link': _('dns.malw.link') };
       return labels[id] || providerNames[id] || id || _('По умолчанию');
     };
     var profileName = function (item, id) {
@@ -802,9 +845,8 @@ function render(ctx) {
         var domains = asArray(item.domains).slice(0, 3).join(' · ') || _('Домены сервиса');
         var currentName = profileName(item, before);
         var icon = E('span', { 'class': 'z2m-service-dns-icon', style: 'color:' + iconData.color + ';background:' + iconData.color + '22' }, [Icons.wrappedNode(iconData.name, { size: 20, fallback: 'network' })]);
-        var stateNode = changed ? E('div', { 'class': 'z2m-service-dns-state draft' }, [E('span', {}, _('Сейчас: ') + currentName), E('span', {}, _('Будет: ') + profileName(item, after)), E('span', { 'class': 'z2m-unsaved-state' }, _('● Есть несохранённое изменение'))])
-          : E('span', { 'class': 'z2m-service-dns-state' }, _('Используется: ') + currentName);
-        var rowChildren = [E('div', { 'class': 'z2m-service-info' }, [icon, E('div', {}, [E('strong', { 'class': 'z2m-service-name' }, item.name), E('small', { 'class': 'z2m-service-domains', title: domains }, domains)])]), E('div', { 'class': 'z2m-service-controls' }, [stateNode, select])];
+        var stateNode = changed ? E('div', { 'class': 'z2m-service-dns-state draft' }, [E('span', {}, _('Сейчас: ') + currentName), E('span', {}, _('Будет: ') + profileName(item, after)), E('span', { 'class': 'z2m-unsaved-state' }, _('● Не применено'))]) : null;
+        var info = E('div', { 'class': 'z2m-service-info' }, [icon, E('div', {}, [E('strong', { 'class': 'z2m-service-name' }, item.name), E('small', { 'class': 'z2m-service-domains', title: domains }, domains)])]);
         if (id === 'tiktok') {
           var auto = state.tiktokAuto || {}, autoSwitch = E('span', { 'class': 'z2m-sw sm z2m-tiktok-auto-switch' + (auto.enabled ? ' on' : ''), role: 'switch', tabindex: '0', 'aria-checked': auto.enabled ? 'true' : 'false', 'aria-label': _('Автоисправление ленты') }, [E('i')]);
           autoSwitch.addEventListener('click', function () {
@@ -812,8 +854,10 @@ function render(ctx) {
             state.tiktokAutoBusy = true;
             ctx.api.dns.serviceTiktokSet(edit(ctx.api.dns.serviceTiktokSet, { enabled: !auto.enabled })).then(function (answer) { if (answer && answer.operationId) state.operation = answer; return ctx.refresh('dns'); }).catch(showError).then(function () { state.tiktokAutoBusy = false; });
           });
-          rowChildren.push(E('div', { 'class': 'z2m-tiktok-auto' }, [autoSwitch, E('div', {}, [E('strong', {}, _('Автоисправление ленты')), E('small', {}, _('Проверяет v77.tiktokcdn.com и управляет только своим override.'))])]), E('div', { 'class': 'z2m-tiktok-auto-status' }, [E('span', { 'class': 'z2m-chip' }, display(auto.state || 'off')), auto.selectedIp ? E('code', {}, auto.selectedIp + (auto.latencyMs ? ' · ' + auto.latencyMs + ' ms' : '')) : null]));
+          var tiktokProbe = auto.selectedIp ? auto.selectedIp + (auto.latencyMs != null ? ' · ' + auto.latencyMs + ' мс' : '') : null;
+          info.lastChild.appendChild(E('div', { 'class': 'z2m-tiktok-auto-line' }, [autoSwitch, E('strong', {}, _('Автоисправление ленты')), E('span', { 'class': 'z2m-tiktok-auto-status' }, tiktokAutoStateLabel(auto.state)), tiktokProbe ? E('code', {}, tiktokProbe) : null]));
         }
+        var rowChildren = [info, E('div', { 'class': 'z2m-service-controls' }, [stateNode, select])];
         var row = E('div', { 'class': 'z2m-service-dns-row' + (changed ? ' changed' : '') + (id === 'tiktok' ? ' tiktok-row' : ''), 'data-service-dns-id': id, 'data-service-name': (item.name + ' ' + domains).toLowerCase() }, rowChildren);
         select.addEventListener('change', function () { state.selections[id] = select.value; updateServiceDnsDraft(ctx); renderPane(); });
         groupBody.appendChild(row);
@@ -842,7 +886,7 @@ function render(ctx) {
     ]);
     var sidebarChildren = [shell.panel(_('Текущие правила для сервисов'), rulesSummary)];
     if (previewRows.length) sidebarChildren.push(shell.panel(_('Предпросмотр изменений'), E('div', { 'class': 'z2m-dns-preview-list' }, previewRows)));
-    sidebarChildren.push(shell.panel(_('Важно'), E('div', { 'class': 'z2m-dns-access-note' }, _('Изменения сначала сохраняются в черновик. Конфигурация применяется к системе только после нажатия кнопки «Применить».'))));
+    if (changeIds.length) sidebarChildren.push(shell.panel(_('Важно'), E('div', { 'class': 'z2m-dns-access-note' }, _('Изменения сначала сохраняются в черновик. Конфигурация применяется к системе только после нажатия кнопки «Применить».'))));
     sidebarChildren.push(E('details', { 'class': 'z2m-dns-technical-details' }, [E('summary', {}, _('Технические детали')), E('div', {}, [E('div', {}, _('Override ownership: service_dns_tiktok_auto')), E('code', {}, '/etc/config/dhcp · address=/v77.tiktokcdn.com/<IP>')])]))
     var sidebar = E('aside', { 'class': 'z2m-dns-access-sidebar' }, sidebarChildren);
     return E('div', { 'class': 'z2m-dns-access-layout' }, [E('div', { 'class': 'z2m-dns-access-main' }, [shell.panel(_('Доступ сервисов'), E('div', {}, [stats, toolbar, draftActions, groupsRoot]), _('Профиль DNS выбирается отдельно для каждого сервиса.'))]), sidebar]);

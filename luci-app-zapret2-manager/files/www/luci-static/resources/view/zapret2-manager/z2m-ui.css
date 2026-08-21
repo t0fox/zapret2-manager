@@ -2779,3 +2779,30 @@
   .strategy-ide-actions .btn,
   .editor-actions .btn { flex: 1 1 140px; }
 }
+
+/* DNS catalog rows: lightweight sections with one stable row rhythm. */
+.z2m-dns-task-summary-line{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel2);color:var(--tx2);font-size:12px}
+.z2m-dns-summary-separator,.z2m-dns-summary-revision{color:var(--tx3)}
+.z2m-provider-groups,.z2m-service-dns-groups{gap:18px}
+.z2m-provider-group,.z2m-service-dns-group{overflow:visible;border:0;border-radius:0;background:transparent}
+.z2m-provider-group-head,.z2m-service-dns-group-head{padding:8px 2px;border:0;background:transparent}
+.z2m-provider-group-head h3,.z2m-service-dns-group-head h3{font-size:11px;letter-spacing:.08em}
+.z2m-provider-group-body,.z2m-service-dns-group-body{border-top:1px solid var(--border);border-bottom:1px solid var(--border);border-radius:5px;overflow:hidden}
+.z2m-provider-row{grid-template-columns:30px minmax(190px,1fr) minmax(230px,auto) auto;min-height:58px;padding:7px 10px;background:var(--panel)}
+.z2m-provider-icon{width:28px;height:28px;border-radius:7px;background:rgba(75,159,213,.12)}
+.z2m-provider-icon .z2m-icon{width:18px;height:18px;stroke:currentColor;fill:none}
+.z2m-app .z2m-provider-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin:0}
+.z2m-app .z2m-provider-result{gap:7px;margin:0;padding:0;border:0;border-radius:0;background:transparent;white-space:normal}
+.z2m-provider-result strong{font-size:12px;font-weight:600;white-space:nowrap}
+.z2m-provider-status-dot.ok{color:var(--green)}.z2m-provider-status-dot.fail{color:var(--red)}
+.z2m-provider-latency{font-size:12px;font-variant-numeric:tabular-nums}.z2m-provider-measurement-missing{color:var(--tx3);font-size:11px}
+.z2m-provider-details{font-size:11px;color:var(--tx3)}.z2m-provider-details summary{cursor:pointer;color:var(--tx2)}
+.z2m-provider-detail-list{display:grid;gap:3px;margin-top:5px;padding:5px 7px;border-left:2px solid var(--border)}.z2m-provider-detail-row{display:grid;grid-template-columns:92px auto;gap:8px}.z2m-provider-detail-row code{color:var(--tx2)}
+.z2m-providers-summary{display:flex;align-items:center;gap:14px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.z2m-providers-progress{color:var(--tx2);font-size:12px;font-variant-numeric:tabular-nums}.z2m-providers-chosen{margin-right:auto;color:var(--tx3);font-size:11px}
+.z2m-app .z2m-service-dns-row{grid-template-columns:minmax(0,1fr) minmax(270px,380px);min-height:58px;padding:8px 10px}
+.z2m-service-info{gap:10px}.z2m-service-info>div{gap:2px}.z2m-service-info strong{font-size:13px}.z2m-service-info small{font-size:11px}
+.z2m-service-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;min-width:0}
+.z2m-service-dns-select{width:190px;max-width:190px;height:32px;min-height:32px}.z2m-service-dns-state{font-size:11px}.z2m-service-dns-state.draft{gap:1px}
+.z2m-tiktok-auto-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:4px;color:var(--tx2);font-size:10px}.z2m-tiktok-auto-line strong{font-size:10px}.z2m-tiktok-auto-line .z2m-sw{margin:-7px -5px -7px -8px;transform:scale(.72);transform-origin:left center}.z2m-tiktok-auto-status{color:var(--tx3);font-size:10px}.z2m-tiktok-auto-line code{font-size:10px;color:var(--tx2)}
+@media(max-width:760px){.z2m-provider-row{grid-template-columns:30px minmax(0,1fr);gap:8px}.z2m-provider-result-cell,.z2m-provider-actions{grid-column:2}.z2m-provider-actions{justify-content:flex-start}.z2m-providers-summary{align-items:flex-start;flex-wrap:wrap}.z2m-providers-chosen{margin-right:0}.z2m-service-dns-row{grid-template-columns:minmax(0,1fr);gap:7px}.z2m-service-controls{grid-template-columns:minmax(0,1fr) auto}.z2m-service-dns-select{width:180px;max-width:180px}}

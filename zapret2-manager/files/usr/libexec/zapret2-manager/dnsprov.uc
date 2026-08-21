@@ -240,12 +240,15 @@ function validate_domain(d) {
 }
 
 function now_ms() {
-	let s = trim(run('date +%s').out);
-	return match(s, /^[0-9]+$/) ? (+s * 1000) : 0;
+	let now = clock(true);
+	return type(now) == 'array' && length(now) >= 2 ? now[0] * 1000 + int(now[1] / 1000000) : 0;
 }
 
 function bounded(cmd, seconds) {
-	return run("sh -c '" + cmd + " & p=$!; (sleep " + seconds + "; kill $p 2>/dev/null) & t=$!; wait $p; r=$?; kill $t 2>/dev/null; exit $r'");
+	// Keep the watchdog off the captured stdout/stderr pipe. Otherwise popen()
+	// waits for the watchdog's inherited descriptors and every successful query
+	// is reported at the full four-second budget.
+	return run("sh -c '" + cmd + " & p=$!; (sleep " + seconds + "; kill $p 2>/dev/null) >/dev/null 2>&1 & t=$!; wait $p; r=$?; kill $t 2>/dev/null; exit $r'");
 }
 
 function parse_nslookup(text, resolver) {
@@ -277,14 +280,16 @@ function nslookup_probe(domain, resolver) {
 	let started = now_ms();
 	let r = bounded('nslookup ' + domain + ' ' + resolver, DNS_DEADLINE_SEC);
 	let answers = parse_nslookup(r.out, resolver);
-	let timedOut = (r.rc == 124 || r.rc == 137);
+	let timedOut = (r.rc == 124 || r.rc == 137 || r.rc == 143);
 	let nxdomain = (index((r.out || ''), 'NXDOMAIN') >= 0 || index((r.out || ''), "Can't find") >= 0);
 	return {
 		answers: answers,
 		dnsAnswered: length(answers) > 0,
 		timedOut: timedOut,
 		error: length(answers) ? null : (timedOut ? 'DNS query timeout' : (nxdomain ? 'NXDOMAIN' : (r.rc != 0 ? 'nslookup failed' : 'no valid DNS answer'))),
-		durationMs: now_ms() - started
+		durationMs: now_ms() - started,
+		durationMeasured: true,
+		durationSource: 'dns-query-monotonic'
 	};
 }
 
@@ -303,7 +308,9 @@ function provider_attempt(domain, resolver) {
 		pingAnswered: ping.answered,
 		timedOut: dns.timedOut || ping.timedOut,
 		error: dns.error,
-		durationMs: dns.durationMs
+		durationMs: dns.durationMs,
+		durationMeasured: dns.durationMeasured === true,
+		durationSource: dns.durationSource || null
 	};
 }
 

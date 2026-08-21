@@ -20,10 +20,9 @@ test('DNS service rows expose human provider labels and non-redundant draft stat
   const dns = fs.readFileSync(DNS, 'utf8');
   for (const label of ['Comss DNS', 'Cloudflare DNS', 'Google Public DNS', 'По умолчанию'])
     assert.match(dns, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.match(dns, /Используется:/);
   assert.match(dns, /Сейчас:/);
   assert.match(dns, /Будет:/);
-  assert.match(dns, /Есть несохранённое изменение/);
+  assert.match(dns, /Не применено/);
   assert.match(dns, /Изменено сервисов:/);
   assert.match(dns, /Предпросмотр/);
 });

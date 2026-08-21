@@ -57,7 +57,7 @@ test('shared error language preserves technical evidence for DNS and TG failures
 
 test('DNS first screen exposes health hierarchy without removing advanced ownership details', () => {
   const source = fs.readFileSync(DNS, 'utf8');
-  for (const marker of ['ProductUX', 'Активный профиль', 'Provider', 'dnsmasq', 'Последнее применение', 'managed', 'external', 'provenance', 'revision'])
+  for (const marker of ['ProductUX', 'z2m-dns-task-summary-line', 'dnsmasq', 'managed', 'external', 'provenance', 'revision'])
     assert.match(source, new RegExp(marker, 'i'), marker);
   assert.match(source, /ProductUX\.errorMessage/);
   assert.match(source, /rollbackAvailable/);
