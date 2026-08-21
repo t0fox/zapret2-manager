@@ -52,11 +52,13 @@ function engine_level() {
 	catch (e) { packagePresent = false; }
 	let binaryPresent = !!stat(PATHS.nfqws_bin);
 	let servicePresent = !!stat(PATHS.upstream_init);
+	let configPresent = !!stat(PATHS.applied_conf);
 	return {
-		installed: packagePresent && binaryPresent && servicePresent,
+		installed: configPresent && binaryPresent && servicePresent,
 		packagePresent: packagePresent,
 		binaryPresent: binaryPresent,
-		servicePresent: servicePresent
+		servicePresent: servicePresent,
+		configPresent: configPresent
 	};
 }
 
@@ -193,7 +195,7 @@ function health_block() {
 function rules_present() {
 	try {
 		let raw = sh('nft list table inet ' + NFT_TABLE);
-		return length(raw) && index(raw, 'chain ') >= 0;
+		return length(raw) && index(raw, 'chain ') >= 0 && index(raw, 'queue num ' + NFQUEUE) >= 0;
 	} catch (e) {
 		return false;
 	}
