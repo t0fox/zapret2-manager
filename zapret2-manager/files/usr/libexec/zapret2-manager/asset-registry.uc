@@ -11,6 +11,7 @@ const MAX_STATE_BYTES = 1024 * 1024;
 const MAX_BUNDLE_ASSETS = 64;
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
 const MAX_IMPORT_BYTES = 16 * 1024 * 1024;
+const RESOURCE_MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const MAX_REMOTE_URL_BYTES = 2048;
 const MAX_ASN_PREFIXES = 4096;
 const LIMITS = { lua: 4 * 1024 * 1024, blob: 16 * 1024 * 1024, ipset: 1024 * 1024,
@@ -179,6 +180,19 @@ function references_copy(asset) { return copy_array(asset.references); }
 function content_size(path) { let s = stat(path); return object(s) && type(s.size) == 'int' ? s.size : -1; }
 function staged_path_safe(path) { return string(path) && under(path, STAGE_ROOT) && regular(path); }
 function valid_sha(value) { return string(value) && match(value, /^[a-f0-9]{64}$/); }
+function package_manifest_asset(id) {
+	let raw = readfile(RESOURCE_MANIFEST), manifest = null; if (raw == null || length(raw) > 256 * 1024) return null;
+	try { manifest = json(raw); } catch (e) { return null; }
+	if (!object(manifest) || type(manifest.bundles) != 'array') return null;
+	for (let i = 0; i < length(manifest.bundles); i++) for (let j = 0; j < length(manifest.bundles[i].assets || []); j++) {
+		let item = manifest.bundles[i].assets[j]; if (!object(item) || item.id != id || !string(item.packagePath) || !regular(item.packagePath)) continue;
+		let actual = sha256_file(item.packagePath); if (!valid_sha(item.sha256) || actual != item.sha256 || content_size(item.packagePath) != item.byteSize) return null;
+		return { schema: 1, type: item.type, id: item.id, name: item.name, ownership: 'package', mutable: false,
+			provenance: { kind: 'builtin/package', source: 'package baseline', expectedSha256: item.sha256 }, contentSha256: actual,
+			byteSize: content_size(item.packagePath), revision: 0, path: item.packagePath, legacyPath: null, references: [], validation: { status: 'passed', errors: [] } };
+	}
+	return null;
+}
 function validate_request(request) {
 	if (!object(request) || !valid_type(request.type) || !valid_id(request.type, request.id)) return fail('EINPUT', 'typed stable asset ID is required');
 	if (!provenance_valid(request.provenance || { kind: 'imported' })) return fail('EINPUT', 'asset provenance is invalid');
@@ -235,7 +249,8 @@ function lua_validate_content(content) {
 	return { status: 'failed', errors: [{ line: match_line ? +match_line[1] : null, message: match_line ? match_line[2] : trim(probe.out || 'Lua syntax error') }], checker: 'luac' };
 }
 export const asset_registry_get_content = function(id) {
-	let result = asset_registry_get(id); if (!result.ok) return result;
+	let result = asset_registry_get(id); if (!result.ok && result.error && result.error.code == 'EDEPENDENCY') { let packageAsset = package_manifest_asset(id); if (packageAsset != null) result = ok(packageAsset); }
+	if (!result.ok) return result;
 	let content = readfile(result.asset.path);
 	if (content == null || length(content) > LIMITS[result.asset.type]) return fail('ESAFETY', 'asset content is unavailable or exceeds its type limit');
 	let encoded = base64_encode(content, LIMITS[result.asset.type]); if (encoded == null) return fail('EIO', 'asset content could not be encoded');

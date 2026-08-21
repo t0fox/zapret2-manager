@@ -39,3 +39,9 @@ test('Resource Center exposes one lazy route-aware workspace for first-class ass
   assert.match(page, /routeParams/);
   assert.doesNotMatch(page, /fetch\s*\(/);
 });
+
+test('Package resources keep content available in a read-only editor', () => {
+  assert.match(page, /Просмотр доступен/);
+  assert.match(page, /luaEditor\(state, readOnly\)/);
+  assert.match(page, /editor\.readOnly = readOnly/);
+});

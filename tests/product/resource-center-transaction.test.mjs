@@ -33,6 +33,14 @@ test('Resource Center RPCs and ACL expose read checks separately from update', (
   assert.match(rpc, /resources_update: \{ args: \{ edit: 'string' \}/);
 });
 
+test('Package-owned resource content is read-only and hash-verified from the package baseline', () => {
+  assert.match(registry, /RESOURCE_MANIFEST/);
+  assert.match(registry, /package_manifest_asset/);
+  assert.match(registry, /ownership: 'package'/);
+  assert.match(registry, /actual != item\.sha256/);
+  assert.match(registry, /asset_registry_get_content/);
+});
+
 test('Strategy catalog updates require a complete verified snapshot and retain last known good', () => {
   for (const fragment of ['completeSnapshot', 'dependenciesVerified', 'stagedRoot', 'strategy_catalog_load', 'lastKnownGoodRetained', 'MANAGED_ROOT'])
     assert.match(strategyUpdate, new RegExp(fragment.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), fragment);
