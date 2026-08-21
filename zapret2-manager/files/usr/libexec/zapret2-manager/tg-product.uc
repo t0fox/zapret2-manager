@@ -12,6 +12,10 @@ import { proxy_provider_preflight } from './proxy-provider-preflight.uc';
 
 const SCHEMA = 'tg-product.v2';
 const PROVIDERS = [ 'go', 'rust' ];
+const STATUS_CACHE_TTL_SEC = 3;
+let STATUS_CACHE = null;
+
+function invalidate_status_cache() { STATUS_CACHE = null; }
 
 function provider_row(row, preflight) {
 	let available = null;
@@ -46,7 +50,10 @@ function catalog_model() {
 
 function status_model() {
 	let providers = proxy_provider_status(), runtime = proxy_status(), config = proxycfg_get();
-	let health = proxycfg_health({}), selected = providers.activeProvider, installed = [];
+	// Product status is polled alongside the dedicated health RPC. Keep this
+	// read local so every status refresh does not repeat the bounded upstream
+	// TCP probe; the dedicated health RPC remains the explicit network path.
+	let health = proxycfg_health({ upstream: false }), selected = providers.activeProvider, installed = [];
 	for (let i = 0; i < length(providers.packages); i++) {
 		let item = providers.packages[i];
 		push(installed, { provider: item.provider, package: item.package,
@@ -80,8 +87,15 @@ function status_model() {
 }
 
 export const tg_product_catalog = function () { return catalog_model(); };
-export const tg_product_status = function () { return status_model(); };
-export const tg_product_get = function () { return status_model(); };
+export const tg_product_status = function () {
+	let now = time();
+	if (STATUS_CACHE != null && now - STATUS_CACHE.at < STATUS_CACHE_TTL_SEC)
+		return { ...STATUS_CACHE.value, statusCacheHit: true };
+	let value = status_model();
+	STATUS_CACHE = { at: now, value: value };
+	return { ...value, statusCacheHit: false };
+};
+export const tg_product_get = function () { return tg_product_status(); };
 export const tg_product_versions = function () {
 	let source = proxy_provider_versions(), rows = [];
 	for (let i = 0; i < length(source.providers); i++) {
@@ -105,14 +119,14 @@ export const tg_product_versions = function () {
 export const tg_product_operation_status = function () { return { ok: true, operation: null, state: 'idle' }; };
 export const tg_product_validate = function (input) { return proxycfg_validate(input); };
 export const tg_product_preview = function (input) { return proxycfg_preview(input); };
-export const tg_product_apply = function (input) { return proxycfg_apply(input); };
+export const tg_product_apply = function (input) { invalidate_status_cache(); return proxycfg_apply(input); };
 export const tg_product_health = function (input) { return proxycfg_health(input || {}); };
 export const tg_product_check_updates = function (input) { return proxy_provider_check_updates(input); };
-export const tg_product_switch = function (input) { return proxy_provider_install(input); };
-export const tg_product_install = function (input) { return proxy_provider_install(input); };
-export const tg_product_update = function (input) { return proxy_provider_install(input); };
-export const tg_product_remove = function (input) { return proxy_provider_remove(input); };
-export const tg_product_purge = function (input) { return proxy_provider_purge(input); };
-export const tg_product_start = function () { return proxycfg_start(); };
-export const tg_product_stop = function () { return proxycfg_stop(); };
-export const tg_product_restart = function () { return proxycfg_restart(); };
+export const tg_product_switch = function (input) { invalidate_status_cache(); return proxy_provider_install(input); };
+export const tg_product_install = function (input) { invalidate_status_cache(); return proxy_provider_install(input); };
+export const tg_product_update = function (input) { invalidate_status_cache(); return proxy_provider_install(input); };
+export const tg_product_remove = function (input) { invalidate_status_cache(); return proxy_provider_remove(input); };
+export const tg_product_purge = function (input) { invalidate_status_cache(); return proxy_provider_purge(input); };
+export const tg_product_start = function () { invalidate_status_cache(); return proxycfg_start(); };
+export const tg_product_stop = function () { invalidate_status_cache(); return proxycfg_stop(); };
+export const tg_product_restart = function () { invalidate_status_cache(); return proxycfg_restart(); };
