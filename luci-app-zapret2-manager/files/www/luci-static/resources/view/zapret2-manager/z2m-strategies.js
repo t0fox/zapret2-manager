@@ -604,7 +604,7 @@ function toggleLearnedSort(field) {
     state.learnedModal.sortDir = state.learnedModal.sortDir === 'asc' ? 'desc' : 'asc';
   } else {
     state.learnedModal.sortField = field;
-    state.learnedModal.sortDir = field === 'host' ? 'asc' : 'desc';
+    state.learnedModal.sortDir = ['host', 'protocol', 'strategy', 'variant', 'mode'].indexOf(field) >= 0 ? 'asc' : 'desc';
   }
   renderLearnedModal();
 }
@@ -730,10 +730,10 @@ function renderLearnedModal() {
     '</div>';
   } else {
     var modeBadgeHtml = isExcluded
-      ? '<span class="badge badge-muted">⊘ Без обхода</span>'
+      ? '<span class="badge badge-muted discord-voice-mode-badge">⊘ Без обхода</span>'
       : isFrozen
-      ? '<span class="badge badge-accent">🔒 Зафиксировано</span>'
-      : '<span class="badge badge-muted">● Автоподбор</span>';
+      ? '<span class="badge badge-accent discord-voice-mode-badge">🔒 Зафиксировано</span>'
+      : '<span class="badge discord-voice-mode-badge is-auto">● Автоподбор</span>';
     var modeDesc = isExcluded
       ? 'DPI-обход для Discord отключён; трафик проходит напрямую.'
       : isFrozen
@@ -764,7 +764,6 @@ function renderLearnedModal() {
           '</div>' +
         '</div>' +
         '<div class="discord-voice-mode-info">' +
-          '<div class="discord-voice-mode-line"><span class="text-muted">Режим:</span> <span>' + (isExcluded ? '⊘ Без обхода' : isFrozen ? '🔒 Зафиксировано' : '● Автоподбор') + '</span></div>' +
           '<div class="discord-voice-mode-desc text-muted">' + escapeHtml(modeDesc) + '</div>' +
         '</div>' +
         '<div class="discord-voice-actions">' +
@@ -792,7 +791,19 @@ function renderLearnedModal() {
         if (h === 'nohost' && (k === 'discord_voice' || k === 'discord_udp')) return false;
         return h !== 'nohost';
       });
-  var allEntries = domainEntries.map(function (entry) { return Model && Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry; });
+  var allEntries = domainEntries.map(function (entry) {
+    var humanized = Model && Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry;
+    var item = {};
+    Object.keys(humanized || {}).forEach(function (key) { item[key] = humanized[key]; });
+    item._variantNum = Number(item.strategy || item.variantNum) || 1;
+    item._mode = getModeBadge(item.mode);
+    item._modeLabel = item._mode.isExcluded ? 'Исключено' : item._mode.isFrozen ? 'Зафиксировано' : 'Авто';
+    item._modeOrder = item._mode.isExcluded ? 2 : item._mode.isFrozen ? 1 : 0;
+    item._strategyName = (Model && typeof Model.resolveStrategyName === 'function')
+      ? Model.resolveStrategyName(item.key, item._variantNum, pools)
+      : (pools[item.key] && pools[item.key].strategies && pools[item.key].strategies[item._variantNum - 1] && pools[item.key].strategies[item._variantNum - 1].name) || ('Вариант #' + item._variantNum);
+    return item;
+  });
   var modalState = state.learnedModal || { search: '', protoFilter: 'all', sortField: 'ts', sortDir: 'desc', visibleCount: 50 };
   var query = (modalState.search || '').trim().toLowerCase();
   var protoFilter = modalState.protoFilter || 'all';
@@ -807,6 +818,7 @@ function renderLearnedModal() {
     if (!query) return true;
     return (item.host && item.host.toLowerCase().indexOf(query) >= 0) ||
            (item.protocol && item.protocol.toLowerCase().indexOf(query) >= 0) ||
+           (item._strategyName && item._strategyName.toLowerCase().indexOf(query) >= 0) ||
            (item.variant && item.variant.toLowerCase().indexOf(query) >= 0) ||
            (item.key && item.key.toLowerCase().indexOf(query) >= 0);
   });
@@ -814,12 +826,18 @@ function renderLearnedModal() {
   var sortField = modalState.sortField || 'ts';
   var sortDir = modalState.sortDir === 'asc' ? 1 : -1;
   filtered.sort(function (a, b) {
-    if (sortField === 'host') {
-      return sortDir * (a.host || '').localeCompare(b.host || '');
+    var primary = 0;
+    if (sortField === 'host') primary = (a.host || '').localeCompare(b.host || '');
+    else if (sortField === 'protocol') primary = (a.protocol || '').localeCompare(b.protocol || '');
+    else if (sortField === 'strategy') primary = (a._strategyName || '').localeCompare(b._strategyName || '');
+    else if (sortField === 'variant') primary = (a._variantNum || 0) - (b._variantNum || 0);
+    else if (sortField === 'mode') primary = (a._modeOrder || 0) - (b._modeOrder || 0);
+    else {
+      var tsA = Number(a.rawTs) || 0;
+      var tsB = Number(b.rawTs) || 0;
+      primary = tsA - tsB;
     }
-    var tsA = Number(a.rawTs) || 0;
-    var tsB = Number(b.rawTs) || 0;
-    if (tsA !== tsB) return sortDir * (tsA - tsB);
+    if (primary !== 0) return sortDir * primary;
     return (a.host || '').localeCompare(b.host || '');
   });
 
@@ -827,41 +845,41 @@ function renderLearnedModal() {
   var shown = filtered.slice(0, visibleCount);
 
   var rowsHtml = shown.length ? shown.map(function (item) {
-    var curStrat = Number(item.strategy || item.variantNum) || 1;
-    var stratName = (Model && typeof Model.resolveStrategyName === 'function')
-      ? Model.resolveStrategyName(item.key, curStrat, pools)
-      : (pools[item.key] && pools[item.key].strategies && pools[item.key].strategies[curStrat - 1] && pools[item.key].strategies[curStrat - 1].name) || ('Вариант #' + curStrat);
-    var badge = getModeBadge(item.mode);
+    var curStrat = item._variantNum;
+    var badge = item._mode;
+    var rowClass = badge.isExcluded ? ' learned-row-excluded' : badge.isFrozen ? ' learned-row-frozen' : '';
+    var strategyHtml = badge.isExcluded
+      ? '<span class="learned-empty-value">—</span>'
+      : '<span class="learned-strat-name" title="' + escapeAttr(item._strategyName) + '">' + escapeHtml(item._strategyName) + '</span>';
+    var variantHtml = badge.isExcluded
+      ? '<span class="learned-empty-value">—</span>'
+      : '<span class="learned-variant-badge" title="' + escapeAttr(item.variantTooltip || ('Вариант ' + curStrat)) + '">#' + curStrat + '</span>';
+    var modeClass = badge.isExcluded ? 'is-excluded' : badge.isFrozen ? 'is-frozen' : 'is-auto';
+    var actions = '';
+    if (badge.isExcluded) {
+      actions += '<button type="button" class="learned-action-btn learned-action-restore" data-action="enableLearned" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" title="Включить ресурс обратно в автоподбор" aria-label="Включить обратно">' + svgIcon('unlock', 14) + '</button>';
+    } else {
+      actions += '<button type="button" class="learned-action-btn" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="' + escapeAttr(badge.tooltip) + '" aria-label="' + escapeAttr(badge.ariaLabel) + '">' + svgIcon(badge.isFrozen ? 'unlock' : 'lock', 14) + '</button>';
+      actions += '<button type="button" class="learned-action-btn" data-action="openStratPicker" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="Выбрать вариант" aria-label="Выбрать вариант">' + svgIcon('edit', 14) + '</button>';
+      actions += '<button type="button" class="learned-action-btn learned-action-exclude" data-action="excludeLearned" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" title="Исключить из DPI-обхода" aria-label="Исключить ресурс">' + svgIcon('ban', 14) + '<span class="learned-action-text">Исключить</span></button>';
+    }
+    actions += '<button type="button" class="learned-action-btn learned-action-reset" data-action="resetLearned" data-host="' + escapeAttr(item.host || '') + '" data-key="' + escapeAttr(item.key || '') + '" title="Сбросить выученный вариант для этого ресурса" aria-label="Сбросить выученный вариант">' + svgIcon('trash', 14) + '</button>';
 
-    return '<tr class="learned-row' + (badge.isFrozen ? ' learned-row-frozen' : '') + '"' + (badge.isFrozen ? ' style="background:rgba(59,130,246,0.06)"' : '') + '>' +
-      '<td class="learned-col-domain"><span class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать"><strong>' + escapeHtml(item.host) + '</strong></span></td>' +
-      '<td><span class="learned-proto-badge ' + escapeAttr(item.protoClass || 'tls') + '">' + escapeHtml(item.protocol || 'TLS') + '</span></td>' +
-      '<td>' +
-        '<div class="learned-strat-cell">' +
-          '<span class="learned-strat-name" title="' + escapeAttr(stratName) + '">' + escapeHtml(stratName) + '</span>' +
-          '<span class="learned-strat-idx" title="Runtime strategy index: ' + curStrat + '">#' + curStrat + '</span>' +
-          '<button type="button" class="btn btn-ghost btn-sm learned-strat-edit-btn" data-action="openStratPicker" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="Выбрать вариант" aria-label="Выбрать вариант">' + svgIcon('edit', 12) + '</button>' +
-        '</div>' +
-      '</td>' +
-      '<td>' +
-        '<button type="button" class="btn btn-sm learned-freeze-btn ' + (badge.isFrozen ? 'is-frozen' : 'is-auto') + '" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="' + escapeAttr(badge.tooltip) + '" aria-label="' + escapeAttr(badge.ariaLabel) + '">' +
-          (badge.isExcluded ? svgIcon('ban', 13) + ' <span>' + escapeHtml(badge.label) + '</span>' : badge.isFrozen ? svgIcon('lock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>' : svgIcon('unlock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>') +
-        '</button>' +
-        (badge.isExcluded ? '' : '<button type="button" class="btn btn-sm learned-exclude-btn" data-action="excludeLearned" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" title="Исключить из DPI-обхода">Исключить</button>') +
-      '</td>' +
-      '<td class="text-muted learned-col-ts">' + escapeHtml(item.ts || '—') + '</td>' +
-      '<td class="learned-col-key text-muted" title="Runtime pool"><code class="learned-key-code">' + escapeHtml(item.key || '—') + '</code></td>' +
-      '<td style="text-align:right"><button type="button" class="learned-row-reset-btn" data-action="resetLearned" data-host="' + escapeAttr(item.host || '') + '" data-key="' + escapeAttr(item.key || '') + '" title="Сбросить выученный вариант для этого ресурса">' + svgIcon('trash', 14) + '</button></td>' +
+    return '<tr class="learned-row' + rowClass + '" data-runtime-key="' + escapeAttr(item.key || '') + '" data-learned-ts="' + escapeAttr(item.ts || '') + '">' +
+      '<td class="learned-col-domain" data-label="Ресурс"><span class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать: ' + escapeAttr(item.host) + '"><strong>' + escapeHtml(item.host) + '</strong></span></td>' +
+      '<td class="learned-col-proto" data-label="Протокол"><span class="learned-proto-badge ' + escapeAttr(item.protoClass || 'tls') + '">' + escapeHtml(item.protocol || 'TLS') + '</span></td>' +
+      '<td class="learned-col-strategy" data-label="Стратегия">' + strategyHtml + '</td>' +
+      '<td class="learned-col-variant" data-label="Вариант">' + variantHtml + '</td>' +
+      '<td class="learned-col-mode" data-label="Режим"><span class="learned-mode-badge ' + modeClass + '" title="' + escapeAttr(badge.tooltip) + '">' + (badge.isExcluded ? svgIcon('ban', 12) : badge.isFrozen ? svgIcon('lock', 12) : svgIcon('unlock', 12)) + '<span>' + escapeHtml(item._modeLabel) + '</span></span></td>' +
+      '<td class="learned-col-actions" data-label="Действия"><div class="learned-row-actions">' + actions + '</div></td>' +
       '</tr>';
-  }).join('') : '<tr><td colspan="7" class="text-center text-muted" style="padding:28px">Ничего не найдено</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="text-center text-muted" style="padding:28px">Ничего не найдено</td></tr>';
 
-  var isFiltered = !!query || protoFilter !== 'all';
-  var countText = isFiltered
-    ? 'Показано <b>' + shown.length + '</b> из <b>' + filtered.length + '</b>' + (filtered.length !== allEntries.length ? ' (всего ' + allEntries.length + ')' : '')
-    : allEntries.length + ' записей';
+  var countText = 'Показано <b>' + shown.length + '</b> из <b>' + filtered.length + '</b> · Всего <b>' + allEntries.length + '</b>';
 
-  var hostSortIcon = sortField === 'host' ? (sortDir > 0 ? svgIcon('chevronUp', 12) : svgIcon('chevronDown', 12)) : svgIcon('chevronDown', 12, 'learned-sort-muted');
-  var tsSortIcon = sortField === 'ts' ? (sortDir > 0 ? svgIcon('chevronUp', 12) : svgIcon('chevronDown', 12)) : svgIcon('chevronDown', 12, 'learned-sort-muted');
+  var sortIcon = function (field) {
+    return sortField === field ? (sortDir > 0 ? svgIcon('chevronUp', 12) : svgIcon('chevronDown', 12)) : svgIcon('chevronDown', 12, 'learned-sort-muted');
+  };
 
   var resourcesSectionHtml = '<div class="learned-section">' +
     '<div class="learned-section-header">' +
@@ -888,13 +906,12 @@ function renderLearnedModal() {
     '<div class="learned-modal-table-wrap">' +
     '<table class="learned-modal-table">' +
     '<thead><tr>' +
-    '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="host"><span>Ресурс / домен</span> <span class="learned-sort-indicator">' + hostSortIcon + '</span></th>' +
-    '<th>Протокол</th>' +
-    '<th>Вариант</th>' +
-    '<th>Режим</th>' +
-    '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="ts"><span>Выучено</span> <span class="learned-sort-indicator">' + tsSortIcon + '</span></th>' +
-    '<th class="learned-col-key" title="Runtime pool">Ключ</th>' +
-    '<th style="text-align:right">Действие</th>' +
+    '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="host"><span>Ресурс</span> <span class="learned-sort-indicator">' + sortIcon('host') + '</span></th>' +
+    '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="protocol"><span>Протокол</span> <span class="learned-sort-indicator">' + sortIcon('protocol') + '</span></th>' +
+    '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="strategy"><span>Стратегия</span> <span class="learned-sort-indicator">' + sortIcon('strategy') + '</span></th>' +
+    '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="variant"><span>Вариант</span> <span class="learned-sort-indicator">' + sortIcon('variant') + '</span></th>' +
+    '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="mode"><span>Режим</span> <span class="learned-sort-indicator">' + sortIcon('mode') + '</span></th>' +
+    '<th class="learned-col-actions" style="text-align:right"><span>Действия</span></th>' +
     '</tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody>' +
     '</table>' +

@@ -72,9 +72,12 @@ test('Hard Gate LEARNED_FULL_VIEW_SEARCH & GRAPHITE_THEME_CONSISTENCY: full moda
   assert.match(pageCode, /function renderLearnedModal\(\)/);
   assert.match(pageCode, /learned-modal-search/);
   assert.match(pageCode, /learned-modal-table/);
-  assert.match(pageCode, /Ресурс \/ [дД]омен/);
+  assert.match(pageCode, /<span>Ресурс<\/span>/);
   assert.match(pageCode, /Протокол/);
+  assert.match(pageCode, /Стратегия/);
   assert.match(pageCode, /Вариант/);
+  assert.match(pageCode, /Режим/);
+  assert.match(pageCode, /Действия/);
 
   // CSS rules
   assert.match(css, /\.learned-summary-list/);
@@ -86,22 +89,30 @@ test('Hard Gate LEARNED_FULL_VIEW_SEARCH & GRAPHITE_THEME_CONSISTENCY: full moda
   assert.match(css, /\.learned-modal-table-wrap/);
 });
 
-test('LEARNED_TABLE_LAYOUT: wide tables remain scrollable and narrow tables do not clip columns', () => {
+test('LEARNED_TABLE_LAYOUT: desktop uses a compact six-column table and mobile gets a responsive fallback', () => {
   const page = read('z2m-strategies.js');
   const shell = read('z2m-shell.js');
   const css = read('z2m-ui.css');
   assert.match(css, /learned-modal-table-wrap[^}]*overflow-y:auto[^}]*overflow-x:auto/);
   assert.match(css, /learned-modal-table[^}]*table-layout:fixed/);
-  assert.match(css, /learned-modal-table th:nth-child\(5\)[^}]*display:none/);
-  assert.match(css, /learned-modal-table th:nth-child\(6\)[^}]*display:none/);
-  assert.match(css, /@media\(max-width:1600px\)[\s\S]*learned-modal-table tr[^}]*display:grid/);
+  assert.match(css, /learned-modal-table th:nth-child\(6\)/);
+  assert.doesNotMatch(css, /@media\(max-width:1600px\)[\s\S]*learned-modal-table tr[^}]*display:grid/);
   assert.match(css, /@media\(max-width:700px\)[\s\S]*learned-modal-table[^}]*display:block/);
   assert.match(css, /@media\(max-width:700px\)[\s\S]*learned-modal-table-wrap[^}]*overflow-x:visible/);
-  assert.match(css, /learned-modal-table td:nth-child\(1\)[^}]*width:auto !important/);
-  assert.match(css, /learned-modal-table td:nth-child\(4\)[^}]*width:100% !important/);
-  assert.match(css, /learned-modal-table td:nth-child\(4\) \.btn[^}]*min-width:86px/);
-  assert.match(shell, /learned-table-4/);
-  assert.match(page, /title="Исключить из DPI-обхода">Исключить<\/button>/);
+  assert.match(css, /@media\(max-width:700px\)[\s\S]*learned-modal-table td:nth-child\(n\)[^}]*width:auto !important/);
+  assert.match(css, /learned-col-domain/);
+  assert.match(css, /learned-col-actions/);
+  assert.match(css, /learned-row-actions/);
+  assert.match(css, /learned-mode-badge/);
+  assert.match(css, /learned-variant-badge/);
+  assert.match(shell, /learned-table-9/);
+  assert.match(page, /data-sort-field="protocol"/);
+  assert.match(page, /data-sort-field="strategy"/);
+  assert.match(page, /data-sort-field="mode"/);
+  assert.match(page, /Показано <b>' \+ shown\.length \+ '<\/b> из/);
+  assert.match(page, /Всего <b>' \+ allEntries\.length/);
+  assert.match(page, /aria-label="Включить обратно"/);
+  assert.match(page, /aria-label="Исключить ресурс"/);
 });
 
 test('CATALOG_PRIMARY_SUMMARY: catalog identity stays out of the primary strategy card', () => {

@@ -385,6 +385,11 @@ test('TEST UI-1: renderLearnedModal separates Особые ресурсы and Р
   assert.match(bodyHtml, /Особые ресурсы/i, 'Must contain "Особые ресурсы" section heading');
   assert.match(bodyHtml, /Discord Voice \/ Video/i, 'Must contain "Discord Voice / Video" card');
   assert.match(bodyHtml, /Ресурсы\s*<span[^>]*>[^<]*585/i, 'Must contain "Ресурсы — 585" section heading');
+  assert.match(bodyHtml, /<th[^>]*><span>Ресурс<\/span>/i, 'Resource table must use compact desktop header');
+  assert.match(bodyHtml, /<th[^>]*><span>Стратегия<\/span>/i, 'Resource table must separate strategy column');
+  assert.match(bodyHtml, /<th[^>]*><span>Действия<\/span>/i, 'Resource table must expose an actions column');
+  assert.match(bodyHtml, /learned-action-exclude[\s\S]*learned-action-text[^>]*>Исключить<\/span>/i, 'Exclude must remain visibly actionable');
+  assert.equal((bodyHtml.match(/<tr class="learned-row/g) || []).length, 50, 'Only the first page of rows should be materialized');
 });
 
 test('TEST UI-2: Discord hostless row is NOT included in resources count', () => {
@@ -505,6 +510,9 @@ test('TEST UI-6: Auto mode shows "Автоподбор" and button "Зафикс
 
   assert.match(bodyHtml, /Автоподбор/i, 'Mode label must be "Автоподбор"');
   assert.match(bodyHtml, /Зафиксировать\s*#1/i, 'Freeze button must show "Зафиксировать #1"');
+  assert.equal((bodyHtml.match(/Автоподбор/gi) || []).length, 1, 'Auto mode must not duplicate the status label');
+  assert.match(bodyHtml, /discord-voice-mode-badge is-auto/, 'Auto status badge must use the green glow class');
+  assert.doesNotMatch(bodyHtml, /discord-voice-mode-line/, 'Redundant mode line must not be rendered');
 });
 
 test('TEST UI-7: Frozen mode shows #7, "Зафиксировано", and button "Вернуть автоподбор"', () => {
@@ -599,7 +607,7 @@ test('TEST UI-10: Global footer reset button is labeled "Сбросить обу
   assert.doesNotMatch(bodyHtml, /Сбросить всё/i, 'Must NOT use "Сбросить всё" in footer');
 });
 
-test('TEST UI-11: Domain table column header uses "Вариант" instead of "Стратегия"', () => {
+test('TEST UI-11: Domain table separates "Стратегия" and "Вариант" columns', () => {
   const { ui, domNodes } = loadUI({
     learned: { entries: [] },
     pools: {}
@@ -608,8 +616,8 @@ test('TEST UI-11: Domain table column header uses "Вариант" instead of "�
   ui.renderLearnedModal();
   const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
 
-  assert.match(bodyHtml, /<th>Вариант<\/th>/i, 'Domain table column header must be "Вариант"');
-  assert.doesNotMatch(bodyHtml, /<th>Стратегия<\/th>/i, 'Must NOT use "Стратегия" as column header');
+  assert.match(bodyHtml, /<th[^>]*><span>Стратегия<\/span>/i, 'Domain table must expose a strategy column');
+  assert.match(bodyHtml, /<th[^>]*><span>Вариант<\/span>/i, 'Domain table must expose a separate variant column');
 });
 
 test('TEST UI-12: Existing domain row edit and freeze toggle remain functional', () => {
@@ -638,4 +646,24 @@ test('TEST UI-12: Existing domain row edit and freeze toggle remain functional',
   assert.deepEqual(calls[0], { key: 'circular_1_1', host: 'example.com', strategy: '2', mode: 'frozen' });
 });
 
+test('TEST UI-13: Excluded row is compact, has restore only, and preserves its selected variant', () => {
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [{ key: 'circular_1_1', host: 'excluded.example', strategy: '3', ts: '1787150000', mode: 'excluded' }]
+    },
+    pools: {
+      circular_1_1: { key: 'circular_1_1', protocol: 'TLS', size: 6, strategies: [] }
+    }
+  });
 
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+  const row = bodyHtml.match(/<tr class="learned-row learned-row-excluded"[\s\S]*?<\/tr>/);
+  assert.ok(row, 'Excluded resource must remain a single compact row');
+  assert.match(row[0], /<span class="learned-mode-badge is-excluded"[\s\S]*?>[\s\S]*?Исключено/);
+  assert.match(row[0], /data-action="enableLearned"[^>]*data-strategy="3"[^>]*aria-label="Включить обратно"/);
+  assert.doesNotMatch(row[0], /data-action="openStratPicker"/);
+  assert.doesNotMatch(row[0], /data-action="toggleStateFreeze"/);
+  assert.match(row[0], /<span class="learned-empty-value">—<\/span>/);
+});

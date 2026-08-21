@@ -15,7 +15,7 @@ test('P03 Learned Strategies presentation contract and iconography', () => {
   assert.match(page, /learned-search-icon/);
   assert.match(page, /learned-search-clear/);
   assert.match(page, /clearLearnedSearch/);
-  assert.match(page, /Поиск по сайту, протоколу, варианту/);
+  assert.match(page, /Поиск по ресурсам\.\.\./);
 
   // 2. Protocol filters
   assert.match(page, /learned-proto-filters/);
@@ -24,8 +24,12 @@ test('P03 Learned Strategies presentation contract and iconography', () => {
   assert.match(page, /data-proto="tls"/);
   assert.match(page, /data-proto="quic"/);
 
-  // 3. Column semantics ("Выучено" instead of "Время" in learned table)
-  assert.match(page, /<span>Выучено<\/span>/);
+  // 3. Column semantics: the primary table is a compact six-column admin table.
+  assert.match(page, /<span>Ресурс<\/span>/);
+  assert.match(page, /<span>Стратегия<\/span>/);
+  assert.match(page, /<span>Вариант<\/span>/);
+  assert.match(page, /<span>Режим<\/span>/);
+  assert.match(page, /<span>Действия<\/span>/);
   assert.doesNotMatch(page, /\.learned-modal-table[\s\S]*?<th>Время<\/th>/);
 
   // 4. Sorting contract (default newest first + domain sort)
@@ -35,13 +39,14 @@ test('P03 Learned Strategies presentation contract and iconography', () => {
   assert.match(page, /rawTs/);
 
   // 5. Raw key hierarchy & muted styling
-  assert.match(page, /learned-col-key/);
-  assert.match(page, /learned-key-code/);
-  assert.match(css, /\.learned-col-key/);
-  assert.match(css, /@media\(max-width:640px\)\s*\{\s*\.z2m-view#z2m-view-strategy \.learned-col-key\s*\{\s*display:none/);
+  assert.match(page, /learned-col-actions/);
+  assert.match(page, /learned-action-btn/);
+  assert.match(css, /\.learned-col-actions/);
+  assert.match(css, /\.learned-action-btn/);
 
   // 6. Sticky header
   assert.match(css, /\.learned-modal-table th\s*\{\s*position:sticky;\s*top:0;\s*background:var\(--panel2\)/);
+  assert.match(css, /\.z2m-toasts\{[^}]*z-index:120/);
 
   // 7. Compact summary: max 4-5 rows, no raw keys in summary
   assert.match(page, /allEntries\.slice\(0,\s*4\)/);
@@ -51,7 +56,7 @@ test('P03 Learned Strategies presentation contract and iconography', () => {
 
   // 8. Individual reset & reset all
   assert.match(page, /data-action="resetLearned"/);
-  assert.match(page, /title="Сбросить выученную стратегию для этого ресурса"/);
+  assert.match(page, /title="Сбросить выученный вариант для этого ресурса"/);
   assert.match(page, /Сбросить всё/);
 
   // 9. Model: no fabricated variant names, variantTooltip present
