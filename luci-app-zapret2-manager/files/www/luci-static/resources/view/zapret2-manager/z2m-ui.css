@@ -158,7 +158,7 @@
 .z2m-view#z2m-view-overview .card>.log-viewer{margin:0 18px 18px}
 .z2m-view#z2m-view-overview .actions-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 18px 18px}
 .z2m-view#z2m-view-overview .actions-row .z2m-lifecycle-feedback{flex:1 0 100%}
-.z2m-view#z2m-view-overview .status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+.z2m-view#z2m-view-overview .status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px;align-items:start}
 .z2m-view#z2m-view-overview .status-card{display:block;min-width:0;min-height:116px;padding:16px;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:inherit;overflow:hidden;transition:background .12s,border-color .12s}
 .z2m-view#z2m-view-overview .status-card:hover{background:var(--panel2);border-color:var(--border2);text-decoration:none}
 .z2m-view#z2m-view-overview .status-card-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;min-width:0}
@@ -178,6 +178,10 @@
 .z2m-view#z2m-view-overview #card-system .status-card-meta{grid-template-columns:1fr;gap:3px;margin-top:5px}
 .z2m-view#z2m-view-overview #card-system .status-card-meta-item{justify-content:flex-start;gap:7px}
 .z2m-view#z2m-view-overview #card-system .status-card-meta-value{overflow:visible;text-overflow:clip}
+.z2m-view#z2m-view-overview #card-telegram .status-card-meta{grid-template-columns:1fr;gap:5px;margin-top:7px}
+.z2m-view#z2m-view-overview #card-telegram .status-card-meta-item{justify-content:flex-start;gap:8px}
+.z2m-view#z2m-view-overview #card-telegram .status-card-meta-label{font-size:11px}
+.z2m-view#z2m-view-overview #card-telegram .status-card-meta-value{font-size:12px;overflow:visible;text-overflow:clip}
 .z2m-view#z2m-view-overview #card-zapret-ver .status-card-value{font-size:15px;font-weight:500;color:var(--tx2)}
 .z2m-view#z2m-view-overview #card-zapret-ver .status-card-detail{color:var(--tx3)}
 .z2m-view#z2m-view-overview .dashboard-recommendations{margin-bottom:20px}

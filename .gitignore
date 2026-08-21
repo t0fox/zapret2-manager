@@ -49,3 +49,4 @@ sanitizer-*
 Thumbs.db
 *.swp
 *.swo
+.gstack/

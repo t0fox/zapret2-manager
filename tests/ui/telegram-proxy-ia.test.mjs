@@ -1,0 +1,39 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+
+const ROOT = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const tg = fs.readFileSync(`${ROOT}/z2m-proxy-page-core.js`, 'utf8');
+const overview = fs.readFileSync(`${ROOT}/z2m-overview.js`, 'utf8');
+const dashboard = fs.readFileSync(`${ROOT}/z2m-avatar-dashboard.js`, 'utf8');
+
+test('Telegram Proxy exposes the service-first information architecture', () => {
+  for (const label of ['Обзор', 'Компонент', 'Настройки', 'Журнал'])
+    assert.match(tg, new RegExp(`label: _\\('${label}'\\)`), label);
+  assert.match(tg, /providerInstalled\(pstatus\.installed\) \? 'overview' : 'component'/);
+  assert.match(tg, /PANE_ALIASES|paneAliases|legacy.*status/i);
+  assert.match(tg, /Проверить/);
+  assert.match(tg, /Ещё/);
+  assert.match(tg, /Технические сведения/);
+});
+
+test('Telegram Proxy status is represented by the shared main dashboard card pattern', () => {
+  assert.match(overview, /ctx\.api\.tg\.product\.status\(\)/);
+  assert.match(overview, /tgHealth/);
+  assert.match(overview, /tgStatus/);
+  assert.match(overview, /card-telegram/);
+  assert.match(overview, /Telegram Proxy/);
+  assert.match(overview, /Провайдер/);
+  assert.match(dashboard, /status-card-value/);
+  assert.match(dashboard, /card-telegram/);
+});
+
+test('Telegram Proxy keeps package revisions out of the normal version label and allows Rust rollback', () => {
+  assert.match(tg, /function installedVersionDisplay/);
+  assert.match(tg, /version !== null && version !== undefined && version !== ''/);
+  assert.match(tg, /function actionLabelFor/);
+  assert.match(tg, /action\.tagName === 'BUTTON'/);
+  assert.match(tg, /Откатить версию/);
+  assert.match(tg, /function providerCatalog\(data\)/);
+  assert.match(tg, /providerVersions\(data\)\.map/);
+});

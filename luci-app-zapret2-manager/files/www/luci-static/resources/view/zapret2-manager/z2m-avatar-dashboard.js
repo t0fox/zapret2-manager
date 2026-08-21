@@ -17,12 +17,14 @@ function statusCard(card) {
   var valueIds = {
     'card-nfqws': 'nfqws-status', 'card-strategy': 'strategy-name',
     'card-autostart': 'autostart-status', 'card-system': 'system-info',
+    'card-telegram': 'telegram-status',
     'card-zapret-ver': 'zapret-ver-value', 'card-process': 'process-status',
     'card-firewall': 'firewall-status'
   };
   var detailIds = {
     'card-nfqws': 'nfqws-detail', 'card-strategy': 'strategy-detail',
     'card-autostart': 'autostart-detail', 'card-system': 'system-detail',
+    'card-telegram': 'telegram-detail',
     'card-zapret-ver': 'zapret-ver-detail', 'card-process': 'process-detail',
     'card-firewall': 'firewall-detail'
   };

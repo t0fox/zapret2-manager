@@ -24,13 +24,13 @@ test('Telegram Activity reuses Home and Diagnostics event presentation', () => {
   assert.match(avatarLog, /severity-badge/);
 });
 
-test('Telegram Activity has a bounded preview, truthful empty state, refresh and full-journal link', () => {
-  assert.match(core, /Последние события Telegram Proxy/);
+test('Telegram Journal has a bounded preview, truthful empty state, refresh and full-journal link', () => {
+  assert.match(core, /Журнал Telegram Proxy/);
   assert.match(core, /Событий Telegram Proxy пока нет/);
   assert.match(core, /Открыть все журналы/);
   assert.match(core, /ctx\.navigate\(['"]logs['"]\)/);
   assert.match(core, /normalizeRows\([^,]+,\s*8\)/);
-  assert.match(diagnostics, /eventsTail, JSON\.stringify\(\{ limit: 100 \}\)/);
+  assert.match(diagnostics, /AvatarLog\.load\(ctx\)/);
 });
 
 test('Telegram Activity keeps raw fields only in technical details', () => {
@@ -40,9 +40,9 @@ test('Telegram Activity keeps raw fields only in technical details', () => {
   assert.doesNotMatch(core, /z2m-proxy-log-table/);
 });
 
-test('Telegram Status preserves the hero and removes the legacy KPI/status duplicates', () => {
+test('Telegram Overview preserves the hero and removes the legacy KPI/status duplicates', () => {
   assert.match(core, /z2m-proxy-telegram-logo/);
-  assert.match(core, /Telegram Proxy работает/);
+  assert.match(core, /Работает с ограничениями/);
   assert.match(core, /z2m-proxy-lifecycle-actions/);
   assert.doesNotMatch(core, /z2m-product-health-grid/);
   assert.doesNotMatch(core, /stateRows|statusRows/);
@@ -50,15 +50,16 @@ test('Telegram Status preserves the hero and removes the legacy KPI/status dupli
   assert.doesNotMatch(core, /Подключение Telegram/);
 });
 
-test('Telegram Status composes one connection section, compact chain and one technical disclosure', () => {
+test('Telegram Overview composes one service summary, compact chain and one technical disclosure', () => {
   const statusSource = core.slice(core.indexOf('function statusPane'), core.indexOf('function fieldNode'));
-  assert.match(statusSource, /Состояние подключения/);
-  assert.match(statusSource, /Дополнительное состояние/);
+  assert.match(statusSource, /Сервис/);
+  assert.doesNotMatch(statusSource, /Дополнительное состояние/);
   assert.match(statusSource, /z2m-proxy-health-chain/);
-  assert.match(statusSource, /Provider/);
+  assert.match(statusSource, /Провайдер/);
   assert.match(statusSource, /Telegram DC/);
   assert.equal((statusSource.match(/Технические сведения/g) || []).length, 1);
-  assert.match(statusSource, /provider drift|Provider drift/);
+  assert.match(statusSource, /Состояние провайдера/);
+  assert.match(core, /canonicalProjection\(pstatus, object\(data\.health/);
 });
 
 test('Telegram Status uses only backend-provided fields for additional and technical state', () => {

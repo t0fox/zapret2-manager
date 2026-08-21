@@ -37,8 +37,8 @@ test('Service DNS coordinator uses the canonical product writer', () => {
 
 test('Telegram Proxy UI adapts current Avatar connection and lifecycle interactions', () => {
   assert.match(tg, /Upstream MTProto fallback/);
-  assert.match(tg, /Состояние подключения/);
-  assert.match(tg, /Показать ссылку \/ QR/);
+  assert.match(tg, /Цепочка работоспособности/);
+  assert.match(tg, /Ссылка \/ QR/);
   assert.match(tg, /Скопировать ссылку/);
   assert.match(tg, /provider-install/);
   assert.match(tg, /Установка выполняется/);

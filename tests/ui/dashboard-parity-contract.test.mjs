@@ -12,6 +12,7 @@ test('P01 Dashboard follows the current accepted composition and order', () => {
   const required = [
     'page-header', 'Главная', 'Обзор состояния системы', 'status-grid',
     'card-nfqws', 'nfqws2', 'card-strategy', 'Стратегия',
+    'card-telegram', 'Telegram Proxy',
     'card-autostart', 'Автозапуск', 'card-system', 'Система',
     'zapret2',
     'Быстрые действия', 'dash-btn-start', 'dash-btn-stop',
@@ -41,8 +42,8 @@ test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
   assert.match(page, /ctx\.api\.monitor\.eventsTail/);
   assert.match(page, /ctx\.api\.orchestra\.runStart/);
   assert.match(page, /ctx\.api\.orchestra\.runStatus/);
+  assert.match(page, /ctx\.api\.tg\.product\.status\(\)/);
   assert.doesNotMatch(page, /ctx\.api\.dns\.serviceStatus/);
-  assert.doesNotMatch(page, /ctx\.api\.tg\.product\.status/);
   assert.doesNotMatch(page, /['"]\/api\//);
   assert.doesNotMatch(page, /fetch\s*\(/);
 });

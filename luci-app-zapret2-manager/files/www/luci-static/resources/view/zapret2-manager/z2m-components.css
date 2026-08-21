@@ -172,9 +172,60 @@
 .z2m-proxy-log-table{overflow:auto}.z2m-proxy-log-line{display:grid;grid-template-columns:145px minmax(120px,.4fr) minmax(0,1.6fr);gap:10px;padding:9px 12px;border-bottom:1px solid #292c30;font-size:12px}
 .z2m-proxy-log-line:last-child{border-bottom:0}.z2m-proxy-log-line time{color:var(--tx3);white-space:nowrap}.z2m-proxy-log-line strong{font-weight:600}.z2m-proxy-log-line span{color:var(--tx2);overflow-wrap:anywhere}.z2m-proxy-log-empty{padding:28px;text-align:center;color:var(--tx3)}
 .z2m-proxy-production .z2m-btn{min-height:32px}
+.z2m-proxy-status-meta{margin:0 0 4px!important;color:var(--tx3)!important;font-size:12px!important}
+.z2m-proxy-overflow-menu{position:relative;align-self:center}.z2m-proxy-overflow-menu summary{display:grid;place-items:center;min-width:32px;min-height:32px;border:1px solid var(--border2);border-radius:6px;color:var(--tx2);cursor:pointer;list-style:none;font-size:18px;line-height:1}.z2m-proxy-overflow-menu summary::-webkit-details-marker{display:none}.z2m-proxy-overflow-menu[open] summary{color:var(--tx);border-color:var(--blue)}.z2m-proxy-overflow-list{position:absolute;z-index:3;right:0;top:40px;display:grid;gap:5px;min-width:170px;padding:8px;border:1px solid var(--border2);border-radius:7px;background:var(--raised);box-shadow:0 8px 22px rgba(0,0,0,.28)}.z2m-proxy-overflow-list .z2m-btn{justify-content:flex-start;width:100%}
+.z2m-proxy-health-step{align-content:start;gap:5px}.z2m-proxy-health-step .z2m-btn{justify-self:start;margin-top:3px;padding:3px 7px;min-height:26px;font-size:11px}
+.z2m-proxy-preflight-disclosure{display:grid;gap:12px}.z2m-proxy-preflight-disclosure>summary{color:var(--tx2);cursor:pointer;font-size:12px}.z2m-proxy-danger-zone{border:1px solid #6d3b35!important;border-radius:7px;box-shadow:inset 3px 0 0 rgba(226,105,90,.72)!important;overflow:hidden}.z2m-proxy-danger-zone>summary{padding:12px 16px;color:#f0a096;cursor:pointer;font-weight:600}.z2m-proxy-danger-zone-body{display:grid;gap:9px;padding:14px 16px;border-top:1px solid #58352f;background:rgba(226,105,90,.018)}.z2m-proxy-danger-zone-body p{margin:0;color:var(--tx2);font-size:12px}.z2m-proxy-danger-zone .z2m-btn.danger{border-color:#8a4941;color:#ef8275;background:rgba(226,105,90,.035)}.z2m-proxy-installed-state{display:inline-flex;align-items:center;min-height:32px;color:var(--green);font-size:12px;font-weight:600}.z2m-proxy-version-static{font-size:12px;color:var(--tx2)}
 @media(max-width:920px){.z2m-proxy-provider-grid,.z2m-proxy-main-side{grid-template-columns:1fr}.z2m-proxy-preflight{grid-template-columns:repeat(2,minmax(0,1fr))}.z2m-proxy-metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.z2m-proxy-health-chain{grid-template-columns:repeat(2,minmax(0,1fr))}.z2m-proxy-health-step:nth-child(2):after{display:none}}
 @media(max-width:720px){.z2m-proxy-status-hero{grid-template-columns:1fr}.z2m-proxy-lifecycle-actions{justify-content:flex-start}.z2m-proxy-form-grid{grid-template-columns:1fr}.z2m-proxy-form-grid>label{text-align:left;padding:7px 0 0}.z2m-proxy-preflight,.z2m-proxy-health-chain{grid-template-columns:1fr}.z2m-proxy-health-step:after{display:none}.z2m-proxy-log-line{grid-template-columns:1fr;gap:3px}.z2m-proxy-info-row{grid-template-columns:1fr;gap:2px}}
-@media(max-width:470px){.z2m-proxy-metrics-grid{grid-template-columns:1fr}.z2m-proxy-lifecycle-actions .z2m-btn,.z2m-proxy-provider-actions .z2m-btn{width:100%}}
+@media(max-width:470px){.z2m-proxy-metrics-grid{grid-template-columns:1fr}.z2m-proxy-lifecycle-actions .z2m-btn,.z2m-proxy-provider-actions .z2m-btn{width:100%}.z2m-proxy-lifecycle-actions .z2m-proxy-overflow-menu{width:100%}.z2m-proxy-lifecycle-actions .z2m-proxy-overflow-menu summary{width:100%;min-height:38px}.z2m-proxy-lifecycle-actions .z2m-proxy-overflow-list{position:static;margin-top:6px;box-shadow:none}}
+
+/* Telegram Proxy follows the same rhythm as the live Strategies view. */
+.z2m-proxy-production .z2m-subtabs:not(.z2m-secondary-nav){display:flex;align-items:stretch;gap:4px;width:auto;max-width:none;padding:0;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;overflow-x:auto}
+.z2m-proxy-production .z2m-subtabs:not(.z2m-secondary-nav) button{min-height:39px;padding:8px 12px;border:0;border-bottom:2px solid transparent;border-radius:4px 4px 0 0;background:transparent;color:var(--tx2);font-size:13px;font-weight:400;line-height:21px;box-shadow:none}
+.z2m-proxy-production .z2m-subtabs:not(.z2m-secondary-nav) button:hover{background:var(--panel);color:var(--tx)}
+.z2m-proxy-production .z2m-subtabs:not(.z2m-secondary-nav) button.on{border-bottom-color:var(--blue);background:transparent;color:var(--blue);box-shadow:none}
+.z2m-proxy-production .z2m-panel>.hd{min-height:50px;padding:13px 18px}
+.z2m-proxy-production .z2m-panel>.hd h2{font-size:14px;line-height:21px}
+.z2m-proxy-production .z2m-panel>.bd{padding:18px}
+.z2m-proxy-pane{gap:16px}
+.z2m-proxy-provider-grid{gap:16px}
+.z2m-proxy-provider-card.selected{border-color:var(--border)!important;background:var(--panel)!important;box-shadow:inset 3px 0 0 var(--green)!important}
+.z2m-proxy-provider-short{font-size:13px;line-height:1.5}
+.z2m-proxy-provider-benefits{min-height:94px;margin:12px 0 16px;padding-left:20px;font-size:13px;line-height:1.6}
+.z2m-proxy-provider-benefits li+li{margin-top:7px}
+.z2m-proxy-provider-unavailable{font-size:12px;line-height:1.5}
+.z2m-proxy-preflight{gap:12px}
+.z2m-proxy-check{gap:5px;padding:13px 14px}
+.z2m-proxy-check span{font-size:12px;line-height:18px}
+.z2m-proxy-check strong{font-size:13px;line-height:20px}
+.z2m-proxy-status-panel>.bd{padding:18px 20px!important}
+.z2m-proxy-status-summary{gap:16px}
+.z2m-proxy-status-summary h3{margin:0 0 7px;font-size:20px;font-weight:600;line-height:25px}
+.z2m-proxy-status-summary p{font-size:13px;line-height:20px}
+.z2m-proxy-status-meta{margin:0 0 8px!important;font-size:13px!important;line-height:20px!important}
+.z2m-proxy-metrics-grid{gap:12px;margin-top:16px}
+.z2m-proxy-metric-card{gap:5px;padding:13px 14px}
+.z2m-proxy-metric-card span{font-size:12px;line-height:18px}
+.z2m-proxy-metric-card strong{font-size:18px;line-height:22px}
+.z2m-proxy-health-chain{gap:12px}
+.z2m-proxy-health-step{gap:6px;padding:13px 14px}
+.z2m-proxy-health-step span{font-size:12px;line-height:18px}
+.z2m-proxy-health-step strong{font-size:13px;line-height:20px}
+.z2m-proxy-info-row{min-height:46px;padding:10px 0}
+.z2m-proxy-info-row span{font-size:12px;line-height:18px}
+.z2m-proxy-info-row strong{font-size:13px;line-height:20px}
+.z2m-proxy-technical summary{padding:13px 16px;font-size:13px;line-height:20px}
+.z2m-proxy-technical .z2m-proxy-info-list{padding:5px 16px}
+.z2m-proxy-danger-zone{border-color:var(--border)!important;box-shadow:none!important}
+.z2m-proxy-danger-zone>.hd{background:transparent;border-bottom-color:var(--border)!important}
+.z2m-proxy-danger-zone>.hd h2{color:var(--tx)}
+.z2m-proxy-danger-zone>.bd{background:transparent}
+.z2m-proxy-danger-zone>summary{padding:13px 18px;color:var(--tx);font-weight:600;line-height:21px}
+.z2m-proxy-danger-zone-body{padding:16px 18px;border-top-color:var(--border);background:transparent}
+.z2m-proxy-danger-zone-body p{font-size:13px;line-height:20px}
+.z2m-proxy-overflow-menu summary{display:inline-flex;align-items:center;justify-content:center;min-width:0;min-height:32px;padding:7px 13px;border-radius:6px;font-size:13px;line-height:18px}
+.z2m-proxy-log-line{gap:12px;padding:10px 14px;font-size:13px;line-height:20px}
 
 @media (max-width:560px){
   .z2m-phead{flex-direction:column}
