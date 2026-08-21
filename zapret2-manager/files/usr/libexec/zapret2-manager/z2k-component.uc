@@ -4,7 +4,7 @@
 // then delegates every mutable byte to the canonical Asset Registry. It never
 // installs Z2K init scripts, schedulers, webpanel files, or a second runtime.
 import { readfile, stat, readlink } from 'fs';
-import { z2k_upstream_plan } from './z2k-upstream.uc';
+import { z2k_upstream_plan, z2k_upstream_check } from './z2k-upstream.uc';
 import { asset_registry_apply_bundle } from './asset-registry.uc';
 
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
@@ -37,9 +37,10 @@ export const z2k_component_plan = function(remoteManifest) {
 };
 
 export const z2k_component_apply = function(request) {
-	if (!object(request) || request.signed !== true) return fail('EZ2K_SIGNATURE_INVALID', 'Z2K component apply requires a verified signed manifest.');
+	if (!object(request)) return fail('EINPUT', 'Z2K component request is invalid');
 	if (request.confirm !== true) return fail('EINPUT', 'explicit Z2K component confirmation is required');
-	let planned = z2k_component_plan(request.remoteManifest); if (!planned.ok) return planned;
+	let verified = z2k_upstream_check(); if (!verified.ok) return verified;
+	let planned = z2k_component_plan(verified.manifest); if (!planned.ok) return planned;
 	if (planned.status == 'rebase-required') return fail('EZ2K_REBASE_REQUIRED', planned.error.message, { adapted: planned.adapted });
 	if (planned.status == 'review-required') return fail('EZ2K_REVIEW_REQUIRED', planned.error.message, { watched: planned.watched });
 	if (!string(request.bundleId) || !string(request.version) || type(request.assets) != 'array' || !length(request.assets)) return fail('EINPUT', 'Z2K component asset bundle is incomplete');
