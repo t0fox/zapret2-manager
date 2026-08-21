@@ -303,6 +303,31 @@ test('UI: toggleStateFreeze switches auto -> frozen and frozen -> auto', () => {
   assert.equal(calls[1].mode, 'auto');
 });
 
+test('UI: structured state RPC failure is not reported as a successful mutation', async () => {
+  const notifications = [];
+  const { ui } = loadUI({
+    learned: { entries: [], count: 0 },
+    ctx: {
+      shell: { showToast: (message, kind) => notifications.push({ message, kind }) },
+      api: {
+        strategies: {
+          stateSet: () => Promise.resolve({
+            ok: false,
+            error: { code: 'EPOOL', message: 'pool is not active' }
+          })
+        }
+      }
+    }
+  });
+
+  ui.toggleStateFreeze('circular_1_1', 'example.com', 2, 'auto');
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].kind, 'err');
+  assert.doesNotMatch(notifications[0].message, /зафиксирована|автоподбор/i);
+});
+
 test('UI: resetLearned for nohost deletes only Discord hostless state', () => {
   let deletedPayload = null;
   const Model = loadModel();

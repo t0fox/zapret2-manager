@@ -83,6 +83,17 @@ test('autocircular state rejects an invalid mode instead of silently normalizing
   assert.equal(result.error.code, 'EINPUT');
 });
 
+test('autocircular state can update an existing learned row when its old pool is no longer active', () => {
+  const ops = createOpsSandbox(
+    '--filter-tcp=80 --lua-desync=fake:strategy=1',
+    'circular_1_1\texample.com\t2\t1787330000\tauto\n'
+  );
+  const result = ops.state_set({ key: 'circular_1_1', host: 'example.com', strategy: 2, mode: 'excluded' });
+  assert.equal(result.ok, true);
+  assert.equal(result.mode, 'excluded');
+  assert.equal(ops.learned_rows()[0].mode, 'excluded');
+});
+
 test('model keeps excluded rows visible and exposes reversible mode semantics', () => {
   const model = loadModel();
   const item = model.humanizeLearnedEntry({ key: 'tls', host: 'youtube.com', strategy: '3', mode: 'excluded' });

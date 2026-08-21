@@ -1081,7 +1081,8 @@ function stateSet(key, host, strategy, mode) {
     : ('#' + strategy);
   var targetLabel = isDiscord ? 'Discord Voice' : canonicalHost;
   var requestedMode = mode || 'auto';
-  call(setMethod, { key: canonicalKey, host: canonicalHost, strategy: String(strategy), mode: requestedMode }).then(function () {
+  call(setMethod, { key: canonicalKey, host: canonicalHost, strategy: String(strategy), mode: requestedMode }).then(function (answer) {
+    if (!answer || answer.ok !== true) throw answer || { ok: false, error: { message: 'Операция не выполнена' } };
     if (requestedMode === 'excluded') {
       notify('ok', targetLabel + ' исключён из DPI-обхода');
     } else if (requestedMode === 'frozen') {

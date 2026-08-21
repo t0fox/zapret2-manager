@@ -451,15 +451,19 @@ function state_set(input) {
 	if (!length(strategy) || !match(strategy, /^[0-9]+$/) || +strategy < 1)
 		return { ok: false, error: { code: 'EINPUT', message: 'strategy must be a positive integer' } };
 
+	let rows = learned_rows();
+	let existing = null;
+	for (let row in rows) {
+		if (row.key == key && row.host == host) { existing = row; break; }
+	}
 	let pool = pools_info && pools_info.pools && (pools_info.pools[key] || pools_info.pools[lc(key)]);
-	if (!pool) {
+	if (!pool && (!existing || '' + existing.strategy != strategy)) {
 		return { ok: false, error: { code: 'EPOOL', message: 'pool ' + key + ' is not active in current configuration' } };
 	}
 	if (pool && pool.size && (+strategy > pool.size)) {
 		return { ok: false, error: { code: 'EINPUT', message: 'strategy ' + strategy + ' exceeds pool size (' + pool.size + ')' } };
 	}
 
-	let rows = learned_rows();
 	let updated = false;
 	let now_ts = '' + time();
 	let kept = [];
