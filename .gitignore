@@ -1,6 +1,7 @@
 # Generated/package outputs
 /artifacts/
 /build-apk/
+/dist/
 *.apk
 *.ipk
 

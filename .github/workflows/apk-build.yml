@@ -1,0 +1,53 @@
+name: OpenWrt APK build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-main
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run release contract tests
+        run: node --test tests/release/*.test.mjs
+
+      - name: Install OpenWrt SDK host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential gawk gettext git python3 rsync unzip file curl wget zstd ca-certificates
+
+      - name: Build manager APKs
+        run: scripts/release/build-apk.sh
+
+      - name: Verify release artifacts
+        run: node scripts/release/verify-artifacts.mjs dist
+
+      - name: Upload APK build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2m-apk-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
