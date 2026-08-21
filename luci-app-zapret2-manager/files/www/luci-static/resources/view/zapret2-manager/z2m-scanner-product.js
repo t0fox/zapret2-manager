@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-icons as Icons';
 'require view.zapret2-manager.z2m-scanner as Scanner';
 'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
 
@@ -15,10 +16,60 @@ function array(value) { return Array.isArray(value) ? value : []; }
 function text(value) { return value === null || value === undefined ? '' : String(value); }
 function edit(value) { return JSON.stringify(value || {}); }
 function dateValue(value) { if (typeof value === 'number' && isFinite(value)) return value < 100000000000 ? value * 1000 : value; var time = Date.parse(text(value)); return isNaN(time) ? 0 : time; }
-function statusLabel(value) { return ({ completed: _('Завершена'), running: _('Выполняется'), starting: _('Подготавливается'), cancelled: _('Остановлена'), error: _('Ошибка') })[text(value)] || _('Состояние уточняется'); }
+function icon(name, className) { return Icons.wrappedNode(name, { size: 18, wrapperClass: 'z2m-scanner-icon' + (className ? ' ' + className : '') }); }
+function statusLabel(value) { return ({ completed: _('Завершено'), running: _('Выполняется'), probing: _('Выполняется'), starting: _('Подготавливается'), cancelled: _('Остановлено'), stopped: _('Остановлено'), error: _('Ошибка') })[text(value)] || _('Состояние уточняется'); }
+function statusClass(value) { return ({ completed: 'is-success', running: 'is-running', probing: 'is-running', starting: 'is-running', cancelled: 'is-stopped', stopped: 'is-stopped', error: 'is-error' })[text(value)] || 'is-unknown'; }
 function humanDate(value) { var time = dateValue(value); return time ? new Date(time).toLocaleString() : _('Дата неизвестна'); }
-function debugRecord(item) { return /^scan-debug-/i.test(text(object(item).id)); }
-function historySort(items) { return array(items).slice().sort(function (a, b) { return Number(debugRecord(a)) - Number(debugRecord(b)) || dateValue(object(b).startedAt || object(b).createdAt || b.updatedAt) - dateValue(object(a).startedAt || object(a).createdAt || a.updatedAt); }); }
+function historyTimestamp(item) { item = object(item); return item.startedAt || item.createdAt || item.updatedAt || item.finishedAt || item.completedAt; }
+function historyTime(value) { var time = dateValue(value); return time ? new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : _('Время неизвестно'); }
+function diagnosticRecord(item) { item = object(item); var provenance = object(item.provenance || object(item.metadata).provenance); return item.debug === true || item.kind === 'diagnostic' || item.source === 'diagnostic' || provenance.source === 'diagnostic' || /^scan-debug-/i.test(text(item.id)); }
+function historySort(items) { return array(items).slice().sort(function (a, b) { return Number(diagnosticRecord(a)) - Number(diagnosticRecord(b)) || dateValue(historyTimestamp(b)) - dateValue(historyTimestamp(a)); }); }
+function historyGroupKey(value) { var time = dateValue(value); return time ? new Date(time).toISOString().slice(0, 10) : 'undated'; }
+function historyGroupLabel(key) {
+  if (key === 'undated') return _('Без даты');
+  var date = new Date(key + 'T12:00:00');
+  var now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate()), day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  var delta = Math.round((today.getTime() - day.getTime()) / 86400000);
+  if (delta === 0) return _('Сегодня');
+  if (delta === 1) return _('Вчера');
+  return date.toLocaleDateString([], { day: 'numeric', month: 'long', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+}
+function historyCounts(item) {
+  var counts = object(item.counts), tested = counts.tested !== undefined ? counts.tested : (item.progress !== undefined ? item.progress : item.tested), total = counts.total !== undefined ? counts.total : item.total, values = [];
+  if (tested !== undefined && total !== undefined && (text(item.status) === 'running' || text(item.status) === 'probing')) values.push(String(tested) + ' ' + _('из') + ' ' + String(total) + ' ' + _('проверено'));
+  else if (tested !== undefined) values.push(_('Проверено ') + String(tested) + ' ' + _('вариантов'));
+  if (counts.working !== undefined) values.push(_('рабочих ') + String(counts.working));
+  if (counts.failed !== undefined) values.push(_('ошибок ') + String(counts.failed));
+  return values.join(' · ') || _('Результаты уточняются');
+}
+function historyBest(record) { var report = object(object(record).report), evidence = object(report.evidence); return object(report.bestReference || report.best || evidence.best || (array(evidence.ranked)[0])); }
+function openHistoryStrategy(ctx, record) {
+  var best = historyBest(record), id = best.id || best.strategyId || best.strategy_id || best.candidateId;
+  if (!id || typeof sessionStorage === 'undefined') return;
+  var strategy = object(best.strategy || best.generatedStrategy || best);
+  strategy.id = text(strategy.id || id);
+  strategy.name = text(strategy.name || best.strategyName || _('Стратегия из проверки'));
+  strategy.profiles = array(strategy.profiles).length ? strategy.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(strategy.args) }];
+  strategy.metadata = Object.assign({}, object(strategy.metadata), { provenance: Object.assign({}, object(strategy.metadata).provenance, { source: 'scanner', scanId: record.id, target: object(record.request).target }) });
+  sessionStorage.setItem('z2m.strategy.scanner-handoff.v1', JSON.stringify({ version: 1, strategy: strategy, provenance: strategy.metadata.provenance }));
+  ctx.shell.closeModal();
+  if (ctx.navigate) ctx.navigate('strategy');
+}
+function historyDetailBody(ctx, record) {
+  record = object(record); var request = object(record.request), counts = object(record.counts), report = object(record.report), best = historyBest(record), tested = counts.tested !== undefined ? counts.tested : (record.tested || report.tested || 0), working = counts.working !== undefined ? counts.working : array(object(report.evidence).ranked).length, failed = counts.failed !== undefined ? counts.failed : array(object(report.evidence).failed).length, technical = { id: record.id, generation: record.generation, phase: record.phase, revision: record.revision, paths: record.paths, runtime: record.runtime };
+  return E('div', { 'class': 'z2m-scanner-detail' }, [E('div', { 'class': 'z2m-scanner-detail-heading' }, [icon(statusClass(record.status) === 'is-error' ? 'warning' : 'history'), E('div', {}, [E('strong', {}, request.target || _('Сайт не указан')), E('span', {}, statusLabel(record.status) + ' · ' + humanDate(record.startedAt || record.createdAt))])]), E('div', { 'class': 'z2m-scanner-detail-grid' }, [E('div', {}, [E('span', {}, _('Проверено')), E('strong', {}, String(tested))]), E('div', {}, [E('span', {}, _('Рабочих')), E('strong', {}, String(working))]), E('div', {}, [E('span', {}, _('Ошибок')), E('strong', {}, String(failed))])]), best && (best.id || best.strategyId || best.candidateId) ? E('div', { 'class': 'z2m-scanner-detail-best' }, [icon('strategy', 'is-success'), E('div', {}, [E('span', {}, _('Лучший результат')), E('strong', {}, text(best.name || best.strategyName || _('Вариант найден')))])]) : null, E('details', { 'class': 'z2m-scanner-technical' }, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, JSON.stringify(technical, null, 2))])]);
+}
+function openHistoryDetail(ctx, item, button) {
+  button.disabled = true;
+  ctx.api.scanner.historyGet(edit({ id: item.id })).then(function (value) {
+    var record = object(value).record || value;
+    var footer = [ctx.shell.button(_('Закрыть'), '', ctx.shell.closeModal)];
+    if (historyBest(record).id || historyBest(record).strategyId || historyBest(record).candidateId) footer.push(ctx.shell.button(_('Открыть в Стратегиях'), 'primary sm', function () { openHistoryStrategy(ctx, record); }));
+    footer.push(ctx.shell.button(_('Проверить снова'), 'sm', function () { ctx.shell.closeModal(); if (ctx.navigate) ctx.navigate('scan'); }));
+    ctx.shell.openModal(_('Подробности проверки'), historyDetailBody(ctx, record), footer);
+    button.disabled = false;
+  }).catch(function (error) { button.disabled = false; ctx.shell.openModal(_('Проверка недоступна'), ctx.shell.statePanel({ title: _('Не удалось открыть запись'), message: ctx.api.normalizeError(error).message, kind: 'error' })); });
+}
 function tabFrom(ctx) {
   var value = ctx && ctx.routeParams && ctx.routeParams.tab;
   return value === 'diagnostic' || value === 'blockcheck' ? 'diagnostics' : (value === 'history' ? 'history' : 'search');
@@ -59,35 +110,17 @@ function unmountChild() {
   state.childContext = null;
 }
 function renderHistory(ctx) {
-  var detail = state.detail;
-  var rows = state.history.map(function (item) {
-    var request = object(item.request);
-    var counts = object(item.counts), started = item.startedAt || item.createdAt || item.updatedAt;
-    var countText = counts.working !== undefined || counts.failed !== undefined ? ' · ' + _('рабочих: ') + String(counts.working || 0) + ' · ' + _('ошибок: ') + String(counts.failed || 0) : '';
-    var button = ctx.shell.button(_('Подробнее'), 'sm', function () {
-      button.disabled = true;
-      ctx.api.scanner.historyGet(edit({ id: item.id })).then(function (value) {
-        state.detail = object(value).record || null;
-        renderActive(ctx, { history: state.history });
-      }).catch(function (error) { state.historyError = ctx.api.normalizeError(error); renderActive(ctx, { history: state.history }); });
+  var groups = {}, order = [];
+  state.history.forEach(function (item) { var key = historyGroupKey(historyTimestamp(item)); if (!groups[key]) { groups[key] = []; order.push(key); } groups[key].push(item); });
+  var groupNodes = order.map(function (key) {
+    var rows = groups[key].map(function (item) {
+      var request = object(item.request), debug = diagnosticRecord(item), started = historyTimestamp(item), action = ctx.shell.button(item.status === 'running' || item.status === 'probing' ? _('Открыть') : _('Подробнее'), 'sm', function () { openHistoryDetail(ctx, item, action); });
+      return E('article', { 'class': 'z2m-scanner-history-row', 'data-scanner-history-id': item.id }, [E('div', { 'class': 'z2m-scanner-history-icon' }, [icon(debug ? 'bug' : 'history')]), E('div', { 'class': 'z2m-scanner-history-main' }, [E('strong', {}, request.target || _('Сайт не указан')), E('span', {}, started ? historyTime(started) : _('Время неизвестно')), debug ? E('span', { 'class': 'z2m-scanner-debug-label' }, _('Диагностический запуск')) : null]), E('div', { 'class': 'z2m-scanner-history-result' }, [E('span', { 'class': 'z2m-scanner-status-badge ' + statusClass(item.status) }, [icon(item.status === 'error' ? 'circle-alert' : item.status === 'completed' ? 'circle-check' : item.status === 'cancelled' ? 'stop-square' : 'activity'), E('span', {}, statusLabel(item.status))]), E('span', { 'class': 'z2m-dim' }, historyCounts(item))]), E('div', { 'class': 'z2m-scanner-history-action' }, action)]);
     });
-    return E('article', { 'class': 'z2m-result-card', 'data-scanner-history-id': item.id }, [
-      E('strong', {}, _('Проверка сайта: ') + (request.target || _('сайт не указан'))),
-      E('span', {}, _('Дата и время: ') + humanDate(started) + ' · ' + statusLabel(item.status) + (counts.tested !== undefined ? ' · ' + _('проверено: ') + String(counts.tested) : countText)),
-      button
-    ]);
+    return E('section', { 'class': 'z2m-scanner-history-group' }, [E('h3', {}, historyGroupLabel(key)), E('div', { 'class': 'z2m-scanner-history-list' }, rows)]);
   });
-  var content = state.historyError ? ctx.shell.statePanel({ title: _('История недоступна'), message: state.historyError.message, kind: 'error' })
-    : (rows.length ? E('div', { 'class': 'z2m-stack' }, rows) : ctx.shell.statePanel({ message: _('Сканирования ещё не выполнялись.'), kind: 'info' }));
-  if (detail) {
-    var record = object(detail), detailRequest = object(record.request), report = object(record.report), evidence = object(report.evidence), detailCounts = object(record.counts);
-    var testedCount = record.tested || detailCounts.tested || report.tested || 0, workingCount = detailCounts.working !== undefined ? detailCounts.working : array(evidence.ranked).length, failedCount = detailCounts.failed !== undefined ? detailCounts.failed : array(evidence.failed).length;
-    var technical = { id: record.id, phase: record.phase, revision: record.revision, generation: record.generation, paths: record.paths, runtime: record.runtime };
-    content = E('div', {}, [content, ctx.shell.panel(_('Подробности проверки'), E('div', { 'class': 'z2m-stack' }, [E('strong', {}, _('Проверка сайта: ') + (detailRequest.target || _('сайт не указан'))), E('span', {}, _('Начата: ') + humanDate(record.startedAt || record.createdAt)), E('span', {}, _('Завершена: ') + humanDate(record.finishedAt || record.completedAt)), E('span', {}, _('Проверено вариантов: ') + String(testedCount)), E('span', {}, _('Рабочих: ') + String(workingCount) + ' · ' + _('не прошли: ') + String(failedCount)), E('details', {}, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, JSON.stringify(technical, null, 2))])]), _('Только чтение; действия со стратегией выполняются в разделе Стратегии.'))]);
-  }
-  return E('section', { 'class': 'z2m-panel z2m-scanner-history', id: 'z2m-scanner-history' }, [
-    E('div', { 'class': 'hd' }, [E('strong', {}, _('История сканирований')), E('span', { 'class': 'z2m-dim' }, _('Предыдущие проверки сайтов и найденные результаты'))]), content
-  ]);
+  var content = state.historyError ? ctx.shell.statePanel({ title: _('История недоступна'), message: state.historyError.message, kind: 'error' }) : (groupNodes.length ? groupNodes : ctx.shell.statePanel({ message: _('Сканирования ещё не выполнялись.'), kind: 'info' }));
+  return E('section', { 'class': 'z2m-panel z2m-scanner-history', id: 'z2m-scanner-history' }, [E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('history'), E('strong', {}, _('История проверок'))]), E('span', { 'class': 'z2m-dim' }, _('Предыдущие проверки сайтов'))]), content]);
 }
 function renderNavigation(ctx) {
   return E('nav', { 'class': 'z2m-subtabs', 'aria-label': _('Разделы сканирования') }, TABS.map(function (item) {
