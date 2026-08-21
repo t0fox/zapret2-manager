@@ -2922,3 +2922,29 @@
 .z2m-asset-card-side>.z2m-dim{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .z2m-asset-detail dl{display:grid;grid-template-columns:100px minmax(0,1fr);gap:9px 14px;margin:14px 0}.z2m-asset-detail dt{color:var(--tx3)}.z2m-asset-detail dd{margin:0;min-width:0}.z2m-asset-detail pre{max-height:260px;overflow:auto;white-space:pre-wrap;font-size:10px}
 @media(max-width:700px){.z2m-asset-card{align-items:flex-start;flex-direction:column}.z2m-asset-card-side{justify-content:space-between;width:100%;min-width:0}.z2m-data-toolbar{align-items:stretch;flex-direction:column;gap:8px}}
+/* DNS final polish: preserve the accepted tabs/catalog and finish history/provider rhythm. */
+.z2m-app .z2m-service-dns-section-head .z2m-service-dns-count,.z2m-app .z2m-provider-group-head .z2m-service-dns-count{margin-left:0;padding:1px 6px;border:1px solid var(--border);border-radius:10px;color:var(--tx3);font-size:10px;line-height:16px}
+.z2m-app .z2m-provider-row{grid-template-columns:40px minmax(220px,1fr) minmax(280px,360px) 150px;min-height:68px;padding:10px 14px;column-gap:12px}
+.z2m-app .z2m-provider-icon{width:32px;height:32px;border-radius:8px}
+.z2m-app .z2m-provider-actions{min-width:150px;justify-content:flex-end}
+.z2m-app .z2m-provider-actions .z2m-btn{min-width:68px}
+.z2m-app .z2m-provider-result-cell{min-width:0}
+.z2m-app .z2m-provider-result{min-width:0;align-items:center;line-height:1.3}
+.z2m-app .z2m-provider-attempts{font-variant-numeric:tabular-nums}
+.z2m-dns-history-page{display:grid;gap:16px}
+.z2m-dns-history-empty{display:grid;justify-items:center;gap:8px;padding:42px 24px 46px;text-align:center;color:var(--tx2)}
+.z2m-dns-history-empty-icon{display:grid;place-items:center;width:50px;height:50px;margin-bottom:3px;border:1px solid var(--border2);border-radius:14px;background:var(--panel2);color:var(--blue)}
+.z2m-dns-history-empty strong{color:var(--tx);font-size:16px}
+.z2m-dns-history-empty p{max-width:390px;margin:0;color:var(--tx3);font-size:12px;line-height:1.5}
+.z2m-dns-history-list{display:grid;gap:1px;overflow:hidden;border:1px solid var(--border);border-radius:7px;background:var(--border)}
+.z2m-dns-history-event{display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 16px;background:var(--panel);transition:background .15s ease,box-shadow .15s ease}
+.z2m-dns-history-event:hover{background:var(--panel2)}
+.z2m-dns-history-event.is-error{box-shadow:inset 3px 0 0 var(--red)}
+.z2m-dns-history-icon{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--border2);border-radius:9px;background:var(--panel2);color:var(--blue)}
+.z2m-dns-history-icon.service{color:var(--green)}.z2m-dns-history-icon.rollback{color:var(--orange)}.z2m-dns-history-icon .z2m-icon{width:18px;height:18px;stroke:currentColor;fill:none}
+.z2m-dns-history-copy{display:grid;gap:3px;min-width:0}.z2m-dns-history-copy strong{font-size:13px}.z2m-dns-history-time{color:var(--tx3);font-size:11px}.z2m-dns-history-copy p{margin:2px 0 0;color:var(--tx2);font-size:12px}
+.z2m-dns-history-technical{margin-top:5px;color:var(--tx3);font-size:11px}.z2m-dns-history-technical summary{cursor:pointer}.z2m-dns-history-technical code{display:block;max-height:180px;margin-top:6px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.z2m-dns-history-active{display:flex;align-items:center;gap:10px;padding:13px 15px;border-left:3px solid var(--blue);background:rgba(75,159,213,.07)}.z2m-dns-history-active span{color:var(--tx3);font-size:12px}
+.z2m-dns-rollback-list{display:grid;gap:1px;overflow:hidden;border:1px solid var(--border);border-radius:7px;background:var(--border)}
+.z2m-dns-rollback-card{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:62px;padding:11px 14px;background:var(--panel)}.z2m-dns-rollback-card:hover{background:var(--panel2)}.z2m-dns-rollback-card>div{display:grid;gap:3px}.z2m-dns-rollback-card span{color:var(--tx3);font-size:11px}
+@media(max-width:760px){.z2m-app .z2m-provider-row{grid-template-columns:32px minmax(0,1fr);min-height:0}.z2m-app .z2m-provider-result-cell,.z2m-app .z2m-provider-actions{grid-column:2}.z2m-app .z2m-provider-actions{min-width:0;justify-content:flex-start}.z2m-dns-history-event{grid-template-columns:32px minmax(0,1fr)}.z2m-dns-history-event>.z2m-chip{grid-column:2;justify-self:start}.z2m-dns-rollback-card{align-items:flex-start;flex-direction:column}.z2m-dns-rollback-card .z2m-btn{align-self:flex-start}}

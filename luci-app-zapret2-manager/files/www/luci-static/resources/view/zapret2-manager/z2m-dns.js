@@ -683,7 +683,7 @@ function render(ctx) {
       E('span', { 'class': 'z2m-provider-status-dot ' + (ok ? 'ok' : 'fail') }, '●'),
       E('strong', {}, ok ? (partial ? _('Работает частично') : _('Работает')) : _('Недоступен')),
       latency == null ? E('span', { 'class': 'z2m-provider-measurement-missing' }, _('Время не измерено')) : E('span', { 'class': 'z2m-provider-latency' }, formatLatency(latency)),
-      E('span', { 'class': 'z2m-provider-attempts' }, answered + '/' + attempts.length + ' ' + _('резолверов ответили')),
+      E('span', { 'class': 'z2m-provider-attempts' }, answered + ' ' + _('из') + ' ' + attempts.length + ' ' + _('отвечает')),
       detailRows.length ? E('details', { 'class': 'z2m-provider-details' }, [E('summary', {}, _('Детали')), E('div', { 'class': 'z2m-provider-detail-list' }, detailRows)]) : null
     ]);
   }
@@ -846,6 +846,9 @@ function render(ctx) {
         if (id === 'tiktok') {
           var auto = state.tiktokAuto || {};
           var autoSwitch = shell.switchControl({ checked: auto.enabled === true, small: true, label: _('Автоисправление ленты'), disabled: state.tiktokAutoBusy === true, attrs: { type: 'button', role: 'switch', 'aria-checked': auto.enabled ? 'true' : 'false', 'class': 'z2m-sw sm z2m-tiktok-auto-switch', title: _('Включить или выключить автоисправление TikTok') }, onChange: function (enabled) { toggleTiktok(enabled); } });
+          autoSwitch.classList.toggle('on', auto.enabled === true);
+          autoSwitch.setAttribute('data-state', auto.enabled === true ? 'on' : 'off');
+          autoSwitch.setAttribute('aria-checked', auto.enabled === true ? 'true' : 'false');
           autoSwitch.disabled = state.tiktokAutoBusy === true;
           function toggleTiktok(enabled) {
             if (!ctx.api.dns.serviceTiktokSetAsync || state.tiktokAutoBusy) return;
@@ -1063,52 +1066,112 @@ function render(ctx) {
 
   /* ---- hist pane ---- */
   function renderHistory() {
-    var history = asArray(dns.history || serviceStatus.history);
-    if (state.lastOperation) history = [state.lastOperation].concat(history);
-    var historyRows = !history.length ? shell.empty(_('История DNS пуста.'))
-      : E('div', { 'class': 'z2m-history-list' }, history.slice(0, 30).map(function (event) {
-        return E('div', { 'class': 'z2m-backup-row' }, [
-          E('div', {}, [
-            E('div', { 'class': 'nm' }, display(event.phase || event.status || event.action || _('Операция DNS'))),
-            E('div', { 'class': 'co' }, [
-              _('Ревизия: ') + display(event.appliedRevision),
-              ' · ' + _('маршрутов: ') + display(event.routeCount)
-            ].join(''))
-          ]),
-          shell.chip(event.ok === false || event.phase === 'failed' ? _('ошибка') : _('запись'), event.ok === false || event.phase === 'failed' ? 'r' : 'b')
-        ]);
-      }));
+    var history = [];
+    function addEvents(value) {
+      asArray(value).forEach(function (event) {
+        if (!event || typeof event !== 'object') return;
+        var id = event.operationId || event.id;
+        if (id && history.some(function (existing) { return existing.operationId === id; })) return;
+        history.push(event);
+      });
+    }
+    addEvents(dns.history);
+    addEvents(serviceStatus.history);
+    addEvents(serviceStatus.events);
+    addEvents(dns.lastOperation ? [dns.lastOperation] : []);
+    addEvents(state.lastOperation ? [state.lastOperation] : []);
+    history = history.slice(0, 30);
 
-    var eventsArea = E('div', { 'class': 'z2m-console' }, state.operation ? _('Активная операция: ') + display(state.operation.operationId) : _('Событий пока нет.'));
-
-    return E('div', {}, [
-      shell.panel(_('События'), eventsArea, state.operation ? _('Активная операция') : ''),
-      shell.panel(_('История DNS'), historyRows),
-      shell.panel(_('Откат'), E('div', {}, [
-        E('div', { 'class': 'z2m-cbi' }, [
-          E('label', {}, 'DNS overrides'),
-          E('div', {}, E('span', { 'class': 'num' }, dns.revision != null ? 'rev ' + dns.revision : 'rev 0')),
-          E('label', {}, 'Service mappings'),
-          E('div', {}, E('span', { 'class': 'num' }, serviceStatus.appliedRevision != null ? 'rev ' + serviceStatus.appliedRevision : 'rev 0'))
+    function eventKind(event) {
+      var value = String(event && (event.kind || event.scope || event.operation || event.action) || '').toLowerCase();
+      if (value.indexOf('rollback') >= 0 || event && event.rollback === true) return 'rollback';
+      if (value.indexOf('service') >= 0 || value.indexOf('mapping') >= 0 || value.indexOf('route') >= 0) return 'service';
+      return 'dns';
+    }
+    function eventTitle(event) {
+      var kind = eventKind(event);
+      if (kind === 'rollback') return _('Выполнен откат');
+      if (kind === 'service') return _('Правила для сервисов изменены');
+      return _('DNS изменён');
+    }
+    function eventTime(event) {
+      var value = event && (event.finishedAt || event.appliedAt || event.createdAt || event.startedAt);
+      if (!value) return null;
+      var date = new Date(value);
+      if (isNaN(date.getTime())) return String(value);
+      var now = new Date();
+      var time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (date.toDateString() === now.toDateString()) return _('Сегодня, ') + time;
+      return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' }) + ', ' + time;
+    }
+    function eventSummary(event) {
+      var parts = [];
+      if (event && event.changedCount !== undefined) parts.push(_('Изменено сервисов: ') + event.changedCount);
+      else if (event && event.serviceCount !== undefined) parts.push(_('Изменено сервисов: ') + event.serviceCount);
+      else if (event && event.routeCount !== undefined && event.routeCount !== null) parts.push(_('Правил DNS: ') + event.routeCount);
+      if (event && event.appliedRevision !== undefined && event.appliedRevision !== null) parts.push(_('Версия ') + event.appliedRevision);
+      else if (event && event.revision !== undefined && event.revision !== null) parts.push(_('Версия ') + event.revision);
+      if (event && event.verified === true) parts.push(_('Проверка пройдена'));
+      if (event && (event.ok === false || event.error)) parts.push(_('Операция завершилась с ошибкой'));
+      return parts.join(' · ');
+    }
+    function eventRow(event) {
+      var kind = eventKind(event), failed = event.ok === false || event.phase === 'failed' || event.state === 'failed';
+      var icon = Icons.wrappedNode(kind === 'rollback' ? 'rotate-cw' : kind === 'service' ? 'route' : 'activity', { size: 18, fallback: 'activity' });
+      var technical = E('details', { 'class': 'z2m-dns-history-technical' }, [
+        E('summary', {}, _('Технические сведения')),
+        E('code', {}, JSON.stringify(event, null, 2))
+      ]);
+      return E('article', { 'class': 'z2m-dns-history-event' + (failed ? ' is-error' : '') }, [
+        E('div', { 'class': 'z2m-dns-history-icon ' + kind }, [icon]),
+        E('div', { 'class': 'z2m-dns-history-copy' }, [
+          E('strong', {}, eventTitle(event)),
+          eventTime(event) ? E('span', { 'class': 'z2m-dns-history-time' }, eventTime(event)) : null,
+          eventSummary(event) ? E('p', {}, eventSummary(event)) : null,
+          technical
         ]),
-        E('div', { 'class': 'btnrow', style: 'margin-top:12px' }, [
-          shell.button(_('Откатить DNS overrides'), 'sm', function () {
-            ctx.api.dns.rollback().then(function (answer) {
-              if (answer && answer.ok === false) throw answer;
-              shell.showToast(_('DNS откатан.'), 'ok');
-              return ctx.refresh('dns');
-            }).catch(showError);
-          }, dns.rollbackAvailable !== true),
-          shell.button(_('Откатить DNS сервисов'), 'sm', function () {
-            ctx.api.dns.serviceRollback().then(function (answer) {
-              if (answer && answer.ok === false) throw answer;
-              shell.showToast(_('Откат DNS сервисов запущен.'), 'ok');
-              return ctx.refresh('dns');
-            }).catch(showError);
-          }, serviceStatus.rollbackAvailable !== true || !!state.operation)
-        ])
-      ]))
+        shell.chip(failed ? _('Ошибка') : _('Выполнено'), failed ? 'r' : 'g')
+      ]);
+    }
+
+    var historyBody = history.length ? E('div', { 'class': 'z2m-dns-history-list' }, history.map(eventRow)) : E('div', { 'class': 'z2m-dns-history-empty' }, [
+      E('span', { 'class': 'z2m-dns-history-empty-icon', 'aria-hidden': 'true' }, [Icons.wrappedNode('activity', { size: 24, fallback: 'activity' })]),
+      E('strong', {}, _('История пока пуста')),
+      E('p', {}, _('Здесь появятся изменения DNS, правил для сервисов и выполненные откаты.'))
     ]);
+    var panels = [shell.panel(_('История DNS'), historyBody)];
+    if (state.operation) panels.unshift(shell.panel(_('Текущая операция'), E('div', { 'class': 'z2m-dns-history-active' }, [
+      E('strong', {}, _('Изменения выполняются')),
+      E('span', {}, _('Состояние обновляется автоматически.'))
+    ])));
+
+    var rollbackCards = [];
+    function rollbackVersion(value) {
+      var revision = value && (value.appliedRevision !== undefined ? value.appliedRevision : value.revision);
+      return revision === undefined || revision === null ? null : _('Версия ') + revision;
+    }
+    if (dns.rollbackAvailable === true) rollbackCards.push(E('div', { 'class': 'z2m-dns-rollback-card' }, [
+      E('div', {}, [E('strong', {}, _('DNS-переопределения')), rollbackVersion(dns) ? E('span', {}, rollbackVersion(dns)) : null]),
+      shell.button(_('Откатить'), 'sm', function () {
+        ctx.api.dns.rollback().then(function (answer) {
+          if (answer && answer.ok === false) throw answer;
+          shell.showToast(_('DNS откатан.'), 'ok');
+          return ctx.refresh('dns');
+        }).catch(showError);
+      })
+    ]));
+    if (serviceStatus.rollbackAvailable === true && !state.operation) rollbackCards.push(E('div', { 'class': 'z2m-dns-rollback-card' }, [
+      E('div', {}, [E('strong', {}, _('Правила для сервисов')), rollbackVersion(serviceStatus) ? E('span', {}, rollbackVersion(serviceStatus)) : null]),
+      shell.button(_('Откатить'), 'sm', function () {
+        ctx.api.dns.serviceRollback().then(function (answer) {
+          if (answer && answer.ok === false) throw answer;
+          shell.showToast(_('Откат DNS сервисов запущен.'), 'ok');
+          return ctx.refresh('dns');
+        }).catch(showError);
+      })
+    ]));
+    if (rollbackCards.length) panels.push(shell.panel(_('Откат изменений'), E('div', { 'class': 'z2m-dns-rollback-list' }, rollbackCards)));
+    return E('div', { 'class': 'z2m-dns-history-page' }, panels);
   }
 
   function renderPane() {
