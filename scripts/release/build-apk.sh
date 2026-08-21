@@ -131,8 +131,8 @@ make -C "$SDK_DIR" -j2 defconfig
 
 for package in zapret2-manager luci-app-zapret2-manager zapret2-manager-full; do
 	printf 'release build: compiling %s\n' "$package"
-	make -C "$SDK_DIR" -j2 "package/$package/clean" V=s
-	make -C "$SDK_DIR" -j2 "package/$package/compile" V=s
+	make -C "$SDK_DIR" -j2 "package/z2m/$package/clean" V=s
+	make -C "$SDK_DIR" -j2 "package/z2m/$package/compile" V=s
 done
 
 require_staged_file() {
