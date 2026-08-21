@@ -21,6 +21,7 @@
 - Backups use preview → confirmation → restore → reread verification; unsupported fake scopes are forbidden.
 - Preserve legacy reachability for `#/engine`, `#/updates`, and `#/maintenance` without duplicate module lifecycles.
 - Preserve unrelated dirty changes in the primary checkout and do not deploy to the router in this host-only implementation slice.
+- Browser confirmation is mandatory before completion; screenshots/accessibility snapshots and exercised flows are required evidence.
 
 ---
 
@@ -137,6 +138,7 @@
 - [ ] **Step 2: Run available broader host gates.** Run the repository's documented Node/UI/product suites that are applicable to this frontend/backend slice. Capture exact pass/fail counts; unrelated baseline reds remain explicitly unverified or baseline-failing.
 - [ ] **Step 3: Run static contract checks.** Check no visible System navigation item remains for Updates/Engine, no Components markup mentions Avatar/Telegram Proxy/WARP/resource catalog, no Z2K delete action exists, and legacy routes resolve to Components.
 - [ ] **Step 4: Run repository hygiene checks.** Run `node scripts/validate-knowledge.mjs`, `git diff --check`, and `git diff --find-renames`. Compare validator output to the pre-existing baseline errors recorded before implementation.
-- [ ] **Step 5: Write the evidence report.** Record worktree/branch, commits, exact files, focused tests, broader tests, validator baseline, and explicit non-runs. Do not claim router deployment or package E2E because this slice does not authorize deployment.
-- [ ] **Step 6: Commit only task files.** Stage the spec/plan if not already committed plus implementation/tests/report, verify `git diff --cached --name-only`, and commit with a scoped message.
-- [ ] **Step 7: Verify final branch state.** Run `git status --short --branch`, `git log --oneline -3`, and prove the primary dirty checkout remains unchanged apart from the agent-created graphify artifact already identified during discovery.
+- [ ] **Step 5: Run mandatory browser confirmation.** Start the available LuCI preview or local static harness, invoke the browse skill, and capture desktop plus narrow viewport evidence for `Система → Компоненты`, `#/engine` deep-link expansion, `#/updates` redirect, Engine management, `Резервные копии`, and `Настройки`. Assert in the browser that Components contains only Engine/Z2K Core and does not contain Avatar, Telegram Proxy, WARP, or resource catalog content.
+- [ ] **Step 6: Write the evidence report.** Record worktree/branch, commits, exact files, focused tests, broader tests, validator baseline, browser URL/viewport/screenshot paths, exercised flows, and explicit non-runs. Do not claim router deployment or package E2E because this slice does not authorize deployment.
+- [ ] **Step 7: Commit only task files.** Stage the spec/plan if not already committed plus implementation/tests/report, verify `git diff --cached --name-only`, and commit with a scoped message.
+- [ ] **Step 8: Verify final branch state.** Run `git status --short --branch`, `git log --oneline -3`, and prove the primary dirty checkout remains unchanged apart from the agent-created graphify artifact already identified during discovery.

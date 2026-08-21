@@ -7,21 +7,23 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const viewRoot = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
 const read = name => fs.readFileSync(path.join(viewRoot, name), 'utf8');
 
-test('System has one canonical lifecycle and four product tabs', () => {
+test('System has one canonical lifecycle and three visible pages', () => {
   const navigation = read('z2m-navigation.js');
   const app = read('app.js');
   const system = read('z2m-maintenance.js');
 
-  assert.match(navigation, /id: 'system'[\s\S]*items:\s*\[[\s\S]*id: 'updates'[\s\S]*id: 'engine'[\s\S]*id: 'backups'[\s\S]*id: 'settings'/);
-  assert.match(navigation, /zapret:\s*['"]engine['"]|autostart:\s*['"]engine['"]/);
-  assert.match(navigation, /maintenance:\s*['"]updates['"]/);
-  assert.match(navigation, /LEGACY_PARAMS[\s\S]*autostart[\s\S]*tab: 'engine'/);
-  assert.match(navigation, /LEGACY_PARAMS[\s\S]*maintenance[\s\S]*tab: 'updates'/);
+  assert.match(navigation, /id: 'system'[\s\S]*items:\s*\[[\s\S]*id: 'components'[\s\S]*id: 'backups'[\s\S]*id: 'settings'/);
+  assert.match(navigation, /zapret:\s*['"]components['"]|autostart:\s*['"]components['"]/);
+  assert.match(navigation, /maintenance:\s*['"]components['"]/);
+  assert.match(navigation, /LEGACY_PARAMS[\s\S]*autostart[\s\S]*component: 'engine'/);
+  assert.match(navigation, /LEGACY_PARAMS[\s\S]*maintenance[\s\S]*\{\}/);
+  assert.doesNotMatch(navigation, /\{ id: 'updates'|\{ id: 'engine'/);
   assert.match(app, /system:\s*Maintenance/);
-  assert.match(app, /MODULES\.updates = MODULES\.system/);
-  assert.match(app, /MODULES\.engine = MODULES\.system/);
-  assert.match(app, /MODULES\.backups = MODULES\.system/);
-  assert.match(app, /MODULES\.settings = MODULES\.system/);
+  assert.match(app, /components:\s*Maintenance/);
+  assert.match(app, /MODULES\.updates = MODULES\.components/);
+  assert.match(app, /MODULES\.engine = MODULES\.components/);
+  assert.match(app, /MODULES\.backups = MODULES\.components/);
+  assert.match(app, /MODULES\.settings = MODULES\.components/);
   assert.doesNotMatch(app, /updates:\s*Maintenance|zapret:\s*Maintenance|autostart:\s*Maintenance|settings:\s*Maintenance/);
   assert.match(system, /title:\s*_\('Система'\)/);
   assert.match(system, /id: 'system'/);
@@ -32,8 +34,8 @@ test('System has one canonical lifecycle and four product tabs', () => {
 test('System loads only the active tab and keeps runtime facts in diagnostics', () => {
   const system = read('z2m-maintenance.js');
   assert.match(system, /activePane|activeTab|ctx\.routeParams\.tab/);
-  assert.match(system, /route === ['"]engine['"]|return ['"]updates['"]|pane === ['"]updates['"]/);
-  assert.match(system, /case ['"]engine['"]|pane === ['"]engine['"]|tab === ['"]engine['"]/);
+  assert.match(system, /return ['"]components['"]/);
+  assert.match(system, /pane === ['"]components['"]|components:\s*\{/);
   assert.match(system, /case ['"]backups['"]|pane === ['"]backups['"]|tab === ['"]backups['"]/);
   assert.match(system, /settings/);
   assert.doesNotMatch(system, /Promise\.allSettled\(\[[\s\S]*eventsTail/);
@@ -45,10 +47,10 @@ test('System uses shell navigation as the only visible System tab bar', () => {
 
   assert.doesNotMatch(system, /ctx\.shell\.subTabs\(/);
   assert.match(system, /PANE_META|paneMeta/);
-  assert.match(system, /route === ['"]engine['"]|activePane\(ctx\)/);
+  assert.match(system, /activePane\(ctx\)/);
 });
 
-test('Updates presents product version rows and truthful unavailable update state', () => {
+test('Components no longer presents a global product-version update table', () => {
   const model = read('z2m-maintenance-model.js');
   const system = read('z2m-maintenance.js');
 
@@ -56,21 +58,23 @@ test('Updates presents product version rows and truthful unavailable update stat
   assert.match(model, /normalizeUpdateModel/);
   for (const state of ['CHECKING', 'UP_TO_DATE', 'UPDATE_AVAILABLE', 'UNKNOWN', 'STALE', 'ERROR', 'NOT_INSTALLED'])
     assert.match(model, new RegExp(state), state);
-  assert.match(system, /normalizeUpdateModel/);
-  assert.match(system, /Установленные версии/);
-  assert.match(system, /Проверка обновлений недоступна/);
-  assert.doesNotMatch(system, /z2m-kpis|z2m-kpi/);
+  assert.match(system, /renderComponents/);
+  assert.match(system, /z2m-components-model/);
+  assert.doesNotMatch(system, /Установленные версии/);
+  assert.doesNotMatch(system, /Проверка обновлений недоступна/);
+  assert.match(system, /z2m-components-summary|z2m-component-card/);
   assert.doesNotMatch(system, /Доступность обновлений не проверяется этим read-only контрактом/);
   assert.doesNotMatch(system, /installed versions read|Backup scope|Version gate|Integrity/);
-  assert.doesNotMatch(system, /Backend|backend|Scope|Verification/);
-  assert.match(system, /Технические детали/);
+  assert.doesNotMatch(system, /Установленные версии|Проверка обновлений недоступна/);
+  assert.match(system, /Подробнее/);
 });
 
 test('System Updates stays compatible with a stale cached maintenance model module', () => {
   const system = read('z2m-maintenance.js');
 
-  assert.match(system, /function normalizeUpdateModel/);
-  assert.match(system, /MaintenanceModel\.normalizeUpdateModel\s*\|\|\s*normalizeUpdateModel/);
+  assert.match(system, /ComponentsModel\.normalizePage/);
+  assert.match(system, /ctx\.api\.resources\.status\(\)/);
+  assert.match(system, /EnginePanel\.load\(ctx\)/);
 });
 
 test('System Engine uses the current official RPC contract', () => {
@@ -125,12 +129,14 @@ test('Diagnostics is the only canonical Monitoring and Logs viewer', () => {
   const app = read('app.js');
   const navigation = read('z2m-navigation.js');
   const diagnostics = read('z2m-diagnostics-page.js');
+  const avatarLog = read('z2m-avatar-log.js');
   assert.match(navigation, /id: 'diagnostics'[\s\S]*id: 'monitor'[\s\S]*id: 'logs'/);
   assert.match(app, /diagnostics:\s*Diagnostics/);
   assert.doesNotMatch(app, /logs:\s*AvatarLog|monitor:\s*Monitor/);
   for (const label of ['Мониторинг', 'Журналы', 'NFQUEUE', 'Scanner', 'DNS', 'Telegram Proxy', 'Overlay', 'diagnosticsExport'])
     assert.match(diagnostics, new RegExp(label, 'i'), label);
-  assert.match(diagnostics, /eventsTail/);
+  assert.match(diagnostics, /AvatarLog\.load/);
+  assert.match(avatarLog, /eventsTail/);
   assert.match(diagnostics, /activePane\(ctx\) === ['"]logs['"]/);
   assert.doesNotMatch(read('z2m-maintenance.js'), /eventsTail|События/);
 });

@@ -213,6 +213,12 @@ boundary, not user copy.
 
 ## Testing and verification
 
+Browser confirmation is a mandatory acceptance gate. Host contract tests alone
+cannot establish that the LuCI navigation, card hierarchy, disclosures, and
+responsive layout work together. The browser run must exercise the built or
+served LuCI preview and capture evidence for Components, legacy deep-links,
+Engine management, Backups, and Settings.
+
 Focused tests must cover:
 
 - canonical Components navigation, hidden legacy items, aliases, and

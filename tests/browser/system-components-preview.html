@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zapret2 Manager · System Components preview</title>
+  <link rel="stylesheet" href="../../luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css">
+  <style>
+    body{margin:0;background:#17181a}.z2m-app{min-height:100vh}.z2m-preview-note{margin:0 0 14px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;color:var(--tx3);font-size:11px}
+  </style>
+</head>
+<body>
+  <main class="z2m-app" id="app"></main>
+  <script>
+    const esc = value => String(value).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const component = (id, title, summary, status, version, meta, action) => `
+      <article class="z2m-component-card ready" data-component="${id}">
+        <div class="z2m-component-card-head"><div><h3>${title}</h3><p class="z2m-dim">${summary}</p></div><span class="z2m-chip g">${status}</span></div>
+        <div class="z2m-component-card-meta"><span>Версия ${version}</span><span>${meta}</span></div>
+        <div class="z2m-component-card-actions">${action ? `<a class="z2m-btn primary sm" href="#/components?component=engine">${action}</a>` : ''}</div>
+        <details class="z2m-acc z2m-component-details"><summary>Подробнее</summary><div class="z2m-proxy-kv"><div><span>Источник</span><strong>canonical owner</strong></div><div><span>Состояние</span><strong>ready</strong></div></div></details>
+      </article>`;
+    function shell(active, body) {
+      const items = [['components','Компоненты'],['backups','Резервные копии'],['settings','Настройки']];
+      return `<div class="z2m-apptop"><div class="in"><div class="z2m-brand"><span class="mark">Z2</span><span class="nm">Zapret2 <span class="mgr">Manager</span></span><span class="ver">preview</span></div></div></div>
+        <div class="z2m-wrap"><nav class="z2m-tabs" aria-label="Система">${items.map(([id,label]) => `<button class="${id===active?'on':''}" data-route="${id}">${label}</button>`).join('')}</nav>${body}</div>`;
+    }
+    function components(engineOpen) {
+      return shell('components', `<section class="z2m-view on" id="z2m-view-system"><div class="z2m-phead"><div><h1>Компоненты</h1><p>Обязательные компоненты системы и их состояние</p></div></div>
+        <p class="z2m-preview-note">Browser confirmation preview · canonical System surface</p>
+        <div class="z2m-components-page"><section class="z2m-panel"><div class="hd"><h2>Состояние системы</h2></div><div class="bd"><div class="z2m-components-summary"><strong>2 / 2 готовы</strong><span>Система готова к работе</span><span class="z2m-chip g">Состояние доступно</span><button class="z2m-btn sm" data-action="check">Проверить</button></div></div></section>
+        <section class="z2m-components-section"><div class="z2m-components-section-head"><h2>Обязательные компоненты</h2><span class="z2m-dim">2 из 2 готовы</span></div><div class="z2m-components-grid">${component('engine','Zapret2 Engine','Базовый движок обработки трафика.','Готов','1.2.3','Источник bol-van/zapret2','Управление')}${component('z2k','Z2K Core','Autocircular, detectors и расширения Zapret2.','Готов','2.0.0','Lua 12 / 12','')}</div></section>
+        ${engineOpen ? `<details class="z2m-panel z2m-engine-management" open><summary>Управление Zapret2 Engine</summary><div class="z2m-engine-panel-root"><div class="z2m-panel"><div class="hd"><h2>Официальный движок zapret2</h2></div><div class="bd"><div class="z2m-btnrow"><button class="z2m-btn primary sm">Проверить</button><button class="z2m-btn sm">Обновить</button><button class="z2m-btn danger sm">Удалить движок</button></div><p class="z2m-dim">Источник: bol-van/zapret2 · официальный GitHub Releases.</p></div></div></div></details>` : ''}
+        </div></section>`);
+    }
+    function backups() { return shell('backups', `<section class="z2m-view on"><div class="z2m-phead"><div><h1>Резервные копии</h1><p>Сохранение и восстановление состояния менеджера</p></div></div><div class="z2m-panel"><div class="hd"><h2>Резервные копии</h2></div><div class="bd"><p class="z2m-dim">Полный backup сохраняет всё состояние менеджера и подходит для обычного восстановления.</p><div class="z2m-btnrow"><button class="z2m-btn primary">Создать полный backup · Всё</button></div><details class="z2m-acc z2m-backup-advanced"><summary>Дополнительно</summary><div class="z2m-btnrow"><select aria-label="Область резервной копии"><option value="engineConfig">Конфигурация движка</option><option value="ourState">Состояние менеджера</option><option value="lists">Списки</option><option value="profiles">Профили</option></select><button class="z2m-btn sm">Создать выбранную область</button></div></details><div class="z2m-backup-history"><div class="z2m-state-panel">История backup пуста.</div></div></div></div></section>`); }
+    function settings() { return shell('settings', `<section class="z2m-view on"><div class="z2m-phead"><div><h1>Настройки</h1><p>Параметры интерфейса менеджера</p></div></div><div class="z2m-panel"><div class="hd"><h2>Настройки менеджера</h2></div><div class="bd"><div class="z2m-setting-row"><div><strong>Расширенный режим</strong><p class="z2m-dim">Показывает технические детали и диагностические поля в существующих экранах.</p></div><button class="z2m-btn sm" role="switch" aria-checked="false">Выключен</button></div></div></div></section>`); }
+    function render() { const hash = location.hash || '#/components'; const engineOpen = hash.includes('component=engine'); const page = hash.includes('backups') ? backups() : hash.includes('settings') ? settings() : components(engineOpen); document.querySelector('#app').innerHTML = page; document.querySelectorAll('[data-route]').forEach(button => button.onclick = () => { location.hash = '#/' + button.dataset.route; }); }
+    addEventListener('hashchange', render); render();
+  </script>
+</body>
+</html>
