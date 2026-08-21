@@ -10,3 +10,4 @@ tests/native/core/fixtures/*.patch -whitespace
 # The engine-sync fixture is a byte-exact upstream source snapshot; patch
 # application must preserve its intentional whitespace.
 tests/fixtures/engine-sync/base/** -whitespace
+tests/fixtures/z2k-signed-update/*.sig binary

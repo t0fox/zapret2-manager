@@ -1,0 +1,1172 @@
+{
+  "schema": "zapret2-manager.z2k-integration.v1",
+  "source": {
+    "repository": "necronicle/z2k",
+    "branch": "z2k-enhanced",
+    "commit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2",
+    "release": "r-77.5",
+    "seq": 26
+  },
+  "manifestSchema": 1,
+  "manifestFileCount": 140,
+  "files": [
+    {
+      "sourcePath": "files/000-zapret2.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "b256194eacf0f89b247cb4f4c467d552afe03ebbc4879b79308eed5f914d385d",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/S99zapret2.new",
+      "class": "ignored-platform",
+      "type": "new",
+      "basedOnSha256": "32d36e3bf0f9ebde9318ebd31992f5bffb0b247f348d1f2df23d80b269cd1385",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/etc/z2k-roots.pem",
+      "class": "watched",
+      "type": "pem",
+      "basedOnSha256": "a6cf5a695274d4f36b401cc62183895af11e68b02417638a070465c77f4caf00",
+      "localName": null,
+      "consumer": "upstream semantic review only"
+    },
+    {
+      "sourcePath": "files/etc/z2k-update-pub.pem",
+      "class": "watched",
+      "type": "pem",
+      "basedOnSha256": "1041720fa0dff53e2babbf547a705c2f43c30bca2c6ca2ddf7144cfe3b470a01",
+      "localName": null,
+      "consumer": "pinned trust root audit"
+    },
+    {
+      "sourcePath": "files/fake/4pda.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+      "localName": "runtime-assets/bin/4pda.bin",
+      "runtimeTarget": "/runtime-assets/bin/4pda.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/4pda.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/http_iana_org.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "f77d1cdaff02b6311d4276eeb8479830ab777d8fce4a4b116135c7768f3a284a",
+      "localName": "runtime-assets/bin/http_iana_org.bin",
+      "runtimeTarget": "/runtime-assets/bin/http_iana_org.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/http_iana_org.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_1.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+      "localName": "runtime-assets/bin/quic_1.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_1.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_1.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_4.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "0e53683f2408bab1f52bc3db10c11b3a2bf238f68db64f4d0ea8aff37e07a61d",
+      "localName": "runtime-assets/bin/quic_4.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_4.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_4.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_5.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "a7ea947b0efe4690b91f6180ff16c0f750443901f0f6310d94dca9f0b8606dac",
+      "localName": "runtime-assets/bin/quic_5.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_5.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_5.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_6.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "97f544d62aaa0d85db91dbb611a3e1782647dda243777417d57096ed7e668a1c",
+      "localName": "runtime-assets/bin/quic_6.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_6.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_6.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_initial_dbankcloud_ru.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df",
+      "localName": "runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_initial_ozon_ru.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "7458d074a6a860ee3762a0979c0aed87e1c10c40180498c5fa9c41693fcace1c",
+      "localName": "runtime-assets/bin/quic_initial_ozon_ru.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_initial_ozon_ru.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_ozon_ru.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_initial_rutracker_org.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "d5d77f90ff45489d246bd447c3e9f28e98891e206dc17c79d4de1da6bd0f18e8",
+      "localName": "runtime-assets/bin/quic_initial_rutracker_org.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_initial_rutracker_org.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_rutracker_org.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_initial_www_google_com.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+      "localName": "runtime-assets/bin/quic_initial_www_google_com.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_initial_www_google_com.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_www_google_com.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_test_00.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "96032bf86c2cd113f793285516822702cab4f89cbd2b7356f9682843fbb5420e",
+      "localName": "runtime-assets/bin/quic_test_00.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_test_00.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_test_00.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/stun.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "9cd5469309780ca56c0bd97266524a48c7ee529d02c3179cfecb20b260a59641",
+      "localName": "runtime-assets/bin/stun.bin",
+      "runtimeTarget": "/runtime-assets/bin/stun.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/stun.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/syn_packet.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "92b092ff4f9c18263ba17c108bf224f99ab6c8ede28353893504937a28dc161a",
+      "localName": "runtime-assets/bin/syn_packet.bin",
+      "runtimeTarget": "/runtime-assets/bin/syn_packet.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/syn_packet.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/t2.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "d4a111b9a9497f185283d1ff480a92db08372c2c2a3af8bd868ff798e64c2da7",
+      "localName": "runtime-assets/bin/t2.bin",
+      "runtimeTarget": "/runtime-assets/bin/t2.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/t2.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_14.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "72c0bbc8d02077e28f8b41574a0673ebbdcfb4a86274c3468160b11a320e17d1",
+      "localName": "runtime-assets/bin/tls_clienthello_14.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_14.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_14.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_4pda_to.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+      "localName": "runtime-assets/bin/tls_clienthello_4pda_to.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_4pda_to.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_4pda_to.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_activated.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "f2162ff9d4ac745729f4c32c2182a84988b553ca511fb2a620fd2981fe25be6e",
+      "localName": "runtime-assets/bin/tls_clienthello_activated.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_activated.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_activated.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_gosuslugi_ru.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "ec581c9877ebc4b69e6cdab48f46e0f7b0eeb67c5fefe849f21525faa1ff4f74",
+      "localName": "runtime-assets/bin/tls_clienthello_gosuslugi_ru.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_gosuslugi_ru.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_gosuslugi_ru.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_max_ru.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "741bf7660081fe572f93582735d2c36ffbb93a0e59ff8bd7a6bced05ca8ade49",
+      "localName": "runtime-assets/bin/tls_clienthello_max_ru.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_max_ru.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_max_ru.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_vk_com.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "d6d63c53bc0e1d97e913a43fc4db34f6558bb807228bf6100e3b6863f0720404",
+      "localName": "runtime-assets/bin/tls_clienthello_vk_com.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_vk_com.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_vk_com.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_www_google_com.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "936c2bee4cfb80aa3c426b2dcbcc834b3fbcd1adb17172959dc569c73a14275c",
+      "localName": "runtime-assets/bin/tls_clienthello_www_google_com.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_www_google_com.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_www_google_com.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/tls_clienthello_www_onetrust_com.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624",
+      "localName": "runtime-assets/bin/tls_clienthello_www_onetrust_com.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_www_onetrust_com.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/tls_clienthello_www_onetrust_com.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/zero_256.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "5341e6b2646979a70e57653007a1f310169421ec9bdd9f1a5648f75ade005af1",
+      "localName": "runtime-assets/bin/zero_256.bin",
+      "runtimeTarget": "/runtime-assets/bin/zero_256.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/zero_256.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/init.d/S51z2k-warp",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "b9c8b796d565b64213edc31e439575a0d1e847bd1b81aa22b9665c827a970029",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/init.d/S96z2k-rt-proxy",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "ec48bd44cfd8c983e9ff5b148af58f8aeb57a51d0e7eef40338eba5b007c36f2",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/init.d/S97z2k-http-tunnel",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "066d20cecdafa961b9ad98fd57cce5592f8a335cb777190a70d952b010b6df92",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/init.d/S98tg-tunnel",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "4f3ffcfc1b8fb966f71f8f94b0d562edde286a33cd6107b7482be25da7815fbf",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/init.d/S98z2k-detect",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "14d282d28264c2b2b7cac20ae577f6a6bc1b013f8d47bc8e7f55809797f34bb2",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/init.d/S99z2k-scheduler",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "402742731b523ddf050c1f3e74b09e90b3a1254e0b139d5076d2ce9ac537d149",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/lists/cf_extra_check_ips.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "79ffc4803151f5ded1de96d7dc1ecaba37ec2e4b2bb7985cecf8c7ff8da68975",
+      "localName": "runtime-assets/lists/cf_extra_check_ips.txt",
+      "runtimeTarget": "/runtime-assets/lists/cf_extra_check_ips.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/cf_extra_check_ips.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/extra-domains.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "744c86618b146e9f709235a58560285eb5f7e455eab842cce55d1d191e96f6f5",
+      "localName": "runtime-assets/lists/extra-domains.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra-domains.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/extra-domains.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/extra_strats/TCP/RKN/Discord.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "a56b277a06466c6a6152d7a48c17010629ae6f50c038a55b9d3889202bc9a7f1",
+      "localName": "runtime-assets/lists/extra_strats/TCP/RKN/Discord.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra_strats/TCP/RKN/Discord.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/RKN/Discord.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/extra_strats/TCP/RKN/List.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "e8c04588571fc5fbd798c255c5d39ac34af9855d86802f2dfbca97e5f3f251b2",
+      "localName": "runtime-assets/lists/extra_strats/TCP/RKN/List.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra_strats/TCP/RKN/List.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/RKN/List.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/extra_strats/TCP/YT/List.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "e9d2e1e18d2d7a73485b506306721171e0c264feed3546b6d964cc213eef191c",
+      "localName": "runtime-assets/lists/extra_strats/TCP/YT/List.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra_strats/TCP/YT/List.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/YT/List.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/extra_strats/TCP/YT_GV/List.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "1ef28791f0404ee91a98fbe531c765b3909f36fd66991602fedbb99e46c04df1",
+      "localName": "runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/extra_strats/UDP/YT/List.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "4f7afee22e947ca0b28465f55ee58b746acb68187407740b0de380ba549fd26e",
+      "localName": "runtime-assets/lists/extra_strats/UDP/YT/List.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra_strats/UDP/YT/List.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/extra_strats/UDP/YT/List.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/ipset-exclude.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "5570916896d740f962e7fd10e23c0784bbb78b7ce701497386fa8ccd092b27ae",
+      "localName": "runtime-assets/lists/ipset-exclude.txt",
+      "runtimeTarget": "/runtime-assets/lists/ipset-exclude.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/ipset-exclude.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/meta-ranges.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "b81609ca7944494664880f4fb68c2d56ae82ddc0358fe93709042837ee307a0e",
+      "localName": "runtime-assets/lists/meta-ranges.txt",
+      "runtimeTarget": "/runtime-assets/lists/meta-ranges.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/meta-ranges.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/rkn-false-positive.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "39d67b97698763e023c31c31ed1fa28856911518e07f2aebb728438695e568ee",
+      "localName": "runtime-assets/lists/rkn-false-positive.txt",
+      "runtimeTarget": "/runtime-assets/lists/rkn-false-positive.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/rkn-false-positive.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/telegram_ips.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "e6a64d3224dc507f6b9faf50dadf7f1594f056de5a1d5b2f02fd8f5d880851b8",
+      "localName": "runtime-assets/lists/telegram_ips.txt",
+      "runtimeTarget": "/runtime-assets/lists/telegram_ips.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/telegram_ips.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/youtube_ips.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "e3118339de975d0a13c17c0cbb99e4f968a217dd579f30f94f71bd37cd2180e7",
+      "localName": "runtime-assets/lists/youtube_ips.txt",
+      "runtimeTarget": "/runtime-assets/lists/youtube_ips.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/youtube_ips.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/youtube_ips6.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "d51f5e44b989b503729ae35b79cf80adf7e47ac96fde42d785e0ba6e501c28cb",
+      "localName": "runtime-assets/lists/youtube_ips6.txt",
+      "runtimeTarget": "/runtime-assets/lists/youtube_ips6.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/youtube_ips6.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lua/z2k-alert.lua",
+      "class": "exact-managed",
+      "type": "lua",
+      "basedOnSha256": "bc0e702e52e090c6340779c70bd101d2707e202ee1a772083d4f8535bd90ec47",
+      "localName": "runtime-assets/lua/z2k-alert.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-alert.lua",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-alert.lua",
+      "consumer": "Z2M runtime Lua asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lua/z2k-detectors.lua",
+      "class": "exact-managed",
+      "type": "lua",
+      "basedOnSha256": "c7702b2f1adb007176fe25ebe25cfedfd24827891e7883477340479fadf3eac4",
+      "localName": "runtime-assets/lua/z2k-detectors.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-detectors.lua",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-detectors.lua",
+      "consumer": "Z2M runtime Lua asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lua/z2k-fooling-ext.lua",
+      "class": "exact-managed",
+      "type": "lua",
+      "basedOnSha256": "4b5efb6672f54dbe4d04440066f06e84d92e43c8534cdfb88d136028e6d8231f",
+      "localName": "runtime-assets/lua/z2k-fooling-ext.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-fooling-ext.lua",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-fooling-ext.lua",
+      "consumer": "Z2M runtime Lua asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lua/z2k-modern-core.lua",
+      "class": "exact-managed",
+      "type": "lua",
+      "basedOnSha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7",
+      "localName": "runtime-assets/lua/z2k-modern-core.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-modern-core.lua",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua",
+      "consumer": "Z2M runtime Lua asset resolver",
+      "requiredCapabilities": [
+        "Z2K_TLS_MOD"
+      ]
+    },
+    {
+      "sourcePath": "files/lua/z2k-quic-silence.lua",
+      "class": "exact-managed",
+      "type": "lua",
+      "basedOnSha256": "3080b592cee163c99eb60ebc1a074fd66f5d04d822821d066a358c455e50dde3",
+      "localName": "runtime-assets/lua/z2k-quic-silence.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-quic-silence.lua",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-quic-silence.lua",
+      "consumer": "Z2M runtime Lua asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lua/z2k-range-rand.lua",
+      "class": "exact-managed",
+      "type": "lua",
+      "basedOnSha256": "073c24d9133484b9f2282f1e398b5963eb577b483c1cab8c29cfd6e7bf8acd9a",
+      "localName": "runtime-assets/lua/z2k-range-rand.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-range-rand.lua",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-range-rand.lua",
+      "consumer": "Z2M runtime Lua asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lua/z2k-state-persist.lua",
+      "class": "adapted",
+      "type": "lua",
+      "basedOnSha256": "fa4cd3fc83449b1d85e92e75848109cc03340343af87fc014ced423bd9574219",
+      "localPath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua",
+      "localSha256": "24c0daaf74e0fc4f7dad0d2f06bfca69b9bffa82938e8b7b2fb6fea8f10f79c7",
+      "adaptationId": "z2m-state-mode-contract-v1",
+      "adaptationReason": "Z2M preserves auto/frozen/excluded state semantics and its own atomic persistence lifecycle."
+    },
+    {
+      "sourcePath": "files/ndm/90-z2k-tg-redirect.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "ca6de843d4fd820a58ad0fc76566b7640011d7f6161d31b5b84720197f0fe19a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/ndm/91-z2k-http-tunnel-redirect.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "72af35f3cd1a8751a97bae24b241191b0ba625bac6d2d429ed822958a2af6b0f",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/ndm/91-z2k-ttl-bypass.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "337275f481555e5a261556014edbb0352b701db40919d983b8eccc3fa7d3f084",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/ndm/92-z2k-rt-proxy-redirect.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "8092f75c2d4a878c036f5ec3c4aa23578892c09f55b0bf79484c1154986c48a7",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/ndm/93-z2k-warp.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "63a1108a07734dd2296ffff4d751ea72d5596e18bab2abdfe91481a9aa11695a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/ndm/94-z2k-ppe-deoffload.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "476b7d1047f860ee41a80cfc0c8381178a6e89ed5fb65c480731b5ad25e1c1c6",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/ndm/95-z2k-scheduler-watchdog.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "d73955d742263bda01ecca1be4b04deb7bba61164a5da2609f3e9977f443ad63",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-auto-update.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "4cedd4232c3c12a2e4861de625c9e8a45a6919c1ec66f9bca0a580a73a9963b3",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-blocked-monitor.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "a998797d7796859ec95d74d52b9f732dc89bf14a44351ac23e9c0632656767d2",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-config-validator.sh",
+      "class": "watched",
+      "type": "sh",
+      "basedOnSha256": "30a4c557fae94db49227318ed98e09b80651f4692b75da0b74830ddec90186eb",
+      "localName": null,
+      "consumer": "upstream semantic review only"
+    },
+    {
+      "sourcePath": "files/z2k-detect-watchdog.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "8dd2a50edeb1c7001c6dbe654cf0e1f120ccf2e8c9659074003fb0fba532b5bf",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-diag.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "2c34a0ae7dedb3bd72cd5818352c60750dfbfcacfa0922325b6625ba2c153b24",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-fix-tg-watchdog.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "95a063051c86b11fe96aa5b39349306500a54b1b25601b38184046cfedcd161e",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-geosite.sh",
+      "class": "watched",
+      "type": "sh",
+      "basedOnSha256": "4e6b35c7784511bb83104adcef39b0a9d91940ea068bbaff7597cf0167eac90f",
+      "localName": null,
+      "consumer": "upstream semantic review only"
+    },
+    {
+      "sourcePath": "files/z2k-insta-ip-refresh.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "ad64f9ed5d64e77659cfae5dc32df90b40d5dc42ce981a2ff6655af0c90deb21",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-nfqueue-selfheal.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "f170f69077da716473ef2a8ec63381bd6eb4e55316104924a36e784dcfb2a63c",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-ppe-deoffload.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "2e17688dc5de388fe95fbfc36b49b0c71485537faac7de639e17560006b43ced",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-scheduler.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "cd6b079c10b1bf6a28cbf732977daf01640e597387924b54c245002421502ac1",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-stats-upload.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "0641c6e8dcf5d07ca0b479af712f7080b5b3c579856c0c4f6fd24370c607b87c",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-tg-redirect.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "a44943bee350aab47c86cb5231465a51abe2de6813ac2d1d13cf7e13262f3c29",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-tg-watchdog.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "2c5a8cb5511c9ea800fbe4cbf9d39730b45b8958f16abb222a791d898b0fa2a0",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "files/z2k-update-lists.sh",
+      "class": "watched",
+      "type": "sh",
+      "basedOnSha256": "48c5f9250798a2a839041ce165d8ecf6c2becd7f5464702ba059f87b95bbadd3",
+      "localName": null,
+      "consumer": "upstream semantic review only"
+    },
+    {
+      "sourcePath": "files/z2k-warp.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "6858b475fb4e05eecd7e8df2c9b161d964338df34bf4096cdb75e7abfa649ca2",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/auto_update.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "40e0a03f740d9d43bc59d4f47fa7149d8e80e3819d7873dbceae7b4e47e1ee54",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/config.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "fc9b4ce6bd6f758b74f9b4184ca4d2d410b7220f3f2718375aee6460fc039f70",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/config_official.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "e9c212b815d0064600187ecc75dfb342da0018569ab0631c8ee6b1b08a93257a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/install.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "bd3b7101358e746da3a5d55f6403d6162459602689b7556f01aa59f96b8de0bf",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/menu.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "8e3bf1d3f6e68298b1b0c1ef8fb8ab956b4ae86918eaa79508bd8309ffe101e8",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/strategies.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "e9eaa6ba09458d3841c91bc8756aef32133e26126e8d0e5b3359831113f92484",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/utils.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "8fb1955587e7ce02d48ad5f8cd92ae227b8bf6cd7912be66b77d50714954a233",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "lib/webpanel.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "c26cc1e1af535539ab6706d6946888770ca0b89ccc2772a23ee6d50504244e82",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-amd64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "86ed84fd53b2c8d82e11193ab060440f6c54964bf8fabc1e435e0ae32eaad9ad",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-arm",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "f057ed4b496d48e460283956019e0bc38752e65d339cdd22dfc9c1e990c01730",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-arm64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "e3383fbc984f46f9066910404d5ddacfe84faa526f0111ebf231dd62609acef9",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-mips",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "d28599d712d24888287fd2391fc9d0386513b6d15c38ea3c9add2842e0edbd95",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-mips64el",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "0bef7905b6e588f2bdc0853d3c0e964d6dbabc43e3a7bc1b8bf5ff534ba43f53",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-mipsel",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "e79ccbce7f4a899a057d333ecb0fecf81eb034662db5390cb8cb08773c31dc66",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-ppc64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "4bbda7492815b1e85ea9e682b1f52b6271a57aa10a1d73a73211c30f0f44e3ad",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-riscv64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "02ee5c0e14f7da6e119e69e5a13ef07b4c76f2a3558b2f82942f7628f5fbe390",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/tg-mtproxy-client-linux-x86",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "0a84dc1888a8a9313efee3fd7fa69ba5e4fb0fd6d1c17ca1dc21aa578d29943e",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/z2k-rt-proxy-linux-amd64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "405ff0a5637a450b3b7b0bc1d990f967544b80e65ff87c6d4ebf2ad5455e9948",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/z2k-rt-proxy-linux-arm",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "5482e415469b054fc4f7561b76b532542439e72194aa55cdee277095fea5386b",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/z2k-rt-proxy-linux-arm64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "2b8cec24a6bf0fe522e0b368a763f0f65c6de7af44b8b7cfde6bc7358ee7a204",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/z2k-rt-proxy-linux-mips",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "7475d651fe127bd8b9278b9db6e06d45ad86aadd81f02b5960a498b99bd5b441",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "mtproxy-client/builds/z2k-rt-proxy-linux-mipsel",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "4c99e7a21d09e578a3e894ee4ee9b92117af48fd81ab376515b1b880b1073113",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/cgi/actions.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "055a2c5965bf76e20bba55fa21171007c3c399e0a10983a1224b978f9370040b",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/cgi/api.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "3ddd1f8e2633d78b5d4194d07ba257dc4a31d6c6bab1ad5b93a9537a44b1a716",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/cgi/auth.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "aa2d34f9f41444ba41a888a0da5214ff688b037457c54256546938b27391b333",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/init.d/S96z2k-webpanel",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "d064a61c1845e2a4ade4ed90cb3b6a82f3705fc6784f90f925d27c5bd7bcedbe",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/install.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "d16d95e2ca878f04a2093a8b64aa4daadf21c637e5a934dc41cfc3257bb27817",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/uninstall.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "b2b53fce5eb2506946cce6f114ef27bba49d124d811d2628a7201389f920c7e3",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/app.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "4acce04edc120e996e33818adf68efe0225a553676f79cb2ff59f997d5171e3a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/favicon.svg",
+      "class": "ignored-platform",
+      "type": "svg",
+      "basedOnSha256": "1b011055277d598f2384c9485bfffcd7aeb7f7a09f99c72748afc96617bc3fd4",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraCode-400-cyrillic.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "98651a0dc8960be552a69783b5b35d3a00ccb999584d9a152b50632c8e87bbcf",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraCode-400-latin.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "d32d5b5a7c9720cf3812f7d1e3ebdb54116f8f656e7471a03a5a93bdd93c98b3",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-400-cyrillic.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "09983c6cab069917897596945713d695a3c682d0d81896f80ca2c4c792852f4e",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-400-latin.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "7b8f0fbf813f59df6e7df17410a84850c3e690f98c90b9273371ef83796f8bc5",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-500-cyrillic.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "9e677029dbcd0eba88b93e9e1eeaa6535b8a9b64bdc55a3a8981a8708240ba05",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-500-latin.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "8a76b4c523d2fcf672c0aa234e33e2c2dea66f11f328c74423d0f551a6fe5a65",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-600-cyrillic.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "df1ce94b652f2df08ca6cbf0f89483316f01489bf9aa4ae49089d5f8fe3e0eca",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-600-latin.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "f3cc7b2756c566cf8172bfd269d805c4a1eb953f6b6ce8bf2b2ddf49c5422189",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-700-cyrillic.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "42a8013e902099b563e434d3ccb3bed87ff6d6af8d80fe51ff203f2ac487673b",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/fonts/FiraSans-700-latin.woff2",
+      "class": "ignored-platform",
+      "type": "woff2",
+      "basedOnSha256": "811e73619cc2909792e8fa134c8d1ed714b898310dd4cc218fc29e40a5dc2890",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/index.html",
+      "class": "ignored-platform",
+      "type": "html",
+      "basedOnSha256": "8f051d7ea622aa3f89ad668ccf6fc89cc98bbb47ebac76bab6e958fcf6d7ec0e",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/chrome.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "3e2217758cde6d87f4809aaf65c4aafca582b936d9c53b19abb4adac1479fdef",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/core/api.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "eaa798b49c02373a1cffcdee447587f9969194323dd5471ac74a07d4af7b235f",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/core/auth.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "7afe5b139737783402f45fb654b9383b24d68779aae93a0f5f1847608252ad8c",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/core/clipboard.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "161aebf7108acd08250acd93b5c5008f428cbb45d89edf303c069f5747bb0c13",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/core/dom.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "2f05882a97712ed090dd3d8bdb3dd843c3c5a41ba3bcece160ffdf140f8350a3",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/core/loadorder.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "ba986ce2d61c9cc9e73c032a4553ff8f22247573bace4e2933766fdcb096545e",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/core/toast.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "2fdf1025826a4db97484ac702ff907ef280736d3a4d2639398182b9ef4cf4b2a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/job.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "da0832ecbb70861fa26d17008d5df9fbb69d240869771522bb8f9408f205365b",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/credits.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "0e554f68313beb93434cafe82d294f99bc557f326ccb0c46a1cd0e96fae8a1c6",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/dashboard.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "8d4a142cff54cb919f0b142a40c306df34728a94075240624a3d09b4ea5c6840",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/diag.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "1e40f55eb5f130e638141bc42ea4cf56f9de5c2ef78fd67d13248768a3e27d8e",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/exclude.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "e504ab23d951a99ef56c220a19fecc1cb9e689f59f547e1b20284100319ecd39",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/extra-domains.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "81efb7d4e4102be249367f9dd210dc661efa6a6957ed5dffa8118319b394a326",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/policy.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "e9e1d623fef531084fad829cbedcb8df2593408ebc7f40b495e464e3a463dcd6",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/strategies.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "50efa6c8f8dc9d33bf5f0e2727cb3370e13705162a33e89d73fadec9a8430948",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/telemetry.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "eafe3bf099ff56ab987bf1b57874de84a555f095ee0068af39bd18c9c3fd2d07",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/toggles.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "f2b8704ee6ed65441e712395064955b989aa182fc1edead85100cd7dc97d1863",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/update.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "e81fec280b94a6050f300c967775968d87986ef15ec54e4232445ace9abc7f80",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/pages/warp.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "24af910fef70144a0c72ec9b2ab81c5471534d5010eaa1a3f00f45e9820aa509",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/router.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "b5a5a74b16bd51919bf9266f11871f6aed62a1828bd5891a13b1bf2e5cf951ed",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/js/state-model.js",
+      "class": "ignored-platform",
+      "type": "js",
+      "basedOnSha256": "5c45e8aa73857dd453c011fa4c533c8b8e9a6acecba97f37b7d6a90d63896405",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/www/style.css",
+      "class": "ignored-platform",
+      "type": "css",
+      "basedOnSha256": "6c9079eb073b400a4c79d382323283fec9b83847ff5eb81e9215cdb050713d9a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "z2k.sh",
+      "class": "ignored-platform",
+      "type": "sh",
+      "basedOnSha256": "4869cdcf7c46b9abaa2de2515d10472b48fb5496d5b51042b62c9337dc16896c",
+      "consumer": "not installed by Z2M; provenance only"
+    }
+  ]
+}

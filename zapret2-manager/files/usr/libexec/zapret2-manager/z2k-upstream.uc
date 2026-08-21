@@ -1,0 +1,71 @@
+'use strict';
+import { readfile, stat, unlink, popen } from 'fs';
+
+const MANIFEST_URL = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json';
+const SIGNATURE_URL = MANIFEST_URL + '.sig';
+const TRUST_KEY = '/usr/share/zapret2-manager/trust/z2k-update-pub.pem';
+const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
+const MAX_MANIFEST = 512 * 1024;
+const MAX_FILES = 512;
+const MAX_PATH = 256;
+
+function fail(code, message, details) { let value = { ok: false, error: { code: code, message: message } }; if (details != null) value.error.details = details; return value; }
+function run(command) { let p = popen(command + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
+function quote(value) { return type(value) == 'string' && index(value, "'") < 0 && index(value, '\n') < 0 && index(value, '\r') < 0 ? "'" + value + "'" : null; }
+function read_json(path) { try { let raw = readfile(path); return raw ? json(raw) : null; } catch (e) { return null; } }
+function temp_file() { let p = popen('umask 077; mktemp /tmp/z2m-z2k-upstream.XXXXXX 2>/dev/null', 'r'); if (!p) return null; let value = trim(p.read('all') || ''), rc = p.close(); return rc == 0 && match(value, /^\/tmp\/z2m-z2k-upstream\.[A-Za-z0-9]+$/) ? value : null; }
+function cleanup(paths) { for (let p in paths) { try { unlink(p); } catch (e) {} } }
+function source_url(base, nonce) { return base + '?z2m_pair=' + nonce; }
+function fetch_file(url, path) { let qurl = quote(url), qpath = quote(path); if (qurl == null || qpath == null) return false; let r = run('uclient-fetch -q -T 20 -O ' + qpath + ' ' + qurl); return r.rc == 0 && stat(path) != null; }
+function signature_available() { return run('command -v openssl').rc == 0; }
+function verify_signature(manifest, signature) {
+	if (!signature_available()) return { ok: false, code: 'EZ2K_SIGNATURE_UNAVAILABLE', message: 'На роутере отсутствует доступный openssl Ed25519 verifier.' };
+	let qm = quote(manifest), qs = quote(signature), qk = quote(TRUST_KEY); if (qm == null || qs == null || qk == null) return { ok: false, code: 'EZ2K_SIGNATURE_INVALID', message: 'Signature verification path invalid.' };
+	let result = run('openssl pkeyutl -verify -rawin -pubin -inkey ' + qk + ' -in ' + qm + ' -sigfile ' + qs);
+	return result.rc == 0 ? { ok: true } : { ok: false, code: 'EZ2K_SIGNATURE_INVALID', message: 'UPDATES.json signature не подтверждена pinned Z2K key.' };
+}
+function validate_path(value) { return type(value) == 'string' && length(value) > 0 && length(value) <= MAX_PATH && substr(value, 0, 1) != '/' && index(value, '\\') < 0 && index(value, '..') < 0 && match(value, /^[A-Za-z0-9._\/-]+$/); }
+function validate_manifest(value, rawSize) {
+	if (rawSize == null || rawSize < 2 || rawSize > MAX_MANIFEST) return fail('ESIZE', 'UPDATES.json exceeds the bounded manifest size.');
+	if (type(value) != 'object' || value == null || value.schema != 1 || value.branch != 'z2k-enhanced' || type(value.seq) != 'int' || value.seq < 0 || type(value.current) != 'string' || length(value.current) > 96 || type(value.files_sha256) != 'object' || value.files_sha256 == null) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json schema or branch is unsupported.');
+	let names = keys(value.files_sha256); if (!length(names) || length(names) > MAX_FILES) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json file count is invalid.');
+	for (let name in names) { let path = names[name], digest = value.files_sha256[path]; if (!validate_path(path)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path.', { path: path }); if (type(digest) != 'string' || !match(lc(digest), /^[a-f0-9]{64}$/)) return fail('EVERIFY', 'UPDATES.json contains an invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
+	return { ok: true, manifest: value };
+}
+function classification() { let value = read_json(CLASSIFICATION); return type(value) == 'object' && value != null && value.schema == 'zapret2-manager.z2k-integration.v1' && type(value.files) == 'array' ? value : null; }
+function class_for(value, path) { for (let item in value.files) if (item.sourcePath == path) return item; return null; }
+function plan(value) {
+	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
+	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
+	let updates = [], rebases = [], reviews = [];
+	for (let path in keys(checked.manifest.files_sha256)) {
+		let digest = checked.manifest.files_sha256[path], item = class_for(map, path);
+		if (item == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Новый Z2K файл отсутствует в integration classification.', { path: path });
+		if (item.class == 'adapted' && item.basedOnSha256 != digest) push(rebases, path);
+		else if (item.class == 'exact-managed' && item.basedOnSha256 != digest) push(updates, path);
+		else if (item.class == 'watched' && item.basedOnSha256 != digest) push(reviews, path);
+	}
+	if (length(rebases)) return { ok: true, status: 'rebase-required', updates: updates, rebases: rebases, reviews: reviews, manifest: checked.manifest };
+	if (length(reviews)) return { ok: true, status: 'review-required', updates: updates, rebases: rebases, reviews: reviews, manifest: checked.manifest };
+	return { ok: true, status: length(updates) ? 'update-available' : 'current', updates: updates, rebases: [], reviews: [], manifest: checked.manifest };
+}
+function fetch_verified_pair() {
+	let manifest = temp_file(), signature = temp_file(); if (manifest == null || signature == null) { cleanup([manifest, signature]); return fail('EIO', 'Не удалось создать private Z2K staging files.'); }
+	let available = signature_available(); if (!available) { cleanup([manifest, signature]); return fail('EZ2K_SIGNATURE_UNAVAILABLE', 'На роутере отсутствует доступный openssl Ed25519 verifier.'); }
+	let verified = false, last = null;
+	for (let attempt = 0; attempt < 2; attempt++) {
+		cleanup([manifest, signature]);
+		let nonce = '' + time() + '-' + attempt;
+		if (!fetch_file(source_url(MANIFEST_URL, nonce), manifest) || !fetch_file(source_url(SIGNATURE_URL, nonce), signature)) { last = fail('EZ2K_SIGNATURE_INVALID', 'Не удалось получить полный UPDATES.json + signature pair.'); continue; }
+		let size = stat(manifest); last = verify_signature(manifest, signature);
+		if (last.ok) { verified = true; let raw = readfile(manifest), value = null; try { value = json(raw); } catch (e) { cleanup([manifest, signature]); return fail('EZ2K_MANIFEST_SCHEMA', 'Подписанный UPDATES.json не является JSON.'); } let validated = validate_manifest(value, size.size); cleanup([manifest, signature]); return validated; }
+	}
+	cleanup([manifest, signature]); return last || fail('EZ2K_SIGNATURE_INVALID', 'Z2K signature verification failed.');
+}
+
+export const z2k_upstream_plan = function(remoteManifest) { return plan(remoteManifest); };
+export const z2k_upstream_check = function() {
+	let pair = fetch_verified_pair(); if (!pair.ok) return pair;
+	let checked = plan(pair.manifest); if (!checked.ok) return checked;
+	return { ok: true, status: checked.status, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustRoot: TRUST_KEY, manifest: checked.manifest, plan: checked };
+};
