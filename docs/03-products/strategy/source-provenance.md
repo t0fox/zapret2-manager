@@ -23,14 +23,19 @@ source records -> lossless importer -> canonical Strategy
 
 | Роль | Источник | Revision |
 |---|---|---|
-| Engine authority | `bol-van/zapret2` | `a8d24607a5ebae5f0a78aa066b35d0b7e66163ff` |
-| Current upstream catalog metadata | `git.zapret.moe/zapretdiscordyoutube/zapretgui` | `6824294ee53421cc9c3e2a361f4976783ff62307` |
-| Curated behavioral donor | `avatarDD/zapret-gui` | `f9dd3ea47a2239514f396a843b475c92c33f0b4c` |
-| z2k extension/presets | `necronicle/z2k` | `11f5e77c48b87438567179ea763c635780a04b7b` |
+| Engine base authority | `bol-van/zapret2` | `a0be7cbb40a4230e4b60fc33b7ea06102eb8ec15` |
+| Strategy catalog authority | `avatarDD/zapret-gui` | `f9dd3ea47a2239514f396a843b475c92c33f0b4c` |
+| Strategy UI donor | `avatarDD/zapret-gui` | `8c44df2bed98872d1348db053623ee6bf2902408` |
+| Z2K engine delta reference | `necronicle/zapret2-z2k:z2k-master` | `8193742d8fde42fc646fbd10c0d2866572a54d3b` |
+| Z2K signed runtime/data reference | `necronicle/z2k:z2k-enhanced` | `54b6765f2ab3e0f7f13030c90c809f1dcacfcce2` |
 
 The installed runtime catalog is the verified, package-owned Avatar-derived
 snapshot. Upstream metadata and donor references are provenance only; they do
 not replace the Z2M runtime authority or change execution semantics.
+
+The historical Forgejo catalog fixture under `catalog/forgejo/` is retained
+only for archival comparison. It is not referenced by the resolver, Resource
+Center, tests, or current manifests.
 
 ## Donor renderer trace
 

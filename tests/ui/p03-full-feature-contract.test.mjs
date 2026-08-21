@@ -8,13 +8,14 @@ const viewRoot = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static
 const read = name => fs.readFileSync(path.join(viewRoot, name), 'utf8');
 const readOptional = name => fs.existsSync(path.join(viewRoot, name)) ? read(name) : '';
 
-test('P03-FULL catalog uses the current official Forgejo source and exposes update provenance', () => {
+test('P03-FULL catalog uses the canonical Avatar source and exposes update provenance', () => {
   const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc'), 'utf8');
   const provenance = fs.readFileSync(path.join(root, 'docs/03-products/strategy/source-provenance.md'), 'utf8');
-  assert.match(`${catalog}\n${provenance}`, /git\.zapret\.moe\/zapretdiscordyoutube\/zapretgui/);
-  assert.match(`${catalog}\n${provenance}`, /6824294ee53421cc9c3e2a361f4976783ff62307/);
-  assert.match(catalog, /catalog_update|source_update|transaction/i);
-  assert.doesNotMatch(catalog, /PINNED_REPOSITORY\s*=\s*'avatarDD\/zapret-gui'/);
+  assert.match(provenance, /avatarDD\/zapret-gui/);
+  assert.match(provenance, /f9dd3ea47a2239514f396a843b475c92c33f0b4c/);
+  assert.doesNotMatch(`${catalog}\n${provenance}`, /git\.zapret\.moe\/zapretdiscordyoutube\/zapretgui/);
+  assert.match(catalog, /catalog_(prepare|activate|reload)|source_update|snapshot/i);
+  assert.doesNotMatch(catalog, /PINNED_REPOSITORY\s*=\s*'git\.zapret\.moe/);
 });
 test('P03-FULL cards expose donor metadata, circular/recommended filters, selection, clipboard and full actions', () => {
   const page = read('z2m-strategies.js');
