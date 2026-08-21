@@ -110,24 +110,25 @@ export const events_tail = function(input) {
 	}
 	if (limit < 1) limit = 1;
 	if (limit > 500) limit = 500;
-	let raw = readfile(PATHS.events_ndjson);
-	if (!raw) return { ok: true, events: [], malformed: [], total: 0, last_seq: 0, note: 'no events file yet' };
-	let lines = split(raw, '\n');
-	let nonEmpty = [];
-	for (let i = 0; i < length(lines); i++) if (length(trim(lines[i]))) push(nonEmpty, lines[i]);
-	let start = (length(nonEmpty) > limit) ? (length(nonEmpty) - limit) : 0;
+	let count = run('wc -l < ' + PATHS.events_ndjson);
+	let total = count.rc == 0 ? (+trim(count.out)) : 0;
+	if (total == 0) return { ok: true, events: [], malformed: [], total: 0, last_seq: 0, note: 'no events file yet' };
+	let raw = run('tail -n ' + limit + ' ' + PATHS.events_ndjson).out;
+	let lines = split(raw || '', '\n');
+	let start = (total > limit) ? (total - limit) : 0;
 	let events = [];
 	let malformed = [];
-	for (let i = start; i < length(nonEmpty); i++) {
+	for (let i = 0; i < length(lines); i++) {
+		if (!length(trim(lines[i]))) continue;
 		let ev = null;
-		try { ev = json(nonEmpty[i]); } catch (e) { ev = null; }
+		try { ev = json(lines[i]); } catch (e) { ev = null; }
 		if (ev != null) {
-			ev.seq = i + 1;
+			ev.seq = start + i + 1;
 			if (ev.seq > since_seq) push(events, ev);
 		}
-		else push(malformed, { preview: substr(nonEmpty[i], 0, 120) });
+		else push(malformed, { preview: substr(lines[i], 0, 120) });
 	}
-	return { ok: true, events: events, malformed: malformed, total: length(nonEmpty), last_seq: length(nonEmpty) };
+	return { ok: true, events: events, malformed: malformed, total: total, last_seq: total };
 };
 
 // ---------------------------------------------------------------------------

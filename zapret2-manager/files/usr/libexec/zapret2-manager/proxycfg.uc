@@ -25,6 +25,7 @@
 //     /etc/init.d/tg-ws-proxy is ever called, never /etc/init.d/zapret2.
 
 import { readfile, writefile, stat, popen, unlink, mkdir } from 'fs';
+import { append_ndjson, event_id } from './events.uc';
 
 const CFG_SCHEMA = 1;
 
@@ -1254,18 +1255,15 @@ function service_do(action) {
 
 function event_proxy(severity, msg, extra) {
 	try {
-		let prev = readfile(EVENTS_NDJSON);
-		if (!prev) prev = '';
-		let id = 'proxy-' + time() + '-' + length(split(prev, '\n'));
 		let ev = (extra != null) ? extra : {};
 		ev.schema = 'events.v1';
 		ev.ts = '' + time();
-		ev.id = id;
+		ev.id = event_id('proxy');
 		ev.category = 'config';
 		ev.severity = severity;
 		ev.source = 'proxy';
 		ev.msg = msg;
-		writefile(EVENTS_NDJSON, prev + sprintf("%J", ev) + '\n');
+		append_ndjson(EVENTS_NDJSON, ev);
 	} catch (e) { }
 }
 

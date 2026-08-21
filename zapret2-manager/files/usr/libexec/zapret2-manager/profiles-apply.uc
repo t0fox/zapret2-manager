@@ -33,6 +33,7 @@ import { native_preflight } from './native-preflight.uc';
 import { collect_observations } from './core/status-collector.uc';
 import { state_read } from './core/state-store.uc';
 import { strategy_selection_get_readonly } from './strategy-state.uc';
+import { append_ndjson, event_id } from './events.uc';
 
 const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
@@ -496,13 +497,10 @@ function event_apply(severity, msg, extra) {
 	try {
 		let ts = trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out);
 		if (!length(ts)) ts = '' + time();
-		let prev = readfile(PATHS.events_ndjson);
-		if (!prev) prev = '';
-		let id = 'apply-' + time() + '-' + length(split(prev, '\n'));
 		let ev = extra ? extra : {};
-		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
+		ev.schema = 'events.v1'; ev.ts = ts; ev.id = event_id('apply');
 		ev.category = 'config'; ev.severity = severity; ev.source = 'ui'; ev.msg = msg;
-		writefile(PATHS.events_ndjson, prev + sprintf("%J", ev) + '\n');
+		append_ndjson(PATHS.events_ndjson, ev);
 	} catch (e) { }
 }
 

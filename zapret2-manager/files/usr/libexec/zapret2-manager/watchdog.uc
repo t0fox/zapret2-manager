@@ -29,6 +29,7 @@ import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';
 import { auto_controller_tick } from './auto-strategy.uc';
+import { append_ndjson, event_id } from './events.uc';
 
 const CYCLE_SEC    = 60;
 const CPU_WARN_PCT = 70;
@@ -76,13 +77,10 @@ function event(source, category, severity, msg, extra) {
 	try {
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + now();
-		let prev = readfile(PATHS.events_ndjson);
-		if (!prev) prev = '';
-		let id = source + '-' + now() + '-' + length(split(prev, '\n'));
 		let ev = extra ? extra : {};
-		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
+		ev.schema = 'events.v1'; ev.ts = ts; ev.id = event_id(source);
 		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
-		writefile(PATHS.events_ndjson, prev + sprintf("%J", ev) + '\n');
+		append_ndjson(PATHS.events_ndjson, ev);
 	} catch (e) { }
 }
 

@@ -7,13 +7,13 @@
 import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
 import { read_var } from './apply.uc';
+import { append_ndjson, event_id } from './events.uc';
 
 const CONFIG_PATH = getenv('Z2M_STRATEGY_HEALTHCHECK_CONFIG') || '/etc/zapret2-manager/strategy-healthcheck.json';
 const LEARNED_PATH = getenv('Z2M_STRATEGY_LEARNED_STATE') || '/etc/zapret2-manager/state/autocircular/state.tsv';
 const LEARNED_DIR = getenv('Z2M_STRATEGY_LEARNED_DIR') || '/etc/zapret2-manager/state/autocircular';
 const DAEMON_LOG_ENABLE = 'DAEMON_LOG_ENABLE';
 const DEFAULT_SERVICES = ['youtube', 'discord', 'twitch'];
-const EVENTS_PATH = '/tmp/zapret2-manager/events.ndjson';
 const SCHEDULER_MARKER = '/tmp/zapret2-manager/healthcheck-journal.last';
 
 function is_object(value) { return type(value) == 'object' && value != null && type(value) != 'array'; }
@@ -111,17 +111,16 @@ function request_value(value) {
 
 function journal_event(severity, message, extra) {
 	try {
-		mkdir('/tmp/zapret2-manager');
-		let raw = readfile(EVENTS_PATH) || '', now = time();
 		let event = extra || {};
+		let now = time();
 		let clock = popen('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null', 'r');
 		let ts = clock ? trim(clock.read('all') || '') : '' + now;
 		if (clock) clock.close();
 		event.schema = 'events.v1'; event.ts = length(ts) ? ts : '' + now;
-		event.id = 'healthcheck-' + now + '-' + length(split(raw, '\n'));
+		event.id = event_id('healthcheck');
 		event.category = 'healthcheck'; event.severity = severity;
 		event.source = 'healthcheck'; event.msg = message;
-		writefile(EVENTS_PATH, raw + sprintf('%J', event) + '\n');
+		append_ndjson('/tmp/zapret2-manager/events.ndjson', event);
 	} catch (e) { }
 }
 

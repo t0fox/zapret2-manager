@@ -10,6 +10,7 @@ import { PATHS, PASSTHROUGH_PROFILE_NAME,
 import { read_var, set_var, restore_whole_file, config_sha256, commit_applied_identity } from './apply.uc';
 import { fetch_list } from './list-fetcher.uc';
 import { collect_observations } from './core/status-collector.uc';
+import { append_ndjson, event_id } from './events.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
@@ -60,13 +61,10 @@ function event(source, category, severity, msg, extra) {
 	try {
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + time();
-		let prev = readfile(PATHS.events_ndjson);
-		if (!prev) prev = '';
-		let id = source + '-' + time() + '-' + length(split(prev, '\n'));
 		let ev = extra ? extra : {};
-		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
+		ev.schema = 'events.v1'; ev.ts = ts; ev.id = event_id(source);
 		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
-		writefile(PATHS.events_ndjson, prev + sprintf("%J", ev) + '\n');
+		append_ndjson(PATHS.events_ndjson, ev);
 	} catch (e) { }
 }
 

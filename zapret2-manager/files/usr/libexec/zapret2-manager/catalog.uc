@@ -15,6 +15,7 @@ import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { read_list_file, write_list_file } from './apply.uc';
 import { load_state, save_state } from './profiles-draft.uc';
 import { PATHS } from './constants.uc';
+import { append_ndjson, event_id } from './events.uc';
 
 const CATALOG_PATH = '/usr/libexec/zapret2-manager/catalog/services.json';
 const LEDGER_SCHEMA = 1;
@@ -587,13 +588,10 @@ function snapshot_catalog(listEntries) {
 
 function event_catalog(severity, msg, extra) {
 	try {
-		let prev = readfile(PATHS.events_ndjson);
-		if (!prev) prev = '';
-		let id = 'catalog-' + time() + '-' + length(split(prev, '\n'));
 		let ev = extra ? extra : {};
-		ev.schema = 'events.v1'; ev.ts = '' + time(); ev.id = id;
+		ev.schema = 'events.v1'; ev.ts = '' + time(); ev.id = event_id('catalog');
 		ev.category = 'config'; ev.severity = severity; ev.source = 'catalog'; ev.msg = msg;
-		writefile(PATHS.events_ndjson, prev + sprintf("%J", ev) + '\n');
+		append_ndjson(PATHS.events_ndjson, ev);
 	} catch (e) { }
 }
 
