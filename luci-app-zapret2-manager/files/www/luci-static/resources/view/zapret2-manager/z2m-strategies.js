@@ -363,7 +363,7 @@ function renderStrategyCard(strategy) {
   var badges = strategyBadgesHtml(strategy);
   var args = strategyArgsHtml(strategy);
   var actions = active
-    ? '<button class="btn btn-status-current btn-sm" type="button" disabled aria-disabled="true" role="status"><span aria-hidden="true">✓</span><span>Используется сейчас</span></button>'
+    ? '<span class="btn btn-status-current btn-sm" role="status"><span aria-hidden="true">✓</span><span>Используется сейчас</span></span>'
     : cardPending === 'apply'
       ? '<button class="btn btn-primary btn-sm" type="button" disabled aria-busy="true"><span class="btn-spinner" aria-hidden="true"></span><span>Применяем…</span></button>'
       : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '><span>Применить</span></button>';

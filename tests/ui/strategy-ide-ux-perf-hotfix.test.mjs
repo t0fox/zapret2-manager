@@ -105,6 +105,8 @@ test('UX hotfix keeps card Apply scoped and renders current as a status, not a d
   assert.match(page, /mutate\(['"]apply['"][\s\S]*scope:\s*['"]card['"]/);
   assert.match(page, /Применяем…/);
   assert.match(page, /btn-status-current/);
+  assert.match(page, /<span class="btn btn-status-current btn-sm" role="status"/);
+  assert.doesNotMatch(page, /<button class="btn btn-status-current/);
   assert.doesNotMatch(page, /active \? '<button class="btn btn-primary btn-sm" disabled>Используется сейчас/);
   assert.match(css, /\.btn-status-current/);
   assert.match(css, /\.btn-primary:not\(:disabled\)[^}]*color:#fff\s*!important/);
