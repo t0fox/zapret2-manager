@@ -2623,3 +2623,56 @@
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* Shared product health language for DNS and Telegram Proxy. */
+.z2m-product-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.z2m-product-health-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 70px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel2);
+}
+.z2m-product-health-card .label {
+  color: var(--tx3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.z2m-product-health-card strong {
+  color: var(--tx);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.z2m-product-health-details,
+.z2m-product-error-details {
+  margin-top: 10px;
+  color: var(--tx3);
+  font-size: 12px;
+}
+.z2m-product-health-details summary,
+.z2m-product-error-details summary {
+  cursor: pointer;
+  color: var(--tx2);
+}
+.z2m-product-error-details code {
+  display: block;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.z2m-product-owner-handoff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}

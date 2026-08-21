@@ -175,7 +175,11 @@ function renderSystem(ctx, data) {
         E('summary', {}, _('Технические детали')),
         kvPanel(shell, technicalRows)
       ]) : null
-    ])
+    ]),
+    shell.panel(_('Telegram Proxy'), E('div', { 'class': 'z2m-product-owner-handoff' }, [
+      E('p', {}, _('Проверить обновление TG Proxy можно на странице его владельца. Установка и обновление выполняются существующим lifecycle Telegram Proxy.')),
+      E('a', { href: '#/telegram-tunnel', 'class': 'z2m-btn primary sm' }, _('Проверить обновление'))
+    ]), _('System → Updates направляет пользователя к canonical owner без второго installer.'))
   ]);
 }
 
