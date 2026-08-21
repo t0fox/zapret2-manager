@@ -8,7 +8,6 @@ cd "$REPO_ROOT"
 BUILD_ROOT=${BUILD_ROOT:-"$REPO_ROOT/build-apk"}
 CACHE_DIR="$BUILD_ROOT/cache"
 WORK_DIR="$BUILD_ROOT/work"
-SDK_WORK_DIR="$BUILD_ROOT/sdk"
 DIST_DIR=${DIST_DIR:-"$REPO_ROOT/dist"}
 CONFIG_FILE="$REPO_ROOT/scripts/release/config.mjs"
 
@@ -65,10 +64,9 @@ GIT_REF=${GITHUB_REF:-$(git -C "$REPO_ROOT" symbolic-ref -q --short HEAD || prin
 
 SDK_ARCHIVE="$CACHE_DIR/$SDK_FILENAME"
 EXTRACT_DIR="$WORK_DIR/sdk-extract"
-PACKAGE_ROOT="$SDK_WORK_DIR/package/z2m"
 
-rm -rf "$WORK_DIR" "$SDK_WORK_DIR" "$DIST_DIR"
-mkdir -p "$CACHE_DIR" "$EXTRACT_DIR" "$SDK_WORK_DIR" "$DIST_DIR"
+rm -rf "$WORK_DIR" "$DIST_DIR"
+mkdir -p "$CACHE_DIR" "$EXTRACT_DIR" "$DIST_DIR"
 
 if [ ! -f "$SDK_ARCHIVE" ]; then
 	printf 'release build: downloading %s\n' "$SDK_URL"
@@ -86,6 +84,7 @@ SDK_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print -quit)
 [ -x "$SDK_DIR/scripts/feeds" ] || die "SDK scripts/feeds is missing"
 [ -f "$SDK_DIR/package/Makefile" ] || die "SDK package/Makefile is missing"
 [ -d "$SDK_DIR/staging_dir/host" ] || die "SDK host staging directory is missing"
+PACKAGE_ROOT="$SDK_DIR/package/z2m"
 
 printf 'release build: updating and installing OpenWrt feeds\n'
 FEED_NAMES='base packages luci routing telephony video'
