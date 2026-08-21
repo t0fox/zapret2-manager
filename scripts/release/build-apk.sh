@@ -88,8 +88,33 @@ SDK_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print -quit)
 [ -d "$SDK_DIR/staging_dir/host" ] || die "SDK host staging directory is missing"
 
 printf 'release build: updating and installing OpenWrt feeds\n'
-"$SDK_DIR/scripts/feeds" update -a
-"$SDK_DIR/scripts/feeds" install -a
+FEED_NAMES='base packages luci routing telephony video'
+FEEDS_READY=0
+for FEED_ATTEMPT in 1 2 3; do
+	if (
+		cd "$SDK_DIR"
+		./scripts/feeds update -a
+	); then
+		FEEDS_READY=1
+		for FEED_NAME in $FEED_NAMES; do
+			if [ ! -d "$SDK_DIR/feeds/$FEED_NAME" ]; then
+				printf 'release build: feed %s is missing after update\n' "$FEED_NAME" >&2
+				FEEDS_READY=0
+			fi
+		done
+	fi
+	if [ "$FEEDS_READY" -eq 1 ] && (
+		cd "$SDK_DIR"
+		./scripts/feeds install -a
+	); then
+		break
+	fi
+	if [ "$FEED_ATTEMPT" -eq 3 ]; then
+		die 'OpenWrt feeds did not become complete after 3 bounded attempts'
+	fi
+	printf 'release build: retrying OpenWrt feeds (attempt %s/3)\n' "$((FEED_ATTEMPT + 1))" >&2
+	sleep $((FEED_ATTEMPT * 5))
+done
 
 mkdir -p "$PACKAGE_ROOT"
 for package in zapret2-manager luci-app-zapret2-manager zapret2-manager-full; do
