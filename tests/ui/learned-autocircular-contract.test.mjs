@@ -85,3 +85,28 @@ test('Hard Gate LEARNED_FULL_VIEW_SEARCH & GRAPHITE_THEME_CONSISTENCY: full moda
   assert.match(css, /\.learned-modal-table/);
   assert.match(css, /\.learned-modal-table-wrap/);
 });
+
+test('LEARNED_TABLE_LAYOUT: wide tables remain scrollable and narrow tables do not clip columns', () => {
+  const page = read('z2m-strategies.js');
+  const shell = read('z2m-shell.js');
+  const css = read('z2m-ui.css');
+  assert.match(css, /learned-modal-table-wrap[^}]*overflow-y:auto[^}]*overflow-x:auto/);
+  assert.match(css, /learned-modal-table[^}]*table-layout:fixed/);
+  assert.match(css, /learned-modal-table th:nth-child\(5\)[^}]*display:none/);
+  assert.match(css, /learned-modal-table th:nth-child\(6\)[^}]*display:none/);
+  assert.match(css, /@media\(max-width:1200px\)[\s\S]*learned-modal-table tr[^}]*display:grid/);
+  assert.match(css, /@media\(max-width:700px\)[\s\S]*learned-modal-table[^}]*display:block/);
+  assert.match(css, /@media\(max-width:700px\)[\s\S]*learned-modal-table-wrap[^}]*overflow-x:visible/);
+  assert.match(css, /learned-modal-table td:nth-child\(1\)[^}]*width:auto !important/);
+  assert.match(css, /learned-modal-table td:nth-child\(4\)[^}]*width:100% !important/);
+  assert.match(css, /learned-modal-table td:nth-child\(4\) \.btn[^}]*min-width:86px/);
+  assert.match(shell, /learned-table-2/);
+  assert.match(page, /title="Исключить из DPI-обхода">Исключить<\/button>/);
+});
+
+test('CATALOG_PRIMARY_SUMMARY: catalog identity stays out of the primary strategy card', () => {
+  const page = read('z2m-strategies.js');
+  assert.doesNotMatch(page, /catalog-summary-provenance/);
+  assert.doesNotMatch(page, /Управляемый snapshot/);
+  assert.doesNotMatch(page, /Пакетный baseline/);
+});

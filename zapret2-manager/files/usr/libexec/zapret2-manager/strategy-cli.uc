@@ -16,6 +16,7 @@ import { z2m_parse, z2m_validate, z2m_tokenize } from './profiles.uc';
 import { avatar_tokenize, strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
+import { discord_autocircular_donor } from './discord-profile.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
@@ -1033,6 +1034,11 @@ function strategy_catalog_reload_request() {
 	catch (e) { return error_result('EVERIFY', 'verified Avatar catalog reload failed'); }
 }
 
+function strategy_discord_donor_request() {
+	try { return discord_autocircular_donor(); }
+	catch (e) { return error_result('EVERIFY', 'verified Discord donor could not be loaded'); }
+}
+
 function request(path) {
 	if (!is_string(path) || length(path) == 0 || length(path) > 256) return error_result('EINPUT', 'request path is invalid');
 	function metadata_same(left, right) {
@@ -1082,6 +1088,7 @@ function dispatch_result(mode, input, context, testContext) {
 	if (mode == 'list') return strategy_list();
 	if (mode == 'recommendations') return strategy_recommendations();
 	if (mode == 'get') return strategy_get(input);
+	if (mode == 'discord_donor') return strategy_discord_donor_request();
 	if (mode == 'create') return strategy_state['strategy_' + 'user_create'](input);
 	if (mode == 'update') return strategy_state['strategy_' + 'user_update'](input);
 	if (mode == 'delete') return strategy_state['strategy_' + 'user_delete'](input);

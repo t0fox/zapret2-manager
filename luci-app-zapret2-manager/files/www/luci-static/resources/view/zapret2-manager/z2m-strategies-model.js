@@ -198,7 +198,7 @@ function humanizeLearnedEntry(entry) {
       tsDisplay = String(ts);
     }
   }
-  var mode = text(entry.mode) === 'frozen' ? 'frozen' : 'auto';
+  var mode = text(entry.mode) === 'frozen' || text(entry.mode) === 'excluded' ? text(entry.mode) : 'auto';
 
   return {
     host: host,
@@ -213,6 +213,8 @@ function humanizeLearnedEntry(entry) {
     strategy: vNum,
     mode: mode,
     frozen: mode === 'frozen',
+    excluded: mode === 'excluded',
+    modeLabel: mode === 'excluded' ? 'Без обхода' : mode === 'frozen' ? 'Зафиксировано' : 'Авто',
     ts: tsDisplay,
     rawTs: tsNumeric,
     tsOriginal: text(ts)
@@ -377,7 +379,7 @@ function extractDiscordVoiceState(entries, pools) {
 
   if (found) {
     var curStrat = Number(found.strategy || found.variantNum) || 1;
-    var mode = text(found.mode) === 'frozen' ? 'frozen' : 'auto';
+    var mode = text(found.mode) === 'frozen' || text(found.mode) === 'excluded' ? text(found.mode) : 'auto';
     if (curStrat < 1 || curStrat > poolSize) {
       curStrat = 1;
       mode = 'auto';
@@ -388,6 +390,7 @@ function extractDiscordVoiceState(entries, pools) {
       strategy: curStrat,
       mode: mode,
       isFrozen: mode === 'frozen',
+      isExcluded: mode === 'excluded',
       ts: found.ts || '',
       exists: true,
       isLive: isLive,
@@ -403,6 +406,7 @@ function extractDiscordVoiceState(entries, pools) {
     strategy: 1,
     mode: 'auto',
     isFrozen: false,
+    isExcluded: false,
     ts: '',
     exists: false,
     isLive: isLive,
@@ -492,6 +496,14 @@ function resolveStrategyName(poolKey, currentStrategy, pools) {
 }
 
 function modeBadge(mode) {
+  if (text(mode) === 'excluded') {
+    return {
+      mode: 'excluded', isFrozen: false, isExcluded: true,
+      label: 'Без обхода', icon: 'ban',
+      tooltip: 'Для этого ресурса DPI-обход отключён. Нажмите, чтобы включить обратно',
+      ariaLabel: 'Включить обратно'
+    };
+  }
   var isFrozen = text(mode) === 'frozen';
   if (isFrozen) {
     return {
@@ -506,6 +518,7 @@ function modeBadge(mode) {
   return {
     mode: 'auto',
     isFrozen: false,
+    isExcluded: false,
     label: 'Авто',
     icon: 'unlock',
     tooltip: 'Стратегия управляется autocircular автоматически. Нажмите, чтобы зафиксировать',

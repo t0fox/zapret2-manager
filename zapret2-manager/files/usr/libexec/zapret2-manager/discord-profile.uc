@@ -4,12 +4,15 @@ import { readfile, writefile, stat, popen, mkdir } from 'fs';
 import { read_var } from './apply.uc';
 import { z2m_tokenize, z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
 import { profiles_apply_candidate } from './profiles-apply.uc';
+import { strategy_catalog_get_detail } from './strategy-catalog.uc';
+import { catalog_entry_to_strategy } from './strategy-model.uc';
 
 const CORPUS = '/usr/libexec/zapret2-manager/catalog/stressozz-compiled.json';
 const JOURNAL = '/tmp/zapret2-manager/discord-operation.json';
 const NFQWS2 = '/opt/zapret2/nfq2/nfqws2';
 const NAMES = ['StressOzz_Discord_Media_Dv1', 'StressOzz_Discord_Voice'];
 const LUA = ['/opt/zapret2/lua/zapret-lib.lua', '/opt/zapret2/lua/zapret-antidpi.lua', '/opt/zapret2/lua/zapret-auto.lua'];
+const DISCORD_HOSTKEY = 'hostkey=z2k_nohost_key';
 
 function trim_ws(s) { return trim(s == null ? '' : '' + s); }
 function run(cmd) {
@@ -68,6 +71,42 @@ function native_check(candidate) {
 	let r = run(cmd);
 	return { status: r.rc == 0 ? 'passed' : 'rejected', rc: r.rc, output: trim_ws(r.out) };
 }
+
+// Read-only donor boundary for the canonical Strategy UI. The legacy
+// discord_apply() below remains available to old callers; the Strategies page
+// must use this donor and then the normal Strategy create/validate/preview/
+// apply lifecycle. No function here mutates NFQWS2_OPT for that UI path.
+export const discord_autocircular_donor = function() {
+	let entry = null;
+	try { entry = strategy_catalog_get_detail('z2k_all_in_one'); } catch (e) { entry = null; }
+	if (!entry || entry.error) return { ok: false, error: { code: 'ENOENT', message: 'verified Discord autocircular donor is unavailable' } };
+	let strategy = null;
+	try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
+	if (!strategy || !strategy.profiles) return { ok: false, error: { code: 'EVERIFY', message: 'Discord donor Strategy could not be normalized' } };
+	let source = null;
+	for (let profile in strategy.profiles) {
+		if (profile.args && index(profile.args, 'key=discord_udp') >= 0
+			&& index(profile.args, '--lua-desync=circular') >= 0
+			&& index(profile.args, DISCORD_HOSTKEY) >= 0) {
+			source = profile;
+			break;
+		}
+	}
+	if (!source) return { ok: false, error: { code: 'EVERIFY', message: 'verified donor has no Discord autocircular pool' } };
+	let blobPath = '/opt/zapret2/files/fake/quic_initial_dbankcloud_ru.bin';
+	let files = [{ path: blobPath, present: !!stat(blobPath), blobName: 'quic_dbankcloud' }];
+	let donorArgs = '--blob=quic_dbankcloud:@' + blobPath + ' ' + source.args;
+	let native = native_check(donorArgs);
+	return {
+		ok: files[0].present && native.status == 'passed',
+		profiles: [{ id: 'discord-voice-autocircular', name: 'Discord Voice / Video', args: donorArgs, enabled: true }],
+		blobs: ['quic_dbankcloud'], native: native,
+		requiredFiles: { ok: files[0].present, files: files },
+		provenance: { source: 'avatar-catalog', donorStrategy: 'z2k_all_in_one', donorProfile: source.name || source.id || 'discord', donorCatalogDigest: entry.aggregateDigest || null },
+		semantic: { key: 'discord_udp', host: 'nohost', protocol: 'STUN', hostkey: 'z2k_nohost_key' }
+	};
+};
+
 function required_files(records) {
 	let checks = [], ok = true;
 	for (let p in LUA) { let present = !!stat(p); push(checks, { path: p, present: present }); if (!present) ok = false; }

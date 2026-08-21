@@ -126,7 +126,14 @@ function journal_event(severity, message, extra) {
 
 // ---------------------------------------------------------------------------
 // state.tsv (5-column format: key \t host \t strategy \t ts \t mode)
+// mode is the single canonical per-resource override: auto|frozen|excluded.
 // ---------------------------------------------------------------------------
+
+function state_mode(value) {
+	let mode = safe_text(value);
+	if (mode == 'frozen' || mode == 'excluded') return mode;
+	return mode == '' || mode == 'auto' ? 'auto' : null;
+}
 
 function learned_rows() {
 	let raw = null; try { raw = readfile(LEARNED_PATH); } catch (e) { raw = null; }
@@ -136,12 +143,13 @@ function learned_rows() {
 		let fields = split(line, '\t');
 		if (length(fields) < 3) continue;
 		let mode = (length(fields) > 4 && length(trim(fields[4]))) ? trim(fields[4]) : 'auto';
+		mode = state_mode(mode) || 'auto';
 		push(rows, {
 			key: safe_text(fields[0]),
 			host: safe_text(fields[1]),
 			strategy: safe_text(fields[2]),
 			ts: length(fields) > 3 ? safe_text(fields[3]) : '',
-			mode: mode == 'frozen' ? 'frozen' : 'auto'
+			mode: mode
 		});
 	}
 	return rows;
@@ -399,7 +407,8 @@ function state_save_rows(rows) {
 		let h = safe_text(row.host);
 		let s = safe_text(row.strategy);
 		let t = safe_text(row.ts) || '' + time();
-		let m = row.mode == 'frozen' ? 'frozen' : 'auto';
+		let m = state_mode(row.mode);
+		if (m == null) m = 'auto';
 		if (length(k) && length(h) && length(s)) {
 			push(lines, k + '\t' + h + '\t' + s + '\t' + t + '\t' + m);
 		}
@@ -419,7 +428,10 @@ function state_set(input) {
 	let host = safe_text(value.host);
 	let strategy_raw = value.strategy != null ? value.strategy : value.strategyNumber;
 	let strategy = safe_text('' + (strategy_raw != null ? strategy_raw : ''));
-	let mode = safe_text(value.mode) == 'frozen' ? 'frozen' : 'auto';
+	let requested_mode = value.mode == null ? 'auto' : safe_text(value.mode);
+	let mode = state_mode(requested_mode);
+	if (mode == null)
+		return { ok: false, error: { code: 'EINPUT', message: 'mode must be auto, frozen, or excluded' } };
 
 	let pools_info = pools_read();
 	let is_discord = (key == 'discord_voice' || key == 'discord_udp') && host == 'nohost';

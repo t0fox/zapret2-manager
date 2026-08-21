@@ -893,6 +893,7 @@ function strategy_read_action(mode, req) {
 function strategies_list_method(req) { return strategy_read_action('list', req); }
 function strategies_recommendations_method(req) { return strategy_read_action('recommendations', req); }
 function strategies_get_method(req) { return strategy_read_action('get', req); }
+function strategies_discord_donor_method(req) { return strategy_read_action('discord_donor', req); }
 function strategies_create_method(req) { return strategy_edit_action('create', req); }
 function strategies_update_method(req) { return strategy_edit_action('update', req); }
 function strategies_delete_method(req) { return strategy_edit_action('delete', req); }
@@ -1167,6 +1168,7 @@ return {
 		strategies_list:   { call: function (req) { return strategies_list_method(req); } },
 		strategies_recommendations: { call: function (req) { return strategies_recommendations_method(req); } },
 		strategies_get:    { args: { edit: 'string' }, call: function (req) { return strategies_get_method(req); } },
+		strategies_discord_donor: { call: function (req) { return strategies_discord_donor_method(req); } },
 		strategies_create: { args: { edit: 'string' }, call: function (req) { return strategies_create_method(req); } },
 		strategies_update: { args: { edit: 'string' }, call: function (req) { return strategies_update_method(req); } },
 		strategies_delete: { args: { edit: 'string' }, call: function (req) { return strategies_delete_method(req); } },

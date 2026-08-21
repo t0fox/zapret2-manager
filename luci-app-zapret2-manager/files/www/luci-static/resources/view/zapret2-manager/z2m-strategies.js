@@ -388,10 +388,9 @@ function renderCatalogSummary() {
     host.innerHTML = '<div class="catalog-summary-state warning">Состояние каталога недоступно; локальные стратегии не скрыты.</div>';
     return;
   }
-  var value = catalogValue(state.data), counts = object(value.counts), semantic = object(value.semantic), resolution = object(value.resolution), source = object(value.source);
-  var commit = text(resolution.sourceCommit || source.commit), kind = resolution.kind === 'managed' ? 'Управляемый snapshot' : 'Пакетный baseline';
+  var value = catalogValue(state.data), counts = object(value.counts), semantic = object(value.semantic), resolution = object(value.resolution);
   var verification = resolution.verified === true ? 'Проверен' : 'Не проверен';
-  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(semantic.canonicalStrategies || counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? verification : 'Проверка') + '</b><span>Состояние</span></div></div><div class="catalog-summary-provenance"><span>' + escapeHtml(kind) + '</span><span>commit: <code>' + escapeHtml(commit ? commit.slice(0, 12) : '—') + '</code></span>' + (resolution.fallbackUsed === true ? '<span class="text-warning">Fallback: ' + escapeHtml(object(resolution.verificationError).message || 'managed snapshot недоступен') + '</span>' : '') + '</div>';
+  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(semantic.canonicalStrategies || counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? verification : 'Проверка') + '</b><span>Состояние</span></div></div>';
 }
 function renderBulkBar() {
   var bar = state.root && state.root.querySelector('#strat-bulkbar');
@@ -549,7 +548,12 @@ function getModeBadge(mode) {
       return Model.modeBadge(mode);
     } catch (_e) {}
   }
+  var isExcluded = String(mode) === 'excluded';
   var isFrozen = String(mode) === 'frozen';
+  if (isExcluded) return {
+    mode: 'excluded', isFrozen: false, isExcluded: true, label: 'Без обхода', icon: 'ban',
+    tooltip: 'Для этого ресурса DPI-обход отключён. Нажмите, чтобы включить обратно', ariaLabel: 'Включить обратно'
+  };
   return {
     mode: isFrozen ? 'frozen' : 'auto',
     isFrozen: isFrozen,
@@ -693,6 +697,7 @@ function renderLearnedModal() {
     ? Model.resolveStrategyName(liveRuntimeKey, discordState.strategy, pools)
     : ('#' + discordState.strategy);
   var isFrozen = discordState.mode === 'frozen';
+  var isExcluded = discordState.mode === 'excluded';
 
   var specialSectionHtml = '<div class="learned-section">' +
     '<div class="learned-section-header">' +
@@ -710,16 +715,23 @@ function renderLearnedModal() {
         '<div class="discord-voice-status">' +
           '<span class="badge badge-muted">Не активно</span>' +
         '</div>' +
+        '<div class="discord-voice-actions"><button type="button" class="btn btn-sm btn-primary" data-action="enableDiscord">Включить Discord</button></div>' +
       '</div>' +
     '</div>';
   } else {
-    var modeBadgeHtml = isFrozen
+    var modeBadgeHtml = isExcluded
+      ? '<span class="badge badge-muted">⊘ Без обхода</span>'
+      : isFrozen
       ? '<span class="badge badge-accent">🔒 Зафиксировано</span>'
       : '<span class="badge badge-muted">● Автоподбор</span>';
-    var modeDesc = isFrozen
+    var modeDesc = isExcluded
+      ? 'DPI-обход для Discord отключён; трафик проходит напрямую.'
+      : isFrozen
       ? 'Autocircular не будет автоматически менять выбранный вариант.'
       : 'Autocircular сможет перейти к другому варианту при сбоях.';
-    var freezeBtnHtml = isFrozen
+    var freezeBtnHtml = isExcluded
+      ? '<span>Включить обратно</span>'
+      : isFrozen
       ? svgIcon('unlock', 12) + ' <span>Вернуть автоподбор</span>'
       : svgIcon('lock', 12) + ' <span>Зафиксировать #' + discordState.strategy + '</span>';
 
@@ -742,14 +754,14 @@ function renderLearnedModal() {
           '</div>' +
         '</div>' +
         '<div class="discord-voice-mode-info">' +
-          '<div class="discord-voice-mode-line"><span class="text-muted">Режим:</span> <span>' + (isFrozen ? '🔒 Зафиксировано' : '● Автоподбор') + '</span></div>' +
+          '<div class="discord-voice-mode-line"><span class="text-muted">Режим:</span> <span>' + (isExcluded ? '⊘ Без обхода' : isFrozen ? '🔒 Зафиксировано' : '● Автоподбор') + '</span></div>' +
           '<div class="discord-voice-mode-desc text-muted">' + escapeHtml(modeDesc) + '</div>' +
         '</div>' +
         '<div class="discord-voice-actions">' +
           '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="' + escapeHtml(liveRuntimeKey) + '" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '">' +
             svgIcon('edit', 12) + ' <span>Выбрать вариант</span>' +
           '</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="' + escapeHtml(liveRuntimeKey) + '" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '" title="' + (isFrozen ? 'Вернуть автоматический подбор' : 'Зафиксировать текущий вариант #' + discordState.strategy) + '">' +
+          '<button type="button" class="btn btn-sm btn-ghost" data-action="' + (isExcluded ? 'enableLearned' : 'toggleStateFreeze') + '" data-key="' + escapeHtml(liveRuntimeKey) + '" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isExcluded ? 'excluded' : isFrozen ? 'frozen' : 'auto') + '" title="' + (isExcluded ? 'Включить обратно' : isFrozen ? 'Вернуть автоматический подбор' : 'Зафиксировать текущий вариант #' + discordState.strategy) + '">' +
             freezeBtnHtml +
           '</button>' +
           '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-key="' + escapeHtml(liveRuntimeKey) + '" data-host="nohost" title="Сбросить выбор Discord Voice">' +
@@ -777,9 +789,10 @@ function renderLearnedModal() {
 
   var filtered = allEntries.filter(function (item) {
     if (protoFilter !== 'all') {
+      if (protoFilter === 'excluded' && item.mode !== 'excluded') return false;
       var proto = (item.protoClass || item.protocol || '').toLowerCase();
-      if (protoFilter === 'tls' && proto !== 'tls') return false;
-      if (protoFilter === 'quic' && proto !== 'quic') return false;
+      if (protoFilter !== 'excluded' && protoFilter === 'tls' && proto !== 'tls') return false;
+      if (protoFilter !== 'excluded' && protoFilter === 'quic' && proto !== 'quic') return false;
     }
     if (!query) return true;
     return (item.host && item.host.toLowerCase().indexOf(query) >= 0) ||
@@ -822,8 +835,9 @@ function renderLearnedModal() {
       '</td>' +
       '<td>' +
         '<button type="button" class="btn btn-sm learned-freeze-btn ' + (badge.isFrozen ? 'is-frozen' : 'is-auto') + '" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="' + escapeAttr(badge.tooltip) + '" aria-label="' + escapeAttr(badge.ariaLabel) + '">' +
-          (badge.isFrozen ? svgIcon('lock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>' : svgIcon('unlock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>') +
+          (badge.isExcluded ? svgIcon('ban', 13) + ' <span>' + escapeHtml(badge.label) + '</span>' : badge.isFrozen ? svgIcon('lock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>' : svgIcon('unlock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>') +
         '</button>' +
+        (badge.isExcluded ? '' : '<button type="button" class="btn btn-sm learned-exclude-btn" data-action="excludeLearned" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" title="Исключить из DPI-обхода">Исключить</button>') +
       '</td>' +
       '<td class="text-muted learned-col-ts">' + escapeHtml(item.ts || '—') + '</td>' +
       '<td class="learned-col-key text-muted" title="Runtime pool"><code class="learned-key-code">' + escapeHtml(item.key || '—') + '</code></td>' +
@@ -854,6 +868,7 @@ function renderLearnedModal() {
     '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'all' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="all">Все</button>' +
     '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'tls' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="tls">TLS</button>' +
     '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'quic' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="quic">QUIC</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'excluded' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="excluded">Исключённые</button>' +
     '</div>' +
     '</div>' +
     '<div class="learned-modal-toolbar-right">' +
@@ -915,7 +930,7 @@ function refreshStrategyStyles() {
   var link = document && document.getElementById ? document.getElementById('z2m-ui-css') : null;
   if (!link || !link.getAttribute || !link.setAttribute) return;
   var href = link.getAttribute('href') || '';
-  if (href.indexOf('v=p03dr-bulk-1') < 0) link.setAttribute('href', href.split('?')[0] + '?v=p03dr-bulk-1');
+  if (href.indexOf('v=p03dr-bulk-3') < 0) link.setAttribute('href', href.split('?')[0] + '?v=p03dr-bulk-3');
 }
 function refreshHealthcheck() {
   if (!state.ctx || !state.ctx.api.healthcheck || !state.ctx.api.healthcheck.status) return Promise.resolve();
@@ -1038,8 +1053,11 @@ function stateSet(key, host, strategy, mode) {
     ? Model.resolveStrategyName(canonicalKey, curNum, state.pools)
     : ('#' + strategy);
   var targetLabel = isDiscord ? 'Discord Voice' : canonicalHost;
-  call(setMethod, { key: canonicalKey, host: canonicalHost, strategy: String(strategy), mode: mode || 'auto' }).then(function () {
-    if (mode === 'frozen') {
+  var requestedMode = mode || 'auto';
+  call(setMethod, { key: canonicalKey, host: canonicalHost, strategy: String(strategy), mode: requestedMode }).then(function () {
+    if (requestedMode === 'excluded') {
+      notify('ok', targetLabel + ' исключён из DPI-обхода');
+    } else if (requestedMode === 'frozen') {
       notify('ok', '🔒 ' + targetLabel + ': ' + stratName + ' зафиксирована');
     } else {
       notify('ok', '🔓 ' + targetLabel + ': включен автоподбор (' + stratName + ')');
@@ -1050,6 +1068,62 @@ function stateSet(key, host, strategy, mode) {
     refreshLearned();
   });
 }
+function enableDiscord() {
+  var api = state.ctx && state.ctx.api && state.ctx.api.strategies;
+  var source = strategyById(state.selectedId || (Model.identity(statusValue(state.data)) || {}).selectedId);
+  if (state.pending || state.operationPending) return;
+  if (!api || !api.discordDonor || !api.get || !api.validate || !api.create || !api.apply || !api.delete) { notify('err', 'Канонический Discord apply недоступен'); return; }
+  if (!source) { notify('warn', 'Сначала выберите Strategy'); return; }
+  state.pending = 'discord'; renderAll();
+  var created = null, applied = false, digest = catalogDigest(state.data);
+  Promise.all([call(api.get, { id: source.id }), call(api.discordDonor, {})]).then(function (answers) {
+    var raw = answers[0] && answers[0].strategy ? answers[0].strategy : answers[0];
+    var donor = answers[1];
+    if (!donor || donor.ok !== true || !Array.isArray(donor.profiles) || !donor.profiles.length) throw donor || new Error('Discord donor unavailable');
+    var full = Model.normalize(raw, statusValue(state.data), source.id);
+    var used = {};
+    array(full.profiles).forEach(function (profile) { used[profile.id] = true; });
+    var donorProfiles = donor.profiles.map(function (profile, index) {
+      var id = profile.id || 'discord-profile-' + String(index + 1);
+      if (used[id]) id += '-discord';
+      used[id] = true;
+      return { id: id, name: profile.name || 'Discord Voice / Video', args: profile.args, enabled: profile.enabled !== false };
+    });
+    var draft = JSON.parse(JSON.stringify(full));
+    draft.id = source.id + '_discord';
+    draft.name = source.name + ' + Discord';
+    draft.origin = 'user'; draft.isBuiltin = false; draft.is_builtin = false;
+    draft.revision = 0;
+    draft.profiles = array(full.profiles).concat(donorProfiles);
+    draft.metadata = Object.assign({}, object(full.metadata), { provenance: Object.assign({}, strategyProvenance(full), { donor: donor.provenance || null }) });
+    if (strategyById(draft.id)) throw new Error('Пользовательская Discord Strategy уже существует.');
+    return call(api.validate, { strategy_data: strategyInput(draft), catalog_digest: digest, validate: true }).then(function (validation) {
+      if (!validation || validation.ok !== true) throw validation || new Error('Discord Strategy validation failed');
+      return draft;
+    });
+  }).then(function (draft) {
+    return call(api.create, { strategy: strategyInput(draft) }).then(function (answer) {
+      if (!answer || answer.ok === false) throw answer || new Error('Discord Strategy create failed');
+      created = answer.strategy || answer;
+      if (!created || !created.id) throw new Error('Discord Strategy create returned no identity');
+      return call(api.apply, { strategy_id: created.id, revision: Number(created.revision) || 1, catalog_digest: digest });
+    });
+  }).then(function (answer) {
+    if (!answer || answer.ok === false) throw answer || new Error('Discord Strategy apply failed');
+    applied = true;
+    state.selectedId = created.id;
+    if (state.ctx && state.ctx.invalidateCache) state.ctx.invalidateCache('strategies');
+    return refreshData(true);
+  }).then(function () {
+    state.pending = null; renderAll();
+    notify('ok', 'Discord обход включён через каноническую Strategy API');
+  }).catch(function (error) {
+    var cleanup = created && !applied ? call(api.delete, { id: created.id, expectedRevision: Number(created.revision) || 1 }).catch(function () { return null; }) : Promise.resolve();
+    cleanup.then(function () { state.pending = null; renderAll(); notify('err', errorText(state.ctx, error)); });
+  });
+}
+function excludeLearned(key, host, strategy) { stateSet(key, host, strategy, 'excluded'); }
+function enableLearned(key, host, strategy) { stateSet(key, host, strategy, 'auto'); }
 function toggleStateFreeze(key, host, strategy, currentMode) {
   var newMode = currentMode === 'frozen' ? 'auto' : 'frozen';
   stateSet(key, host, strategy, newMode);
@@ -1608,6 +1682,9 @@ function onClick(event) {
   else if (action === 'cancelHealthcheckSettings') cancelHealthcheckSettings();
   else if (action === 'resetLearned') resetLearned(el.dataset.host, el.dataset.key);
   else if (action === 'toggleStateFreeze') toggleStateFreeze(el.dataset.key, el.dataset.host, el.dataset.strategy, el.dataset.mode);
+  else if (action === 'excludeLearned') excludeLearned(el.dataset.key, el.dataset.host, el.dataset.strategy);
+  else if (action === 'enableLearned') enableLearned(el.dataset.key, el.dataset.host, el.dataset.strategy);
+  else if (action === 'enableDiscord') enableDiscord();
   else if (action === 'openLearnedModal') openLearnedModal();
   else if (action === 'closeLearnedModal') closeLearnedModal();
   else if (action === 'openStratPicker') openStratPicker(el.dataset.key, el.dataset.host, el.dataset.strategy, el.dataset.mode);

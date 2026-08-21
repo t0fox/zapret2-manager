@@ -22,6 +22,7 @@
 --     strategy stays the one actually working. (silent-retry / probe-override /
 --     UCB stay OUT — those are Этап 6.)
 --   - Storage key = desync.arg.key when provided, else desync.func_instance.
+--   - mode is the single persisted per-resource contract: auto|frozen|excluded.
 --
 -- Unit tests: tests/test_z2k_state_persist.lua (Lua harness) and
 -- tests/test_z2k_state_persist.sh (shell wrapper) — run via
@@ -125,7 +126,7 @@ local function merge_state_file_into(path, dest)
   if not f then return end
   for line in f:lines() do
     if line ~= "" and not line:match("^%s*#") then
-      -- 5th column = mode (auto|frozen). Optional for backward compat: a legacy
+      -- 5th column = mode (auto|frozen|excluded). Optional for backward compat: a legacy
       -- 4-column row parses mode="" → normalized to "auto" below.
       local askey, host, strat, ts, mode = line:match("^([^\t]+)\t([^\t]+)\t([0-9]+)\t?([0-9]*)\t?([a-z]*)")
       if askey and host and strat then
@@ -135,7 +136,7 @@ local function merge_state_file_into(path, dest)
           if hn then
             if not dest[askey] then dest[askey] = {} end
             local tsn = tonumber(ts) or 0
-            local m = (mode ~= nil and mode ~= "") and mode or "auto"
+            local m = (mode == "frozen" or mode == "excluded") and mode or "auto"
             local prev = dest[askey][hn]
             if (not prev) or ((tonumber(prev.ts) or 0) <= tsn) then
               dest[askey][hn] = { strategy = n, ts = tsn, mode = m }
@@ -381,6 +382,10 @@ local function persist_if_changed(askey, hostn, hrec)
   -- persists its strategy. (For a frozen row the freeze gate forces nstrategy back
   -- to the pinned value, so prev==n and we return above before reaching here.)
   local mode = (state[askey] and state[askey][hostn] and state[askey][hostn].mode) or "auto"
+  -- An excluded resource is outside the circular learning loop. The wrapper
+  -- returns before native circular() can rotate it; this guard is the second
+  -- line of defence for a future persistence call or an engine callback race.
+  if mode == "excluded" then return false end
   if not state[askey] then state[askey] = {} end
   state[askey][hostn] = { strategy = n, ts = now_t(), mode = mode }
   write_state()
@@ -554,7 +559,7 @@ local function reconcile_external_edits()
       -- A mode-only flip (freeze toggled at the SAME strategy) is also an external
       -- edit we must adopt — otherwise freezing a row already on its current
       -- strategy would be ignored until the strategy itself changed.
-      local dmode = drec.mode or "auto"
+      local dmode = (drec.mode == "frozen" or drec.mode == "excluded") and drec.mode or "auto"
       local lwmode = (lw and lw.mode) or "auto"
       if dn and (not lw or tonumber(lw.strategy) ~= dn or lwmode ~= dmode) then
         set_live_nstrategy(askey, hostn, dn)
@@ -588,6 +593,26 @@ if type(circular) == "function" then
     -- BEFORE the rotator runs, so an operator reset takes effect this packet
     -- (debounced internally). Errors swallowed — must never break the desync.
     pcall(reconcile_external_edits)
+
+    -- `circular()` owns the execution plan: it calls orchestrate(), pops each
+    -- selected strategy instance, and executes its desync callback. For an
+    -- excluded exact resource we must consume/clear this profile's plan and
+    -- return the native pass verdict. Leaving the plan intact would allow a
+    -- later callback in the same plan to apply fake/split/disorder. The state
+    -- lookup is per (askey, hostkey), so another resource keeps the normal
+    -- native path.
+    local excluded_resource = false
+    pcall(function()
+      if askey_before and hostn_before and state[askey_before]
+         and state[askey_before][hostn_before]
+         and state[askey_before][hostn_before].mode == "excluded" then
+        excluded_resource = true
+      end
+    end)
+    if excluded_resource then
+      pcall(function() orchestrate(ctx, desync); plan_clear(desync) end)
+      return VERDICT_PASS
+    end
 
     -- FREEZE CLAMP (webpanel freeze button) — affects ONLY this one domain. A row
     -- the operator froze (mode="frozen") must physically stop rotating: set

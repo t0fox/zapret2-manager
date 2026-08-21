@@ -27,6 +27,22 @@ function canonical_tokens(tokens) {
 	return result;
 }
 
+function isCircular(strategy) {
+	if (!is_object(strategy)) return false;
+	if (strategy.circular === true || strategy.isCircular === true) return true;
+	let profiles = type(strategy.profiles) == 'array' ? strategy.profiles : [];
+	for (let profile in profiles) {
+		if (is_object(profile) && type(profile.args) == 'string'
+			&& index(profile.args, '--lua-desync=circular') >= 0) return true;
+	}
+	let id = strategy.id == null ? '' : lc('' + strategy.id);
+	let name = strategy.name == null ? '' : lc('' + strategy.name);
+	let description = strategy.description == null ? '' : lc('' + strategy.description);
+	return index(id, 'circular') >= 0 || index(id, 'autocircular') >= 0
+		|| index(name, 'circular') >= 0 || index(name, 'autocircular') >= 0
+		|| index(description, 'circular') >= 0 || index(description, 'autocircular') >= 0;
+}
+
 // Split only on Avatar's four separators outside matching quotes. Quotes are
 // data, not shell syntax, so they remain in each token and unmatched quotes
 // are retained in the final token.
@@ -97,6 +113,9 @@ export const strategy_normalize = function(input, origin) {
 	let strategy = {};
 	for (let key in input) strategy[key] = input[key];
 	if (origin != null) strategy.origin = origin;
+	let circularFlags = { circular: isCircular(input), isCircular: isCircular(input) };
+	strategy.isCircular = circularFlags.isCircular;
+	strategy.circular = circularFlags.circular;
 
 	let profiles = [];
 	let tokens = [];
