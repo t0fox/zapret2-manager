@@ -27,6 +27,8 @@ test('Z2K updater defaults to the explicit allow-untrusted mode and stays bounde
   assert.match(upstream, /validate_manifest\(value/);
   assert.match(upstream, /EZ2K_MANIFEST_SCHEMA/);
   assert.match(upstream, /validate_manifest\(value, length\(sprintf\('%J', value\)\)\)/);
+  assert.match(upstream, /let path = name/);
+  assert.doesNotMatch(upstream, /let path = names\[name\]/);
   assert.doesNotMatch(upstream, /validate_manifest(value, 2)/);
 });
 

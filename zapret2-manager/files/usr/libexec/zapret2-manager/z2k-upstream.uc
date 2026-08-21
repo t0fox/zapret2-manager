@@ -21,7 +21,7 @@ function validate_manifest(value, rawSize) {
 	if (rawSize == null || rawSize < 2 || rawSize > MAX_MANIFEST) return fail('ESIZE', 'UPDATES.json exceeds the bounded manifest size.');
 	if (type(value) != 'object' || value == null || value.schema != 1 || value.branch != 'z2k-enhanced' || type(value.seq) != 'int' || value.seq < 0 || type(value.current) != 'string' || length(value.current) > 96 || type(value.files_sha256) != 'object' || value.files_sha256 == null) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json schema or branch is unsupported.');
 	let names = keys(value.files_sha256); if (!length(names) || length(names) > MAX_FILES) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json file count is invalid.');
-	for (let name in names) { let path = names[name], digest = value.files_sha256[path]; if (!validate_path(path)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path.', { path: path }); if (type(digest) != 'string' || !match(lc(digest), /^[a-f0-9]{64}$/)) return fail('EVERIFY', 'UPDATES.json contains an invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
+	for (let name in names) { let path = name, digest = value.files_sha256[path]; if (!validate_path(path)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path.', { path: path }); if (type(digest) != 'string' || !match(lc(digest), /^[a-f0-9]{64}$/)) return fail('EVERIFY', 'UPDATES.json contains an invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
 	return { ok: true, manifest: value };
 }
 function classification() { let value = read_json(CLASSIFICATION); return type(value) == 'object' && value != null && value.schema == 'zapret2-manager.z2k-integration.v1' && type(value.files) == 'array' ? value : null; }
