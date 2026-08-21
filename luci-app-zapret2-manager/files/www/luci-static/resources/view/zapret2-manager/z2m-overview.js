@@ -102,13 +102,13 @@ function load(ctx) {
     window.setTimeout(function () {
       if (token !== runtime.loadToken || !ctx.api.tg || !ctx.api.tg.product ||
           typeof ctx.api.tg.product.status !== 'function') return;
-      ctx.api.tg.product.status().then(function (answer) {
+      Promise.allSettled([
+        ctx.api.tg.product.status(),
+        edit(ctx.api.proxy.health, {})
+      ]).then(function (results) {
         if (token !== runtime.loadToken) return;
-        runtime.deferred.tgStatus = { value: answer || {} };
-        rerender();
-      }).catch(function (error) {
-        if (token !== runtime.loadToken) return;
-        runtime.deferred.tgStatus = { error: ctx.api.normalizeError(error) };
+        runtime.deferred.tgStatus = settled(results[0], ctx.api);
+        runtime.deferred.tgHealth = settled(results[1], ctx.api);
         rerender();
       });
     }, 0);
@@ -160,6 +160,8 @@ function render(ctx) {
   var versionStatus = payload(data.versionStatus);
   var preview = payload(data.preview);
   var recommendations = payload(data.recommendations);
+  var tgStatus = payload(data.tgStatus);
+  var tgHealth = payload(data.tgHealth);
   var active = activeStrategy(preview);
   var catalog = candidates(preview);
   var snapshot = ctx.store.get();
@@ -180,7 +182,7 @@ function render(ctx) {
   function lifecycleErrorDetail(error) {
     if (error && error.message) return String(error.message);
     var normalized = ctx.api.normalizeError(error);
-    return normalized && (normalized.technical || normalized.message) || _('Backend не подтвердил нужное состояние.');
+    return normalized && (normalized.technical || normalized.message) || _('Сервер не подтвердил нужное состояние.');
   }
   function lifecycleCopy(action) {
     return {
@@ -417,7 +419,7 @@ function render(ctx) {
       'nfqueue-missing': _('NFQUEUE не подключён'),
       'process-missing': _('Процесс nfqws2 не найден')
     };
-    return labels[String(code || '').toLowerCase()] || _('Backend не предоставил подробности');
+    return labels[String(code || '').toLowerCase()] || _('Сервер не предоставил подробности');
   }
   function durationLabel(seconds) {
     var value = Number(seconds);
@@ -453,10 +455,10 @@ function render(ctx) {
     }
     if (snapshot.state === 'stopped') return { value: _('Остановлен'), kind: 'stopped', detail: _('Процесс не запущен') };
     if (snapshot.state === 'mismatch') return { value: _('Расхождение'), kind: 'warning', detail: _('Процесс и NFQUEUE работают, но применённая конфигурация изменилась') };
-    return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не предоставил runtime evidence') };
+    return { value: _('Недоступно'), kind: 'warning', detail: _('Сервер не подтвердил состояние процесса') };
   }
   function unavailableCard(detail) {
-    return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Backend не сообщил состояние') };
+    return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Сервер не сообщил состояние') };
   }
   function runtimeRelease(status) {
     var upstream = object(status.upstream);
@@ -465,14 +467,14 @@ function render(ctx) {
     return match ? match[1] : null;
   }
   function structuredCardState() {
-    if (data.status && data.status.error) return unavailableCard(_('Backend не сообщил состояние'));
+    if (data.status && data.status.error) return unavailableCard(_('Сервер не сообщил состояние'));
     return null;
   }
   function autostartCardValue() {
     var unavailable = structuredCardState();
     if (unavailable) return unavailable;
     var auto = object(object(status.system).autostart);
-    if (typeof auto.enabled !== 'boolean') return unavailableCard(_('Backend не сообщил состояние автозапуска'));
+    if (typeof auto.enabled !== 'boolean') return unavailableCard(_('Сервер не сообщил состояние автозапуска'));
     return {
       value: auto.enabled ? _('Включён') : _('Выключен'), kind: statusKind(auto.enabled),
       detail: auto.enabled ? _('Автозапуск подтверждён') : _('Автозапуск отключён')
@@ -481,7 +483,7 @@ function render(ctx) {
   function systemCardValue() {
     var unavailable = structuredCardState();
     if (unavailable) return unavailable;
-    if (data.systemStatus && data.systemStatus.error) return unavailableCard(_('Backend не сообщил состояние системы'));
+    if (data.systemStatus && data.systemStatus.error) return unavailableCard(_('Сервер не сообщил состояние системы'));
     var facts = object(systemStatus);
     var memory = object(facts.memory);
     var storage = object(facts.storage);
@@ -525,8 +527,37 @@ function render(ctx) {
         detail: _('Официальный release bol-van/zapret2')
       };
     }
-    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Backend подтвердил отсутствие пакета') };
-    return unavailableCard(_('Backend не сообщил состояние zapret2'));
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Сервер подтвердил отсутствие пакета') };
+    return unavailableCard(_('Сервер не сообщил состояние zapret2'));
+  }
+  function telegramCardValue() {
+    if (!data.tgStatus) return { value: _('Загрузка…'), kind: '', detail: null };
+    if (data.tgStatus.error) return unavailableCard(_('Статус Telegram Proxy недоступен'));
+    var readiness = object(tgStatus.readiness);
+    var observed = object(tgStatus.observed);
+    var statusRoute = object(object(tgStatus.health).route);
+    var healthRoute = object(object(tgHealth).route);
+    var route = Object.keys(healthRoute).length ? healthRoute : statusRoute;
+    var local = object(route.local);
+    var upstream = object(route.upstream);
+    var installed = readiness.installed === true || tgStatus.status === 'running' ||
+      (Array.isArray(tgStatus.installed) && tgStatus.installed.some(function (item) { return item && item.installed === true; }));
+    var running = observed.running === true || tgStatus.status === 'running';
+    var provider = format.text(tgStatus.activeProvider);
+    var version = format.text(tgStatus.activeVersion || tgStatus.activePackageVersion);
+    var listener = local.ok === true ? _('Готов') : local.attempted === true ? _('Не подтверждён') : _('Проверка не выполнена');
+    var telegramDc = upstream.ok === true ? _('Готов') : upstream.attempted === true ? _('Не подтверждён') : _('Проверка не выполнена');
+    var meta = compact([
+      metadataItem(_('Провайдер'), provider ? String(provider).charAt(0).toUpperCase() + String(provider).slice(1) : null, null),
+      metadataItem(_('Версия'), version, null),
+      metadataItem(_('Слушатель'), listener, null),
+      metadataItem(_('Telegram DC'), telegramDc, null)
+    ]);
+    var detail = meta.length ? E('div', { 'class': 'status-card-meta' }, meta) : _('Откройте Telegram Proxy для деталей');
+    if (!installed) return { value: _('Не установлен'), kind: 'stopped', detail: detail };
+    if (!running) return { value: _('Остановлен'), kind: 'stopped', detail: detail };
+    if (readiness.ready === false || tgStatus.drift === true || upstream.attempted === true && upstream.ok !== true) return { value: _('Работает с ограничениями'), kind: 'warning', detail: detail };
+    return { value: _('Работает'), kind: 'running', detail: detail };
   }
   function statusCards() {
     if (!data.status && !data.engineStatus && !data.systemStatus) {
@@ -534,7 +565,8 @@ function render(ctx) {
         { id: 'card-nfqws', label: 'nfqws2', value: _('Загрузка…'), detail: null, kind: '', icon: 'nfqws' },
         { id: 'card-strategy', label: _('Стратегия'), value: _('Загрузка…'), detail: null, kind: '', icon: 'strategy' },
         { id: 'card-autostart', label: _('Автозапуск'), value: _('Загрузка…'), detail: null, kind: '', icon: 'autostart' },
-        { id: 'card-system', label: _('Система'), value: _('Загрузка…'), detail: null, kind: '', icon: 'system' }
+        { id: 'card-system', label: _('Система'), value: _('Загрузка…'), detail: null, kind: '', icon: 'system' },
+        { id: 'card-telegram', label: _('Telegram Proxy'), value: _('Загрузка…'), detail: null, kind: '', icon: 'service:telegram', href: '#/telegram-tunnel' }
       ];
     }
     var process = processValue();
@@ -543,17 +575,19 @@ function render(ctx) {
     var activeName = format.text(strategyName.primary);
     var strategySecondary = format.text(strategyName.secondary);
     var strategy = envelopeError('preview')
-      ? { value: _('Недоступно'), kind: 'warning', detail: _('Backend не сообщил Strategy') }
+      ? { value: _('Недоступно'), kind: 'warning', detail: _('Сервер не сообщил стратегию') }
       : activeName !== null
         ? { value: activeName, kind: 'running', detail: strategySecondary || _('Активная стратегия') }
         : { value: _('Не выбрана'), kind: '', detail: _('Подтверждённая стратегия отсутствует') };
     var autostart = autostartCardValue();
     var system = systemCardValue();
+    var telegram = telegramCardValue();
     return [
       { id: 'card-nfqws', label: 'nfqws2', value: process.value, detail: process.detail, kind: process.kind, icon: 'nfqws' },
       { id: 'card-strategy', label: _('Стратегия'), value: strategy.value, detail: strategy.detail, kind: strategy.kind, icon: 'strategy' },
       { id: 'card-autostart', label: _('Автозапуск'), value: autostart.value, detail: autostart.detail, kind: autostart.kind, icon: 'autostart' },
-      { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' }
+      { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' },
+      { id: 'card-telegram', label: _('Telegram Proxy'), value: telegram.value, detail: telegram.detail, kind: telegram.kind, icon: 'service:telegram', href: '#/telegram-tunnel' }
     ];
   }
   function eventRows(envelope) {
@@ -619,7 +653,7 @@ function render(ctx) {
     var envelope = data.events;
     var body;
     if (!envelope) body = shell.statePanel({ message: _('Загрузка событий…'), kind: 'loading' });
-    else if (envelope.error) body = shell.statePanel({ title: _('Не удалось загрузить события'), message: envelope.error.message || _('Backend не сообщил журнал событий.'), kind: 'error' });
+    else if (envelope.error) body = shell.statePanel({ title: _('Не удалось загрузить события'), message: envelope.error.message || _('Сервер не сообщил журнал событий.'), kind: 'error' });
     else {
       var rows = eventRows(envelope);
       body = rows.length ? renderLogViewer(rows) : AvatarLog.renderNormalized([], {
