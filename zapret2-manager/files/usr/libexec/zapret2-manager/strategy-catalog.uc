@@ -846,6 +846,17 @@ function full_resolve(packageRoot, managedRoot, persist) {
 	return failed;
 }
 
+function bounded_resolution(resolution) {
+	if (!is_object(resolution) || resolution.ok != true || !is_object(resolution.catalog))
+		return resolution;
+	let compact = compact_catalog(resolution.catalog);
+	if (compact == null) return resolution;
+	return { ok: true, root: resolution.root, kind: resolution.kind,
+		sourceCommit: resolution.sourceCommit, aggregateDigest: resolution.aggregateDigest,
+		verified: resolution.verified, fallbackUsed: resolution.fallbackUsed,
+		verificationError: resolution.verificationError, catalog: compact };
+}
+
 function fast_resolve(packageRoot, managedRoot) {
 	let pointer = read_active_pointer();
 	if (pointer == null || (pointer.root != packageRoot && pointer.root != managedRoot)) return null;
@@ -885,7 +896,7 @@ export const strategy_catalog_resolve = function(options) {
 	if (options.packageRoot != null || options.managedRoot != null) {
 		let resolved = full_resolve(packageRoot, managedRoot, options.persist != false);
 		if (resolved.ok) activeResolution = resolved;
-		return resolved;
+		return options.persist == false ? bounded_resolution(resolved) : resolved;
 	}
 	if (options.forceVerify != true) {
 		if (activeResolution != null && (activeResolution.root == managedRoot
