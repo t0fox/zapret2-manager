@@ -878,10 +878,15 @@ export const strategy_catalog_resolve = function(options) {
 		return selected;
 	}
 	if (options.forceVerify != true) {
-		if (activeResolution != null && (activeResolution.root == packageRoot
-			|| activeResolution.root == managedRoot)) return activeResolution;
+		if (activeResolution != null && (activeResolution.root == managedRoot
+			|| (activeResolution.root == packageRoot && !directory(managedRoot)))) return activeResolution;
 		let fast = fast_resolve(packageRoot, managedRoot);
-		if (fast != null) { activeResolution = fast; return fast; }
+		// A cached package fallback is only reusable when no managed candidate
+		// exists. If the managed root is present, it must be verified first so a
+		// newly installed catalog cannot be hidden by a stale package pointer.
+		if (fast != null && (fast.kind == 'managed' || !directory(managedRoot))) {
+			activeResolution = fast; return fast;
+		}
 	}
 	let resolved = full_resolve(packageRoot, managedRoot, options.persist != false);
 	if (resolved.ok) activeResolution = resolved;
@@ -1014,6 +1019,14 @@ export const strategy_catalog_get_detail = function(id) {
 	let fast = strategy_catalog_read_index(null);
 	if (!fast.ok || !is_object(fast.catalog) || fast.catalog.winners[id] == null)
 		return { error: { code: 'ENOENT', message: 'strategy is not present in the catalog' } };
+	// A full verified resolution already contains parsed physical entries.
+	// Reuse that immutable data instead of reparsing the source file for every
+	// detail request in a large catalog response. Compact index resolutions
+	// continue through the bounded single-file fallback below.
+	if (type(fast.catalog.physicalEntries) == 'array') {
+		for (let entry in fast.catalog.physicalEntries)
+			if (entry.id == id && entry.winner == true) return copy(entry);
+	}
 	let indexed = fast.catalog.winners[id], path = safe_file_path(loadedRoot || catalog_root(), indexed.sourceFile);
 	if (path == null) return { error: { code: 'EPATH', message: 'strategy source path is unavailable' } };
 	let raw = null, entries = [];

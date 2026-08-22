@@ -14,6 +14,22 @@ const MANIFEST = path.join(CATALOG_ROOT, 'manifest.json');
 const EXPECTED_MANIFEST = path.join(ROOT, 'tests/fixtures/avatar-strategy/manifest.expected.json');
 const CATALOG = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const RPC_PRODUCT_STUB_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-integration-products-'));
+const DNS_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'dns-product.uc');
+const TG_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'tg-product.uc');
+const stubProductModule = names => names.map(name => `export const ${name} = function () { return { ok: true }; };`).join('\n') + '\n';
+fs.writeFileSync(DNS_PRODUCT_PATH, stubProductModule([
+  'dns_product_get', 'dns_product_providers', 'dns_product_status', 'dns_product_preview',
+  'dns_product_validate', 'dns_product_apply', 'dns_product_rollback',
+]));
+fs.writeFileSync(TG_PRODUCT_PATH, stubProductModule([
+  'tg_product_get', 'tg_product_catalog', 'tg_product_status', 'tg_product_versions',
+  'tg_product_operation_status', 'tg_product_validate', 'tg_product_preview', 'tg_product_apply',
+  'tg_product_health', 'tg_product_check_updates', 'tg_product_switch', 'tg_product_install',
+  'tg_product_update', 'tg_product_remove', 'tg_product_purge', 'tg_product_start',
+  'tg_product_stop', 'tg_product_restart',
+]));
+test.after(() => fs.rmSync(RPC_PRODUCT_STUB_ROOT, { recursive: true, force: true }));
 const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const STATUS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-status.uc');
@@ -319,8 +335,12 @@ test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain ex
 
 function rpcSignatureSource(method, request) {
   return read(RPC)
-    .replace("const STRATEGY_CLI = '/usr/libexec/zapret2-manager/strategy-cli.uc';",
-      `const STRATEGY_CLI = ${JSON.stringify(CLI)};`)
+    .replace("import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';",
+      `import { strategy_cli_dispatch } from ${JSON.stringify(CLI)};`)
+    .replace("from '/usr/libexec/zapret2-manager/dns-product.uc';",
+      `from ${JSON.stringify(DNS_PRODUCT_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/tg-product.uc';",
+      `from ${JSON.stringify(TG_PRODUCT_PATH)};`)
     .replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'")
     .replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
 }

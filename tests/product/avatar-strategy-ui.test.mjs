@@ -82,10 +82,11 @@ test('effective command and status drift are rendered from backend responses wit
   assert.doesNotMatch(page, /NFQWS2_OPT|join\(['"] --new ['"]|strategyArgs\s*=\s*.*join/);
 });
 
-test('Advanced Orchestra workflow is explicitly separated and existing page lifecycle remains reachable', () => {
-  assert.match(pageAdapter, /mode === 'workflow'/);
-  assert.match(pageAdapter, /advanced\(/);
-  assert.match(pageAdapter, /primary\.load|primary\.render|primary\.mount/);
+test('Strategy page adapter keeps the canonical Strategies lifecycle reachable', () => {
+	assert.match(pageAdapter, /z2m-strategies as Strategies/);
+	assert.match(pageAdapter, /var mode = 'manual'/);
+	assert.doesNotMatch(pageAdapter, /EngineGate|Auto\.load|Runs\.load/);
+	assert.match(pageAdapter, /primary\.load|primary\.render|primary\.mount/);
   for (const method of ['load', 'render', 'mount', 'unmount'])
     assert.match(page, new RegExp(`${method}:|function ${method}\\(`), method);
   assert.match(workflow, /Advanced|Расширенн/);
@@ -111,7 +112,7 @@ function loadPageWithStubs(calls) {
   const context = {
     baseclass: { extend: value => value },
     EngineGate: { wrap: value => value },
-    Strategy: module('strategy'), Workflow: module('workflow'),
+    Strategies: module('strategies'),
     Auto: module('auto'), Runs: module('runs'),
     E: () => ({ appendChild() {} }),
     _: value => value,
@@ -230,78 +231,34 @@ function recursivePageContext(advanced, calls) {
   };
 }
 
-test('normal Strategy load/render excludes Orchestra Auto and Runs while Advanced includes both', async () => {
-  const normalCalls = [];
-  const normalPage = loadPageWithStubs(normalCalls);
-  const normalData = await normalPage.load(pageContext(false));
-  assert.equal(normalData.mode, 'manual');
-  assert.deepEqual(normalCalls, ['strategy.load']);
-  const normalRoot = normalPage.render({ ...pageContext(false), data: normalData });
-  assert.ok(normalRoot);
-  assert.deepEqual(normalCalls, ['strategy.load', 'strategy.render']);
-
-  const advancedCalls = [];
-  const advancedPage = loadPageWithStubs(advancedCalls);
-  const advancedData = await advancedPage.load(pageContext(true));
-  assert.equal(advancedData.mode, 'workflow');
-  assert.deepEqual(advancedCalls, ['workflow.load', 'auto.load', 'runs.load']);
-  advancedPage.render({ ...pageContext(true), data: advancedData });
-  assert.deepEqual(advancedCalls, ['workflow.load', 'auto.load', 'runs.load', 'workflow.render', 'auto.render', 'runs.render']);
+test('Strategy page adapter loads and renders the canonical Strategies module for every UI mode', async () => {
+  const calls = [];
+  const pageModule = loadPageWithStubs(calls);
+  const data = await pageModule.load(pageContext(true));
+  assert.equal(data.mode, 'manual');
+  assert.deepEqual(calls, ['strategies.load']);
+  assert.ok(pageModule.render({ ...pageContext(true), data }));
+  assert.deepEqual(calls, ['strategies.load', 'strategies.render']);
 });
 
-test('Advanced modules retain Orchestra mutation authority only behind the page boundary', () => {
-  assert.match(pageAdapter, /var isAdvanced = advanced\(ctx\)/);
-  assert.match(pageAdapter, /if\s*\(isAdvanced\)[\s\S]*Auto\.load/);
-  assert.match(pageAdapter, /if\s*\(isAdvanced\)[\s\S]*Runs\.load/);
+test('Advanced orchestration remains outside the canonical Strategies adapter', () => {
+  assert.doesNotMatch(pageAdapter, /ctx\.api\.orchestra|Auto\.load|Runs\.load/);
   assert.match(auto, /ctx\.api\.orchestra\.(autoEnable|autoDisable|autoRun|autoStop|autoRestore)/);
   assert.match(runs, /ctx\.api\.orchestra\.(previewBest|applyBest)/);
 });
 
-test('actual Advanced workflow reaches Compatibility through the existing Profile renderer while normal mode cannot invoke it', async () => {
-  const normalCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, strategyRenderer: 0, tabGroups: [] });
-  const normal = loadRecursiveStrategyPage(normalCalls).pageModule;
-  const normalContext = recursivePageContext(false, normalCalls);
-  const normalData = await normal.load(normalContext);
-  assert.equal(normalData.mode, 'manual');
-  normal.render({ ...normalContext, data: normalData });
-  assert.equal(normalCalls.profileRenderer, 0);
-  assert.equal(normalCalls.strategyRenderer, 1);
-
-  const advancedCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, strategyRenderer: 0, tabGroups: [] });
-  const advanced = loadRecursiveStrategyPage(advancedCalls).pageModule;
-  const advancedContext = recursivePageContext(true, advancedCalls);
-  const advancedData = await advanced.load(advancedContext);
-  assert.equal(advancedData.mode, 'workflow');
-  const root = advanced.render({ ...advancedContext, data: advancedData });
-  assert.ok(root);
-  assert.deepEqual(advancedCalls.slice(0, 2), ['auto.load', 'runs.load']);
-  const tabs = advancedCalls.tabGroups.find(group => group.tabs.some(tab => tab.id === 'compatibility'));
-  assert.ok(tabs);
-  assert.equal(tabs.active, 'strategies');
-  const rendererCountBeforeSelection = advancedCalls.profileRenderer;
-  assert.equal(rendererCountBeforeSelection, 0);
-  tabs.onSelect('compatibility');
-  assert.equal(advancedCalls.profileRenderer, rendererCountBeforeSelection + 1);
-  assert.ok(advancedCalls.editorButtons.includes('Новый профиль'));
+test('canonical Strategies page exposes the advanced Compatibility renderer behind the UI flag', () => {
+  assert.match(page, /function renderProfilesPane\(/);
+  assert.match(page, /var advanced = !!\(ctx\.store\.get\(\)\.ui && ctx\.store\.get\(\)\.ui\.advanced\)/);
+  assert.match(page, /compatibility: advanced \? renderProfilesPane/);
+  assert.match(page, /state\.subtab/);
+  assert.match(page, /id: 'compatibility'/);
 });
 
-test('selected Compatibility tab survives an Advanced workflow rerender', async () => {
-  const calls = Object.assign([], { editorButtons: [], profileRenderer: 0, strategyRenderer: 0, tabGroups: [] });
-  const advanced = loadRecursiveStrategyPage(calls).pageModule;
-  const context = recursivePageContext(true, calls);
-  const data = await advanced.load(context);
-
-  advanced.render({ ...context, data });
-  const firstTabs = calls.tabGroups.at(-1);
-  assert.equal(firstTabs.active, 'strategies');
-  firstTabs.onSelect('compatibility');
-  assert.equal(calls.tabGroups.length, 1);
-  assert.equal(calls.profileRenderer, 1);
-
-  advanced.render({ ...context, data });
-  const rerenderedTabs = calls.tabGroups.at(-1);
-  assert.equal(rerenderedTabs.active, 'compatibility');
-  assert.equal(calls.profileRenderer, 2);
+test('Compatibility tab selection is stored in the canonical Strategy page state', () => {
+  assert.match(page, /subtab: 'list'/);
+  assert.match(page, /state\.subtab = id/);
+  assert.match(page, /paneHost\.replaceChildren\(panes\[id\] \|\| panes\.list\)/);
 });
 
 test('Compatibility Apply is enabled only after acknowledged valid Preview and stays recoverable', () => {

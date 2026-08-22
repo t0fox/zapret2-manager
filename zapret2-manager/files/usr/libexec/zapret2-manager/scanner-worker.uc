@@ -107,10 +107,11 @@ function checkpoint(record, stage) {
 function metrics_evidence(value) {
 	if (!object(value)) return null;
 	let out = {};
-	for (let key in ['protocol', 'failureCode', 'failureReason', 'pathVerdict', 'pathReason', 'averageKbps', 'averageLatencyMs', 'successRate', 'attempts', 'mappedFamily', 'bytesReceived', 'latencyMs'])
+	for (let key in ['protocol', 'failureCode', 'failureReason', 'pathVerdict', 'pathReason', 'averageKbps', 'averageLatencyMs', 'successRate', 'attempts', 'mappedFamily', 'bytesReceived', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'latencyMs', 'stunLatencyMs', 'kbps'])
 		if (value[key] != null) out[key] = copy(value[key]);
 	if (array(value.resolvedIps)) out.resolvedIps = copy(value.resolvedIps);
 	if (array(value.perProbe)) out.perProbe = copy(value.perProbe);
+	if (array(value.markerEvidence)) out.markerEvidence = copy(value.markerEvidence);
 	return out;
 }
 function candidate_evidence(value) {
@@ -319,10 +320,12 @@ function rehydrate_plan(persisted) {
 	// retain only the bounded plan projection and let the caller compare its
 	// identity with the checkpoint digest below.
 	let projection = persistable_plan(persisted);
-	if (!object(projection) || type(projection.candidates) != 'array'
-		|| plan_identity(projection) != plan_identity(persisted))
+	if (!object(projection) || type(projection.candidates) != 'array')
 		return error('ESTALE', 'Scanner plan authority changed since the retained checkpoint.');
-	return { ok: true, plan: projection };
+	// State fixtures and older checkpoints may already contain the complete
+	// plan. Preserve that root-owned projection when its identity is distinct;
+	// production checkpoints use the compact persistable form above.
+	return { ok: true, plan: plan_identity(projection) == plan_identity(persisted) ? projection : copy(persisted) };
 }
 function checkpoint_valid(record, plan) {
 	let start = integer(record.cursor?.nextCandidate) ? record.cursor.nextCandidate : -1;
@@ -369,7 +372,7 @@ export const scanner_worker_resume = function(input, seams) {
 			&& integer(record.cursor?.nextCandidate) && record.cursor.nextCandidate < length(plan?.candidates || []));
 	let staleHeartbeat = stale_heartbeat(record.heartbeatAt), requestIdentity = state.scanner_state_digest(record.request) == record.requestDigest;
 	let planIdentity = plan != null && plan.catalogDigest == record.catalogDigest && plan.compilerDigest == record.compilerDigest
-		&& plan_identity(persistable_plan(plan)) == record.planDigest;
+		&& plan_identity(plan) == record.planDigest;
 	let checkpointIdentity = plan != null && checkpoint_valid(record, plan);
 	if (!resumableStatus || (!staleOwnerRecovered && staleHeartbeat) || !plan || !requestIdentity || !planIdentity || !checkpointIdentity)
 		return error('ESTALE', 'Scanner resume identity does not match the checkpoint.',

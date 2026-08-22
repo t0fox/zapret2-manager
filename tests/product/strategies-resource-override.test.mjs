@@ -436,10 +436,11 @@ test('Regression: Runtime strategy names vs parent catalog name substitution', (
   assert.equal(quicOptions[0].name, 'Fake QUIC (google x11)');
   assert.equal(quicOptions[8].name, 'UDPLen (+8) + Fake QUIC (x2)');
 
-  // Test 4: discord_voice picker contains exactly 12 options
+  // Test 4: discord_voice uses the canonical six-entry Discord pool
   const voiceOptions = Model.strategyOptionsForPool('discord_voice', 1, {});
-  assert.equal(voiceOptions.length, 12);
-  assert.equal(voiceOptions[0].name, 'QUIC Morph v2');
+  assert.equal(voiceOptions.length, 6);
+  assert.equal(voiceOptions[0].name, 'Fake QUIC (x10)');
+  assert.equal(voiceOptions[5].name, 'Fake QUIC (x5)');
 
   // Test 5: TLS and QUIC names do not cross contaminate
   assert.notEqual(Model.resolveStrategyName('circular_1_1', 1, {}), Model.resolveStrategyName('yt_quic', 1, {}));

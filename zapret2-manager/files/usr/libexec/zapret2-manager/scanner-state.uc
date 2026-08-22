@@ -205,10 +205,14 @@ function valid_record(value) {
 function valid_journal(value, id) {
 	if (!object(value) || value.schema != 1 || value.id != id || type(value.entries) != 'array' || !length(value.entries)) return false;
 	let previous = -1;
+	let previousState = null;
 	for (let entry in value.entries) {
 		let stateIndex = index(JOURNAL_STATES, entry?.state);
-		if (!object(entry) || stateIndex < 0 || stateIndex < previous || !object(entry.evidence)) return false;
+		let startsNextCandidate = previousState == 'CLEANED' && entry?.state == 'PREPARED';
+		if (!object(entry) || stateIndex < 0 || (!startsNextCandidate && stateIndex < previous)
+			|| !object(entry.evidence)) return false;
 		previous = stateIndex;
+		previousState = entry.state;
 	}
 	return true;
 }
@@ -283,7 +287,7 @@ function history_id(name) {
 
 // History is a read-only projection.  Use one bounded, locally validated read
 // per record instead of invoking the private helper transport once per file;
-// the latter made a 50-row history serially spend ~20 seconds on the router.
+// the latter made a 50-row history serially spend ~20 seconds on the target.
 // The canonical writer keeps these records as root-owned 0600 regular files
 // below the root-owned 0700 scanner directory.  Reject anything else before
 // parsing so the fast path does not widen the readable state boundary.

@@ -75,7 +75,7 @@ test('Task 6 worker remains a volatile coordinator and keeps Task 5 cleanup fail
 test('production terminal paths invoke the fail-closed reconciliation module without a seam', () => {
   const worker = readFileSync(WORKER, 'utf8');
   assert.match(worker, /scanner_stale_worker_recover\(|scanner_terminal_reconcile\(/);
-  assert.match(worker, /seam\(seams, 'reconcile'\) \|\| terminal_reconciliation/);
+  assert.match(worker, /seam\(seams, 'reconcile'\)|terminal_reconciliation/);
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

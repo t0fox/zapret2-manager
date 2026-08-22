@@ -13,7 +13,10 @@ permissions:
 jobs:
   native:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The serial product gate includes the pinned ucode suite and the
+    # root-owned lifecycle checks; 15 minutes cuts off a deterministic run
+    # before it reaches the final native tests.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

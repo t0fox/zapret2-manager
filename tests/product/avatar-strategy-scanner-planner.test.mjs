@@ -184,11 +184,15 @@ function snapshot(entries, sets, extra = {}) {
     source: { repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c' },
     files: CATALOG_MANIFEST.files,
     policy: { useGenerated: false }, winners, sets,
-    winnerOrder: entries.map(item => item.id),
-    targetProfile: { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
+	 winnerOrder: entries.map(item => item.id),
+	 targetProfile: { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
       hostlistDomains: ['example.com'], expectedHostlists: [],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-       udp: { ports: '443', l7: 'stun', payload: 'binding' }, probeUrl: 'https://example.com/' },
+	 udp: { ports: '443', l7: 'stun', payload: 'binding' }, probeUrl: 'https://example.com/' },
+    compilerEnvironment: { listMode: 'none', functions: {
+      fake: { present: true }, multisplit: { present: true }, pass: { present: true },
+      split: { present: true },
+    }, blobs: {}, lua: {}, lists: {} },
     ...extra,
   };
   const catalogEnvelopeDigest = invoke(`planner.scanner_snapshot_digest(${JSON.stringify(value)})`);

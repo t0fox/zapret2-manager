@@ -758,7 +758,14 @@ test('worker retains generated Strategy identity and compiler handoff metadata i
     const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-generated-handoff',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.deepEqual(result.state.results[0], {
-      candidateId: 'generated:gen-one', ordinal: 1,
+      candidateId: 'generated:gen-one', identityKind: 'generated', strategyId: null,
+      strategyRevision: null, saveRequired: true, source: 'generator',
+      compiledTokens: ['--filter-tcp=443'],
+      compiledDigest: testHooks.plan.candidates[0].compiledDigest,
+      dependencyClosure: CLOSURE,
+      dependencyDigest: testHooks.plan.candidates[0].dependencyDigest,
+      candidateCatalogDigest: DIGESTS.catalog, candidateCompilerDigest: DIGESTS.compiler,
+      ordinal: 1,
       verdict: 'working', success: true, score: 2000, reason: null,
       evidence: result.state.results[0].evidence,
       planDigest: result.state.planDigest, evidenceIdentity: result.state.results[0].evidenceIdentity,

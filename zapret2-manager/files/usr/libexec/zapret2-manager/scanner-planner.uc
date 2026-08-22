@@ -1108,7 +1108,12 @@ export const scanner_plan_build_synthetic_test = function(request, count) {
 function scanner_plan_build_server(request, catalog, strategies, profile, compilerAuthority,
 		trustedServerAuthority, materializeCatalog, initialTimings) {
 	catalog.targetProfile = copy(profile);
-	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1') catalog.compilerEnvironment = {};
+	// The explicit server-test seam may provide a bounded, server-owned
+	// compiler environment so planner tests can exercise dependency closure.
+	// Live planning always composes this from the runtime authority below.
+	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1') {
+		if (!is_object(catalog.compilerEnvironment)) catalog.compilerEnvironment = {};
+	}
 	else {
 		let runtime = strategy_runtime_environment();
 		if (!is_object(runtime) || runtime.ok != true || !is_object(runtime.environment))
