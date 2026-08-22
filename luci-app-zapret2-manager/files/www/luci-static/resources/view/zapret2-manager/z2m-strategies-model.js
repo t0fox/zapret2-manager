@@ -421,6 +421,11 @@ function extractDiscordVoiceState(entries, pools) {
   };
 }
 
+/**
+ * Filters out learned entries associated with the `nohost` pseudo-host.
+ * @param {Array} entries - The learned entries to filter.
+ * @return {Array} The entries with `nohost` and falsy values removed.
+ */
 function filterDomainLearnedEntries(entries) {
   return array(entries).filter(function (entry) {
     if (!entry) return false;
@@ -502,10 +507,10 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
 
 /**
  * Resolves the display name for a strategy in a runtime pool.
- * @param {string} poolKey - The pool identifier.
- * @param {number|string} currentStrategy - The strategy index to resolve.
- * @param {Object} pools - Runtime pool definitions.
- * @return {string} The strategy name, or a generated name when no matching name exists.
+ * @param {string} poolKey - The runtime pool identifier.
+ * @param {number|string} currentStrategy - The strategy index to resolve; invalid values use index 1.
+ * @param {Object} pools - Runtime pool definitions to search before using default definitions.
+ * @return {string} The matching strategy name or a generated label for the strategy index.
  */
 function resolveStrategyName(poolKey, currentStrategy, pools) {
   var pool = findPool(poolKey, pools);
