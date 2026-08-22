@@ -7,7 +7,7 @@ authority: evidence
 updated: 2026-08-22
 publish: true
 tags: [development, architecture]
-code: [luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation-system.js#GROUPS]
+code: [luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js#GROUPS]
 ---
 
 # Архитектура Z2M
