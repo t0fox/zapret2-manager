@@ -111,6 +111,11 @@ async function bootstrap(lock) {
     await run('git', [
       'clone',
       '--filter=blob:none',
+      '--depth',
+      '1',
+      '--single-branch',
+      '--branch',
+      lock.tag,
       '--no-checkout',
       `https://github.com/${lock.upstream}.git`,
       QUARTZ_PATH,
