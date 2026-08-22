@@ -467,10 +467,6 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   var total = Math.max(poolSize, 1);
   var options = [];
 
-  // Defensive: cap total to a reasonable maximum to avoid runaway lists in CI
-  var SAFE_MAX = 128;
-  if (total > SAFE_MAX) total = SAFE_MAX;
-
   for (var i = 1; i <= total; i++) {
     var meta = stratsMap[i];
     var sName = meta && text(meta.name);
@@ -498,9 +494,6 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
       isUnknown: true
     });
   }
-
-  // Debug in CI only (console.debug is a no-op in many browsers/runners)
-  try { console.debug && console.debug('strategyOptionsForPool', { poolKey: poolKey, poolSize: poolSize, total: total, optionsLen: options.length }); } catch (e) {}
 
   return options;
 }
