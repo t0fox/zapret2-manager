@@ -34,6 +34,7 @@ test('save-generated persists a server-owned Strategy and returns the existing h
   fs.mkdirSync(strategies, { recursive: true, mode: 0o700 });
   fs.chmodSync(root, 0o700);
   fs.chmodSync(strategies, 0o700);
+  fs.writeFileSync(path.join(root, 'extensions.json'), JSON.stringify({ schema: 1, extensions: [] }), { mode: 0o644 });
   const env = {
     Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_STATE_ROOT: path.join(root, 'scanner'),
     Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,

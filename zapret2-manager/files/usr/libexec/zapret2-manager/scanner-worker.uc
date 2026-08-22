@@ -220,7 +220,14 @@ function finish(record, session, seams, transition, message) {
 	try { cleanup = scanner_session_finish(session, seam(seams, 'transient')); }
 	catch (exception) { cleanup = { ok: false, error: exception, recovery: task7_dependency('session_finish', exception), verifiedCleanup: false }; }
 	if (lifecycle) lifecycle.sessionCleanup = cleanup;
-	let reconciliation = seam(seams, 'reconcile') || terminal_reconciliation(record, transition, cleanup);
+	let reconciliation = seam(seams, 'reconcile');
+	// Test seams model the required Task 7 provider explicitly.  Keeping a
+	// missing seam fail-closed prevents the host-side harness from silently
+	// substituting a production reconciliation path it was meant to withhold;
+	// deployed runtime calls use the canonical provider below.
+	if (reconciliation == null)
+		reconciliation = test_mode() ? task7_dependency('terminal_reconciliation', null)
+			: terminal_reconciliation(record, transition, cleanup);
 	if (!object(reconciliation) || reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') {
 		record.status = 'error';
 		record.phase = 'recovery';
@@ -306,12 +313,16 @@ function request_and_plan(input, seams) {
 function plan_identity(plan) { return state.scanner_state_digest({ schema: plan.schema, request: plan.request, targetProfile: plan.targetProfile, catalogDigest: plan.catalogDigest, compilerDigest: plan.compilerDigest, candidates: plan.candidates }); }
 function rehydrate_plan(persisted) {
 	if (!object(persisted) || !object(persisted.request)) return error('ESTALE', 'Scanner plan authority is unavailable.');
-	let rebuilt = null;
-	try { rebuilt = scanner_plan_build(persisted.request); } catch (e) { rebuilt = null; }
-	if (!object(rebuilt) || rebuilt.ok !== true || !object(rebuilt.plan)) return error('ESTALE', 'Scanner plan authority could not be reconstructed.');
-	let projection = persistable_plan(rebuilt.plan);
-	if (plan_identity(projection) != plan_identity(persisted)) return error('ESTALE', 'Scanner plan authority changed since the retained checkpoint.');
-	return { ok: true, plan: rebuilt.plan };
+	// Resume is bound to the plan persisted with the checkpoint. Rebuilding from
+	// the live catalog here would make an otherwise valid scan stale whenever a
+	// catalog update lands between candidates. The record itself is root-owned;
+	// retain only the bounded plan projection and let the caller compare its
+	// identity with the checkpoint digest below.
+	let projection = persistable_plan(persisted);
+	if (!object(projection) || type(projection.candidates) != 'array'
+		|| plan_identity(projection) != plan_identity(persisted))
+		return error('ESTALE', 'Scanner plan authority changed since the retained checkpoint.');
+	return { ok: true, plan: projection };
 }
 function checkpoint_valid(record, plan) {
 	let start = integer(record.cursor?.nextCandidate) ? record.cursor.nextCandidate : -1;
