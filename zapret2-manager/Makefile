@@ -94,6 +94,10 @@ endef
 define Package/zapret2-manager/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
+# Clean-install lifecycle (no reboot): persistent roots -> strategy state ->
+# compact catalog read index -> rpcd reload -> enable AND start -> runtime
+# evidence. Load-bearing steps must fail loudly; only the index build degrades
+# to an explicit repair marker because the Manager itself has to come up.
 /usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
 if [ ! -e /etc/zapret2-manager/strategies ] && [ ! -L /etc/zapret2-manager/strategies ]; then
   install -d -o root -g root -m 0700 /etc/zapret2-manager/strategies || exit $$?
@@ -102,10 +106,41 @@ if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-mana
   printf '%s\n' '{"schema":1,"revision":0,"favorites":[],"selected":null}' \
     | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/strategy-state.json || exit $$?
 fi
-rm -f /etc/zapret2-manager/strategy-catalog-index.json
-/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-index-cli.uc >/dev/null 2>&1 || true
+rm -f /etc/zapret2-manager/catalog/repair-required
+index_ok=0
+for attempt in 1 2; do
+  index_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-index-cli.uc 2>/dev/null)"
+  case "$$index_out" in
+    *'"written": true'*|*'"written":true'*) index_ok=1; break ;;
+  esac
+done
+if [ "$$index_ok" -ne 1 ]; then
+  mkdir -p /etc/zapret2-manager/catalog
+  : > /etc/zapret2-manager/catalog/repair-required
+  logger -t zapret2-manager -p daemon.err "catalog read index unavailable after install; run strategies_catalog_reload to repair"
+fi
 /etc/init.d/rpcd reload
-/etc/init.d/zapret2-manager enable
+/etc/init.d/zapret2-manager enable || exit $$?
+/etc/init.d/zapret2-manager start || exit $$?
+verify_tries=0
+while [ "$$verify_tries" -lt 15 ]; do
+  if pidof z2m-helperd >/dev/null 2>&1 \
+    && [ -S /tmp/zapret2-manager/runtime/z2m-helperd.sock ] \
+    && ubus -S call zapret2-manager status_fast 2>/dev/null | grep -q '"ok"[[:space:]]*:[[:space:]]*true'; then
+    break
+  fi
+  verify_tries=$$((verify_tries + 1))
+  sleep 1
+done
+if ! pidof z2m-helperd >/dev/null 2>&1; then
+  logger -t zapret2-manager -p daemon.err "z2m-helperd did not start after install"; exit 1
+fi
+if [ ! -S /tmp/zapret2-manager/runtime/z2m-helperd.sock ]; then
+  logger -t zapret2-manager -p daemon.err "helper socket missing after install"; exit 1
+fi
+if ! ubus -S call zapret2-manager status_fast 2>/dev/null | grep -q '"ok"[[:space:]]*:[[:space:]]*true'; then
+  logger -t zapret2-manager -p daemon.err "bounded status_fast proof failed after install"; exit 1
+fi
 exit 0
 endef
 

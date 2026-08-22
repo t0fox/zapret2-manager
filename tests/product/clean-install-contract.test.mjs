@@ -1,0 +1,86 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+// Clean-install postinst lifecycle contract.
+//
+// The Manager APK must leave a freshly installed router in a verified running
+// state WITHOUT reboot:
+//   persistent bootstrap -> strategy state seed -> compact catalog index
+//   (idempotent, written-checked, never silently swallowed) -> rpcd reload ->
+//   enable AND start -> procd/helperd/socket evidence -> bounded status_fast proof.
+//
+// This is a static source contract test: it parses the actual postinst recipe
+// shipped to the target (Makefile heredoc), so drift fails CI before any flash.
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const MAKEFILE = path.join(ROOT, 'zapret2-manager', 'Makefile');
+const LUCI_MAKEFILE = path.join(ROOT, 'luci-app-zapret2-manager', 'Makefile');
+
+function postinstRecipe(makefile, packageName) {
+  const source = readFileSync(makefile, 'utf8');
+  const start = source.indexOf(`define Package/${packageName}/postinst`);
+  assert.notEqual(start, -1, `postinst define missing for ${packageName}`);
+  const end = source.indexOf('\nendef', start);
+  assert.notEqual(end, -1, 'postinst endef missing');
+  let body = source.slice(start, end);
+  // unescape make shell heredoc $${var} -> ${var}
+  body = body.replaceAll('$$', '$');
+  return body;
+}
+
+function ordered(re, steps) {
+  const positions = steps.map(([label, pattern]) => {
+    const match = re.exec(pattern);
+    return { label, at: match == null ? -1 : re.lastIndex === 0 ? pattern.length : match.index };
+  });
+  return positions;
+}
+
+function assertOrder(body, steps) {
+  let cursor = -1;
+  for (const [label, needle] of steps) {
+    const at = body.indexOf(needle);
+    assert.notEqual(at, -1, `postinst step missing: ${label} (${needle})`);
+    assert.ok(at > cursor, `postinst step out of order: ${label} at ${at}, previous ended at ${cursor}`);
+    cursor = at;
+  }
+}
+
+test('manager postinst builds the catalog index idempotently without pre-deletion', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+  assert.doesNotMatch(body, /rm\s+-f[^\n]*strategy-catalog-index\.json/,
+    'postinst must not destroy an existing read index before rebuilding it');
+  assert.match(body, /strategy-catalog-index-cli\.uc/,
+    'index CLI must be invoked during install');
+  assert.match(body, /written/, 'CLI output written flag must be checked (ok:true+written:false is failure)');
+  assert.doesNotMatch(body, /index-cli\.uc[^\n]*\|\|[[:space:]]*true/,
+    'swallowing index build failure with || true is forbidden');
+});
+
+test('manager postinst enables AND starts the service with runtime verification', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+  assertOrder(body, [
+    ['persistent bootstrap', 'z2m-root-bootstrap persistent'],
+    ['rpcd reload', '/etc/init.d/rpcd reload'],
+    ['service enable', '/etc/init.d/zapret2-manager enable'],
+    ['service start', '/etc/init.d/zapret2-manager start']
+  ]);
+  assert.match(body, /pidof[^\n]*z2m-helperd/, 'helper daemon process evidence required');
+  assert.match(body, /z2m-helperd\.sock/, 'helper socket evidence required');
+  assert.match(body, /status_fast/, 'bounded bounded status_fast proof required');
+});
+
+test('manager postinst records an explicit repair marker when the index cannot be built', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+  assert.match(body, /repair-required/, 'repair-required marker must be persisted on unrecoverable index failure');
+  assert.match(body, /logger[^\n]*zapret2-manager/, 'failure must be logged, not silent');
+});
+
+test('luci app postinst keeps LuCI cache invalidation for immediate availability', () => {
+  const body = postinstRecipe(LUCI_MAKEFILE, 'luci-app-zapret2-manager');
+  assert.match(body, /luci-indexcache/, 'LuCI index cache purge retained');
+  assert.match(body, /rpcd reload|kill -HUP/, 'rpcd reload/HUP retained');
+});
