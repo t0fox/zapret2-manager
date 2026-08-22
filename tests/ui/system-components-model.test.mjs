@@ -60,9 +60,62 @@ test('missing Engine is an install state and makes the aggregate unhealthy', () 
     z2k: z2k(),
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(page.health)), { ready: 1, total: 2, state: 'missing', message: 'Требуется установка компонентов' });
+  assert.deepEqual(JSON.parse(JSON.stringify(page.health)), { ready: 0, total: 2, state: 'missing', message: 'Требуется установка компонентов' });
   assert.equal(page.components[0].health, 'missing');
   assert.equal(page.components[0].actions.primary, 'install');
+});
+
+test('clean install truth model: engine not installed, Z2K requires a compatible engine', () => {
+  const page = model.normalizePage({
+    versions: {},
+    engine: { status: {} },
+    z2k: {},
+  });
+
+  assert.equal(page.health.ready, 0);
+  assert.equal(page.health.total, 2);
+  assert.equal(page.components[0].health, 'missing');
+  assert.equal(page.components[0].label, 'Zapret2 Engine');
+  assert.equal(page.components[0].actions.primary, 'install');
+  assert.equal(page.components[1].health, 'missing');
+  assert.match(page.components[1].summary, /Требуется совместимый/);
+  assert.equal(page.components[1].actions.primary, 'details');
+});
+
+test('unknown Z2K state is never presented as ready while the engine is unproven', () => {
+  // Engine claims running but compatibility is unverified -> engine cannot be
+  // ready, and Z2K inherits the requires-engine gate.
+  const page = model.normalizePage({
+    engine: { status: engine({ compatible: undefined }) },
+    z2k: z2k({ status: 'unknown' }),
+  });
+
+  assert.equal(page.components[0].health, 'degraded');
+  assert.equal(page.components[1].health, 'missing');
+
+  const page2 = model.normalizePage({
+    engine: { status: engine() },
+    z2k: z2k({ status: 'unknown', lua: {} }),
+  });
+  assert.equal(page2.components[0].health, 'ready');
+  assert.equal(page2.components[1].health, 'degraded',
+    'unknown Z2K state with a ready engine is bounded-degraded, never ready');
+  assert.equal(page2.health.ready, 1);
+});
+
+test('Z2K becomes ready only with materialized Lua evidence once the engine is ready', () => {
+  const partial = model.normalizePage({
+    engine: { status: engine() },
+    z2k: z2k({ lua: { ready: 5, total: 9 } }),
+  });
+  assert.equal(partial.components[1].health, 'degraded');
+
+  const full = model.normalizePage({
+    engine: { status: engine() },
+    z2k: z2k({}),
+  });
+  assert.equal(full.components[1].health, 'ready');
+  assert.equal(full.health.ready, 2);
 });
 
 test('safe updates do not turn a ready system into a failure', () => {
@@ -83,6 +136,9 @@ test('integration-required is distinct from a safe update and blocks automatic u
     z2k: z2k({ status: 'rebase-required', rebases: ['z2k-state-persist.lua'] }),
   });
 
+  // rebase-required is NOT positive readiness evidence; with full Lua counters
+  // the asset baseline is materialized, so health stays ready while the
+  // update channel reports integration-required.
   assert.equal(page.health.state, 'ready');
   assert.equal(page.components[1].health, 'ready');
   assert.equal(page.components[1].updateState, 'integration-required');

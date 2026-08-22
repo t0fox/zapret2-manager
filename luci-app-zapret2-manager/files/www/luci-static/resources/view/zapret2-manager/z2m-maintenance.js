@@ -130,7 +130,8 @@ function formatTime(shell, value) {
 }
 function componentStateLabel(component) {
   var health = component.health;
-  if (health === 'missing') return _('Не установлен');
+  if (health === 'missing') return component.id === 'z2k-core'
+    ? _('Требуется Zapret2 Engine') : _('Не установлен');
   if (health === 'broken') return _('Требуется восстановление');
   if (health === 'checking') return _('Проверяем');
   if (component.updateState === 'integration-required') return _('Требуется интеграция');

@@ -68,6 +68,9 @@ function normalizeEngine(input) {
   var compatible = status.compatible === false || gate.compatible === false
     ? 'incompatible'
     : (status.compatible === true || gate.compatible === true ? 'compatible' : 'unverified');
+  // TRUTH MODEL: an Engine whose compatibility/provenance is unproven is not
+  // ready — unknown never upgrades to ready.
+  if (healthState === 'ready' && compatible !== 'compatible') healthState = 'degraded';
   var capabilities = object(status.capabilities);
   var capabilityReady = capabilities.ready !== undefined ? capabilities.ready : capabilities.available;
   var capabilityTotal = capabilities.total !== undefined ? capabilities.total : capabilities.required;
@@ -104,19 +107,48 @@ function z2kUpdateState(status) {
   return 'unknown';
 }
 
-function normalizeZ2k(input) {
+function z2kLuaEvidence(value) {
+  var lua = object(value.lua);
+  return lua.ready !== undefined && lua.total !== undefined
+    && lua.total > 0 && lua.ready === lua.total;
+}
+
+function normalizeZ2k(input, engineReady) {
   input = object(input);
   var value = object(input.z2k || input.component || input);
   var rawStatus = first(value.status || value.state, 'unknown');
   var updateState = z2kUpdateState(rawStatus);
   var explicitHealth = value.health || value.integrity;
-  var healthState = health(explicitHealth, rawStatus === 'broken' || rawStatus === 'missing' ? rawStatus : 'ready');
+  // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
+  // plus materialized/integrity-checked assets. Without a proven engine the
+  // component is a requires-engine install gate — regardless of bundled
+  // package assets. Unknown state is bounded-degraded, never silently ready.
+  var healthState;
+  var summary;
+  if (engineReady !== true) {
+    healthState = 'missing';
+    summary = 'Требуется совместимый Zapret2 Engine.';
+  } else if (explicitHealth) {
+    healthState = health(explicitHealth, 'degraded');
+    summary = 'Autocircular, detectors и расширения Zapret2.';
+  } else if (rawStatus === 'broken' || rawStatus === 'missing') {
+    healthState = rawStatus;
+    summary = 'Autocircular, detectors и расширения Zapret2.';
+  } else if (z2kLuaEvidence(value)) {
+    // Full materialized Lua counters are positive readiness evidence.
+    healthState = 'ready';
+    summary = 'Autocircular, detectors и расширения Zapret2.';
+  } else {
+    healthState = 'degraded';
+    summary = 'Z2K Core требует проверки целостности ресурсов.';
+  }
   var compatibilityState = compatibility(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
   var safeUpdate = object(value.safeUpdate);
   var rebases = array(value.rebases || value.adapted || object(value.plan).rebases);
   var reviews = array(value.reviews || value.watched || object(value.plan).reviews);
   var actions = {
-    primary: healthState === 'missing' || healthState === 'broken' ? 'repair'
+    primary: engineReady !== true ? 'details'
+      : healthState === 'missing' || healthState === 'broken' ? 'repair'
       : updateState === 'update-available' ? 'update'
       : updateState === 'integration-required' ? 'details' : 'check'
   };
@@ -126,7 +158,7 @@ function normalizeZ2k(input) {
     health: healthState,
     updateState: updateState,
     compatibility: compatibilityState,
-    summary: 'Autocircular, detectors и расширения Zapret2.',
+    summary: summary,
     version: first(value.runtime || value.runtimeVersion, null),
     actions: actions,
     counters: {
@@ -161,7 +193,7 @@ function aggregateHealth(components) {
 function normalizePage(input) {
   input = object(input);
   var engine = normalizeEngine(input.engine || {});
-  var z2k = normalizeZ2k(input.z2k || input.resources || {});
+  var z2k = normalizeZ2k(input.z2k || input.resources || {}, engine.health === 'ready');
   var components = [engine, z2k];
   return {
     manager: managerMeta(input.versions || input.manager || {}),
