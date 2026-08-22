@@ -147,7 +147,7 @@ function request_digest(request) { return hash(canonical_json(request)); }
 function plan_digest(plan) { return hash(canonical_json({ schema: plan?.schema, request: plan?.request, targetProfile: plan?.targetProfile, catalogDigest: plan?.catalogDigest, compilerDigest: plan?.compilerDigest, candidates: plan?.candidates })); }
 function result_projection(value) {
 	if (!object(value)) return null;
-	return {
+	let out = {
 		candidateId: text(value.candidateId), ordinal: integer(value.ordinal) ? value.ordinal : 0,
 		verdict: text(value.verdict) || 'infrastructure', success: value.success == true,
 		score: type(value.score) == 'double' || type(value.score) == 'int' ? value.score : null,
@@ -155,6 +155,14 @@ function result_projection(value) {
 		planDigest: digest(value.planDigest) ? value.planDigest : null,
 		evidenceIdentity: digest(value.evidenceIdentity) ? value.evidenceIdentity : null,
 	};
+	for (let key in ['identityKind', 'strategyId', 'strategyRevision', 'saveRequired', 'source',
+		'sourcePath', 'protocol', 'candidateCatalogDigest', 'candidateCompilerDigest'])
+		if (value[key] != null) out[key] = copy(value[key]);
+	if (type(value.compiledTokens) == 'array') out.compiledTokens = copy(value.compiledTokens);
+	if (digest(value.compiledDigest)) out.compiledDigest = value.compiledDigest;
+	if (digest(value.dependencyDigest)) out.dependencyDigest = value.dependencyDigest;
+	if (object(value.dependencyClosure)) out.dependencyClosure = copy(value.dependencyClosure);
+	return out;
 }
 function bounded_results(value) {
 	let out = [];

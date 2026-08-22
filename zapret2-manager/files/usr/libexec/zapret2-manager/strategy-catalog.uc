@@ -1025,7 +1025,7 @@ export const strategy_catalog_get_detail = function(id) {
 	// continue through the bounded single-file fallback below.
 	if (type(fast.catalog.physicalEntries) == 'array') {
 		for (let entry in fast.catalog.physicalEntries)
-			if (entry.id == id && entry.winner == true) return copy(entry);
+			if (entry.id == id && entry.winner == true) return index_entry(entry);
 	}
 	let indexed = fast.catalog.winners[id], path = safe_file_path(loadedRoot || catalog_root(), indexed.sourceFile);
 	if (path == null) return { error: { code: 'EPATH', message: 'strategy source path is unavailable' } };
