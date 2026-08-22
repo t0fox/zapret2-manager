@@ -172,11 +172,17 @@ find_product_apk() {
 BACKEND_APK=$(find_product_apk zapret2-manager)
 LUCI_APK=$(find_product_apk luci-app-zapret2-manager)
 FULL_APK=$(find_product_apk zapret2-manager-full)
-APK_TOOL=$(find "$SDK_DIR/staging_dir/host" -type f -name apk -perm -u+x -print -quit)
-[ -n "$APK_TOOL" ] || die 'OpenWrt SDK-native apk tool is missing'
 
-printf 'release build: verifying full package metadata with %s\n' "$APK_TOOL"
-"$APK_TOOL" info --depends "$FULL_APK" >/dev/null 2>&1 || die 'full package dependency metadata could not be read by SDK apk'
+verify_full_package_dependency() {
+	local dependency=$1
+	if ! tar -xOzf "$FULL_APK" .PKGINFO | grep -Fqx "depend = $dependency"; then
+		die "full package dependency metadata is missing: $dependency"
+	fi
+}
+
+printf 'release build: verifying full package dependency metadata\n'
+verify_full_package_dependency zapret2-manager
+verify_full_package_dependency luci-app-zapret2-manager
 
 cp -- "$BACKEND_APK" "$DIST_DIR/"
 cp -- "$LUCI_APK" "$DIST_DIR/"
