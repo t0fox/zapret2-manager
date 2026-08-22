@@ -21,7 +21,8 @@ cd "$ROOT"
 
 STATUS_DIR=$(mktemp -d "${TMPDIR:-/tmp}/z2m-native-status.XXXXXXXXXX")
 mkdir -p "$STATUS_DIR"
-trap 'rm -rf "$STATUS_DIR"' 0 HUP INT TERM
+# Clean every temporary artifact this run created (discovery list included).
+trap 'rm -f "$test_list" "$production_broker" "$STATUS_DIR/results.tsv"; rm -rf -- "$STATUS_DIR"' 0 HUP INT TERM
 
 SUMMARY_FILE=${GITHUB_STEP_SUMMARY:-}
 summary() {
@@ -130,16 +131,10 @@ find tests/native -type f -name '*.test.mjs' \
   ! -path tests/native/core/native-helper-transport-probe.test.mjs \
   ! -path tests/native/core/native-helper-broker-spike.test.mjs \
   ! -path tests/native/core/native-helper-production-e2e.test.mjs \
-  -print | LC_ALL=C sort |
-while IFS= read -r test_file; do
-  printf '%s\0' "$test_file"
-done > "$test_list"
-find tests/product -type f -name '*.test.mjs' -print | LC_ALL=C sort |
-while IFS= read -r test_file; do
-  printf '%s\0' "$test_file"
-done >> "$test_list"
+  -print | LC_ALL=C sort > "$test_list"
+find tests/product -type f -name '*.test.mjs' -print | LC_ALL=C sort >> "$test_list"
 
-count=$(tr -cd '\0' < "$test_list" | wc -c)
+count=$(wc -l < "$test_list")
 [ "$count" -gt 0 ] || { echo 'no native tests found' >&2; exit 1; }
 
 matrix_log="$TMPDIR/matrix.log"
@@ -164,15 +159,16 @@ if [ "$(id -u)" -eq 0 ]; then
   else
     record 'native-root (live integration)' FAIL
   fi
-elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-  if sudo --preserve-env=UCODE_BIN,UCODE_LIBRARY_PATH,UCODE_MODULE_PATH sh scripts/test/native-root.sh "$node_bin" > "$TMPDIR/native-root.log" 2>&1; then
-    cat "$TMPDIR/native-root.log"
-    record 'native-root (live integration)' PASS
-  else
-    cat "$TMPDIR/native-root.log"
-    record 'native-root (live integration)' FAIL
-  fi
+elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  can_sudo=yes
 else
+  can_sudo=no
+fi
+
+if [ "${can_sudo:-no}" = yes ]; then
+  sudo --preserve-env=UCODE_BIN,UCODE_LIBRARY_PATH,UCODE_MODULE_PATH sh scripts/test/native-root.sh "$node_bin" &&
+    record 'native-root (live integration)' PASS || record 'native-root (live integration)' FAIL
+elif [ "$(id -u)" -ne 0 ]; then
   record 'native-root (live integration)' SKIPPED 'no passwordless sudo in this environment; live correctness not verified here'
 fi
 
