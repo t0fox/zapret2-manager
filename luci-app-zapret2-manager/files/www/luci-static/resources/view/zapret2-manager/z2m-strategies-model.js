@@ -140,6 +140,11 @@ function combineStrategies(values) {
   });
   return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profi[...]
 }
+/**
+ * Determines whether a strategy represents an autocircular strategy.
+ * @param {Object} strategy - The strategy data to inspect.
+ * @returns {boolean} `true` if the strategy is marked or identified as circular, `false` otherwise.
+ */
 function isCircularStrategy(strategy) {
   strategy = object(strategy);
   var metadata = object(strategy.metadata);
@@ -424,6 +429,13 @@ function filterDomainLearnedEntries(entries) {
   });
 }
 
+/**
+ * Builds selectable strategy options for a runtime strategy pool.
+ * @param {string} poolKey - The pool identifier used to resolve strategy metadata.
+ * @param {number|string} currentStrategy - The currently selected strategy index.
+ * @param {Object} pools - Available runtime strategy pools.
+ * @return {Array<Object>} Strategy options with labels, selection state, and unknown-strategy status.
+ */
 function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   var pool = findPool(poolKey, pools);
   var poolSize = 0;
@@ -488,6 +500,13 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   return options;
 }
 
+/**
+ * Resolves the display name for a strategy in a runtime pool.
+ * @param {string} poolKey - The pool identifier.
+ * @param {number|string} currentStrategy - The strategy index to resolve.
+ * @param {Object} pools - Runtime pool definitions.
+ * @return {string} The strategy name, or a generated name when no matching name exists.
+ */
 function resolveStrategyName(poolKey, currentStrategy, pools) {
   var pool = findPool(poolKey, pools);
   var curNum = Number(currentStrategy);
