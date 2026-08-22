@@ -4,7 +4,17 @@ OpenWrt management stack for zapret2 with a LuCI frontend and a native helper fo
 
 ## Current repository scope
 
-The repository is intentionally kept small and current. Historical implementation notes, generated artifacts, legacy test suites, ad-hoc debug tools, and obsolete build helpers are not part of `main`.
+`main` contains the current runtime source, release/build contracts, tests, and the Project Knowledge Vault. Historical material under `docs/09-work`, `docs/99-archive`, `.superpowers`, and old plans/reports is evidence only; current source code and tests outrank it for runtime behavior.
+
+### Architecture authority
+
+- **zapret2-manager (Z2M)** is the production runtime owner/coordinator.
+- **Zapret2 Engine** and **Z2K Core** are the two mandatory System Components.
+- **Avatar** is a Strategy/resource catalog authority and UX donor where verified, not a System Component or runtime writer.
+- **Telegram Proxy** and **WARP / MASQUE** are optional products with their own lifecycle/ownership boundaries.
+- **Strategy** owns permanent Preview → Validate → Apply. **Scanner** produces temporary evidence/candidates and hands permanent changes back to Strategy.
+- Production traffic ownership is one persistent `nfqws2` instance on **NFQUEUE 300**. DNS follows the existing `dnsmasq` ownership path rather than creating a second resident DNS daemon.
+- Resource Center / Asset Registry represent data and assets. Low-level Z2K assets do not create a separate user product called “Z2K Resources”.
 
 ### Packages
 
@@ -24,7 +34,7 @@ The current compatibility contracts are:
 
 ## Build
 
-The reproducible release build is pinned to the OpenWrt 25.12.5 mediatek/filogic SDK and builds exactly the three manager packages. The canonical local entrypoint is:
+The reproducible release build is pinned to the OpenWrt 25.12.5 `mediatek/filogic` SDK and builds exactly the three manager packages. The canonical local entrypoint is:
 
 ```sh
 scripts/release/build-apk.sh
@@ -42,7 +52,7 @@ apk add --allow-untrusted \
   ./zapret2-manager-full-<version>.apk
 ```
 
-`zapret2-manager` is the backend, `luci-app-zapret2-manager` is the LuCI UI, and `zapret2-manager-full` is the mediatek/filogic convenience meta-package. The zapret2 engine is installed separately from System → Components. Telegram Proxy is installed separately from Proxy and Routing → Telegram Proxy; neither is bundled in these APKs. APK signing and a custom feed are intentionally out of scope.
+`zapret2-manager` is the backend, `luci-app-zapret2-manager` is the LuCI UI, and `zapret2-manager-full` is the `mediatek/filogic` convenience meta-package. The zapret2 engine is installed separately from System → Components. Telegram Proxy is installed separately from Proxy and Routing → Telegram Proxy; neither is bundled in these APKs. APK signing and a custom feed are intentionally out of scope.
 
 Typical SDK target:
 
@@ -54,38 +64,43 @@ make package/zapret2-manager-full/compile V=s
 
 ## Tests
 
-Only tests for the current native foundation are kept in `tests/native/`.
+The repository keeps focused test families for the current implementation, including native/helper contracts, knowledge/docs projection, release contracts, product/UI behavior, and architecture invariants. Run the relevant family for the area being changed.
 
-On Linux with Node.js, a C compiler, `pkg-config`, json-c development files,
-ucode, and passwordless `sudo` for the root-policy helper test:
+For the native foundation on Linux with Node.js, a C compiler, `pkg-config`, json-c development files, ucode, and passwordless `sudo` for the root-policy helper test:
 
 ```sh
 scripts/test/native.sh
 ```
 
-Set `UCODE_BIN` and `UCODE_LIBRARY_PATH` when ucode is not installed under
-`/opt/ucode`. The gate runs only `fs-helper.test.mjs` through `sudo`; all other
-native tests run as the invoking user.
+Set `UCODE_BIN` and `UCODE_LIBRARY_PATH` when ucode is not installed under `/opt/ucode`. The native gate runs only `fs-helper.test.mjs` through `sudo`; all other native tests run as the invoking user.
 
-These source tests are not a substitute for OpenWrt SDK compilation or router validation.
+Source/host tests are not substitutes for OpenWrt SDK compilation, router validation, or browser/runtime evidence.
+
+## Documentation
+
+Documentation has three deliberate responsibility levels:
+
+- **User documentation — Quartz / GitHub Pages.** Installation, first start, actual LuCI navigation, page behavior, statuses/buttons, basic configuration, and supported platform/release information.
+- **Technical/code documentation — DeepWiki.** Architecture, subsystem internals, source relationships, data flows, RPC/backend contracts, Strategy/Scanner/Engine/Z2K internals, assets, DNS/proxy lifecycle, and release engineering. Generation is steered by `.devin/wiki.json`; the public DeepWiki URL is added here only after indexing is verified.
+- **Internal knowledge vault — `docs/`.** Contracts, ADRs, work evidence, research, parity evidence, AI/agent operating material, and historical records remain preserved even when DeepWiki covers the code-centric explanation.
+
+Knowledge tooling:
+
+- Open repository root as Obsidian vault.
+- Verify and bootstrap the pinned Quartz checkout: `node scripts/docs.mjs verify`.
+- Serve the internal vault with hot reload: `scripts/docs.ps1 serve` or `scripts/docs.sh serve`.
+- Build public docs: `node scripts/docs.mjs build public` (legacy `--public --production` is supported).
+- Build internal docs: `node scripts/docs.mjs build internal` (legacy `--internal` is supported).
+- Canonical outputs: `.artifacts/docs-public` and `.artifacts/docs-internal`; remove them with `node scripts/docs.mjs clean`.
+- Run knowledge validation: `node scripts/validate-knowledge.mjs`.
+- Public Pages uploads `.artifacts/docs-public` after the public leak smoke test.
 
 ## Repository policy
 
-Do not commit generated APK/IPK files, build directories, screenshots, agent state, temporary audit output, one-off debugging scripts, or historical task plans. `.gitignore` covers the common generated paths.
+Do not commit generated APK/IPK files, build directories, screenshots, agent state, temporary audit output, or one-off debugging scripts. `.gitignore` covers the common generated paths.
 
-Large implementation experiments and recovery history belong on dedicated backup/feature branches, not in `main`.
+Preserve durable contracts and evidence in the knowledge vault. Do not treat historical plans/reports as proof of current runtime behavior.
 
 ## License
 
 MIT. See `LICENSE`.
-
-## Knowledge Base
-
-- Open repository root as Obsidian vault
-- Verify and bootstrap the pinned Quartz checkout: `node scripts/docs.mjs verify`
-- Serve the internal vault with hot reload: `scripts/docs.ps1 serve` or `scripts/docs.sh serve`
-- Build public docs: `node scripts/docs.mjs build public` (legacy `--public --production` is supported)
-- Build internal docs: `node scripts/docs.mjs build internal` (legacy `--internal` is supported)
-- Canonical outputs: `.artifacts/docs-public` and `.artifacts/docs-internal`; remove them with `node scripts/docs.mjs clean`
-- Run knowledge validation: `node scripts/validate-knowledge.mjs`
-- Public Pages uploads `.artifacts/docs-public` after the public leak smoke test.
