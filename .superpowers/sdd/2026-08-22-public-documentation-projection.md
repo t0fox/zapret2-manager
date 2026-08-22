@@ -30,8 +30,9 @@ and `tests/knowledge/public-projection.test.mjs` checks path and symbol drift.
 
 ## Delivery
 
-Commit: 56431c3f (local before push)
-Remote SHA: NOT YET PUSHED
+Implementation commit: 0d98e22a07e4dd6372763510d154724d248d71ac
+Evidence report commit: follows this update
+Remote SHA: 0d98e22a07e4dd6372763510d154724d248d71ac
 Live Pages: NOT YET VERIFIED AFTER THIS CHANGE
 
 The generated projection source is removed after public build and is not a
