@@ -4,6 +4,7 @@ import http from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { buildPublicProjection } from './public-projection.mjs'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const WORKTREE_ROOT = path.resolve(SCRIPT_DIR, '..')
@@ -168,7 +169,7 @@ async function applyConfig(mode) {
     config = config.replace(/(  ignorePatterns:\r?\n(?:    - .*\r?\n)*)/, '$1    - 09-work\n    - 12-ai\n    - 99-archive\n')
   }
   config = config.replace(
-    /(source: github:quartz-community\/explicit-publish\r?\n\s+enabled:) false/,
+    /(\s+- source: github:quartz-community\/explicit-publish\r?\n\s+enabled:)\s+(?:true|false)/,
     `$1 ${mode === 'public' ? 'true' : 'false'}`,
   )
   await writeFile(path.join(QUARTZ_PATH, 'quartz.config.yaml'), config)
@@ -257,14 +258,16 @@ async function patchPublicInternalLinks(output) {
 
 async function quartz(mode) {
   const output = outputPathFor(WORKTREE_ROOT, mode)
+  const sourcePath = mode === 'public' ? await buildPublicProjection() : DOCS_PATH
   await applyConfig(mode)
   await rm(output, { recursive: true, force: true })
   await mkdir(output, { recursive: true })
-  await run(quartzCommand([]).command, [...quartzCommand([]).args, 'build', '-d', DOCS_PATH, '-o', output], { cwd: QUARTZ_PATH })
+  await run(quartzCommand([]).command, [...quartzCommand([]).args, 'build', '-d', sourcePath, '-o', output], { cwd: QUARTZ_PATH })
   if (mode === 'public') {
     await patchPublicRuntimePaths(output)
     await patchPublicGraphAndRussianChrome(output)
     await patchPublicInternalLinks(output)
+    await rm(path.join(WORKTREE_ROOT, 'public-docs-source'), { recursive: true, force: true })
   }
   return output
 }
@@ -292,12 +295,13 @@ async function waitForHttp(url, child) {
 }
 
 async function serve(mode) {
+  const sourcePath = mode === 'public' ? await buildPublicProjection() : DOCS_PATH
   await applyConfig(mode)
   const output = outputPathFor(WORKTREE_ROOT, mode)
   await rm(output, { recursive: true, force: true })
   await mkdir(output, { recursive: true })
   const invocation = quartzCommand([
-    'build', '--serve', '-d', DOCS_PATH, '-o', output,
+    'build', '--serve', '-d', sourcePath, '-o', output,
     '--port', String(process.env.DOCS_PORT ?? DEFAULT_PORT),
   ])
   const child = spawn(invocation.command, invocation.args, {

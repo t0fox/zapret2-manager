@@ -216,6 +216,7 @@ function validateMetadata(path, metadata, errors, root) {
   if (typeof metadata.updated !== 'string' || !DATE_RE.test(metadata.updated) || Number.isNaN(Date.parse(`${metadata.updated}T00:00:00Z`))) addError(errors, `${displayPath(root, path)}: updated must be an ISO date`);
   if (typeof metadata.publish !== 'boolean') addError(errors, `${displayPath(root, path)}: publish must be a boolean`);
   if (!Array.isArray(metadata.tags) || metadata.tags.length === 0 || metadata.tags.some((tag) => typeof tag !== 'string' || !tag.trim())) addError(errors, `${displayPath(root, path)}: tags must be a non-empty array of strings`);
+  if ('code' in metadata && (!Array.isArray(metadata.code) || metadata.code.length === 0 || metadata.code.some((ref) => typeof ref !== 'string' || !ref.includes('#')))) addError(errors, `${displayPath(root, path)}: code must be an array of path#symbol references`);
 }
 
 function markdownTargetFiles(markdownFiles, target) {

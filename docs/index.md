@@ -23,8 +23,8 @@ zapret2-manager (Z2M) объединяет установку и проверк�
 - [Установка](./01-project/installation.md)
 - [Начало работы](./01-project/first-start.md)
 - [Руководство по интерфейсу](./03-products/index.md)
-- [Практические руководства](./04-guides/index.md)
-- [Устранение проблем](./05-troubleshooting/index.md)
+- [Диагностика и восстановление](./03-products/monitoring.md)
+- [Резервные копии](./03-products/backups.md)
 - [Исходный код на GitHub](https://github.com/t0fox/zapret2-manager)
 
 ## Возможности

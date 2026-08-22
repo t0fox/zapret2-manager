@@ -111,6 +111,20 @@ test('public Quartz navigation points only to generated pages and assets', async
   assert.deepEqual(broken, [], `Found broken public links:\n${broken.join('\n')}`)
 })
 
+test('public Quartz uses the product projection roots, not the internal vault taxonomy', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const entries = (await readdir(publicDir, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => name !== 'static' && name !== 'tags')
+    .sort()
+  assert.deepEqual(entries, ['01-start', '02-interface', '03-technology', '04-developers'])
+  const home = await readFile(path.join(publicDir, 'index.html'), 'utf8')
+  assert.doesNotMatch(home, /Практические руководства|Устранение проблем|Архитектурные решения|Контракты|Паритет/)
+  assert.match(home, /Начало работы|Интерфейс|Технологии и компоненты|Для разработчиков/)
+})
+
 test('public Quartz runtime uses the Pages subpath for content index data', async () => {
   const publicDir = await findPublicDir()
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)

@@ -24,3 +24,14 @@ owner boundaries:
 Runtime ownership: Strategy владеет permanent Apply, Scanner создаёт только
 transient candidate, DNS сохраняет existing writer, а Telegram Proxy и WARP
 имеют отдельные lifecycle owners.
+
+## Канонические технические страницы
+
+- [Архитектура Z2M](./architecture.md)
+- [Владение runtime](./runtime-ownership.md)
+- [Жизненный цикл Strategy](./strategy-lifecycle.md)
+- [Архитектура Scanner](./scanner-architecture.md)
+- [Интеграция Z2K и Avatar](./z2k-avatar-integration.md)
+- [Модель ресурсов и assets](./resource-asset-model.md)
+- [API и RPC](./api-rpc.md)
+- [Сборка APK](./apk-build.md)
