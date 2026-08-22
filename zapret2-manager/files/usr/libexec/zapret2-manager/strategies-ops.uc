@@ -93,20 +93,28 @@ function config_load() {
 	if (type(result.history) != 'array') result.history = [];
 	return result;
 }
+// Returns the decoded request object, or null when the request carried a
+// malformed JSON string. Callers must reject null instead of treating it as
+// an empty request (an empty request can have destructive defaults, e.g. a
+// full learned-state reset in learned_clear).
 function request_value(value) {
 	if (type(value) == 'string') {
-		try { let parsed = json(value); return object(parsed); } catch (e) { return {}; }
+		try { let parsed = json(value); return object(parsed); } catch (e) { return null; }
 	}
 	if (type(value) == 'object' && value != null) {
 		if (value.edit != null) {
 			if (type(value.edit) == 'string') {
-				try { let parsed = json(value.edit); return object(parsed); } catch (e) { return {}; }
+				try { let parsed = json(value.edit); return object(parsed); } catch (e) { return null; }
 			}
 			return object(value.edit);
 		}
 		return value;
 	}
 	return {};
+}
+
+function request_error() {
+	return { ok: false, error: { code: 'EINPUT', message: 'edit must be a valid JSON object' } };
 }
 
 function journal_event(severity, message, extra) {
@@ -424,6 +432,7 @@ function state_save_rows(rows) {
 
 function state_set(input) {
 	let value = request_value(input);
+	if (value == null) return request_error();
 	let key = safe_text(value.key);
 	let host = safe_text(value.host);
 	let strategy_raw = value.strategy != null ? value.strategy : value.strategyNumber;
@@ -497,6 +506,7 @@ function state_set(input) {
 
 function state_delete(input) {
 	let value = request_value(input);
+	if (value == null) return request_error();
 	let key = safe_text(value.key);
 	let host = safe_text(value.host);
 
@@ -522,7 +532,9 @@ function state_delete(input) {
 }
 
 function learned_clear(input) {
-	let value = request_value(input), host = safe_text(value.host), key = safe_text(value.key), rows = learned_rows(), kept = [];
+	let value = request_value(input);
+	if (value == null) return request_error();
+	let host = safe_text(value.host), key = safe_text(value.key), rows = learned_rows(), kept = [];
 	let is_discord = (key == 'discord_voice' || key == 'discord_udp') && (host == 'nohost' || !host);
 	for (let row in rows) {
 		if (is_discord && (row.key == 'discord_voice' || row.key == 'discord_udp') && (row.host == 'nohost' || (host && row.host == host)))
@@ -641,7 +653,9 @@ function healthcheck_status() {
 }
 
 function healthcheck_run(input) {
-	let config = config_load(), value = request_value(input), services = array(value.services);
+	let config = config_load(), value = request_value(input);
+	if (value == null) return request_error();
+	let services = array(value.services);
 	if (!length(services)) services = config.services;
 	let started = health_matrix_start({ services: services, custom_domains: config.custom_domains });
 	if (!started || started.ok !== true) return started || { ok: false, error: { code: 'EINTERNAL', message: 'healthcheck could not start' } };
@@ -664,6 +678,7 @@ export const healthcheck_scheduler_tick = function () {
 
 function healthcheck_update(input, mode) {
 	let config = config_load(), value = request_value(input);
+	if (value == null) return request_error();
 	if (mode == 'enable') config.enabled = true;
 	if (mode == 'disable') config.enabled = false;
 	if (value.services != null) {
@@ -712,7 +727,9 @@ function debug_get() {
 	return { ok: true, debug: value == '1' || value == 'true', value: value || '0' };
 }
 function debug_set(input) {
-	let value = request_value(input), enabled = bool(value.enabled);
+	let value = request_value(input);
+	if (value == null) return request_error();
+	let enabled = bool(value.enabled);
 	let p = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/service.uc debug ' + (enabled ? '1' : '0') + ' 2>/dev/null', 'r');
 	if (!p) return { ok: false, error: { code: 'ETARGET', message: 'service debug action unavailable' } };
 	let out = p.read('all') || ''; let rc = p.close();
