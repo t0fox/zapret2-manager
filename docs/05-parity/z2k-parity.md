@@ -1,6 +1,6 @@
 ---
 id: z2k-parity
-title: "Z2K Full Capability Parity Audit & Contract"
+title: "Полный аудит и контракт паритета возможностей Z2K"
 type: parity
 status: normative
 authority: approved-spec
@@ -8,7 +8,11 @@ updated: 2026-08-19
 publish: true
 tags: [parity, z2k, audit, contract]
 ---
-# Z2K Full Capability Parity Audit (Revised)
+# Полный аудит паритета возможностей Z2K (редакция)
+
+Документ сопоставляет закреплённые upstream-источники, возможности Z2K и
+эквиваленты zapret2-manager. Статусы отражают доказанное состояние, а не
+предполагаемую готовность.
 
 **Audited Upstream Repositories:**
 - **`necronicle/z2k`** @ `z2k-enhanced`  

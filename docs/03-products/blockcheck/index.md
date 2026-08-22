@@ -1,6 +1,6 @@
 ---
 id: product-blockcheck-index
-title: "BlockCheck"
+title: "BlockCheck — продукт"
 type: product
 status: planned
 authority: index
@@ -11,4 +11,4 @@ tags: [product, blockcheck]
 
 # BlockCheck
 
-See [BlockCheck Execution Boundary](../../07-decisions/adr-002-blockcheck-execution-boundary.md).
+См. [границу выполнения BlockCheck](../../07-decisions/adr-002-blockcheck-execution-boundary.md).

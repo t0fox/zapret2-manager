@@ -1,6 +1,6 @@
 ---
 id: atomic-write-json-v1-design
-title: "atomic_write_json v1 Preparation Design"
+title: "Подготовительный проект atomic_write_json v1"
 type: architecture
 status: normative
 authority: approved-spec
@@ -8,7 +8,11 @@ updated: 2026-08-13
 publish: true
 tags: [atomic-write-json, design, architecture]
 ---
-# atomic_write_json v1 Preparation Design
+# Подготовительный проект atomic_write_json v1
+
+Это подготовительный документ о каноническом JSON и безопасной публикации
+состояния. Он фиксирует границы будущей реализации и не объявляет операцию
+`atomic_write_json` реализованной.
 
 Status: preparation only. This document does not implement `atomic_write_json`
 and does not change the protocol manifest status.
@@ -23,7 +27,7 @@ Frozen inputs:
 - `zapret2-manager/src/z2m-core-helper/protocol-v1.json`
 - `docs/04-contracts/native-backend-v1.md`
 
-## Scope And Non-Goals
+## Область и исключённые цели
 
 This preparation covers the canonical JSON value validator, duplicate-key
 scanner, canonical encoder, conformance corpus, and the exact refactor boundary
@@ -37,7 +41,7 @@ The corpus and reference oracle are test-side artifacts. Their tests prove
 corpus and oracle integrity only; they never invoke or claim a production
 `atomic_write_json` implementation.
 
-## Frozen Limits
+## Зафиксированные ограничения
 
 The canonical contract gives these exact value limits:
 
@@ -57,7 +61,7 @@ Integer values are signed 64-bit, from `-9223372036854775808` through
 `9223372036854775807`. The accepted lexical grammar is exactly
 `-?(0|[1-9][0-9]*)`; `-0` becomes `0`.
 
-## Frozen Contract Review
+## Проверка зафиксированного контракта
 
 The canonical document is not RFC 8785/JCS. Objects sort recursively by
 unsigned lexicographic UTF-8 bytes of decoded keys. Arrays preserve order.
@@ -70,7 +74,7 @@ Duplicate identity is the decoded Unicode scalar sequence. Invalid UTF-8,
 overlong/truncated/surrogate/out-of-range UTF-8, lone surrogate escapes, and
 unsupported numbers are rejected before filesystem work.
 
-## Contradictions And Ambiguities
+## Противоречия и неоднозначности
 
 These observations are recorded, not corrected in this branch.
 
@@ -103,7 +107,7 @@ These observations are recorded, not corrected in this branch.
 The root path depth values in `protocol-v1.json` are filesystem path limits and
 do not conflict with canonical JSON value depth.
 
-## Existing Data Flow And Ownership
+## Текущий поток данных и владение
 
 The current helper path is:
 
@@ -145,7 +149,7 @@ canonical validation and encoding must occur before `z2m_root_open()` and
 `z2m_root_lock()`, as required by the frozen contract. Therefore M4 cannot only
 add a branch after the existing lock call.
 
-## Current Scanner Findings
+## Результаты проверки текущего сканера
 
 The existing `protocol.c` pre-scan is useful as a foundation but is not a
 canonical validator:
@@ -165,7 +169,7 @@ canonical validator:
   value token. A strict pass must retain either a bounded raw span or perform
   the canonical value validation before json-c ownership begins.
 
-## json-c Information-Loss Experiment
+## Эксперимент по потере информации в json-c
 
 `tests/native/core/json-c-information-loss.c` and its Node test compile and run
 against the host json-c library using only `cc` and `pkg-config`. The current
@@ -194,7 +198,7 @@ semantic construction. json-c remains useful for the already validated request
 envelope and ordinary semantic values only after the pass has rejected all
 information-sensitive cases.
 
-## Chosen Tokenizer And Duplicate Design
+## Выбранный токенизатор и обнаружение дубликатов
 
 Three approaches were considered:
 
@@ -244,7 +248,7 @@ The sorting approach is `O(m log m * k)` for an object with `m` keys of maximum
 members and 4096-byte key limit. It has deterministic cleanup and no hash
 collision behavior to audit.
 
-## Canonical Semantic Representation And Encoder
+## Каноническое представление и кодировщик
 
 The target boundary is:
 
@@ -286,7 +290,7 @@ publication occurs until the complete canonical byte buffer exists. Every
 failure path frees the semantic value, temporary key views, traversal stack,
 and byte buffer before returning.
 
-## Publication Reuse Boundary
+## Граница повторного использования публикации
 
 The current `z2m_atomic_write()` mixes argument extraction, base64 decoding,
 response preparation, and a single publication engine. The exact reusable
@@ -322,7 +326,7 @@ The common function remains the only publication engine. The JSON path does not
 call `renameat2`, `fsync`, `openat`, candidate cleanup, or response emission
 directly.
 
-## Error Model
+## Модель ошибок
 
 | Failure | Existing result | Stage | Publication state |
 |---|---|---|---|
@@ -342,7 +346,7 @@ engine. Canonical validation must never emit `ECOMMITUNKNOWN`, and the byte
 engine must never reinterpret a deterministic pre-publication validation error
 as commit uncertainty.
 
-## Property And Mutation Strategy
+## Стратегия свойств и мутаций
 
 The deterministic property suite uses seed `0x5eed1234`, a bounded 96-value
 sequence, and only safe integer values in generated semantic objects. It proves:
@@ -360,7 +364,7 @@ surrogate truncation, commas, colons, braces, brackets, integer boundaries,
 and truncation at token boundaries. M4 should run these fixtures through both
 the strict scanner and the production operation.
 
-## Complexity And Memory Review
+## Анализ сложности и памяти
 
 | Stage | Worst-case time | Peak memory | Required guard |
 |---|---|---|---|
@@ -375,7 +379,7 @@ repeated full-buffer `realloc` copies, recursive C traversal, unchecked
 `size_t` multiplication/addition, decoding the same key in multiple temporary
 buffers, and unbounded hash-table probing.
 
-## Fuzzing And Sanitizers
+## Fuzzing и санитайзеры
 
 The deterministic mutation corpus is the minimum reproducible fuzz seed set.
 M4 verification should additionally run the strict scanner and encoder under
@@ -383,7 +387,7 @@ host ASan and UBSan when the compiler supports them, for example with
 `-fsanitize=address,undefined -fno-omit-frame-pointer`. Sanitizer availability
 is a host verification enhancement and is not an OpenWrt package requirement.
 
-## Protocol Audit
+## Аудит протокола
 
 The manifest currently defines `atomic_write_json` as:
 
@@ -411,7 +415,7 @@ ownership, crash semantics, and idempotency text
 
 That transition is forbidden in this preparation branch.
 
-## Remaining Implementation Risks
+## Оставшиеся риски реализации
 
 1. The escaped-U+0000 object-key policy must be resolved before relying on
    json-c object keys for all accepted values.

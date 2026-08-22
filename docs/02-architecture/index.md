@@ -1,6 +1,6 @@
 ---
 id: architecture-index
-title: "Architecture"
+title: "Архитектура"
 type: architecture
 status: current
 authority: index
@@ -9,7 +9,7 @@ publish: true
 tags: [architecture, index]
 ---
 
-# Architecture
+# Архитектура
 
-- [Atomic JSON design](./atomic-write-json-v1-design.md)
-- [Traceability](./traceability/atomic-write-json-v1-traceability.md)
+- [Проект atomic JSON](./atomic-write-json-v1-design.md)
+- [Трассируемость](./traceability/atomic-write-json-v1-traceability.md)

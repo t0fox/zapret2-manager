@@ -1,6 +1,6 @@
 ---
 id: avatar-parity
-title: "Avatar Behavioral Parity Contract"
+title: "Контракт поведенческого паритета Avatar"
 type: parity
 status: normative
 authority: approved-spec
@@ -8,14 +8,17 @@ updated: 2026-08-13
 publish: true
 tags: [parity, avatar, contract]
 ---
-# Avatar Behavioral Parity Contract
+# Контракт поведенческого паритета Avatar
+
+Avatar — обязательный поведенческий baseline продукта. Аудит ниже сравнивает
+пользовательское поведение и доменные модели, а не имена файлов или язык реализации.
 
 **Avatar behavioral baseline:** `avatarDD/zapret-gui@f9dd3ea47a2239514f396a843b475c92c33f0b4c`  
 **zapret2-manager audited baseline:** `t0fox/zapret2-manager@152cb642d5e3a994b3be73aa096530d7f8c2a408`
 
 This audit compares user-visible behavior and domain models, not filenames or implementation language. Avatar is normative unless an approved deviation appears in the Deviation Register.
 
-## Summary
+## Сводка
 
 | Status | Count |
 |---|---:|
@@ -30,7 +33,7 @@ This audit compares user-visible behavior and domain models, not filenames or im
 
 Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 
-## Top Product Parity Blockers
+## Главные блокеры паритета продукта
 
 1. Scanner and BlockCheck/BlockCheck2 are three distinct Avatar flows; ours does not preserve all three product models.
 2. Auto-remediation cannot reach parity until Scanner, DNS remediation and tunnel routing exist.
@@ -40,7 +43,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 6. Avatar has 38 canonical SPA pages plus two legacy hash aliases; ours has seven canonical LuCI tabs plus one lists alias and several backend-only capabilities.
 7. Several existing equivalents are safer internally but do not expose the complete Avatar user capability.
 
-## Detailed Parity Matrix
+## Подробная матрица паритета
 
 | Avatar subsystem/feature | Avatar evidence | Avatar behavioral contract | Our evidence | Our current behavior | Status | Deviation reason | Required action |
 |---|---|---|---|---|---|---|---|

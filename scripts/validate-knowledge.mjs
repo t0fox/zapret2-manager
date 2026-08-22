@@ -17,9 +17,9 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const FRONTMATTER_FIELDS = ['id', 'title', 'type', 'status', 'authority', 'updated', 'publish', 'tags'];
-const TYPES = new Set(['adr', 'architecture', 'contract', 'doc', 'handoff', 'home', 'index', 'operations', 'parity', 'plan', 'product', 'project', 'research', 'runbook', 'spec', 'template', 'upstream']);
+const TYPES = new Set(['adr', 'architecture', 'contract', 'doc', 'guide', 'guide-index', 'handoff', 'home', 'index', 'operations', 'parity', 'plan', 'product', 'product-guide', 'project', 'research', 'runbook', 'spec', 'template', 'troubleshooting', 'troubleshooting-index', 'upstream']);
 const STATUSES = new Set(['current', 'draft', 'live', 'normative', 'planned']);
-const AUTHORITIES = new Set(['approved-spec', 'canonical', 'evidence', 'index', 'proposed']);
+const AUTHORITIES = new Set(['approved-spec', 'canonical', 'current-ui', 'evidence', 'index', 'proposed', 'release-config', 'release-engineering', 'user-guide']);
 const LEGACY_PATH_RE = /(?:^|[\s(`"'])docs\/(?:architecture|contracts|decisions|plans|specs|research|products|operations)(?:\/|[\s)`"']|$)/i;
 
 function displayPath(root, path) {

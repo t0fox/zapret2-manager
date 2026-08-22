@@ -1,6 +1,6 @@
 ---
 id: product-deep-search-index
-title: "Deep Search"
+title: "Глубокий поиск"
 type: product
 status: planned
 authority: index
@@ -9,6 +9,6 @@ publish: true
 tags: [product, deep-search]
 ---
 
-# Deep Search
+# Глубокий поиск
 
-See [Deep Search Dual Engine](../../07-decisions/adr-003-deep-search-dual-engine.md).
+См. [движок глубокого поиска](../../07-decisions/adr-003-deep-search-dual-engine.md).

@@ -1,6 +1,6 @@
 ---
 id: z2k-p5-parity-matrix
-title: "Z2K P5 staged prober parity matrix"
+title: "Матрица паритета поэтапного prober P5 Z2K"
 type: parity
 status: current
 authority: evidence
@@ -9,7 +9,11 @@ publish: true
 tags: [parity, z2k, scanner, p5]
 ---
 
-# Z2K-P5 staged prober parity matrix
+# Матрица паритета поэтапного prober P5 Z2K
+
+Матрица фиксирует границу между поведением upstream Z2K, существующим
+Scanner и реализацией P5. Временные сетевые наблюдения не создают отдельного
+daemon или владельца firewall; постоянное применение остаётся у Strategy.
 
 Source of truth: `necronicle/z2k`, `z2k-enhanced`, commit
 `99be613303e00d42ed027d5197f6e353995bb353` (r-77.2), primarily

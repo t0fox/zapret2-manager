@@ -1,6 +1,6 @@
 ---
 id: adr-003-deep-search-dual-engine
-title: "Deep Search Dual Engine"
+title: "Два движка глубокого поиска"
 type: adr
 status: planned
 authority: approved-spec
@@ -9,6 +9,8 @@ publish: true
 tags: [adr, deep-search, blockcheckw]
 ---
 
-# Deep Search Dual Engine
+# Два движка глубокого поиска
 
-Deep Search exposes distinct `BlockCheckW Fast` and `BlockCheck2 Official` engines. They are not transparent equivalents, and both hand results to Strategy for permanent Apply.
+Глубокий поиск предоставляет разные движки `BlockCheckW Fast` и `BlockCheck2 Official`.
+Они не являются взаимозаменяемыми эквивалентами; оба передают результаты стратегиям
+для постоянного применения.

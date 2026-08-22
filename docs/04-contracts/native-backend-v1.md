@@ -1,6 +1,6 @@
 ---
 id: native-backend-v1
-title: "Native Backend Contract v1"
+title: "Контракт нативного backend v1"
 type: contract
 status: normative
 authority: approved-spec
@@ -8,7 +8,10 @@ updated: 2026-08-13
 publish: true
 tags: [contract, native-backend]
 ---
-# Native Backend Contract v1
+# Контракт нативного backend v1
+
+Это замороженная граница совместимости нативного backend. Имена полей, типы,
+перечисления и правила владения версии 1 неизменны.
 
 Status: frozen at repository commit
 `304728c4fb5e49252247d9f80c27becec89cfe41`.
@@ -22,7 +25,7 @@ JSON examples use integers for counters and generations, RFC 3339 UTC strings
 for timestamps, lowercase hexadecimal strings for SHA-256 values, and `null`
 only where it is shown explicitly.
 
-## State Envelope
+## Конверт состояния
 
 Every state snapshot has this exact top-level shape:
 
@@ -57,7 +60,7 @@ Every state snapshot has this exact top-level shape:
 Unknown evidence is represented by `null` in the evidence field, never by a
 fabricated zero, empty object, healthy state, or successful envelope.
 
-## RPC Envelope
+## Конверт RPC
 
 Every successful RPC response has this shape:
 

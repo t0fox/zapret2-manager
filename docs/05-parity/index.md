@@ -1,6 +1,6 @@
 ---
 id: parity-index
-title: "Parity"
+title: "Паритет"
 type: parity
 status: current
 authority: index
@@ -9,8 +9,8 @@ publish: true
 tags: [parity, index]
 ---
 
-# Parity
+# Паритет
 
-- [Avatar parity](./avatar-parity.md)
-- [Z2K capability parity](./z2k-parity.md)
-- [Z2K P5 staged prober matrix](./z2k-p5-parity-matrix.md)
+- [Паритет Avatar](./avatar-parity.md)
+- [Паритет возможностей Z2K](./z2k-parity.md)
+- [Матрица поэтапного prober P5 Z2K](./z2k-p5-parity-matrix.md)

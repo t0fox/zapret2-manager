@@ -37,7 +37,7 @@ The historical Forgejo catalog fixture under `catalog/forgejo/` is retained
 only for archival comparison. It is not referenced by the resolver, Resource
 Center, tests, or current manifests.
 
-## Donor renderer trace
+## Трассировка donor renderer
 
 The current Avatar behavioral donor for the editor is
 `avatarDD/zapret-gui@8c44df2bed98872d1348db053623ee6bf2902408`,
@@ -56,7 +56,7 @@ This is a donor transplant with an OpenWrt/LuCI adapter, not a second Strategy
 page or a second compiler. Unknown syntax remains Raw-only and the canonical
 Strategy API remains the sole mutation authority.
 
-## Lossless identity
+## Lossless-идентичность
 
 The semantic fingerprint includes globals, ordered profile boundaries,
 `--filter-tcp`, `--filter-udp`, `--filter-l7`, host/IP targeting, ranges and
@@ -65,7 +65,7 @@ other execution-relevant options. Records with identical fingerprints are one
 canonical Strategy with all provenance links. Records with different
 fingerprints remain separate even when their names match.
 
-## Presentation and runtime
+## Представление и runtime
 
 The Strategies renderer derives protocol tags and port ranges from each
 canonical profile filter. The same normalized profile object feeds card tags,

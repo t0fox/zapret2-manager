@@ -1,6 +1,6 @@
 ---
 id: atomic-write-json-v1-traceability
-title: "atomic_write_json v1 Traceability"
+title: "Трассируемость atomic_write_json v1"
 type: architecture
 status: normative
 authority: approved-spec
@@ -8,7 +8,11 @@ updated: 2026-08-13
 publish: true
 tags: [atomic-write-json, traceability, architecture]
 ---
-# atomic_write_json v1 Traceability
+# Трассируемость atomic_write_json v1
+
+Таблица связывает зафиксированные требования с тестовым корпусом и этапом
+будущей реализации M4. Это доказательства подготовки; ни одна строка не
+утверждает наличие production-операции.
 
 This table maps frozen wording to the reusable corpus and the proposed M4
 implementation stage. It is preparation evidence only; no row claims the

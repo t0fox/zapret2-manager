@@ -1,6 +1,6 @@
 ---
 id: z2m-canonical-json-v1
-title: "Z2M Canonical JSON v1"
+title: "Канонический JSON Z2M v1"
 type: contract
 status: normative
 authority: approved-spec
@@ -8,11 +8,14 @@ updated: 2026-08-13
 publish: true
 tags: [contract, canonical-json]
 ---
-# Z2M Canonical JSON v1
+# Канонический JSON Z2M v1
+
+Документ задаёт версионируемый формат байтов канонического JSON для
+`atomic_write_json` и будущего хеширования сохраняемого состояния.
 
 Canonicalization-ID: `z2m-canonical-json-v1`
 
-## Status
+## Статус
 
 This document defines the versioned canonical JSON byte format used by
 `atomic_write_json` and future persisted-state hashing. Its machine-readable
@@ -24,7 +27,7 @@ or output termination requires a new identifier such as
 This is a project format, not RFC 8785/JCS and not json-c insertion-order
 serialization.
 
-## Value Domain
+## Допустимые значения
 
 The supported values are object, array, string, signed 64-bit integer, boolean,
 and null. Floating-point values are rejected, including lexical forms such as
@@ -49,7 +52,7 @@ number. The original token is range-checked as signed 64-bit before conversion.
 Any token containing `.`, `e`, or `E` is rejected even when its mathematical
 value is integral. `-0` is accepted and converts to integer zero.
 
-## Ordering
+## Порядок
 
 Every object is sorted recursively by unsigned lexicographic comparison of the
 validated UTF-8 bytes of each decoded key. Comparison is locale-independent,
@@ -71,7 +74,7 @@ No NFC, NFD, NFKC, or NFKD normalization is performed. Canonically equivalent
 but scalar-distinct strings, such as composed and decomposed `é`, remain
 different values and produce different bytes.
 
-## String Encoding
+## Кодирование строк
 
 Output is UTF-8 without a BOM. Valid non-ASCII scalars are emitted as raw UTF-8,
 not `\uXXXX` escapes. Solidus `/` is emitted unescaped.

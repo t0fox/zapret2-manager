@@ -1,6 +1,6 @@
 ---
 id: adr-005-strategy-apply-authority
-title: "Strategy Permanent Apply Authority"
+title: "Полномочия постоянного применения стратегий"
 type: adr
 status: current
 authority: approved-spec
@@ -9,6 +9,8 @@ publish: true
 tags: [adr, strategy, authority]
 ---
 
-# Strategy Permanent Apply Authority
+# Полномочия постоянного применения стратегий
 
-Strategy is the sole owner of permanent Apply. Candidates flow through Draft → Create/Save → Preview → Validate → Apply; Scanner, BlockCheck, and search engines never create a second permanent Apply path.
+Стратегии являются единственным владельцем постоянного применения. Кандидат проходит
+путь Черновик → Создать/Сохранить → Предпросмотр → Проверить → Применить; Scanner,
+BlockCheck и поисковые движки никогда не создают второй путь постоянного применения.

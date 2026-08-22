@@ -156,6 +156,7 @@ async function applyConfig(mode) {
   const source = path.join(QUARTZ_PATH, 'quartz.config.default.yaml')
   let config = await readFile(source, 'utf8')
   config = config.replace(/^  pageTitle:.*$/m, `  pageTitle: "zapret2-manager${mode === 'internal' ? ' (internal)' : ''}"`)
+  config = config.replace(/^  locale:.*$/m, '  locale: "ru-RU"')
   config = config.replace(/^  baseUrl:.*$/m, `  baseUrl: "${mode === 'internal' ? 'localhost' : 't0fox.github.io/zapret2-manager'}"`)
   if (mode === 'public') {
     config = config.replace(/(  ignorePatterns:\r?\n(?:    - .*\r?\n)*)/, '$1    - 09-work\n    - 12-ai\n    - 99-archive\n')
@@ -172,9 +173,34 @@ async function patchPublicRuntimePaths(output) {
   let script = await readFile(scriptPath, 'utf8')
   const absoluteIndexFetch = 'fetch("/static/contentIndex.json")'
   const projectAwareIndexFetch = 'fetch((location.pathname.match(/^\\/[^/]+\\//)?.[0] || "/") + "static/contentIndex.json")'
-  if (!script.includes(absoluteIndexFetch)) return
+  const projectBase = 'const __z2mProjectBase=location.pathname.match(/^\\/[^/]+\\//)?.[0] || "/";'
+  script = projectBase + script
   script = script.replaceAll(absoluteIndexFetch, projectAwareIndexFetch)
+  script = script.replaceAll('new URL("/"+e,window.location.origin)', 'new URL(__z2mProjectBase+e,window.location.origin)')
+  script = script.replaceAll('new URL(`/${ze.slug}`,window.location.origin)', 'new URL(__z2mProjectBase+ze.slug,window.location.origin)')
+  script = script.replaceAll('href="/"+', 'href=__z2mProjectBase+')
   await writeFile(scriptPath, script)
+}
+
+async function patchPublicGraphAndRussianChrome(output) {
+  for (const relativeFile of await listOutputFiles(output)) {
+    if (!relativeFile.endsWith('.html')) continue
+    const fullPath = path.join(output, relativeFile)
+    let html = await readFile(fullPath, 'utf8')
+    html = html.replace('<html lang="en"', '<html lang="ru"')
+    html = html.replaceAll('<p>Search</p>', '<p>Поиск</p>')
+    html = html.replaceAll('aria-label="Search for something"', 'aria-label="Поиск по документации"')
+    html = html.replaceAll('<title>Search</title>', '<title>Поиск</title>')
+    html = html.replaceAll('<h2>Explorer</h2>', '<h2>Навигация</h2>')
+    html = html.replaceAll('<h3>Graph View</h3>', '<h3>Граф связей</h3>')
+    html = html.replaceAll('aria-label="Global Graph"', 'aria-label="Полный граф"')
+    html = html.replaceAll('>Properties<', '>Свойства<')
+    html = html.replaceAll('>Home<', '>Главная<')
+    html = html.replaceAll('aria-label="Reader mode"', 'aria-label="Режим чтения"')
+    html = html.replaceAll('<title>Reader mode</title>', '<title>Режим чтения</title>')
+    html = html.replace(/(<div class="graph-container"[^>]*data-cfg="[^" ]*&quot;depth&quot;:)1/, '$1-1')
+    await writeFile(fullPath, html)
+  }
 }
 
 async function listOutputFiles(dir, prefix = '') {
@@ -231,6 +257,7 @@ async function quartz(mode) {
   await run(quartzCommand([]).command, [...quartzCommand([]).args, 'build', '-d', DOCS_PATH, '-o', output], { cwd: QUARTZ_PATH })
   if (mode === 'public') {
     await patchPublicRuntimePaths(output)
+    await patchPublicGraphAndRussianChrome(output)
     await patchPublicInternalLinks(output)
   }
   return output

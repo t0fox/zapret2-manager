@@ -1,6 +1,6 @@
 ---
 id: adr-004-blockcheckw-version-policy
-title: "BlockCheckW Version Policy"
+title: "Политика версий BlockCheckW"
 type: adr
 status: planned
 authority: approved-spec
@@ -9,6 +9,9 @@ publish: true
 tags: [adr, blockcheckw, dependency]
 ---
 
-# BlockCheckW Version Policy
+# Политика версий BlockCheckW
 
-Stable versions are manually selected and installed. Background checks never auto-install. Installed, latest upstream, latest compatible, selected, and VERIFIED/UNKNOWN/INCOMPATIBLE states remain distinct; rollback is supported where practical.
+Стабильные версии выбираются и устанавливаются вручную. Фоновые проверки никогда
+не устанавливают обновления автоматически. Состояния установленной, последней upstream,
+последней совместимой и выбранной версии, а также VERIFIED/UNKNOWN/INCOMPATIBLE,
+остаются раздельными; откат поддерживается там, где это практически возможно.

@@ -1,6 +1,6 @@
 ---
 id: decisions-index
-title: "Architecture Decisions"
+title: "Архитектурные решения"
 type: index
 status: current
 authority: index
@@ -9,12 +9,12 @@ publish: true
 tags: [adr, decisions]
 ---
 
-# Architecture Decisions
+# Архитектурные решения
 
-Durable decisions are recorded as ADRs and must not silently be overridden by plans or research.
+Долгоживущие решения записываются в ADR и не могут молча переопределяться планами или исследованиями.
 
-- [BlockCheckW version policy](./adr-004-blockcheckw-version-policy.md)
-- [Avatar parity law](./adr-001-avatar-parity-law.md)
-- [BlockCheck execution boundary](./adr-002-blockcheck-execution-boundary.md)
-- [Deep Search dual engine](./adr-003-deep-search-dual-engine.md)
-- [Strategy permanent Apply authority](./adr-005-strategy-apply-authority.md)
+- [Политика версий BlockCheckW](./adr-004-blockcheckw-version-policy.md)
+- [Закон паритета Avatar](./adr-001-avatar-parity-law.md)
+- [Граница выполнения BlockCheck](./adr-002-blockcheck-execution-boundary.md)
+- [Два движка глубокого поиска](./adr-003-deep-search-dual-engine.md)
+- [Полномочия постоянного применения стратегий](./adr-005-strategy-apply-authority.md)

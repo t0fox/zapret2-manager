@@ -1,6 +1,6 @@
 ---
 id: products-index
-title: "Products"
+title: "Продукты"
 type: product
 status: current
 authority: index
@@ -9,11 +9,37 @@ publish: true
 tags: [products, index]
 ---
 
-# Products
+# Интерфейс и продукты
 
-Product-specific canonical knowledge is routed through the product folders and the AI context map.
+Ниже — user-facing карта текущего интерфейса Z2M. Технические product/contract
+страницы остаются доступны, но сначала выбирайте страницу по задаче.
 
-- [Strategy](./strategy/index.md)
-- [Scanner](./scanner/index.md)
+## Главная и обход DPI
+
+- [Главная](./dashboard.md)
+- [Управление](./control.md)
+- [Стратегии](./strategy/index.md)
+- [Сканирование](./scanner/index.md)
+
+## Прокси и данные
+
+- [Telegram Proxy](./telegram-proxy.md)
+- [WARP / MASQUE](./warp.md)
+- [Сервисы и домены](./services-domains.md)
+- [Ресурсы](./resources.md)
+- [DNS](./dns.md)
+
+## Диагностика и система
+
+- [Мониторинг](./monitoring.md)
+- [Журналы](./logs.md)
+- [Компоненты](./components.md)
+- [Резервные копии](./backups.md)
+- [Настройки](./settings.md)
+
+## Технические product-страницы
+
+- [Стратегии](./strategy/index.md)
+- [Сканер](./scanner/index.md)
 - [BlockCheck](./blockcheck/index.md)
-- [Deep Search](./deep-search/index.md)
+- [Глубокий поиск](./deep-search/index.md)

@@ -1,6 +1,6 @@
 ---
 id: knowledge-workflow
-title: "Knowledge Workflow"
+title: "Процесс работы со знаниями"
 type: doc
 status: current
 authority: canonical
@@ -9,37 +9,35 @@ publish: true
 tags: [development, knowledge, workflow]
 ---
 
-# Knowledge Workflow
+# Процесс работы со знаниями
 
-The `docs/` tree is the canonical project knowledge surface. Changes to
-architecture, products, contracts, decisions, research, operations, and AI
-operating rules belong in the corresponding numbered section. Work-in-progress
-plans and specifications stay under `docs/09-work/`; historical material stays
-under `docs/99-archive/`.
+Дерево `docs/` — каноническая поверхность знаний проекта. Изменения архитектуры,
+продуктов, контрактов, решений, исследований, эксплуатации и правил работы ИИ
+относятся в соответствующий нумерованный раздел. Незавершённые планы и спецификации
+остаются в `docs/09-work/`, исторические материалы — в `docs/99-archive/`.
 
-## Authoring Rules
+## Правила подготовки документов
 
-- Give every canonical Markdown document unique valid frontmatter fields: `id`,
-  `title`, `type`, `status`, `authority`, `updated`, `publish`, and nonempty
-  `tags`.
-- Keep links relative to the document and point them at canonical paths. Do not
-  reintroduce the pre-vault directory layout or its old path aliases.
-- Treat contracts, approved specifications, canonical decisions, and indexes as
-  authoritative only when they are reachable from the knowledge home or an
-  indexed canonical document.
-- Record migrations in `docs/99-archive/migration-manifest.json` from Git rename
-  evidence, including the old path, actual target, action, and old blob SHA.
+- Каждый канонический Markdown-документ должен иметь уникальные корректные поля
+  frontmatter: `id`, `title`, `type`, `status`, `authority`, `updated`, `publish`
+  и непустой `tags`.
+- Ссылки должны быть относительными и вести на канонические пути. Нельзя возвращать
+  старую структуру каталогов или её прежние псевдонимы.
+- Контракты, утверждённые спецификации, канонические решения и индексы считаются
+  авторитетными только если они достижимы с главной страницы знаний или из
+  индексированного канонического документа.
+- Миграции записываются в `docs/99-archive/migration-manifest.json` на основании
+  Git-переименований с указанием старого пути, фактической цели, действия и SHA старого blob.
 
-## Verification
+## Проверка
 
-Run the knowledge validator after documentation edits:
+После изменений документации запускайте валидатор знаний:
 
 ```text
 node scripts/validate-knowledge.mjs
 node --test tests/knowledge/*.test.mjs
 ```
 
-The validator is the source of truth for frontmatter, duplicate IDs, links,
-manifest rows, and context-map globs. Fix knowledge defects in the docs or
-context map; do not change application behavior to make the knowledge checks
-pass.
+Валидатор является источником истины для frontmatter, дублирующихся ID, ссылок,
+строк манифеста и glob-выражений карты контекста. Исправляйте дефекты знаний в
+документах или карте контекста; не меняйте поведение приложения, чтобы пройти проверки знаний.

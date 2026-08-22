@@ -1,6 +1,6 @@
 ---
 id: scanner-runtime-authority
-title: "Scanner Runtime Authority"
+title: "Полномочия runtime сканера"
 type: architecture
 status: current
 authority: evidence
@@ -9,9 +9,13 @@ publish: true
 tags: [architecture, scanner, runtime, authority]
 ---
 
-# Scanner Runtime Authority
+# Полномочия runtime сканера
 
-## Discovery correction
+Канонический production-путь сканера проходит через RPC, `scanner-cli-entry`,
+`scanner-cli`, `scanner-worker` и `scanner-planner`. `scanner-orchestrator.uc`
+присутствует в исходниках, но не подключён к production RPC.
+
+## Исправление результата discovery
 
 The initial architecture assumption was:
 
@@ -36,7 +40,7 @@ find it wired to the production Scanner RPC. It is therefore classified as an
 unwired/non-production path, not as legacy code. This classification prevents
 future work from accidentally creating a second Scanner runtime.
 
-## Product boundaries
+## Границы продукта
 
 - The canonical Scanner page consolidates the existing production contracts:
   strategy search uses the current Scanner API, diagnostics retain
@@ -50,7 +54,7 @@ future work from accidentally creating a second Scanner runtime.
 - WARP remains a navigation/UI shell only until a production backend owner and
   RPC contract are proven. Forgejo is not connected; Avatar remains canonical.
 
-## Runtime evidence
+## Доказательства runtime
 
 The target-router acceptance probe confirmed that malformed starts fail with
 `EINPUT` and a valid start returns the bounded accepted envelope with

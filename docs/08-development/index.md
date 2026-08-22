@@ -1,6 +1,6 @@
 ---
 id: development-index
-title: "Development"
+title: "Разработка"
 type: index
 status: current
 authority: index
@@ -9,6 +9,18 @@ publish: true
 tags: [development, index]
 ---
 
-# Development
+# Для разработчиков
 
-- [Knowledge workflow](./knowledge-workflow.md)
+Публичное руководство описывает пользовательский workflow. Технические
+документы ниже нужны для сопровождения и не являются инструкциями по обходу
+owner boundaries:
+
+- [Архитектура](../02-architecture/index.md)
+- [Контракты](../04-contracts/index.md)
+- [Паритет Avatar и Z2K](../05-parity/index.md)
+- [Архитектурные решения](../07-decisions/index.md)
+- [Процесс работы со знаниями](./knowledge-workflow.md)
+
+Runtime ownership: Strategy владеет permanent Apply, Scanner создаёт только
+transient candidate, DNS сохраняет existing writer, а Telegram Proxy и WARP
+имеют отдельные lifecycle owners.

@@ -1,6 +1,6 @@
 ---
 id: contracts-index
-title: "Contracts"
+title: "Контракты"
 type: contract
 status: current
 authority: index
@@ -9,7 +9,7 @@ publish: true
 tags: [contracts, index]
 ---
 
-# Contracts
+# Контракты
 
-- [Native backend](./native-backend-v1.md)
-- [Canonical JSON](./z2m-canonical-json-v1.md)
+- [Нативный backend](./native-backend-v1.md)
+- [Канонический JSON](./z2m-canonical-json-v1.md)

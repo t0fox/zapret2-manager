@@ -75,3 +75,13 @@ For exact dynamic state, inspect `git status --short --branch`,
 `git branch --show-current`, `git rev-parse HEAD`, `git log --oneline`, and
 `git worktree list`. Actual Git state and fresh runtime evidence outrank this
 durable snapshot.
+
+## Internal vault routing
+
+The private operating contracts remain reachable from the internal state root:
+
+- [Agent operating contract](../12-ai/agent-operating-contract.md)
+- [Knowledge maintenance contract](../12-ai/knowledge-maintenance-contract.md)
+- [Verification contract](../12-ai/verification-contract.md)
+- [Waiting for user contract](../12-ai/waiting-for-user-contract.md)
+- [Handoff template](../12-ai/handoff-template.md)

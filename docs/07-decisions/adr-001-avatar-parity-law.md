@@ -1,6 +1,6 @@
 ---
 id: adr-001-avatar-parity-law
-title: "Avatar Parity Law"
+title: "Закон паритета Avatar"
 type: adr
 status: current
 authority: approved-spec
@@ -9,6 +9,8 @@ publish: true
 tags: [adr, parity, avatar]
 ---
 
-# Avatar Parity Law
+# Закон паритета Avatar
 
-Avatar-compatible behavior is the mandatory product floor. Characterize → reproduce → prove parity → add explicit enhancements → prove no regression. Parity wins when it conflicts with an optional enhancement.
+Поведение, совместимое с Avatar, является обязательным минимальным уровнем продукта:
+охарактеризовать → воспроизвести → доказать паритет → добавить явные улучшения →
+доказать отсутствие регрессий. При конфликте паритет имеет приоритет над необязательным улучшением.

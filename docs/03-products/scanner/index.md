@@ -1,6 +1,6 @@
 ---
 id: product-scanner-index
-title: "Scanner"
+title: "Сканер"
 type: product
 status: current
 authority: index
@@ -9,9 +9,25 @@ publish: true
 tags: [product, scanner, parity]
 ---
 
-# Scanner
+# Сканер
 
-Scanner findings are transient/candidate results and use the Strategy authority path for permanent Apply.
+Scanner проверяет цель ограниченным набором кандидатов и возвращает evidence,
+а не мгновенно меняет production runtime.
 
-Runtime authority and discovery evidence are recorded in
-[Scanner Runtime Authority](../../02-architecture/scanner-runtime-authority.md).
+## Рабочий процесс
+
+1. Укажите target и scan profile.
+2. Запустите сканирование и наблюдайте стадии normalize → planning → candidate
+   → temporary test → probe → cleanup.
+3. Дождитесь `best` и проверьте score, latency, protocol и evidence.
+4. Откройте candidate в Strategy IDE, при необходимости измените его и выполните
+   Preview/Validate.
+5. Сохраните и примените через Strategy.
+
+Временный NFQUEUE/helper принадлежит Scanner только на время теста. До и после
+проверяйте, что production queue и `nfqws2` сохранены, а temporary ownership
+удалён. `best: null` означает отсутствие доказанного результата, а не повод
+применять последний кандидат вслепую.
+
+Полномочия runtime и доказательства discovery записаны в документе
+[«Полномочия runtime сканера»](../../02-architecture/scanner-runtime-authority.md).
