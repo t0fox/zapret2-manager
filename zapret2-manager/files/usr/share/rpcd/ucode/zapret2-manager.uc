@@ -181,7 +181,8 @@ function lists_set_method(req) {
 	if (type(edit) != 'string') return { ok: false, error: 'edit must be a JSON string', got: type(edit) };
 	let tmp = staging_tempfile('/tmp/z2m-lists-edit.');
 	if (tmp == null) return { ok: false, error: 'private list edit file unavailable' };
-	writefile(tmp, edit);   // verbatim — no sprintf("%J"), no double-encode
+	// verbatim — no sprintf("%J"), no double-encode
+	if (!writefile(tmp, edit)) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'lists request temp file could not be written' } }; }
 	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' set ' + shell_escape(tmp) + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) return { ok: false, error: 'popen failed' };
@@ -228,7 +229,8 @@ function asset_edit_action(mode, req, trailing) {
 		return { ok: false, error: { code: 'EINPUT', message: 'asset edit must be a bounded JSON string' } };
 	let tmp = asset_tmpfile();
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'asset request temp file unavailable' } };
-	try { writefile(tmp, edit); } catch (e) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'asset request temp file could not be written' } }; }
+	let wrote = null; try { wrote = writefile(tmp, edit); } catch (e) { wrote = null; }
+	if (wrote == null) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'asset request temp file could not be written' } }; }
 	let command = '/usr/bin/ucode ' + ASSET_CLI + ' ' + mode + (trailing == null ? '' : ' ' + shell_escape(trailing)) + ' ' + shell_escape(tmp) + ' 2>/dev/null';
 	let p = popen(command, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'asset registry runner unavailable' } }; }
@@ -272,7 +274,8 @@ function resource_edit_action(req) {
 	if (!p) return { ok: false, error: { code: 'ETARGET', message: 'resource request temp file unavailable' } };
 	let tmp = trim(p.read('all') || ''), mkrc = p.close();
 	if (mkrc != 0 || index(tmp, '/tmp/z2m-resources-edit.') != 0) return { ok: false, error: { code: 'ETARGET', message: 'resource request temp file unavailable' } };
-	try { writefile(tmp, edit); } catch (e) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'resource request could not be written' } }; }
+	let wrote = null; try { wrote = writefile(tmp, edit); } catch (e) { wrote = null; }
+	if (wrote == null) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'resource request could not be written' } }; }
 	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' update ' + shell_escape(tmp) + ' 2>/dev/null';
 	let child = popen(command, 'r');
 	if (!child) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'resource center runner unavailable' } }; }
@@ -322,7 +325,8 @@ function profiles_edit_action(sub, req) {
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
 	let tmp = profiles_tmpfile();
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	writefile(tmp, edit);   // verbatim — no re-encode
+	// verbatim — no re-encode
+	if (!writefile(tmp, edit)) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'profiles request temp file could not be written' } }; }
 	let cmd = '/usr/bin/ucode ' + PROFILES_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
@@ -351,7 +355,7 @@ function blockcheck_apply_method(req) {
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be JSON' } };
 	let tmp = staging_tempfile('/tmp/z2m-blockcheck-apply.');
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'private apply request file unavailable' } };
-	writefile(tmp, edit);
+	if (!writefile(tmp, edit)) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'apply request temp file could not be written' } }; }
 	let p = popen('/usr/bin/ucode ' + BLOCKCHECK_APPLY_CLI + ' ' + shell_escape(tmp) + ' 2>/dev/null', 'r'); if (!p) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'apply runner unavailable' } }; }
 	let out = p.read('all'); p.close(); try { unlink(tmp); } catch (e) {} try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'apply response parse failed' } }; }
 }
@@ -385,7 +389,7 @@ function jobs_edit_action(sub, req) {
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
 	let tmp = staging_tempfile('/tmp/z2m-jobs-edit.');
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'private job edit file unavailable' } };
-	writefile(tmp, edit);
+	if (!writefile(tmp, edit)) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'jobs request temp file could not be written' } }; }
 	let cmd = '/usr/bin/ucode ' + JOBS_CLI + ' ' + sub + ' ' + shell_escape(tmp) + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
@@ -442,7 +446,8 @@ function scanner_start_async_impl(req) {
 		if (tmp) try { unlink(tmp); } catch (e) { }
 		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	}
-	try { writefile(tmp, serialized); } catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
+	let wrote = null; try { wrote = writefile(tmp, serialized); } catch (e) { wrote = null; }
+	if (wrote == null) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
 	let workerCommand = '/usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
 		+ ' >/dev/null 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1';
 	let cmd = 'setsid sh -c ' + shell_escape(workerCommand) + ' >/dev/null 2>&1 &';
@@ -475,8 +480,8 @@ function scanner_edit_action(sub, req, tag) {
 		if (tmp) try { unlink(tmp); } catch (e) { }
 		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	}
-	try { writefile(tmp, edit); }
-	catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
+	let wrote = null; try { wrote = writefile(tmp, edit); } catch (e) { wrote = null; }
+	if (wrote == null) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
 	let cmd = '/usr/bin/ucode ' + SCANNER_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null | head -c ' + SCANNER_MAX_OUTPUT_BYTES;
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner CLI unavailable' } }; }
@@ -556,7 +561,7 @@ function cli_edit_action(cli, sub, req, tag) {
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
 	let tmp = staging_tempfile('/tmp/z2m-' + tag + '-edit.');
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'private edit file unavailable' } };
-	writefile(tmp, edit);
+	if (!writefile(tmp, edit)) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
 	let cmd = '/usr/bin/ucode ' + cli + ' ' + sub + ' ' + shell_escape(tmp) + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
@@ -611,7 +616,7 @@ function orchestra_request_args(req) {
 function orchestra_reqfile_action(sub, req) {
 	let tmp = orch_tmpfile();
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n');
+	if (!writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n')) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
 	let cmd = orchestra_cmd(sub, tmp);
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
@@ -628,7 +633,7 @@ function orchestra_reqfile_action(sub, req) {
 function auto_strategy_reqfile_action(sub, req) {
 	let tmp = orch_tmpfile();
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n');
+	if (!writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n')) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
 	// Do not put a kill timeout around restore: its existing sanctioned apply is
 	// transactional and must be allowed to finish or roll back safely.
 	let p = popen('/usr/bin/ucode ' + AUTO_STRATEGY_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null | head -c ' + ORCH_MAX_OUTPUT, 'r');
@@ -850,8 +855,8 @@ function strategy_edit_action(mode, req) {
 		return { ok: false, error: { code: 'EINPUT', message: 'edit exceeds the safe request size limit' } };
 	let tmp = strategy_tmpfile();
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	try { writefile(tmp, edit); }
-	catch (e) {
+	let wrote = null; try { wrote = writefile(tmp, edit); } catch (e) { wrote = null; }
+	if (wrote == null) {
 		strategy_cleanup_request(tmp);
 		return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } };
 	}
