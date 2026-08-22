@@ -13,10 +13,31 @@ const RPC = readFileSync(path.join(ROOT,
   'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
 const CLI_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
-const DNS_PRODUCT_PATH = path.join(ROOT,
-  'zapret2-manager/files/usr/libexec/zapret2-manager/dns-product.uc');
-const TG_PRODUCT_PATH = path.join(ROOT,
-  'zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc');
+// This test exercises the strategy RPC wrapper.  The real product facades are
+// intentionally not loaded here: they pull OpenWrt-only modules such as
+// `uci`, while the pinned CI ucode runtime is a host-side test interpreter.
+// Keep those unrelated dependencies out of the strategy transport test with
+// temporary modules that satisfy the signature imports without owning any
+// product behavior.
+const RPC_PRODUCT_STUB_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-products-'));
+const DNS_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'dns-product.uc');
+const TG_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'tg-product.uc');
+const stubProductModule = names => names
+  .map(name => `export const ${name} = function () { return { ok: true }; };`)
+  .join('\n') + '\n';
+fs.writeFileSync(DNS_PRODUCT_PATH, stubProductModule([
+  'dns_product_get', 'dns_product_providers', 'dns_product_status',
+  'dns_product_preview', 'dns_product_validate', 'dns_product_apply',
+  'dns_product_rollback',
+]));
+fs.writeFileSync(TG_PRODUCT_PATH, stubProductModule([
+  'tg_product_get', 'tg_product_catalog', 'tg_product_status', 'tg_product_versions',
+  'tg_product_operation_status', 'tg_product_validate', 'tg_product_preview',
+  'tg_product_apply', 'tg_product_health', 'tg_product_check_updates',
+  'tg_product_switch', 'tg_product_install', 'tg_product_update', 'tg_product_remove',
+  'tg_product_purge', 'tg_product_start', 'tg_product_stop', 'tg_product_restart',
+]));
+test.after(() => fs.rmSync(RPC_PRODUCT_STUB_ROOT, { recursive: true, force: true }));
 const CLI = readFileSync(CLI_PATH, 'utf8');
 const ACL = readFileSync(path.join(ROOT,
   'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json'), 'utf8');
