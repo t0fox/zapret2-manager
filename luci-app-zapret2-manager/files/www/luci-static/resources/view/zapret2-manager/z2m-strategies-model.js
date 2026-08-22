@@ -138,8 +138,13 @@ function combineStrategies(values) {
       });
     });
   });
-  return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profiles: profilesList };
+  return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profi[...]
 }
+/**
+ * Determines whether a strategy represents an autocircular strategy.
+ * @param {Object} strategy - The strategy data to inspect.
+ * @returns {boolean} `true` if the strategy is marked or identified as circular, `false` otherwise.
+ */
 function isCircularStrategy(strategy) {
   strategy = object(strategy);
   var metadata = object(strategy.metadata);
@@ -352,6 +357,12 @@ function findPool(poolKey, pools) {
   return DEFAULT_RUNTIME_POOLS[poolKey] || DEFAULT_RUNTIME_POOLS[pKey] || null;
 }
 
+/**
+ * Extract the Discord voice strategy state for the `nohost` entry.
+ * @param {Array} entries - Runtime strategy entries to search.
+ * @param {Object|Array} pools - Runtime pool definitions used to determine the active pool and size.
+ * @return {Object} The strategy state, including its mode, strategy index, pool metadata, and whether an entry was found.
+ */
 function extractDiscordVoiceState(entries, pools) {
   entries = array(entries);
   var livePool = findLivePool('discord_udp', pools) || findLivePool('discord_voice', pools);
@@ -416,6 +427,11 @@ function extractDiscordVoiceState(entries, pools) {
   };
 }
 
+/**
+ * Filters out learned entries associated with the `nohost` pseudo-host.
+ * @param {Array} entries - The learned entries to filter.
+ * @return {Array} The entries with `nohost` and falsy values removed.
+ */
 function filterDomainLearnedEntries(entries) {
   return array(entries).filter(function (entry) {
     if (!entry) return false;
@@ -424,6 +440,13 @@ function filterDomainLearnedEntries(entries) {
   });
 }
 
+/**
+ * Builds selectable strategy options for a runtime strategy pool.
+ * @param {string} poolKey - The pool identifier used to resolve strategy metadata.
+ * @param {number|string} currentStrategy - The currently selected strategy index.
+ * @param {Object} pools - Available runtime strategy pools.
+ * @return {Array<Object>} Strategy options with labels, selection state, and unknown-strategy status.
+ */
 function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   var pool = findPool(poolKey, pools);
   var poolSize = 0;
@@ -431,14 +454,17 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   if (typeof pool === 'number') {
     poolSize = pool;
   } else if (pool && typeof pool === 'object') {
-    poolSize = Number(pool.size || pool.max || (Array.isArray(pool.strategies) ? pool.strategies.length : 0)) || 0;
+    poolSize = Number(pool.size || pool.max) || 0;
     if (Array.isArray(pool.strategies)) {
+      var seen = new Set();
       pool.strategies.forEach(function (s) {
         if (s && s.index !== undefined) {
-          stratsMap[s.index] = s;
+          var idx = Number(s.index) || 0;
+          if (!seen.has(idx) && idx >= 1) { seen.add(idx); stratsMap[idx] = s; }
         }
       });
-      if (pool.strategies.length > poolSize) poolSize = pool.strategies.length;
+      // use unique-index count when no explicit size was declared
+      if (seen.size > poolSize) poolSize = seen.size;
     }
   }
 
@@ -478,6 +504,13 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   return options;
 }
 
+/**
+ * Resolves the display name for a strategy in a runtime pool.
+ * @param {string} poolKey - The runtime pool identifier.
+ * @param {number|string} currentStrategy - The strategy index to resolve; invalid values use index 1.
+ * @param {Object} pools - Runtime pool definitions to search before using default definitions.
+ * @return {string} The matching strategy name or a generated label for the strategy index.
+ */
 function resolveStrategyName(poolKey, currentStrategy, pools) {
   var pool = findPool(poolKey, pools);
   var curNum = Number(currentStrategy);
@@ -489,6 +522,15 @@ function resolveStrategyName(poolKey, currentStrategy, pools) {
       if (s && Number(s.index) === curNum && text(s.name)) {
         return text(s.name);
       }
+    }
+  }
+
+  // If pools is empty or missing, fall back to default runtime pools explicitly
+  var fallbackPool = findPool(poolKey, DEFAULT_RUNTIME_POOLS);
+  if (fallbackPool && Array.isArray(fallbackPool.strategies)) {
+    for (var j = 0; j < fallbackPool.strategies.length; j++) {
+      var fs = fallbackPool.strategies[j];
+      if (fs && Number(fs.index) === curNum && text(fs.name)) return text(fs.name);
     }
   }
 

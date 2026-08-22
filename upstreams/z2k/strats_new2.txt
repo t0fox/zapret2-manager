@@ -1,0 +1,5 @@
+# minimal upstream stub for CI tests
+# includes three pool markers read by tools/z2k-corpus-importer.mjs
+manual_autocircular_rkn = slot1 --new --some=arg
+manual_autocircular_yt = slot1 --new --some=arg
+manual_autocircular_gv = slot1 --new --some=arg
