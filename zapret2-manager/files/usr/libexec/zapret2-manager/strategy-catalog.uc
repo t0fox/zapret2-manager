@@ -117,7 +117,7 @@ function atomic_write(path, content) {
 		: path == READ_INDEX_PATH ? '/etc/zapret2-manager' : null;
 	if (parent != null) {
 		let prep = null;
-		try { prep = popen('mkdir -p ' + shell_quote(parent) + ' 2>/dev/null', 'r'); } catch (e) { prep = null; }
+		try { prep = popen('mkdir ' + shell_quote(parent) + ' 2>/dev/null', 'r'); } catch (e) { prep = null; }
 		if (!prep || prep.close() != 0) return false;
 	}
 	let temporary = path + '.tmp.' + time();
@@ -1128,7 +1128,7 @@ export const strategy_catalog_activate_snapshot = function(root, prepared) {
 	let managedMetadata = null;
 	try { managedMetadata = stat(MANAGED_ROOT); } catch (e) { managedMetadata = null; }
 	let hadManaged = managedMetadata != null && managedMetadata.type == 'directory';
-	if (command_rc('mkdir -p ' + shell_quote('/etc/zapret2-manager/catalog')) != 0)
+	if (command_rc('mkdir ' + shell_quote('/etc/zapret2-manager/catalog')) != 0)
 		return error_result('EWRITE', 'managed catalog directory could not be prepared');
 	if (hadManaged && command_rc('mv ' + shell_quote(MANAGED_ROOT) + ' ' + shell_quote(previousNew)) != 0)
 		return error_result('EWRITE', 'current managed catalog could not be staged for replacement');

@@ -27,7 +27,7 @@ function shell_escape(value) {
 	return out + "'";
 }
 function ensure_dir() {
-	let p = popen('mkdir -p ' + shell_escape(LEARNED_DIR) + ' 2>/dev/null', 'r');
+	let p = popen('mkdir ' + shell_escape(LEARNED_DIR) + ' 2>/dev/null', 'r');
 	if (p) { p.read('all'); p.close(); }
 }
 function load_json(path, fallback) {

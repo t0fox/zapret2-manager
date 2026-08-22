@@ -499,7 +499,7 @@ function install_direct_candidate(candidate) {
 	let base = '/tmp/zapret2-manager/tg-proxy.' + time(), archive = base + '.tar.gz', extract = base + '.extract';
 	let archiveQ = literal(archive), extractQ = literal(extract), urlQ = literal(candidate.downloadUrl);
 	if (archiveQ == null || extractQ == null || urlQ == null) return error('ESECURITY', 'Ссылка release не прошла allowlist.');
-	let download = run('mkdir -p ' + literal('/tmp/zapret2-manager') + ' && ulimit -f 65536; uclient-fetch -q -T 30 --user-agent zapret2-manager/tg-proxy -O ' + archiveQ + ' ' + urlQ);
+	let download = run('ulimit -f 65536; uclient-fetch -q -T 30 --user-agent zapret2-manager/tg-proxy -O ' + archiveQ + ' ' + urlQ);
 	if (download.rc != 0 || stat(archive) == null) {
 		run('rm -rf ' + archiveQ + ' ' + extractQ);
 		return error('ENETWORK', 'Не удалось загрузить официальный Rust release.');
@@ -509,7 +509,7 @@ function install_direct_candidate(candidate) {
 		run('rm -rf ' + archiveQ + ' ' + extractQ);
 		return error('EVERIFY', 'SHA-256 Rust release не совпал с GitHub digest.');
 	}
-	if (run('mkdir -p ' + extractQ + ' && tar -xzf ' + archiveQ + ' -C ' + extractQ).rc != 0) {
+	if (run('mkdir ' + extractQ + ' && tar -xzf ' + archiveQ + ' -C ' + extractQ).rc != 0) {
 		run('rm -rf ' + archiveQ + ' ' + extractQ);
 		return error('EVERIFY', 'Архив Rust release не удалось распаковать.');
 	}
