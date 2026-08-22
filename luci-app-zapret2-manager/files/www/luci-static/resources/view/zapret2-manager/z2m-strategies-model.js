@@ -431,21 +431,17 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   if (typeof pool === 'number') {
     poolSize = pool;
   } else if (pool && typeof pool === 'object') {
-    poolSize = Number(pool.size || pool.max || (Array.isArray(pool.strategies) ? pool.strategies.length : 0)) || 0;
+    poolSize = Number(pool.size || pool.max) || 0;
     if (Array.isArray(pool.strategies)) {
-      // Build map while ignoring duplicate indices to avoid inflated lengths
       var seen = new Set();
       pool.strategies.forEach(function (s) {
         if (s && s.index !== undefined) {
           var idx = Number(s.index) || 0;
-          if (!seen.has(idx) && idx >= 1) {
-            seen.add(idx);
-            stratsMap[idx] = s;
-          }
+          if (!seen.has(idx) && idx >= 1) { seen.add(idx); stratsMap[idx] = s; }
         }
       });
-      // prefer declared pool.size over strategies length, but fall back to unique indices count
-      if ((seen.size) > poolSize) poolSize = seen.size;
+      // use unique-index count when no explicit size was declared
+      if (seen.size > poolSize) poolSize = seen.size;
     }
   }
 
