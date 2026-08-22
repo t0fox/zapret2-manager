@@ -1,0 +1,220 @@
+{
+  "repo_notes": [
+    {
+      "author": "Z2M Maintainers",
+      "content": "CURRENT source code and tests are the primary truth for zapret2-manager. Dynamic source evidence outranks stale documentation. docs/09-work, docs/99-archive, .superpowers and old plans/reports are historical evidence, not proof of current runtime behavior. Planned/incomplete features must be labelled as such."
+    },
+    {
+      "author": "Z2M Maintainers",
+      "content": "Z2M is the sole production runtime owner/coordinator. System Components are logically Zapret2 Engine and Z2K Core. Avatar is NOT a System Component; avatarDD/zapret-gui is a Strategy/resource catalog authority and UX donor where verified, and Avatar does NOT own Z2M runtime writes. Telegram Proxy is NOT a System Component; it is an optional product with its own install/update/status lifecycle. WARP / MASQUE is also an optional routing product, not mandatory Z2M foundation. Resource Center represents data/assets. Low-level Z2K Lua/blob/list assets may appear there, but this does not create a separate user product called Z2K Resources. Z2K Core is ONE logical system integration."
+    },
+    {
+      "author": "Z2M Maintainers",
+      "content": "Engine authority model: bol-van/zapret2 = base engine upstream; necronicle/zapret2-z2k:z2k-master = Z2K engine delta/reference; necronicle/z2k:z2k-enhanced = Z2K runtime/data upstream. Avatar authority: avatarDD/zapret-gui = Strategy/resource catalog + UX donor where verified. t0fox/zapret2-manager remains final runtime authority."
+    },
+    {
+      "author": "Z2M Maintainers",
+      "content": "Strategy is the permanent Apply authority. Scanner produces temporary evidence/candidates and does NOT own permanent Strategy Apply. Production nfqws2 ownership is exactly one persistent production instance, and production NFQUEUE is queue 300. DNS uses the existing dnsmasq ownership path; Z2M must not be described as creating a second resident DNS daemon. TG Proxy has exactly one selected provider process."
+    },
+    {
+      "author": "Z2M Maintainers",
+      "content": "User-owned resources must not be described as freely overwritable by upstream updates. Package release currently targets OpenWrt mediatek/filogic and must be described from CURRENT release config/Makefiles rather than old docs. The release package set is zapret2-manager, luci-app-zapret2-manager and zapret2-manager-full; Engine and Telegram Proxy are not hard bundled."
+    },
+    {
+      "author": "Z2M Maintainers",
+      "content": "Quartz remains controlled user-facing documentation: installation, first start, actual LuCI navigation, page behavior, statuses/buttons, basic configuration and supported platform/release information. DeepWiki is the primary technical/code documentation surface for architecture, subsystem internals, source relationships, data flows, RPC/backend contracts and release engineering. Preserve the internal docs/ vault for contracts, ADRs, work evidence, research, parity evidence and agent/internal material."
+    },
+    {
+      "author": "Z2M Maintainers",
+      "content": "Generate explanatory prose primarily in Russian. Preserve source-code symbols, filenames, CLI commands, protocol names and established technical terms in their original form. Do not translate nfqws2, NFQUEUE, RPC, Lua, IPSet, hostlist, blob, Asset Registry, Strategy, Preview, Validate or Apply when translation would make source tracing harder."
+    }
+  ],
+  "pages": [
+    {
+      "title": "zapret2-manager Overview",
+      "purpose": "Explain what Z2M is, its OpenWrt/LuCI role, major subsystems, repository layout, and the distinction between runtime owner, System Components, data/catalogs, and optional products.",
+      "parent": null
+    },
+    {
+      "title": "System Architecture",
+      "purpose": "High-level architecture with a Mermaid diagram covering LuCI → API/RPC → backend coordinators → runtime/state.",
+      "parent": null
+    },
+    {
+      "title": "Runtime Ownership Model",
+      "purpose": "Explain the single-owner rules, persistent state, exactly one production nfqws2 instance, NFQUEUE 300, dnsmasq ownership, and optional product ownership.",
+      "parent": "System Architecture"
+    },
+    {
+      "title": "LuCI Frontend and RPC Layer",
+      "purpose": "Explain the LuCI frontend module structure, z2m-api.js RPC wrapper, page routing, state loading, API calls, and mutation boundaries.",
+      "parent": "System Architecture"
+    },
+    {
+      "title": "Persistent State and Filesystem",
+      "purpose": "Explain /etc/zapret2-manager and /tmp/zapret2-manager, persistent versus transient state, and atomic/verified state handling where CURRENT source implements it.",
+      "parent": "System Architecture"
+    },
+    {
+      "title": "DPI Bypass",
+      "purpose": "Overview of the Zapret2 Engine + Strategy + nfqws2 + NFQUEUE data path and ownership boundaries.",
+      "parent": null
+    },
+    {
+      "title": "Strategy Lifecycle",
+      "purpose": "Deep documentation of catalog list/get, Preview, Validate, Create/Update, Apply, selected versus applied identity, Visual/Raw IDE, resource resolution, rollback and verification. Trace CURRENT z2m-strategies.js, z2m-api.js calls, Strategy RPC/backend, catalog modules, apply coordinator and tests. Include a sequence/data-flow diagram.",
+      "parent": "DPI Bypass",
+      "page_notes": [
+        {
+          "content": "Do not infer Strategy behavior only from old docs. Trace the current z2m-strategies.js UI, z2m-api.js calls, backend Strategy RPC and current tests. Distinguish selected, saved and applied.",
+          "author": "Z2M Maintainers"
+        }
+      ]
+    },
+    {
+      "title": "Scanner Architecture",
+      "purpose": "Explain planning, bounded candidates, temporary helper/firewall ownership, probe, cleanup, scoring/best result, and handoff to Strategy. Make explicit that Scanner is not permanent Apply authority.",
+      "parent": "DPI Bypass",
+      "page_notes": [
+        {
+          "content": "Scanner is transient. It may use temporary firewall/helper state during an operation, but permanent runtime mutation must handoff through Strategy.",
+          "author": "Z2M Maintainers"
+        }
+      ]
+    },
+    {
+      "title": "Autocircular State Model",
+      "purpose": "Explain auto/frozen/excluded, learned state, persistence, Discord integration where CURRENT, and why excluded != deleted.",
+      "parent": "DPI Bypass"
+    },
+    {
+      "title": "Engine and Z2K",
+      "purpose": "Explain why Engine and Z2K are related but distinct logical concerns inside the two-item System Components model.",
+      "parent": null
+    },
+    {
+      "title": "Zapret2 Engine Integration",
+      "purpose": "Explain compatible Engine identity, capabilities, installation/update gates, bol-van/zapret2 base upstream, service/autostart, incompatible vanilla rejection, and lifecycle.",
+      "parent": "Engine and Z2K"
+    },
+    {
+      "title": "Z2K Core Integration",
+      "purpose": "Explain Z2K Core as one System Component: runtime Lua, detectors, engine extensions, Autocircular support, component transaction and compatibility.",
+      "parent": "Engine and Z2K",
+      "page_notes": [
+        {
+          "content": "Treat Z2K Core as one system component. Low-level Z2K assets in Asset Registry do not create a second product.",
+          "author": "Z2M Maintainers"
+        }
+      ]
+    },
+    {
+      "title": "Z2K Upstream Synchronization",
+      "purpose": "Explain manifest/path validation, exact-managed/adapted/watched classification where CURRENT, safe activation, rollback/review, and Asset Registry handoff.",
+      "parent": "Engine and Z2K"
+    },
+    {
+      "title": "Upstream Authority Model",
+      "purpose": "Map bol-van/zapret2, necronicle/zapret2-z2k, necronicle/z2k, avatarDD/zapret-gui and t0fox/zapret2-manager. Show ownership of base engine, delta, runtime/data, catalog/donor behavior, and final runtime authority.",
+      "parent": "Engine and Z2K"
+    },
+    {
+      "title": "Data and Resources",
+      "purpose": "Overview of Resource Center, Asset Registry, catalogs, domains and ownership.",
+      "parent": null
+    },
+    {
+      "title": "Asset Registry and Resource Center",
+      "purpose": "Explain Updates / Installed / User / Sources, asset ownership, package/user protection, bundle transactions, workspaces and rollback. Explicitly explain Z2K Core != Z2K Resources.",
+      "parent": "Data and Resources"
+    },
+    {
+      "title": "Avatar Catalog Integration",
+      "purpose": "Explain Avatar Strategy/resource catalog provenance, import/canonicalization/deduplication, package snapshot, update lifecycle and donor boundary. Where useful compare Avatar donor code to the CURRENT Z2M adapter.",
+      "parent": "Data and Resources",
+      "page_notes": [
+        {
+          "content": "Avatar is a donor/catalog authority, not runtime authority. Clearly separate donor UX/import behavior from Z2M transport, RPC, ownership and persistence.",
+          "author": "Z2M Maintainers"
+        }
+      ]
+    },
+    {
+      "title": "Services and Domains",
+      "purpose": "Explain Service Catalog, user domains, discovered domains, ownership ledger, and how these differ from Autocircular.",
+      "parent": "Data and Resources"
+    },
+    {
+      "title": "DNS and Routing",
+      "purpose": "Explain Z2M DNS architecture and the existing dnsmasq ownership path.",
+      "parent": null
+    },
+    {
+      "title": "DNS Apply and Rollback",
+      "purpose": "Explain profiles/providers, Preview, validation, Apply, health verification, history and rollback from CURRENT source.",
+      "parent": "DNS and Routing",
+      "page_notes": [
+        {
+          "content": "Document the existing dnsmasq ownership path. Do not describe a second resident DNS daemon unless current source actually implements one.",
+          "author": "Z2M Maintainers"
+        }
+      ]
+    },
+    {
+      "title": "Optional Proxy and Routing Products",
+      "purpose": "Explain why Telegram Proxy and WARP/MASQUE are optional products and are not System Components.",
+      "parent": null
+    },
+    {
+      "title": "Telegram Proxy Lifecycle",
+      "purpose": "Explain provider catalog, Go/Rust providers, install/update/switch/remove/purge, transaction stages, healthcheck, configuration preservation and rollback.",
+      "parent": "Optional Proxy and Routing Products",
+      "page_notes": [
+        {
+          "content": "TG Proxy has its own canonical installer/status lifecycle. Dashboard and System pages may summarize/link but must not be described as duplicate installers.",
+          "author": "Z2M Maintainers"
+        }
+      ]
+    },
+    {
+      "title": "WARP and MASQUE",
+      "purpose": "Document only CURRENT implemed WARP/MASQUE architecture, routing ownership and lifecycle. Clearly label incomplete or UI-only behavior.",
+      "parent": "Optional Proxy and Routing Products"
+    },
+    {
+      "title": "Diagnostics and Operations",
+      "purpose": "Explain Monitoring, Logs, health/status semantics, diagnostic data and safe operational troubleshooting.",
+      "parent": null
+    },
+    {
+      "title": "OpenWrt Packaging and Release Engineering",
+      "purpose": "Explain the actual CURRENT APK build and release system.",
+      "parent": null
+    },
+    {
+      "title": "APK Package Model",
+      "purpose": "Explain zapret2-manager, luci-app-zapret2-manager and zapret2-manager-full dependencies, target architecture, and why Engine/TG Proxy are not hard bundled.",
+      "parent": "OpenWrt Packaging and Release Engineering"
+    },
+    {
+      "title": "APK Build Pipeline",
+      "purpose": "Explain scripts/release/build-apk.sh, the pinned OpenWrt SDK, SHA verification, package staging, compile, artifact discovery, build manifest and SHA256SUMS.",
+      "parent": "OpenWrt Packaging and Release Engineering"
+    },
+    {
+      "title": "GitHub Actions and RC Releases",
+      "purpose": "Explain .github/workflows/apk-build.yml and .github/workflows/release-rc.yml, main build artifacts, RC tag contract and release boundaries.",
+      "parent": "OpenWrt Packaging and Release Engineering"
+    },
+    {
+      "title": "Testing and Verification",
+      "purpose": "Explain test families, architecture/contract tests, native gates, knowledge CI, release verification, what tests prove, and what still requires router/hardware evidence.",
+      "parent": null
+    },
+    {
+      "title": "Repository Guide for Contributors",
+      "purpose": "Map important directories and explain how to trace a feature from LuCI to API/RPC to backend to tests.",
+      "parent": null
+    }
+  ]
+}

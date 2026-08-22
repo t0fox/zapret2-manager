@@ -7,6 +7,16 @@ import { writefile, unlink, popen } from 'fs';
 
 const CLI = '/usr/libexec/zapret2-manager/domain-hub-cli.uc';
 const MAX_OUTPUT = 524288;
+const TMP_PREFIX = '/tmp/z2m-domain-hub-edit.';
+
+// Staging goes through `umask 077; mktemp` so a local unprivileged process
+// cannot pre-create or symlink the request path we write as root.
+function tempfile() {
+	let p = popen('umask 077; mktemp ' + TMP_PREFIX + 'XXXXXX 2>/dev/null', 'r');
+	if (!p) return null;
+	let file = trim(p.read('all') || ''), rc = p.close();
+	return rc == 0 && index(file, TMP_PREFIX) == 0 && length(file) <= 64 ? file : null;
+}
 
 function request_edit(req) {
 	let edit = null;
@@ -30,9 +40,13 @@ function action(mode, edit) {
 	if (edit != null) {
 		if (type(edit) != 'string')
 			return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string' }, got: type(edit) };
-		file = '/tmp/z2m-domain-hub-edit.' + time() + '.' + length(edit);
-		if (!writefile(file, edit))
+		file = tempfile();
+		if (file == null)
+			return { ok: false, error: { code: 'EINTERNAL', message: 'failed to create a private edit file' } };
+		if (!writefile(file, edit)) {
+			try { unlink(file); } catch (e) { }
 			return { ok: false, error: { code: 'EINTERNAL', message: 'failed to stage edit' } };
+		}
 		command += ' ' + file;
 	}
 	let process = popen(command + ' 2>/dev/null | head -c ' + MAX_OUTPUT, 'r');
