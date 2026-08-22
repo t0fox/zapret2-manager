@@ -3,7 +3,7 @@
   "status": "configured",
   "engineIntegrationIdentity": "/usr/share/zapret2-manager/upstreams/engine-integration.json",
   "minNfqws2CompatVer": 1,
-  "engineSourceCommit": "b08ae78778b602d246596435ea9b3f953f489828",
+  "engineSourceCommit": "a0be7cbb40a4230e4b60fc33b7ea06102eb8ec15",
   "patchSeries": [
     "001-z2k-tls-mod.patch",
     "002-z2k-antidpi-repeats-loop.patch",
