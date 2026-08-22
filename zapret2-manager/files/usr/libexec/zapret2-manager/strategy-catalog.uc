@@ -862,7 +862,8 @@ function fast_resolve(packageRoot, managedRoot) {
 export const strategy_catalog_resolve = function(options) {
 	options = is_object(options) ? options : {};
 	let packageRoot = options.packageRoot || DEFAULT_ROOT, managedRoot = options.managedRoot || MANAGED_ROOT;
-	let explicit = options.root || configured_root();
+	let customCandidates = options.packageRoot != null || options.managedRoot != null;
+	let explicit = options.root || (customCandidates ? null : configured_root());
 	if (explicit != null) {
 		// A single rpcd/ucode process serves many read requests.  Once an
 		// explicit root has passed the full manifest/raw-file verification, reuse
@@ -1034,7 +1035,7 @@ export const strategy_catalog_get_detail = function(id) {
 	// continue through the bounded single-file fallback below.
 	if (type(fast.catalog.physicalEntries) == 'array') {
 		for (let entry in fast.catalog.physicalEntries)
-			if (entry.id == id && entry.winner == true) return copy(entry);
+			if (entry.id == id && entry.winner == true) return entry;
 	}
 	let indexed = fast.catalog.winners[id], path = safe_file_path(loadedRoot || catalog_root(), indexed.sourceFile);
 	if (path == null) return { error: { code: 'EPATH', message: 'strategy source path is unavailable' } };
