@@ -172,10 +172,27 @@ find_product_apk() {
 BACKEND_APK=$(find_product_apk zapret2-manager)
 LUCI_APK=$(find_product_apk luci-app-zapret2-manager)
 FULL_APK=$(find_product_apk zapret2-manager-full)
+APK_TOOL=$(find "$SDK_DIR/staging_dir/host" -type f -name apk -perm -u+x -print -quit)
+[ -n "$APK_TOOL" ] || die 'OpenWrt SDK-native apk tool is missing'
+
+if ! FULL_METADATA_JSON=$(
+	"$APK_TOOL" adbdump --format json "$FULL_APK"
+); then
+	die 'full package metadata could not be decoded by SDK apk'
+fi
 
 verify_full_package_dependency() {
 	local dependency=$1
-	if ! tar -xOf "$FULL_APK" .PKGINFO | grep -Fqx "depend = $dependency"; then
+	if ! printf '%s' "$FULL_METADATA_JSON" | DEPENDENCY="$dependency" node --input-type=module -e '
+import fs from "node:fs";
+
+const metadata = JSON.parse(fs.readFileSync(0, "utf8"));
+const dependencies = metadata.info?.depends ?? metadata.info?.depend ?? [];
+const dependency = process.env.DEPENDENCY;
+if (!Array.isArray(dependencies) || !dependencies.some((value) => String(value) === dependency || String(value).startsWith(`${dependency}=`))) {
+	process.exit(1);
+}
+'; then
 		die "full package dependency metadata is missing: $dependency"
 	fi
 }
