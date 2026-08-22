@@ -128,6 +128,15 @@ function passthrough_method(req) {
 
 // ---- lists methods (ЦЕЛЬ ДВА — ui/07-lists-page) ---------------------------
 const LISTS_CLI = '/usr/libexec/zapret2-manager/lists-cli.uc';
+// Request staging always goes through `umask 077; mktemp` so a local
+// unprivileged process cannot pre-create or symlink the path rpcd writes as
+// root. `prefix` must end with a literal '.' and carry no shell metacharacters.
+function staging_tempfile(prefix) {
+	let p = popen('umask 077; mktemp ' + prefix + 'XXXXXX 2>/dev/null', 'r');
+	if (!p) return null;
+	let path = trim(p.read('all') || ''), rc = p.close();
+	return rc == 0 && index(path, prefix) == 0 && length(path) <= 64 ? path : null;
+}
 function shell_escape(value) {
 	let s = '' + (value == null ? '' : value), out = "'";
 	for (let i = 0; i < length(s); i++) {
@@ -170,9 +179,10 @@ function lists_set_method(req) {
 	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
 	if (edit == null) return { ok: false, error: 'missing edit param' };
 	if (type(edit) != 'string') return { ok: false, error: 'edit must be a JSON string', got: type(edit) };
-	let tmp = '/tmp/z2m-lists-edit.' + time();
+	let tmp = staging_tempfile('/tmp/z2m-lists-edit.');
+	if (tmp == null) return { ok: false, error: 'private list edit file unavailable' };
 	writefile(tmp, edit);   // verbatim — no sprintf("%J"), no double-encode
-	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' set ' + tmp + ' 2>/dev/null';
+	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' set ' + shell_escape(tmp) + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) return { ok: false, error: 'popen failed' };
 	let out = p.read('all');
@@ -339,8 +349,10 @@ const BLOCKCHECK_APPLY_CLI = '/usr/libexec/zapret2-manager/blockcheck-apply-cli.
 function blockcheck_apply_method(req) {
 	let edit = null; try { if (req && req.args) edit = req.args.edit; } catch (e) {} if (edit == null) try { edit = req.edit; } catch (e) {}
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be JSON' } };
-	let tmp = '/tmp/z2m-blockcheck-apply.' + time(); writefile(tmp, edit);
-	let p = popen('/usr/bin/ucode ' + BLOCKCHECK_APPLY_CLI + ' ' + tmp + ' 2>/dev/null', 'r'); if (!p) return { ok: false, error: { code: 'ETARGET', message: 'apply runner unavailable' } };
+	let tmp = staging_tempfile('/tmp/z2m-blockcheck-apply.');
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'private apply request file unavailable' } };
+	writefile(tmp, edit);
+	let p = popen('/usr/bin/ucode ' + BLOCKCHECK_APPLY_CLI + ' ' + shell_escape(tmp) + ' 2>/dev/null', 'r'); if (!p) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'apply runner unavailable' } }; }
 	let out = p.read('all'); p.close(); try { unlink(tmp); } catch (e) {} try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'apply response parse failed' } }; }
 }
 function blockcheck_preview_method(req) { return blockcheck_apply_method(req); }
@@ -371,9 +383,10 @@ function jobs_edit_action(sub, req) {
 	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
 	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
-	let tmp = '/tmp/z2m-jobs-edit.' + time();
+	let tmp = staging_tempfile('/tmp/z2m-jobs-edit.');
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'private job edit file unavailable' } };
 	writefile(tmp, edit);
-	let cmd = '/usr/bin/ucode ' + JOBS_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
+	let cmd = '/usr/bin/ucode ' + JOBS_CLI + ' ' + sub + ' ' + shell_escape(tmp) + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
 	let out = p.read('all');
@@ -512,9 +525,9 @@ const MAINT_CLI = '/usr/libexec/zapret2-manager/maintenance-cli.uc';
 
 const ORCH_MAX_OUTPUT = 131072;
 function orch_tmpfile() {
-	let p = popen('mktemp /tmp/z2m-orch-req.XXXXXX 2>/dev/null', 'r');
-	if (!p) return null; let out = trim(p.read('all')); p.close();
-	return length(out) ? out : null;
+	let p = popen('umask 077; mktemp /tmp/z2m-orch-req.XXXXXX 2>/dev/null', 'r');
+	if (!p) return null; let out = trim(p.read('all')), rc = p.close();
+	return rc == 0 && index(out, '/tmp/z2m-orch-req.') == 0 && length(out) <= 64 ? out : null;
 }
 function orchestra_cmd(sub, arg) {
 	// The target BusyBox image has no `timeout` applet. Keep the response bounded
@@ -541,9 +554,10 @@ function cli_edit_action(cli, sub, req, tag) {
 	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
 	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
-	let tmp = '/tmp/z2m-' + tag + '-edit.' + time();
+	let tmp = staging_tempfile('/tmp/z2m-' + tag + '-edit.');
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'private edit file unavailable' } };
 	writefile(tmp, edit);
-	let cmd = '/usr/bin/ucode ' + cli + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
+	let cmd = '/usr/bin/ucode ' + cli + ' ' + sub + ' ' + shell_escape(tmp) + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
 	let out = p.read('all');
