@@ -15,9 +15,13 @@ test('main APK workflow builds artifacts and publishes the rolling prerelease', 
   assert.match(source, /scripts\/release\/verify-artifacts\.mjs/);
   assert.match(source, /actions\/upload-artifact@v4/);
   assert.match(source, /TAG:\s*main-latest/);
-  assert.match(source, /if:\s*github\.ref == 'refs\/heads\/main'/);
-  assert.match(source, /gh release delete "\$TAG" --yes --cleanup-tag \|\| true/);
+  assert.match(source, /if:\s*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+  assert.doesNotMatch(source, /gh release delete "\$TAG" --yes --cleanup-tag \|\| true/);
+  assert.match(source, /gh release delete "\$TAG" --yes --cleanup-tag/);
+  assert.match(source, /not found/);
   assert.match(source, /gh release create "\$TAG"/);
+  assert.match(source, /--target "\$GITHUB_SHA"/);
+  assert.match(source, /dist\/\*\.apk dist\/SHA256SUMS dist\/build-manifest\.json/);
   assert.match(source, /--prerelease/);
   assert.doesNotMatch(source, /release-rc/);
 });
