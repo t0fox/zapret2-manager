@@ -16,7 +16,7 @@ test('P01-V6 removes Resource Check presentation while retaining its backend pat
 });
 
 test('P01-V6 uses bounded canonical recommendations instead of the full Strategy catalog', () => {
-  const page = read('z2m-overview.js');
+  const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   const api = read('z2m-api.js');
   const dashboard = read('z2m-avatar-dashboard.js');
   assert.match(api, /strategiesRecommendations:rpc\.declare\(\{object:'zapret2-manager',method:'strategies_recommendations'/);
@@ -31,7 +31,7 @@ test('P01-V6 uses bounded canonical recommendations instead of the full Strategy
 });
 
 test('P01-V6 keeps the Dashboard event journal compact and shared', () => {
-  const page = read('z2m-overview.js');
+  const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   const css = read('z2m-ui.css');
   assert.match(page, /eventsTail, \{ limit: 8 \}/);
   assert.match(page, /AvatarLog\.renderNormalized/);

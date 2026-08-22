@@ -36,7 +36,7 @@ test('P01 Dashboard follows the current accepted composition and order', () => {
 });
 
 test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
-  const page = read('z2m-overview.js');
+  const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   assert.match(page, /ctx\.api\.service\.start/);
   assert.match(page, /ctx\.api\.service\.stop/);
   assert.match(page, /ctx\.api\.monitor\.eventsTail/);
@@ -49,15 +49,18 @@ test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
 });
 
 test('P01 Dashboard initial load does not wait for unused Orchestra reads', () => {
-  const page = read('z2m-overview.js');
-  const load = page.slice(page.indexOf('function load(ctx)'), page.indexOf('\n}\n\nfunction render(ctx)'));
-  assert.match(load, /\(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)\(\)/);
-  assert.match(load, /ctx\.api\.strategy\.preview\(\)/);
-  assert.match(load, /ctx\.api\.monitor\.eventsTail/);
-  assert.match(load, /ctx\.rerender/);
-  assert.match(load, /secondary/);
-  assert.doesNotMatch(load, /ctx\.api\.orchestra\.runHistory\(\)/);
-  assert.doesNotMatch(load, /ctx\.api\.orchestra\.status\(\)/);
+  const loading = read('z2m-overview-loading.js');
+  const orchestration = `${read('z2m-overview.js')}\n${loading}`;
+  assert.match(loading, /\(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)\(\)/);
+  assert.match(loading, /ctx\.api\.strategy\.preview\(\)/);
+  assert.match(loading, /ctx\.api\.monitor\.eventsTail/);
+  assert.match(orchestration, /ctx\.rerender/);
+  assert.match(loading, /loadSecondary/);
+  // Staged invariant: the secondary batch is only created from the
+  // phase-1 continuation, never at load scope.
+  assert.match(loading, /\)\.then\(function \(data\) \{[\s\S]*loadSecondary\(\)/);
+  assert.doesNotMatch(loading, /ctx\.api\.orchestra\.runHistory\(\)/);
+  assert.doesNotMatch(loading, /ctx\.api\.orchestra\.status\(\)/);
 });
 
 test('P01 status cards consume structured status evidence without collapsing to unavailable', () => {
@@ -100,7 +103,8 @@ test('P01 app entrypoint does not gate Dashboard on DNS/TG product status', () =
   const view = app.slice(app.indexOf('return L.view.extend({'));
   const load = view.slice(view.indexOf('  load: function ()'), view.indexOf('\n\n  render: function'));
   assert.doesNotMatch(load, /canonicalAppStatus|Api\.dns\.product\.status|Api\.tg\.product\.status/);
-  assert.match(load, /Api\.service\.status\(\)/);
+  assert.match(load, /Api\.service\.statusFast\(\)/,
+    'app shell must use the bounded status_fast transport only');
 });
 
 test('P01 LuCI shell can read its own luci UCI config without widening writes', () => {

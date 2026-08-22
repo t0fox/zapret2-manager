@@ -2,6 +2,7 @@
 'require baseclass';
 'require rpc';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
+'require view.zapret2-manager.z2m-overview-loading as OverviewLoading';
 'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 'require view.zapret2-manager.z2m-avatar-dashboard as AvatarDashboard';
@@ -88,65 +89,17 @@ function clearStrategyField(ctx, field) {
 }
 
 function load(ctx) {
-  var token = ++runtime.loadToken;
-  var initialReady = false;
-  var secondaryReady = false;
-  runtime.deferred = {};
-  function rerender() {
-    if (token !== runtime.loadToken || !initialReady || !ctx || typeof ctx.rerender !== 'function') return;
-    window.setTimeout(function () {
-      if (token === runtime.loadToken) ctx.rerender();
-    }, 0);
-  }
-  function loadOptionalTelegramStatus() {
-    window.setTimeout(function () {
-      if (token !== runtime.loadToken || !ctx.api.tg || !ctx.api.tg.product ||
-          typeof ctx.api.tg.product.status !== 'function') return;
-      Promise.allSettled([
-        ctx.api.tg.product.status(),
-        edit(ctx.api.proxy.health, {})
-      ]).then(function (results) {
-        if (token !== runtime.loadToken) return;
-        runtime.deferred.tgStatus = settled(results[0], ctx.api);
-        runtime.deferred.tgHealth = settled(results[1], ctx.api);
-        rerender();
-      });
-    }, 0);
-  }
-  var secondary = Promise.allSettled([
-    ctx.api.strategy.preview(),
-    edit(ctx.api.monitor.eventsTail, { limit: 8 }),
-    typeof ctx.api.strategies.recommendations === 'function' ? ctx.api.strategies.recommendations() : recommendationsRpc()
-  ]).then(function (results) {
-    if (token !== runtime.loadToken) return;
-    runtime.deferred = {
-      preview: settled(results[0], ctx.api),
-      events: settled(results[1], ctx.api),
-      recommendations: settled(results[2], ctx.api)
-    };
-    secondaryReady = true;
-    if (initialReady) rerender();
-    loadOptionalTelegramStatus();
-  });
-  return Promise.allSettled([(ctx.api.service.statusFast || ctx.api.service.status)(), ctx.api.engine.status(), ctx.api.maintenance.status(), ctx.api.maintenance.versions()]).then(function (results) {
-    var data = {
-      status: settled(results[0], ctx.api),
-      engineStatus: settled(results[1], ctx.api),
-      systemStatus: settled(results[2], ctx.api),
-      versionStatus: settled(results[3], ctx.api)
-    };
-    return resolveCanonicalStrategy(ctx, data.status).then(function (strategy) {
-      if (strategy) data.strategy = { value: strategy };
-      return data;
-    }).catch(function (error) {
-      data.strategy = { error: ctx.api.normalizeError(error) };
-      return data;
-    });
-  }).then(function (data) {
-    initialReady = true;
-    if (secondaryReady) rerender();
-    return data;
-  });
+	// Delegated to z2m-overview-loading.js: strictly staged orchestration
+	// (critical -> secondary -> optional). Secondary RPCs are created only
+	// after the critical batch settles — a Promise expression would start
+	// them immediately and fan out onto rpcd while critical reads are still
+	// in flight.
+	return OverviewLoading.createLoader({
+		runtime: runtime,
+		settled: settled,
+		edit: edit,
+		recommendationsRpc: recommendationsRpc
+	}).load(ctx);
 }
 
 function render(ctx) {

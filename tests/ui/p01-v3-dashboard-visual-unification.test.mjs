@@ -25,7 +25,7 @@ test('P01-V3 Dashboard uses the shared SVG registry and action geometry contract
 });
 
 test('P01-V3 Dashboard resolves human strategy metadata without exposing raw IDs', () => {
-  const page = read('z2m-overview.js');
+  const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   const model = read('z2m-overview-model.js');
   assert.match(page, /ctx\.api\.strategies\.get/);
   assert.match(page, /data\.strategy = \{ value: strategy \}/);
@@ -38,7 +38,7 @@ test('P01-V3 Dashboard resolves human strategy metadata without exposing raw IDs
 });
 
 test('P01-V6 Dashboard replaces Resource Check with bounded read-only Recommendations', () => {
-  const page = read('z2m-overview.js');
+  const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   const css = read('z2m-ui.css');
   const dashboard = read('z2m-avatar-dashboard.js');
   assert.doesNotMatch(page, /resource-check-card|Стратегия точечного правила|Применить только к ресурсу/);

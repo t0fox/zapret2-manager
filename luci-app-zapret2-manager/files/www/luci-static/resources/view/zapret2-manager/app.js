@@ -196,7 +196,10 @@ function renderSemanticDiff(draft, applied, extraBlockers) {
 
 return L.view.extend({
   load: function () {
-    return Api.service.status().catch(function (error) {
+    // App shell prerequisite must stay bounded: status_fast observes
+    // process/queue state without spawning the full diagnostic collector.
+    // The full collector remains available to the Diagnostics tab only.
+    return Api.service.statusFast().catch(function (error) {
       return { error: Api.normalizeError(error) };
     });
   },
