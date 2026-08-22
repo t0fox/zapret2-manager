@@ -49,6 +49,16 @@ test('Knowledge CI verifies both builds and runs the public leak test', async ()
   assert.match(workflow, /node scripts\/docs\.mjs build internal/)
   assert.match(workflow, /node scripts\/docs\.mjs build public --production/)
   assert.match(workflow, /node tests\/knowledge\/public-leak\.test\.mjs/)
+  assert.match(workflow, /actions\/upload-artifact@v4/)
+  assert.match(workflow, /docs-public-\$\{\{ github\.sha \}\}/)
+})
+
+test('Pages deploys the verified artifact from the triggering Knowledge CI run', async () => {
+  const workflow = await readFile(pagesWorkflow, 'utf8')
+  assert.match(workflow, /actions:\s*read/)
+  assert.match(workflow, /actions\/download-artifact@v4/)
+  assert.match(workflow, /github\.event\.workflow_run\.id/)
+  assert.match(workflow, /docs-public-\$\{\{ github\.event\.workflow_run\.head_sha \}\}/)
 })
 
 test('Public Quartz runtime prefixes dynamic navigation with the project base path', async () => {
