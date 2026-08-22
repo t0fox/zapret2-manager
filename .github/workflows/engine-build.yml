@@ -1,0 +1,121 @@
+name: z2m-compatible-engine build
+
+# Canonical producer CI for artifactKind=z2m-compatible-engine.
+#
+# Fail-closed guarantees enforced here:
+#   - exact pinned bol-van base commit checkout (rev-parse equality)
+#   - all three patch SHA256 digests verified before apply
+#   - git apply --check for every patch against the pinned tree
+#   - static capability evidence 3/3 present after patching
+#   - real cross-compilation via the pinned OpenWrt SDK toolchain
+#   - machine-readable manifest validated (digests recomputed from bytes)
+#
+# A vanilla bol-van tar.gz produced elsewhere can NEVER pass this gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: 'OpenWrt architecture id'
+        required: false
+        default: 'aarch64_cortex-a53'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: engine-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      ARCH: ${{ inputs.architecture || 'aarch64_cortex-a53' }}
+      OPENWRT_VERSION: '25.12.5'
+      OPENWRT_TARGET: 'mediatek'
+      OPENWRT_SUBTARGET: 'filogic'
+      OPENWRT_SDK_SHA256: 'ff4a38a397caa2cfe1c39e18f84ddede14878221b3593c3f2c4cfe24e3ec4c25'
+    steps:
+      - name: Checkout producer source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Identity contract tests must pass before any build
+        run: node --test tests/release/engine-producer-contract.test.mjs
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential gawk gettext git python3 rsync unzip file curl wget \
+            zstd ca-certificates libncurses-dev
+
+      - name: Restore pinned OpenWrt SDK
+        id: sdk
+        run: |
+          set -eu
+          mkdir -p "$HOME/sdk-cache"
+          filename="openwrt-sdk-${OPENWRT_VERSION}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+          url="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}/${filename}"
+          cache="$HOME/sdk-cache/$filename"
+          if [ ! -f "$cache" ]; then
+            curl -fsSL --retry 5 -o "$cache.zst.download" "$url"
+            mv "$cache.zst.download" "$cache"
+          fi
+          printf '%s  %s\n' "$OPENWRT_SDK_SHA256" "$cache" | sha256sum -c -
+          mkdir -p "$HOME/sdk"
+          tar --use-compress-program=unzstd -xf "$cache" -C "$HOME/sdk" --strip-components=1
+          echo "sdk_dir=$HOME/sdk" >> "$GITHUB_OUTPUT"
+
+      - name: Build z2m-compatible-engine (fail-closed pipeline)
+        run: |
+          set -eu
+          export OPENWRT_SDK="${{ steps.sdk.outputs.sdk_dir }}"
+          export ENGINE_WORKDIR="$PWD/build-engine"
+          export ENGINE_DIST_DIR="$PWD/dist-engine"
+          ./scripts/engine/build-compatible-engine.sh
+
+      - name: Verify manifest against actual artifact bytes
+        run: |
+          set -eu
+          manifest=$(find dist-engine -name '*.manifest.json' | head -n 1)
+          artifact=$(find dist-engine -name '*.tar.gz' | head -n 1)
+          node scripts/engine/validate-engine-manifest.mjs "$manifest" "$artifact"
+
+      - name: Upload engine artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2m-compatible-engine-${{ inputs.architecture || 'aarch64_cortex-a53' }}-${{ github.sha }}
+          path: dist-engine/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish rolling engine prerelease
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          manifest=$(find dist-engine -name '*.manifest.json' | head -n 1)
+          artifact=$(find dist-engine -name '*.tar.gz' | head -n 1)
+          version=$(node --input-type=module -e '
+            import fs from "node:fs";
+            console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version);
+          ' "$manifest")
+          tag="engine-$version"
+          gh release delete "$tag" --yes >/dev/null 2>&1 || true
+          gh release create "$tag" "$artifact" "$manifest" \
+            --title "z2m-compatible-engine $version ($ARCH)" \
+            --prerelease \
+            --notes "$(printf '%s\n' \
+              "Immutable machine-readable manifest ships beside the artifact." \
+              "artifactKind=z2m-compatible-engine; base=${{ github.repository_owner }}/bol-van pinned commit." \
+              "Consumers verify SHA256 + capability evidence before install.")"
