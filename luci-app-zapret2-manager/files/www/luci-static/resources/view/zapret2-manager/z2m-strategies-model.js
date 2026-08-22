@@ -357,6 +357,12 @@ function findPool(poolKey, pools) {
   return DEFAULT_RUNTIME_POOLS[poolKey] || DEFAULT_RUNTIME_POOLS[pKey] || null;
 }
 
+/**
+ * Extract the Discord voice strategy state for the `nohost` entry.
+ * @param {Array} entries - Runtime strategy entries to search.
+ * @param {Object|Array} pools - Runtime pool definitions used to determine the active pool and size.
+ * @return {Object} The strategy state, including its mode, strategy index, pool metadata, and whether an entry was found.
+ */
 function extractDiscordVoiceState(entries, pools) {
   entries = array(entries);
   var livePool = findLivePool('discord_udp', pools) || findLivePool('discord_voice', pools);
