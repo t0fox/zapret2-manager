@@ -34,6 +34,8 @@ define Build/Compile
 endef
 
 define Package/zapret2-manager-full/install
+	$(INSTALL_DIR) $(1)/usr/share/zapret2-manager
+	echo 'zapret2-manager-full' > $(1)/usr/share/zapret2-manager/full-package
 endef
 
 $(eval $(call BuildPackage,zapret2-manager-full))

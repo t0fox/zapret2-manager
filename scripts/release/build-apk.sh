@@ -130,7 +130,6 @@ make -C "$SDK_DIR" -j2 defconfig
 
 for package in zapret2-manager luci-app-zapret2-manager zapret2-manager-full; do
 	printf 'release build: compiling %s\n' "$package"
-	make -C "$SDK_DIR" -j2 "package/z2m/$package/clean" V=s
 	make -C "$SDK_DIR" -j2 "package/z2m/$package/compile" V=s
 done
 
@@ -150,16 +149,16 @@ require_staged_dir() {
 	[ "$count" -gt 0 ] || die "staging verification failed: $description"
 }
 
-require_staged_file '*/ipkg-*/usr/libexec/zapret2-manager/z2m-core-helper' 'backend z2m-core-helper'
-require_staged_file '*/ipkg-*/usr/libexec/zapret2-manager/z2m-root-bootstrap' 'backend z2m-root-bootstrap'
-require_staged_file '*/ipkg-*/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper' 'backend scanner firewall helper'
-require_staged_file '*/ipkg-*/usr/libexec/zapret2-manager/z2m-helperd' 'backend z2m-helperd'
-require_staged_file '*/ipkg-*/usr/libexec/zapret2-manager/*.uc' 'backend ucode files'
-require_staged_dir '*/ipkg-*/usr/share/zapret2-manager' 'backend shared data'
-require_staged_file '*/ipkg-*/etc/init.d/zapret2-manager' 'backend init script'
-require_staged_dir '*/ipkg-*/www/luci-static/resources/view/zapret2-manager' 'LuCI views'
-require_staged_dir '*/ipkg-*/usr/share/rpcd/acl.d' 'LuCI RPC ACL directory'
-require_staged_dir '*/ipkg-*/usr/share/luci/menu.d' 'LuCI menu directory'
+require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-core-helper' 'backend z2m-core-helper'
+require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-root-bootstrap' 'backend z2m-root-bootstrap'
+require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper' 'backend scanner firewall helper'
+require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-helperd' 'backend z2m-helperd'
+require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/*.uc' 'backend ucode files'
+require_staged_dir '*/.pkgdir/zapret2-manager/usr/share/zapret2-manager' 'backend shared data'
+require_staged_file '*/.pkgdir/zapret2-manager/etc/init.d/zapret2-manager' 'backend init script'
+require_staged_dir '*/.pkgdir/luci-app-zapret2-manager/www/luci-static/resources/view/zapret2-manager' 'LuCI views'
+require_staged_dir '*/.pkgdir/luci-app-zapret2-manager/usr/share/rpcd/acl.d' 'LuCI RPC ACL directory'
+require_staged_dir '*/.pkgdir/luci-app-zapret2-manager/usr/share/luci/menu.d' 'LuCI menu directory'
 
 find_product_apk() {
 	local package=$1
