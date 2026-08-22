@@ -13,6 +13,10 @@ const RPC = readFileSync(path.join(ROOT,
   'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
 const CLI_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const DNS_PRODUCT_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/dns-product.uc');
+const TG_PRODUCT_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc');
 const CLI = readFileSync(CLI_PATH, 'utf8');
 const ACL = readFileSync(path.join(ROOT,
   'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json'), 'utf8');
@@ -76,6 +80,10 @@ function rpcSignatureSource(method, request) {
       `const STRATEGY_CLI = ${JSON.stringify(CLI_PATH)};`)
     .replace("import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';",
       `import { strategy_cli_dispatch } from ${JSON.stringify(CLI_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/dns-product.uc';",
+      `from ${JSON.stringify(DNS_PRODUCT_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/tg-product.uc';",
+      `from ${JSON.stringify(TG_PRODUCT_PATH)};`)
     .replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'");
   return opened.replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
 }
