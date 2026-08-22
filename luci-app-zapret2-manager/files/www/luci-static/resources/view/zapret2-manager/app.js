@@ -1,10 +1,10 @@
 'use strict';
 'require view';
-'require view.zapret2-manager.z2m-api-system-components as Api';
+'require view.zapret2-manager.z2m-api as Api';
 'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 'require view.zapret2-manager.z2m-store as StoreModule';
 'require view.zapret2-manager.z2m-shell as Shell';
-'require view.zapret2-manager.z2m-navigation-system as Navigation';
+'require view.zapret2-manager.z2m-navigation as Navigation';
 'require view.zapret2-manager.z2m-draft-model as DraftModel';
 'require view.zapret2-manager.z2m-coordinator as Coordinator';
 'require view.zapret2-manager.z2m-overview as Overview';
@@ -16,7 +16,7 @@
 'require view.zapret2-manager.z2m-dns-page as Dns';
 'require view.zapret2-manager.z2m-proxy-page as Proxy';
 'require view.zapret2-manager.z2m-diagnostics-page as Diagnostics';
-'require view.zapret2-manager.z2m-maintenance-components as Maintenance';
+'require view.zapret2-manager.z2m-maintenance as Maintenance';
 'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
 'require view.zapret2-manager.z2m-assets as Assets';
 'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';

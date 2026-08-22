@@ -2,11 +2,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const UPSTREAM_ROOT = path.resolve('../upstreams/z2k');
+const MODULE_ROOT = path.resolve(import.meta.dirname, '..');
+const UPSTREAM_ROOT = path.join(MODULE_ROOT, 'upstreams/z2k');
 const STRATS_NEW2_PATH = path.join(UPSTREAM_ROOT, 'strats_new2.txt');
 const QUIC_STRATS_PATH = path.join(UPSTREAM_ROOT, 'quic_strats.ini');
 const CONFIG_SH_PATH = path.join(UPSTREAM_ROOT, 'lib/config_official.sh');
-const TARGET_CORPUS_PATH = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json');
+const TARGET_CORPUS_PATH = path.join(MODULE_ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json');
+
+export const PINNED_UPSTREAM = Object.freeze({
+  upstream: 'necronicle/z2k@z2k-enhanced',
+  commit: '99be613303e00d42ed027d5197f6e353995bb353',
+  tag: 'r-77.2'
+});
 
 export function inferRequirements(strategyArgs) {
   const reqs = {
@@ -128,9 +135,7 @@ export function buildCorpus(upstreamRoot = UPSTREAM_ROOT) {
   const corpus = {
     schema: 'zapret2-manager.strategy-corpus.v2',
     provenance: {
-      upstream: 'necronicle/z2k@z2k-enhanced',
-      commit: '99be613303e00d42ed027d5197f6e353995bb353',
-      tag: 'r-77.2',
+      ...PINNED_UPSTREAM,
       parsedAt: new Date().toISOString()
     },
     pools: {},

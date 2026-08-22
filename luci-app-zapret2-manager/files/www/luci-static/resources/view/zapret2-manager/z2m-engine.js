@@ -2,7 +2,7 @@
 'require view';
 'require ui';
 'require poll';
-'require view.zapret2-manager.z2m-engine-api as Api';
+'require view.zapret2-manager.z2m-api as Api';
 'require view.zapret2-manager.z2m-engine-model as Model';
 var S={provider:null,check:null,status:{},providers:[],operation:null,busy:false,root:null,polling:false};
 function val(v){return v==null||v===''?'—':String(v);}

@@ -154,11 +154,10 @@ function sha256_file(path) {
 	return rc == 0 && length(fields) > 0 && match(fields[0], /^[0-9a-f]{64}$/) ? fields[0] : null;
 }
 
-function regular_file(path, expectedSize) {
+function regular_file(path) {
 	let metadata = null;
 	try { metadata = stat(path); } catch (e) { return false; }
-	if (!metadata || metadata.type != 'file' || type(metadata.size) != 'int') return false;
-	return metadata.size == expectedSize && metadata.size <= MAX_FILE_BYTES;
+	return metadata != null && metadata.type == 'file' && type(metadata.size) == 'int' && metadata.size <= MAX_FILE_BYTES;
 }
 
 function directory(path) {
@@ -698,7 +697,7 @@ function build_catalog(root, manifest, manifestPath) {
 		try { link = readlink(path); } catch (e) { link = null; }
 		if (path == null || link != null)
 			return error_result('EPATH', 'manifest-listed file must be contained and must not be a symlink', file.path);
-		if (!regular_file(path, file.byteSize))
+		if (!regular_file(path))
 			return error_result('EFILE', 'manifest-listed file is missing, non-regular, or oversized', file.path);
 		let actual = sha256_file(path);
 		if (actual == null || actual != file.sha256)

@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=luci-app-zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=149
+PKG_RELEASE:=150
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -35,15 +35,25 @@ endef
 define Package/luci-app-zapret2-manager/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
-rm -f /tmp/luci-indexcache*
-rm -rf /tmp/luci-modulecache 2>/dev/null || true
+rm -f /tmp/luci-indexcache.*
+rm -rf /tmp/luci-modulecache/ 2>/dev/null || true
+if [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd reload >/dev/null 2>&1; then
+	:
+elif [ -n "$$(pidof rpcd 2>/dev/null)" ]; then
+	kill -HUP $$(pidof rpcd) 2>/dev/null || true
+fi
 exit 0
 endef
 define Package/luci-app-zapret2-manager/postrm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
-rm -f /tmp/luci-indexcache*
-rm -rf /tmp/luci-modulecache 2>/dev/null || true
+rm -f /tmp/luci-indexcache.*
+rm -rf /tmp/luci-modulecache/ 2>/dev/null || true
+if [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd reload >/dev/null 2>&1; then
+	:
+elif [ -n "$$(pidof rpcd 2>/dev/null)" ]; then
+	kill -HUP $$(pidof rpcd) 2>/dev/null || true
+fi
 exit 0
 endef
 $(eval $(call BuildPackage,luci-app-zapret2-manager))
