@@ -3,6 +3,7 @@
 // details; consumers bind to {type,id,revision,contentSha256} references.
 
 import { readfile, writefile, stat, readlink, unlink, mkdir, lsdir, popen } from 'fs';
+import { private_tempfile } from './core/private-temp.uc';
 
 const STATE = '/etc/zapret2-manager/asset-registry.json';
 const USER_ROOT = '/etc/zapret2-manager/assets';
@@ -244,8 +245,9 @@ function remote_fetch(url, target, max_bytes) {
 	return { ok: true, size: size };
 }
 function lua_validate_content(content) {
-	let path = '/tmp/z2m-lua-validate.' + time(), result = null;
-	try { writefile(path, content); } catch (e) { return { status: 'unavailable', errors: [], message: 'Синтаксическая проверка недоступна' }; }
+	let path = private_tempfile(), result = null;
+	if (path == null) return { status: 'unavailable', errors: [], message: 'Синтаксическая проверка недоступна' };
+	try { writefile(path, content); } catch (e) { try { unlink(path); } catch (x) {} return { status: 'unavailable', errors: [], message: 'Синтаксическая проверка недоступна' }; }
 	let probe = command('if command -v luac >/dev/null 2>&1; then luac -p ' + shell_quote(path) + '; else exit 127; fi');
 	try { unlink(path); } catch (e) {}
 	if (probe.rc == 127) return { status: 'unavailable', errors: [], message: 'Синтаксическая проверка недоступна' };
@@ -272,8 +274,10 @@ export const asset_registry_validate_content = function(id, contentBase64) {
 export const asset_registry_import_url = function(request) {
 	let checked = validate_request(request); if (!checked.ok) return checked;
 	if (!remote_url_safe(request.url)) return fail('EPOLICY', 'only public http/https URLs are allowed');
-	let path = '/tmp/z2m-asset-import.' + time(), fetched = remote_fetch(request.url, path, LIMITS[request.type]);
-	if (!fetched.ok) return fetched;
+	let path = private_tempfile();
+	if (path == null) return fail('EIO', 'private import staging is unavailable');
+	let fetched = remote_fetch(request.url, path, LIMITS[request.type]);
+	if (!fetched.ok) { try { unlink(path); } catch (e) {} return fetched; }
 	let content = readfile(path); try { unlink(path); } catch (e) {}
 	if (content == null) return fail('EIO', 'remote content could not be read');
 	let normalized = normalize_content(request.type, content); if (!normalized.ok) return normalized;
@@ -286,8 +290,10 @@ export const asset_registry_asn = function(request) {
 	if (!object(request) || !string(request.asn) || !match(request.asn, /^AS?[0-9]{1,10}$/i)) return fail('EINPUT', 'ASN must be numeric or AS<number>');
 	let number = lower_ascii(request.asn), asn = substr(number, 0, 2) == 'as' ? substr(number, 2) : number;
 	if (+asn < 1 || +asn > 4294967295) return fail('EINPUT', 'ASN is out of range');
-	let path = '/tmp/z2m-asn.' + time(), url = 'https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS' + asn, fetched = remote_fetch(url, path, 2 * 1024 * 1024);
-	if (!fetched.ok) return fetched;
+	let path = private_tempfile();
+	if (path == null) return fail('EIO', 'private ASN staging is unavailable');
+	let url = 'https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS' + asn, fetched = remote_fetch(url, path, 2 * 1024 * 1024);
+	if (!fetched.ok) { try { unlink(path); } catch (e) {} return fetched; }
 	let raw = readfile(path); try { unlink(path); } catch (e) {}
 	let payload = null; try { payload = json(raw); } catch (e) { return fail('EVALIDATION', 'RIPE response is not valid JSON'); }
 	if (!object(payload) || !object(payload.data) || type(payload.data.prefixes) != 'array' || length(payload.data.prefixes) > MAX_ASN_PREFIXES) return fail('EVALIDATION', 'RIPE response schema or prefix count is invalid');
