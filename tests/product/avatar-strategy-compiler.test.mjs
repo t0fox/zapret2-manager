@@ -86,21 +86,22 @@ test('compiler filters disabled Profiles, preserves order, and inserts separator
   ]), environment);
 
   assert.equal(result.ok, true);
-  assert.equal(result.strategyArgs, '--filter-tcp=80 --new --filter-udp=443');
+  assert.equal(result.strategyArgs, '--filter-tcp=80 --hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt --new --filter-udp=443 --hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt');
   assert.equal(result.profilesCount, 2);
-  assert.deepEqual(result.fragments, ['--filter-tcp=80', '--filter-udp=443']);
+  assert.deepEqual(result.fragments, ['--filter-tcp=80 --hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt', '--filter-udp=443 --hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt']);
 });
 
 test('compiler autowraps only the pinned payload and Lua combinations', () => {
+  const WHITELIST = '--hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt';
   const cases = [
-    ['--payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls', '--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls'],
-    ['--payload=http_req --lua-desync=fake:blob=fake_default_http', '--filter-tcp=80 --filter-l7=http --payload=http_req --lua-desync=fake:blob=fake_default_http'],
-    ['--payload=http_reply --lua-desync=fake', '--filter-tcp=80 --filter-l7=http --payload=http_reply --lua-desync=fake'],
-    ['--payload=quic_initial --lua-desync=fake', '--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake'],
-    ['--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake', '--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake'],
-    ['--payload=tls_client_hello', '--payload=tls_client_hello'],
-    ['--payload=dns_query --lua-desync=fake', '--payload=dns_query --lua-desync=fake'],
-    ['--payload=all --lua-desync=fake:blob=fake_default_quic:repeats=6', '--payload=all --lua-desync=fake:blob=fake_default_quic:repeats=6'],
+    ['--payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls', `--filter-tcp=443 --filter-l7=tls ${WHITELIST} --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls`],
+    ['--payload=http_req --lua-desync=fake:blob=fake_default_http', `--filter-tcp=80 --filter-l7=http ${WHITELIST} --payload=http_req --lua-desync=fake:blob=fake_default_http`],
+    ['--payload=http_reply --lua-desync=fake', `--filter-tcp=80 --filter-l7=http ${WHITELIST} --payload=http_reply --lua-desync=fake`],
+    ['--payload=quic_initial --lua-desync=fake', `--filter-udp=443 --filter-l7=quic ${WHITELIST} --payload=quic_initial --lua-desync=fake`],
+    ['--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake', `--filter-tcp=443 --filter-l7=tls ${WHITELIST} --payload=tls_client_hello --lua-desync=fake`],
+    ['--payload=tls_client_hello', `${WHITELIST} --payload=tls_client_hello`],
+    ['--payload=dns_query --lua-desync=fake', `${WHITELIST} --payload=dns_query --lua-desync=fake`],
+    ['--payload=all --lua-desync=fake:blob=fake_default_quic:repeats=6', `${WHITELIST} --payload=all --lua-desync=fake:blob=fake_default_quic:repeats=6`],
   ];
 
   for (const [input, expected] of cases) {
@@ -275,7 +276,7 @@ test('compiler preserves unknown options while exposing manager diagnostics', ()
   ]), environment);
 
   assert.equal(result.ok, true);
-  assert.equal(result.strategyArgs, '--filter-tcp=443 --unknown=keep');
+  assert.equal(result.strategyArgs, '--filter-tcp=443 --unknown=keep --hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt');
   assert.ok(result.diagnostics.some(diagnostic => diagnostic.code === 'MANAGER_UNKNOWN_OPTION'));
 });
 
@@ -310,7 +311,9 @@ test('compiler preserves token semantics after canonicalization', () => {
   const compiledTokens = model('avatar_tokenize', result.fragments[0]).tokens.map(token => token.value);
 
   assert.equal(result.ok, true);
-  assert.deepEqual(compiledTokens, originalTokens);
+  // The default whitelist exclusion is injected before the first payload token.
+  assert.deepEqual(compiledTokens, [...originalTokens.slice(0, 3),
+    '--hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt', ...originalTokens.slice(3)]);
 });
 
 test('missing dependencies remain inspectable and only execution admission is unavailable', () => {

@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,110 +7,97 @@ import { spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve('.');
 const SOURCE = path.join(ROOT, 'zapret2-manager/src/z2m-scanner-firewall-helper.c');
+const JSON_C_FLAGS = () => spawnSync('pkg-config', ['--cflags', '--libs', 'json-c'], { encoding: 'utf8' })
+  .stdout.trim().split(/\s+/);
+const NONCE = 'a'.repeat(64);
+const OWNED_TABLE = 'z2m_sc_01234567_89abcdef_0001_' + 'b'.repeat(32);
+
+function request(operation, argumentsOverride = {}) {
+  return `${JSON.stringify({ protocolVersion: 2, requestId: 'r1', operation,
+    arguments: { tableName: OWNED_TABLE, operationId: 'session1:candidate1:7', nonce: NONCE,
+      queue: 300, peerPid: 2, ...argumentsOverride } })}\n`;
+}
+
+function nativeToolchainAvailable() {
+  const cc = spawnSync('cc', ['--version'], { encoding: 'utf8' });
+  const pkg = spawnSync('pkg-config', ['--exists', 'json-c'], { encoding: 'utf8' });
+  return cc.status === 0 && pkg.status === 0;
+}
+
+function buildHelper(bin, defines = []) {
+  const built = spawnSync('cc', [
+    '-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', ...defines, SOURCE, ...JSON_C_FLAGS(),
+    '-o', bin,
+  ], { encoding: 'utf8' });
+  assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
+}
 
 test('native Scanner firewall helper has no caller-controlled execution surface', () => {
   const source = fs.readFileSync(SOURCE, 'utf8');
-  for (const fixed of ['"/usr/sbin/nft"', '"zapret2"', '"z2m_scanner"', '"300"',
-    '"ownership_create"', '"ownership_ready"', '"ownership_delete"', '"ownership_status"', '"delete"', '"chain"', '"inet"']) assert.match(source, new RegExp(fixed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.doesNotMatch(source, /getenv|system\s*\(|popen\s*\(|execvp\s*\(|nft\s+flush/);
-  assert.match(source, /O_NOFOLLOW/);
-  assert.match(source, /flock\(lock, LOCK_EX\)/);
+  // The helper speaks nfnetlink directly: fixed operations, fixed chain, fixed queue window.
+  for (const fixed of ['NETLINK_NETFILTER', 'NFT_MSG_NEWTABLE', 'NFT_MSG_DELTABLE', 'NFT_MSG_GETTABLE',
+    'NFT_TABLE_F_OWNER', '"z2m_scan_prerouting"', 'z2m-scanner-a1:', 'SCANNER_QUEUE_MIN 300U',
+    'SCANNER_QUEUE_MAX 307U', '/proc/net/netfilter/nfnetlink_queue',
+    '"ownership_create"', '"ownership_ready"', '"ownership_delete"', '"ownership_status"',
+    '"ownership_nfqueue_prepare"', '"ownership_nfqueue_bind"', '"ownership_nfqueue_activate"']) assert.match(source, new RegExp(fixed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(source, /getenv|system\s*\(|popen\s*\(|execvp\s*\(|nft\s+flush|\/usr\/sbin\/nft/);
+  assert.match(source, /kernel_read_back/);
 });
 
-test('production Scanner firewall helper fails closed before any nft or filesystem mutation', () => {
+test('production Scanner firewall helper fails closed without nftables authority', () => {
   if (process.platform === 'win32') return;
-  const cc = spawnSync('cc', ['--version'], { encoding: 'utf8' });
-  const pkg = spawnSync('pkg-config', ['--exists', 'json-c'], { encoding: 'utf8' });
-  if (cc.status !== 0 || pkg.status !== 0) {
+  if (!nativeToolchainAvailable()) {
     assert.ok(true, 'native compiler or json-c unavailable; production helper execution limitation documented');
     return;
   }
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-firewall-helper-prod-'));
   const bin = path.join(root, 'helper');
   try {
-    const built = spawnSync('cc', [
-      '-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', SOURCE,
-      ...spawnSync('pkg-config', ['--cflags', '--libs', 'json-c'], { encoding: 'utf8' }).stdout.trim().split(/\s+/),
-      '-o', bin,
-    ], { encoding: 'utf8' });
-    assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
-    const nonce = 'b'.repeat(64);
-    const request = JSON.stringify({ protocolVersion: 2, requestId: 'r1', operation: 'ownership_create',
-      arguments: { tableName: 'z2m_sc_01234567_89abcdef_0001_' + nonce.slice(0,32), operationId: 'session1:candidate1:7', nonce } });
-    const ran = spawnSync(bin, [], { input: request + '\n', encoding: 'utf8' });
-    assert.notEqual(ran.status, 0);
-    // canonical helper returns structured ESCHEMA/EOWNERSHIP for malformed ownership request
-    const out = JSON.parse(ran.stdout || '{}');
+    buildHelper(bin);
+    const ran = spawnSync(bin, [], { input: request('ownership_create'), encoding: 'utf8' });
+    // Unprivileged callers either fail to open the netlink socket (EINTERNAL, exit 1)
+    // or get the kernel EPERM acknowledgement (EOWNERSHIP, structured error, keeps serving).
+    const out = JSON.parse((ran.stdout || '').trim().split(/\r?\n/)[0] || '{}');
     assert.equal(out.ok, false);
+    assert.ok(['EINTERNAL', 'EOWNERSHIP'].includes(out.error?.code), out.error?.code);
+    if (ran.status === 0) assert.equal(out.error.code, 'EOWNERSHIP');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('native Scanner firewall helper compare-deletes only an exact owned chain', () => {
+test('native Scanner firewall helper only mutates its exact owned table identity', () => {
   if (process.platform === 'win32') return;
-  const cc = spawnSync('cc', ['--version'], { encoding: 'utf8' });
-  const pkg = spawnSync('pkg-config', ['--exists', 'json-c'], { encoding: 'utf8' });
-  if (cc.status !== 0 || pkg.status !== 0) {
+  if (!nativeToolchainAvailable()) {
     assert.ok(true, 'native compiler or json-c unavailable; helper execution limitation documented');
     return;
   }
+  // delete_table refuses anything but the exact owned table/operation/nonce triple before
+  // any netlink mutation; malformed requests never reach the transport.
+  const source = fs.readFileSync(SOURCE, 'utf8');
+  assert.match(source, /!state->table_created \|\| strcmp\(state->table_name, table_name\) != 0/);
+  assert.match(source, /strcmp\(state->operation_id, operation_id\) != 0/);
+  assert.match(source, /strcmp\(state->nonce, nonce\) != 0/);
+
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-firewall-helper-'));
   const bin = path.join(root, 'helper');
-  const nft = path.join(root, 'nft');
-  const runtime = path.join(root, 'runtime');
-  const log = path.join(root, 'nft.log');
-  fs.mkdirSync(runtime, { mode: 0o700 });
-  fs.mkdirSync(path.join(runtime, 'scanner'), { mode: 0o700 });
   try {
-    const built = spawnSync('cc', [
-      '-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE',
-      '-DZ2M_SCANNER_HELPER_TEST', `-DZ2M_SCANNER_NFT_PATH="${nft}"`,
-      `-DZ2M_SCANNER_ROOT_PATH="${runtime}"`,
-      `-DZ2M_SCANNER_LOCK_PATH="${path.join(runtime, 'scanner', 'firewall.lock')}"`,
-      `-DZ2M_SCANNER_EVIDENCE_PATH="${path.join(runtime, 'scanner', 'evidence')}"`,
-      SOURCE, ...spawnSync('pkg-config', ['--cflags', '--libs', 'json-c'], { encoding: 'utf8' }).stdout.trim().split(/\s+/),
-      '-o', bin,
-    ], { encoding: 'utf8' });
-    assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
-    fs.writeFileSync(nft, `#!/bin/sh
-echo "$@" >> "${log}"
-case "$*" in
-  "list chain inet zapret2 z2m_scanner") cat "${path.join(runtime, 'chain')}" 2>/dev/null || exit 1 ;;
-  "delete chain inet zapret2 z2m_scanner") rm -f "${path.join(runtime, 'chain')}" ;;
-  *) exit 1 ;;
-esac
-`);
-    fs.chmodSync(nft, 0o755);
-    const nonce = 'a'.repeat(64);
-    const session = 'session1';
-    const candidate = 'candidate1';
-    const marker = `z2m-scanner:${session}:${candidate}:7:${nonce}`;
-    const token = `scanner-firewall-v1:${session}:${candidate}:7:${nonce}`;
-    const chain = `chain inet zapret2 z2m_scanner {\n queue num 300 comment ${marker}\n}`;
-    const digest = crypto.createHash('sha256').update(chain).digest('hex');
-    const request = JSON.stringify({ candidate, expectedChainDigest: digest, generation: 7, marker,
-      nonce, operation: 'compare_delete', ownershipToken: token, session });
-    fs.writeFileSync(path.join(runtime, 'chain'), chain);
-    const deleted = spawnSync(bin, [], { input: request, encoding: 'utf8' });
-    assert.equal(deleted.status, 0, `${deleted.stdout}\n${deleted.stderr}`);
-    assert.equal(JSON.parse(deleted.stdout).ok, true);
-    assert.equal(fs.existsSync(path.join(runtime, 'chain')), false);
-    assert.match(fs.readFileSync(log, 'utf8'), /list chain inet zapret2 z2m_scanner/);
-    assert.match(fs.readFileSync(log, 'utf8'), /delete chain inet zapret2 z2m_scanner/);
-
-    fs.writeFileSync(path.join(runtime, 'chain'), chain + 'foreign mutation\n');
-    const mismatch = spawnSync(bin, [], { input: request, encoding: 'utf8' });
-    assert.notEqual(mismatch.status, 0);
-    assert.equal(JSON.parse(mismatch.stdout).ok, false);
-    assert.equal(fs.existsSync(path.join(runtime, 'chain')), true,
-      'digest mismatch must retain the chain');
-    assert.match(fs.readFileSync(path.join(runtime, 'scanner', 'evidence'), 'utf8'), /state=ownership-mismatch/);
-
-    const unknown = spawnSync(bin, [], { input: request.replace('"operation":"compare_delete"', '"operation":"other"'), encoding: 'utf8' });
-    assert.notEqual(unknown.status, 0);
-    assert.equal(JSON.parse(unknown.stdout).ok, false);
-    assert.equal(fs.existsSync(path.join(runtime, 'chain')), true);
+    buildHelper(bin, ['-DZ2M_SCANNER_HELPER_TEST']);
+    const lines = [
+      request('ownership_delete'), // no ownership established yet
+      request('ownership_create', { tableName: 'evil_01234567_89abcdef_0001_' + 'b'.repeat(32) }), // foreign table identity
+      request('ownership_create'), // valid request, but the test transport cannot reach nfnetlink
+      request('ownership_status'), // after a fatal transport failure the helper stops serving
+    ].join('');
+    const ran = spawnSync(bin, [], { input: lines, encoding: 'utf8' });
+    const responses = (ran.stdout || '').trim().split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    assert.equal(responses.length, 3, JSON.stringify(responses));
+    assert.equal(responses[0].ok, false);
+    assert.equal(responses[0].error.code, 'EOWNERSHIP');
+    assert.equal(responses[1].ok, false);
+    assert.equal(responses[1].error.code, 'ESCHEMA');
+    assert.equal(responses[2].ok, false);
+    assert.equal(responses[2].error.code, 'EINTERNAL');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

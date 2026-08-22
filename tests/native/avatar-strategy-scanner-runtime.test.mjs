@@ -154,7 +154,7 @@ test('lock acquisition failure preserves a pre-existing readiness artifact and l
 test('runtime argv metadata uses one exact schema rather than substring matches', () => {
   const source = fs.readFileSync(ADAPTER, 'utf8');
   assert.match(source, /expected_meta=.*schema/);
-  assert.match(source, /\[ "\$meta" = "\$expected_meta" \]/);
+  assert.match(source, /\[ "\$meta" != "\$expected_meta" \]/);
   assert.doesNotMatch(source, /grep -F -q.*compiledDigest/);
 });
 

@@ -187,6 +187,8 @@ test('catalog conversion copies metadata and physical provenance without rewriti
     protocol: 'tcp',
     featured: true,
     blobs: ['tls_google', 'quic_google'],
+    circular: false,
+    isCircular: false,
     sourceFile: 'builtin/winws2_presets.txt',
     sourceOrdinal: 17,
     cacheKey: 'builtin/udp',

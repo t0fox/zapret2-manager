@@ -209,10 +209,14 @@ test('postinst preserves existing Strategy data and legacy Profile state on upgr
   const conffiles = block('Package/zapret2-manager/conffiles');
   assert.match(conffiles, /^\/etc\/zapret2-manager\/state\.json$/m,
     'legacy Profile state must remain a package compatibility document');
-  assert.doesNotMatch(postinst, /(?:cp|mv|rm|rmdir|truncate|tee)\b[^\n]*(?:strateg(?:y|ies)|state\.json)/i,
-    'postinst must not replace or remove user state');
+  assert.doesNotMatch(postinst, /(?:cp|mv|rm|rmdir|truncate|tee)\b[^\n]*strateg(?:y|ies)(?!-catalog-index)/i,
+    'postinst must not replace or remove user state (the derived catalog index cache is exempt)');
   assert.doesNotMatch(postinst, /(?:>|>>)[^\n]*(?:strateg(?:y|ies)|state\.json)/i,
     'postinst must not redirect over user state');
+  assert.match(postinst, /rm -f \/etc\/zapret2-manager\/strategy-catalog-index\.json/,
+    'postinst may only discard the derived catalog index cache');
+  assert.match(postinst, /strategy-catalog-index-cli\.uc/,
+    'postinst must regenerate the derived catalog index after discarding it');
   assert.match(postinst, /\[ ! -e [^\n]+ \] && \[ ! -L [^\n]+ \]/,
     'bootstrap must guard both existing paths and dangling symlinks');
 });

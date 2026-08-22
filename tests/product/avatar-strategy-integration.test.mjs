@@ -94,6 +94,8 @@ function transactionHook(overrides = {}) {
       restart: [{ rc: 0, out: '' }, { rc: 0, out: '' }],
       verify: [{ ok: true, checks: runtimeChecks(true) }, { ok: true, checks: runtimeChecks(true) }],
       rollback: { restoreOk: true, configBytes: 'old-config', configSha256: OLD_CONFIG_HASH },
+      appliedIdentity: { config: NEW_CONFIG_HASH, uci: null },
+      rollbackAppliedIdentity: { config: OLD_CONFIG_HASH, uci: null },
       configHash: OLD_CONFIG_HASH, candidateHash: HASH,
       ...transactionOverrides,
     },
@@ -286,7 +288,7 @@ test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain ex
   assert.match(page, /Compatibility|Advanced/);
   assert.match(workflowCore, /Compatibility \/ Profiles/);
   assert.match(workflowCore, /indexOf\(state\.tab\) < 0/);
-  assert.match(adapter, /mode === 'workflow'/);
+  assert.match(adapter, /primaryModule\(mode\)/);
   assert.match(statusCompat, /schema\s*:\s*3/);
   assert.doesNotMatch(page, /ctx\.api\.orchestra/);
   assert.doesNotMatch(rpc, /strategy.*Orchestra|ORCH_CLI.*STRATEGY/i);

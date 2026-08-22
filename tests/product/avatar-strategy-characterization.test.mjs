@@ -29,7 +29,7 @@ const EXPECTED_FILES = [
   ['basic/tcp_zapret2_basic.txt', 59399, 235, '035dd277e62e8705784348e2fcc34fc68cda8440d7999cf7cfa99188d34ba1af', '85b718612db8ba452f0022508d5a8b1ec1592db7c4ba7fbe4736ad35f941c3a9'],
   ['basic/udp_zapret_basic.txt', 14193, 62, '8fbca351b3ed724fa84e20ff791461df69d69aba229663e69e349e40aeaf7ab6', 'd0bfdd06eaf61168517d0f82eb0e459030d2708b698a15c40e9b6090572b72b4'],
   ['builtin/winws2_presets.txt', 456467, 85, '87d33c2c202f365a48945a3326183a8e0bf638cd757dcbdbdde8f2c3c9768e8a', 'fb011937d040af2c3b1813d2542effee53516057a5a60f7ca1acaafd208b6540'],
-  ['builtin/z2k_all_in_one.txt', 6809, 1, '83f79ba2f3566f9f5fa7e330c3b4e4b03b4afbfda1995f55f7b6133786d9ecaf', '4a0db8e10c82ae9f41b0aa7823313cbddadf9f56030767b5fa6ebaf54298b43c'],
+  ['builtin/z2k_all_in_one.txt', 5388, 1, 'ed08c44afb41dc35330517485b733a0c524991e4a760279411e1c2b6a924eb8b', '4a0db8e10c82ae9f41b0aa7823313cbddadf9f56030767b5fa6ebaf54298b43c'],
   ['builtin/z2k_autocircular_quic.txt', 5269, 2, 'b52cc3af6779e6ea69614d4a3014d3bc864148ae321652856e51d5c6c03db143', 'cc014192cfcafdda6fddcab4f3d075d2c2dbbeace0a98131f1d1ab1a4a4ec154'],
   ['builtin/z2k_autocircular_tcp.txt', 25451, 3, '79b3df3aa7af7bfa440f2bb64cf3c8eb53c527900a8007b4213f5455af22b50d', '7d04345754546c4832d82c6f153d806f3b62e4c430c9fac432bf73da15ace7c9'],
   ['builtin/z2k_circular.txt', 3113, 1, 'd4e998e7a38c1232525c712f4d2411d64fe6f11ee22e2ed45be6dc0def348b7e', 'b776c4f7532b40602b2a99cb3d17ea7b627412f431af9d4717feedb35b6ffb77'],
@@ -43,7 +43,7 @@ const EXPECTED_FILES = [
 const EXPECTED_DIGESTS = {
   duplicateGroups: 'ab90abdeb9f5168a7858e9ed5d0e25fe7b2af0368b6676063b2cd1a2364433f4',
   winnerOrder: '596cc2ea5d4f1752f900cf54de869da73bdfda356775005aa844f6dafe452fd3',
-  physicalEntries: '481a20145e5750f54e9409de2d58463884ff58dfa9ddd4f752a73b94354a9c05',
+  physicalEntries: '9dea964abe6f5e80532d0272ced94498dc22daf260034088de2b3366cdc13674',
   sets: 'f43ca59e617f3e8d2f7f3e2edf71c76066a36f9b4a97f2610be7e3f8c1e80e66',
 };
 

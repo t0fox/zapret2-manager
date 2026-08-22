@@ -47,14 +47,14 @@ function recomputeAggregateDigest(manifest) {
     .map(file => `${file.sha256}  catalogs/${file.path}\n`).join('')).digest('hex');
 }
 
-function invokeCatalog(functionName, args = [], preloadRoot = null) {
+function invokeCatalog(functionName, args = [], preloadRoot = null, extraEnv = {}) {
   const preload = preloadRoot == null ? ''
     : `catalogModule.strategy_catalog_load(${JSON.stringify(preloadRoot)});`;
   const source = `import * as catalogModule from ${JSON.stringify(MODULE)}; ${preload} print(sprintf('%J', catalogModule.${functionName}(${args.map(JSON.stringify).join(', ')})));`;
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
-    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...extraEnv },
     encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
   });
   assert.equal(result.status, 0,
@@ -158,7 +158,10 @@ test('catalog exposes exact protocol sets and lookup APIs', () => {
 
 test('catalog status and reload report the verified source', () => {
   const loaded = load();
-  const status = invokeCatalog('strategy_catalog_status', [], INSTALLED_ROOT);
+  // status/reload resolve the system catalog root instead of using the in-process
+  // load; point the resolver at the installed package root for this check.
+  const resolverEnv = { Z2M_STRATEGY_CATALOG_ROOT: INSTALLED_ROOT };
+  const status = invokeCatalog('strategy_catalog_status', [], INSTALLED_ROOT, resolverEnv);
   assert.equal(status.ok, true);
   assert.equal(status.digest, expected.aggregateDigest);
   assert.deepEqual(status.counts, {
@@ -168,7 +171,7 @@ test('catalog status and reload report the verified source', () => {
     duplicateGroups: expected.duplicateIdGroupCount,
   });
   assert.equal(status.source, INSTALLED_ROOT + '/manifest.json');
-  const reloaded = invokeCatalog('strategy_catalog_reload', [], INSTALLED_ROOT);
+  const reloaded = invokeCatalog('strategy_catalog_reload', [], INSTALLED_ROOT, resolverEnv);
   assert.equal(reloaded.ok, true);
   assert.equal(reloaded.digest, loaded.aggregateDigest);
 });

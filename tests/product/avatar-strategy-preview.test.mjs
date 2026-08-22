@@ -180,6 +180,7 @@ test('Preview normalizes server-side and returns command, argv, aliases, digest,
     '/opt/zapret2/nfq2/nfqws2', '--qnum=30999',
     '--lua-init=/opt/zapret2/lua/zapret-lib.lua',
     '--hostlist=/lists/netrogat.txt', '--filter-tcp=443', '--lua-desync=fake',
+    '--hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt',
   ]);
   assert.equal(result.effectiveCommand, result.effectiveArgv.map(value => `'${value}'`).join(' '));
   assert.equal(result.dependencies.available, true);

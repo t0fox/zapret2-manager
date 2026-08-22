@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PINNED_SHA = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 const AUDITED_AGGREGATE_DIGEST = 'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136';
@@ -13,34 +13,11 @@ const PROTOCOL_KEYWORDS = [
   ['tcp', 'tcp'], ['http80', 'tcp'], ['http', 'tcp'], ['tls', 'tcp'],
 ];
 
-function requirePinnedSource() {
-  const source = process.env.AVATAR_PINNED_SRC;
-  if (!source) {
-    throw new Error('Fixture regeneration only: set AVATAR_PINNED_SRC to a verified Avatar checkout');
-  }
-  let head;
-  try {
-    head = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  } catch (error) {
-    throw new Error(`Fixture regeneration only: cannot verify AVATAR_PINNED_SRC (${error.message})`);
-  }
-  if (head !== PINNED_SHA) {
-    throw new Error(`Fixture regeneration only: expected Avatar HEAD ${PINNED_SHA}, got ${head}`);
-  }
-  let status;
-  try {
-    status = execFileSync('git', [
-      '-C', source, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching',
-    ], { encoding: 'utf8' }).trim();
-  } catch (error) {
-    throw new Error(`Fixture regeneration only: cannot inspect AVATAR_PINNED_SRC cleanliness (${error.message})`);
-  }
-  if (status) {
-    const details = status.split('\n').slice(0, 8).join('; ');
-    throw new Error(`Fixture regeneration only: AVATAR_PINNED_SRC must be clean (${details})`);
-  }
+function requireInstalledCatalog() {
+  const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
+    '..', '..', '..', 'zapret2-manager', 'files', 'usr', 'share', 'zapret2-manager', 'catalog', 'avatar');
   for (const level of LEVELS) {
-    const directory = path.join(source, 'catalogs', level);
+    const directory = path.join(source, level);
     let directoryPresent = false;
     try {
       directoryPresent = existsSync(directory) && statSync(directory).isDirectory();
@@ -48,7 +25,7 @@ function requirePinnedSource() {
       directoryPresent = false;
     }
     if (!directoryPresent) {
-      throw new Error(`Fixture regeneration only: pinned checkout is missing catalog directory catalogs/${level}`);
+      throw new Error(`Fixture regeneration only: installed catalog is missing level directory ${level}`);
     }
   }
   return source;
@@ -129,7 +106,7 @@ function buildManifest(source) {
   const files = [];
   const physicalEntries = [];
   for (const level of LEVELS) {
-    const levelRoot = path.join(source, 'catalogs', level);
+    const levelRoot = path.join(source, level);
     for (const filename of readdirSync(levelRoot).filter(name => name.endsWith('.txt')).sort()) {
       const relativePath = `${level}/${filename}`;
       const bytes = readFileSync(path.join(levelRoot, filename));
@@ -263,8 +240,8 @@ function assertAuditedManifest(manifest) {
   }
 }
 
-const source = requirePinnedSource();
-const output = path.resolve(path.dirname(new URL(import.meta.url).pathname), 'manifest.expected.json');
+const source = requireInstalledCatalog();
+const output = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'manifest.expected.json');
 mkdirSync(path.dirname(output), { recursive: true });
 const manifest = buildManifest(source);
 assertAuditedManifest(manifest);

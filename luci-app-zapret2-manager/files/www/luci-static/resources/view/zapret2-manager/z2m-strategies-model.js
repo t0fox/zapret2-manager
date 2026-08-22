@@ -138,7 +138,7 @@ function combineStrategies(values) {
       });
     });
   });
-  return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profi[...]
+  return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profiles: profilesList };
 }
 /**
  * Determines whether a strategy represents an autocircular strategy.
