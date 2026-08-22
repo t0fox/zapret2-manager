@@ -44,6 +44,27 @@ jobs:
       - name: Verify release artifacts
         run: node scripts/release/verify-artifacts.mjs dist
 
+      - name: Write artifact summary
+        if: always()
+        run: |
+          set -eu
+          summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+          {
+            printf '## OpenWrt APK build (%s)\n\n' "$GITHUB_SHA"
+            if [ -f dist/build-manifest.json ]; then
+              node --input-type=module -e '
+                import fs from "node:fs";
+                const m = JSON.parse(fs.readFileSync("dist/build-manifest.json", "utf8"));
+                console.log("| Artifact | Size | SHA256 |\n|---|---|---|");
+                for (const a of m.artifacts)
+                  console.log(`| ${a.filename} | ${a.bytes} | \`${a.sha256.slice(0, 16)}…\` |`);
+                console.log(`\nCommit: ${m.project.gitCommit}  Version: ${m.package.version}-r${m.package.release}`);
+              ' >> "$summary"
+            else
+              printf 'Build did not produce dist/build-manifest.json — see raw logs.\n' >> "$summary"
+            fi
+          }
+
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v4
         with:

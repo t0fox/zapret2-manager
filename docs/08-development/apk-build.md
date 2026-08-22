@@ -7,7 +7,7 @@ authority: release-engineering
 updated: 2026-08-22
 publish: true
 tags: [development, apk, release]
-code: [.github/workflows/knowledge-ci.yml#Knowledge CI]
+code: [.github/workflows/apk-build.yml#OpenWrt APK build]
 ---
 
 # Сборка APK
@@ -18,7 +18,9 @@ manager-пакета: `zapret2-manager`, `luci-app-zapret2-manager` и
 
 Документация CI не объявляет реальную SDK-сборку успешной по наличию
 workflow-файла: нужны свежие artifact logs и verifier evidence. Public Quartz
-публикуется отдельным artifact после Knowledge CI.
+публикуется независимым workflow Quartz Pages по собственному push-триггеру
+на файлы public-docs pipeline; тяжёлый Knowledge CI запускается только
+вручную (`workflow_dispatch`) и деплой не гейтит.
 
 Каждый успешный push в `main` дополнительно публикует rolling prerelease
 `main-latest` с тремя APK, `build-manifest.json` и `SHA256SUMS`. Ассеты

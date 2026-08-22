@@ -19,46 +19,64 @@ async function markdownFiles(root) {
   return files
 }
 
-test('Pages auto-deploy is restricted to successful main push Knowledge CI runs', async () => {
-  const workflow = await readFile(pagesWorkflow, 'utf8')
-  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/)
-  assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/)
-  assert.match(workflow, /github\.event\.workflow_run\.event == 'push'/)
-  assert.match(workflow, /github\.event\.workflow_run\.head_branch == 'main'/)
+test('Knowledge CI is manual-only: no automatic push or pull_request trigger', async () => {
+  const workflow = await readFile(knowledgeWorkflow, 'utf8')
+  assert.match(workflow, /^on:\s*\n\s*workflow_dispatch:\s*$/m)
+  assert.doesNotMatch(workflow, /^\s*push:\s*$/m)
+  assert.doesNotMatch(workflow, /^\s*pull_request:\s*$/m)
 })
 
-test('Pages checks out the exact triggering SHA and permits only Pages deployment permissions', async () => {
+test('Pages deploys from its own push trigger, not from a Knowledge CI workflow_run', async () => {
   const workflow = await readFile(pagesWorkflow, 'utf8')
-  assert.match(workflow, /github\.event\.workflow_run\.head_sha/)
-  assert.match(workflow, /github\.sha/)
-  assert.match(workflow, /contents:\s*read/)
-  assert.match(workflow, /pages:\s*write/)
-  assert.match(workflow, /id-token:\s*write/)
+  assert.match(workflow, /^\s*push:\s*$/m)
+  assert.match(workflow, /branches:\s*\[?['"]?main['"]?\]?/)
+  assert.match(workflow, /workflow_dispatch:/)
+  // Publication must not depend on the heavy manual knowledge workflow.
+  assert.doesNotMatch(workflow, /workflow_run:/)
+  assert.doesNotMatch(workflow, /Knowledge CI/)
 })
 
-test('Pages uploads only the public docs artifact', async () => {
+test('Pages push trigger covers exactly the public docs pipeline inputs', async () => {
   const workflow = await readFile(pagesWorkflow, 'utf8')
+  for (const requiredPath of [
+    'docs/**',
+    'scripts/docs.mjs',
+    'scripts/public-projection.mjs',
+    'tools/docs-site/**',
+    'tests/knowledge/public-leak.test.mjs',
+    '.github/workflows/quartz-pages.yml',
+  ]) {
+    assert.ok(workflow.includes(`'${requiredPath}'`), `paths filter must include ${requiredPath}`)
+  }
+})
+
+test('Pages build verifies pinned Quartz and gates deployment on both smoke checks', async () => {
+  const workflow = await readFile(pagesWorkflow, 'utf8')
+  assert.match(workflow, /node scripts\/docs\.mjs verify/)
+  assert.match(workflow, /node scripts\/docs\.mjs build public --production/)
+  // Two independent leak checks: embedded in the build plus an explicit run
+  // against the produced artifact.
+  assert.match(workflow, /node --test tests\/knowledge\/public-leak\.test\.mjs/)
+  assert.match(workflow, /needs:\s*build\b/)
+  assert.match(workflow, /needs\.build\.result == 'success'/)
+})
+
+test('Pages uploads only the verified public docs artifact', async () => {
+  const workflow = await readFile(pagesWorkflow, 'utf8')
+  assert.match(workflow, /actions\/upload-artifact@v4/)
+  assert.match(workflow, /docs-public-\$\{\{ github\.sha \}\}/)
   assert.match(workflow, /actions\/upload-pages-artifact@v3/)
   assert.match(workflow, /path:\s*\.artifacts\/docs-public/)
   assert.doesNotMatch(workflow, /docs-internal|\.artifacts\/quartz|docs\/12-ai|docs\/09-work/)
 })
 
-test('Knowledge CI verifies both builds and runs the public leak test', async () => {
-  const workflow = await readFile(knowledgeWorkflow, 'utf8')
-  assert.match(workflow, /node scripts\/docs\.mjs verify/)
-  assert.match(workflow, /node scripts\/docs\.mjs build internal/)
-  assert.match(workflow, /node scripts\/docs\.mjs build public --production/)
-  assert.match(workflow, /node tests\/knowledge\/public-leak\.test\.mjs/)
-  assert.match(workflow, /actions\/upload-artifact@v4/)
-  assert.match(workflow, /docs-public-\$\{\{ github\.sha \}\}/)
-})
-
-test('Pages deploys the verified artifact from the triggering Knowledge CI run', async () => {
+test('Deploy job refuses an incomplete artifact and keeps least privileges', async () => {
   const workflow = await readFile(pagesWorkflow, 'utf8')
-  assert.match(workflow, /actions:\s*read/)
-  assert.match(workflow, /actions\/download-artifact@v4/)
-  assert.match(workflow, /github\.event\.workflow_run\.id/)
-  assert.match(workflow, /docs-public-\$\{\{ github\.event\.workflow_run\.head_sha \}\}/)
+  assert.match(workflow, /contents:\s*read/)
+  assert.match(workflow, /pages:\s*write/)
+  assert.match(workflow, /id-token:\s*write/)
+  assert.match(workflow, /refusing to deploy: public docs artifact is incomplete/)
+  assert.match(workflow, /test -f \.artifacts\/docs-public\/index\.html/)
 })
 
 test('Public Quartz runtime prefixes dynamic navigation with the project base path', async () => {
@@ -71,7 +89,7 @@ test('Public Quartz runtime prefixes dynamic navigation with the project base pa
 
 test('Public Quartz output is Russian and renders the full graph', async () => {
   const script = await readFile(docsScript, 'utf8')
-  assert.match(script, /locale: \"ru-RU\"/)
+  assert.match(script, /locale: "ru-RU"/)
   assert.match(script, /patchPublicGraphAndRussianChrome/)
   assert.match(script, /<h3>Граф связей<\/h3>/)
   assert.match(script, /&quot;depth&quot;:\)1/)

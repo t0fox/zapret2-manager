@@ -1,19 +1,97 @@
 name: Quartz Pages
 
+# Public site publication is decoupled from the heavy manual knowledge
+# verification workflow. It runs on its own push trigger restricted to the
+# files that are real inputs of the public docs pipeline:
+#   - docs/**                      — vault content projected into the site
+#   - scripts/docs.mjs             — build/projection driver
+#   - scripts/public-projection.mjs— public projection table
+#   - tools/docs-site/**           — pinned Quartz checkout + lock
+#   - tests/knowledge/public-leak.test.mjs — deploy-gating safety check
+#   - this workflow file
+# Unrelated code pushes do not deploy anything.
+
 on:
-  workflow_run:
-    workflows: ["Knowledge CI"]
-    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/docs.mjs'
+      - 'scripts/public-projection.mjs'
+      - 'tools/docs-site/**'
+      - 'tests/knowledge/public-leak.test.mjs'
+      - '.github/workflows/quartz-pages.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
+  build:
+    name: Build and safety-check public site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify pinned Quartz checkout
+        run: |
+          node scripts/docs.mjs verify
+          touch .artifacts-quartz-verify-ok
+
+      - name: Build public Quartz production site
+        # The public build embeds its own leak smoke; the explicit re-run
+        # below independently verifies the produced artifact as a gate row.
+        run: |
+          node scripts/docs.mjs build public --production
+          touch .artifacts-public-build-ok
+
+      - name: Post-build privacy/leak smoke test
+        run: node --test tests/knowledge/public-leak.test.mjs
+
+      - name: Upload verified public docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-public-${{ github.sha }}
+          path: .artifacts/docs-public
+          if-no-files-found: error
+
+      - name: Write build summary
+        if: always()
+        run: |
+          set -eu
+          row() {
+            test -e "$2" && printf '| %s | ✅ PASS |\n' "$1" || printf '| %s | ❌ FAIL |\n' "$1"
+          }
+          summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+          {
+            printf '## Quartz Pages build\n\n'
+            printf '| Check | Result |\n|---|---|\n'
+            row 'Pinned Quartz verify' .artifacts-quartz-verify-ok
+            row 'Public production build + embedded smoke' .artifacts-public-build-ok
+            row 'Independent privacy/leak smoke' .artifacts/docs-public/index.html
+            printf '\nDeployment proceeds only when this job succeeded.\n'
+          } >> "$summary"
+
+  # Dependency-gated deployment: never runs unless the built artifact passed
+  # both the embedded and the independent privacy/leak smoke checks.
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') }}
+    name: Deploy to GitHub Pages
+    needs: build
+    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
 
     # Grant pages write permission for deployment
     permissions:
-      actions: read
       contents: read
       pages: write
       id-token: write
@@ -22,35 +100,25 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
-    concurrency:
-      group: "pages"
-      cancel-in-progress: false
-
     steps:
-      - name: Checkout (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
 
-      - name: Setup Node 22 (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Build public Quartz site (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        run: node scripts/docs.mjs build public --production
-
       - name: Download verified public docs artifact
-        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-          name: docs-public-${{ github.event.workflow_run.head_sha }}
+          name: docs-public-${{ github.sha }}
           path: .artifacts/docs-public
+
+      - name: Verify artifact is present before deployment
+        run: |
+          set -eu
+          test -f .artifacts/docs-public/index.html || {
+            printf 'refusing to deploy: public docs artifact is incomplete\n' >&2
+            exit 1
+          }
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -64,5 +132,5 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      # Deployment uses only the public artifact; generated HTML is never
-      # committed or pushed back to main.
+      # Explicit guard: never push generated HTML back to main
+      # (deployment uses the verified Pages artifact only; no git push occurs)
