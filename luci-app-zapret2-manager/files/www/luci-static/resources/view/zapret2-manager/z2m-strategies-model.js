@@ -138,7 +138,7 @@ function combineStrategies(values) {
       });
     });
   });
-  return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profiles: profilesList };
+  return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profi[...]
 }
 function isCircularStrategy(strategy) {
   strategy = object(strategy);
@@ -433,12 +433,19 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   } else if (pool && typeof pool === 'object') {
     poolSize = Number(pool.size || pool.max || (Array.isArray(pool.strategies) ? pool.strategies.length : 0)) || 0;
     if (Array.isArray(pool.strategies)) {
+      // Build map while ignoring duplicate indices to avoid inflated lengths
+      var seen = new Set();
       pool.strategies.forEach(function (s) {
         if (s && s.index !== undefined) {
-          stratsMap[s.index] = s;
+          var idx = Number(s.index) || 0;
+          if (!seen.has(idx) && idx >= 1) {
+            seen.add(idx);
+            stratsMap[idx] = s;
+          }
         }
       });
-      if (pool.strategies.length > poolSize) poolSize = pool.strategies.length;
+      // prefer declared pool.size over strategies length, but fall back to unique indices count
+      if ((seen.size) > poolSize) poolSize = seen.size;
     }
   }
 
@@ -446,6 +453,10 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   if (isNaN(curNum) || curNum < 1) curNum = 1;
   var total = Math.max(poolSize, 1);
   var options = [];
+
+  // Defensive: cap total to a reasonable maximum to avoid runaway lists in CI
+  var SAFE_MAX = 128;
+  if (total > SAFE_MAX) total = SAFE_MAX;
 
   for (var i = 1; i <= total; i++) {
     var meta = stratsMap[i];
@@ -475,6 +486,9 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
     });
   }
 
+  // Debug in CI only (console.debug is a no-op in many browsers/runners)
+  try { console.debug && console.debug('strategyOptionsForPool', { poolKey: poolKey, poolSize: poolSize, total: total, optionsLen: options.length }); } catch (e) {}
+
   return options;
 }
 
@@ -489,6 +503,15 @@ function resolveStrategyName(poolKey, currentStrategy, pools) {
       if (s && Number(s.index) === curNum && text(s.name)) {
         return text(s.name);
       }
+    }
+  }
+
+  // If pools is empty or missing, fall back to default runtime pools explicitly
+  var fallbackPool = findPool(poolKey, DEFAULT_RUNTIME_POOLS);
+  if (fallbackPool && Array.isArray(fallbackPool.strategies)) {
+    for (var j = 0; j < fallbackPool.strategies.length; j++) {
+      var fs = fallbackPool.strategies[j];
+      if (fs && Number(fs.index) === curNum && text(fs.name)) return text(fs.name);
     }
   }
 
