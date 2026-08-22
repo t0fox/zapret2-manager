@@ -175,7 +175,7 @@ FULL_APK=$(find_product_apk zapret2-manager-full)
 
 verify_full_package_dependency() {
 	local dependency=$1
-	if ! tar -xOzf "$FULL_APK" .PKGINFO | grep -Fqx "depend = $dependency"; then
+	if ! tar -xOf "$FULL_APK" .PKGINFO | grep -Fqx "depend = $dependency"; then
 		die "full package dependency metadata is missing: $dependency"
 	fi
 }
