@@ -104,7 +104,7 @@ async function assertNode(lock) {
   }
 }
 
-async function bootstrap(lock) {
+async function bootstrap(lock, installDependencies = true) {
   await assertNode(lock)
   await mkdir(ARTIFACTS_PATH, { recursive: true })
   if (!(await exists(QUARTZ_PATH))) {
@@ -127,6 +127,7 @@ async function bootstrap(lock) {
   if (sha !== lock.commit) {
     throw new Error(`Quartz SHA mismatch: expected ${lock.commit}, got ${sha}`)
   }
+  if (!installDependencies) return
   if (!(await exists(path.join(QUARTZ_PATH, 'node_modules')))) {
     await run('npm', ['ci'], { cwd: QUARTZ_PATH })
   }
@@ -321,7 +322,7 @@ export async function main(args = process.argv.slice(2)) {
     return
   }
   const lock = await readLock()
-  await bootstrap(lock)
+  await bootstrap(lock, normalized.command !== 'verify')
   if (normalized.command === 'verify') {
     console.log(`Quartz SHA verified: ${lock.commit}`)
     return
