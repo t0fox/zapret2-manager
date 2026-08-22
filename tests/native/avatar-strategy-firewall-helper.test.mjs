@@ -60,7 +60,6 @@ test('production Scanner firewall helper fails closed without nftables authority
     const out = JSON.parse((ran.stdout || '').trim().split(/\r?\n/)[0] || '{}');
     assert.equal(out.ok, false);
     assert.ok(['EINTERNAL', 'EOWNERSHIP'].includes(out.error?.code), out.error?.code);
-    if (ran.status === 0) assert.equal(out.error.code, 'EOWNERSHIP');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

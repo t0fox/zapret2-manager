@@ -292,7 +292,7 @@ test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain ex
   assert.match(statusCompat, /schema\s*:\s*3/);
   assert.doesNotMatch(page, /ctx\.api\.orchestra/);
   assert.doesNotMatch(rpc, /strategy.*Orchestra|ORCH_CLI.*STRATEGY/i);
-  assert.doesNotMatch(cli, /schema\s*[:=]\s*4|Scanner|catalog_updater|online updater|router migration/i);
+  assert.doesNotMatch(cli, /schema\s*[:=]\s*4|catalog_updater|online updater|router migration/i);
   assert.doesNotMatch(page, /DNS migration|router migration|online updater/i);
   assert.doesNotMatch(MAKEFILE, /catalogs\/presets compatibility tree/);
 

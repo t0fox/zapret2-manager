@@ -864,12 +864,22 @@ export const strategy_catalog_resolve = function(options) {
 	let packageRoot = options.packageRoot || DEFAULT_ROOT, managedRoot = options.managedRoot || MANAGED_ROOT;
 	let explicit = options.root || configured_root();
 	if (explicit != null) {
+		// A single rpcd/ucode process serves many read requests.  Once an
+		// explicit root has passed the full manifest/raw-file verification, reuse
+		// that immutable resolution for ordinary reads; forced status/reload
+		// paths still re-verify the complete catalog below.
+		if (options.forceVerify != true && activeResolution != null
+			&& activeResolution.root == explicit) return activeResolution;
 		let result = verify_candidate(explicit);
 		if (!result.ok) return result;
 		let kind = explicit == managedRoot ? 'managed' : explicit == packageRoot ? 'package' : 'explicit';
-		return resolution_from(kind, explicit, result, false, null);
+		let selected = resolution_from(kind, explicit, result, false, null);
+		activeResolution = selected;
+		return selected;
 	}
 	if (options.forceVerify != true) {
+		if (activeResolution != null && (activeResolution.root == packageRoot
+			|| activeResolution.root == managedRoot)) return activeResolution;
 		let fast = fast_resolve(packageRoot, managedRoot);
 		if (fast != null) { activeResolution = fast; return fast; }
 	}

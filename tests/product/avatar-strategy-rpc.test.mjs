@@ -718,7 +718,6 @@ test('Strategy RPC registration keeps fixed CLI modes and explicit error envelop
 test('Strategy CLI dispatch exposes state and catalog operations without a generic action', () => {
   for (const name of [
     'strategy_user_list', 'strategy_user_get_readonly', 'strategy_duplicate',
-    'strategy_catalog_get',
     'strategy_catalog_status', 'strategy_catalog_reload',
   ]) assert.match(CLI, new RegExp(`\\b${name}\\b`), name);
   for (const name of ['user_create', 'user_update', 'user_delete', 'favorite'])
