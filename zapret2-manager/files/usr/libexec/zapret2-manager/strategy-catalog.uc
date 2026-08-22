@@ -877,6 +877,15 @@ export const strategy_catalog_resolve = function(options) {
 		activeResolution = selected;
 		return selected;
 	}
+	// Test/server callers may supply isolated package and managed candidates.
+	// Their contents must be resolved against each other in this invocation;
+	// the process-wide active pointer and fast index belong to the installed
+	// catalog and must not hide a supplied managed candidate.
+	if (options.packageRoot != null || options.managedRoot != null) {
+		let resolved = full_resolve(packageRoot, managedRoot, options.persist != false);
+		if (resolved.ok) activeResolution = resolved;
+		return resolved;
+	}
 	if (options.forceVerify != true) {
 		if (activeResolution != null && (activeResolution.root == managedRoot
 			|| (activeResolution.root == packageRoot && !directory(managedRoot)))) return activeResolution;
@@ -1025,7 +1034,7 @@ export const strategy_catalog_get_detail = function(id) {
 	// continue through the bounded single-file fallback below.
 	if (type(fast.catalog.physicalEntries) == 'array') {
 		for (let entry in fast.catalog.physicalEntries)
-			if (entry.id == id && entry.winner == true) return index_entry(entry);
+			if (entry.id == id && entry.winner == true) return copy(entry);
 	}
 	let indexed = fast.catalog.winners[id], path = safe_file_path(loadedRoot || catalog_root(), indexed.sourceFile);
 	if (path == null) return { error: { code: 'EPATH', message: 'strategy source path is unavailable' } };
