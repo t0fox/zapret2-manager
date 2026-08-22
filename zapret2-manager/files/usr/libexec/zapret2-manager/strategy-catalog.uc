@@ -113,13 +113,15 @@ function shell_quote(value) {
 }
 
 function atomic_write(path, content) {
-	let parent = path == ACTIVE_POINTER_PATH ? '/etc/zapret2-manager/catalog'
-		: path == READ_INDEX_PATH ? '/etc/zapret2-manager' : null;
-	if (parent != null) {
-		let prep = null;
-		try { prep = popen('mkdir ' + shell_quote(parent) + ' 2>/dev/null', 'r'); } catch (e) { prep = null; }
-		if (!prep || prep.close() != 0) return false;
-	}
+	// Derive the parent directory from the target path itself. Hardcoded
+	// parent constants break overridable roots and fail for non-root writers;
+	// mkdir -p keeps the step idempotent for an existing /etc/zapret2-manager.
+	let cut = rindex(path, '/');
+	if (type(cut) != 'int' || cut <= 0) return false;
+	let prep = null;
+	try { prep = popen('mkdir -p ' + shell_quote(substr(path, 0, cut)) + ' 2>/dev/null', 'r'); }
+	catch (e) { prep = null; }
+	if (!prep || prep.close() != 0) return false;
 	let temporary = path + '.tmp.' + time();
 	try { writefile(temporary, content); } catch (e) { return false; }
 	let move = null, rc = -1;
@@ -907,6 +909,17 @@ export const strategy_catalog_resolve = function(options) {
 		if (fast != null && (fast.kind == 'managed' || !directory(managedRoot))) {
 			activeResolution = fast; return fast;
 		}
+	}
+	// HARD INVARIANT: ordinary read RPCs must never fall back to full catalog
+	// verification inside rpcd (manifest re-parse plus per-file digest fan-out
+	// starves every other ubus call). When the persisted compact read index is
+	// missing, corrupt, or stale, return a bounded structured error; the
+	// explicit repair path (strategies_catalog_reload / index CLI --repair)
+	// performs the full verification and republishes pointer + index.
+	if (options.forceVerify != true && options.allowFullVerify != true) {
+		let stale = read_active_pointer() != null ? 'stale' : 'missing';
+		return error_result('EINDEX_UNAVAILABLE',
+			'verified catalog read index is unavailable (' + stale + '); run catalog reload to repair');
 	}
 	let resolved = full_resolve(packageRoot, managedRoot, options.persist != false);
 	if (resolved.ok) activeResolution = resolved;
