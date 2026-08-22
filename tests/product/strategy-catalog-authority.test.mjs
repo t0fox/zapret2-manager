@@ -42,11 +42,13 @@ test('manifest-only managed candidate cannot shadow a verified package baseline'
   const managed = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-managed-manifest-'));
   fs.copyFileSync(path.join(PACKAGE_ROOT, 'manifest.json'), path.join(managed, 'manifest.json'));
   const result = resolve(PACKAGE_ROOT, managed);
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(result.kind, 'package');
-  assert.equal(result.fallbackUsed, true);
-  assert.equal(result.verified, true);
-  assert.equal(result.verificationError.code, 'EPATH');
+  const summary = JSON.stringify({ ok: result.ok, kind: result.kind, fallbackUsed: result.fallbackUsed,
+    verified: result.verified, verificationError: result.verificationError?.code, error: result.error?.code });
+  assert.equal(result.ok, true, summary);
+  assert.equal(result.kind, 'package', summary);
+  assert.equal(result.fallbackUsed, true, summary);
+  assert.equal(result.verified, true, summary);
+  assert.equal(result.verificationError.code, 'EPATH', summary);
 });
 
 test('fully verified managed candidate is the sole active catalog authority', () => {
