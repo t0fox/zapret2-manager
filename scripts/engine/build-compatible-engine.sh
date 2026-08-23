@@ -159,15 +159,18 @@ mkdir -p "$WORK/deps-src"; cd "$WORK/deps-src"
 if [ ! -f "$DEPS/lib/libnetfilter_queue.a" ]; then
 	fetch_pinned "$LIBMNL_URL" "$LIBMNL_SHA" libmnl.tar.bz2
 	tar -xjf libmnl.tar.bz2
-	build_autotools libmnl-1.0.5
+	build_autotools libmnl-1.0.5 \
+		CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib"
 
 	fetch_pinned "$LIBNFNETLINK_URL" "$LIBNFNETLINK_SHA" libnfnetlink.tar.bz2
 	tar -xjf libnfnetlink.tar.bz2
-	build_autotools libnfnetlink-1.0.2
+	build_autotools libnfnetlink-1.0.2 \
+		CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib"
 
 	fetch_pinned "$LIBNFQ_URL" "$LIBNFQ_SHA" libnfq.tar.bz2
 	tar -xjf libnfq.tar.bz2
 	build_autotools libnetfilter_queue-1.0.5 \
+		CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" \
 		LIBMNL_CFLAGS="-I$DEPS/include" \
 		LIBMNL_LIBS="-L$DEPS/lib -lmnl"
 
