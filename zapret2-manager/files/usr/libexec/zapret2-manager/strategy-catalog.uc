@@ -116,14 +116,19 @@ function atomic_write(path, content) {
 	// Derive the parent directory from the target path itself. Hardcoded
 	// parent constants break overridable roots and fail for non-root writers.
 	// Parent directories are owned by z2m-root-bootstrap or the package
-	// layout, so a single non-recursive directory creation keeps the step
-	// idempotent without recursive traversal under managed roots.
+	// layout, so only a bounded number of missing levels is created, each
+	// with a single non-recursive directory creation — no recursive
+	// traversal under managed roots.
 	let cut = rindex(path, '/');
 	if (type(cut) != 'int' || cut <= 0) return false;
-	let prep = null;
-	try { prep = popen('mkdir ' + shell_quote(substr(path, 0, cut)) + ' 2>/dev/null', 'r'); }
-	catch (e) { prep = null; }
-	if (!prep || prep.close() != 0) return false;
+	let parent = substr(path, 0, cut);
+	for (let depth = 0; depth < 3; depth++) {
+		if (command_rc('mkdir ' + shell_quote(parent)) == 0) break;
+		let parentCut = rindex(parent, '/');
+		if (type(parentCut) != 'int' || parentCut <= 0) return false;
+		parent = substr(parent, 0, parentCut);
+	}
+	if (!directory(substr(path, 0, cut))) return false;
 	let temporary = path + '.tmp.' + time();
 	try { writefile(temporary, content); } catch (e) { return false; }
 	let move = null, rc = -1;
