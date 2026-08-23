@@ -150,7 +150,7 @@ cp -a "$ROOTDIR/blockcheck2.sh" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удал
 			[ -f "$lua" ] || continue
 			case "$lua" in
 				*.gz)
-					gzip -dc "$lua" >"$ENGINE_STAGE/lua/$(basename "$lua" .gz)" && chmod 0644 "$ENGINE_STAGE/lua/$(basename "$lua" .gz)" || fail EPACKAGE 'Не удалось распаковать Lua module.'
+					gzip -dc "$lua" >"$ENGINE_STAGE/lua/$(basename "$lua" .gz)" && chmod 0755 "$ENGINE_STAGE/lua/$(basename "$lua" .gz)" || fail EPACKAGE 'Не удалось распаковать Lua module.'
 				;;
 				*)
 					cp -a "$lua" "$ENGINE_STAGE/lua/" && chmod 0644 "$ENGINE_STAGE/lua/$(basename "$lua")" || fail EPACKAGE 'Не удалось скопировать Lua module.'
