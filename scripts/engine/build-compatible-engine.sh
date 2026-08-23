@@ -280,10 +280,10 @@ const input = {
 };
 fs.writeFileSync('$WORK/manifest-input.json', JSON.stringify(input, null, 2));
 "
-node "$SCRIPT_DIR/write-manifest.mjs" "$WORK/manifest-input.json" "$DIST/${ARTIFACT_NAME%.tar.gz}.manifest.json"
+node "$SCRIPT_DIR/write-manifest.mjs" "$WORK/manifest-input.json" "$DIST/${ARTIFACT_NAME}.manifest.json"
 
 # ------------------------------------------------------- step 8: self-validation
-MANIFEST_PATH="$DIST/${ARTIFACT_NAME%.tar.gz}.manifest.json"
+MANIFEST_PATH="$DIST/${ARTIFACT_NAME}.manifest.json"
 node "$SCRIPT_DIR/validate-engine-manifest.mjs" "$MANIFEST_PATH" "$ARTIFACT_PATH" \
   || die "MANIFEST_INVALID: produced manifest failed validation"
 

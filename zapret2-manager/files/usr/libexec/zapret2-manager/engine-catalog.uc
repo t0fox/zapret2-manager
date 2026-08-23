@@ -93,40 +93,10 @@ function z2m_compatible_records(architecture_value, options) {
 		return { ok: true, records: options.cachedZ2mReleases };
 	let fetched = fetch_json_feed(Z2M_RELEASES_API);
 	if (!fetched.ok) return fetched;
-	let records = [];
-	for (let i = 0; i < length(fetched.releases); i++) {
-		let release = fetched.releases[i];
-		if (!is_object(release) || release.draft === true || release.prerelease === true) continue;
-		let assets = type(release.assets) == 'array' ? release.assets : [];
-		for (let j = 0; j < length(assets); j++) {
-			let tar = assets[j];
-			if (!is_object(tar) || !match(tar.name || '', /^[\w.-]+\.tar\.gz$/)) continue;
-			if (index(tar.name || '', 'z2m-engine-') != 0) continue;
-			let manifestAsset = null;
-			for (let k = 0; k < length(assets); k++) {
-				if (is_object(assets[k]) && assets[k].name == tar.name + '.manifest.json') manifestAsset = assets[k];
-			}
-			if (manifestAsset == null) continue;
-			let file = private_tempfile();
-			if (file == null) continue;
-			let qf = literal(file), qu = literal(manifestAsset.browser_download_url);
-			if (qf == null || qu == null) { try { unlink(file); } catch (e) {} continue; }
-			let r = run('ulimit -f 1024; uclient-fetch -q -T 20 --user-agent zapret2-manager/engine -O ' + qf + ' ' + qu);
-			let manifest = r.rc == 0 ? read_json(file, null) : null;
-			try { unlink(file); } catch (e) {}
-			if (!is_object(manifest)) continue;
-			let answer = z2m_compatible_candidate(manifest, tar, architecture_value);
-			if (answer.ok == true) {
-				let candidate = answer.candidate;
-				candidate.releaseId = type(release.id) == 'string' || type(release.id) == 'int' ? '' + release.id : '';
-				candidate.publishedAt = release.published_at != null ? '' + release.published_at : '';
-				candidate.releaseUrl = is_object(release.html_url) || type(release.html_url) == 'string' ? release.html_url : candidate.releaseUrl;
-				push(records, candidate);
-			}
-		}
-	}
-	return { ok: true, records: records };
+	return z2m_records_from_payload(fetched.releases, architecture_value,
+		z2m_default_manifest_fetcher);
 }
+
 
 function catalog(architecture_value, options) {
 	options = options || {};
@@ -169,7 +139,7 @@ function merged_candidates(result) {
 
 export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return result; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null }; };
 export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null ? saved.installedRelease : null; return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
-export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null && !match(version, /^[\w.-]+$/)) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: true, allowStale: false }); if (!result.ok) return result; let combined = merged_candidates(result); let candidate = null, public_releases = [];
+export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null && !match(version, /^[a-zA-Z0-9._-]+$/)) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: true, allowStale: false }); if (!result.ok) return result; let combined = merged_candidates(result); let candidate = null, public_releases = [];
 if (version == null) {
 	// Default target: merged order puts newest compatible candidates first;
 	// vanilla (visible-but-not-installable) records trail after them.
@@ -320,3 +290,57 @@ export const z2m_compatible_candidate = function (manifest, asset, deviceArch) {
 		compatibilityMessage: ''
 	} };
 };
+
+// CONTRACT (producer ↔ GitHub Release ↔ consumer), single source of truth:
+//   - release tag MUST start with 'engine-'  (identity anchor of the
+//     canonical feed; prerelease flag is a publication marker only and is
+//     explicitly ALLOWED here — engine-build.yml publishes rolling --prerelease)
+//   - draft releases are skipped
+//   - installable payload = asset 'z2m-engine-*.tar.gz' paired with its
+//     sidecar '<artifactFileName>.manifest.json'
+//   - the manifest must re-state pinned identity + digests (enforced by
+//     z2m_compatible_candidate)
+// fetch_manifest(assetObject) -> parsed manifest object or null.
+export const z2m_records_from_payload = function (releases, architecture_value, fetch_manifest) {
+	if (type(releases) != 'array') return { ok: true, records: [] };
+	let records = [];
+	for (let i = 0; i < length(releases); i++) {
+		let release = releases[i];
+		if (!is_object(release) || release.draft === true) continue;
+		if (!match(release.tag_name || '', /^engine-/)) continue;
+		let assets = type(release.assets) == 'array' ? release.assets : [];
+		for (let j = 0; j < length(assets); j++) {
+			let tar = assets[j];
+			if (!is_object(tar) || !match(tar.name || '', /^[a-zA-Z0-9._-]+\.tar\.gz$/)) continue;
+			if (index(tar.name || '', 'z2m-engine-') != 0) continue;
+			let manifestAsset = null;
+			for (let k = 0; k < length(assets); k++) {
+				if (is_object(assets[k]) && assets[k].name == tar.name + '.manifest.json') manifestAsset = assets[k];
+			}
+			if (manifestAsset == null) continue;
+			let manifest = fetch_manifest != null ? fetch_manifest(manifestAsset) : null;
+			if (!is_object(manifest)) continue;
+			let answer = z2m_compatible_candidate(manifest, tar, architecture_value);
+			if (answer.ok == true) {
+				let candidate = answer.candidate;
+				candidate.releaseId = type(release.id) == 'string' || type(release.id) == 'int' ? '' + release.id : '';
+				candidate.publishedAt = release.published_at != null ? '' + release.published_at : '';
+				candidate.releaseTag = release.tag_name || candidate.releaseTag;
+				candidate.releaseUrl = is_object(release.html_url) || type(release.html_url) == 'string' ? release.html_url : candidate.releaseUrl;
+				push(records, candidate);
+			}
+		}
+	}
+	return { ok: true, records: records };
+};
+
+function z2m_default_manifest_fetcher(manifestAsset) {
+	let file = private_tempfile();
+	if (file == null) return null;
+	let qf = literal(file), qu = literal(manifestAsset.browser_download_url);
+	if (qf == null || qu == null) { try { unlink(file); } catch (e) {} return null; }
+	let r = run('ulimit -f 1024; uclient-fetch -q -T 20 --user-agent zapret2-manager/engine -O ' + qf + ' ' + qu);
+	let manifest = r.rc == 0 ? read_json(file, null) : null;
+	try { unlink(file); } catch (e) {}
+	return manifest;
+}
