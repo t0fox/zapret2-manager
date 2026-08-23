@@ -1,5 +1,8 @@
 #!/bin/sh
 set -eu
+[ "${Z2M_SYNC_TRACE:-0}" = 1 ] && set -x
+SYNC_LOG=${Z2M_SYNC_LOG:-/dev/null}
+sync_log() { printf '%s\n' "sync: $*" >> "$SYNC_LOG" 2>/dev/null || true; }
 
 # strategy-runtime-assets-sync.sh — Z2K runtime asset materialization.
 #
@@ -23,17 +26,23 @@ ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
 
 [ -d "$SRC" ] || { printf '{"ok":false,"missing":["SRC:%s"],"mismatched":[],"count":0}\n' "$SRC"; exit 1; }
 # The runtime base itself is owned by the engine payload/installer; only its
-# direct children are created here, so no recursive traversal is needed.
-mkdir "$BASE/files"
-mkdir "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset"
+# direct children are created here (no recursive traversal), and re-running
+# over an existing tree is a no-op per directory.
+ensure_dir() { [ -d "$1" ] || mkdir "$1"; }
+ensure_dir "$BASE/files"
+ensure_dir "$BASE/files/fake"
+ensure_dir "$BASE/lua"
+ensure_dir "$BASE/lists"
+ensure_dir "$BASE/ipset"
 [ -e "$BASE/bin" ] || ln -s "$BASE/files/fake" "$BASE/bin"
-mkdir "$ETC_ROOT/lists"
+ensure_dir "$ETC_ROOT/lists"
 [ -f "$ETC_ROOT/lists/whitelist.txt" ] || touch "$ETC_ROOT/lists/whitelist.txt"
 
 # The nfqws2 daemon persists circular host bindings while rpcd reads them from
 # the canonical Z2M state path. Keep this narrow state directory writable by
 # daemon without widening permissions on the rest of /etc/zapret2-manager.
-mkdir "$STATE_DIR"
+ensure_dir "$STATE_ROOT"
+ensure_dir "$STATE_DIR"
 if [ "$(id -u)" = "0" ]; then
 	chown root:daemon "$STATE_ROOT" 2>/dev/null || true
 	chmod 0750 "$STATE_ROOT"
@@ -136,7 +145,6 @@ verify() {
 	[ "$ok" = 1 ] && ok_json=true
 	printf '{"ok":%s,"files":[%s],"missing":[%s],"mismatched":[%s],"count":%s}\n' \
 		"$ok_json" "$files" "$missing" "$mismatched" "$count"
-	[ "$ok" = 1 ]
 	[ "$ok" = 1 ]
 }
 

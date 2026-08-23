@@ -278,7 +278,7 @@ export const install_proof = function() {
 // absent, so access it defensively or module import would throw.
 let __cli_args = null;
 try { __cli_args = ARGV; } catch (e) { __cli_args = null; }
-if (__cli_args != null && length(__cli_args) > 0 && __cli_args[0] == '--install-proof') {
+if (__cli_args != null && length(__cli_args) > 0 && __cli_args[0] == 'install-proof') {
 	print(sprintf('%J', install_proof()) + '\n');
 	exit(0);
 }

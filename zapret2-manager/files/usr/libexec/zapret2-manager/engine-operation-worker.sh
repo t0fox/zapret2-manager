@@ -62,12 +62,19 @@ rollback(){
  postflight || return 1; [ "$WAS_RUNNING" -eq 1 ] || "$INIT" stop >/dev/null 2>&1 || true
  ROLLBACK_VERIFIED=1; phase rolled_back 100 'Откат выполнен и проверен.'
 }
-fail(){ code="$1"; message="$2"; [ "$ROLLBACK_REQUIRED" -eq 1 ] && rollback || { # no previous payload: a fresh-device failure must not leave the new
-  # payload installed and running (partial install committed).
-  if [ "$NEW_INSTALLED" -eq 1 ]; then
-    [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
-    rm -rf /opt/zapret2 /etc/config/zapret2
-  fi; }; /usr/bin/ucode "$CLI" failed "$ID" "$code" "$message" "$([ "$ROLLBACK_ATTEMPTED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 'Откат проверен.'||printf 'Откат не подтверждён.')" >/dev/null 2>&1 || true; exit 1; }
+fail(){
+ code="$1"; message="$2"
+ if [ "$ROLLBACK_REQUIRED" -eq 1 ]; then
+	rollback || true
+ elif [ "$NEW_INSTALLED" -eq 1 ]; then
+	# No previous payload to restore: a fresh-device failure must not leave
+	# the new payload installed and running (partial install committed).
+	[ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
+	rm -rf /opt/zapret2 /etc/config/zapret2
+ fi
+ /usr/bin/ucode "$CLI" failed "$ID" "$code" "$message" "$([ "$ROLLBACK_ATTEMPTED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 'Откат проверен.'||printf 'Откат не подтверждён.')" >/dev/null 2>&1 || true
+ exit 1
+}
 exec 9>"$LOCK"; flock -n 9 || fail EBUSY 'Другая engine-операция уже выполняется.'
 [ -s "$JOB" ] || fail ENOENT 'Engine job не найдена.'
 ACTION="$(value '@.action')"; PRESERVE="$(value '@.preserveConfig')"; ARTIFACT_KIND="$(value '@.candidate.artifactKind')"; ARTIFACT_SCHEMA="$(value '@.candidate.schema')"; ARCH="$(value '@.candidate.architecture')"; URL="$(value '@.candidate.downloadUrl')"; EXPECTED_SHA="$(value '@.candidate.sha256')"; EXPECTED_SIZE="$(value '@.candidate.size')"; EXPECTED_VERSION="$(value '@.candidate.version')"; CONTAINER="$(value '@.candidate.container')"; CHECKSUM_URL="$(value '@.candidate.checksumUrl')"; CHECKSUM_SHA="$(value '@.candidate.checksumSha256')"; CHECKSUM_NAME="$(value '@.candidate.checksumName')"; NFQWS2_EXPECTED_SHA="$(value '@.candidate.nfqws2Sha256')"
@@ -148,7 +155,7 @@ sync_verdict="$(/bin/sh "$SYNC" --verify)" || fail EZ2K_ASSETS "Целостно
 printf '%s\n' "$sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
 phase proving 82 'Доказываются обязательные возможности движка (3/3).'
 CAPABILITIES="$WORK/capabilities.json"
-/usr/bin/ucode /usr/libexec/zapret2-manager/native-preflight.uc --install-proof >"$CAPABILITIES" 2>/dev/null \
+/usr/bin/ucode /usr/libexec/zapret2-manager/native-preflight.uc install-proof >"$CAPABILITIES" 2>/dev/null \
 	|| fail ECAPABILITY 'Preflight возможностей завершился ошибкой.'
 grep -q '"ok"[[:space:]]*:[[:space:]]*true' "$CAPABILITIES" || fail ECAPABILITY "Preflight не выдал вердикта: $(cat "$CAPABILITIES")"
 for capability in Z2K_TLS_MOD ANTIDPI_REPEATS_LOOP AUTO_FAMILY_SPLIT; do

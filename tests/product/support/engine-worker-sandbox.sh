@@ -18,7 +18,7 @@ die() { printf '{"fatal":%s}\n' "\"$1\"" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die 'root required'
 [ -x /bin/sh ] || die '/bin/sh missing'
 
-SB=$(mktemp -d /tmp/z2m-wsandbox.XXXXXX)
+SB=$(mktemp -d "$HOME/z2m-wsandbox.XXXXXX")
 trap 'rm -rf "$SB"' EXIT
 
 # ---- fixture artifact ------------------------------------------------------
@@ -298,8 +298,8 @@ else
 fi
 worker_rc=$?
 if [ "${WS_DEBUG:-0}" = 1 ]; then
-	printf '%s\n' "== worker.err tail:" >&2
-	tail -30 "$SB/worker.err" >&2
+	printf '%s\n' '== worker.err tail (filtered):' >&2
+	tail -40 "$SB/worker.err" | grep -vE '/usr/bin/ucode' >&2
 fi
 
 phase=queued

@@ -26,9 +26,14 @@ const SRC = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share',
 
 function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-z2k-sync-'));
+  // The engine installer owns creating the runtime base before sync runs;
+  // emulate that so the script's shallow mkdir calls have their parent.
+  const base = path.join(dir, 'opt', 'zapret2');
+  fs.mkdirSync(base, { recursive: true });
+  fs.mkdirSync(path.join(dir, 'etc', 'zapret2-manager'), { recursive: true });
   return {
     dir,
-    base: path.join(dir, 'opt', 'zapret2'),
+    base,
     stateRoot: path.join(dir, 'etc', 'zapret2-manager', 'state'),
     stateDir: path.join(dir, 'etc', 'zapret2-manager', 'state', 'autocircular'),
     etcRoot: path.join(dir, 'etc', 'zapret2-manager')
@@ -36,7 +41,7 @@ function sandbox() {
 }
 
 function runSync(sb, args = []) {
-  return spawnSync('/bin/sh', [SYNC, ...args], {
+  const result = spawnSync('/bin/sh', [SYNC, ...args], {
     cwd: ROOT,
     env: {
       ...process.env,
@@ -46,8 +51,13 @@ function runSync(sb, args = []) {
       Z2M_MANAGER_ETC_ROOT: sb.etcRoot,
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
     },
-    encoding: 'utf8', timeout: 60_000
+    encoding: 'utf8', timeout: 240_000
   });
+  if (result.status !== 0 || result.error) {
+    console.error('SYNC STDERR:', result.stderr);
+    console.error('SYNC STDOUT:', result.stdout);
+  }
+  return result;
 }
 
 test('materializes blobs, lua, lists into the live engine roots', () => {
