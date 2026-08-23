@@ -203,7 +203,7 @@ info "pinned target dependencies ready in $DEPS"
 # --------------------------------------------------------- step 6: target build
 SDK_TARGET_DIR=$(ls -d "$OPENWRT_SDK"/staging_dir/target-* 2>/dev/null | head -n 1)
 make -C "$SRC/nfq2" clean >/dev/null 2>&1 || true
-make -C "$SRC/nfq2" CROSS_COMPILE="$CROSS" -j"$(nproc)" \
+make -C "$SRC/nfq2" CC="${CROSS}gcc" AR="${CROSS}ar" -j"$(nproc)" \
 	LUA_CFL="-I$DEPS/include -I$SDK_TARGET_DIR/usr/include" \
 	LUA_LIB="-L$DEPS/lib -llua" \
 	LIBS_LINUX="-L$DEPS/lib -L$SDK_TARGET_DIR/usr/lib -lz -lnetfilter_queue -lnfnetlink -lmnl -lm" \
