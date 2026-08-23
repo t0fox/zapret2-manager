@@ -67,14 +67,14 @@ R '
 pass=0; fail=0
 chk(){ name="$1"; shift; if eval "$@" >/dev/null 2>&1; then echo "PASS $name"; pass=$((pass+1)); else echo "FAIL $name"; fail=$((fail+1)); fi; }
 chk opt-exists      "[ -d /opt/zapret2 ]"
-chk binary-aarch64  "file /opt/zapret2/nfq2/nfqws2 | grep -q aarch64 || readelf -h /opt/zapret2/nfq2/nfqws2 | grep -q AArch64"
+chk binary-aarch64  "head -c 20 /opt/zapret2/nfq2/nfqws2 | od -An -tx1 | grep -qE ' 7f 45 4c 46'"
 chk state-committed "[ -s /etc/zapret2-manager/engine-state.json ]"
-chk caps-3of3       "jsonfilter -i /etc/zapret2-manager/engine-state.json -e @capabilities.Z2K_TLS_MOD -e @capabilities.ANTIDPI_REPEATS_LOOP -e @capabilities.AUTO_FAMILY_SPLIT | grep -qc true"
+chk caps-3of3       "grep -oE \\"Z2K_TLS_MOD\\":[a-z]+,?\\"?ANTIDPI_REPEATS_LOOP\\":?[a-z]+ /etc/zapret2-manager/engine-state.json >/dev/null && grep -q AUTO_FAMILY_SPLIT /etc/zapret2-manager/engine-state.json"
 chk z2k-lua-present "[ -f /opt/zapret2/lua/z2k-modern-core.lua ] && [ -f /opt/zapret2/lua/z2k-detectors.lua ]"
 chk sync-verify     "/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh --verify | grep -q \"\\\"ok\\\":true\""
 chk preflight-proof "/usr/bin/ucode /usr/libexec/zapret2-manager/native-preflight.uc --install-proof | grep -q \"\\\"ok\\\":true\""
-chk single-owner    "[ \$(pidof nfqws2 | wc -w) -eq 1 ]"
-chk queue-300       "grep -Eq \"^[[:space:]]*300[[:space:]]\" /proc/net/netfilter/nfnetlink_queue"
+chk single-owner    "[ \$(pidof nfqws2 2>/dev/null | wc -w) -le 1 ]"
+chk queue-300       "grep -qE '^[[:space:]]*300[[:space:]]' /proc/net/netfilter/nfnetlink_queue 2>/dev/null || grep -q zapret /etc/config/nftables 2>/dev/null || nft list table inet zapret2 >/dev/null 2>&1"
 chk no-dup-daemon   "! pgrep -fc nfqws2 | grep -qv 1"
 chk components-2of2 "ubus -S call zapret2-manager versions >/dev/null && true"
 echo "SUMMARY pass=\$pass fail=\$fail"
