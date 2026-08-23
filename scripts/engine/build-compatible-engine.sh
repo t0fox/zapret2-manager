@@ -51,6 +51,8 @@ LIBNFNETLINK_URL='https://netfilter.org/projects/libnfnetlink/files/libnfnetlink
 LIBNFNETLINK_SHA='b064c7c3d426efb4786e60a8e6859b82ee2f2c5e49ffeea640cfe4fe33cbc376'
 LIBNFQ_URL='https://netfilter.org/projects/libnetfilter_queue/files/libnetfilter_queue-1.0.5.tar.bz2'
 LIBNFQ_SHA='f9ff3c11305d6e03d81405957bdc11aea18e0d315c3e3f48da53a24ba251b9f5'
+ZLIB_URL='https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz'
+ZLIB_SHA='9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23'
 LIBCAP_URL='https://kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.71.tar.xz'
 LIBCAP_SHA='b7006c9af5168315f35fc734bf1a8d2aa70766bd8b8c4340962e05b19c35b900'
 
@@ -195,6 +197,15 @@ if [ ! -f "$DEPS/lib/libnetfilter_queue.a" ]; then
 		mkdir -p "$DEPS/include/sys" "$DEPS/lib"
 		cp -a libcap/include/sys/capability.h "$DEPS/include/sys/"
 		cp -a libcap/libcap.a "$DEPS/lib/"
+	)
+
+	fetch_pinned "$ZLIB_URL" "$ZLIB_SHA" zlib.tar.gz
+	tar -xzf zlib.tar.gz
+	(
+		cd zlib-1.3.1
+		env CHOST="$CROSS" ./configure --static --prefix="$DEPS" >/dev/null
+		make -j"$(nproc)" libz.a CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" >/dev/null
+		make install >/dev/null
 	)
 fi
 cd "$REPO_ROOT"
