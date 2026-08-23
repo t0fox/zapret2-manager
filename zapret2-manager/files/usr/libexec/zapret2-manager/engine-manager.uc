@@ -43,6 +43,10 @@ export const commit_state = function (id) {
 	// Runtime contract proven directly from the installed tree: the version
 	// string of a manager-built binary may differ from upstream's heuristic,
 	// so we verify the actual files instead of trusting the version line.
+	let job2 = read_job(id);
+	if (job2 == null || type(job2.candidate) != 'object')
+		return fail('EVERIFY', 'Установленный official payload не подтверждён.');
+	let candidate = job2.candidate;
 	let run0 = function(c) { let p0 = popen(c + ' 2>/dev/null', 'r'); if (!p0) return { rc: -1, out: '' }; let o0 = p0.read('all'), r0 = p0.close(); return { rc: r0, out: o0 ? o0 : '' }; };
 	let binOk = stat('/opt/zapret2/nfq2/nfqws2') != null;
 	let cfgOk = stat('/opt/zapret2/config') != null;
