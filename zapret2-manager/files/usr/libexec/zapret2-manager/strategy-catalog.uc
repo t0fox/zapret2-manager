@@ -112,6 +112,18 @@ function shell_quote(value) {
 	return result + chr(39);
 }
 
+function directory(path) {
+	let metadata = null;
+	try { metadata = stat(path); } catch (e) { return false; }
+	return metadata != null && metadata.type == 'directory';
+}
+
+function command_rc(command) {
+	let process = null, rc = -1;
+	try { process = popen(command + ' 2>/dev/null', 'r'); if (process) rc = process.close(); } catch (e) { rc = -1; }
+	return rc;
+}
+
 function atomic_write(path, content) {
 	// Derive the parent directory from the target path itself. Hardcoded
 	// parent constants break overridable roots and fail for non-root writers.
@@ -121,13 +133,18 @@ function atomic_write(path, content) {
 	// traversal under managed roots.
 	let cut = rindex(path, '/');
 	if (type(cut) != 'int' || cut <= 0) return false;
-	let parent = substr(path, 0, cut);
-	for (let depth = 0; depth < 3; depth++) {
-		if (command_rc('mkdir ' + shell_quote(parent)) == 0) break;
-		let parentCut = rindex(parent, '/');
-		if (type(parentCut) != 'int' || parentCut <= 0) return false;
-		parent = substr(parent, 0, parentCut);
+	// Collect missing ancestor directories (bounded) and create them top-down,
+	// each with a single non-recursive mkdir.
+	let missing = [], cur = substr(path, 0, cut);
+	while (length(missing) < 4) {
+		if (directory(cur)) break;
+		push(missing, cur);
+		let ancestorCut = rindex(cur, '/');
+		if (type(ancestorCut) != 'int' || ancestorCut <= 0) break;
+		cur = substr(cur, 0, ancestorCut);
 	}
+	for (let i = length(missing) - 1; i >= 0; i--)
+		if (command_rc('mkdir ' + shell_quote(missing[i])) != 0) return false;
 	if (!directory(substr(path, 0, cut))) return false;
 	let temporary = path + '.tmp.' + time();
 	try { writefile(temporary, content); } catch (e) { return false; }
@@ -135,12 +152,6 @@ function atomic_write(path, content) {
 	try { move = popen('mv ' + shell_quote(temporary) + ' ' + shell_quote(path) + ' 2>/dev/null', 'r'); if (move) rc = move.close(); } catch (e) { rc = -1; }
 	if (rc != 0) { try { popen('rm -f ' + shell_quote(temporary) + ' 2>/dev/null', 'r').close(); } catch (e) {} }
 	return rc == 0;
-}
-
-function command_rc(command) {
-	let process = null, rc = -1;
-	try { process = popen(command + ' 2>/dev/null', 'r'); if (process) rc = process.close(); } catch (e) { rc = -1; }
-	return rc;
 }
 
 function active_pointer_write(root, kind, catalog, fallbackUsed, verificationError) {
@@ -167,12 +178,6 @@ function regular_file(path) {
 	let metadata = null;
 	try { metadata = stat(path); } catch (e) { return false; }
 	return metadata != null && metadata.type == 'file' && type(metadata.size) == 'int' && metadata.size <= MAX_FILE_BYTES;
-}
-
-function directory(path) {
-	let metadata = null;
-	try { metadata = stat(path); } catch (e) { return false; }
-	return metadata != null && metadata.type == 'directory';
 }
 
 function has_symlink_component(path) {

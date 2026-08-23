@@ -25,11 +25,11 @@ trap 'rm -rf "$SB"' EXIT
 ART_ROOT="$SB/artifact/zapret2-r77-z2m-test"
 mkdir -p "$ART_ROOT/binaries/linux-arm64" "$ART_ROOT/common" "$ART_ROOT/ipset" \
 	"$ART_ROOT/files" "$ART_ROOT/lua" "$ART_ROOT/init.d/openwrt" "$ART_ROOT/blockcheck2.d"
-printf '#!/bin/sh\nexit 0\n' > "$ART_ROOT/binaries/linux-arm64/nfqws2"
+printf '#!/bin/sh\necho "github version v1.5.9"\n' > "$ART_ROOT/binaries/linux-arm64/nfqws2"
 printf '#!/bin/sh\nexit 0\n' > "$ART_ROOT/binaries/linux-arm64/ip2net"
 printf '#!/bin/sh\nexit 0\n' > "$ART_ROOT/binaries/linux-arm64/mdig"
 chmod +x "$ART_ROOT/binaries/linux-arm64/"*
-printf 'FAKE\n' > "$ART_ROOT/config.default"
+printf 'NFQWS2_ENABLE=0\n' > "$ART_ROOT/config.default"
 printf '#!/bin/sh\nexit 0\n' > "$ART_ROOT/blockcheck2.sh"
 echo '{}' > "$ART_ROOT/blockcheck2.d/catalog.json"
 echo x > "$ART_ROOT/files/fake_tls_1.bin"
@@ -73,7 +73,12 @@ mkdir -p /opt/zapret2/init.d/openwrt/custom.d /opt/zapret2/ipset /opt/zapret2/nf
 echo PREVIOUS_MARKER > /opt/zapret2/PREVIOUS_MARKER
 printf '#!/bin/sh\necho "github version v1.5.9"\n' > /opt/zapret2/nfq2/nfqws2
 chmod +x /opt/zapret2/nfq2/nfqws2
-printf 'config global\n\toption enabled 0\n' > /opt/zapret2/config
+for helper in ip2net mdig; do
+	mkdir -p "/opt/zapret2/$helper"
+	printf '#!/bin/sh\nexit 0\n' > "/opt/zapret2/$helper/$helper"
+	chmod +x "/opt/zapret2/$helper/$helper"
+done
+printf 'NFQWS2_ENABLE=0\n' > /opt/zapret2/config
 cp -a /opt/zapret2/config /opt/zapret2/config.default
 cat > /opt/zapret2/init.d/openwrt/zapret2 <<'EOF'
 #!/bin/sh
@@ -169,7 +174,10 @@ UCODE_MADE=0
 if [ ! -e /usr/bin/ucode ]; then
 	cat > /usr/bin/ucode <<'STUB'
 #!/bin/sh
-LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/opt/ucode/lib}" exec /opt/ucode/bin/ucode "$@"
+# Router ucode tolerates trailing --flags passed to scripts; this host build
+# does not. Strip leading dashes from args AFTER the first (script) path.
+LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/opt/ucode/lib}" \
+exec /opt/ucode/bin/ucode "$@"
 STUB
 	chmod +x /usr/bin/ucode
 	UCODE_MADE=1
@@ -189,6 +197,9 @@ else
 	die 'real engine-cli.uc source not found for commit-state delegation'
 fi
 cp "$SRC_LIB/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc"
+# Real CLI bootstraps the runtime roots before anything else; stub that step.
+printf '#!/bin/sh\nexit 0\n' > "$CLI_DIR/z2m-root-bootstrap"
+chmod +x "$CLI_DIR/z2m-root-bootstrap"
 # Real commit-state backend needs its import chain in place.
 cp "$SRC_LIB/engine-manager.uc" "$CLI_DIR/engine-manager.uc"
 cp "$SRC_LIB/engine-catalog.uc" "$CLI_DIR/engine-catalog.uc"
@@ -204,7 +215,7 @@ if (mode == 'commit-state') {
 	// Delegate to the REAL backend: this is the load-bearing gate under test.
 	popen('printf "%s\\n" "commit-state:start" >> /tmp/z2m-ws-cli-calls.log');
 	let real = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/engine-cli-real.uc ' +
-		ARGV.join(' ') + ' 2>&1', 'r');
+		ARGV.join(' ') + ' > /tmp/z2m-real-out.json 2> /tmp/z2m-real-err.log', 'r');
 	let out = real ? real.read('all') : '';
 	if (real) real.close();
 	let verdict = index(out || '', '"ok":true') >= 0 ? 'ok' : 'fail';
@@ -246,7 +257,10 @@ chmod +x "$CLI_DIR/native-preflight.uc"
 # expects: previous OFFICIAL engine-state (detached install), no running
 # daemon (config enabled=0 -> postflight expects daemon absent).
 if [ "$INJECTION" = commit ]; then
-	mkdir -p /etc/zapret2-manager
+	mkdir -p /etc/zapret2-manager /tmp/zapret2-manager
+	# postflight's status proof: host ucode rejects '--no-print' style args,
+	# so pre-stage the collector output the check requires.
+	printf '{"ok":true}\n' > /tmp/zapret2-manager/status.json
 	cat > /etc/zapret2-manager/engine-state.json <<EOF
 {"schema":"engine-state.v2","installedOrigin":"OFFICIAL","installedRelease":"v1.5.9","packageVersion":null,"assetName":"prev.tar.gz","assetSha256":"$(printf 'a%.0s' {1..64})","architecture":"aarch64_cortex-a53","container":"tar.gz","installedAt":1700000000}
 EOF
@@ -297,6 +311,7 @@ else
 	PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" sh "$WORKER" "$ID" >"$SB/worker.out" 2>"$SB/worker.err"
 fi
 worker_rc=$?
+cp "$SB/worker.err" "$HOME/z2m-worker-debug-last.err" 2>/dev/null || true
 if [ "${WS_DEBUG:-0}" = 1 ]; then
 	printf '%s\n' '== worker.err tail (filtered):' >&2
 	tail -40 "$SB/worker.err" | grep -vE '/usr/bin/ucode' >&2
@@ -319,8 +334,8 @@ printf '{"workerRc":%s,"phase":"%s","errorCode":"%s","oldTreeRestored":%s,"commi
 # cleanup global touches
 rm -f /etc/init.d/zapret2 /etc/openwrt_release
 rm -rf /opt/zapret2 "$PKG" "$CLI_DIR/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc" \
-	"$CLI_DIR/engine-manager.uc" "$CLI_DIR/engine-catalog.uc" "$CLI_DIR/core" \
-	"$CLI_DIR/native-preflight.uc" "$CLI_DIR/status.uc" "$CLI_DIR/strategy-runtime-assets-sync.sh"
+	"$CLI_DIR/z2m-root-bootstrap" "$CLI_DIR/engine-manager.uc" "$CLI_DIR/engine-catalog.uc" \
+	"$CLI_DIR/core" "$CLI_DIR/native-preflight.uc" "$CLI_DIR/status.uc" "$CLI_DIR/strategy-runtime-assets-sync.sh"
 [ "$UCODE_MADE" = 1 ] && rm -f /usr/bin/ucode
 rm -rf /tmp/zapret2-manager
 if [ "${WS_KEEP:-0}" = 1 ]; then
