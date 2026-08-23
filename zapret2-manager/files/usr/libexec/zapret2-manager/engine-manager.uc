@@ -4,7 +4,7 @@ import { engine_releases, installed_engine, engine_check, load_checked_candidate
 
 const ROOT = '/tmp/zapret2-manager/engine-operations', ACTIVE = ROOT + '/active', WORKER = '/usr/libexec/zapret2-manager/engine-operation-worker.sh';
 const TERMINAL = ['completed', 'failed', 'rolled_back'];
-const PHASES = ['queued', 'preflight', 'backup', 'stopping', 'downloading', 'verifying', 'installing', 'restoring', 'starting', 'postflight', 'completed', 'failed', 'rolling_back', 'rolled_back'];
+const PHASES = ['queued', 'preflight', 'backup', 'stopping', 'downloading', 'verifying', 'installing', 'restoring', 'materializing', 'proving', 'starting', 'postflight', 'completed', 'failed', 'rolling_back', 'rolled_back'];
 function run(command) { let p = popen(command + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all'), rc = p.close(); return { rc: rc, out: out ? out : '' }; }
 function fail(code, message, details) { let r = { ok: false, error: { code: code, message: message } }; if (details != null) r.error.details = details; return r; }
 function safe_id(value) { return type(value) == 'string' && match(value, /^eng-[0-9]+-[a-f0-9]{12}$/) ? value : null; }
@@ -37,6 +37,25 @@ export const engine_operation_cancel = function (input) { if (type(input) != 'ob
 export const mark_phase = function (id, phase, progress, message) { if (safe_id(id) == null || !allowed(phase, PHASES)) return fail('EINPUT', 'Некорректная фаза.'); let job = read_job(id); if (job == null) return fail('ENOENT', 'Engine job не найдена.'); let n = +progress; if (n < 0) n = 0; if (n > 100) n = 100; job.phase = phase; job.progress = n; job.updatedAt = time(); if (job.startedAt == null && phase != 'queued') job.startedAt = time(); job.cancellable = phase == 'queued' || phase == 'preflight' || phase == 'backup' || phase == 'downloading' || phase == 'verifying'; if (message) log(job, message); if (terminal(phase)) { job.finishedAt = time(); job.cancellable = false; try { unlink(ACTIVE); } catch (e) {} } return atomic(job_path(id), job) ? { ok: true, operation: public_job(job) } : fail('ESTATE', 'Job не сохранена.'); };
 export const mark_failed = function (id, code, message, rollback) { let job = read_job(id); if (job == null) return fail('ENOENT', 'Job не найдена.'); job.phase = rollback != null && rollback.verified ? 'rolled_back' : 'failed'; job.progress = 100; job.updatedAt = time(); job.finishedAt = time(); job.cancellable = false; job.error = { code: code || 'EENGINE', message: message || 'Engine operation failed.' }; job.rollback = rollback || null; log(job, job.error.message); let ok = atomic(job_path(id), job); try { unlink(ACTIVE); } catch (e) {} return ok ? { ok: true } : fail('ESTATE', 'Ошибка не сохранена.'); };
 export const mark_completed = function (id, result) { let job = read_job(id); if (job == null) return fail('ENOENT', 'Job не найдена.'); job.phase = 'completed'; job.progress = 100; job.updatedAt = time(); job.finishedAt = time(); job.cancellable = false; job.result = result || { ok: true }; log(job, 'Операция успешно завершена.'); let ok = atomic(job_path(id), job); try { unlink(ACTIVE); } catch (e) {} return ok ? { ok: true } : fail('ESTATE', 'Результат не сохранён.'); };
-export const commit_state = function (id) { let job = read_job(id); if (job == null || type(job.candidate) != 'object' || job.candidate == null) return fail('ENOENT', 'Candidate job не найден.'); let installed = installed_engine(), candidate = job.candidate, packageDetached = installed.installedOrigin == 'OFFICIAL' && installed.packageVersion == null; if (!installed.installed || (!packageDetached && installed.packageName != 'zapret2') || installed.runtimeContract !== true) return fail('EVERIFY', 'Установленный official payload не подтверждён.'); let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: installed.packageVersion, assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, installedAt: time() }; return save_engine_state(value) ? { ok: true, state: value } : fail('ESTATE', 'Engine state не записан.'); };
+export const commit_state = function (id) {
+	let job = read_job(id);
+	if (job == null || type(job.candidate) != 'object' || job.candidate == null) return fail('ENOENT', 'Candidate job не найден.');
+	let installed = installed_engine(), candidate = job.candidate, packageDetached = installed.installedOrigin == 'OFFICIAL' && installed.packageVersion == null;
+	if (!installed.installed || (!packageDetached && installed.packageName != 'zapret2') || installed.runtimeContract !== true) return fail('EVERIFY', 'Установленный official payload не подтверждён.');
+	// Capability gate: the worker's install-proof verdict is load-bearing.
+	// A commit without proven 3/3 capability evidence would let a vanilla or
+	// broken engine masquerade as Z2M-compatible.
+	let caps = read_json(ROOT + '/' + id + '.capabilities.json', null);
+	if (caps == null || type(caps) != 'object') return fail('ECAPABILITY', 'Capability preflight не выполнялся; установка не может быть зафиксирована.');
+	if (caps.ok !== true) return fail('ECAPABILITY', 'Capability preflight не пройден.');
+	let required = type(candidate.requiredCapabilities) == 'array' ? candidate.requiredCapabilities : ['Z2K_TLS_MOD', 'ANTIDPI_REPEATS_LOOP', 'AUTO_FAMILY_SPLIT'];
+	for (let i = 0; i < length(required); i++) {
+		let name = required[i];
+		if (caps[name] !== true) return fail('ECAPABILITY', 'Возможность ' + name + ' не подтверждена при установке.');
+	}
+	let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: installed.packageVersion, assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, capabilities: {}, nfqws2Sha256: caps.nfqws2Sha256 != null ? caps.nfqws2Sha256 : (candidate.nfqws2Sha256 != null ? candidate.nfqws2Sha256 : null), baseCommit: candidate.baseCommit != null ? candidate.baseCommit : null, patchSeries: candidate.patchSeries != null ? candidate.patchSeries : [], installedAt: time() };
+	for (let i = 0; i < length(required); i++) value.capabilities[required[i]] = true;
+	return save_engine_state(value) ? { ok: true, state: value } : fail('ESTATE', 'Engine state не записан.');
+};
 export const clear_state = function () { return clear_engine_state() ? { ok: true } : fail('ESTATE', 'Engine state не очищен.'); };
 export const job_for_worker = function (id) { let job = read_job(id); return job != null ? { ok: true, job: job } : fail('ENOENT', 'Engine job не найдена.'); };

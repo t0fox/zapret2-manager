@@ -88,12 +88,13 @@ function probe_binary_capabilities(binaryPath) {
 		Z2K_TLS_MOD: false,
 		NFQWS2_COMPAT_VER: 1
 	};
-	// Check for Z2K_TLS_MOD in help or strings
-	if (index(out, 'tls_mod') >= 0 || index(out, 'grease') >= 0 || index(out, 'alpn_flood') >= 0) {
+	// Check for the z2k-prefixed TLS-mod option tokens (patched builds only).
+	if (index(out, 'z2k_grease') >= 0 || index(out, 'z2k_alpn_flood') >= 0
+		|| index(out, 'z2k_tls_mod') >= 0) {
 		caps.Z2K_TLS_MOD = true;
 	} else {
-		// Try string inspection if help is truncated
-		let strResult = run("strings " + shell_escape(binaryPath) + " | grep -E 'tls_mod|FAKE_TLS_MOD_Z2K' | head -n 1");
+		// Try string inspection if help is truncated.
+		let strResult = run("strings " + shell_escape(binaryPath) + " | grep -E 'z2k_grease|z2k_alpn_flood|FAKE_TLS_MOD_Z2K_GREASE' | head -n 1");
 		if (strResult.rc == 0 && length(trim(strResult.out)) > 0) {
 			caps.Z2K_TLS_MOD = true;
 		}
@@ -219,3 +220,56 @@ export const native_preflight = function(candidate) {
 		&& coverage.executionPlan == 'passed';
 	return { status: complete ? 'verified' : 'partial', coverage: coverage, diagnostics: [], evidence: evidence };
 };
+
+// --install-proof: engine install transaction gate. Proves the three
+// mandatory Z2K capabilities with REAL runtime evidence on the installed
+// binary + materialized Lua, then runs a Lua-init smoke through the daemon's
+// own interpreter path. Output is a machine-readable verdict consumed by the
+// worker and by commit-state; any missing capability fails closed.
+export const install_proof = function() {
+	let caps = {
+		ok: false,
+		Z2K_TLS_MOD: false,
+		ANTIDPI_REPEATS_LOOP: false,
+		AUTO_FAMILY_SPLIT: false,
+		luaSmoke: false,
+		nfqws2Sha256: null,
+		provenance: {
+			binaryTokens: ['z2k_grease', 'z2k_alpn_flood'],
+			repeatsMarker: 'repeats > 1 and desync.reasm_data and desync.arg.tls_mod',
+			familySplitMarker: 'family_split',
+			checkedAt: time()
+		}
+	};
+	if (!stat(NFQWS2_BIN)) return caps;
+	let digest = sha256_file(NFQWS2_BIN);
+	if (digest == null) return caps;
+	caps.nfqws2Sha256 = digest;
+
+	// Z2K_TLS_MOD: compiled-in option tokens (help output or binary strings).
+	let binCaps = probe_binary_capabilities(NFQWS2_BIN);
+	caps.Z2K_TLS_MOD = binCaps.Z2K_TLS_MOD === true
+		&& index(run("strings " + shell_escape(NFQWS2_BIN) + " | grep -c 'z2k_alpn_flood'").out || '', '0') != 0;
+
+	// ANTIDPI_REPEATS_LOOP / AUTO_FAMILY_SPLIT: materialized Lua markers.
+	let repeats = readfile('/opt/zapret2/lua/zapret-antidpi.lua') || '';
+	caps.ANTIDPI_REPEATS_LOOP = index(repeats, 'repeats > 1 and desync.reasm_data and desync.arg.tls_mod') >= 0;
+	let autoLua = readfile('/opt/zapret2/lua/zapret-auto.lua') || '';
+	caps.AUTO_FAMILY_SPLIT = index(autoLua, 'family_split') >= 0;
+
+	// Lua init smoke through nfqws2 itself (no interception): every pinned
+	// runtime Lua file must parse and initialize inside the daemon.
+	let cmd = shell_escape(NFQWS2_BIN) + ' --dry-run --intercept=0 --qnum=30999';
+	for (let i = 0; i < length(RUNTIME_LUA_FILES); i++)
+		cmd += ' --lua-init=' + shell_escape('@' + RUNTIME_LUA_ROOT + RUNTIME_LUA_FILES[i]);
+	let smoke = run(cmd);
+	caps.luaSmoke = smoke.rc == 0;
+
+	caps.ok = caps.Z2K_TLS_MOD && caps.ANTIDPI_REPEATS_LOOP && caps.AUTO_FAMILY_SPLIT && caps.luaSmoke;
+	return caps;
+};
+
+if (ARGV != null && length(ARGV) > 0 && ARGV[0] == '--install-proof') {
+	print(sprintf('%J', install_proof()) + '\n');
+	exit(0);
+}

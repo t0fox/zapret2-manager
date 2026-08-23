@@ -65,7 +65,7 @@ rollback(){
 fail(){ code="$1"; message="$2"; [ "$ROLLBACK_REQUIRED" -eq 1 ] && rollback || true; /usr/bin/ucode "$CLI" failed "$ID" "$code" "$message" "$([ "$ROLLBACK_ATTEMPTED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 'Откат проверен.'||printf 'Откат не подтверждён.')" >/dev/null 2>&1 || true; exit 1; }
 exec 9>"$LOCK"; flock -n 9 || fail EBUSY 'Другая engine-операция уже выполняется.'
 [ -s "$JOB" ] || fail ENOENT 'Engine job не найдена.'
-ACTION="$(value '@.action')"; PRESERVE="$(value '@.preserveConfig')"; ARTIFACT_KIND="$(value '@.candidate.artifactKind')"; ARTIFACT_SCHEMA="$(value '@.candidate.schema')"; ARCH="$(value '@.candidate.architecture')"; URL="$(value '@.candidate.downloadUrl')"; EXPECTED_SHA="$(value '@.candidate.sha256')"; EXPECTED_SIZE="$(value '@.candidate.size')"; EXPECTED_VERSION="$(value '@.candidate.version')"; CONTAINER="$(value '@.candidate.container')"; CHECKSUM_URL="$(value '@.candidate.checksumUrl')"; CHECKSUM_SHA="$(value '@.candidate.checksumSha256')"; CHECKSUM_NAME="$(value '@.candidate.checksumName')"
+ACTION="$(value '@.action')"; PRESERVE="$(value '@.preserveConfig')"; ARTIFACT_KIND="$(value '@.candidate.artifactKind')"; ARTIFACT_SCHEMA="$(value '@.candidate.schema')"; ARCH="$(value '@.candidate.architecture')"; URL="$(value '@.candidate.downloadUrl')"; EXPECTED_SHA="$(value '@.candidate.sha256')"; EXPECTED_SIZE="$(value '@.candidate.size')"; EXPECTED_VERSION="$(value '@.candidate.version')"; CONTAINER="$(value '@.candidate.container')"; CHECKSUM_URL="$(value '@.candidate.checksumUrl')"; CHECKSUM_SHA="$(value '@.candidate.checksumSha256')"; CHECKSUM_NAME="$(value '@.candidate.checksumName')"; NFQWS2_EXPECTED_SHA="$(value '@.candidate.nfqws2Sha256')"
 phase preflight 5 'Проверяется устройство и отсутствие конфликтов.'
 command -v apk >/dev/null 2>&1 || fail EPKGMGR 'Поддерживается только APK package manager.'
 if [ "$ACTION" != uninstall ]; then [ "$ARTIFACT_SCHEMA" = 'zapret2-manager.engine-artifact.v1' ] && [ "$ARTIFACT_KIND" = 'z2m-compatible-engine' ] || fail EENGINE_INTEGRATION_REQUIRED 'Доступна только предварительно собранная совместимая версия Z2M; vanilla bol-van release заблокирован.'; fi
@@ -83,26 +83,66 @@ if [ "$OLD_INSTALLED" -eq 1 ]; then mkdir "$BACKUP/old-tree" || fail EBACKUP 'Н
 if [ "$ACTION" = uninstall ]; then
  ROLLBACK_REQUIRED="$OLD_INSTALLED"; phase stopping 55 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true; phase installing 65 'Удаляется только engine package.'; remove_legacy_package || fail EREMOVE 'Не удалось удалить legacy engine package.'; [ "$PRESERVE" = true ] || { rm -rf /opt/zapret2 /etc/config/zapret2; }; /usr/bin/ucode "$CLI" clear-state >/dev/null 2>&1 || fail ESTATE 'Engine state не очищен.'; ROLLBACK_REQUIRED=0; printf '{"ok":true,"state":"engine_missing"}\n' >"$WORK/result.json"; /usr/bin/ucode "$CLI" complete "$ID" "$WORK/result.json" >/dev/null 2>&1 || true; exit 0
 fi
-case "$URL" in https://github.com/bol-van/zapret2/releases/download/v*/zapret2-v*-openwrt-embedded.tar.gz) ;; *) fail ESECURITY 'Download URL не входит в official allowlist.';; esac
+case "$URL" in
+https://github.com/t0fox/zapret2-manager/releases/download/engine-*/z2m-engine-*.tar.gz|https://github.com/t0fox/zapret2-manager/releases/download/*/z2m-engine-*.tar.gz)
+	[ "$ARTIFACT_KIND" = z2m-compatible-engine ] || fail ESECURITY 'Канонический URL совместим только с artifactKind=z2m-compatible-engine.'
+	;;
+https://github.com/bol-van/zapret2/releases/download/v*/zapret2-v*-openwrt-embedded.tar.gz)
+	;;
+*) fail ESECURITY 'Download URL не входит в allowlist канонических источников.';;
+esac
 printf '%s\n' "$EXPECTED_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail EMETADATA 'Некорректный official digest.'
+if [ "$ARTIFACT_KIND" = z2m-compatible-engine ]; then
+	printf '%s\n' "$NFQWS2_EXPECTED_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail EMETADATA 'Манифест совместимой сборки не содержит digest nfqws2.'
+fi
 phase downloading 28 'Загружается проверенный official release asset.'; ASSET="$WORK/asset"; uclient-fetch -q -T 60 -O "$ASSET" "$URL" || fail ENETWORK 'Не удалось скачать official release asset.'
 [ -s "$ASSET" ] && [ "$(size "$ASSET")" -eq "$EXPECTED_SIZE" ] 2>/dev/null || fail ESIZE 'Размер release asset не совпадает с catalog.'; [ "$(sha "$ASSET")" = "$EXPECTED_SHA" ] || fail ESHA256 'SHA-256 release asset не совпадает с catalog.'
-case "$CHECKSUM_URL:$CHECKSUM_NAME" in https://github.com/bol-van/zapret2/releases/download/v*/sha256sum.txt:sha256sum.txt) ;; *) fail ESECURITY 'Checksum URL не входит в official allowlist.';; esac
-printf '%s\n' "$CHECKSUM_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail EMETADATA 'Checksum asset digest отсутствует.'
-CHECKSUM="$WORK/sha256sum.txt"; uclient-fetch -q -T 30 -O "$CHECKSUM" "$CHECKSUM_URL" || fail ENETWORK 'Не удалось скачать checksum manifest.'; [ "$(sha "$CHECKSUM")" = "$CHECKSUM_SHA" ] || fail ESHA256 'Checksum manifest digest не совпадает.'
-grep -Eq '^[a-f0-9]{64}[[:space:]]+zapret2-v[0-9A-Za-z._-]+/binaries/linux-arm64/nfqws2$' "$CHECKSUM" || fail ESHA256 'Checksum manifest не содержит linux-arm64 nfqws2.'
 cancelled && fail ECANCELLED 'Операция отменена до остановки службы.'
 pause_watchdog
-phase verifying 45 'Проверяется official embedded payload.'; mkdir "$WORK/unpack" || fail EARCHIVE 'Не удалось создать каталог распаковки.'
-if tar -tzf "$ASSET" | grep -Eq '(^/|(^|/)\.\.(\/|$))'; then fail ESECURITY 'Embedded archive содержит unsafe path.'; fi
-tar -xzf "$ASSET" -C "$WORK/unpack" || fail EARCHIVE 'Embedded archive повреждён.'
-ROOTDIR="$WORK/unpack/zapret2-v$EXPECTED_VERSION"; [ -d "$ROOTDIR" ] || fail EPACKAGE 'Embedded archive root не найден.'; ENGINE_STAGE="$WORK/engine-stage"; mkdir "$ENGINE_STAGE" || fail EPACKAGE 'Не удалось создать staging directory.'; mkdir "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/ip2net" "$ENGINE_STAGE/mdig" "$ENGINE_STAGE/lua" "$ENGINE_STAGE/init.d/openwrt" || fail EPACKAGE 'Не удалось подготовить staging directories.'
-BINDIR="$ROOTDIR/binaries/linux-arm64"; [ -x "$BINDIR/nfqws2" ] || BINDIR="$ROOTDIR/nfq2"; [ -x "$BINDIR/nfqws2" ] || fail EPACKAGE 'Embedded archive не содержит nfqws2 для aarch64.'
-RUNTIME_SHA="$(awk '$2 ~ /\/binaries\/linux-arm64\/nfqws2$/ {print $1; exit}' "$CHECKSUM")"; printf '%s\n' "$RUNTIME_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail ESHA256 'Checksum manifest не содержит digest nfqws2.'; [ "$(sha "$BINDIR/nfqws2")" = "$RUNTIME_SHA" ] || fail ESHA256 'SHA-256 nfqws2 не совпадает с checksum manifest.'
+phase verifying 45 'Проверяется payload совместимого движка.'; mkdir "$WORK/unpack" || fail EARCHIVE 'Не удалось создать каталог распаковки.'
+if tar -tzf "$ASSET" | grep -Eq '(^/|(^|/)\.\.(\/|$))'; then fail ESECURITY 'Archive содержит unsafe path.'; fi
+tar -xzf "$ASSET" -C "$WORK/unpack" || fail EARCHIVE 'Archive повреждён.'
+ROOTDIR="$WORK/unpack/zapret2-v$EXPECTED_VERSION"
+[ -d "$ROOTDIR" ] || ROOTDIR="$(find "$WORK/unpack" -maxdepth 1 -mindepth 1 -type d -name 'zapret2-*' | head -n 1)"
+[ -d "$ROOTDIR" ] || fail EPACKAGE 'Archive root не найден.'
+ENGINE_STAGE="$WORK/engine-stage"; mkdir "$ENGINE_STAGE" || fail EPACKAGE 'Не удалось создать staging directory.'; mkdir -p "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/ip2net" "$ENGINE_STAGE/mdig" "$ENGINE_STAGE/lua" "$ENGINE_STAGE/init.d/openwrt" || fail EPACKAGE 'Не удалось подготовить staging directories.'
+if [ "$ARTIFACT_KIND" = z2m-compatible-engine ]; then
+	# Machine-readable identity binding: the shipped manifest must re-state
+	# exactly the checked candidate (artifact digest + nfqws2 digest).
+	MANIFEST_URL="$URL.manifest.json"; CHECKSUM="$WORK/engine-manifest.json"
+	uclient-fetch -q -T 30 -O "$CHECKSUM" "$MANIFEST_URL" || fail ENETWORK 'Не удалось скачать machine-readable манифест сборки.'
+	grep -q "\"sha256\"[[:space:]]*:[[:space:]]*\"$EXPECTED_SHA\"" "$CHECKSUM" || fail ESHA256 'Манифест сборки не подтверждает digest artifact.'
+	grep -q "\"nfqws2Sha256\"[[:space:]]*:[[:space:]]*\"$NFQWS2_EXPECTED_SHA\"" "$CHECKSUM" || fail ESHA256 'Манифест сборки не подтверждает digest nfqws2.'
+	RUNTIME_SHA="$NFQWS2_EXPECTED_SHA"
+	BINDIR="$ROOTDIR/binaries/linux-arm64"
+else
+	case "$CHECKSUM_URL:$CHECKSUM_NAME" in https://github.com/bol-van/zapret2/releases/download/v*/sha256sum.txt:sha256sum.txt) ;; *) fail ESECURITY 'Checksum URL не входит в official allowlist.';; esac
+	printf '%s\n' "$CHECKSUM_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail EMETADATA 'Checksum asset digest отсутствует.'
+	CHECKSUM="$WORK/sha256sum.txt"; uclient-fetch -q -T 30 -O "$CHECKSUM" "$CHECKSUM_URL" || fail ENETWORK 'Не удалось скачать checksum manifest.'; [ "$(sha "$CHECKSUM")" = "$CHECKSUM_SHA" ] || fail ESHA256 'Checksum manifest digest не совпадает.'
+	RUNTIME_SHA="$(awk '$2 ~ /\/binaries\/linux-arm64\/nfqws2$/ {print $1; exit}' "$CHECKSUM")"
+	printf '%s\n' "$RUNTIME_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail ESHA256 'Checksum manifest не содержит digest nfqws2.'
+	BINDIR="$ROOTDIR/binaries/linux-arm64"; [ -x "$BINDIR/nfqws2" ] || BINDIR="$ROOTDIR/nfq2"
+fi
+[ -x "$BINDIR/nfqws2" ] || fail EPACKAGE 'Archive не содержит nfqws2 для целевой архитектуры.'
+[ "$(sha "$BINDIR/nfqws2")" = "$RUNTIME_SHA" ] || fail ESHA256 'SHA-256 nfqws2 не совпадает с проверенным манифестом.'
 cp -a "$ROOTDIR/blockcheck2.sh" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить blockcheck2.'; cp -a "$ROOTDIR/blockcheck2.d" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить blockcheck2 catalog.'; cp -a "$ROOTDIR/common" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить common runtime.'; cp -a "$ROOTDIR/ipset" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить ipset runtime.'; cp -a "$ROOTDIR/files" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить fake packet data.'; cp -a "$ROOTDIR/config.default" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить default config.'; cp -a "$BINDIR/nfqws2" "$ENGINE_STAGE/nfq2/nfqws2" || fail EPACKAGE 'Не удалось подготовить nfqws2.'; cp -a "$BINDIR/ip2net" "$ENGINE_STAGE/ip2net/ip2net" || fail EPACKAGE 'Не удалось подготовить ip2net.'; cp -a "$BINDIR/mdig" "$ENGINE_STAGE/mdig/mdig" || fail EPACKAGE 'Не удалось подготовить mdig.'; [ -d "$ROOTDIR/lua" ] && for lua in "$ROOTDIR"/lua/*.lua.gz; do [ -f "$lua" ] || continue; gzip -dc "$lua" >"$ENGINE_STAGE/lua/$(basename "$lua" .gz)" || fail EPACKAGE 'Не удалось распаковать Lua module.'; done; [ -d "$ROOTDIR/init.d/openwrt" ] && cp -a "$ROOTDIR/init.d/openwrt/." "$ENGINE_STAGE/init.d/openwrt/" || true
 ROLLBACK_REQUIRED=1; phase stopping 52 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || [ "$OLD_INSTALLED" -eq 0 ] || fail ESTOP 'Не удалось остановить zapret2.'
 phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось установить mode /opt/zapret2.'; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
 phase restoring 75 'Восстанавливаются конфигурация и пользовательские списки.'; restore_config || fail ERESTORE "Не удалось восстановить пользовательские данные: ${RESTORE_ERROR:-unknown}."
+phase materializing 79 'Материализуются Z2K ресурсы в runtime движка.'
+SYNC=/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh
+/bin/sh "$SYNC" || fail EZ2K_ASSETS 'Материализация Z2K ассетов завершилась ошибкой.'
+sync_verdict="$(/bin/sh "$SYNC" --verify)" || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
+printf '%s\n' "$sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
+phase proving 84 'Доказываются обязательные возможности движка (3/3).'
+CAPABILITIES="$WORK/capabilities.json"
+/usr/bin/ucode /usr/libexec/zapret2-manager/native-preflight.uc --install-proof >"$CAPABILITIES" 2>/dev/null \
+	|| fail ECAPABILITY 'Preflight возможностей завершился ошибкой.'
+grep -q '"ok"[[:space:]]*:[[:space:]]*true' "$CAPABILITIES" || fail ECAPABILITY "Preflight не выдал вердикта: $(cat "$CAPABILITIES")"
+for capability in Z2K_TLS_MOD ANTIDPI_REPEATS_LOOP AUTO_FAMILY_SPLIT; do
+	grep -q "\"$capability\"[[:space:]]*:[[:space:]]*true" "$CAPABILITIES" \
+		|| fail ECAPABILITY "Обязательная возможность $capability не подтверждена на этом движке."
+done
 phase starting 82 'Запускается новый official runtime.'; phase postflight 88 'Проверяется runtime, NFQUEUE и nft.'; postflight || fail EPOSTFLIGHT 'Новый engine не прошёл postflight.'
 mkdir -p "$CACHE"; chmod 700 "$CACHE"; cp -a "$ASSET" "$CACHE/current.tar.gz"; sha "$CACHE/current.tar.gz" >"$CACHE/current.sha256"
 /usr/bin/ucode "$CLI" commit-state "$ID" >/dev/null 2>&1 || fail ESTATE 'Engine state не подтверждён.'
