@@ -203,8 +203,9 @@ make -C "$SRC/nfq2" clean >/dev/null 2>&1 || true
 make -C "$SRC/nfq2" CROSS_COMPILE="$CROSS" -j"$(nproc)" \
 	LUA_CFL="-I$DEPS/include -I$SDK_TARGET_DIR/usr/include" \
 	LUA_LIB="-L$DEPS/lib -llua" \
+	LIBS_LINUX="-L$DEPS/lib -L$SDK_TARGET_DIR/usr/lib -lz -lnetfilter_queue -lnfnetlink -lmnl -lm" \
 	STRIPP="" \
-	LDFLAGS="-static -L$DEPS/lib -L$SDK_TARGET_DIR/usr/lib" \
+	LDFLAGS="-static" \
 	|| die "BUILD_FAILED: nfqws2 did not compile for $ARCH"
 [ -x "$SRC/nfq2/nfqws2" ] || die "BUILD_FAILED: nfqws2 binary absent"
 
