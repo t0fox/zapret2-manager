@@ -42,6 +42,16 @@ DIST=${ENGINE_DIST_DIR:-"$REPO_ROOT/dist-engine"}
 INTEGRATION_JSON="$REPO_ROOT/zapret2-manager/files/usr/share/zapret2-manager/upstreams/engine-integration.json"
 [ -f "$INTEGRATION_JSON" ] || die "integration authority missing: $INTEGRATION_JSON"
 
+# Pinned target dependencies (digests verified before use).
+LUA_URL='https://www.lua.org/ftp/lua-5.5.1.tar.gz'
+LUA_SHA='1c4b4068d67061f2a2231ad2b5422e77acea1487ea9890f6320af614f4373dce'
+LIBMNL_URL='https://netfilter.org/projects/libmnl/files/libmnl-1.0.5.tar.bz2'
+LIBMNL_SHA='274b9b919ef3152bfb3da3a13c950dd60d6e2bcd54230ffeca298d03b40d0525'
+LIBNFNETLINK_URL='https://netfilter.org/projects/libnfnetlink/files/libnfnetlink-1.0.2.tar.bz2'
+LIBNFNETLINK_SHA='b064c7c3d426efb4786e60a8e6859b82ee2f2c5e49ffeea640cfe4fe33cbc376'
+LIBNFQ_URL='https://netfilter.org/projects/libnetfilter_queue/files/libnetfilter_queue-1.0.5.tar.bz2'
+LIBNFQ_SHA='f9ff3c11305d6e03d81405957bdc11aea18e0d315c3e3f48da53a24ba251b9f5'
+
 PRODUCER_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
 printf '%s\n' "$PRODUCER_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || die "producer commit is not a full sha"
 
@@ -112,6 +122,55 @@ grep -qF 'family_split' "$SRC/lua/zapret-auto.lua" \
   || die "CAPABILITY_EVIDENCE_MISSING: AUTO_FAMILY_SPLIT marker absent in zapret-auto.lua"
 info "static capability evidence 3/3 present in patched tree"
 
+# ------------------------------------------------- step 5b: pinned target deps
+DEPS="$WORK/deps"; DEPS_USR="$DEPS/usr"
+mkdir -p "$DEPS_USR"
+HOST="${CROSS%-}"
+fetch_pinned() { # url, sha256, dest-file
+	curl -fsSL --retry 3 -o "$3" "$1"
+	echo "$2  $3" | sha256sum -c - >/dev/null || die "DEP_DIGEST_MISMATCH: $3"
+}
+build_autotools() { # srcdir, extra-env
+	local srcdir="$1"; shift
+	(
+		cd "$srcdir"
+		env "$@" PKG_CONFIG_PATH="$DEPS/lib/pkgconfig" \
+		./configure --host="$HOST" --prefix="$DEPS" \
+			--enable-static --disable-shared >/dev/null
+		make -j"$(nproc)" >/dev/null
+		make install >/dev/null
+	)
+}
+mkdir -p "$WORK/deps-src"; cd "$WORK/deps-src"
+if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
+	fetch_pinned "$LIBMNL_URL" "$LIBMNL_SHA" libmnl.tar.bz2
+	tar -xjf libmnl.tar.bz2
+	build_autotools libmnl-1.0.5
+
+	fetch_pinned "$LIBNFNETLINK_URL" "$LIBNFNETLINK_SHA" libnfnetlink.tar.bz2
+	tar -xjf libnfnetlink.tar.bz2
+	build_autotools libnfnetlink-1.0.2
+
+	fetch_pinned "$LIBNFQ_URL" "$LIBNFQ_SHA" libnfq.tar.bz2
+	tar -xjf libnfq.tar.bz2
+	build_autotools libnetfilter_queue-1.0.5 \
+		LIBMNL_CFLAGS="-I$DEPS_USR/include" \
+		LIBMNL_LIBS="-L$DEPS_USR/lib -lmnl"
+
+	fetch_pinned "$LUA_URL" "$LUA_SHA" lua.tar.gz
+	tar -xzf lua.tar.gz
+	(
+		cd lua-5.5.1
+		make -j1 CC="${CROSS}gcc" AR="${CROSS}ar rc" RANLIB="${CROSS}ranlib" \
+			CFLAGS="-O2 -fPIC" MYCFLAGS="" src/liblua.a >/dev/null
+	)
+	mkdir -p "$DEPS_USR/include" "$DEPS_USR/lib"
+	cp -a lua-5.5.1/src/liblua.a "$DEPS_USR/lib/"
+	cp -a lua-5.5.1/src/*.h "$DEPS_USR/include/"
+fi
+cd "$REPO_ROOT"
+info "pinned target dependencies ready in $DEPS_USR"
+
 # --------------------------------------------------------- step 6: target build
 TOOLCHAIN_DIR=$(ls -d "$OPENWRT_SDK"/staging_dir/toolchain-* 2>/dev/null | head -n 1) \
   || die "OPENWRT_SDK/staging_dir/toolchain-* not found (set OPENWRT_SDK)"
@@ -122,10 +181,22 @@ info "cross compiler prefix: $CROSS"
 
 make -C "$SRC/nfq2" clean >/dev/null 2>&1 || true
 make -C "$SRC/nfq2" CROSS_COMPILE="$CROSS" -j"$(nproc)" \
-  || die "BUILD_FAILED: nfqws2 did not compile for $ARCH"
+	LUA_CFLAGS="-I$DEPS_USR/include" \
+	LUA_LIB="-L$DEPS_USR/lib -llua" \
+	STRIPP="" \
+	LDFLAGS="-static" \
+	|| die "BUILD_FAILED: nfqws2 did not compile for $ARCH"
 [ -x "$SRC/nfq2/nfqws2" ] || die "BUILD_FAILED: nfqws2 binary absent"
 
 NFQWS2_SHA=$(sha256sum "$SRC/nfq2/nfqws2" | awk '{print $1}')
+
+# helpers: static too, so the artifact is self-contained on the router.
+make -C "$SRC/ip2net" clean >/dev/null 2>&1 || true
+make -C "$SRC/ip2net" CC="${CROSS}gcc" LDFLAGS="-static" -j"$(nproc)" \
+	|| die "BUILD_FAILED: ip2net"
+make -C "$SRC/mdig" clean >/dev/null 2>&1 || true
+make -C "$SRC/mdig" CC="${CROSS}gcc" LDFLAGS="-static" -j"$(nproc)" \
+	|| die "BUILD_FAILED: mdig"
 
 # ---------------------------------------------- step 7: archive + manifest layout
 VERSION="r77-z2m-$(date -u +%Y%m%d%H%M)"
