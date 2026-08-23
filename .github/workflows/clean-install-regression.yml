@@ -1,0 +1,112 @@
+name: Clean-install lifecycle regression
+
+# Regression coverage for the clean-install corrective work:
+#   catalog read invariant, postinst contract, staged dashboard, components
+#   truth model, engine producer/catalog gating, Z2K materialization,
+#   capability proof gates, and worker rollback injections.
+#
+# Independent jobs run in parallel; inside a job node --test collects every
+# failure before exiting non-zero. The worker-sandbox job exercises the REAL
+# transactional worker under stubbed absolute paths with injected failures.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-install-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts-and-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build pinned ucode interpreter
+        run: ./scripts/test/install-ucode.sh /opt/ucode
+
+      - name: Catalog + install lifecycle contracts (product)
+        env:
+          UCODE_BIN: /opt/ucode/bin/ucode
+          LD_LIBRARY_PATH: /opt/ucode/lib
+        run: |
+          node --test \
+            tests/product/strategy-catalog-read-invariant.test.mjs \
+            tests/product/clean-install-contract.test.mjs \
+            tests/product/z2k-materialization.test.mjs \
+            tests/product/engine-catalog-compat-gating.test.mjs \
+            tests/product/engine-worker-transaction.test.mjs \
+            tests/product/avatar-strategy-catalog.test.mjs \
+            tests/product/strategy-catalog-authority.test.mjs \
+            tests/product/tg-install-owner-contract.test.mjs
+
+      - name: Engine identity + manifest contracts (release)
+        run: node --test tests/release/engine-producer-contract.test.mjs
+
+      - name: Frontend contracts (ui)
+        run: |
+          node --test \
+            tests/ui/app-shell-fast-status.test.mjs \
+            tests/ui/dashboard-staged-loading.test.mjs \
+            tests/ui/dashboard-parity-contract.test.mjs \
+            tests/ui/dashboard-transport-contract.test.mjs \
+            tests/ui/p01-v3-dashboard-visual-unification.test.mjs \
+            tests/ui/p01-v6-dashboard-final-density.test.mjs \
+            tests/ui/system-components-model.test.mjs \
+            tests/ui/system-components-page.test.mjs \
+            tests/ui/system-components-navigation.test.mjs \
+            tests/ui/runtime-state-contract.test.mjs
+
+      - name: Lua + patch gates (native)
+        env:
+          UCODE_BIN: /opt/ucode/bin/ucode
+          LD_LIBRARY_PATH: /opt/ucode/lib
+        run: |
+          node --test \
+            tests/native/test_lua_init_smoke.test.mjs \
+            tests/native/test_engine_patches_apply.test.mjs \
+            tests/native/engine-integration-identity.test.mjs
+
+  engine-producer-build:
+    # Fail-closed proof that the canonical producer pipeline works end to end
+    # against the pinned base. A green artifact here publishes nothing by
+    # itself; releases are cut by engine-build.yml.
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/engine-build.yml
+    with:
+      architecture: aarch64_cortex-a53
+    permissions:
+      contents: write
+
+  worker-rollback-injections:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install sandbox prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y jq
+
+      - name: Build pinned ucode interpreter (used by worker stubs)
+        run: sudo ./scripts/test/install-ucode.sh /opt/ucode
+
+      - name: Run real worker rollback/failure injection matrix
+        run: node --test tests/product/engine-worker-rollback-sandbox.test.mjs

@@ -19,6 +19,12 @@ on:
         description: 'OpenWrt architecture id'
         required: false
         default: 'aarch64_cortex-a53'
+  workflow_call:
+    inputs:
+      architecture:
+        required: false
+        type: string
+        default: 'aarch64_cortex-a53'
 
 permissions:
   contents: write
