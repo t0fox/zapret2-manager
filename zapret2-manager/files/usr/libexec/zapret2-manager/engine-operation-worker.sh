@@ -65,7 +65,14 @@ rollback(){
 fail(){
  code="$1"; message="$2"
  if [ "$ROLLBACK_REQUIRED" -eq 1 ]; then
-	rollback || true
+	rollback || {
+		# rollback can only restore when a previous payload existed; on a
+		# clean device a failed install must still not leave the new payload
+		if [ "$OLD_INSTALLED" -eq 0 ] && [ "$NEW_INSTALLED" -eq 1 ]; then
+			[ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
+			rm -rf /opt/zapret2 /etc/config/zapret2
+		fi
+	}
  elif [ "$NEW_INSTALLED" -eq 1 ]; then
 	# No previous payload to restore: a fresh-device failure must not leave
 	# the new payload installed and running (partial install committed).

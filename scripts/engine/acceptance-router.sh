@@ -50,9 +50,11 @@ cat "$EV/E2-req.json" | ssh -o BatchMode=yes "$TARGET" 'read -r body; ubus -S ca
 grep -q '"ok":true' "$EV/E2-start.json" || fail "engine_install failed: $(cat "$EV/E2-start.json")"
 
 echo '== [E3] wait for operation completion (<=240s)'
+OPID=$(node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(s.operation&&s.operation.id||"")' "$EV/E2-start.json")
+[ -n "$OPID" ] || fail 'no operation id in start response'
 FINAL=""
 for i in $(seq 1 60); do
-  FINAL=$(R 'ubus -S call zapret2-manager-engine engine_operation_status "{\"edit\":\"{}\"}"')
+  FINAL=$(R "ubus -S call zapret2-manager-engine engine_operation_status '{\"edit\":\"{\\\"id\\\":\\\"$OPID\\\"}\"}'")
   echo "$FINAL" | grep -qE '"phase":"(completed|failed|rolled_back)"' && break
   sleep 4
 done
