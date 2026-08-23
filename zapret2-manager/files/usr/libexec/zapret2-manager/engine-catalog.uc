@@ -71,92 +71,6 @@ function valid_state(value) { return type(value) == 'object' && value != null &&
 function saved_state() { let current = read_json(STATE_FILE, null); return valid_state(current) ? current : null; }
 function public_candidate(c) { return { schema: c.schema, artifactKind: c.artifactKind, version: c.version, releaseTag: c.releaseTag, installedRelease: c.installedRelease, upstream: c.upstream, architecture: c.architecture, assetName: c.assetName, sha256: c.sha256, size: c.size, releaseId: c.releaseId, publishedAt: c.publishedAt, releaseUrl: c.releaseUrl, releaseNotes: c.releaseNotes, prerelease: c.prerelease, container: c.container, checksumName: c.checksumName, checksumUrl: c.checksumUrl, checksumSha256: c.checksumSha256, compatible: c.compatible, compatibilityState: c.compatibilityState, compatibilityCode: c.compatibilityCode, compatibilityMessage: c.compatibilityMessage, requiredCapabilities: c.requiredCapabilities || [] }; }
 
-function release_cache_read() {
-	let value = read_json(RELEASE_CACHE, null);
-	// Schema bump invalidates pre-z2m caches: a v1 entry has no canonical
-	// records and would shadow the compatible feed for its whole TTL.
-	if (type(value) != 'object' || value == null || value.schema != 'engine-release-catalog.v2'
-		|| type(value.fetchedAt) != 'int' || type(value.releases) != 'array') return null;
-	return value;
-}
-function release_cache_write(releases, z2mReleases) {
-	try { ensure_dir(CACHE); } catch (e) { return false; }
-	return atomic_json(RELEASE_CACHE, { schema: 'engine-release-catalog.v2', fetchedAt: time(),
-		releases: releases, z2mReleases: z2mReleases != null ? z2mReleases : [] });
-}
-
-// Validate the canonical z2m-compatible feed. Every release carrying a
-// *.tar.gz plus a sibling machine-readable manifest is checked against the
-// pinned integration identity for THIS device architecture; only survivors
-// become installable candidates. Vanilla bol-van records are produced
-// separately and stay visible-but-not-installable.
-
-
-function catalog(architecture_value, options) {
-	options = options || {};
-	let cached = release_cache_read(), age = cached ? time() - cached.fetchedAt : null;
-	if (options.cache === true && cached != null && age >= 0 && age <= RELEASE_CACHE_TTL) {
-		let fresh = [], raw = cached.releases;
-		for (let i = 0; i < length(raw); i++) { let candidate = release_record(raw[i], architecture_value); if (candidate != null) push(fresh, candidate); }
-		return { ok: true, releases: fresh,
-			z2mReleases: cached.z2mReleases != null ? cached.z2mReleases : [],
-			cacheHit: true, stale: false, fetchedAt: cached.fetchedAt };
-	}
-	let fetched = fetch_releases();
-	if (!fetched.ok) {
-		if (options.allowStale === true && cached != null) {
-			let stale = [], staleRaw = cached.releases;
-			for (let i = 0; i < length(staleRaw); i++) { let candidate = release_record(staleRaw[i], architecture_value); if (candidate != null) push(stale, candidate); }
-			return { ok: true, releases: stale,
-				z2mReleases: cached.z2mReleases != null ? cached.z2mReleases : [],
-				cacheHit: true, stale: true, fetchedAt: cached.fetchedAt, networkError: fetched.error };
-		}
-		return fetched;
-	}
-	let releases = [];
-	for (let i = 0; i < length(fetched.releases); i++) { let candidate = release_record(fetched.releases[i], architecture_value); if (candidate != null) push(releases, candidate); }
-	let compatible = z2m_compatible_records(architecture_value, {});
-	release_cache_write(fetched.releases, compatible.ok == true ? compatible.records : null);
-	return { ok: true, releases: releases,
-		z2mReleases: compatible.ok == true ? compatible.records : [],
-		cacheHit: false, stale: false, fetchedAt: time() };
-}
-
-function merged_candidates(result) {
-	let combined = [];
-	for (let i = 0; i < length(result.z2mReleases || []); i++)
-		if (is_object(result.z2mReleases[i])) push(combined, result.z2mReleases[i]);
-	for (let i = 0; i < length(result.releases || []); i++)
-		if (is_object(result.releases[i])) push(combined, result.releases[i]);
-	return combined;
-}
-
-export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return result; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null }; };
-export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null ? saved.installedRelease : null; return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
-export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null && !match(version, /^[a-zA-Z0-9._-]+$/)) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: true, allowStale: false }); if (!result.ok) return result; let combined = merged_candidates(result); let candidate = null, public_releases = [];
-if (version == null) {
-	// Default target: merged order puts newest compatible candidates first;
-	// vanilla (visible-but-not-installable) records trail after them.
-	candidate = length(combined) ? combined[0] : null;
-} else {
-	for (let i = 0; i < length(combined); i++)
-		if (combined[i].version == version) { candidate = combined[i]; break; }
-}
-for (let i = 0; i < length(combined); i++) push(public_releases, public_candidate(combined[i])); if (candidate == null) return fail('ENOASSET', 'Устанавливаемый совместимый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latest = combined[0]; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest != null ? latest.installedRelease : null, updateAvailable: installed.installedOrigin == 'OFFICIAL' && installed.installedRelease != null && latest != null && installed.installedRelease != latest.installedRelease, candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
-export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if (record.candidate.artifactKind != Z2M_ENGINE_ARTIFACT || record.candidate.schema != ENGINE_ARTIFACT_SCHEMA || record.candidate.compatible !== true) return fail('EENGINE_INTEGRATION_REQUIRED', 'Проверенная совместимая сборка Z2M отсутствует.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
-export const save_engine_state = function (value) { ensure_dir('/etc/zapret2-manager'); return atomic_json(STATE_FILE, value); };
-export const clear_engine_state = function () { try { unlink(STATE_FILE); } catch (e) {} return stat(STATE_FILE) == null; };
-
-// ---------------------------------------------------------------------------
-// z2m-compatible-engine feed gating.
-//
-// The canonical compatible feed is the t0fox/zapret2-manager engine releases
-// produced by scripts/engine/build-compatible-engine.sh. A release becomes an
-// INSTALLABLE candidate only when its machine-readable manifest proves the
-// pinned base commit, the exact SHA-pinned patch series, capability evidence,
-// and a digest-consistent artifact for THIS device architecture. Everything
-// else yields no candidate — never a degraded one.
-
 let integration_cache = null;
 function integration_identity() {
 	if (is_object(integration_cache)) return integration_cache;
@@ -348,3 +262,90 @@ function z2m_default_manifest_fetcher(manifestAsset) {
 	try { unlink(file); } catch (e) {}
 	return manifest;
 }
+
+function release_cache_read() {
+	let value = read_json(RELEASE_CACHE, null);
+	// Schema bump invalidates pre-z2m caches: a v1 entry has no canonical
+	// records and would shadow the compatible feed for its whole TTL.
+	if (type(value) != 'object' || value == null || value.schema != 'engine-release-catalog.v2'
+		|| type(value.fetchedAt) != 'int' || type(value.releases) != 'array') return null;
+	return value;
+}
+function release_cache_write(releases, z2mReleases) {
+	try { ensure_dir(CACHE); } catch (e) { return false; }
+	return atomic_json(RELEASE_CACHE, { schema: 'engine-release-catalog.v2', fetchedAt: time(),
+		releases: releases, z2mReleases: z2mReleases != null ? z2mReleases : [] });
+}
+
+// Validate the canonical z2m-compatible feed. Every release carrying a
+// *.tar.gz plus a sibling machine-readable manifest is checked against the
+// pinned integration identity for THIS device architecture; only survivors
+// become installable candidates. Vanilla bol-van records are produced
+// separately and stay visible-but-not-installable.
+
+
+function catalog(architecture_value, options) {
+	options = options || {};
+	let cached = release_cache_read(), age = cached ? time() - cached.fetchedAt : null;
+	if (options.cache === true && cached != null && age >= 0 && age <= RELEASE_CACHE_TTL) {
+		let fresh = [], raw = cached.releases;
+		for (let i = 0; i < length(raw); i++) { let candidate = release_record(raw[i], architecture_value); if (candidate != null) push(fresh, candidate); }
+		return { ok: true, releases: fresh,
+			z2mReleases: cached.z2mReleases != null ? cached.z2mReleases : [],
+			cacheHit: true, stale: false, fetchedAt: cached.fetchedAt };
+	}
+	let fetched = fetch_releases();
+	if (!fetched.ok) {
+		if (options.allowStale === true && cached != null) {
+			let stale = [], staleRaw = cached.releases;
+			for (let i = 0; i < length(staleRaw); i++) { let candidate = release_record(staleRaw[i], architecture_value); if (candidate != null) push(stale, candidate); }
+			return { ok: true, releases: stale,
+				z2mReleases: cached.z2mReleases != null ? cached.z2mReleases : [],
+				cacheHit: true, stale: true, fetchedAt: cached.fetchedAt, networkError: fetched.error };
+		}
+		return fetched;
+	}
+	let releases = [];
+	for (let i = 0; i < length(fetched.releases); i++) { let candidate = release_record(fetched.releases[i], architecture_value); if (candidate != null) push(releases, candidate); }
+	let compatible = z2m_compatible_records(architecture_value, {});
+	release_cache_write(fetched.releases, compatible.ok == true ? compatible.records : null);
+	return { ok: true, releases: releases,
+		z2mReleases: compatible.ok == true ? compatible.records : [],
+		cacheHit: false, stale: false, fetchedAt: time() };
+}
+
+function merged_candidates(result) {
+	let combined = [];
+	for (let i = 0; i < length(result.z2mReleases || []); i++)
+		if (is_object(result.z2mReleases[i])) push(combined, result.z2mReleases[i]);
+	for (let i = 0; i < length(result.releases || []); i++)
+		if (is_object(result.releases[i])) push(combined, result.releases[i]);
+	return combined;
+}
+
+export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return result; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null }; };
+export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null ? saved.installedRelease : null; return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
+export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null && !match(version, /^[a-zA-Z0-9._-]+$/)) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: true, allowStale: false }); if (!result.ok) return result; let combined = merged_candidates(result); let candidate = null, public_releases = [];
+if (version == null) {
+	// Default target: merged order puts newest compatible candidates first;
+	// vanilla (visible-but-not-installable) records trail after them.
+	candidate = length(combined) ? combined[0] : null;
+} else {
+	for (let i = 0; i < length(combined); i++)
+		if (combined[i].version == version) { candidate = combined[i]; break; }
+}
+for (let i = 0; i < length(combined); i++) push(public_releases, public_candidate(combined[i])); if (candidate == null) return fail('ENOASSET', 'Устанавливаемый совместимый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latest = combined[0]; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest != null ? latest.installedRelease : null, updateAvailable: installed.installedOrigin == 'OFFICIAL' && installed.installedRelease != null && latest != null && installed.installedRelease != latest.installedRelease, candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
+export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if (record.candidate.artifactKind != Z2M_ENGINE_ARTIFACT || record.candidate.schema != ENGINE_ARTIFACT_SCHEMA || record.candidate.compatible !== true) return fail('EENGINE_INTEGRATION_REQUIRED', 'Проверенная совместимая сборка Z2M отсутствует.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
+export const save_engine_state = function (value) { ensure_dir('/etc/zapret2-manager'); return atomic_json(STATE_FILE, value); };
+export const clear_engine_state = function () { try { unlink(STATE_FILE); } catch (e) {} return stat(STATE_FILE) == null; };
+
+// ---------------------------------------------------------------------------
+// z2m-compatible-engine feed gating.
+//
+// The canonical compatible feed is the t0fox/zapret2-manager engine releases
+// produced by scripts/engine/build-compatible-engine.sh. A release becomes an
+// INSTALLABLE candidate only when its machine-readable manifest proves the
+// pinned base commit, the exact SHA-pinned patch series, capability evidence,
+// and a digest-consistent artifact for THIS device architecture. Everything
+// else yields no candidate — never a degraded one.
+
