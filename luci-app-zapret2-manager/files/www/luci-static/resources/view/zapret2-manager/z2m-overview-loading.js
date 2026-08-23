@@ -11,7 +11,12 @@
 // phase-2 settlement. This keeps clean-install rpcd free of secondary load
 // while the critical batch is still in flight.
 //
-// Pure module: no LuCI pragmas, dependencies injected via createLoader().
+// Module contract: dependencies are injected via createLoader(), but the
+// module itself MUST satisfy the LuCI loader factory contract — it has to
+// return a LuCI.baseclass subclass, otherwise the loader raises
+// "factory yields invalid constructor" and the Dashboard never mounts.
+
+'require baseclass';
 
 function createLoader(options) {
 	var runtime = options.runtime;
@@ -54,8 +59,11 @@ function createLoader(options) {
 			return Promise.allSettled([
 				ctx.api.strategy.preview(),
 				edit(ctx.api.monitor.eventsTail, { limit: 8 }),
-				typeof ctx.api.strategies.recommendations === 'function'
-					? ctx.api.strategies.recommendations() : options.recommendationsRpc()
+			typeof ctx.api.strategies.recommendations === 'function'
+				? ctx.api.strategies.recommendations()
+				: typeof options.recommendationsRpc === 'function'
+					? options.recommendationsRpc()
+					: Promise.resolve({})
 			]).then(function (results) {
 				if (token !== runtime.loadToken) return;
 				runtime.deferred = {
@@ -82,7 +90,7 @@ function createLoader(options) {
 				systemStatus: settled(results[2], ctx.api),
 				versionStatus: settled(results[3], ctx.api)
 			};
-			return resolveCanonicalStrategy(ctx, data.status).then(function (strategy) {
+			return resolveCanonicalStrategy(ctx, data.status, edit).then(function (strategy) {
 				if (strategy) data.strategy = { value: strategy };
 				return data;
 			}).catch(function (error) {
@@ -100,7 +108,7 @@ function createLoader(options) {
 	return { load: load };
 }
 
-function resolveCanonicalStrategy(ctx, statusEnvelope) {
+function resolveCanonicalStrategy(ctx, statusEnvelope, edit) {
 	var payloadValue = statusEnvelope && statusEnvelope.value || {};
 	for (var i = 0; i < 4; i++) {
 		if (Array.isArray(payloadValue)) { payloadValue = payloadValue[0]; continue; }
@@ -115,11 +123,11 @@ function resolveCanonicalStrategy(ctx, statusEnvelope) {
 	var id = strategyState.id || strategyState.strategyId || strategyState.name || null;
 	if (!id || !ctx.api.strategies || typeof ctx.api.strategies.get !== 'function')
 		return Promise.resolve(null);
-	return ctx.edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
+	return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
 		var value = answer && answer.value !== undefined ? answer.value : answer;
 		var strategy = value && (value.strategy || value.item);
 		return strategy || value;
 	});
 }
 
-return { createLoader: createLoader };
+return baseclass.extend({ createLoader: createLoader });
