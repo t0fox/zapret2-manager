@@ -123,6 +123,13 @@ grep -qF 'family_split' "$SRC/lua/zapret-auto.lua" \
 info "static capability evidence 3/3 present in patched tree"
 
 # ------------------------------------------------- step 5b: pinned target deps
+TOOLCHAIN_DIR=$(ls -d "$OPENWRT_SDK"/staging_dir/toolchain-* 2>/dev/null | head -n 1) \
+  || die "OPENWRT_SDK/staging_dir/toolchain-* not found (set OPENWRT_SDK)"
+CROSS_BIN=$(find "$TOOLCHAIN_DIR/bin" -maxdepth 1 -name '*-gcc' | head -n 1) || true
+[ -x "$CROSS_BIN" ] || die "toolchain gcc not found under $TOOLCHAIN_DIR/bin"
+CROSS="$(basename "$CROSS_BIN" -gcc)-"
+info "cross compiler prefix: $CROSS"
+
 DEPS="$WORK/deps"; DEPS_USR="$DEPS/usr"
 mkdir -p "$DEPS_USR"
 HOST="${CROSS%-}"
@@ -172,13 +179,6 @@ cd "$REPO_ROOT"
 info "pinned target dependencies ready in $DEPS_USR"
 
 # --------------------------------------------------------- step 6: target build
-TOOLCHAIN_DIR=$(ls -d "$OPENWRT_SDK"/staging_dir/toolchain-* 2>/dev/null | head -n 1) \
-  || die "OPENWRT_SDK/staging_dir/toolchain-* not found (set OPENWRT_SDK)"
-CROSS_BIN=$(find "$TOOLCHAIN_DIR/bin" -maxdepth 1 -name '*-gcc' | head -n 1) || true
-[ -x "$CROSS_BIN" ] || die "toolchain gcc not found under $TOOLCHAIN_DIR/bin"
-CROSS="$(basename "$CROSS_BIN" -gcc)-"
-info "cross compiler prefix: $CROSS"
-
 make -C "$SRC/nfq2" clean >/dev/null 2>&1 || true
 make -C "$SRC/nfq2" CROSS_COMPILE="$CROSS" -j"$(nproc)" \
 	LUA_CFLAGS="-I$DEPS_USR/include" \
