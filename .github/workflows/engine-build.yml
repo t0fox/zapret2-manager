@@ -13,6 +13,14 @@ name: z2m-compatible-engine build
 # A vanilla bol-van tar.gz produced elsewhere can NEVER pass this gate.
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/engine/**'
+      - 'patches/engine/**'
+      - 'zapret2-manager/files/usr/share/zapret2-manager/upstreams/engine-integration.json'
+      - '.github/workflows/engine-build.yml'
   workflow_dispatch:
     inputs:
       architecture:
