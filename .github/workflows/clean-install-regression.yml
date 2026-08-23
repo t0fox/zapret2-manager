@@ -65,6 +65,8 @@ jobs:
           node --test \
             tests/ui/app-shell-fast-status.test.mjs \
             tests/ui/dashboard-staged-loading.test.mjs \
+            tests/ui/luci-module-factory-contract.test.mjs \
+            tests/ui/dashboard-active-strategy.test.mjs \
             tests/ui/dashboard-parity-contract.test.mjs \
             tests/ui/dashboard-transport-contract.test.mjs \
             tests/ui/p01-v3-dashboard-visual-unification.test.mjs \
