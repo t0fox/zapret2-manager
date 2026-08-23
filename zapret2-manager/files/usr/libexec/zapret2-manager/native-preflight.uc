@@ -93,9 +93,13 @@ function probe_binary_capabilities(binaryPath) {
 		|| index(out, 'z2k_tls_mod') >= 0) {
 		caps.Z2K_TLS_MOD = true;
 	} else {
-		// Try string inspection if help is truncated.
-		let strResult = run("strings " + shell_escape(binaryPath) + " | grep -E 'z2k_grease|z2k_alpn_flood|FAKE_TLS_MOD_Z2K_GREASE' | head -n 1");
-		if (strResult.rc == 0 && length(trim(strResult.out)) > 0) {
+		let strResult = run("strings " + shell_escape(binaryPath)
+			+ " | grep -E 'z2k_grease|z2k_alpn_flood|FAKE_TLS_MOD_Z2K_GREASE' | head -n 1");
+		if (!(strResult.rc == 0 && length(trim(strResult.out)) > 0)) {
+			// busybox images may lack strings(1); grep reads the binary directly.
+			let grepResult = run("grep -c -a 'z2k_alpn_flood' " + shell_escape(binaryPath));
+			caps.Z2K_TLS_MOD = grepResult.rc == 0 && trim(grepResult.out) != '0';
+		} else {
 			caps.Z2K_TLS_MOD = true;
 		}
 	}

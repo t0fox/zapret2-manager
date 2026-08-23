@@ -1144,6 +1144,8 @@ export const strategy_catalog_reload = function() {
 	let result = strategy_catalog_resolve({ forceVerify: true });
 	if (!result.ok) return result;
 	loaded = result.catalog; loadedRoot = result.root;
+	// Successful rebuild retires the clean-install repair marker.
+	command_rc('rm -f /etc/zapret2-manager/catalog/repair-required 2>/dev/null');
 	return strategy_catalog_status();
 };
 

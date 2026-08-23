@@ -129,12 +129,12 @@ cp -a "$ROOTDIR/blockcheck2.sh" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удал
 ROLLBACK_REQUIRED=1; phase stopping 52 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || [ "$OLD_INSTALLED" -eq 0 ] || fail ESTOP 'Не удалось остановить zapret2.'
 phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось установить mode /opt/zapret2.'; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
 phase restoring 75 'Восстанавливаются конфигурация и пользовательские списки.'; restore_config || fail ERESTORE "Не удалось восстановить пользовательские данные: ${RESTORE_ERROR:-unknown}."
-phase materializing 79 'Материализуются Z2K ресурсы в runtime движка.'
+phase materializing 78 'Материализуются Z2K ресурсы в runtime движка.'
 SYNC=/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh
 /bin/sh "$SYNC" || fail EZ2K_ASSETS 'Материализация Z2K ассетов завершилась ошибкой.'
 sync_verdict="$(/bin/sh "$SYNC" --verify)" || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
 printf '%s\n' "$sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
-phase proving 84 'Доказываются обязательные возможности движка (3/3).'
+phase proving 82 'Доказываются обязательные возможности движка (3/3).'
 CAPABILITIES="$WORK/capabilities.json"
 /usr/bin/ucode /usr/libexec/zapret2-manager/native-preflight.uc --install-proof >"$CAPABILITIES" 2>/dev/null \
 	|| fail ECAPABILITY 'Preflight возможностей завершился ошибкой.'
@@ -143,7 +143,7 @@ for capability in Z2K_TLS_MOD ANTIDPI_REPEATS_LOOP AUTO_FAMILY_SPLIT; do
 	grep -q "\"$capability\"[[:space:]]*:[[:space:]]*true" "$CAPABILITIES" \
 		|| fail ECAPABILITY "Обязательная возможность $capability не подтверждена на этом движке."
 done
-phase starting 82 'Запускается новый official runtime.'; phase postflight 88 'Проверяется runtime, NFQUEUE и nft.'; postflight || fail EPOSTFLIGHT 'Новый engine не прошёл postflight.'
+phase starting 85 'Запускается новый official runtime.'; phase postflight 88 'Проверяется runtime, NFQUEUE и nft.'; postflight || fail EPOSTFLIGHT 'Новый engine не прошёл postflight.'
 mkdir -p "$CACHE"; chmod 700 "$CACHE"; cp -a "$ASSET" "$CACHE/current.tar.gz"; sha "$CACHE/current.tar.gz" >"$CACHE/current.sha256"
 /usr/bin/ucode "$CLI" commit-state "$ID" >/dev/null 2>&1 || fail ESTATE 'Engine state не подтверждён.'
 [ "$WAS_RUNNING" -eq 1 ] || [ "$OLD_INSTALLED" -eq 0 ] || "$INIT" stop >/dev/null 2>&1 || true
