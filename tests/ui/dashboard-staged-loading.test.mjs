@@ -1,8 +1,7 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import vm from 'node:vm';
 
 // Behavioral contract: dashboard RPC phases must be strictly sequenced.
 //   PHASE 1 critical : status_fast | engine | maintenance status | versions
@@ -11,15 +10,21 @@ import vm from 'node:vm';
 //
 // A Promise.allSettled([...]) expression CREATES its promises immediately, so
 // the previous implementation started secondary fan-out before the critical
-// batch resolved — contributing to clean-install rpcd contention. This test
+// batch resolved вЂ” contributing to clean-install rpcd contention. This test
 // controls promise settlement manually and counts calls per phase.
+//
+// The module is loaded THROUGH the faithful LuCI loader harness so this suite
+// also fails if the module ever violates the real loader contract again.
+
+import { loadLuCIModule, baseclass } from './support/luci-loader-harness.mjs';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
 const modulePath = path.join(root,
   'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview-loading.js');
 
 const source = fs.readFileSync(modulePath, 'utf8');
-const factory = vm.runInNewContext(`(function () { ${source}\n })()`, {});
+const moduleInstance = loadLuCIModule(source,
+  'view.zapret2-manager.z2m-overview-loading', { baseclass });
 
 function deferred() {
   let resolve, reject;
@@ -63,7 +68,7 @@ function immediate(fn) { queueMicrotask(fn); return undefined; }
 
 test('secondary and optional RPCs never start while the critical batch is unresolved', async () => {
   const { api, calls } = makeApi();
-  const loader = factory.createLoader({
+  const loader = moduleInstance.createLoader({
     runtime: makeRuntime(),
     settled: settledValue,
     timer: immediate
@@ -85,7 +90,7 @@ test('secondary and optional RPCs never start while the critical batch is unreso
 
 test('after the critical batch settles, the secondary batch starts; optional waits further', async () => {
   const { api, calls, gates } = makeApi();
-  const loader = factory.createLoader({ runtime: makeRuntime(), settled: settledValue, timer: immediate });
+  const loader = moduleInstance.createLoader({ runtime: makeRuntime(), settled: settledValue, timer: immediate });
   const done = loader.load(makeCtx(api));
   gates.critical.resolve({});
   await done;
