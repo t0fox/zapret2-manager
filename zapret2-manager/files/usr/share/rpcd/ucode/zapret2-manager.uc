@@ -81,15 +81,27 @@ function cache_fresh() {
 // NON-BLOCKING by design: the full collector takes many seconds on real
 // hardware and rpcd handles ubus calls synchronously — running it inline
 // starved every other call on the system. Instead: serve the cached snapshot
-// immediately and trigger one bounded background refresh.
+// immediately and trigger at most ONE background refresh (mkdir lock with
+// stale-lock steal; the lock also caps concurrency to a single collector).
 function status_refresh_async() {
-	let marker = '/tmp/zapret2-manager/status.refresh';
-	let st = stat(marker);
-	if (st && (now() - st.mtime) < 2) return;
-	writefile(marker, sprintf('%d', now()));
+	let lock = '/tmp/zapret2-manager/status.refresh.lock';
+	let lst = stat(lock);
+	if (lst != null) {
+		if ((now() - lst.mtime) < 180) return; // a collector is already running
+		run_lock_cleanup(lock);
+	}
+	if (!writefile('/tmp/zapret2-manager/status.refresh.stamp', sprintf('%d', now()))) return;
+	try { mkdir(lock); } catch (e) { return; } // someone won the race
 	try {
-		popen('(' + shell_escape('/usr/bin/ucode') + ' ' + COLLECTOR
-			+ ' --no-print >/dev/null 2>&1) &', 'r').close();
+		popen('(' + shell_escape('/bin/sh') + ' -c ' + shell_quote(
+			'/usr/bin/ucode ' + COLLECTOR + ' --no-print >/dev/null 2>&1; rm -rf ' + shell_quote(lock)
+		) + ') &', 'r').close();
+	} catch (e) { try { unlink(lock); } catch (x) { } }
+}
+
+function run_lock_cleanup(lock) {
+	try {
+		popen('(' + shell_escape('/bin/sh') + ' -c ' + shell_quote('rm -rf ' + shell_quote(lock)) + ') &', 'r').close();
 	} catch (e) { }
 }
 

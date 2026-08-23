@@ -6,7 +6,7 @@
 
 import { strategy_selection_get_readonly, strategy_user_get_readonly,
  strategy_apply_uncertain_get_readonly, strategy_reconcile_get_readonly } from './strategy-state.uc';
-import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
+import { strategy_catalog_read_index, catalog_entry_to_strategy } from './strategy-catalog.uc';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function digest(value) { return type(value) == 'string' && match(value, /^[a-f0-9]{64}$/); }
@@ -144,7 +144,10 @@ export const collect_strategy_status = function(observations) {
   : { revision: 0, selected: null, readError: true };
  let catalog = null;
  try {
-  let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar');
+  // Bounded read: the status collector runs on every poll cycle; forcing a
+  // full manifest/raw-file verification here recreated the sha256 fan-out
+  // per run. The compact persisted index carries identical winner args.
+  let loaded = strategy_catalog_read_index(null);
   catalog = loaded && loaded.ok === true ? loaded.catalog : null;
  } catch (e) { catalog = null; }
  let selected = selectedState.selected;

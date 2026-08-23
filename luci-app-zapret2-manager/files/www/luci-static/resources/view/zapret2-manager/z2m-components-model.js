@@ -45,10 +45,18 @@ function health(value, fallback) {
 
 function engineHealth(status) {
   if (status.installed !== true || status.state === 'engine_missing' || status.serviceState === 'engine_missing') return 'missing';
-  if (status.health) return health(status.health, 'degraded');
-  if (status.serviceState === 'error' || status.compatible === false) return 'broken';
-  if (status.serviceState !== 'running' || status.runtimeRunning === false) return 'degraded';
-  return 'ready';
+  // Runtime evidence gates first; a backend-supplied health field may only
+  // DOWNGRADE the verdict, never fabricate readiness past these checks.
+  var computed;
+  if (status.serviceState === 'error' || status.compatible === false) computed = 'broken';
+  else if (status.serviceState !== 'running' || status.runtimeRunning === false) computed = 'degraded';
+  else computed = 'ready';
+  if (status.health) {
+    var claimed = health(status.health, 'degraded');
+    var severity = { ready: 0, degraded: 1, broken: 2, missing: 3 };
+    if ((severity[claimed] || 1) > (severity[computed] || 1)) return claimed;
+  }
+  return computed;
 }
 
 function engineUpdate(input, status) {
@@ -128,19 +136,21 @@ function normalizeZ2k(input, engineReady) {
   if (engineReady !== true) {
     healthState = 'missing';
     summary = 'Требуется совместимый Zapret2 Engine.';
-  } else if (explicitHealth) {
-    healthState = health(explicitHealth, 'degraded');
-    summary = 'Autocircular, detectors и расширения Zapret2.';
-  } else if (rawStatus === 'broken' || rawStatus === 'missing') {
-    healthState = rawStatus;
-    summary = 'Autocircular, detectors и расширения Zapret2.';
-  } else if (z2kLuaEvidence(value)) {
-    // Full materialized Lua counters are positive readiness evidence.
-    healthState = 'ready';
-    summary = 'Autocircular, detectors и расширения Zapret2.';
   } else {
-    healthState = 'degraded';
-    summary = 'Z2K Core требует проверки целостности ресурсов.';
+    // Evidence-based baseline: explicit backend fields may only DOWNGRADE,
+    // never fabricate readiness without materialized Lua evidence.
+    var evidence = z2kLuaEvidence(value);
+    if (rawStatus === 'broken' || rawStatus === 'missing') healthState = rawStatus;
+    else if (evidence) healthState = 'ready';
+    else healthState = 'degraded';
+    if (explicitHealth) {
+      var claimed = health(explicitHealth, 'degraded');
+      var severity = { ready: 0, degraded: 1, broken: 2, missing: 3 };
+      if ((severity[claimed] || 1) > (severity[healthState] || 1)) healthState = claimed;
+    }
+    summary = healthState === 'ready'
+      ? 'Autocircular, detectors и расширения Zapret2.'
+      : 'Z2K Core требует проверки целостности ресурсов.';
   }
   var compatibilityState = compatibility(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
   var safeUpdate = object(value.safeUpdate);
@@ -182,7 +192,8 @@ function aggregateHealth(components) {
   var broken = components.some(function (item) { return item.health === 'broken'; });
   var missing = components.some(function (item) { return item.health === 'missing'; });
   var checking = components.some(function (item) { return item.health === 'checking'; });
-  var state = ready === components.length ? 'ready' : checking ? 'checking' : missing ? 'missing' : broken ? 'broken' : 'degraded';
+  // A pending poll must never mask a hard failure.
+  var state = ready === components.length ? 'ready' : broken ? 'broken' : missing ? 'missing' : checking ? 'checking' : 'degraded';
   var message = state === 'ready' ? 'Система готова к работе'
     : state === 'missing' ? 'Требуется установка компонентов'
     : state === 'broken' ? 'Требуется восстановление Z2K Core'

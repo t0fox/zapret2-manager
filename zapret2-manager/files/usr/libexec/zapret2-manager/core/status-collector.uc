@@ -418,6 +418,17 @@ export const collect = function() {
 	try { strategy_status = collect_strategy_status(observations); } catch (e) { strategy_status = null; }
 	let status = legacy_status_v3(native_result.ok ? native_result.data.state : degraded(native_result), observations);
 	status = with_strategy_status(status, strategy_status);
-	try { writefile(PATHS.status_json, sprintf('%J', status) + '\n'); } catch (e) { }
+	try {
+		// Atomic publish: readers poll this file continuously; an in-place
+		// write would hand them truncated JSON.
+		let tmp = PATHS.status_json + '.tmp.' + time();
+		if (writefile(tmp, sprintf('%J', status) + '\n')) {
+			let mv = popen('mv -f ' + "'" + tmp + "'" + ' ' + "'" + PATHS.status_json + "'", 'r');
+			if (mv) mv.close();
+			if (stat(PATHS.status_json) == null) writefile(PATHS.status_json, sprintf('%J', status) + '\n');
+		} else {
+			writefile(PATHS.status_json, sprintf('%J', status) + '\n');
+		}
+	} catch (e) { }
 	return status;
 };

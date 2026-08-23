@@ -85,6 +85,13 @@ chmod +x /opt/zapret2/init.d/openwrt/zapret2
 cat > /etc/init.d/zapret2 <<'EOF'
 #!/bin/sh
 echo "$1" >> /tmp/z2m-ws-init-calls.log
+start() { :; }
+stop() { :; }
+restart() { :; }
+start_fw() { :; }
+reload_ifsets() { :; }
+list_table() { :; }
+extra_command "start" "x"
 case "${1:-}" in start) echo 1234 > /tmp/z2m-ws-nfqws-pid ;; stop) rm -f /tmp/z2m-ws-nfqws-pid ;; esac
 exit 0
 EOF
@@ -167,17 +174,49 @@ STUB
 	chmod +x /usr/bin/ucode
 	UCODE_MADE=1
 fi
+# engine-cli.uc stub: phase/failed/complete recorded locally; commit-state
+# DELEGATES to the real CLI so the true engine-manager.uc capability gate
+# (capabilities.json path + 3/3 enforcement) is exercised on every run.
+CLI_DIR=/usr/libexec/zapret2-manager
+mkdir -p "$CLI_DIR"
+# Repo root inferred from the sync script location (…/files/usr/libexec/zapret2-manager/x)
+REPO_OF_SYNC=$(cd "$(dirname "$SYNC")/../../../../.." && pwd)
+if [ -f "$REPO_OF_SYNC/zapret2-manager/files/usr/libexec/zapret2-manager/engine-cli.uc" ]; then
+	SRC_LIB="$REPO_OF_SYNC/zapret2-manager/files/usr/libexec/zapret2-manager"
+elif [ -f "$HOME/z2m-build/zapret2-manager/files/usr/libexec/zapret2-manager/engine-cli.uc" ]; then
+	SRC_LIB="$HOME/z2m-build/zapret2-manager/files/usr/libexec/zapret2-manager"
+else
+	die 'real engine-cli.uc source not found for commit-state delegation'
+fi
+cp "$SRC_LIB/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc"
+# Real commit-state backend needs its import chain in place.
+cp "$SRC_LIB/engine-manager.uc" "$CLI_DIR/engine-manager.uc"
+cp "$SRC_LIB/engine-catalog.uc" "$CLI_DIR/engine-catalog.uc"
+mkdir -p "$CLI_DIR/core"
+cp "$SRC_LIB/core/private-temp.uc" "$CLI_DIR/core/private-temp.uc"
 cat > "$CLI_DIR/engine-cli.uc" <<'STUB'
 #!/usr/bin/ucode
 'use strict';
 import { popen } from 'fs';
 let mode = length(ARGV) > 0 ? ARGV[0] : '';
 let code = length(ARGV) > 2 ? ARGV[2] : '';
+if (mode == 'commit-state') {
+	// Delegate to the REAL backend: this is the load-bearing gate under test.
+	popen('printf "%s\\n" "commit-state:start" >> /tmp/z2m-ws-cli-calls.log');
+	let real = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/engine-cli-real.uc ' +
+		ARGV.join(' ') + ' 2>&1', 'r');
+	let out = real ? real.read('all') : '';
+	if (real) real.close();
+	let verdict = index(out || '', '"ok":true') >= 0 ? 'ok' : 'fail';
+	popen('printf "%s:%s\\n" "commit-state" "' + verdict + '" >> /tmp/z2m-ws-cli-calls.log');
+	print(out);
+	exit(0);
+}
 popen('printf "%s:%s\\n" "' + mode + '" "' + code + '" >> /tmp/z2m-ws-cli-calls.log');
 print('{"ok":true}\n');
 exit(0);
 STUB
-chmod +x "$CLI_DIR/engine-cli.uc"
+chmod +x "$CLI_DIR/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc"
 cp "$SYNC" "$CLI_DIR/strategy-runtime-assets-sync.sh"
 
 # native-preflight.uc stub: verdict depends on injection.
@@ -202,6 +241,16 @@ STUB
 	;;
 esac
 chmod +x "$CLI_DIR/native-preflight.uc"
+
+# Commit scenario: postflight must pass end-to-end. Seed the runtime state it
+# expects: previous OFFICIAL engine-state (detached install), no running
+# daemon (config enabled=0 -> postflight expects daemon absent).
+if [ "$INJECTION" = commit ]; then
+	mkdir -p /etc/zapret2-manager
+	cat > /etc/zapret2-manager/engine-state.json <<EOF
+{"schema":"engine-state.v2","installedOrigin":"OFFICIAL","installedRelease":"v1.5.9","packageVersion":null,"assetName":"prev.tar.gz","assetSha256":"$(printf 'a%.0s' {1..64})","architecture":"aarch64_cortex-a53","container":"tar.gz","installedAt":1700000000}
+EOF
+fi
 
 # postflight must fail on host: make status collector absent so worker stops
 # at EPOSTFLIGHT only when everything before it passed. We instead want the
@@ -260,7 +309,7 @@ if grep -q 'complete' /tmp/z2m-ws-cli-calls.log 2>/dev/null; then phase=complete
 failedCode=$(grep -o 'failed:[A-Za-z0-9_]*' /tmp/z2m-ws-cli-calls.log 2>/dev/null | tail -n1 | cut -d: -f2)
 [ -n "$failedCode" ] && errorCode="$failedCode"
 committedState=false
-grep -q 'commit-state' /tmp/z2m-ws-cli-calls.log 2>/dev/null && committedState=true
+grep -q 'commit-state:ok' /tmp/z2m-ws-cli-calls.log 2>/dev/null && committedState=true
 oldTreeRestored=false
 grep -q PREVIOUS_MARKER /opt/zapret2/PREVIOUS_MARKER 2>/dev/null && oldTreeRestored=true
 
@@ -269,7 +318,9 @@ printf '{"workerRc":%s,"phase":"%s","errorCode":"%s","oldTreeRestored":%s,"commi
 
 # cleanup global touches
 rm -f /etc/init.d/zapret2 /etc/openwrt_release
-rm -rf /opt/zapret2 "$PKG" "$CLI_DIR/engine-cli.uc" "$CLI_DIR/native-preflight.uc" "$CLI_DIR/status.uc" "$CLI_DIR/strategy-runtime-assets-sync.sh"
+rm -rf /opt/zapret2 "$PKG" "$CLI_DIR/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc" \
+	"$CLI_DIR/engine-manager.uc" "$CLI_DIR/engine-catalog.uc" "$CLI_DIR/core" \
+	"$CLI_DIR/native-preflight.uc" "$CLI_DIR/status.uc" "$CLI_DIR/strategy-runtime-assets-sync.sh"
 [ "$UCODE_MADE" = 1 ] && rm -f /usr/bin/ucode
 rm -rf /tmp/zapret2-manager
 if [ "${WS_KEEP:-0}" = 1 ]; then

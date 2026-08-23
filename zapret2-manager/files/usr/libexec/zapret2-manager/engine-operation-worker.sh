@@ -112,7 +112,7 @@ tar -xzf "$ASSET" -C "$WORK/unpack" || fail EARCHIVE 'Archive повреждён
 ROOTDIR="$WORK/unpack/zapret2-v$EXPECTED_VERSION"
 [ -d "$ROOTDIR" ] || ROOTDIR="$(find "$WORK/unpack" -maxdepth 1 -mindepth 1 -type d -name 'zapret2-*' | head -n 1)"
 [ -d "$ROOTDIR" ] || fail EPACKAGE 'Archive root не найден.'
-ENGINE_STAGE="$WORK/engine-stage"; mkdir "$ENGINE_STAGE" || fail EPACKAGE 'Не удалось создать staging directory.'; mkdir "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/ip2net" "$ENGINE_STAGE/mdig" "$ENGINE_STAGE/lua" "$ENGINE_STAGE/init.d/openwrt" || fail EPACKAGE 'Не удалось подготовить staging directories.'
+ENGINE_STAGE="$WORK/engine-stage"; mkdir "$ENGINE_STAGE" || fail EPACKAGE 'Не удалось создать staging directory.'; mkdir -p "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/ip2net" "$ENGINE_STAGE/mdig" "$ENGINE_STAGE/lua" "$ENGINE_STAGE/init.d/openwrt" || fail EPACKAGE 'Не удалось подготовить staging directories.'
 if [ "$ARTIFACT_KIND" = z2m-compatible-engine ]; then
 	# Machine-readable identity binding: the shipped manifest must re-state
 	# exactly the checked candidate (artifact digest + nfqws2 digest).

@@ -53,3 +53,13 @@ test('capability proof failure rolls back and never commits engine-state', { ski
   assert.equal(verdict.oldTreeRestored, true);
   assert.equal(verdict.committedState, false);
 });
+
+test('full success path reaches REAL commit-state with capability evidence', { skip: !canRun && 'requires passwordless sudo on Linux' }, async t => {
+  const verdict = runSandbox('commit');
+  assert.equal(verdict.phase, 'completed', JSON.stringify(verdict));
+  assert.equal(verdict.errorCode, 'null', JSON.stringify(verdict));
+  // The REAL engine-manager.uc commit_state executed (not a stub): it must
+  // have accepted the capabilities verdict from $ID.work/capabilities.json
+  // and written engine-state.v2 with the capability record.
+  assert.equal(verdict.committedState, true, JSON.stringify(verdict));
+});

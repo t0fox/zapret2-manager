@@ -44,8 +44,9 @@ export const commit_state = function (id) {
 	if (!installed.installed || (!packageDetached && installed.packageName != 'zapret2') || installed.runtimeContract !== true) return fail('EVERIFY', 'Установленный official payload не подтверждён.');
 	// Capability gate: the worker's install-proof verdict is load-bearing.
 	// A commit without proven 3/3 capability evidence would let a vanilla or
-	// broken engine masquerade as Z2M-compatible.
-	let caps = read_json(ROOT + '/' + id + '.capabilities.json', null);
+	// broken engine masquerade as Z2M-compatible. The verdict lives inside
+	// the job workdir ($ROOT/$ID.work/capabilities.json).
+	let caps = read_json(ROOT + '/' + id + '.work/capabilities.json', null);
 	if (caps == null || type(caps) != 'object') return fail('ECAPABILITY', 'Capability preflight не выполнялся; установка не может быть зафиксирована.');
 	if (caps.ok !== true) return fail('ECAPABILITY', 'Capability preflight не пройден.');
 	let required = type(candidate.requiredCapabilities) == 'array' ? candidate.requiredCapabilities : ['Z2K_TLS_MOD', 'ANTIDPI_REPEATS_LOOP', 'AUTO_FAMILY_SPLIT'];

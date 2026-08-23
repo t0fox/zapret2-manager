@@ -169,7 +169,16 @@ function merged_candidates(result) {
 
 export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return result; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null }; };
 export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null ? saved.installedRelease : null; return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
-export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null && !match(version, /^[\w.-]+$/)) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: true, allowStale: false }); if (!result.ok) return result; let combined = merged_candidates(result); let candidate = null, public_releases = []; for (let i = 0; i < length(combined); i++) { if (version == null || combined[i].version == version) candidate = combined[i]; push(public_releases, public_candidate(combined[i])); if (candidate != null && version != null) break; } if (candidate == null) return fail('ENOASSET', 'Устанавливаемый совместимый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latest = combined[0]; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest != null ? latest.installedRelease : null, updateAvailable: installed.installedOrigin == 'OFFICIAL' && installed.installedRelease != null && latest != null && installed.installedRelease != latest.installedRelease, candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
+export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; if (version != null && safe_version(version) == null && !match(version, /^[\w.-]+$/)) return fail('EINPUT', 'Некорректная версия release.'); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: true, allowStale: false }); if (!result.ok) return result; let combined = merged_candidates(result); let candidate = null, public_releases = [];
+if (version == null) {
+	// Default target: merged order puts newest compatible candidates first;
+	// vanilla (visible-but-not-installable) records trail after them.
+	candidate = length(combined) ? combined[0] : null;
+} else {
+	for (let i = 0; i < length(combined); i++)
+		if (combined[i].version == version) { candidate = combined[i]; break; }
+}
+for (let i = 0; i < length(combined); i++) push(public_releases, public_candidate(combined[i])); if (candidate == null) return fail('ENOASSET', 'Устанавливаемый совместимый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latest = combined[0]; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest != null ? latest.installedRelease : null, updateAvailable: installed.installedOrigin == 'OFFICIAL' && installed.installedRelease != null && latest != null && installed.installedRelease != latest.installedRelease, candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
 export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if (record.candidate.artifactKind != Z2M_ENGINE_ARTIFACT || record.candidate.schema != ENGINE_ARTIFACT_SCHEMA || record.candidate.compatible !== true) return fail('EENGINE_INTEGRATION_REQUIRED', 'Проверенная совместимая сборка Z2M отсутствует.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
 export const save_engine_state = function (value) { ensure_dir('/etc/zapret2-manager'); return atomic_json(STATE_FILE, value); };
 export const clear_engine_state = function () { try { unlink(STATE_FILE); } catch (e) {} return stat(STATE_FILE) == null; };
@@ -247,6 +256,14 @@ export const z2m_compatible_candidate = function (manifest, asset, deviceArch) {
 	}
 	if (!valid_sha256(manifest.nfqws2Sha256))
 		return reject('Некорректный digest nfqws2 в манифесте.');
+	// Version feeds archive-root path construction in the worker: bound the
+	// charset hard so it can never traverse.
+	let manifestVersion = manifest.version;
+	if (type(manifestVersion) != 'string' || length(manifestVersion) == 0
+		|| length(manifestVersion) > 64
+		|| !match(manifestVersion, /^[A-Za-z0-9][A-Za-z0-9._+-]*$/)
+		|| index(manifestVersion, '..') >= 0)
+		return reject('Недопустимая версия сборки в манифесте.');
 	if (asset.name != manifest.artifact.name || asset.state != null && asset.state != 'uploaded')
 		return reject('Asset манифеста отсутствует в release.');
 	if (+asset.size > 0 && +asset.size != +manifest.artifact.sizeBytes)
@@ -266,12 +283,12 @@ export const z2m_compatible_candidate = function (manifest, asset, deviceArch) {
 	for (let i = 0; i < length(expected); i++)
 		if (functions[i] != expected[i]) return reject('Runtime Lua contract не совпадает.');
 
-	let version = safe_version(manifest.version) != null ? manifest.version : null;
+	let version = manifestVersion;
 	return { ok: true, candidate: {
 		schema: ENGINE_ARTIFACT_SCHEMA,
 		artifactKind: Z2M_ENGINE_ARTIFACT,
-		version: version ?? manifest.version,
-		releaseTag: version != null ? 'v' + version : manifest.version,
+		version: version,
+		releaseTag: version,
 		installedRelease: manifest.version,
 		upstream: UPSTREAM,
 		baseRepository: manifest.base.repository,
