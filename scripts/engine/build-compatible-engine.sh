@@ -128,6 +128,8 @@ TOOLCHAIN_DIR=$(ls -d "$OPENWRT_SDK"/staging_dir/toolchain-* 2>/dev/null | head 
 CROSS_BIN=$(find "$TOOLCHAIN_DIR/bin" -maxdepth 1 -name '*-gcc' | head -n 1) || true
 [ -x "$CROSS_BIN" ] || die "toolchain gcc not found under $TOOLCHAIN_DIR/bin"
 CROSS="$(basename "$CROSS_BIN" -gcc)-"
+# OpenWrt toolchain wrappers resolve their sysroot via STAGING_DIR.
+export STAGING_DIR="$OPENWRT_SDK/staging_dir"
 info "cross compiler prefix: $CROSS"
 
 DEPS="$WORK/deps"; DEPS_USR="$DEPS/usr"
