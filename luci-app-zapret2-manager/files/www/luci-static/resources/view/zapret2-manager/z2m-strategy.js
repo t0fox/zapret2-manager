@@ -1,6 +1,6 @@
 'use strict';
 'require baseclass';
-'require zapret2-manager.z2m-profiles-workflow as profilesWorkflow';
+'require view.zapret2-manager.z2m-profiles-workflow as profilesWorkflow';
 
 var state = {
   selectedId: null,
