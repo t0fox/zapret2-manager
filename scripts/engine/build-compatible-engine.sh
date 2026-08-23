@@ -253,6 +253,14 @@ cp -a "$SRC/lua/." "$STAGE/lua/"
 # unpacks *.lua.gz during staging.
 gzip -n -9 "$STAGE"/lua/*.lua
 
+# Normalize permissions: nfqws2 drops privileges to nobody and must
+# read its own Lua/blobs from the installed tree.
+find "$STAGE" -type d -exec chmod 0755 {} +
+find "$STAGE" -type f -exec chmod 0644 {} +
+chmod 0755 "$STAGE"/binaries/linux-arm64/*
+[ -f "$STAGE/blockcheck2.sh" ] && chmod 0755 "$STAGE/blockcheck2.sh"
+find "$STAGE/init.d" -name "*.sh" -o -name "zapret2" -type f | xargs -r chmod 0755
+
 ARTIFACT_NAME="z2m-engine-${VERSION}-${ARCH}.tar.gz"
 ARTIFACT_PATH="$DIST/$ARTIFACT_NAME"
 tar -czf "$ARTIFACT_PATH" -C "$WORK" "$ROOTNAME"
