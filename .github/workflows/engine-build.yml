@@ -70,7 +70,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             build-essential gawk gettext git python3 rsync unzip file curl wget \
-            zstd ca-certificates libncurses-dev
+            zstd ca-certificates libncurses-dev gperf
 
       - name: Restore pinned OpenWrt SDK
         id: sdk
