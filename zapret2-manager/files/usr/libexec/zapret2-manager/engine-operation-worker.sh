@@ -181,6 +181,6 @@ for capability in Z2K_TLS_MOD ANTIDPI_REPEATS_LOOP AUTO_FAMILY_SPLIT; do
 done
 phase starting 85 'Запускается новый official runtime.'; phase postflight 88 'Проверяется runtime, NFQUEUE и nft.'; postflight || fail EPOSTFLIGHT 'Новый engine не прошёл postflight.'
 mkdir -p "$CACHE"; chmod 700 "$CACHE"; cp -a "$ASSET" "$CACHE/current.tar.gz"; sha "$CACHE/current.tar.gz" >"$CACHE/current.sha256"
-/usr/bin/ucode "$CLI" commit-state "$ID" >/dev/null 2>&1 || fail ESTATE 'Engine state не подтверждён.'
+/usr/bin/ucode "$CLI" commit-state "$ID" >"$WORK/commit-state.log" 2>&1 || fail ESTATE "Engine state не подтверждён: $(tail -c 200 "$WORK/commit-state.log")" 'Engine state не подтверждён.'
 [ "$WAS_RUNNING" -eq 1 ] || [ "$OLD_INSTALLED" -eq 0 ] || "$INIT" stop >/dev/null 2>&1 || true
 ROLLBACK_REQUIRED=0; printf '{"ok":true,"upstream":"bol-van/zapret2","installedRelease":"v%s"}\n' "$EXPECTED_VERSION" >"$WORK/result.json"; /usr/bin/ucode "$CLI" complete "$ID" "$WORK/result.json" >/dev/null 2>&1 || true
