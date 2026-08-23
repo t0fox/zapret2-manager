@@ -38,6 +38,19 @@ function runSandbox(injection) {
     cwd: ROOT_DIR
   });
   lastVerdict = JSON.parse(out.trim().split('\n').filter(l => l.startsWith('{')).pop());
+  try {
+    const fs = require('node:fs');
+    fs.mkdirSync(path.join(ROOT_DIR, 'test-diagnostics'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT_DIR, 'test-diagnostics', injection + '.verdict'),
+      JSON.stringify(lastVerdict, null, 1));
+    const raw = execFileSync('sudo', ['-n', 'cat', '/root/z2m-worker-debug-last.err'],
+      { encoding: 'utf8', maxBuffer: 1024*1024, ignoreExitCode: true });
+    fs.writeFileSync(path.join(ROOT_DIR, 'test-diagnostics', injection + '.err'),
+      raw.slice(-8000));
+  } catch (e) {
+    try { require('node:fs').writeFileSync(
+      path.join(ROOT_DIR, 'test-diagnostics', injection + '.collect-error'), String(e)); } catch {}
+  }
   return lastVerdict;
 }
 
