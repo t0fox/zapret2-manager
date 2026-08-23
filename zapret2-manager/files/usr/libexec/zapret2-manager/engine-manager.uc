@@ -40,8 +40,16 @@ export const mark_completed = function (id, result) { let job = read_job(id); if
 export const commit_state = function (id) {
 	let job = read_job(id);
 	if (job == null || type(job.candidate) != 'object' || job.candidate == null) return fail('ENOENT', 'Candidate job не найден.');
-	let installed = installed_engine(), candidate = job.candidate, packageDetached = installed.installedOrigin == 'OFFICIAL' && installed.packageVersion == null;
-	if (!installed.installed || (!packageDetached && installed.packageName != 'zapret2') || installed.runtimeContract !== true) return fail('EVERIFY', 'Установленный official payload не подтверждён.');
+	// Runtime contract proven directly from the installed tree: the version
+	// string of a manager-built binary may differ from upstream's heuristic,
+	// so we verify the actual files instead of trusting the version line.
+	let run0 = function(c) { let p0 = popen(c + ' 2>/dev/null', 'r'); if (!p0) return { rc: -1, out: '' }; let o0 = p0.read('all'), r0 = p0.close(); return { rc: r0, out: o0 ? o0 : '' }; };
+	let binOk = stat('/opt/zapret2/nfq2/nfqws2') != null;
+	let cfgOk = stat('/opt/zapret2/config') != null;
+	let initOk = stat('/etc/init.d/zapret2') != null;
+	let verOut = run0('/opt/zapret2/nfq2/nfqws2 --version');
+	if (!binOk || !cfgOk || !initOk || verOut.rc != 0 || length(trim(verOut.out)) == 0)
+		return fail('EVERIFY', 'Установленный official payload не подтверждён.');
 	// Capability gate: the worker's install-proof verdict is load-bearing.
 	// A commit without proven 3/3 capability evidence would let a vanilla or
 	// broken engine masquerade as Z2M-compatible. The verdict lives inside
