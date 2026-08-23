@@ -61,6 +61,8 @@ async function ensureEvidenceSocket() {
     evidenceServer.once('error', reject);
     evidenceServer.listen(EVIDENCE_SOCKET, resolve);
   });
+  // The socket must not keep the node test process alive after the suite.
+  evidenceServer.unref();
 }
 
 async function runPostinst(root) {
