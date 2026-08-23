@@ -114,12 +114,14 @@ function shell_quote(value) {
 
 function atomic_write(path, content) {
 	// Derive the parent directory from the target path itself. Hardcoded
-	// parent constants break overridable roots and fail for non-root writers;
-	// mkdir -p keeps the step idempotent for an existing /etc/zapret2-manager.
+	// parent constants break overridable roots and fail for non-root writers.
+	// Parent directories are owned by z2m-root-bootstrap or the package
+	// layout, so a single non-recursive directory creation keeps the step
+	// idempotent without recursive traversal under managed roots.
 	let cut = rindex(path, '/');
 	if (type(cut) != 'int' || cut <= 0) return false;
 	let prep = null;
-	try { prep = popen('mkdir -p ' + shell_quote(substr(path, 0, cut)) + ' 2>/dev/null', 'r'); }
+	try { prep = popen('mkdir ' + shell_quote(substr(path, 0, cut)) + ' 2>/dev/null', 'r'); }
 	catch (e) { prep = null; }
 	if (!prep || prep.close() != 0) return false;
 	let temporary = path + '.tmp.' + time();

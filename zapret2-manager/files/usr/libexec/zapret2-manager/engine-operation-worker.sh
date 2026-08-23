@@ -7,7 +7,7 @@ ROOT=/tmp/zapret2-manager/engine-operations; JOB="$ROOT/$ID.json"; WORK="$ROOT/$
 LOCK=/tmp/zapret2-manager/engine-operation.lock; STATE=/etc/zapret2-manager/engine-state.json; CACHE=/etc/zapret2-manager/engine-cache
 INIT=/etc/init.d/zapret2; CONFIG=/opt/zapret2/config; UCI=/etc/config/zapret2; BINARY=/opt/zapret2/nfq2/nfqws2; CANCEL="$ROOT/$ID.cancel"
 PAUSE_FILE=/tmp/zapret2-manager/paused; PAUSED_BY_WORKER=0
-ROLLBACK_REQUIRED=0; ROLLBACK_ATTEMPTED=0; ROLLBACK_VERIFIED=0; WAS_RUNNING=0; OLD_INSTALLED=0; OLD_TREE=; RESTORE_ERROR=
+ROLLBACK_REQUIRED=0; ROLLBACK_ATTEMPTED=0; ROLLBACK_VERIFIED=0; WAS_RUNNING=0; OLD_INSTALLED=0; NEW_INSTALLED=0; OLD_TREE=; RESTORE_ERROR=
 case "$ID" in eng-[0-9]*-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]) ;; *) exit 2;; esac
 mkdir "$WORK" || exit 1; mkdir "$BACKUP" || exit 1; chmod 700 "$WORK" "$BACKUP"
 pause_watchdog(){ if [ ! -e "$PAUSE_FILE" ]; then : >"$PAUSE_FILE"; PAUSED_BY_WORKER=1; fi; }
@@ -62,7 +62,12 @@ rollback(){
  postflight || return 1; [ "$WAS_RUNNING" -eq 1 ] || "$INIT" stop >/dev/null 2>&1 || true
  ROLLBACK_VERIFIED=1; phase rolled_back 100 'Откат выполнен и проверен.'
 }
-fail(){ code="$1"; message="$2"; [ "$ROLLBACK_REQUIRED" -eq 1 ] && rollback || true; /usr/bin/ucode "$CLI" failed "$ID" "$code" "$message" "$([ "$ROLLBACK_ATTEMPTED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 'Откат проверен.'||printf 'Откат не подтверждён.')" >/dev/null 2>&1 || true; exit 1; }
+fail(){ code="$1"; message="$2"; [ "$ROLLBACK_REQUIRED" -eq 1 ] && rollback || { # no previous payload: a fresh-device failure must not leave the new
+  # payload installed and running (partial install committed).
+  if [ "$NEW_INSTALLED" -eq 1 ]; then
+    [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
+    rm -rf /opt/zapret2 /etc/config/zapret2
+  fi; }; /usr/bin/ucode "$CLI" failed "$ID" "$code" "$message" "$([ "$ROLLBACK_ATTEMPTED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 'Откат проверен.'||printf 'Откат не подтверждён.')" >/dev/null 2>&1 || true; exit 1; }
 exec 9>"$LOCK"; flock -n 9 || fail EBUSY 'Другая engine-операция уже выполняется.'
 [ -s "$JOB" ] || fail ENOENT 'Engine job не найдена.'
 ACTION="$(value '@.action')"; PRESERVE="$(value '@.preserveConfig')"; ARTIFACT_KIND="$(value '@.candidate.artifactKind')"; ARTIFACT_SCHEMA="$(value '@.candidate.schema')"; ARCH="$(value '@.candidate.architecture')"; URL="$(value '@.candidate.downloadUrl')"; EXPECTED_SHA="$(value '@.candidate.sha256')"; EXPECTED_SIZE="$(value '@.candidate.size')"; EXPECTED_VERSION="$(value '@.candidate.version')"; CONTAINER="$(value '@.candidate.container')"; CHECKSUM_URL="$(value '@.candidate.checksumUrl')"; CHECKSUM_SHA="$(value '@.candidate.checksumSha256')"; CHECKSUM_NAME="$(value '@.candidate.checksumName')"; NFQWS2_EXPECTED_SHA="$(value '@.candidate.nfqws2Sha256')"
@@ -71,7 +76,9 @@ command -v apk >/dev/null 2>&1 || fail EPKGMGR 'Поддерживается т�
 if [ "$ACTION" != uninstall ]; then [ "$ARTIFACT_SCHEMA" = 'zapret2-manager.engine-artifact.v1' ] && [ "$ARTIFACT_KIND" = 'z2m-compatible-engine' ] || fail EENGINE_INTEGRATION_REQUIRED 'Доступна только предварительно собранная совместимая версия Z2M; vanilla bol-van release заблокирован.'; fi
 TARGET_ARCH="$(. /etc/openwrt_release 2>/dev/null; printf '%s' "${DISTRIB_ARCH:-}")"
 if [ "$ACTION" != uninstall ]; then [ "$CONTAINER" = tar.gz ] && [ -n "$ARCH" ] && [ "$TARGET_ARCH" = "$ARCH" ] || fail EARCH 'Архитектура target не совпадает с official embedded release.'; fi
-[ "$(df -Pk /overlay 2>/dev/null|awk 'NR==2{print $4}')" -ge 8192 ] 2>/dev/null || fail ENOSPC 'Недостаточно места в overlay.'
+[ "$(df -Pk /overlay 2>/dev/null|awk 'NR==2{print $4}')" -ge 8192 ] 2>/dev/null \
+  || [ "$(df -Pk / 2>/dev/null|awk 'NR==2{print $4}')" -ge 8192 ] 2>/dev/null \
+  || fail ENOSPC 'Недостаточно места в overlay.'
 [ "$(df -Pk /tmp 2>/dev/null|awk 'NR==2{print $4}')" -ge 16384 ] 2>/dev/null || fail ENOSPC 'Недостаточно места в /tmp.'
 cancelled && fail ECANCELLED 'Операция отменена до изменения runtime.'
 phase backup 12 'Создаётся snapshot текущего engine payload и пользовательской конфигурации.'
@@ -105,7 +112,7 @@ tar -xzf "$ASSET" -C "$WORK/unpack" || fail EARCHIVE 'Archive повреждён
 ROOTDIR="$WORK/unpack/zapret2-v$EXPECTED_VERSION"
 [ -d "$ROOTDIR" ] || ROOTDIR="$(find "$WORK/unpack" -maxdepth 1 -mindepth 1 -type d -name 'zapret2-*' | head -n 1)"
 [ -d "$ROOTDIR" ] || fail EPACKAGE 'Archive root не найден.'
-ENGINE_STAGE="$WORK/engine-stage"; mkdir "$ENGINE_STAGE" || fail EPACKAGE 'Не удалось создать staging directory.'; mkdir -p "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/ip2net" "$ENGINE_STAGE/mdig" "$ENGINE_STAGE/lua" "$ENGINE_STAGE/init.d/openwrt" || fail EPACKAGE 'Не удалось подготовить staging directories.'
+ENGINE_STAGE="$WORK/engine-stage"; mkdir "$ENGINE_STAGE" || fail EPACKAGE 'Не удалось создать staging directory.'; mkdir "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/ip2net" "$ENGINE_STAGE/mdig" "$ENGINE_STAGE/lua" "$ENGINE_STAGE/init.d/openwrt" || fail EPACKAGE 'Не удалось подготовить staging directories.'
 if [ "$ARTIFACT_KIND" = z2m-compatible-engine ]; then
 	# Machine-readable identity binding: the shipped manifest must re-state
 	# exactly the checked candidate (artifact digest + nfqws2 digest).
@@ -126,8 +133,13 @@ fi
 [ -x "$BINDIR/nfqws2" ] || fail EPACKAGE 'Archive не содержит nfqws2 для целевой архитектуры.'
 [ "$(sha "$BINDIR/nfqws2")" = "$RUNTIME_SHA" ] || fail ESHA256 'SHA-256 nfqws2 не совпадает с проверенным манифестом.'
 cp -a "$ROOTDIR/blockcheck2.sh" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить blockcheck2.'; cp -a "$ROOTDIR/blockcheck2.d" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить blockcheck2 catalog.'; cp -a "$ROOTDIR/common" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить common runtime.'; cp -a "$ROOTDIR/ipset" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить ipset runtime.'; cp -a "$ROOTDIR/files" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить fake packet data.'; cp -a "$ROOTDIR/config.default" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить default config.'; cp -a "$BINDIR/nfqws2" "$ENGINE_STAGE/nfq2/nfqws2" || fail EPACKAGE 'Не удалось подготовить nfqws2.'; cp -a "$BINDIR/ip2net" "$ENGINE_STAGE/ip2net/ip2net" || fail EPACKAGE 'Не удалось подготовить ip2net.'; cp -a "$BINDIR/mdig" "$ENGINE_STAGE/mdig/mdig" || fail EPACKAGE 'Не удалось подготовить mdig.'; [ -d "$ROOTDIR/lua" ] && for lua in "$ROOTDIR"/lua/*.lua.gz; do [ -f "$lua" ] || continue; gzip -dc "$lua" >"$ENGINE_STAGE/lua/$(basename "$lua" .gz)" || fail EPACKAGE 'Не удалось распаковать Lua module.'; done; [ -d "$ROOTDIR/init.d/openwrt" ] && cp -a "$ROOTDIR/init.d/openwrt/." "$ENGINE_STAGE/init.d/openwrt/" || true
-ROLLBACK_REQUIRED=1; phase stopping 52 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || [ "$OLD_INSTALLED" -eq 0 ] || fail ESTOP 'Не удалось остановить zapret2.'
-phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось установить mode /opt/zapret2.'; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
+ROLLBACK_REQUIRED=1
+# From here the transaction mutates the live payload. Deferred signals must
+# not run cleanup mid-flight (it would delete BACKUP/CANCEL while install
+# continues); cancellation stays cooperative via the $CANCEL file checks.
+trap '' HUP INT TERM
+phase stopping 52 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || [ "$OLD_INSTALLED" -eq 0 ] || fail ESTOP 'Не удалось остановить zapret2.'
+phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось установить mode /opt/zapret2.'; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; NEW_INSTALLED=1; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
 phase restoring 75 'Восстанавливаются конфигурация и пользовательские списки.'; restore_config || fail ERESTORE "Не удалось восстановить пользовательские данные: ${RESTORE_ERROR:-unknown}."
 phase materializing 78 'Материализуются Z2K ресурсы в runtime движка.'
 SYNC=/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh

@@ -21,16 +21,19 @@ STATE_ROOT=${Z2M_MANAGER_STATE_ROOT:-/etc/zapret2-manager/state}
 STATE_DIR="$STATE_ROOT/autocircular"
 ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
 
-[ -d "$SRC" ] || exit 0
-mkdir -p "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset"
+[ -d "$SRC" ] || { printf '{"ok":false,"missing":["SRC:%s"],"mismatched":[],"count":0}\n' "$SRC"; exit 1; }
+# The runtime base itself is owned by the engine payload/installer; only its
+# direct children are created here, so no recursive traversal is needed.
+mkdir "$BASE/files"
+mkdir "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset"
 [ -e "$BASE/bin" ] || ln -s "$BASE/files/fake" "$BASE/bin"
-mkdir -p "$ETC_ROOT/lists"
+mkdir "$ETC_ROOT/lists"
 [ -f "$ETC_ROOT/lists/whitelist.txt" ] || touch "$ETC_ROOT/lists/whitelist.txt"
 
 # The nfqws2 daemon persists circular host bindings while rpcd reads them from
 # the canonical Z2M state path. Keep this narrow state directory writable by
 # daemon without widening permissions on the rest of /etc/zapret2-manager.
-mkdir -p "$STATE_DIR"
+mkdir "$STATE_DIR"
 if [ "$(id -u)" = "0" ]; then
 	chown root:daemon "$STATE_ROOT" 2>/dev/null || true
 	chmod 0750 "$STATE_ROOT"
@@ -126,6 +129,9 @@ verify() {
 	ok=1
 	[ -z "$missing" ] || ok=0
 	[ -z "$mismatched" ] || ok=0
+	# A zero-file verdict means the package baseline was absent: Z2K cannot
+	# be materialized from nothing. Fail closed.
+	[ "$count" -ge 1 ] || ok=0
 	ok_json=false
 	[ "$ok" = 1 ] && ok_json=true
 	printf '{"ok":%s,"files":[%s],"missing":[%s],"mismatched":[%s],"count":%s}\n' \

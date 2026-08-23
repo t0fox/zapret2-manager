@@ -94,10 +94,11 @@ endef
 define Package/zapret2-manager/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
-# Clean-install lifecycle (no reboot): persistent roots -> strategy state ->
-# compact catalog read index -> rpcd reload -> enable AND start -> runtime
-# evidence. Load-bearing steps must fail loudly; only the index build degrades
-# to an explicit repair marker because the Manager itself has to come up.
+# Clean-install lifecycle (no reboot): persistent roots, then strategy state,
+# then compact catalog read index, then rpcd reload, then enable AND start,
+# then runtime evidence. Load-bearing steps must fail loudly; only the index
+# build degrades to an explicit repair marker because the Manager itself has
+# to come up.
 /usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
 if [ ! -e /etc/zapret2-manager/strategies ] && [ ! -L /etc/zapret2-manager/strategies ]; then
   install -d -o root -g root -m 0700 /etc/zapret2-manager/strategies || exit $$?

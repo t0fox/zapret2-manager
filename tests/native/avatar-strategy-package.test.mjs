@@ -56,7 +56,9 @@ function runPostinst(root) {
     .replaceAll('/etc/zapret2-manager', path.join(root, 'etc', 'zapret2-manager'))
     .replace('/usr/libexec/zapret2-manager/z2m-root-bootstrap', '/bin/true')
     .replace('/etc/init.d/rpcd reload', ':')
-    .replace('/etc/init.d/zapret2-manager enable', ':');
+    .replace('/etc/init.d/zapret2-manager enable', ':')
+    .replace('/etc/init.d/zapret2-manager start || exit $?', ':')
+    .replaceAll('/usr/bin/ucode', `${fakeBin}/ucode`);
   const installShim = `#!${process.execPath}
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
@@ -74,6 +76,17 @@ const result = spawnSync('/usr/bin/install', args, { stdio: 'inherit' });
 process.exit(result.status ?? 1);
 `;
   fs.writeFileSync(path.join(fakeBin, 'install'), installShim, { mode: 0o755 });
+
+  // Lifecycle stubs for the clean-install postinst: the catalog index CLI
+  // reports a successful rebuild, and the runtime evidence probe never
+  // becomes ready inside the sandbox.
+  for (const [name, body] of [
+    ['ucode', '#!/bin/sh\necho \'{"written":true}\'\n'],
+    ['pidof', '#!/bin/sh\nexit 1\n'],
+    ['ubus', '#!/bin/sh\nexit 1\n'],
+    ['sleep', '#!/bin/sh\nexit 0\n'],
+    ['logger', '#!/bin/sh\nexit 0\n'],
+  ]) fs.writeFileSync(path.join(fakeBin, name), body, { mode: 0o755 });
 
   const env = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, Z2M_INSTALL_LOG: installLog };
   delete env.IPKG_INSTROOT;
@@ -213,10 +226,10 @@ test('postinst preserves existing Strategy data and legacy Profile state on upgr
     'postinst must not replace or remove user state (the derived catalog index cache is exempt)');
   assert.doesNotMatch(postinst, /(?:>|>>)[^\n]*(?:strateg(?:y|ies)|state\.json)/i,
     'postinst must not redirect over user state');
-  assert.match(postinst, /rm -f \/etc\/zapret2-manager\/strategy-catalog-index\.json/,
-    'postinst may only discard the derived catalog index cache');
   assert.match(postinst, /strategy-catalog-index-cli\.uc/,
-    'postinst must regenerate the derived catalog index after discarding it');
+    'postinst must regenerate the derived catalog index after install');
+  assert.match(postinst, /catalog\/repair-required/,
+    'postinst degrades to an explicit repair marker instead of failing the Manager');
   assert.match(postinst, /\[ ! -e [^\n]+ \] && \[ ! -L [^\n]+ \]/,
     'bootstrap must guard both existing paths and dangling symlinks');
 });

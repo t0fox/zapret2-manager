@@ -34,6 +34,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install ucode build prerequisite
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libjson-c-dev
+
       - name: Build pinned ucode interpreter
         run: ./scripts/test/install-ucode.sh /opt/ucode
 
@@ -103,7 +108,7 @@ jobs:
       - name: Install sandbox prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y jq
+          sudo apt-get install --no-install-recommends -y jq libjson-c-dev
 
       - name: Build pinned ucode interpreter (used by worker stubs)
         run: sudo ./scripts/test/install-ucode.sh /opt/ucode
