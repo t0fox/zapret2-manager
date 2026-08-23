@@ -139,10 +139,15 @@ verify() {
 		fi
 		add_verdict "$_src" "$BASE/lua/${_src##*/}"
 	done
+	# Lists are user-owned after install (restored from backup and never
+	# overwritten): their content is a user-data concern, not a manager
+	# baseline integrity concern.
 	for _src in "$SRC"/lists/*; do
 		[ -f "$_src" ] || continue
-		add_verdict "$_src" "$BASE/lists/${_src##*/}"
-		add_verdict "$_src" "$BASE/ipset/${_src##*/}"
+		if [ ! -f "$BASE/lists/${_src##*/}" ]; then
+			copy_if_missing_or_custom "$_src" "$BASE/lists/${_src##*/}"
+			copy_if_missing_or_custom "$_src" "$BASE/ipset/${_src##*/}"
+		fi
 	done
 	ok=1
 	[ -z "$missing" ] || ok=0
