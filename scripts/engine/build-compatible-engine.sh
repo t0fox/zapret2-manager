@@ -186,7 +186,7 @@ if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
 	tar -xJf libcap.tar.xz
 	(
 		cd libcap-2.71
-		make -j"$(nproc)" CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" \
+		make -C libcap -j"$(nproc)" CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" \
 			BUILD_CC=gcc GOLANG=no PAM_CAP=no USE_GPERF=yes libcap.a >/dev/null
 		mkdir -p "$DEPS_USR/include/sys" "$DEPS_USR/lib"
 		cp -a libcap/include/sys/capability.h "$DEPS_USR/include/sys/"
