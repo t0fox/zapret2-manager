@@ -19,10 +19,20 @@ set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
-STATUS_DIR=$(mktemp -d "${TMPDIR:-/tmp}/z2m-native-status.XXXXXXXXXX")
-mkdir -p "$STATUS_DIR"
+# Scratch space first: the status directory and every phase log live under it.
+: "${TMPDIR:=$HOME/z2m-work/native-tmp}"
+export TMPDIR
+mkdir -p "$TMPDIR" || { echo "cannot create scratch directory: $TMPDIR" >&2; exit 1; }
+
+STATUS_DIR=$(mktemp -d "$TMPDIR/z2m-native-status.XXXXXXXXXX") || {
+  echo 'cannot create status directory' >&2
+  exit 1
+}
 # Clean every temporary artifact this run created (discovery list included).
-trap 'rm -f "$test_list" "$production_broker" "$STATUS_DIR/results.tsv"; rm -rf -- "$STATUS_DIR"' 0 HUP INT TERM
+trap 'rm -f "$test_list" "$production_broker"; rm -rf -- "$STATUS_DIR"' 0 HUP INT TERM
+
+RESULTS_FILE="$STATUS_DIR/results.tsv"
+: > "$RESULTS_FILE" || { echo 'status file is not writable; aborting instead of reporting an empty run' >&2; exit 1; }
 
 SUMMARY_FILE=${GITHUB_STEP_SUMMARY:-}
 summary() {
@@ -34,7 +44,10 @@ summary() {
 
 record() {
   # record <name> <PASS|FAIL|SKIPPED> [detail]
-  printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}" >> "$STATUS_DIR/results.tsv"
+  printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}" >> "$RESULTS_FILE" || {
+    printf 'cannot record result for: %s\n' "$1" >&2
+    exit 1
+  }
 }
 
 run_logged() {
@@ -62,10 +75,6 @@ node_bin=$(node -p 'process.execPath')
 require command -v cc
 require command -v pkg-config
 require pkg-config --exists json-c
-
-: "${TMPDIR:=$HOME/z2m-work/native-tmp}"
-export TMPDIR
-mkdir -p "$TMPDIR"
 
 test_list="$TMPDIR/native-tests.$$.list"
 production_broker="$TMPDIR/z2m-helperd-production.$$"
@@ -194,7 +203,15 @@ while IFS="$(printf '\t')" read -r name status detail; do
       summary "| $name | ⏭ SKIPPED ${detail:+— $detail} |"
       ;;
   esac
-done < "$STATUS_DIR/results.tsv"
+done < "$RESULTS_FILE"
+
+# An empty result table means the orchestration itself failed to record
+# anything; reporting PASSED here would be a false green.
+if [ "$((passed + failed + skipped))" -eq 0 ]; then
+  summary ''
+  summary 'RESULT: FAILED — no checks were recorded; orchestration error'
+  exit 1
+fi
 
 summary ''
 summary "Passed: $passed  Failed: $failed  Skipped: $skipped"
