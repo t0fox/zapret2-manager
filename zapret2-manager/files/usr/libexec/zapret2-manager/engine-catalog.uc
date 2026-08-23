@@ -90,15 +90,6 @@ function release_cache_write(releases, z2mReleases) {
 // pinned integration identity for THIS device architecture; only survivors
 // become installable candidates. Vanilla bol-van records are produced
 // separately and stay visible-but-not-installable.
-function z2m_compatible_records(architecture_value, options) {
-	options = options || {};
-	if (options.cachedZ2mReleases != null && options.skipFetch === true)
-		return { ok: true, records: options.cachedZ2mReleases };
-	let fetched = fetch_json_feed(Z2M_RELEASES_API);
-	if (!fetched.ok) return fetched;
-	return z2m_records_from_payload(fetched.releases, architecture_value,
-		z2m_default_manifest_fetcher);
-}
 
 
 function catalog(architecture_value, options) {
@@ -293,6 +284,16 @@ export const z2m_compatible_candidate = function (manifest, asset, deviceArch) {
 		compatibilityMessage: ''
 	} };
 };
+
+function z2m_compatible_records(architecture_value, options) {
+	options = options || {};
+	if (options.cachedZ2mReleases != null && options.skipFetch === true)
+		return { ok: true, records: options.cachedZ2mReleases };
+	let fetched = fetch_json_feed(Z2M_RELEASES_API);
+	if (!fetched.ok) return fetched;
+	return z2m_records_from_payload(fetched.releases, architecture_value,
+		z2m_default_manifest_fetcher);
+}
 
 // CONTRACT (producer ↔ GitHub Release ↔ consumer), single source of truth:
 //   - release tag MUST start with 'engine-'  (identity anchor of the
