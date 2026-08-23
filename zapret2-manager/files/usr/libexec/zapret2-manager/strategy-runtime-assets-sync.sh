@@ -131,6 +131,12 @@ verify() {
 	done
 	for _src in "$SRC"/lua/*; do
 		[ -f "$_src" ] || continue
+		# Core upstream Lua files are engine-owned after a compatible install
+		# (their integrity is proven by the engine payload digest + capability
+		# proof, not by the manager baseline).
+		if is_core_lua "${_src##*/}" && [ -f "$BASE/lua/${_src##*/}" ]; then
+			continue
+		fi
 		add_verdict "$_src" "$BASE/lua/${_src##*/}"
 	done
 	for _src in "$SRC"/lists/*; do
