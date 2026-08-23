@@ -496,6 +496,13 @@ function install_direct_candidate(candidate) {
 	if (type(candidate) != 'object' || candidate == null || candidate.installMode != 'direct-release' ||
 		type(candidate.downloadUrl) != 'string' || safe_digest('sha256:' + candidate.assetSha256) == null)
 		return error('EINCOMPATIBLE', 'Официальный direct release не прошёл проверку.');
+	// Service owner honesty: a binary-only install is not a successful
+	// service operation. The init owner must already exist (provider APK or
+	// previous managed install); otherwise fail closed BEFORE mutating the
+	// runtime so the UI can offer the full provider lifecycle instead.
+	if (stat(INIT_PATH) == null)
+		return error('ETG_SERVICE_OWNER_MISSING',
+			'Отсутствует /etc/init.d/tg-ws-proxy: установите полный provider-пакет, прямой binary-install невозможен.');
 	let base = '/tmp/zapret2-manager/tg-proxy.' + time(), archive = base + '.tar.gz', extract = base + '.extract';
 	let archiveQ = literal(archive), extractQ = literal(extract), urlQ = literal(candidate.downloadUrl);
 	if (archiveQ == null || extractQ == null || urlQ == null) return error('ESECURITY', 'Ссылка release не прошла allowlist.');
