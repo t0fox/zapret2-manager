@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,10 +46,28 @@ function temporaryPackageRoot() {
   return root;
 }
 
-function runPostinst(root) {
+// The clean-install postinst fails closed unless the manager runtime presents
+// live evidence: a running helper process, its fixed socket, and a bounded
+// status_fast answer. The sandbox provides all three so preservation
+// contracts run against the full lifecycle instead of an early exit.
+const EVIDENCE_SOCKET = '/tmp/zapret2-manager/runtime/z2m-helperd.sock';
+let evidenceServer = null;
+async function ensureEvidenceSocket() {
+  if (evidenceServer) return;
+  fs.mkdirSync(path.dirname(EVIDENCE_SOCKET), { recursive: true });
+  try { fs.unlinkSync(EVIDENCE_SOCKET); } catch {}
+  evidenceServer = net.createServer(() => {});
+  await new Promise((resolve, reject) => {
+    evidenceServer.once('error', reject);
+    evidenceServer.listen(EVIDENCE_SOCKET, resolve);
+  });
+}
+
+async function runPostinst(root) {
   const fakeBin = path.join(root, 'bin');
   const installLog = path.join(root, 'install.log');
   fs.mkdirSync(fakeBin);
+  await ensureEvidenceSocket();
 
   // Use the real package shell body, redirecting only its absolute targets into the fake root.
   const script = block('Package/zapret2-manager/postinst')
@@ -77,13 +96,13 @@ process.exit(result.status ?? 1);
 `;
   fs.writeFileSync(path.join(fakeBin, 'install'), installShim, { mode: 0o755 });
 
-  // Lifecycle stubs for the clean-install postinst: the catalog index CLI
-  // reports a successful rebuild, and the runtime evidence probe never
-  // becomes ready inside the sandbox.
+  // Lifecycle stubs for the clean-install postinst: the helper is running,
+  // its socket answers, and the catalog index CLI reports a successful
+  // rebuild, so the script reaches its success exit on every path.
   for (const [name, body] of [
     ['ucode', '#!/bin/sh\necho \'{"written":true}\'\n'],
-    ['pidof', '#!/bin/sh\nexit 1\n'],
-    ['ubus', '#!/bin/sh\nexit 1\n'],
+    ['pidof', '#!/bin/sh\necho 1234\n'],
+    ['ubus', '#!/bin/sh\necho \'{"ok":true}\'\n'],
     ['sleep', '#!/bin/sh\nexit 0\n'],
     ['logger', '#!/bin/sh\nexit 0\n'],
   ]) fs.writeFileSync(path.join(fakeBin, name), body, { mode: 0o755 });
@@ -234,10 +253,10 @@ test('postinst preserves existing Strategy data and legacy Profile state on upgr
     'bootstrap must guard both existing paths and dangling symlinks');
 });
 
-test('postinst creates absent Strategy storage in a temporary package root', () => {
+test('postinst creates absent Strategy storage in a temporary package root', async () => {
   const root = temporaryPackageRoot();
   try {
-    const { calls } = runPostinst(root);
+    const { calls } = await runPostinst(root);
     const strategies = path.join(root, 'etc', 'zapret2-manager', 'strategies');
     const state = path.join(root, 'etc', 'zapret2-manager', 'strategy-state.json');
     assert.equal(fs.statSync(strategies).isDirectory(), true);
@@ -257,7 +276,7 @@ test('postinst creates absent Strategy storage in a temporary package root', () 
   }
 });
 
-test('postinst preserves existing Strategy files, selection state, and legacy state', () => {
+test('postinst preserves existing Strategy files, selection state, and legacy state', async () => {
   const root = temporaryPackageRoot();
   const etc = path.join(root, 'etc', 'zapret2-manager');
   const strategies = path.join(etc, 'strategies');
@@ -278,7 +297,7 @@ test('postinst preserves existing Strategy files, selection state, and legacy st
       [legacyState, fs.readFileSync(legacyState)],
     ]);
 
-    const { calls } = runPostinst(root);
+    const { calls } = await runPostinst(root);
     assert.deepEqual(calls, [], 'existing storage must not invoke install');
     for (const [file, bytes] of before) assert.deepEqual(fs.readFileSync(file), bytes, file);
     assert.equal(mode(strategies), 0o755, 'existing Strategy directory mode must not be rewritten');
@@ -289,7 +308,7 @@ test('postinst preserves existing Strategy files, selection state, and legacy st
   }
 });
 
-test('staged package upgrade preserves user Strategies, favorites, selection, and conffiles', () => {
+test('staged package upgrade preserves user Strategies, favorites, selection, and conffiles', async () => {
   const liveRoot = temporaryPackageRoot();
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-stage-'));
   const buildRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-build-'));
@@ -326,7 +345,7 @@ test('staged package upgrade preserves user Strategies, favorites, selection, an
     const conffiles = new Set(block('Package/zapret2-manager/conffiles').trim().split('\n'));
     assert.ok(conffiles.has('/etc/zapret2-manager/state.json'));
     mergePackagePayload(staging, liveRoot, conffiles);
-    const { calls } = runPostinst(liveRoot);
+    const { calls } = await runPostinst(liveRoot);
     assert.deepEqual(calls, [], 'upgrade must not bootstrap over existing user state');
     for (const [file, bytes] of before) assert.deepEqual(fs.readFileSync(file), bytes, file);
     assert.equal(fs.statSync(strategies).mode & 0o777, 0o750);
@@ -342,7 +361,7 @@ test('staged package upgrade preserves user Strategies, favorites, selection, an
   }
 });
 
-test('postinst does not follow live Strategy storage symlinks', () => {
+test('postinst does not follow live Strategy storage symlinks', async () => {
   const root = temporaryPackageRoot();
   const etc = path.join(root, 'etc', 'zapret2-manager');
   const targetDir = path.join(root, 'user-strategies');
@@ -353,7 +372,7 @@ test('postinst does not follow live Strategy storage symlinks', () => {
     fs.writeFileSync(targetState, '{"favorites":["keep"]}');
     fs.symlinkSync(targetDir, path.join(etc, 'strategies'), 'dir');
     fs.symlinkSync(targetState, path.join(etc, 'strategy-state.json'));
-    const { calls } = runPostinst(root);
+    const { calls } = await runPostinst(root);
     assert.deepEqual(calls, [], 'live symlinks must not invoke install');
     assert.equal(fs.lstatSync(path.join(etc, 'strategies')).isSymbolicLink(), true);
     assert.equal(fs.lstatSync(path.join(etc, 'strategy-state.json')).isSymbolicLink(), true);
@@ -366,7 +385,7 @@ test('postinst does not follow live Strategy storage symlinks', () => {
   }
 });
 
-test('postinst preserves dangling Strategy storage symlinks', () => {
+test('postinst preserves dangling Strategy storage symlinks', async () => {
   const root = temporaryPackageRoot();
   const etc = path.join(root, 'etc', 'zapret2-manager');
   const strategies = path.join(etc, 'strategies');
@@ -374,7 +393,7 @@ test('postinst preserves dangling Strategy storage symlinks', () => {
   try {
     fs.symlinkSync(path.join(root, 'missing-strategies'), strategies, 'dir');
     fs.symlinkSync(path.join(root, 'missing-state.json'), strategyState);
-    const { calls } = runPostinst(root);
+    const { calls } = await runPostinst(root);
     assert.deepEqual(calls, [], 'dangling symlinks must not invoke install');
     assert.equal(fs.lstatSync(strategies).isSymbolicLink(), true);
     assert.equal(fs.lstatSync(strategyState).isSymbolicLink(), true);
