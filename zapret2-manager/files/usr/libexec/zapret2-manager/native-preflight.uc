@@ -253,7 +253,7 @@ export const install_proof = function() {
 	// Z2K_TLS_MOD: compiled-in option tokens (help output or binary strings).
 	let binCaps = probe_binary_capabilities(NFQWS2_BIN);
 	caps.Z2K_TLS_MOD = binCaps.Z2K_TLS_MOD === true
-		&& index(run("strings " + shell_escape(NFQWS2_BIN) + " | grep -c 'z2k_alpn_flood'").out || '', '0') != 0;
+		&& index(run("strings " + shell_escape(NFQWS2_BIN) + " | grep -c 'z2k_alpn'").out || '', '0') != 0;
 
 	// ANTIDPI_REPEATS_LOOP / AUTO_FAMILY_SPLIT: materialized Lua markers.
 	let repeats = readfile('/opt/zapret2/lua/zapret-antidpi.lua') || '';

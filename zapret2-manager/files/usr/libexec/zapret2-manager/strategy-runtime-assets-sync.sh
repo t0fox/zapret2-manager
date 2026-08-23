@@ -34,6 +34,9 @@ ensure_dir "$BASE/files/fake"
 ensure_dir "$BASE/lua"
 ensure_dir "$BASE/lists"
 ensure_dir "$BASE/ipset"
+# nfqws2 drops privileges to nobody before reading Lua/blobs: keep the
+# runtime asset directories world-traversable regardless of caller umask.
+chmod 0755 "$BASE" "$BASE/files" "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset" 2>/dev/null || true
 [ -e "$BASE/bin" ] || ln -s "$BASE/files/fake" "$BASE/bin"
 ensure_dir "$ETC_ROOT/lists"
 [ -f "$ETC_ROOT/lists/whitelist.txt" ] || touch "$ETC_ROOT/lists/whitelist.txt"
