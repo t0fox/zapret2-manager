@@ -75,7 +75,7 @@ copy_if_missing_or_custom() {
 		return 0
 	fi
 	cp "$_src" "$_dst"
-	chmod 0644 "$_dst"
+	if [ "${_dst##*.}" = "lua" ]; then chmod 0755 "$_dst"; else chmod 0644 "$_dst"; fi
 }
 
 materialize() {

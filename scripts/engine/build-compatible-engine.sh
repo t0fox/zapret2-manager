@@ -255,6 +255,8 @@ cp -a "$SRC/lua/." "$STAGE/lua/"
 # read its own Lua/blobs from the installed tree.
 find "$STAGE" -type d -exec chmod 0755 {} +
 find "$STAGE" -type f -exec chmod 0644 {} +
+# nfqws2 requires the executable bit on Lua init files
+find "$STAGE/lua" -type f -exec chmod 0755 {} +
 chmod 0755 "$STAGE"/binaries/linux-arm64/*
 [ -f "$STAGE/blockcheck2.sh" ] && chmod 0755 "$STAGE/blockcheck2.sh"
 find "$STAGE/init.d" -name "*.sh" -o -name "zapret2" -type f | xargs -r chmod 0755
