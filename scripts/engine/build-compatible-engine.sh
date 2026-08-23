@@ -249,6 +249,9 @@ done
 [ -f "$SRC/blockcheck2.sh" ] && cp -a "$SRC/blockcheck2.sh" "$STAGE/"
 [ -f "$SRC/config.default" ] && cp -a "$SRC/config.default" "$STAGE/"
 cp -a "$SRC/lua/." "$STAGE/lua/"
+# Upstream embedded layout ships Lua sources gzipped; the worker
+# unpacks *.lua.gz during staging.
+gzip -n -9 "$STAGE"/lua/*.lua
 
 ARTIFACT_NAME="z2m-engine-${VERSION}-${ARCH}.tar.gz"
 ARTIFACT_PATH="$DIST/$ARTIFACT_NAME"
