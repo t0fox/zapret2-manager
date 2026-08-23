@@ -89,15 +89,15 @@ function probe_binary_capabilities(binaryPath) {
 		NFQWS2_COMPAT_VER: 1
 	};
 	// Check for the z2k-prefixed TLS-mod option tokens (patched builds only).
-	if (index(out, 'z2k_grease') >= 0 || index(out, 'z2k_alpn_flood') >= 0
+	if (index(out, 'z2k_grease') >= 0 || index(out, 'z2k_alpn') >= 0
 		|| index(out, 'z2k_tls_mod') >= 0) {
 		caps.Z2K_TLS_MOD = true;
 	} else {
 		let strResult = run("strings " + shell_escape(binaryPath)
-			+ " | grep -E 'z2k_grease|z2k_alpn_flood|FAKE_TLS_MOD_Z2K_GREASE' | head -n 1");
+			+ " | grep -E 'z2k_grease|z2k_alpn|FAKE_TLS_MOD_Z2K_GREASE' | head -n 1");
 		if (!(strResult.rc == 0 && length(trim(strResult.out)) > 0)) {
 			// busybox images may lack strings(1); grep reads the binary directly.
-			let grepResult = run("grep -c -a 'z2k_alpn_flood' " + shell_escape(binaryPath));
+			let grepResult = run("grep -c -a 'z2k_alpn' " + shell_escape(binaryPath));
 			caps.Z2K_TLS_MOD = grepResult.rc == 0 && trim(grepResult.out) != '0';
 		} else {
 			caps.Z2K_TLS_MOD = true;
@@ -273,7 +273,12 @@ export const install_proof = function() {
 	return caps;
 };
 
-if (ARGV != null && length(ARGV) > 0 && ARGV[0] == '--install-proof') {
+// Standalone entry: `ucode native-preflight.uc --install-proof`. The ARGV
+// global exists only under the CLI interpreter — inside the rpcd VM it is
+// absent, so access it defensively or module import would throw.
+let __cli_args = null;
+try { __cli_args = ARGV; } catch (e) { __cli_args = null; }
+if (__cli_args != null && length(__cli_args) > 0 && __cli_args[0] == '--install-proof') {
 	print(sprintf('%J', install_proof()) + '\n');
 	exit(0);
 }

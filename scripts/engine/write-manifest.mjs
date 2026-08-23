@@ -56,7 +56,7 @@ function main() {
     capabilityEvidence: {
       Z2K_TLS_MOD: {
         method: 'binary-tokens',
-        tokens: ['z2k_grease', 'z2k_alpn_flood', 'z2k_psk', 'z2k_keyshare', 'z2k_earlydata', 'z2k_pha'],
+        tokens: ['z2k_grease', 'z2k_alpn', 'z2k_psk', 'z2k_keyshare', 'z2k_earlydata', 'z2k_pha', 'z2k_sct', 'z2k_delegcred'],
         sourceMarker: 'nfq2/z2k_tls_mod.h'
       },
       ANTIDPI_REPEATS_LOOP: {

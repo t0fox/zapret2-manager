@@ -101,7 +101,7 @@ for index in 0 1 2; do
 done
 
 # ------------------------------------------------ step 5: static capability scan
-TLS_TOKENS='z2k_grease z2k_alpn_flood z2k_psk z2k_keyshare z2k_earlydata z2k_pha'
+TLS_TOKENS='z2k_grease z2k_alpn z2k_psk z2k_keyshare z2k_earlydata z2k_pha z2k_sct z2k_delegcred'
 tls_ok=1
 grep -rqF 'z2k_tls_mod.h' "$SRC/nfq2" || tls_ok=0
 for token in $TLS_TOKENS; do grep -rqF "$token" "$SRC/nfq2" || tls_ok=0; done
