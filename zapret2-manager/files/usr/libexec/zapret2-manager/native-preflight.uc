@@ -18,7 +18,11 @@ const RUNTIME_LUA_FILES = [
 	'z2k-modern-core.lua',
 	'z2k-detectors.lua',
 	'z2k-fooling-ext.lua',
-	'z2k-state-persist.lua'
+	'z2k-state-persist.lua',
+	// Full pinned bundle: keep the smoke aligned with the manifest luaFiles.
+	'z2k-range-rand.lua',
+	'z2k-alert.lua',
+	'z2k-quic-silence.lua'
 ];
 
 function shell_escape(value) {
