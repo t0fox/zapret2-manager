@@ -97,7 +97,7 @@ test('worker script declares the staged transaction with z2k gates', () => {
     cursor = Math.max(cursor, at);
   }
   // Materialize + prove must happen BEFORE the service start phase marker.
-  const startAt = source.indexOf("phase starting 82");
-  assert.ok(startAt > source.indexOf('phase materializing 79'));
-  assert.ok(startAt > source.indexOf('phase proving 84'));
+  const startAt = source.indexOf("phase starting 85");
+  assert.ok(startAt > source.indexOf('phase materializing 78'));
+  assert.ok(startAt > source.indexOf('phase proving 82'));
 });
