@@ -196,38 +196,48 @@ elif [ -f "$HOME/z2m-build/zapret2-manager/files/usr/libexec/zapret2-manager/eng
 else
 	die 'real engine-cli.uc source not found for commit-state delegation'
 fi
-cp "$SRC_LIB/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc"
-# Real CLI bootstraps the runtime roots before anything else; stub that step.
-printf '#!/bin/sh\nexit 0\n' > "$CLI_DIR/z2m-root-bootstrap"
-chmod +x "$CLI_DIR/z2m-root-bootstrap"
-# Real commit-state backend needs its import chain in place.
 cp "$SRC_LIB/engine-manager.uc" "$CLI_DIR/engine-manager.uc"
 cp "$SRC_LIB/engine-catalog.uc" "$CLI_DIR/engine-catalog.uc"
 mkdir -p "$CLI_DIR/core"
 cp "$SRC_LIB/core/private-temp.uc" "$CLI_DIR/core/private-temp.uc"
+# commit-state entry point: imports the REAL manager (capability gate) and
+# prints the verdict JSON. Kept as a separate file so the phase/failed logger
+# stub stays dependency-free.
+cat > "$CLI_DIR/commit-entry.uc" <<'STUB'
+'use strict';
+import { writefile } from 'fs';
+import { commit_state } from './engine-manager.uc';
+let r = commit_state(length(ARGV) ? ARGV[0] : '');
+let payload = sprintf('%J', r) + '\n';
+writefile('/tmp/z2m-commit-out.json', payload);
+print(payload);
+STUB
+chmod 0644 "$CLI_DIR/commit-entry.uc"
 cat > "$CLI_DIR/engine-cli.uc" <<'STUB'
 #!/usr/bin/ucode
 'use strict';
 import { popen } from 'fs';
 let mode = length(ARGV) > 0 ? ARGV[0] : '';
 let code = length(ARGV) > 2 ? ARGV[2] : '';
+let jobid = length(ARGV) > 1 ? ARGV[1] : '';
 if (mode == 'commit-state') {
-	// Delegate to the REAL backend: this is the load-bearing gate under test.
+	// REAL backend via tiny entry module: true capability gate under test.
 	popen('printf "%s\\n" "commit-state:start" >> /tmp/z2m-ws-cli-calls.log');
-	let real = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/engine-cli-real.uc ' +
-		ARGV.join(' ') + ' > /tmp/z2m-real-out.json 2> /tmp/z2m-real-err.log', 'r');
-	let out = real ? real.read('all') : '';
-	if (real) real.close();
-	let verdict = index(out || '', '"ok":true') >= 0 ? 'ok' : 'fail';
+	let p = popen('/opt/ucode/bin/ucode /usr/libexec/zapret2-manager/commit-entry.uc ' + jobid + ' 2>/tmp/z2m-commit-err', 'r');
+	let out = p ? p.read('all') : '';
+	if (p) p.close();
+	let parsed = null;
+	try { parsed = json(out || ''); } catch (e) { parsed = null; }
+	let verdict = (parsed != null && parsed.ok == true) ? 'ok' : 'fail';
 	popen('printf "%s:%s\\n" "commit-state" "' + verdict + '" >> /tmp/z2m-ws-cli-calls.log');
-	print(out);
+	print(out || '{"ok":false}');
 	exit(0);
 }
 popen('printf "%s:%s\\n" "' + mode + '" "' + code + '" >> /tmp/z2m-ws-cli-calls.log');
 print('{"ok":true}\n');
 exit(0);
 STUB
-chmod +x "$CLI_DIR/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc"
+chmod +x "$CLI_DIR/engine-cli.uc"
 cp "$SYNC" "$CLI_DIR/strategy-runtime-assets-sync.sh"
 
 # native-preflight.uc stub: verdict depends on injection.
@@ -332,6 +342,7 @@ printf '{"workerRc":%s,"phase":"%s","errorCode":"%s","oldTreeRestored":%s,"commi
 	"$worker_rc" "$phase" "$errorCode" "$oldTreeRestored" "$committedState" "$(tr '\n' ',' < /tmp/z2m-ws-cli-calls.log)"
 
 # cleanup global touches
+cp -a "$CLI_DIR" /root/z2m-cli-last 2>/dev/null || true
 rm -f /etc/init.d/zapret2 /etc/openwrt_release
 rm -rf /opt/zapret2 "$PKG" "$CLI_DIR/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc" \
 	"$CLI_DIR/z2m-root-bootstrap" "$CLI_DIR/engine-manager.uc" "$CLI_DIR/engine-catalog.uc" \
