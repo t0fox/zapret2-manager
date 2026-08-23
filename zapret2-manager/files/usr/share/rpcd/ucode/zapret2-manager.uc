@@ -78,16 +78,33 @@ function cache_fresh() {
 	return (now() - st.mtime) <= CACHE_TTL;
 }
 
-function refresh() {
-	let p = popen('/usr/bin/ucode ' + COLLECTOR + ' --no-print 2>/dev/null', 'r');
-	if (p) { p.read('all'); p.close(); }
+// NON-BLOCKING by design: the full collector takes many seconds on real
+// hardware and rpcd handles ubus calls synchronously — running it inline
+// starved every other call on the system. Instead: serve the cached snapshot
+// immediately and trigger one bounded background refresh.
+function status_refresh_async() {
+	let marker = '/tmp/zapret2-manager/status.refresh';
+	let st = stat(marker);
+	if (st && (now() - st.mtime) < 2) return;
+	writefile(marker, sprintf('%d', now()));
+	try {
+		popen('(' + shell_escape('/usr/bin/ucode') + ' ' + COLLECTOR
+			+ ' --no-print >/dev/null 2>&1) &', 'r').close();
+	} catch (e) { }
 }
 
 function status_method(req) {
-	if (!cache_fresh()) refresh();
+	status_refresh_async();
 	let raw = readfile(STATUS_JSON);
-	if (!raw) return { error: 'status unavailable', generatedAt: null };
-	try { return json(raw); }
+	if (!raw) return { ok: false, pending: true,
+		error: { code: 'EPENDING', message: 'status collection in progress' },
+		generatedAt: null };
+	try {
+		let value = json(raw);
+		if (!cache_fresh() && value != null && type(value) == 'object')
+			value.stale = true;
+		return value;
+	}
 	catch (e) { return { error: 'status parse failed', raw: raw }; }
 }
 

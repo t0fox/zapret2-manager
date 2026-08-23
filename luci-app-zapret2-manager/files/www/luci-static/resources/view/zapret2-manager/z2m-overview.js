@@ -157,7 +157,8 @@ function render(ctx) {
       return ctx.api.service.restart();
     }).then(function (answer) {
       if (!answer || answer.ok === false) throw answer || new Error('lifecycle request failed');
-      return ctx.api.service.status();
+      // Bounded verification only: the full collector is diagnostics authority.
+      return ctx.api.service.statusFast();
     }).then(function (answer) {
       var actual = RuntimeState.state(payload(answer));
       var expected = action === 'stop' ? 'stopped' : 'running';

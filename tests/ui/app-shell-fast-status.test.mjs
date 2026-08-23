@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -31,6 +32,33 @@ test('root view load() uses status_fast, never the full status collector', () =>
   assert.match(body, /Api\.service\.statusFast/, 'load() must call Api.service.statusFast');
   assert.doesNotMatch(body, /Api\.service\.status\(/,
     'full status collector must not be a prerequisite of the app shell');
+});
+
+test('no LuCI view may call the blocking full status transport', () => {
+  // The full collector runs for seconds on hardware; any view invoking it
+  // risks an XHR timeout AND freezes rpcd for unrelated services while it
+  // runs. Diagnostics-grade state must go through bounded transports.
+  const viewsDir = path.dirname(APP);
+  const offenders = [];
+  for (const name of fs.readdirSync(viewsDir)) {
+    if (!name.endsWith('.js')) continue;
+    const text = fs.readFileSync(path.join(viewsDir, name), 'utf8');
+    if (/service\.status\(/.test(text)) offenders.push(name);
+  }
+  assert.deepEqual(offenders, [], `views calling full status: ${offenders.join(', ')}`);
+});
+
+test('rpcd status method serves cache and refreshes in background (never inline)', () => {
+  const rpcdPlugin = fs.readFileSync(path.join(ROOT, 'zapret2-manager', 'files',
+    'usr', 'share', 'rpcd', 'ucode', 'zapret2-manager.uc'), 'utf8');
+  const fnAt = rpcdPlugin.indexOf('function status_method(req)');
+  assert.notEqual(fnAt, -1);
+  const fnBody = rpcdPlugin.slice(fnAt, fnAt + 900);
+  assert.doesNotMatch(fnBody, /popen\([^)]*COLLECTOR[^)]*\)\s*;\s*(\/\/)?[^\n]*inline/,
+    'collector must not run inline');
+  assert.match(fnBody, /status_refresh_async\(\)/, 'must trigger async refresh');
+  assert.match(rpcdPlugin, /function status_refresh_async\(\)/);
+  assert.match(rpcdPlugin, /EPENDING/, 'first-ever call must report pending instead of blocking');
 });
 
 test('header state mapping tolerates the status-fast payload shape', () => {

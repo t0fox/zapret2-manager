@@ -118,17 +118,20 @@ export const events_tail = function(input) {
 	let start = (total > limit) ? (total - limit) : 0;
 	let events = [];
 	let malformed = [];
+	let nonEmpty = [];
 	for (let i = 0; i < length(lines); i++) {
 		if (!length(trim(lines[i]))) continue;
 		let ev = null;
 		try { ev = json(lines[i]); } catch (e) { ev = null; }
 		if (ev != null) {
-			ev.seq = start + i + 1;
+			ev.seq = i + 1;
+			push(nonEmpty, ev);
 			if (ev.seq > since_seq) push(events, ev);
 		}
 		else push(malformed, { preview: substr(lines[i], 0, 120) });
 	}
-	return { ok: true, events: events, malformed: malformed, total: total, last_seq: total };
+	return { ok: true, events: events, malformed: malformed, total: total,
+		last_seq: length(nonEmpty) };
 };
 
 // ---------------------------------------------------------------------------

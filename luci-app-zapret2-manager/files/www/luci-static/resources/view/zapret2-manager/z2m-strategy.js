@@ -215,7 +215,7 @@ function load(ctx) {
   return Promise.allSettled([
     ctx.api.strategies.list(),
     ctx.api.strategies.catalogStatus(),
-    ctx.api.service.status(),
+    ctx.api.service.statusFast(),
     ctx.api.profiles.list()
   ]).then(function (results) {
     var data = {
@@ -639,7 +639,7 @@ function createAdapter(api) {
     return id && catalog ? { ok: true } : { ok: false, message: _('Persisted Strategy identity is required.') };
   }
   function candidateApplicable(value) { return !!(value && (value.strategy_id || value.id) && value.revision !== undefined); }
-  function reloadAppliedState() { return Promise.all([api.service.status(), api.strategies.list()]).then(function (values) { return { value: { status: values[0], strategies: strategyList(values[1]) }, revision: stateRevision(values[1]), raw: { status: values[0], list: values[1] } }; }); }
+  function reloadAppliedState() { return Promise.all([api.service.statusFast(), api.strategies.list()]).then(function (values) { return { value: { status: values[0], strategies: strategyList(values[1]) }, revision: stateRevision(values[1]), raw: { status: values[0], list: values[1] } }; }); }
   function hasProfileDraft(value) { return object(value).profiles === true || object(value).changes && object(value).changes.profiles !== undefined; }
   return {
     supported: true,
