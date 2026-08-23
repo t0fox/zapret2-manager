@@ -201,9 +201,8 @@ info "pinned target dependencies ready in $DEPS"
 SDK_TARGET_DIR=$(ls -d "$OPENWRT_SDK"/staging_dir/target-* 2>/dev/null | head -n 1)
 make -C "$SRC/nfq2" clean >/dev/null 2>&1 || true
 make -C "$SRC/nfq2" CROSS_COMPILE="$CROSS" -j"$(nproc)" \
-	LUA_CFLAGS="-I$DEPS/include -I$SDK_TARGET_DIR/usr/include" \
+	LUA_CFL="-I$DEPS/include -I$SDK_TARGET_DIR/usr/include" \
 	LUA_LIB="-L$DEPS/lib -llua" \
-	LUA_CFL="" \
 	STRIPP="" \
 	LDFLAGS="-static -L$DEPS/lib -L$SDK_TARGET_DIR/usr/lib" \
 	|| die "BUILD_FAILED: nfqws2 did not compile for $ARCH"
