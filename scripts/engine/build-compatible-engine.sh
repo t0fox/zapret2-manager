@@ -169,7 +169,7 @@ if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
 	(
 		cd lua-5.5.1
 		make -j1 CC="${CROSS}gcc" AR="${CROSS}ar rc" RANLIB="${CROSS}ranlib" \
-			CFLAGS="-O2 -fPIC" MYCFLAGS="" src/liblua.a >/dev/null
+			CFLAGS="-O2 -fPIC" MYCFLAGS="" -C src liblua.a >/dev/null
 	)
 	mkdir -p "$DEPS_USR/include" "$DEPS_USR/lib"
 	cp -a lua-5.5.1/src/liblua.a "$DEPS_USR/lib/"
