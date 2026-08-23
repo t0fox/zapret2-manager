@@ -51,6 +51,8 @@ LIBNFNETLINK_URL='https://netfilter.org/projects/libnfnetlink/files/libnfnetlink
 LIBNFNETLINK_SHA='b064c7c3d426efb4786e60a8e6859b82ee2f2c5e49ffeea640cfe4fe33cbc376'
 LIBNFQ_URL='https://netfilter.org/projects/libnetfilter_queue/files/libnetfilter_queue-1.0.5.tar.bz2'
 LIBNFQ_SHA='f9ff3c11305d6e03d81405957bdc11aea18e0d315c3e3f48da53a24ba251b9f5'
+LIBCAP_URL='https://kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.71.tar.xz'
+LIBCAP_SHA='b7006c9af5168315f35fc734bf1a8d2aa70766bd8b8c4340962e05b19c35b900'
 
 PRODUCER_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
 printf '%s\n' "$PRODUCER_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || die "producer commit is not a full sha"
@@ -178,6 +180,16 @@ if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
 	mkdir -p "$DEPS_USR/include" "$DEPS_USR/lib"
 	cp -a lua-5.5.1/src/liblua.a "$DEPS_USR/lib/"
 	cp -a lua-5.5.1/src/*.h "$DEPS_USR/include/"
+
+	command -v gperf >/dev/null 2>&1 || die "host dependency missing: gperf (apt-get install gperf)"
+	fetch_pinned "$LIBCAP_URL" "$LIBCAP_SHA" libcap.tar.xz
+	tar -xJf libcap.tar.xz
+	(
+		cd libcap-2.71
+		make -j"$(nproc)" CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" \
+			BUILD_CC=gcc GOLANG=no PAM_CAP=no USE_GPERF=yes \
+			prefix="$DEPS_USR" lib=lib install-lib >/dev/null
+	)
 fi
 cd "$REPO_ROOT"
 info "pinned target dependencies ready in $DEPS_USR"
