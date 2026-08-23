@@ -155,7 +155,7 @@ sync_verdict="$(/bin/sh "$SYNC" --verify)" || fail EZ2K_ASSETS "Целостно
 printf '%s\n' "$sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
 phase proving 82 'Доказываются обязательные возможности движка (3/3).'
 CAPABILITIES="$WORK/capabilities.json"
-/usr/bin/ucode /usr/libexec/zapret2-manager/native-preflight.uc install-proof >"$CAPABILITIES" 2>/dev/null \
+/usr/bin/ucode /usr/libexec/zapret2-manager/preflight-cli.uc >"$CAPABILITIES" 2>/dev/null \
 	|| fail ECAPABILITY 'Preflight возможностей завершился ошибкой.'
 grep -q '"ok"[[:space:]]*:[[:space:]]*true' "$CAPABILITIES" || fail ECAPABILITY "Preflight не выдал вердикта: $(cat "$CAPABILITIES")"
 for capability in Z2K_TLS_MOD ANTIDPI_REPEATS_LOOP AUTO_FAMILY_SPLIT; do

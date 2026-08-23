@@ -86,7 +86,7 @@ test('worker script declares the staged transaction with z2k gates', () => {
     ['artifact sha gate', 'ESHA256'],
     ['materialize phase', 'strategy-runtime-assets-sync.sh'],
     ['verify mode gate', '--verify'],
-    ['capability proof phase', 'native-preflight.uc install-proof'],
+    ['capability proof phase', 'preflight-cli.uc'],
     ['three capabilities enforced', 'AUTO_FAMILY_SPLIT']
   ];
   let cursor = -1;

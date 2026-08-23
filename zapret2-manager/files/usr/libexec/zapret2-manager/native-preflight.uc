@@ -272,13 +272,3 @@ export const install_proof = function() {
 	caps.ok = caps.Z2K_TLS_MOD && caps.ANTIDPI_REPEATS_LOOP && caps.AUTO_FAMILY_SPLIT && caps.luaSmoke;
 	return caps;
 };
-
-// Standalone entry: `ucode native-preflight.uc --install-proof`. The ARGV
-// global exists only under the CLI interpreter — inside the rpcd VM it is
-// absent, so access it defensively or module import would throw.
-let __cli_args = null;
-try { __cli_args = ARGV; } catch (e) { __cli_args = null; }
-if (__cli_args != null && length(__cli_args) > 0 && __cli_args[0] == 'install-proof') {
-	print(sprintf('%J', install_proof()) + '\n');
-	exit(0);
-}

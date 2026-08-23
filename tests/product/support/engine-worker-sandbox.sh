@@ -243,7 +243,7 @@ cp "$SYNC" "$CLI_DIR/strategy-runtime-assets-sync.sh"
 # native-preflight.uc stub: verdict depends on injection.
 case "$INJECTION" in
 capabilities)
-	cat > "$CLI_DIR/native-preflight.uc" <<'STUB'
+	cat > "$CLI_DIR/preflight-cli.uc" <<'STUB'
 #!/usr/bin/ucode
 'use strict';
 print('{"ok":false,"Z2K_TLS_MOD":true,"ANTIDPI_REPEATS_LOOP":true,"AUTO_FAMILY_SPLIT":false,"luaSmoke":false,"nfqws2Sha256":null}');
@@ -252,7 +252,7 @@ exit(0);
 STUB
 	;;
 *)
-	cat > "$CLI_DIR/native-preflight.uc" <<STUB
+	cat > "$CLI_DIR/preflight-cli.uc" <<STUB
 #!/usr/bin/ucode
 'use strict';
 print('{"ok":true,"Z2K_TLS_MOD":true,"ANTIDPI_REPEATS_LOOP":true,"AUTO_FAMILY_SPLIT":true,"luaSmoke":true,"nfqws2Sha256":"$NFQWS2_SHA"}');
