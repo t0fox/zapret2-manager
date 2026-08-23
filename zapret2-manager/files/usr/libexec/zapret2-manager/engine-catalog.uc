@@ -21,6 +21,7 @@ const MAX_ASSET_SIZE = 33554432;
 const ARCHES = ['aarch64_cortex-a53','aarch64_cortex-a72','aarch64_cortex-a76','aarch64_generic','arm_arm1176jzf-s_vfp','arm_arm926ej-s','arm_cortex-a15_neon-vfpv4','arm_cortex-a5','arm_cortex-a5_vfpv4','arm_cortex-a7','arm_cortex-a7_neon-vfpv4','arm_cortex-a7_vfpv4','arm_cortex-a8','arm_cortex-a8_vfpv3','arm_cortex-a9','arm_cortex-a9_neon','arm_cortex-a9_vfpv3-d16','arm_fa526','arm_mpcore','arm_xscale','i386_pentium-mmx','i386_pentium4','mips64_octeonplus','mips_24kc','mips_4kec','mips_mips32','mipsel_24kc','mipsel_24kc_24kf','mipsel_74kc','mipsel_mips32','powerpc_464fp','powerpc_8540','riscv64_riscv64','riscv64_generic','x86_64','x86_geode'];
 
 function run(command) { let p = popen(command + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all'), rc = p.close(); return { rc: rc, out: out ? out : '' }; }
+function is_object(value) { return type(value) == 'object' && value != null; }
 function fail(code, message, details) { let r = { ok: false, error: { code: code, message: message } }; if (details != null) r.error.details = details; return r; }
 function literal(value) { return type(value) == 'string' && index(value, "'") < 0 && index(value, '\n') < 0 && index(value, '\r') < 0 ? "'" + value + "'" : null; }
 function read_json(path, fallback) { try { let raw = readfile(path); return raw ? json(raw) : fallback; } catch (e) { return fallback; } }
@@ -184,7 +185,6 @@ export const clear_engine_state = function () { try { unlink(STATE_FILE); } catc
 // else yields no candidate — never a degraded one.
 
 let integration_cache = null;
-function is_object(value) { return type(value) == 'object' && value != null; }
 function integration_identity() {
 	if (is_object(integration_cache)) return integration_cache;
 	let value = read_json(INTEGRATION_JSON, null);
