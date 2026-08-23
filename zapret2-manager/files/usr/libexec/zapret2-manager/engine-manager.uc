@@ -66,7 +66,14 @@ export const commit_state = function (id) {
 		let name = required[i];
 		if (caps[name] !== true) return fail('ECAPABILITY', 'Возможность ' + name + ' не подтверждена при установке.');
 	}
-	let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: installed.packageVersion, assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, capabilities: {}, nfqws2Sha256: caps.nfqws2Sha256 != null ? caps.nfqws2Sha256 : (candidate.nfqws2Sha256 != null ? candidate.nfqws2Sha256 : null), baseCommit: candidate.baseCommit != null ? candidate.baseCommit : null, patchSeries: candidate.patchSeries != null ? candidate.patchSeries : [], installedAt: time() };
+	let nfq2sha = caps.nfqws2Sha256;
+	if (nfq2sha == null && candidate.nfqws2Sha256 != null) nfq2sha = candidate.nfqws2Sha256;
+	if (nfq2sha == null) nfq2sha = '';
+	let baseCommit = '';
+	if (candidate.baseCommit != null) baseCommit = candidate.baseCommit;
+	let patchSeries = [];
+	if (candidate.patchSeries != null) patchSeries = candidate.patchSeries;
+	let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: installed.packageVersion, assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, capabilities: {}, nfqws2Sha256: nfq2sha, baseCommit: baseCommit, patchSeries: patchSeries, installedAt: time() };
 	for (let i = 0; i < length(required); i++) value.capabilities[required[i]] = true;
 	return save_engine_state(value) ? { ok: true, state: value } : fail('ESTATE', 'Engine state не записан.');
 };
