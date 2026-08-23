@@ -68,11 +68,6 @@ function dumpDiagnostics(injection) {
     for (const line of tail.split('\n')) {
       if (line.trim()) console.error('::error title=worker ' + injection + '::' + line.slice(0, 400));
     }
-    const tail = require('node:child_process')
-      .execFileSync('sudo', ['-n', 'tail', '-60', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
-    for (const line of tail.split('\n')) {
-      if (line.trim()) console.error('::error title=worker ' + injection + '::' + line.slice(0, 400));
-    }
   } catch (e) {
     console.error('::error title=worker ' + injection + '::diagnostics unavailable: ' + e.message);
   }
