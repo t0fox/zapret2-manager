@@ -115,3 +115,12 @@ jobs:
 
       - name: Run real worker rollback/failure injection matrix
         run: node --test tests/product/engine-worker-rollback-sandbox.test.mjs
+      - name: Publish worker failure diagnostics
+        if: failure()
+        run: |
+          if [ -d test-diagnostics ]; then
+            for f in test-diagnostics/*; do
+              echo "=== $f" >> "$GITHUB_STEP_SUMMARY"
+              cat "$f" >> "$GITHUB_STEP_SUMMARY"
+            done
+          fi

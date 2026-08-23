@@ -30,12 +30,15 @@ const canRun = process.platform === 'linux'
     catch { return false; }
   })();
 
+let lastVerdict = null;
+
 function runSandbox(injection) {
   const out = execFileSync('sudo', ['-n', 'bash', RUNNER, WORKER, SYNC, injection], {
     encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024,
     cwd: ROOT_DIR
   });
-  return JSON.parse(out.trim().split('\n').filter(l => l.startsWith('{')).pop());
+  lastVerdict = JSON.parse(out.trim().split('\n').filter(l => l.startsWith('{')).pop());
+  return lastVerdict;
 }
 
 function dumpDiagnostics(injection) {
@@ -43,7 +46,10 @@ function dumpDiagnostics(injection) {
     const errFile = '/root/z2m-worker-debug-last.err';
     const fs = require('node:fs');
     const raw = execFileSync('sudo', ['-n', 'cat', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
-    fs.writeSync(2, '\n=== RAW worker.err (' + injection + ') ===\n' + raw.slice(-6000) + '\n=== END RAW ===\n');
+    fs.mkdirSync(path.join(ROOT_DIR, 'test-diagnostics'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT_DIR, 'test-diagnostics', injection + '.err'), raw.slice(-8000));
+    fs.writeFileSync(path.join(ROOT_DIR, 'test-diagnostics', injection + '.verdict'),
+      JSON.stringify({ injection, ...lastVerdict }, null, 1));
     const tail = require('node:child_process')
       .execFileSync('sudo', ['-n', 'tail', '-60', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
     for (const line of tail.split('\n')) {
