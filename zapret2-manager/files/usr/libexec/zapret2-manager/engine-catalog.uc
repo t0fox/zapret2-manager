@@ -219,7 +219,7 @@ function z2m_compatible_records(architecture_value, options) {
 //   - the manifest must re-state pinned identity + digests (enforced by
 //     z2m_compatible_candidate)
 // fetch_manifest(assetObject) -> parsed manifest object or null.
-export const z2m_records_from_payload = function (releases, architecture_value, fetch_manifest) {
+function z2m_records_from_payload_impl(releases, architecture_value, fetch_manifest) {
 	if (type(releases) != 'array') return { ok: true, records: [] };
 	let records = [];
 	for (let i = 0; i < length(releases); i++) {
@@ -349,3 +349,6 @@ export const clear_engine_state = function () { try { unlink(STATE_FILE); } catc
 // and a digest-consistent artifact for THIS device architecture. Everything
 // else yields no candidate — never a degraded one.
 
+
+// Public seam for tests/tools; impl is a hoisted-safe declaration above.
+export const z2m_records_from_payload = z2m_records_from_payload_impl;
