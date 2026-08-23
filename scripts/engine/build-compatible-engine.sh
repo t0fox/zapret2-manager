@@ -136,7 +136,8 @@ export STAGING_DIR="$OPENWRT_SDK/staging_dir"
 export PATH="$TOOLCHAIN_DIR/bin:$PATH"
 info "cross compiler prefix: $CROSS"
 
-DEPS="$WORK/deps"; DEPS_USR="$DEPS/usr"
+DEPS="$WORK/deps"
+DEPS_USR="$DEPS/usr"
 mkdir -p "$DEPS_USR"
 HOST="${CROSS%-}"
 fetch_pinned() { # url, sha256, dest-file
@@ -155,7 +156,7 @@ build_autotools() { # srcdir, extra-env
 	)
 }
 mkdir -p "$WORK/deps-src"; cd "$WORK/deps-src"
-if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
+if [ ! -f "$DEPS/lib/libnetfilter_queue.a" ]; then
 	fetch_pinned "$LIBMNL_URL" "$LIBMNL_SHA" libmnl.tar.bz2
 	tar -xjf libmnl.tar.bz2
 	build_autotools libmnl-1.0.5
@@ -167,8 +168,8 @@ if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
 	fetch_pinned "$LIBNFQ_URL" "$LIBNFQ_SHA" libnfq.tar.bz2
 	tar -xjf libnfq.tar.bz2
 	build_autotools libnetfilter_queue-1.0.5 \
-		LIBMNL_CFLAGS="-I$DEPS_USR/include" \
-		LIBMNL_LIBS="-L$DEPS_USR/lib -lmnl"
+		LIBMNL_CFLAGS="-I$DEPS/include" \
+		LIBMNL_LIBS="-L$DEPS/lib -lmnl"
 
 	fetch_pinned "$LUA_URL" "$LUA_SHA" lua.tar.gz
 	tar -xzf lua.tar.gz
@@ -177,9 +178,9 @@ if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
 		make -j1 CC="${CROSS}gcc" AR="${CROSS}ar rc" RANLIB="${CROSS}ranlib" \
 			CFLAGS="-O2 -fPIC" MYCFLAGS="" -C src liblua.a >/dev/null
 	)
-	mkdir -p "$DEPS_USR/include" "$DEPS_USR/lib"
-	cp -a lua-5.5.1/src/liblua.a "$DEPS_USR/lib/"
-	cp -a lua-5.5.1/src/*.h "$DEPS_USR/include/"
+	mkdir -p "$DEPS/include" "$DEPS/lib"
+	cp -a lua-5.5.1/src/liblua.a "$DEPS/lib/"
+	cp -a lua-5.5.1/src/*.h "$DEPS/include/"
 
 	command -v gperf >/dev/null 2>&1 || die "host dependency missing: gperf (apt-get install gperf)"
 	fetch_pinned "$LIBCAP_URL" "$LIBCAP_SHA" libcap.tar.xz
@@ -188,21 +189,23 @@ if [ ! -f "$DEPS_USR/lib/libnetfilter_queue.a" ]; then
 		cd libcap-2.71
 		make -C libcap -j"$(nproc)" CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" \
 			BUILD_CC=gcc GOLANG=no PAM_CAP=no USE_GPERF=yes libcap.a >/dev/null
-		mkdir -p "$DEPS_USR/include/sys" "$DEPS_USR/lib"
-		cp -a libcap/include/sys/capability.h "$DEPS_USR/include/sys/"
-		cp -a libcap/libcap.a "$DEPS_USR/lib/"
+		mkdir -p "$DEPS/include/sys" "$DEPS/lib"
+		cp -a libcap/include/sys/capability.h "$DEPS/include/sys/"
+		cp -a libcap/libcap.a "$DEPS/lib/"
 	)
 fi
 cd "$REPO_ROOT"
-info "pinned target dependencies ready in $DEPS_USR"
+info "pinned target dependencies ready in $DEPS"
 
 # --------------------------------------------------------- step 6: target build
+SDK_TARGET_DIR=$(ls -d "$OPENWRT_SDK"/staging_dir/target-* 2>/dev/null | head -n 1)
 make -C "$SRC/nfq2" clean >/dev/null 2>&1 || true
 make -C "$SRC/nfq2" CROSS_COMPILE="$CROSS" -j"$(nproc)" \
-	LUA_CFLAGS="-I$DEPS_USR/include" \
-	LUA_LIB="-L$DEPS_USR/lib -llua" \
+	LUA_CFLAGS="-I$DEPS/include -I$SDK_TARGET_DIR/usr/include" \
+	LUA_LIB="-L$DEPS/lib -llua" \
+	LUA_CFL="" \
 	STRIPP="" \
-	LDFLAGS="-static" \
+	LDFLAGS="-static -L$DEPS/lib -L$SDK_TARGET_DIR/usr/lib" \
 	|| die "BUILD_FAILED: nfqws2 did not compile for $ARCH"
 [ -x "$SRC/nfq2/nfqws2" ] || die "BUILD_FAILED: nfqws2 binary absent"
 
