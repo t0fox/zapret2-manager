@@ -73,7 +73,10 @@ function public_candidate(c) { return { schema: c.schema, artifactKind: c.artifa
 
 function release_cache_read() {
 	let value = read_json(RELEASE_CACHE, null);
-	if (type(value) != 'object' || value == null || type(value.fetchedAt) != 'int' || type(value.releases) != 'array') return null;
+	// Schema bump invalidates pre-z2m caches: a v1 entry has no canonical
+	// records and would shadow the compatible feed for its whole TTL.
+	if (type(value) != 'object' || value == null || value.schema != 'engine-release-catalog.v2'
+		|| type(value.fetchedAt) != 'int' || type(value.releases) != 'array') return null;
 	return value;
 }
 function release_cache_write(releases, z2mReleases) {
