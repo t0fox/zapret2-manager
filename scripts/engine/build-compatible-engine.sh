@@ -130,6 +130,8 @@ CROSS_BIN=$(find "$TOOLCHAIN_DIR/bin" -maxdepth 1 -name '*-gcc' | head -n 1) || 
 CROSS="$(basename "$CROSS_BIN" -gcc)-"
 # OpenWrt toolchain wrappers resolve their sysroot via STAGING_DIR.
 export STAGING_DIR="$OPENWRT_SDK/staging_dir"
+# Keep the prefixed tools resolvable for Makefiles invoking $(CROSS)gcc.
+export PATH="$TOOLCHAIN_DIR/bin:$PATH"
 info "cross compiler prefix: $CROSS"
 
 DEPS="$WORK/deps"; DEPS_USR="$DEPS/usr"
