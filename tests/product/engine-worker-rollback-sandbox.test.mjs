@@ -41,6 +41,14 @@ function runSandbox(injection) {
 function dumpDiagnostics(injection) {
   try {
     const errFile = '/root/z2m-worker-debug-last.err';
+    const fs = require('node:fs');
+    const raw = execFileSync('sudo', ['-n', 'cat', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
+    fs.writeSync(2, '\n=== RAW worker.err (' + injection + ') ===\n' + raw.slice(-6000) + '\n=== END RAW ===\n');
+    const tail = require('node:child_process')
+      .execFileSync('sudo', ['-n', 'tail', '-60', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
+    for (const line of tail.split('\n')) {
+      if (line.trim()) console.error('::error title=worker ' + injection + '::' + line.slice(0, 400));
+    }
     const tail = require('node:child_process')
       .execFileSync('sudo', ['-n', 'tail', '-60', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
     for (const line of tail.split('\n')) {
@@ -53,7 +61,7 @@ function dumpDiagnostics(injection) {
 
 test('materialize failure rolls back to the previous engine payload', { skip: !canRun && 'requires passwordless sudo on Linux' }, () => {
   const verdict = runSandbox('materialize');
-  if (verdict.errorCode !== 'EZ2K_ASSETS') dumpDiagnostics('materialize');
+  try { if (verdict.phase !== 'rolled_back' || verdict.oldTreeRestored !== true) dumpDiagnostics('materialize'); } catch (e) { dumpDiagnostics('materialize'); }
   assert.equal(verdict.phase, 'rolled_back', JSON.stringify(verdict));
   assert.equal(verdict.errorCode, 'EZ2K_ASSETS');
   assert.equal(verdict.oldTreeRestored, true);
@@ -62,7 +70,7 @@ test('materialize failure rolls back to the previous engine payload', { skip: !c
 
 test('capability proof failure rolls back and never commits engine-state', { skip: !canRun && 'requires passwordless sudo on Linux' }, () => {
   const verdict = runSandbox('capabilities');
-  if (verdict.errorCode !== 'ECAPABILITY') dumpDiagnostics('capabilities');
+  try { if (verdict.phase !== 'rolled_back') dumpDiagnostics('capabilities'); } catch (e) { dumpDiagnostics('capabilities'); }
   assert.equal(verdict.phase, 'rolled_back', JSON.stringify(verdict));
   assert.equal(verdict.errorCode, 'ECAPABILITY');
   assert.equal(verdict.oldTreeRestored, true);
