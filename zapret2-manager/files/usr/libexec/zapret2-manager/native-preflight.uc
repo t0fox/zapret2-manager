@@ -268,6 +268,7 @@ export const install_proof = function() {
 		cmd += ' --lua-init=' + shell_escape('@' + RUNTIME_LUA_ROOT + RUNTIME_LUA_FILES[i]);
 	let smoke = run(cmd);
 	caps.luaSmoke = smoke.rc == 0;
+	if (!caps.luaSmoke) caps.smokeStderr = substr(trim(smoke.out), 0, 400);
 
 	caps.ok = caps.Z2K_TLS_MOD && caps.ANTIDPI_REPEATS_LOOP && caps.AUTO_FAMILY_SPLIT && caps.luaSmoke;
 	return caps;
