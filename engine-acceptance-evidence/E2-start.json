@@ -1,0 +1,1 @@
+{"ok":true,"operation":{"id":"eng-1787508244-77e89025b74a","action":"install","phase":"queued","progress":0,"createdAt":1787508244,"updatedAt":1787508244,"startedAt":null,"finishedAt":null,"cancellable":true,"cancelRequested":false,"result":null,"error":null,"rollback":null,"log":[{"at":1787508244,"phase":"queued","message":"Операция поставлена в очередь."}]}}

@@ -1,0 +1,13 @@
+{
+ "artifactKind": "z2m-compatible-engine",
+ "version": "r77-z2m-202608231223",
+ "baseRepository": "bol-van/zapret2",
+ "architecture": "aarch64_cortex-a53",
+ "expectedArtifactSha256": "911d37063262e9dcefda5a0e15108fe0c276fb508ec83e16e670b7a55f6ce0b6",
+ "requiredCapabilities": [
+  "Z2K_TLS_MOD",
+  "ANTIDPI_REPEATS_LOOP",
+  "AUTO_FAMILY_SPLIT"
+ ],
+ "compatible": true
+}
