@@ -1,0 +1,13 @@
+== [E4] on-target evidence battery
+PASS opt-exists
+PASS binary-aarch64
+PASS state-committed
+PASS caps-3of3
+PASS z2k-lua-present
+PASS sync-verify
+PASS preflight-proof
+PASS single-owner
+PASS queue-300
+PASS no-dup-daemon
+PASS components-2of2
+SUMMARY pass=$pass fail=$fail
