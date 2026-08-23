@@ -38,8 +38,22 @@ function runSandbox(injection) {
   return JSON.parse(out.trim().split('\n').filter(l => l.startsWith('{')).pop());
 }
 
+function dumpDiagnostics(injection) {
+  try {
+    const errFile = '/root/z2m-worker-debug-last.err';
+    const tail = require('node:child_process')
+      .execFileSync('sudo', ['-n', 'tail', '-60', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
+    for (const line of tail.split('\n')) {
+      if (line.trim()) console.error('::error title=worker ' + injection + '::' + line.slice(0, 400));
+    }
+  } catch (e) {
+    console.error('::error title=worker ' + injection + '::diagnostics unavailable: ' + e.message);
+  }
+}
+
 test('materialize failure rolls back to the previous engine payload', { skip: !canRun && 'requires passwordless sudo on Linux' }, () => {
   const verdict = runSandbox('materialize');
+  if (verdict.errorCode !== 'EZ2K_ASSETS') dumpDiagnostics('materialize');
   assert.equal(verdict.phase, 'rolled_back', JSON.stringify(verdict));
   assert.equal(verdict.errorCode, 'EZ2K_ASSETS');
   assert.equal(verdict.oldTreeRestored, true);
@@ -48,6 +62,7 @@ test('materialize failure rolls back to the previous engine payload', { skip: !c
 
 test('capability proof failure rolls back and never commits engine-state', { skip: !canRun && 'requires passwordless sudo on Linux' }, () => {
   const verdict = runSandbox('capabilities');
+  if (verdict.errorCode !== 'ECAPABILITY') dumpDiagnostics('capabilities');
   assert.equal(verdict.phase, 'rolled_back', JSON.stringify(verdict));
   assert.equal(verdict.errorCode, 'ECAPABILITY');
   assert.equal(verdict.oldTreeRestored, true);
