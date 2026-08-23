@@ -253,6 +253,8 @@ export const install_proof = function() {
 	let digest = sha256_file(NFQWS2_BIN);
 	if (digest == null) return caps;
 	caps.nfqws2Sha256 = digest;
+	let luaDir = run('ls -la ' + shell_escape(RUNTIME_LUA_ROOT) + ' 2>&1');
+	caps.luaDirListing = substr(trim(luaDir.out), 0, 800);
 
 	// Z2K_TLS_MOD: compiled-in option tokens (help output or binary strings).
 	let binCaps = probe_binary_capabilities(NFQWS2_BIN);
