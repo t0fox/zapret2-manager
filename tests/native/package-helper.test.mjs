@@ -326,8 +326,15 @@ function normalizeAbsolutePath(path) {
   return `/${components.join('/')}`;
 }
 
+// Per-request scratch space of the serialized engine operation worker. The
+// worker takes the global engine-operation lock before creating anything
+// here, so these paths are private to a single worker invocation and are
+// exempt from the bootstrap-only ownership rule that protects shared roots.
+const WORKER_PRIVATE_STAGING_PREFIX = '/tmp/zapret2-manager/engine-operations/';
+
 function unsafeCreation(site) {
   const target = normalizeAbsolutePath(site.target);
+  if (target.startsWith(WORKER_PRIVATE_STAGING_PREFIX)) return false;
   if (managedRoots.includes(target)) return true;
   if (!site.recursive) return false;
   if (!target.startsWith('/')) return true;
@@ -380,6 +387,14 @@ test('managed-root creation policy permits proven unrelated recursion and non-re
   const fixture = `run('mkdir -p /var/lib/example/cache'); mkdir('/tmp/zapret2-manager/last-good');`;
   const sites = creationCallsites('allowed-fixture', fixture);
   assert.equal(sites.length, 2, JSON.stringify(sites));
+  assert.equal(sites.some(unsafeCreation), false, JSON.stringify(sites));
+});
+
+test('managed-root creation policy permits worker-private engine staging', () => {
+  const fixture = 'ENGINE_STAGE=/tmp/zapret2-manager/engine-operations/op.work/engine-stage\n'
+    + 'mkdir -p "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/lua"';
+  const sites = creationCallsites('worker-staging-fixture', fixture);
+  assert.ok(sites.length >= 1, JSON.stringify(sites));
   assert.equal(sites.some(unsafeCreation), false, JSON.stringify(sites));
 });
 
