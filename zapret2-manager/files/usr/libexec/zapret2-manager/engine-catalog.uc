@@ -199,15 +199,6 @@ export const z2m_compatible_candidate = function (manifest, asset, deviceArch) {
 	} };
 };
 
-function z2m_compatible_records(architecture_value, options) {
-	options = options || {};
-	if (options.cachedZ2mReleases != null && options.skipFetch === true)
-		return { ok: true, records: options.cachedZ2mReleases };
-	let fetched = fetch_json_feed(Z2M_RELEASES_API);
-	if (!fetched.ok) return fetched;
-	return z2m_records_from_payload(fetched.releases, architecture_value,
-		z2m_default_manifest_fetcher);
-}
 
 // CONTRACT (producer ↔ GitHub Release ↔ consumer), single source of truth:
 //   - release tag MUST start with 'engine-'  (identity anchor of the
@@ -351,4 +342,14 @@ export const clear_engine_state = function () { try { unlink(STATE_FILE); } catc
 
 
 // Public seam for tests/tools; impl is a hoisted-safe declaration above.
+
+function z2m_compatible_records(architecture_value, options) {
+	options = options || {};
+	if (options.cachedZ2mReleases != null && options.skipFetch === true)
+		return { ok: true, records: options.cachedZ2mReleases };
+	let fetched = fetch_json_feed(Z2M_RELEASES_API);
+	if (!fetched.ok) return fetched;
+	return z2m_records_from_payload(fetched.releases, architecture_value,
+		z2m_default_manifest_fetcher);
+}
 export const z2m_records_from_payload = z2m_records_from_payload_impl;
