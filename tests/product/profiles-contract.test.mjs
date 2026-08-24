@@ -138,6 +138,12 @@ test('preview is non-mutating and apply reuses the compiler inside the lock', ()
 test('apply transaction snapshots, writes, restarts, recollects, verifies, and rolls back exactly', () => {
   const transaction = functionBody(apply, 'apply_candidate_pipeline');
 
+  // Real-router failure evidence: spawning `/usr/bin/ucode status-collector.uc`
+  // dies at parse time ("Exports may only appear at top level of a module"),
+  // so the recollected status never appeared and every apply failed
+  // verification. Recollection must run the collector in-process.
+  assert.doesNotMatch(apply, /popen\('\/usr\/bin\/ucode '\s*\+\s*PATHS\.collector/);
+  assert.match(apply, /import \{ collect_observations, collect \} from/);
   assertOrdered(transaction, [
     /snapshot_apply\(\)/,
     /set_vars?_cas\(/,

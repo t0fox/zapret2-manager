@@ -30,7 +30,7 @@ import { z2m_parse, z2m_validate, z2m_fragment, z2m_tokenize, derive_capture_por
 import { load_state } from './profiles-draft.uc';
 import { parse_queue } from './qlen.uc';
 import { native_preflight } from './native-preflight.uc';
-import { collect_observations } from './core/status-collector.uc';
+import { collect_observations, collect } from './core/status-collector.uc';
 import { state_read } from './core/state-store.uc';
 import { strategy_selection_get_readonly } from './strategy-state.uc';
 import { append_ndjson, event_id } from './events.uc';
@@ -484,8 +484,10 @@ export const profiles_rollback_decision = function(restartRc, verifyOk, configRe
 
 function recollect_status() {
 	try { unlink(PATHS.status_json); } catch (e) { }
-	let p = popen('/usr/bin/ucode ' + PATHS.collector + ' --no-print 2>/dev/null', 'r');
-	if (p) { p.read('all'); p.close(); }
+	// In-process collection: spawning the collector as a CLI script fails to
+	// parse (it uses exports), which silently left the status file missing and
+	// made every apply verification fail.
+	try { collect(); } catch (e) { return null; }
 	let raw = readfile(PATHS.status_json);
 	if (!raw) return null;
 	let sj = null;
