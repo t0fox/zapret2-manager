@@ -18,6 +18,10 @@ die() { printf '{"fatal":%s}\n' "\"$1\"" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die 'root required'
 [ -x /bin/sh ] || die '/bin/sh missing'
 
+# Mirror the on-target postinst: the manager config root always exists before
+# an engine install can be requested through the API.
+mkdir -p /etc/zapret2-manager
+
 SB=$(mktemp -d "$HOME/z2m-wsandbox.XXXXXX")
 trap 'rm -rf "$SB"' EXIT
 
