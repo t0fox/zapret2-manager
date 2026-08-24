@@ -226,14 +226,6 @@ function runtime_context_from_environment() {
 	return { ok: true, environment: is_object(environment) ? environment : {}, runtimeInputs: runtime };
 }
 
-function synthetic_runtime_inputs() {
-	// Cold-start Preview/Apply must be possible before any nfqws2 instance
-	// exists. Synthesize a minimal environment from filesystem inventory
-	// (blobs/lua/functions) with empty baseArgs so candidate compilation
-	// can proceed without authoritative live composition.
-	return synthetic_environment_with_inputs({ source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: [] });
-}
-
 function synthetic_environment_with_inputs(runtimeInputs) {
 	let liveBlobs = {}, liveLua = {}, liveFunctions = {
 		circular: { present: true }, fake: { present: true }, multidisorder: { present: true },
@@ -270,6 +262,14 @@ function synthetic_environment_with_inputs(runtimeInputs) {
 		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake', listRoot: '/lists', ipsetRoot: '/lists' },
 		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}
 	}, runtimeInputs: runtimeInputs };
+}
+
+function synthetic_runtime_inputs() {
+	// Cold-start Preview/Apply must be possible before any nfqws2 instance
+	// exists. Synthesize a minimal environment from filesystem inventory
+	// (blobs/lua/functions) with empty baseArgs so candidate compilation
+	// can proceed without authoritative live composition.
+	return synthetic_environment_with_inputs({ source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: [] });
 }
 
 function live_runtime_inputs() {
