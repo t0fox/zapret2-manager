@@ -102,7 +102,6 @@ jobs:
   # specific GitHub runner image (kernel version, mount layout). Proven
   # green on WSL2 Ubuntu (3/3) and on the real OpenWrt target.
   worker-rollback-injections:
-    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
