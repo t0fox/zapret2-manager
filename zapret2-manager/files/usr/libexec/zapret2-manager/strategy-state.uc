@@ -271,10 +271,12 @@ function locked(operation, applyNonce) {
 	if (active.record != null && !apply_lease_active()) active = { ok: true, record: null };
 	if (active.record != null && active.record.nonce != applyNonce)
 		return error('ELOCKED', 'Strategy storage is held by an active Strategy Apply.');
-	if (getenv('Z2M_STRATEGY_LOCKED') == '1') return operation();
+	if (getenv('Z2M_STRATEGY_LOCKED') == '1') {
+		try { return operation(); } catch (e) { return error('EINTERNAL', 'Strategy storage operation failed: ' + (e && e.message ? e.message : String(e))); }
+	}
 	if (!acquire_lock()) return error('ELOCKED', 'Strategy storage is locked.');
 	let result;
-	try { result = operation(); } catch (e) { result = error('EINTERNAL', 'Strategy storage operation failed.'); }
+	try { result = operation(); } catch (e) { result = error('EINTERNAL', 'Strategy storage operation failed: ' + (e && e.message ? e.message : String(e))); }
 	release_lock();
 	return result;
 }
