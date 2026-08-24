@@ -13,6 +13,8 @@
 
 set -u
 WORKER="$1"; SYNC="$2"; INJECTION="$3"
+# Interpreter location passed explicitly (argv survives the sudo env reset):
+UCODE_ARG="${4:-}"; UCODE_ARG_LIB="${5:-}"
 
 die() { printf '{"fatal":%s}\n' "\"$1\"" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die 'root required'
@@ -177,8 +179,11 @@ mkdir -p "$CLI_DIR"
 # UCODE_BIN (CI gates build pinned ucode outside /opt/ucode).
 UCODE_MADE=0
 if [ ! -e /usr/bin/ucode ]; then
-	UCODE_SRC=${UCODE_BIN:-/opt/ucode/bin/ucode}
-	UCODE_LIB=$(CDPATH= cd -- "$(dirname -- "$UCODE_SRC")/../lib" 2>/dev/null && pwd || printf /opt/ucode/lib)
+	UCODE_SRC=${UCODE_ARG:-${UCODE_BIN:-/opt/ucode/bin/ucode}}
+	if [ -n "$UCODE_ARG_LIB" ]; then UCODE_LIB="$UCODE_ARG_LIB"
+	else
+		UCODE_LIB=$(CDPATH= cd -- "$(dirname -- "$UCODE_SRC")/../lib" 2>/dev/null && pwd || printf /opt/ucode/lib)
+	fi
 	cat > /usr/bin/ucode <<STUB
 #!/bin/sh
 # Router ucode tolerates trailing --flags passed to scripts; this host build
@@ -223,7 +228,7 @@ writefile('/tmp/z2m-commit-out.json', payload);
 print(payload);
 STUB
 chmod 0644 "$CLI_DIR/commit-entry.uc"
-UCODE_SRC=${UCODE_BIN:-/opt/ucode/bin/ucode}
+UCODE_SRC=${UCODE_ARG:-${UCODE_BIN:-/opt/ucode/bin/ucode}}
 cat > "$CLI_DIR/engine-cli.uc" <<STUB
 #!/usr/bin/ucode
 'use strict';

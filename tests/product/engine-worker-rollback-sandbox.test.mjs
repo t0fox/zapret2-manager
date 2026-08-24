@@ -33,7 +33,12 @@ const canRun = process.platform === 'linux'
 let lastVerdict = null;
 
 function runSandbox(injection) {
-  const out = execFileSync('sudo', ['-n', 'bash', RUNNER, WORKER, SYNC, injection], {
+  // sudo resets the environment and may deny --preserve-env entries via
+  // sudoers env policies: the harness loses UCODE_BIN and would rebuild its
+  // /usr/bin/ucode wrapper against /opt/ucode, which CI native gates do not
+  // use. Pass the interpreter location as explicit ARGV instead.
+  const out = execFileSync('sudo', ['-n', 'bash', RUNNER, WORKER, SYNC, injection,
+    process.env.UCODE_BIN || '', process.env.UCODE_LIBRARY_PATH || ''], {
     encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024,
     cwd: ROOT_DIR
   });
