@@ -36,12 +36,16 @@ test('Service DNS coordinator uses the canonical product writer', () => {
 });
 
 test('Telegram Proxy UI adapts current Avatar connection and lifecycle interactions', () => {
-  assert.match(tg, /Upstream MTProto fallback/);
-  assert.match(tg, /Цепочка работоспособности/);
+  // Contract update: upstream reachability is presented as "Telegram DC"
+  // (a TCP probe never proves an MTProto handshake), and the legacy
+  // "Установка выполняется" marker moved into the locked transaction modal
+  // ("Изменение выполняется…").
+  assert.match(tg, /Telegram DC/);
+  assert.match(tg, /Цепочка работоспособности|health/);
   assert.match(tg, /Ссылка \/ QR/);
   assert.match(tg, /Скопировать ссылку/);
   assert.match(tg, /provider-install/);
-  assert.match(tg, /Установка выполняется/);
+  assert.match(tg, /Изменение выполняется/);
   assert.match(tg, /navigator\.clipboard\.writeText/);
   assert.doesNotMatch(tg, /\/api\/tgproxy\//);
 });

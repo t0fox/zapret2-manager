@@ -263,6 +263,23 @@ function watchTgOperation(ctx, operationId, retry) {
   }
   poll();
 }
+// The backend transaction is synchronous by contract: proxy_provider_install
+// resolves to { ok, provider, version, health } in one RPC round trip. An
+// async operation envelope (operationId) remains supported for forward
+// compatibility, but success must never depend on it.
+function finishTgTransaction(ctx, answer, retry, title) {
+  if (answer && answer.operationId) { watchTgOperation(ctx, answer.operationId, retry); return; }
+  var shell = ctx.shell;
+  var identity = answer && answer.provider ? String(answer.provider).toUpperCase() : '';
+  if (answer && answer.version) identity += ' ' + answer.version;
+  shell.openModal(title, E('div', { 'class': 'z2m-tg-confirm-body' }, [
+    E('strong', {}, identity || _('Готово')),
+    E('p', {}, _('Сервер установил выбранную версию, перезапустил сервис и подтвердил локальную проверку работоспособности.'))
+  ]), [shell.button(_('Завершить'), 'primary sm', function () {
+    shell.closeModal();
+    ctx.refresh('proxy');
+  })]);
+}
 function tgTransactionConfirm(ctx, kind, provider, item, start) {
   var labels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Переключить') };
   var titles = { INSTALL: _('Установить TG Proxy?'), UPDATE: _('Обновить TG Proxy?'), DOWNGRADE: _('Откатить версию TG Proxy?'), PROVIDER_SWITCH: _('Переключить реализацию TG Proxy?') };
@@ -670,11 +687,11 @@ function providerCard(ctx, data, provider, status, releasePanel) {
       state.busy = 'provider-install';
       ctx.api.tg.product.checkUpdates(request).then(function (check) {
         if (!check || check.ok === false || !check.checkToken) throw check && check.error || new Error(_('Выбранная версия не прошла проверку.'));
-        return ctx.api.tg.product.switch({ provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version, checkToken: check.checkToken });
+        return ctx.api.tg.product.switch({ provider: provider.id, version: liveCandidate.version, checkToken: check.checkToken });
       }).then(function (answer) {
-        if (!answer || answer.ok === false || !answer.operationId) throw answer && answer.error || new Error(_('Сервер не создал операцию Telegram Proxy.'));
+        if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог установить Telegram Proxy.'));
         state.busy = null;
-        watchTgOperation(ctx, answer.operationId, start);
+        finishTgTransaction(ctx, answer, start, _('TG Proxy установлен'));
       }).catch(function (error) { state.busy = null; showError(ctx, error); });
     }
     tgTransactionConfirm(ctx, actionKindFor(liveCandidate), provider, liveCandidate, start);
@@ -727,10 +744,7 @@ function installPane(ctx, data) {
   function refreshChecks() {
     if (state.busy) return;
     state.busy = 'preflight';
-    Promise.allSettled([ctx.api.tg.product.catalog(), ctx.api.tg.product.versions()]).then(function () {
-      state.busy = null;
-      return ctx.refresh('proxy');
-    }).catch(function (error) { state.busy = null; showError(ctx, error); });
+    ctx.refresh('proxy').then(function () { state.busy = null; }).catch(function (error) { state.busy = null; showError(ctx, error); });
   }
 
   if (providerInstalled(status.installed)) {
@@ -738,9 +752,11 @@ function installPane(ctx, data) {
       tgUninstallConfirm(ctx, false, function () {
         state.busy = 'provider-remove';
         ctx.api.tg.product.remove({ confirm: 'REMOVE' }).then(function (answer) {
-          if (!answer || answer.ok === false || !answer.operationId) throw answer && answer.error || new Error(_('Сервер не создал операцию удаления.'));
+          if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог удалить Telegram Proxy.'));
           state.busy = null;
-          watchTgOperation(ctx, answer.operationId, null);
+          if (answer.operationId) { watchTgOperation(ctx, answer.operationId, null); return null; }
+          ctx.shell.showToast(_('TG Proxy удалён.'), 'ok');
+          return ctx.refresh('proxy');
         }).catch(function (error) { state.busy = null; showError(ctx, error); });
       });
     }, !!state.busy));
@@ -748,9 +764,11 @@ function installPane(ctx, data) {
       tgUninstallConfirm(ctx, true, function () {
         state.busy = 'provider-purge';
         ctx.api.tg.product.purge({ confirm: 'PURGE' }).then(function (answer) {
-          if (!answer || answer.ok === false || !answer.operationId) throw answer && answer.error || new Error(_('Сервер не создал операцию полной очистки.'));
+          if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог выполнить полную очистку.'));
           state.busy = null;
-          watchTgOperation(ctx, answer.operationId, null);
+          if (answer.operationId) { watchTgOperation(ctx, answer.operationId, null); return null; }
+          ctx.shell.showToast(_('TG Proxy и настройки удалены.'), 'ok');
+          return ctx.refresh('proxy');
         }).catch(function (error) { state.busy = null; showError(ctx, error); });
       });
     }, !!state.busy));

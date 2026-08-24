@@ -405,7 +405,21 @@ function render(ctx) {
   var paneBody = pane === 'backups' ? renderBackups(ctx, data)
     : pane === 'settings' ? renderSettings(ctx, data)
     : renderComponents(ctx, data);
-  var paneHost = E('div', { id: 'z2m-system-pane' }, paneBody);
+  // Optional products are delegated to their canonical owner pages: the
+  // System view never performs Telegram update/install RPCs itself.
+  var telegramDelegation = pane === 'components' ? E('section', { 'class': 'z2m-components-section' }, [
+    E('div', { 'class': 'z2m-components-section-head' }, [E('h2', {}, _('Опциональные компоненты')), E('span', { 'class': 'z2m-dim' }, _('Не влияют на основную работу'))]),
+    E('article', { 'class': 'z2m-component-card', 'data-component': 'telegram-tunnel' }, [
+      E('div', { 'class': 'z2m-component-card-head' }, [
+        E('div', {}, [E('h3', {}, _('Обновление TG Proxy')), E('p', { 'class': 'z2m-dim' }, _('Проверка обновлений и установка Telegram Proxy выполняются в его собственном разделе.'))]),
+        E('span', { 'class': 'z2m-chip o' }, _('Опционально'))
+      ]),
+      E('div', { 'class': 'z2m-component-card-actions' }, [
+        E('a', { href: '#/telegram-tunnel', 'class': 'z2m-btn primary sm' }, _('Открыть Telegram Proxy'))
+      ])
+    ])
+  ]) : null;
+  var paneHost = E('div', { id: 'z2m-system-pane' }, [paneBody, telegramDelegation]);
   var errors = [];
   Object.keys(data).forEach(function (key) {
     if (data[key] && data[key].error)
