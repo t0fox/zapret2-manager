@@ -180,6 +180,14 @@ static int discover_children(struct child_identity *tracked, size_t *count,
 		return -1;
 	fd = open(children_path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
+		if (errno == ENOENT) {
+			/* Kernels built without CONFIG_PROC_CHILDREN expose no
+			 * task/<tid>/children file. Degrade gracefully: supervise via
+			 * waitpid/status-pipe only; descendant signalling becomes a
+			 * no-op for this cycle. */
+			*count = 0;
+			return 0;
+		}
 #ifdef Z2M_TEST_CHILDREN_PATH
 		if (errno == ENOENT) return 0;
 #endif
