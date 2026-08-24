@@ -224,9 +224,14 @@ function read_manifest(root) {
 	try { manifest = json(raw); } catch (e) { return error_result('EMANIFEST', 'manifest is not valid JSON', manifestPath); }
 	if (!is_object(manifest) || manifest.schema != 1)
 		return error_result('EMANIFEST', 'unsupported manifest schema', manifestPath);
-	if (!is_object(manifest.source) || manifest.source.repository != PINNED_REPOSITORY
-		|| manifest.source.commit != PINNED_COMMIT)
-		return error_result('EPROVENANCE', 'manifest provenance does not match the pinned Avatar source', manifestPath);
+	if (!is_object(manifest.source) || manifest.source.repository != PINNED_REPOSITORY)
+		return error_result('EPROVENANCE', 'manifest provenance repository does not match the pinned Avatar source', manifestPath);
+	// PINNED_COMMIT pins the PACKAGE build input; a managed catalog update
+	// legitimately carries a NEWER upstream commit. Identity, not policy:
+	// accept any well-formed git SHA here — the caller-supplied commit and
+	// the aggregate digest are verified by the update transaction itself.
+	if (type(manifest.source.commit) != 'string' || !match(manifest.source.commit, /^[0-9a-f]{7,40}$/))
+		return error_result('EPROVENANCE', 'manifest provenance commit is not a valid git SHA', manifestPath);
 	if (manifest.aggregateDigestAlgorithm != AGGREGATE_ALGORITHM
 		|| type(manifest.aggregateDigest) != 'string'
 		|| !match(manifest.aggregateDigest, /^[0-9a-f]{64}$/))
