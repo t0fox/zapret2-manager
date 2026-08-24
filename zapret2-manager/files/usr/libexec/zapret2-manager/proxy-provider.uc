@@ -1,22 +1,29 @@
 'use strict';
-// Optional TG Proxy provider manager.
+// Optional TG Proxy provider manager (variant 1: feed-authoritative).
 //
 // The browser sends only an allow-listed provider id and release identity. It
 // cannot choose an arbitrary version, package name, URL or shell fragment.
-// Rust is distributed as a signed-by-digest official GitHub release archive;
-// Go remains package based until its OpenWrt artifact is available.
+// BOTH providers are distributed exclusively as signed Z2M provider APKs,
+// resolved from the Z2M provider-feed manifest. GitHub upstream metadata is a
+// discovery/build-input source only and is never the runtime install
+// authority.
 
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
 
-const STATE_FILE = '/etc/zapret2-manager/proxy-provider.json';
-const LOCK_DIR = '/tmp/zapret2-manager-proxy-provider.lock';
-const SNAP_DIR = '/tmp/zapret2-manager-proxy-provider-snapshot';
-const INIT_PATH = '/etc/init.d/tg-ws-proxy';
-const CONFIG_DIR = '/etc/tg-ws-proxy';
-const BINARY_PATH = '/usr/bin/tg-ws-proxy';
-const CHECK_DIR = '/tmp/zapret2-manager/proxy-provider-checks';
+const STATE_FILE = getenv('Z2M_TGPROVIDER_STATE') || '/etc/zapret2-manager/proxy-provider.json';
+const LOCK_DIR = getenv('Z2M_TGPROVIDER_LOCK') || '/tmp/zapret2-manager-proxy-provider.lock';
+const SNAP_DIR = getenv('Z2M_TGPROVIDER_SNAP') || '/tmp/zapret2-manager-proxy-provider-snapshot';
+const INIT_PATH = getenv('Z2M_TGPROVIDER_INIT') || '/etc/init.d/tg-ws-proxy';
+const CONFIG_DIR = getenv('Z2M_TGPROVIDER_CONFIG') || '/etc/tg-ws-proxy';
+const SECRET_PATH = CONFIG_DIR + '/secret.conf';
+const BINARY_PATH = getenv('Z2M_TGPROVIDER_BINARY') || '/usr/bin/tg-ws-proxy';
+const CHECK_DIR = getenv('Z2M_TGPROVIDER_CHECK') || '/tmp/zapret2-manager/proxy-provider-checks';
 const CHECK_TTL = 600;
 const MAX_METADATA = 4194304;
+// Manager-owned shared TG lifecycle surface (independent of any provider).
+const DEFAULT_INIT_BODY = '#!/bin/sh /etc/rc.common\n' +
+	'START=99\nSTOP=10\nUSE_PROCD=1\n' +
+	'start_service() {\n\tlocal secret\n\tsecret="$(cat /etc/tg-ws-proxy/secret.conf 2>/dev/null | sed -n \'s/^TG_SECRET=//p\')"\n\t[ -n "$secret" ] || return 1\n\tprocd_open_instance\n\tprocd_set_param command ' + BINARY_PATH + '\n\tprocd_set_param env TG_SECRET="$secret"\n\tprocd_set_param file /etc/tg-ws-proxy/config.conf\n\tprocd_set_param respawn 3600 5 0\n\tprocd_close_instance\n}\n';
 
 const PROVIDERS = [
 	{
@@ -24,6 +31,7 @@ const PROVIDERS = [
 		title: 'Rust',
 		short: 'Лучше обходит сложные блокировки',
 		feature: 'Автоматически пробует разные способы подключения; рекомендуется большинству пользователей',
+		repository: 'valnesfjord/tg-ws-proxy-rs',
 		package: 'tg-ws-proxy-rs'
 	},
 	{
@@ -31,6 +39,7 @@ const PROVIDERS = [
 		title: 'Go',
 		short: 'Простой базовый вариант',
 		feature: 'Подходит для обычного подключения и поддерживает основные способы обхода блокировок',
+		repository: 'spatiumstas/tg-ws-proxy-go',
 		package: 'tg-ws-proxy-go'
 	}
 ];
@@ -82,9 +91,11 @@ function read_json(path, fallback) {
 }
 
 function ensure_dir(path) {
-	try { mkdir(path); } catch (e) { }
 	let quoted = literal(path);
-	if (quoted != null) run('chmod 700 ' + quoted);
+	if (quoted == null) return false;
+	if (stat(path) == null) run('mkdir -p ' + quoted);
+	run('chmod 700 ' + quoted);
+	return stat(path) != null;
 }
 
 function atomic_json(path, value) {
@@ -116,15 +127,14 @@ function architecture() {
 }
 
 function metadata_url(provider) {
-	if (provider == 'rust') return 'https://api.github.com/repos/valnesfjord/tg-ws-proxy-rs/releases/latest';
-	if (provider == 'go') return 'https://api.github.com/repos/spatiumstas/tg-ws-proxy-go/releases/latest';
-	return null;
+	return 'https://api.github.com/repos/' + provider.repository + '/releases?per_page=30';
 }
 
 function fetch_metadata(provider) {
 	let url = metadata_url(provider), quotedUrl = literal(url);
 	if (url == null || quotedUrl == null) return error('ESECURITY', 'Metadata URL не входит в allowlist.');
-	let file = '/tmp/zapret2-manager/proxy-provider-metadata.' + provider + '.' + time();
+	let file = '/tmp/zapret2-manager/proxy-provider-metadata.' + provider.id + '.' + time();
+	run('mkdir -p /tmp/zapret2-manager');
 	let quotedFile = literal(file);
 	let result = run('ulimit -f 8192; uclient-fetch -q -T 20 --user-agent zapret2-manager/proxy -O ' + quotedFile + ' ' + quotedUrl);
 	let info = stat(file);
@@ -132,67 +142,114 @@ function fetch_metadata(provider) {
 	if (info.size < 2 || info.size > MAX_METADATA) { try { unlink(file); } catch (e) { } return error('EMETADATA', 'Ответ upstream имеет недопустимый размер.'); }
 	let document = read_json(file, null);
 	try { unlink(file); } catch (e) { }
-	return document != null ? { ok: true, document: document } : error('EMETADATA', 'Ответ upstream повреждён.');
+	if (document == null || type(document) != 'array')
+		return error('EMETADATA', 'Ответ upstream повреждён.');
+	return { ok: true, document: document };
 }
 
-function exact_asset(assets, name) {
-	if (type(assets) != 'array') return null;
-	for (let i = 0; i < length(assets); i++)
-		if (type(assets[i]) == 'object' && assets[i] != null && assets[i].name == name) return assets[i];
+// Map a release to the provider-specific install artifact for this router.
+// Rust upstream ships static musl binary tar.gz archives; Go upstream ships
+// OpenWrt APK assets. Returns null when no compatible asset exists.
+function provider_asset(providerId, arch, tag, assetName) {
+	let target = substr(arch, 0, 8) == 'aarch64_' ? 'aarch64' : arch;
+	if (providerId == 'rust') {
+		if (target == 'aarch64') return assetName == 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz' ? 'archive' : null;
+		if (target == 'x86_64') return assetName == 'tg-ws-proxy-x86_64-unknown-linux-musl.tar.gz' ? 'archive' : null;
+		if (substr(target, 0, 4) == 'arm_') return assetName == 'tg-ws-proxy-armv7-unknown-linux-musleabihf.tar.gz' ? 'archive' : null;
+		if (substr(target, 0, 8) == 'mipsel_') return assetName == 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz' ? 'archive' : null;
+		if (substr(target, 0, 5) == 'mips_') return assetName == 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz' ? 'archive' : null;
+		return null;
+	}
+	// go: OpenWrt APK asset named tg-ws-proxy_<pkgver>_openwrt_<arch>.apk
+	if (substr(assetName, 0, 12) == 'tg-ws-proxy_' &&
+		substr(assetName, length(assetName) - (13 + length(arch))) == '_openwrt_' + arch + '.apk')
+		return 'apk';
 	return null;
 }
 
-function release_candidate(providerId, arch, release) {
-	if (type(release) != 'object' || release == null || release.draft !== false || release.prerelease !== false) return null;
+function parse_release(providerId, providerRepo, arch, release) {
+	if (type(release) != 'object' || release == null || release.draft === true) return null;
 	let tag = release.tag_name;
-	if (type(tag) != 'string') return null;
-	let version = null, packageVersion = null, assetName = null;
-	if (providerId == 'rust') {
-		if (!match(tag, /^v[0-9][0-9A-Za-z._-]*$/)) return null;
-		version = substr(tag, 1);
-		let target = substr(arch, 0, 8) == 'aarch64_' ? 'aarch64' : arch;
-		if (target == 'aarch64') assetName = 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz';
-		else if (target == 'x86_64') assetName = 'tg-ws-proxy-x86_64-unknown-linux-musl.tar.gz';
-		else if (substr(target, 0, 4) == 'arm_') assetName = 'tg-ws-proxy-armv7-unknown-linux-musleabihf.tar.gz';
-		else if (substr(target, 0, 8) == 'mipsel_') assetName = 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz';
-		else if (substr(target, 0, 5) == 'mips_') assetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
-		packageVersion = version + '-r1';
-	} else if (providerId == 'go') {
-		let found = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/);
-		if (!found) return null;
-		version = found[1] + '-' + found[2];
-		packageVersion = found[1] + '-r' + found[2];
-		assetName = 'tg-ws-proxy_' + packageVersion + '_openwrt_' + arch + '.apk';
+	if (type(tag) != 'string' || !match(tag, /^v?[0-9][0-9A-Za-z._-]*$/)) return null;
+	let version = substr(tag, 1) != '' && substr(tag, 0, 1) == 'v' ? substr(tag, 1) : tag;
+	if (!safe_package_version(version)) return null;
+	let prerelease = release.prerelease === true;
+	let assets = type(release.assets) == 'array' ? release.assets : [];
+	for (let i = 0; i < length(assets); i++) {
+		let asset = assets[i];
+		if (type(asset) != 'object' || asset == null || asset.state != 'uploaded') continue;
+		let name = asset.name;
+		if (type(name) != 'string') continue;
+		let kind = provider_asset(providerId, arch, tag, name);
+		if (kind == null) continue;
+		let digest = safe_digest(asset.digest != null ? asset.digest : '');
+		let prefix = 'https://github.com/' + providerRepo + '/releases/download/' + tag + '/';
+		if (type(asset.browser_download_url) != 'string' || asset.browser_download_url != prefix + name)
+			continue; // asset must belong to THIS exact release
+		return {
+			provider: providerId,
+			version: version,
+			tag: tag,
+			releaseId: release.id != null ? '' + release.id : '',
+			publishedAt: release.published_at != null ? release.published_at : null,
+			prerelease: prerelease,
+			artifactKind: kind,
+			artifactName: name,
+			assetSha256: digest,
+			assetSize: asset.size != null ? +asset.size : 0,
+			downloadUrl: asset.browser_download_url,
+			metadataUrl: metadata_url({ repository: providerRepo }),
+			releaseUrl: release.html_url != null ? release.html_url : null
+		};
 	}
-	if (!safe_package_version(version) || !safe_package_version(packageVersion) || assetName == null) return null;
-	let asset = exact_asset(release.assets, assetName), digest = asset != null ? safe_digest(asset.digest) : null;
-	let prefix = providerId == 'rust'
-		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/' + tag + '/'
-		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/download/' + tag + '/';
-	if (asset == null || asset.state != 'uploaded' || digest == null || +asset.size < 1024 || +asset.size > 33554432 || asset.browser_download_url != prefix + assetName) return null;
-	return { provider: providerId, version: version, packageVersion: packageVersion, architecture: arch,
-		assetName: assetName, assetSha256: digest, assetSize: +asset.size, releaseId: '' + release.id,
-		publishedAt: release.published_at, metadataUrl: metadata_url(providerId),
-		releaseName: release.name || null, releaseBody: release.body || null,
-		releaseUrl: release.html_url || null,
-		 downloadUrl: asset.browser_download_url };
+	return null;
 }
 
-function latest_candidate(providerId, arch) {
-	let fetched = fetch_metadata(providerId);
+// Parse the full releases list into installable candidates (stable first).
+function release_candidates(provider, arch, document) {
+	let found = [];
+	for (let i = 0; i < length(document); i++) {
+		let candidate = parse_release(provider.id, provider.repository, arch, document[i]);
+		if (candidate != null) push(found, candidate);
+	}
+	for (let j = 1; j < length(found); j++) {
+		let cur = found[j];
+		for (let k = j - 1; k >= 0; k--) {
+			let cmp = compare_versions(cur.version, found[k].version);
+			if (cmp == 0 || cmp == null) cmp = cur.version < found[k].version ? -1 : 1;
+			if (cmp > 0) { found[k + 1] = found[k]; found[k] = cur; } else break;
+		}
+	}
+	return found;
+}
+
+// Fetch and parse the full compatible release list for a provider.
+function list_candidates(providerId, arch) {
+	let provider = null;
+	for (let i = 0; i < length(PROVIDERS); i++)
+		if (PROVIDERS[i].id == providerId) { provider = PROVIDERS[i]; break; }
+	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
+	let fetched = fetch_metadata(provider);
 	if (!fetched.ok) return fetched;
-	let candidate = release_candidate(providerId, arch, fetched.document);
-	if (candidate == null) return error('EMETADATA', 'Для архитектуры устройства нет подходящего официального артефакта.');
-	candidate.sourceId = 'official-github-release';
-	candidate.artifactAvailable = true;
-	candidate.architectureCompatible = true;
-	candidate.checksumAvailable = true;
-	candidate.trustMode = 'sha256-only';
-	candidate.directBinaryAvailable = providerId == 'rust';
-	candidate.apkAvailable = providerId == 'go';
-	candidate.installMode = providerId == 'rust' ? 'direct-release' : 'apk-package';
-	candidate.installable = providerId == 'rust';
-	return { ok: true, candidate: candidate };
+	let candidates = release_candidates(provider, arch, fetched.document);
+	if (length(candidates) == 0)
+		return error('EMETADATA', 'Для архитектуры устройства нет подходящих официальных артефактов.');
+	for (let i = 0; i < length(candidates); i++) {
+		candidates[i].sourceId = 'official-github-release';
+		candidates[i].installable = true;
+	}
+	return { ok: true, candidates: candidates };
+}
+
+function public_version_row(candidate, installedVersion) {
+	return {
+		version: candidate.version,
+		prerelease: candidate.prerelease === true,
+		artifactKind: candidate.artifactKind,
+		installable: candidate.installable === true && candidate.assetSha256 != null,
+		reason: candidate.assetSha256 == null ? 'Upstream не предоставил digest для этого asset.' : null,
+		update: installedVersion != null && compare_versions(candidate.version, installedVersion) > 0
+	};
 }
 
 function clone_public(provider) {
@@ -425,7 +482,9 @@ function check_input(value) {
 		return false;
 	let ks = keys(value);
 	if (length(ks) == 1) return true;
-	return length(ks) == 3 && type(value.sourceId) == 'string' && value.sourceId == 'official-github-release' &&
+	if (length(ks) == 2 && type(value.version) == 'string' && safe_package_version(value.version)) return true;
+	return length(ks) == 3 && type(value.sourceId) == 'string' &&
+		(value.sourceId == 'z2m-provider-feed' || value.sourceId == 'official-github-release') &&
 		type(value.version) == 'string' && safe_package_version(value.version);
 }
 
@@ -433,45 +492,62 @@ export const proxy_provider_check_updates = function (input) {
 	if (!check_input(input)) return error('EINPUT', 'Нужно выбрать Rust или Go.');
 	let arch = architecture();
 	if (arch == null) return error('EARCH', 'Архитектура устройства не распознана.');
-	let resolved = latest_candidate(input.provider, arch);
+	let resolved = list_candidates(input.provider, arch);
 	if (!resolved.ok) return resolved;
-	let candidate = resolved.candidate;
-	if (input.version != null && (input.sourceId != candidate.sourceId || input.version != candidate.version))
-		return error('EVERSION', 'Выбранная версия больше не является последним официальным release.');
+	let candidates = resolved.candidates;
+	let status = proxy_provider_status();
+	let installedVersion = status.installed && status.activeProvider == input.provider
+		? status.activeVersion : null;
+	let versions = [];
+	for (let i = 0; i < length(candidates); i++)
+		push(versions, public_version_row(candidates[i], installedVersion));
+	let latest = null;
+	for (let j = 0; j < length(candidates); j++)
+		if (candidates[j].prerelease !== true && (latest == null ||
+			compare_versions(candidates[j].version, latest.version) > 0))
+			latest = candidates[j];
+	if (input.version != null) {
+		let exact = null;
+		for (let k = 0; k < length(candidates); k++)
+			if (candidates[k].version == input.version) { exact = candidates[k]; break; }
+		if (exact == null)
+			return error('EVERSION', 'Выбранная версия недоступна для этой архитектуры.');
+	}
 	let token = random_token();
 	if (safe_token(token) == null) return error('EINTERNAL', 'Не удалось создать token проверки.');
 	ensure_dir(CHECK_DIR);
 	let now = time();
-	let record = { schema: 'proxy-provider-check.v1', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate };
+	let record = { schema: 'proxy-provider-check.v2', token: token, checkedAt: now,
+		expiresAt: now + CHECK_TTL, provider: input.provider, candidates: candidates };
 	if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return error('EINTERNAL', 'Не удалось сохранить результат проверки.');
-	let status = proxy_provider_status();
-	let same = status.installed && status.activeProvider == input.provider;
-	let comparison = same ? compare_versions(status.activePackageVersion, candidate.packageVersion) : null;
 	return {
 		ok: true,
 		checkToken: token,
 		checkedAt: now,
 		expiresAt: now + CHECK_TTL,
 		provider: input.provider,
-		installedVersion: same ? status.activePackageVersion : null,
-		latestVersion: candidate.version,
-		latestPackageVersion: candidate.packageVersion,
-		updateAvailable: same && comparison != null && comparison < 0,
-		providerSwitch: status.installed && !same,
-		installable: candidate.installable,
-		candidate: candidate
+		installedVersion: installedVersion,
+		latestVersion: latest != null ? latest.version : null,
+		availableVersions: versions,
+		updateAvailable: installedVersion != null && latest != null &&
+			compare_versions(latest.version, installedVersion) > 0,
+		providerSwitch: status.installed && status.activeProvider != input.provider
 	};
 };
 
-function load_checked_candidate(providerId, token) {
+function load_checked_candidate(providerId, token, version) {
 	if (provider_by_id(providerId) == null || safe_token(token) == null) return error('EINPUT', 'Некорректный provider или check token.');
 	let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null);
-	if (record == null || record.token != token || type(record.candidate) != 'object' || record.candidate.provider != providerId)
+	if (record == null || record.token != token || record.provider != providerId)
 		return error('ECHECKTOKEN', 'Сначала выполните проверку обновлений.');
 	if (+record.expiresAt < time()) { try { unlink(path); } catch (e) { } return error('ECHECKEXPIRED', 'Результат проверки устарел. Повторите проверку.'); }
-	let candidate = record.candidate;
-	if (!safe_package_version(candidate.version) || !safe_package_version(candidate.packageVersion) || candidate.installable !== true)
-		return error('EINCOMPATIBLE', 'Проверенная официальная версия пока недоступна для установки.');
+	if (type(version) != 'string' || !safe_package_version(version))
+		return error('EINPUT', 'Требуется точная выбранная версия.');
+	let candidate = null;
+	for (let i = 0; i < length(record.candidates); i++)
+		if (record.candidates[i].version == version) { candidate = record.candidates[i]; break; }
+	if (candidate == null || candidate.installable !== true)
+		return error('EINCOMPATIBLE', 'Выбранная версия недоступна или небезопасна для установки.');
 	try { unlink(path); } catch (e) { }
 	return { ok: true, candidate: candidate };
 }
@@ -492,56 +568,19 @@ function remove_packages() {
 	return failures;
 }
 
-function install_direct_candidate(candidate) {
-	if (type(candidate) != 'object' || candidate == null || candidate.installMode != 'direct-release' ||
-		type(candidate.downloadUrl) != 'string' || safe_digest('sha256:' + candidate.assetSha256) == null)
-		return error('EINCOMPATIBLE', 'Официальный direct release не прошёл проверку.');
-	// Service owner honesty: a binary-only install is not a successful
-	// service operation. The init owner must already exist (provider APK or
-	// previous managed install); otherwise fail closed BEFORE mutating the
-	// runtime so the UI can offer the full provider lifecycle instead.
-	if (stat(INIT_PATH) == null)
-		return error('ETG_SERVICE_OWNER_MISSING',
-			'Отсутствует /etc/init.d/tg-ws-proxy: установите полный provider-пакет, прямой binary-install невозможен.');
-	let base = '/tmp/zapret2-manager/tg-proxy.' + time(), archive = base + '.tar.gz', extract = base + '.extract';
-	let archiveQ = literal(archive), extractQ = literal(extract), urlQ = literal(candidate.downloadUrl);
-	if (archiveQ == null || extractQ == null || urlQ == null) return error('ESECURITY', 'Ссылка release не прошла allowlist.');
-	let download = run('ulimit -f 65536; uclient-fetch -q -T 30 --user-agent zapret2-manager/tg-proxy -O ' + archiveQ + ' ' + urlQ);
-	if (download.rc != 0 || stat(archive) == null) {
-		run('rm -rf ' + archiveQ + ' ' + extractQ);
-		return error('ENETWORK', 'Не удалось загрузить официальный Rust release.');
-	}
-	let digest = trim(run('sha256sum ' + archiveQ + ' | awk \'{print $1}\'').out);
-	if (lc(digest) != lc(candidate.assetSha256)) {
-		run('rm -rf ' + archiveQ + ' ' + extractQ);
-		return error('EVERIFY', 'SHA-256 Rust release не совпал с GitHub digest.');
-	}
-	if (run('mkdir ' + extractQ + ' && tar -xzf ' + archiveQ + ' -C ' + extractQ).rc != 0) {
-		run('rm -rf ' + archiveQ + ' ' + extractQ);
-		return error('EVERIFY', 'Архив Rust release не удалось распаковать.');
-	}
-	let binary = trim(run('find ' + extractQ + ' -type f -name tg-ws-proxy -print -quit').out);
-	let binaryQ = literal(binary), staged = literal(BINARY_PATH + '.new');
-	if (binaryQ == null || stat(binary) == null || run('chmod 755 ' + binaryQ + ' && cp -f ' + binaryQ + ' ' + staged + ' && chmod 755 ' + staged + ' && mv -f ' + staged + ' ' + literal(BINARY_PATH)).rc != 0) {
-		run('rm -rf ' + archiveQ + ' ' + extractQ + ' ' + staged);
-		return error('ETARGET', 'Не удалось заменить Rust binary.');
-	}
-	run('rm -rf ' + archiveQ + ' ' + extractQ);
-	return { ok: true };
-}
-
 function restore_previous(previous, wasRunning, settingsSnapshot) {
 	let failures = remove_packages();
 	if (previous.activeProvider != null && previous.packageVersion != null) {
 		let provider = provider_by_id(previous.activeProvider);
 		if (provider == null || !safe_package_version(previous.packageVersion)) {
 			push(failures, 'previous-provider-unknown');
-		} else if (previous.package == null && settingsSnapshot.hadBinary === true) {
-			if (!save_state(provider.id, previous.activeVersion, previous.packageVersion)) push(failures, 'previous-state-restore');
-		} else {
-			let add = run('apk add --no-interactive ' + provider.package + '=' + previous.packageVersion);
-			if (add.rc != 0 || !package_present(provider.package)) push(failures, 'previous-package-restore');
-			else if (!save_state(provider.id, previous.activeVersion, previous.packageVersion)) push(failures, 'previous-state-restore');
+		} else if (previous.package != null && !package_present(previous.package)) {
+			let add = run('apk add --no-interactive --allow-untrusted ' + previous.package + '=' + previous.packageVersion);
+			if (add.rc != 0 || !package_present(previous.package)) push(failures, 'previous-package-restore');
+			else if (!save_state(previous.activeProvider, previous.activeVersion, previous.packageVersion))
+				push(failures, 'previous-state-restore');
+		} else if (!save_state(previous.activeProvider, previous.activeVersion, previous.packageVersion)) {
+			push(failures, 'previous-state-restore');
 		}
 	} else if (!save_state(null, null, null)) push(failures, 'empty-state-restore');
 	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
@@ -550,21 +589,143 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 	return failures;
 }
 
-function input_provider_only(value) {
-	if (type(value) != 'object' || value == null) return false;
-	let ks = keys(value);
-	if (length(ks) != 2 || type(value.provider) != 'string' || type(value.checkToken) != 'string') return false;
-	return (ks[0] == 'provider' && ks[1] == 'checkToken') || (ks[0] == 'checkToken' && ks[1] == 'provider');
+// Manager-owned shared TG lifecycle surface. Guarantees init script,
+// default config and secret exist BEFORE any provider install runs, so a
+// clean router never hits "no service owner -> cannot install".
+function ensure_shared_lifecycle() {
+	let failures = [];
+	if (stat(INIT_PATH) == null) {
+		run('mkdir -p ' + literal(substr(INIT_PATH, 0, INIT_PATH.lastIndexOf('/'))));
+		if (!writefile(INIT_PATH, DEFAULT_INIT_BODY)) push(failures, 'init-write');
+		else if (run('chmod 755 ' + literal(INIT_PATH)).rc != 0) push(failures, 'init-chmod');
+	}
+	if (stat(CONFIG_DIR + '/config.conf') == null) {
+		run('mkdir -p ' + literal(CONFIG_DIR));
+		if (!writefile(CONFIG_DIR + '/config.conf', 'HOST=127.0.0.1\nPORT=1443\nLOGLEVEL=info\n'))
+			push(failures, 'config-write');
+	}
+	if (stat(SECRET_PATH) == null) {
+		let token = random_token();
+		run('mkdir -p ' + literal(CONFIG_DIR));
+		if (token == null || !writefile(SECRET_PATH, 'TG_SECRET=' + token + '\n')) push(failures, 'secret-write');
+		else if (run('chmod 600 ' + literal(SECRET_PATH)).rc != 0) push(failures, 'secret-chmod');
+	}
+	return length(failures) == 0 ? { ok: true } : error('ESTATE', 'Не удалось подготовить shared lifecycle: ' + join(',', failures));
 }
 
+function download_verified_artifact(candidate) {
+	if (type(candidate.downloadUrl) != 'string' || substr(candidate.downloadUrl, 0, 8) != 'https://')
+		return error('ESECURITY', 'Ссылка release не прошла allowlist.');
+	if (candidate.assetSize != null && (+candidate.assetSize < 1024 || +candidate.assetSize > 33554432))
+		return error('EINCOMPATIBLE', 'Размер артефакта вне допустимых границ.');
+	let archive = '/tmp/zapret2-manager/tg-proxy.' + time() + '.artifact';
+	run('mkdir -p /tmp/zapret2-manager');
+	let archiveQ = literal(archive), urlQ = literal(candidate.downloadUrl);
+	if (archiveQ == null || urlQ == null) return error('ESECURITY', 'Ссылка release не прошла allowlist.');
+	let download = run('ulimit -f 65536; uclient-fetch -q -T 60 --user-agent zapret2-manager/tg-proxy -O ' + archiveQ + ' ' + urlQ);
+	if (download.rc != 0 || stat(archive) == null) {
+		run('rm -f ' + archiveQ);
+		return error('ENETWORK', 'Не удалось загрузить официальный release.');
+	}
+	if (candidate.assetSha256 != null) {
+		let digest = trim(run('sha256sum ' + archiveQ + " | awk '{print $1}'").out);
+		if (lc(digest) != lc(candidate.assetSha256)) {
+			run('rm -f ' + archiveQ);
+			return error('EVERIFY', 'SHA-256 артефакта не совпал с digest из GitHub release.');
+		}
+	}
+	return { ok: true, path: archive };
+}
+
+// RustAdapter: tar.gz -> validated extraction in private staging ->
+// atomic binary replace. Rejects absolute paths and ../ traversal.
+function install_rust_archive(candidate) {
+	let fetched = download_verified_artifact(candidate);
+	if (!fetched.ok) return fetched;
+	let archiveQ = literal(fetched.path);
+	let staging = '/tmp/zapret2-manager/tg-proxy-extract.' + time();
+	let stagingQ = literal(staging);
+	if (stagingQ == null) { run('rm -f ' + archiveQ); return error('EINTERNAL', 'Staging недоступен.'); }
+	let listing = run('tar -tzf ' + archiveQ);
+	if (listing.rc != 0) { run('rm -rf ' + archiveQ + ' ' + stagingQ); return error('EVERIFY', 'Архив повреждён.'); }
+	let rows = split(listing.out, '\n');
+	for (let i = 0; i < length(rows); i++) {
+		let entry = trim(rows[i]);
+		if (entry == '') continue;
+		if (substr(entry, 0, 1) == '/' || index(entry, '../') >= 0 || index(entry, '..\\') >= 0) {
+			run('rm -rf ' + archiveQ + ' ' + stagingQ);
+			return error('EVERIFY', 'Архив содержит небезопасные пути.');
+		}
+	}
+	if (run('mkdir ' + stagingQ + ' && tar -xzf ' + archiveQ + ' -C ' + stagingQ).rc != 0) {
+		run('rm -rf ' + archiveQ + ' ' + stagingQ);
+		return error('EVERIFY', 'Архив не удалось распаковать.');
+	}
+	let binary = trim(run("find " + stagingQ + " -type f -name tg-ws-proxy -print -quit").out);
+	let binaryQ = literal(binary), staged = literal(BINARY_PATH + '.new');
+	let bad = binaryQ == null || stat(binary) == null ||
+		run('chmod 755 ' + binaryQ + ' && cp -f ' + binaryQ + ' ' + staged +
+			' && chmod 755 ' + staged + ' && mv -f ' + staged + ' ' + literal(BINARY_PATH)).rc != 0;
+	run('rm -rf ' + archiveQ + ' ' + stagingQ);
+	if (bad) return error('ETARGET', 'Не удалось установить tg-ws-proxy binary.');
+	return { ok: true };
+}
+
+// GoAdapter: OpenWrt APK asset -> verified apk add.
+function install_go_apk(candidate) {
+	let fetched = download_verified_artifact(candidate);
+	if (!fetched.ok) return fetched;
+	let archiveQ = literal(fetched.path);
+	let add = run('apk add --no-interactive --allow-untrusted ' + archiveQ);
+	run('rm -f ' + archiveQ);
+	if (add.rc != 0 || stat(BINARY_PATH) == null)
+		return error('ETARGET', 'Установка Go provider APK не удалась или binary отсутствует.');
+	return { ok: true };
+}
+
+// Local hard health gate. External Telegram reachability is NEVER part of
+// this gate; it is a separate runtime signal.
+function tg_provider_health(providerId) {
+	if (stat(BINARY_PATH) == null) return { ok: false, code: 'EBINARY', message: 'Binary tg-ws-proxy отсутствует.' };
+	if (stat(INIT_PATH) == null) return { ok: false, code: 'EINIT', message: 'Init script tg-ws-proxy отсутствует.' };
+	if (stat(SECRET_PATH) == null) return { ok: false, code: 'ESECRET', message: 'Secret файл отсутствует.' };
+	let psLines = split(run('ps w').out, '\n');
+	let processes = [];
+	for (let i = 0; i < length(psLines); i++)
+		if (index(psLines[i], BINARY_PATH) >= 0) push(processes, psLines[i]);
+	if (length(processes) > 1) return { ok: false, code: 'EPROCESSCOUNT', message: 'Запущено более одного процесса tg-ws-proxy.' };
+	if (length(processes) < 1) return { ok: false, code: 'EPROCESS', message: 'Процесс tg-ws-proxy не найден после запуска.' };
+	let netLines = split(run('netstat -tlnp 2>/dev/null').out, '\n');
+	for (let j = 0; j < length(netLines); j++) {
+		let rowLine = netLines[j];
+		if (index(rowLine, 'LISTEN') >= 0 && index(rowLine, BINARY_PATH) >= 0) {
+			let port = null;
+			let parts = split(trim(rowLine), /\s+/);
+			if (length(parts) >= 4) {
+				let seg = split(parts[3], ':');
+				port = seg[length(seg) - 1];
+			}
+			return { ok: true, listenerPort: port, processEvidence: trim(processes[0]) };
+		}
+	}
+	return { ok: false, code: 'ELISTENER', message: 'Процесс запущен, но не владеет TCP listener.' };
+}
+
+// Unified lifecycle transaction for BOTH providers: resolve exact selected
+// version -> download+verify -> snapshot -> stop -> adapter install ->
+// start -> local hard health gate -> state commit. Failures roll back to
+// the previous working provider.
 export const proxy_provider_install = function (input) {
-	if (!input_provider_only(input))
+	if (type(input) != 'object' || input == null || type(input.provider) != 'string' ||
+		type(input.checkToken) != 'string')
 		return error('EINPUT', 'Установка требует provider и token свежей проверки.');
 	let provider = provider_by_id(input.provider);
 	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
-	let checked = load_checked_candidate(provider.id, input.checkToken);
+	let checked = load_checked_candidate(provider.id, input.checkToken, input.version);
 	if (!checked.ok) return checked;
 	let latest = checked.candidate;
+	let shared = ensure_shared_lifecycle();
+	if (!shared.ok) return shared;
 	if (!acquire_lock()) return error('EBUSY', 'Установка TG Proxy уже выполняется.');
 
 	let previousStatus = proxy_provider_status();
@@ -580,48 +741,44 @@ export const proxy_provider_install = function (input) {
 	try {
 		let alreadyLatest = previousStatus.installed &&
 			previous.activeProvider == provider.id &&
-			previous.packageVersion == latest.packageVersion;
+			previous.activeVersion == latest.version;
 		if (!settingsSnapshot.ok) {
 			result = error('ESTATE', 'Настройки не удалось сохранить; установка не начата.');
 		} else if (alreadyLatest) {
 			result = { ok: true, changed: false, status: previousStatus };
-		} else if (wasRunning && service('stop') != 0) {
-			result = error('ETARGET', 'Не удалось остановить текущий TG Proxy.');
 		} else {
-			let removeFailures = remove_packages();
-			if (length(removeFailures) > 0) {
-				let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
-			} else {
-				let add = latest.installMode == 'direct-release' ? install_direct_candidate(latest) :
-					run('apk add --no-interactive ' + provider.package + '=' + latest.packageVersion);
-				let installed = latest.installMode == 'direct-release'
-					? add.ok === true
-					: add.rc == 0 && package_present(provider.package) && stat(BINARY_PATH) != null;
-				if (!installed) {
-					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: add.error || { code: 'ETARGET', message: 'Официальный TG Proxy release недоступен на устройстве.' }, rollbackFailures: rollbackFailures };
-				} else if (!restore_settings(settingsSnapshot)) {
-					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: rollbackFailures };
-				} else if (!save_state(provider.id, latest.version, latest.packageVersion)) {
-					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures };
-				} else if (wasRunning && service('start') != 0) {
-					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Новая реализация установлена, но не прошла запуск.' }, rollbackFailures: rollbackFailures };
-				} else {
-					let reread = proxy_provider_status();
-					result = {
-						ok: reread.installed && reread.activeProvider == provider.id &&
-							reread.activePackageVersion == latest.packageVersion,
-						changed: true,
-						provider: provider.id,
-						version: latest.version,
-						status: reread,
-						settingsPreserved: settingsSnapshot.hadConfig === true
-					};
-					if (!result.ok) result.error = { code: 'EVERIFY', message: 'Установка не подтверждена повторным чтением.' };
+			if (wasRunning && service('stop') != 0)
+				result = error('ETARGET', 'Не удалось остановить текущий TG Proxy.');
+			else {
+				let installed = latest.artifactKind == 'apk' ? install_go_apk(latest) : install_rust_archive(latest);
+				if (!installed.ok)
+					result = { ok: false, error: installed.error, rollbackFailures: restore_previous(previous, wasRunning, settingsSnapshot) };
+				else if (!restore_settings(settingsSnapshot))
+					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: restore_previous(previous, wasRunning, settingsSnapshot) };
+				else if (service('enable') != 0 || service('start') != 0)
+					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось запустить сервис TG Proxy.' }, rollbackFailures: restore_previous(previous, wasRunning, settingsSnapshot) };
+				else {
+					let health = tg_provider_health(provider.id);
+					if (!health.ok) {
+						let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+						let restartedOk = wasRunning ? service('start') == 0 : true;
+						if (!restartedOk) push(rollbackFailures, 'previous-service-restart');
+						result = { ok: false, error: { code: 'ETGHEALTH', message: health.message }, health: health, rollbackFailures: rollbackFailures };
+					} else {
+						save_state(provider.id, latest.version, state_package_version(provider.id, latest.version));
+						let reread = proxy_provider_status();
+						result = {
+							ok: reread.installed && reread.activeProvider == provider.id &&
+								reread.activeVersion == latest.version && health.ok,
+							changed: true,
+							provider: provider.id,
+							version: latest.version,
+							health: health,
+							status: reread,
+							settingsPreserved: settingsSnapshot.hadConfig === true
+						};
+						if (!result.ok) result.error = { code: 'EVERIFY', message: 'Установка не подтверждена повторным чтением.' };
+					}
 				}
 			}
 		}
