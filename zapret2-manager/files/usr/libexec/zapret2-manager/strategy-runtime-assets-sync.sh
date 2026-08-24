@@ -42,13 +42,16 @@ ensure_dir "$ETC_ROOT/lists"
 [ -f "$ETC_ROOT/lists/whitelist.txt" ] || touch "$ETC_ROOT/lists/whitelist.txt"
 
 # The nfqws2 daemon persists circular host bindings while rpcd reads them from
-# the canonical Z2M state path. Keep this narrow state directory writable by
-# daemon without widening permissions on the rest of /etc/zapret2-manager.
+# the canonical Z2M state path. z2m-root-bootstrap policy requires
+# /etc/zapret2-manager/state to stay root:root (it refuses gid!=0 at boot),
+# so only the narrow autocircular leaf is handed to the daemon group.
 ensure_dir "$STATE_ROOT"
+if [ "$(id -u)" = "0" ]; then
+	chown root:root "$STATE_ROOT" 2>/dev/null || true
+	chmod 0755 "$STATE_ROOT"
+fi
 ensure_dir "$STATE_DIR"
 if [ "$(id -u)" = "0" ]; then
-	chown root:daemon "$STATE_ROOT" 2>/dev/null || true
-	chmod 0750 "$STATE_ROOT"
 	chown root:daemon "$STATE_DIR" 2>/dev/null || true
 	chmod 0770 "$STATE_DIR"
 fi
