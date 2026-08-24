@@ -24,6 +24,13 @@ test('direct-release binary-copy path is fully removed', () => {
   assert.doesNotMatch(source, /direct-release/);
 });
 
+test('shell commands stay within BusyBox (OpenWrt) compatibility', () => {
+  // Real-router failure evidence: busybox find rejects the GNU -quit action
+  // ("unrecognized: -quit"), which broke every RustAdapter install on the
+  // target. First-match selection goes through head instead.
+  assert.doesNotMatch(source, /-quit\b/, 'busybox find has no -quit action');
+});
+
 test('shared lifecycle owner is ensured before any install mutation', () => {
   assert.match(source, /function ensure_shared_lifecycle/);
   const ensuredAt = source.indexOf('ensure_shared_lifecycle()');

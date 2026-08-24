@@ -661,7 +661,7 @@ function install_rust_archive(candidate) {
 		run('rm -rf ' + archiveQ + ' ' + stagingQ);
 		return error('EVERIFY', 'Архив не удалось распаковать.');
 	}
-	let binary = trim(run("find " + stagingQ + " -type f -name tg-ws-proxy -print -quit").out);
+	let binary = trim(run("find " + stagingQ + " -type f -name tg-ws-proxy | head -n 1").out);
 	let binaryQ = literal(binary), staged = literal(BINARY_PATH + '.new');
 	let bad = binaryQ == null || stat(binary) == null ||
 		run('chmod 755 ' + binaryQ + ' && cp -f ' + binaryQ + ' ' + staged +
