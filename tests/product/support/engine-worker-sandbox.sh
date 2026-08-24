@@ -97,7 +97,7 @@ start_fw() { :; }
 reload_ifsets() { :; }
 list_table() { :; }
 extra_command "start" "x"
-case "${1:-}" in start) echo 1234 > /tmp/z2m-ws-nfqws-pid ;; stop) rm -f /tmp/z2m-ws-nfqws-pid ;; esac
+case "${1:-}" in start) grep -q '^NFQWS2_ENABLE=1' /opt/zapret2/config 2>/dev/null && echo 1234 > /tmp/z2m-ws-nfqws-pid || true ;; stop) rm -f /tmp/z2m-ws-nfqws-pid ;; esac
 exit 0
 EOF
 chmod +x /etc/init.d/zapret2
@@ -186,6 +186,8 @@ fi
 # DELEGATES to the real CLI so the true engine-manager.uc capability gate
 # (capabilities.json path + 3/3 enforcement) is exercised on every run.
 CLI_DIR=/usr/libexec/zapret2-manager
+# Track pre-existence so cleanup can safely wipe only what we created.
+CLI_PREEXISTING=0; [ -d "$CLI_DIR" ] && CLI_PREEXISTING=1
 mkdir -p "$CLI_DIR"
 # Repo root inferred from the sync script location (…/files/usr/libexec/zapret2-manager/x)
 REPO_OF_SYNC=$(cd "$(dirname "$SYNC")/../../../../.." && pwd)
@@ -196,10 +198,11 @@ elif [ -f "$HOME/z2m-build/zapret2-manager/files/usr/libexec/zapret2-manager/eng
 else
 	die 'real engine-cli.uc source not found for commit-state delegation'
 fi
-cp "$SRC_LIB/engine-manager.uc" "$CLI_DIR/engine-manager.uc"
-cp "$SRC_LIB/engine-catalog.uc" "$CLI_DIR/engine-catalog.uc"
-mkdir -p "$CLI_DIR/core"
-cp "$SRC_LIB/core/private-temp.uc" "$CLI_DIR/core/private-temp.uc"
+# Copy the WHOLE real backend tree: status.uc (postflight) imports a deep
+# module closure (core/status-collector.uc -> observations/state-store/compat,
+# qlen/apply/strategy-status, ...) that grows with every backend refactor.
+# Cherry-picking files here made the sandbox silently drift out of sync.
+cp -a "$SRC_LIB/." "$CLI_DIR/"
 # commit-state entry point: imports the REAL manager (capability gate) and
 # prints the verdict JSON. Kept as a separate file so the phase/failed logger
 # stub stays dependency-free.
@@ -261,7 +264,7 @@ exit(0);
 STUB
 	;;
 esac
-chmod +x "$CLI_DIR/native-preflight.uc"
+chmod +x "$CLI_DIR/preflight-cli.uc"
 
 # Commit scenario: postflight must pass end-to-end. Seed the runtime state it
 # expects: previous OFFICIAL engine-state (detached install), no running
@@ -344,9 +347,13 @@ printf '{"workerRc":%s,"phase":"%s","errorCode":"%s","oldTreeRestored":%s,"commi
 # cleanup global touches
 cp -a "$CLI_DIR" /root/z2m-cli-last 2>/dev/null || true
 rm -f /etc/init.d/zapret2 /etc/openwrt_release
-rm -rf /opt/zapret2 "$PKG" "$CLI_DIR/engine-cli.uc" "$CLI_DIR/engine-cli-real.uc" \
-	"$CLI_DIR/z2m-root-bootstrap" "$CLI_DIR/engine-manager.uc" "$CLI_DIR/engine-catalog.uc" \
-	"$CLI_DIR/core" "$CLI_DIR/native-preflight.uc" "$CLI_DIR/status.uc" "$CLI_DIR/strategy-runtime-assets-sync.sh"
+rm -rf /opt/zapret2 "$PKG"
+if [ "$CLI_PREEXISTING" = 1 ]; then
+	rm -f "$CLI_DIR/engine-cli.uc" "$CLI_DIR/preflight-cli.uc" \
+		"$CLI_DIR/commit-entry.uc" "$CLI_DIR/strategy-runtime-assets-sync.sh"
+else
+	rm -rf "$CLI_DIR"
+fi
 [ "$UCODE_MADE" = 1 ] && rm -f /usr/bin/ucode
 rm -rf /tmp/zapret2-manager
 if [ "${WS_KEEP:-0}" = 1 ]; then
