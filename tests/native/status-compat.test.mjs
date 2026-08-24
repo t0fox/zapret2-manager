@@ -75,11 +75,19 @@ test('current status collector freezes the schema-3 assembly contract before ref
   assert.match(collector, /writefile\(PATHS\.status_json/);
 });
 
-test('rpc status method preserves direct schema-3 cache behavior and three-second TTL', () => {
+test('rpc status method serves cached schema-3 snapshot non-blocking with three-second TTL', () => {
   const source = fs.readFileSync(RPC, 'utf8');
   assert.match(source, /const CACHE_TTL\s*=\s*3;/);
   assert.match(source, /status:\s*\{\s*call:\s*function\s*\(req\)\s*\{\s*return status_method\(req\);\s*\}\s*\}/);
-  assert.match(source, /function status_method\(req\)[\s\S]*?return json\(raw\);/);
+  // Non-blocking contract: serve the cached snapshot immediately, never run
+  // the full collector inline (it starved every other rpcd call on target).
+  assert.match(source, /function status_method\(req\)\s*\{\s*status_refresh_async\(\);\s*let raw = readfile\(STATUS_JSON\);/);
+  assert.match(source, /EPENDING/);
+  assert.match(source, /function cache_fresh\(\)[\s\S]*?CACHE_TTL/);
+  assert.match(source, /value\.stale = true;/);
+  // The background refresh must be a single-flight mkdir-lock around the
+  // standalone collector process, not an inline collection.
+  assert.match(source, /function status_refresh_async\(\)[\s\S]*?status\.refresh\.lock[\s\S]*?COLLECTOR/);
   assert.doesNotMatch(source, /function status_method[\s\S]*?result_ok|schemaVersion:\s*1/);
 });
 
