@@ -127,7 +127,7 @@ jobs:
         run: |
           if [ -d test-diagnostics ]; then
             for f in test-diagnostics/*; do
-              echo "=== $f" >> "$GITHUB_STEP_SUMMARY"
-              cat "$f" >> "$GITHUB_STEP_SUMMARY"
+              echo "=== $f" | tee -a "$GITHUB_STEP_SUMMARY"
+              cat "$f" | tee -a "$GITHUB_STEP_SUMMARY"
             done
           fi
