@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=luci-app-zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=150
+PKG_RELEASE:=151
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -31,6 +31,8 @@ define Package/luci-app-zapret2-manager/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/zapret2-manager
 	$(foreach js,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.js),$(INSTALL_DATA) $(js) $(1)/www/luci-static/resources/view/zapret2-manager/;)
 	$(foreach css,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.css),$(INSTALL_DATA) $(css) $(1)/www/luci-static/resources/view/zapret2-manager/;)
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/zapret2-manager/icons
+	$(foreach icon,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/icons/*.svg),$(INSTALL_DATA) $(icon) $(1)/www/luci-static/resources/view/zapret2-manager/icons/;)
 endef
 define Package/luci-app-zapret2-manager/postinst
 #!/bin/sh

@@ -28,7 +28,9 @@ export const append_ndjson = function(path, value) {
 	let line = sprintf('%J', value);
 	if (path == null || length(line) == 0 || length(line) > MAX_EVENT_LINE) return false;
 	let lock = path + '.lock';
-	let cmd = 'umask 077; exec 9>' + shell_quote(lock) +
+	let parent = substr(path, 0, rindex(path, '/'));
+	let ensure = parent ? 'mkdir -p ' + shell_quote(parent) + '; ' : '';
+	let cmd = ensure + 'umask 077; exec 9>' + shell_quote(lock) +
 		'; flock -w 2 -x 9 || exit 75; printf \'%s\\n\' ' + shell_quote(line) +
 		' >> ' + shell_quote(path);
 	let p = popen(cmd + ' 2>/dev/null', 'r');

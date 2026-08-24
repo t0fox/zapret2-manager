@@ -294,7 +294,13 @@ function mount(ctx) {
       state.operation = answer && answer.operation || null;
       state.inflight = false;
       state.redraw();
-      if (state.operation && terminal(state.operation.phase)) refresh(ctx);
+      if (state.operation && terminal(state.operation.phase)) {
+        refresh(ctx).then(function () {
+          if (ctx.invalidateCache) ctx.invalidateCache('components');
+          if (ctx.invalidateCache) ctx.invalidateCache('system');
+          if (ctx.refresh) return ctx.refresh('components');
+        }).catch(function () {});
+      }
     }).catch(function () { state.inflight = false; });
   }, POLL_MS);
 }
