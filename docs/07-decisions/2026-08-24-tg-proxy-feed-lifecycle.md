@@ -85,11 +85,11 @@ real-router acceptance (root@192.168.1.1 verified reachable).
 
 ## 9. Remaining work (actionable)
 
-- [ ] Go discovery fixtures + GoAdapter sandbox test
-- [ ] Rust->Go and Go->Rust switch sandbox tests
-- [ ] failed-health rollback sandbox test
-- [ ] reboot persistence check (enabled state) on router
-- [ ] LuCI Telegram page wiring to availableVersions[] UX
-- [ ] CI gate registration for the new suite
-- [ ] real-router acceptance: Rust clean install / remove / Go / switch
-- [ ] browser acceptance across all v1 pages after TG changes
+- [x] Go discovery fixtures + GoAdapter sandbox test (tg-provider-transaction 6 tests green)
+- [x] Rust->Go and Go->Rust switch sandbox tests (config preservation verified)
+- [x] failed-health rollback sandbox test (ETGHEALTH -> restore_previous, state+config preserved)
+- [ ] reboot persistence check (enabled state) on router (requires root@192.168.1.1)
+- [x] LuCI Telegram page wiring to availableVersions[] UX (z2m-api + z2m-proxy-page-core checkUpdates map)
+- [x] CI gate registration for the new suite (clean-install-regression.yml includes tg-provider-transaction)
+- [ ] real-router acceptance: Rust clean install / remove / Go / switch (target reachable, pending apk run with SDK)
+- [ ] browser acceptance across all v1 pages after TG changes (requires Playwright run on built LuCI)

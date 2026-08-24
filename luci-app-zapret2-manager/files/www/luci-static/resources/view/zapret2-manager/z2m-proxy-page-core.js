@@ -93,7 +93,7 @@ function load(ctx) {
     ctx.api.tg.product.versions(),
     ctx.api.tg.product.operationStatus({})
   ]).then(function (results) {
-    return {
+    var base = {
       capabilities: settled(results[0], ctx.api),
       status: settled(results[1], ctx.api),
       config: settled(results[2], ctx.api),
@@ -104,8 +104,21 @@ function load(ctx) {
       providerPreflight: settled(results[5], ctx.api),
       providerVersions: settled(results[7], ctx.api),
       providerOperation: settled(results[8], ctx.api),
-      providerUpdates: { value: { providers: [] } }
+      providerUpdates: { value: {} }
     };
+    var providers = ['rust', 'go'];
+    return Promise.all(providers.map(function (id) {
+      return ctx.api.tg.product.checkUpdates({ provider: id }).then(function (answer) {
+        return { id: id, answer: answer };
+      }).catch(function (error) {
+        return { id: id, answer: { ok: false, error: ctx.api.normalizeError(error) } };
+      });
+    })).then(function (updates) {
+      var map = {};
+      updates.forEach(function (item) { map[item.id] = item.answer; });
+      base.providerUpdates = { value: map };
+      return base;
+    });
   });
 }
 function appliedConfig(data) {
@@ -570,8 +583,30 @@ function providerCard(ctx, data, provider, status, releasePanel) {
     .filter(function (item) { return item && item.provider === provider.id; })[0] || {};
   var versionRow = providerVersions(data).filter(function (item) { return item && item.id === provider.id; })[0] || {};
   var versions = array(versionRow.versions);
+  var updateAnswer = object(data.providerUpdates && data.providerUpdates.value && data.providerUpdates.value[provider.id]);
+  var updateChoices = [];
+  if (updateAnswer && updateAnswer.ok && Array.isArray(updateAnswer.availableVersions)) {
+    updateChoices = updateAnswer.availableVersions.map(function (v) {
+      return {
+        version: v.version,
+        prerelease: v.prerelease === true,
+        artifactKind: v.artifactKind,
+        installable: v.installable === true,
+        unavailableReason: v.reason || null,
+        incompatibilityReason: v.reason || null,
+        artifactAvailable: v.installable === true,
+        architectureCompatible: v.installable === true,
+        sourceId: 'official-github-release',
+        displayVersion: v.version + (v.prerelease ? ' (prerelease)' : ''),
+        update: v.update,
+        releaseUrl: v.releaseUrl || null,
+        releaseBody: v.releaseBody || null
+      };
+    });
+  }
   var selection = state.tgSelections[provider.id] || {};
-  var choices = versionChoices(versions);
+  var fallbackChoices = versionChoices(versions);
+  var choices = updateChoices.length ? updateChoices : fallbackChoices;
   var first = choices[0] || {};
   var selected = candidateForVersion(choices, selection.version || first.version);
   if (selected.version) state.tgSelections[provider.id] = { sourceId: selected.sourceId, version: selected.version };

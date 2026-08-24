@@ -81,9 +81,9 @@ function normalizeError(error){
 }
 function tgEdit(method, value) { return method(JSON.stringify(value || {})); }
 function tgCheckUpdates(selection) {
- if (selection && selection.provider && selection.sourceId && selection.version)
+ if (selection && selection.provider)
   return tgEdit(calls.tgProductCheckUpdates, selection);
- return Promise.resolve({ok:true, providers:[]});
+ return Promise.resolve({ok:false, error:{code:'EINPUT', message:'provider required'}});
 }
  return baseclass.extend({
   normalizeError:normalizeError,all:calls,

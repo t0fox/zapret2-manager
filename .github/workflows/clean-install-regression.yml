@@ -55,7 +55,8 @@ jobs:
             tests/product/engine-worker-transaction.test.mjs \
             tests/product/avatar-strategy-catalog.test.mjs \
             tests/product/strategy-catalog-authority.test.mjs \
-            tests/product/tg-install-owner-contract.test.mjs
+            tests/product/tg-install-owner-contract.test.mjs \
+            tests/product/tg-provider-transaction.test.mjs
 
       - name: Engine identity + manifest contracts (release)
         run: node --test tests/release/engine-producer-contract.test.mjs
