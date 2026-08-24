@@ -84,7 +84,7 @@ test('materialize failure rolls back to the previous engine payload', { skip: !c
 
 test('capability proof failure rolls back and never commits engine-state', { skip: !canRun && 'requires passwordless sudo on Linux' }, () => {
   const verdict = runSandbox('capabilities');
-  try { if (verdict.phase !== 'rolled_back') dumpDiagnostics('capabilities'); } catch (e) { dumpDiagnostics('capabilities'); }
+  if (verdict.phase !== 'rolled_back' || verdict.errorCode !== 'ECAPABILITY') dumpDiagnostics('capabilities');
   assert.equal(verdict.phase, 'rolled_back', JSON.stringify(verdict));
   assert.equal(verdict.errorCode, 'ECAPABILITY');
   assert.equal(verdict.oldTreeRestored, true);
