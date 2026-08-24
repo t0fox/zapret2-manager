@@ -242,7 +242,9 @@ function synthetic_environment_with_inputs(runtimeInputs) {
 		synack: { present: true }, synack_split: { present: true }, pktmod: { present: true },
 		z2k_dynamic_ttl: { present: true }, z2k_quic_morph_v2: { present: true },
 		z2k_timing_morph: { present: true }, z2k_range_rand: { present: true },
-		z2k_nohost_key: { present: true }
+		z2k_nohost_key: { present: true },
+		z2k_mid_stream_stall: { present: true }, z2k_http_success_positive_only: { present: true },
+		z2k_ipfrag3_tiny: { present: true }, z2k_ipfrag3: { present: true }
 	};
 	let fakeFiles = [];
 	try { fakeFiles = lsdir('/opt/zapret2/files/fake') || []; } catch (e) { fakeFiles = []; }
