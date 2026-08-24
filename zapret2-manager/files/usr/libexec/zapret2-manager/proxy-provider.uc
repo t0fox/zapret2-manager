@@ -21,9 +21,20 @@ const CHECK_DIR = getenv('Z2M_TGPROVIDER_CHECK') || '/tmp/zapret2-manager/proxy-
 const CHECK_TTL = 600;
 const MAX_METADATA = 4194304;
 // Manager-owned shared TG lifecycle surface (independent of any provider).
+// Keys must stay within proxycfg's CONF_KEY_MAP (LOGLEVEL is not one).
+const DEFAULT_CONFIG_BODY = '# Default Telegram MTProto WebSocket proxy configuration (manager-owned).\n' +
+	'# Provider updates preserve this file.\n\nHOST=127.0.0.1\nPORT=1443\n';
 const DEFAULT_INIT_BODY = '#!/bin/sh /etc/rc.common\n' +
 	'START=99\nSTOP=10\nUSE_PROCD=1\n' +
-	'start_service() {\n\tlocal secret\n\tsecret="$(cat /etc/tg-ws-proxy/secret.conf 2>/dev/null | sed -n \'s/^TG_SECRET=//p\')"\n\t[ -n "$secret" ] || return 1\n\tprocd_open_instance\n\tprocd_set_param command ' + BINARY_PATH + '\n\tprocd_set_param env TG_SECRET="$secret"\n\tprocd_set_param file /etc/tg-ws-proxy/config.conf\n\tprocd_set_param respawn 3600 5 0\n\tprocd_close_instance\n}\n';
+	'start_service() {\n\tlocal secret host port\n' +
+	'\tsecret="$(cat /etc/tg-ws-proxy/secret.conf 2>/dev/null | sed -n \'s/^TG_SECRET=//p\')"\n' +
+	'\thost="$(cat /etc/tg-ws-proxy/config.conf 2>/dev/null | sed -n \'s/^HOST=//p\' | head -n 1)"\n' +
+	'\tport="$(cat /etc/tg-ws-proxy/config.conf 2>/dev/null | sed -n \'s/^PORT=//p\' | head -n 1)"\n' +
+	'\t[ -n "$secret" ] || return 1\n' +
+	'\tprocd_open_instance\n\tprocd_set_param command ' + BINARY_PATH + '\n' +
+	'\tprocd_set_param env TG_SECRET="$secret" TG_HOST="$host" TG_PORT="$port"\n' +
+	'\tprocd_set_param file /etc/tg-ws-proxy/config.conf\n' +
+	'\tprocd_set_param respawn 3600 5 0\n\tprocd_close_instance\n}\n';
 
 const PROVIDERS = [
 	{
@@ -601,7 +612,7 @@ function ensure_shared_lifecycle() {
 	}
 	if (stat(CONFIG_DIR + '/config.conf') == null) {
 		run('mkdir -p ' + literal(CONFIG_DIR));
-		if (!writefile(CONFIG_DIR + '/config.conf', 'HOST=127.0.0.1\nPORT=1443\nLOGLEVEL=info\n'))
+		if (!writefile(CONFIG_DIR + '/config.conf', DEFAULT_CONFIG_BODY))
 			push(failures, 'config-write');
 	}
 	if (stat(SECRET_PATH) == null) {
