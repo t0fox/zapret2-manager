@@ -173,15 +173,18 @@ chmod +x "$BIN/jsonfilter"
 CLI_DIR=/usr/libexec/zapret2-manager
 mkdir -p "$CLI_DIR"
 # The worker invokes /usr/bin/ucode by absolute path; provide a wrapper around
-# the locally built interpreter when none exists.
+# the locally built interpreter when none exists. Honor the caller-provided
+# UCODE_BIN (CI gates build pinned ucode outside /opt/ucode).
 UCODE_MADE=0
 if [ ! -e /usr/bin/ucode ]; then
-	cat > /usr/bin/ucode <<'STUB'
+	UCODE_SRC=${UCODE_BIN:-/opt/ucode/bin/ucode}
+	UCODE_LIB=$(CDPATH= cd -- "$(dirname -- "$UCODE_SRC")/../lib" 2>/dev/null && pwd || printf /opt/ucode/lib)
+	cat > /usr/bin/ucode <<STUB
 #!/bin/sh
 # Router ucode tolerates trailing --flags passed to scripts; this host build
 # does not. Strip leading dashes from args AFTER the first (script) path.
-LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/opt/ucode/lib}" \
-exec /opt/ucode/bin/ucode "$@"
+LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:-$UCODE_LIB}" \\
+exec "$UCODE_SRC" "\$@"
 STUB
 	chmod +x /usr/bin/ucode
 	UCODE_MADE=1
@@ -220,7 +223,8 @@ writefile('/tmp/z2m-commit-out.json', payload);
 print(payload);
 STUB
 chmod 0644 "$CLI_DIR/commit-entry.uc"
-cat > "$CLI_DIR/engine-cli.uc" <<'STUB'
+UCODE_SRC=${UCODE_BIN:-/opt/ucode/bin/ucode}
+cat > "$CLI_DIR/engine-cli.uc" <<STUB
 #!/usr/bin/ucode
 'use strict';
 import { popen } from 'fs';
@@ -230,7 +234,7 @@ let jobid = length(ARGV) > 1 ? ARGV[1] : '';
 if (mode == 'commit-state') {
 	// REAL backend via tiny entry module: true capability gate under test.
 	popen('printf "%s\\n" "commit-state:start" >> /tmp/z2m-ws-cli-calls.log');
-	let p = popen('/opt/ucode/bin/ucode /usr/libexec/zapret2-manager/commit-entry.uc ' + jobid + ' 2>/tmp/z2m-commit-err', 'r');
+	let p = popen('$UCODE_SRC /usr/libexec/zapret2-manager/commit-entry.uc ' + jobid + ' 2>/tmp/z2m-commit-err', 'r');
 	let out = p ? p.read('all') : '';
 	if (p) p.close();
 	let parsed = null;

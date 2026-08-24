@@ -29,9 +29,6 @@ ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
 # direct children are created here (no recursive traversal), and re-running
 # over an existing tree is a no-op per directory.
 ensure_dir() { [ -d "$1" ] || mkdir "$1"; }
-# Manager-owned roots under /etc may legitimately not exist yet (fresh device,
-# API-driven install before any postinst list warm-up): create recursively.
-ensure_dir_manager() { [ -d "$1" ] || mkdir -p "$1"; }
 ensure_dir "$BASE/files"
 ensure_dir "$BASE/files/fake"
 ensure_dir "$BASE/lua"
@@ -41,14 +38,14 @@ ensure_dir "$BASE/ipset"
 # runtime asset directories world-traversable regardless of caller umask.
 chmod 0755 "$BASE" "$BASE/files" "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset" 2>/dev/null || true
 [ -e "$BASE/bin" ] || ln -s "$BASE/files/fake" "$BASE/bin"
-ensure_dir_manager "$ETC_ROOT/lists"
+ensure_dir "$ETC_ROOT/lists"
 [ -f "$ETC_ROOT/lists/whitelist.txt" ] || touch "$ETC_ROOT/lists/whitelist.txt"
 
 # The nfqws2 daemon persists circular host bindings while rpcd reads them from
 # the canonical Z2M state path. Keep this narrow state directory writable by
 # daemon without widening permissions on the rest of /etc/zapret2-manager.
-ensure_dir_manager "$STATE_ROOT"
-ensure_dir_manager "$STATE_DIR"
+ensure_dir "$STATE_ROOT"
+ensure_dir "$STATE_DIR"
 if [ "$(id -u)" = "0" ]; then
 	chown root:daemon "$STATE_ROOT" 2>/dev/null || true
 	chmod 0750 "$STATE_ROOT"
