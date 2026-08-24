@@ -454,7 +454,18 @@ function verify_status(sj, q, allow_external_nfqws) {
 
 function transaction_verify(attempt, allow_external_nfqws, injected) {
 	if (injected != null) return injected;
-	return verify_status(recollect_status(), parse_queue(), allow_external_nfqws);
+	// Firewall rules are (re)created by the init hook after the daemon start
+	// returns; immediately after restart the queue rules may not be visible
+	// yet. Poll briefly before declaring a verification failure.
+	let sj = null, q = null, result = null;
+	for (let i = 0; i < 6; i++) {
+		if (i > 0) run('sleep 1');
+		sj = recollect_status();
+		q = parse_queue();
+		result = verify_status(sj, q, allow_external_nfqws);
+		if (result.ok) return result;
+	}
+	return result;
 }
 
 function transaction_restore(snapshot, injected) {

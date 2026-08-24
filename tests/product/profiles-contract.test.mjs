@@ -144,6 +144,10 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
   // verification. Recollection must run the collector in-process.
   assert.doesNotMatch(apply, /popen\('\/usr\/bin\/ucode '\s*\+\s*PATHS\.collector/);
   assert.match(apply, /import \{ collect_observations, collect \} from/);
+  // verification must tolerate the fw-rule application race after restart
+  const verifyFn = functionBody(apply, 'transaction_verify');
+  assert.match(verifyFn, /for \(let i = 0; i < \d+; i\+\+\)/);
+  assert.match(verifyFn, /run\('sleep 1'\)/);
   assertOrdered(transaction, [
     /snapshot_apply\(\)/,
     /set_vars?_cas\(/,
