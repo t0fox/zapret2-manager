@@ -693,7 +693,7 @@ function apply_candidate_pipeline(f) {
 	run('sleep 2');
 	let verifyHook = hook_value('transaction', 'verify');
 	let verify = verifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, verifyHook)
-		: verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
+		: transaction_verify(0, f.allowExternalNfqws == true, null);
 	let rollbackDecision = profiles_rollback_decision(r.rc, verify.ok, false, -1, false);
 	let identity = null, identityRetry = null, identityFailure = false, appliedIdentity = null;
 	if (!rollbackDecision.rollbackRequired && f.projection != null) {
@@ -719,7 +719,7 @@ function apply_candidate_pipeline(f) {
 		run('sleep 2');
 		let rollbackVerifyHook = hook_value('transaction', 'verify');
 		let rollbackVerify = rollbackVerifyHook != null ? transaction_verify(1, f.allowExternalNfqws == true, rollbackVerifyHook)
-			: verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
+			: transaction_verify(1, f.allowExternalNfqws == true, null);
 		let configRestored = restored != null
 			&& (rollbackHook != null ? transaction_config_hash(rollbackHook) == snap.configSha256 : config_sha256() == snap.configSha256)
 			&& (rollbackHook != null ? transaction_config_bytes(rollbackHook) == snap.configBytes : read_config_bytes() == snap.configBytes);

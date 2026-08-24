@@ -152,8 +152,8 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
     /snapshot_apply\(\)/,
     /set_vars?_cas\(/,
     /run\(UPSTREAM_INIT \+ ' restart'\)/,
-    /recollect_status\(\)/,
-    /verify_status\(/,
+    /run\('sleep 2'\)/,
+    /transaction_verify\(0,/,
   ]);
   assertOrdered(transaction, [
     /profiles_rollback_decision\(r\.rc, verify\.ok, false, -1, false\)/,
@@ -181,7 +181,7 @@ test('applied identity is committed only after verified apply and after verified
   assertOrdered(transaction, [
     /(?:set_var_cas\(OPT_VAR, dq_escape\(f\.candidate\), snap\.configSha256\)|set_vars_cas\(vars_map, snap\.configSha256\))/,
     /run\(UPSTREAM_INIT \+ ' restart'\)/,
-    /verify_status\(/,
+    /transaction_verify\(0,/,
     /commit_applied_identity/,
   ]);
   assertOrdered(transaction, [
