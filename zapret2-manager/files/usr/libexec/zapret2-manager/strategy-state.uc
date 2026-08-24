@@ -813,6 +813,16 @@ export const strategy_selection_restore = function(input) {
 	return strategy_selection_apply(input);
 };
 
+function apply_uncertain_identity(value) {
+	return value == null || selected_valid(value);
+}
+
+function same_selection(left, right) {
+	if (left == null || right == null) return left == right;
+	return left.id == right.id && left.origin == right.origin
+		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
+}
+
 export const strategy_apply_revalidate = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !safe_id(input.strategyId) || !integer(input.strategyRevision)
@@ -844,9 +854,7 @@ export const strategy_identity_outcome = function(input) {
 	return { ok: false, state: 'rollback' };
 };
 
-function apply_uncertain_identity(value) {
-	return value == null || selected_valid(value);
-}
+
 
 function runtime_checks_shape(value) {
 	return is_object(value) && exact_fields(value, ['processPresent', 'singleInstance', 'rulesPresent', 'queueRegistered', 'ownerMatch'])
@@ -945,11 +953,7 @@ export const strategy_apply_uncertain_clear = function() {
 	});
 };
 
-function same_selection(left, right) {
-	if (left == null || right == null) return left == right;
-	return left.id == right.id && left.origin == right.origin
-		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
-}
+
 
 function selection_authoritative(value) {
 	if (!selected_valid(value)) return false;
