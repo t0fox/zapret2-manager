@@ -452,6 +452,19 @@ function verify_status(sj, q, allow_external_nfqws) {
 	return { ok: ok, checks: checks, daemonPid: pid, queueOwner: q.peer_portid };
 }
 
+function recollect_status() {
+	try { unlink(PATHS.status_json); } catch (e) { }
+	// In-process collection: spawning the collector as a CLI script fails to
+	// parse (it uses exports), which silently left the status file missing and
+	// made every apply verification fail.
+	try { collect(); } catch (e) { return null; }
+	let raw = readfile(PATHS.status_json);
+	if (!raw) return null;
+	let sj = null;
+	try { sj = json(raw); } catch (e) { return null; }
+	return sj;
+}
+
 function transaction_verify(attempt, allow_external_nfqws, injected) {
 	if (injected != null) return injected;
 	// Firewall rules are (re)created by the init hook after the daemon start
@@ -492,19 +505,6 @@ export const profiles_rollback_decision = function(restartRc, verifyOk, configRe
 		rollbackOk: rollbackRequired && configRestored && rollbackRestartRc == 0 && rollbackVerifyOk
 	};
 };
-
-function recollect_status() {
-	try { unlink(PATHS.status_json); } catch (e) { }
-	// In-process collection: spawning the collector as a CLI script fails to
-	// parse (it uses exports), which silently left the status file missing and
-	// made every apply verification fail.
-	try { collect(); } catch (e) { return null; }
-	let raw = readfile(PATHS.status_json);
-	if (!raw) return null;
-	let sj = null;
-	try { sj = json(raw); } catch (e) { return null; }
-	return sj;
-}
 
 function event_apply(severity, msg, extra) {
 	try {
