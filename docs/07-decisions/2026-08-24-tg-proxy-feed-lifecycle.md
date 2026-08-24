@@ -1,143 +1,95 @@
-# TG Proxy Feed-Authoritative Provider Lifecycle (Variant 1) — Design
+# TG Proxy Provider Lifecycle — GitHub-Releases Updater (rev 2)
 
 Date: 2026-08-24
-Status: approved (variant 1 selected by product owner)
-Scope: Workstream B of the TG fully-managed lifecycle task.
-Non-goals: Engine producer/install flow, engine-operation-worker,
-patches/engine, canonical Engine release pipeline (separate workstream).
+Status: approved (product decision; supersedes the earlier variant-1
+"Z2M provider feed" design of the same date)
 
 ## 1. Product contract
 
-Both providers (`tg-ws-proxy-rs`, `tg-ws-proxy-go`) are installed ONLY as
-signed Z2M provider APKs from the Z2M provider feed. There is no
-direct-release binary-copy path and no bootstrap fallback after migration.
+Both providers (`tg-ws-proxy-rs`, `tg-ws-proxy-go`) are updated directly
+from the official GitHub Releases of their upstream repositories:
 
-Supply chains:
+- Rust: https://github.com/valnesfjord/tg-ws-proxy-rs (static musl tar.gz)
+- Go:   https://github.com/spatiumstas/tg-ws-proxy-go (OpenWrt APK assets)
 
-```
-Rust: upstream release artifact (pinned version + SHA256)
-      -> Z2M package builder (tg-ws-proxy-rs Makefile, PKG_HASH pinned)
-      -> signed tg-ws-proxy-rs APK in Z2M provider feed
-Go:   upstream source (pinned commit + real PKG_MIRROR_HASH)
-      -> reproducible SDK build (tg-ws-proxy-go Makefile)
-      -> signed tg-ws-proxy-go APK in Z2M provider feed
-```
+No separate Z2M provider feed, no manifest service, no CDN, no mandatory
+Z2M re-packaging of upstream releases.
 
-Runtime authority is the Z2M provider feed/package manifest. GitHub upstream
-metadata may be used for discovery/update/build input only — never as the
-runtime install authority on the router.
-
-## 2. Provider feed contract
-
-A provider feed release publishes:
-
-- `tg-ws-proxy-rs_<version>_<arch>.apk`, `tg-ws-proxy-go_<version>_<arch>.apk`
-- `SHA256SUMS` covering all artifacts
-- `provider-feed-manifest.json` (schema `zapret2.provider-feed.v1`):
+## 2. User flow (primary contract)
 
 ```
-{
-  schema: "zapret2.provider-feed.v1",
-  feedCommit / releaseTag,
-  providers: {
-    "tg-ws-proxy-rs": { versions: [ { version, packageVersion, architecture,
-        artifactFilename, artifactSha256, artifactSize, downloadUrl,
-        sourceRepository, sourceRef, installMode: "apk-package",
-        compatibility: "supported" } ] },
-    "tg-ws-proxy-go": { ... same shape ... }
-  }
-}
+Telegram Proxy -> Проверить обновления
+  -> backend fetches the releases LIST from the allowlisted repo API
+  -> UI shows every compatible published version (+ prerelease mark)
+User picks ANY listed version -> Установить
+  release lookup -> arch match -> asset selection -> download ->
+  integrity verify -> snapshot -> adapter install -> config preserve ->
+  service restart -> local health -> state commit
 ```
 
-Producer ↔ consumer contract test: the SAME fixture validates the manifest
-writer output and the ucode consumer parser. Neither side may drift alone.
+No SSH, no manual apk add, no manual downloads. Explicit downgrade to an
+older listed version is allowed and must warn in UI.
 
-## 3. Unified runtime transaction (both providers identical)
+## 3. Trust model
 
-```
-candidate -> checkToken -> resolve from feed manifest -> verify digest ->
-apk add <pkg>=<pkgVersion> -> owner-surface verification ->
-config/secret guarantee -> enable -> start -> hard local health gate ->
-state commit -> cleanup.
-```
+The browser passes ONLY { provider, checkToken, version }. The backend
+re-resolves the artifact from its own bounded (10 min) check record that
+was built from the allowlisted GitHub API response. Asset URL must belong
+to the exact release (prefix check), match the architecture naming scheme,
+be size-bounded, and carry a digest; otherwise installable=false with a
+reason. Drafts never shown; prereleases marked.
 
-- `installMode` becomes `apk-package` for BOTH providers;
-  `install_direct_candidate` is deleted together with its dead-end
-  `ETG_SERVICE_OWNER_MISSING` path (clean routers must be first-class).
-- Browser keeps passing only `{ provider, checkToken }`; the feed resolves
-  everything else. Arbitrary URLs are never accepted from the client.
-- Failure at any step => fail-closed rollback via existing
-  `restore_previous()` machinery; no false Installed/Running, no stale lock,
-  no orphan process, no partial state.
+## 4. Adapters
 
-## 4. Config/secret ownership (single answer)
+One lifecycle, per-provider installation adapters:
+- RustAdapter: tar.gz -> traversal-checked listing (no absolute paths,
+  no ../) -> private staging -> atomic /usr/bin/tg-ws-proxy replace.
+- GoAdapter: APK -> digest verify -> `apk add --allow-untrusted <file>` ->
+  binary presence check.
 
-The provider APK owns `/usr/bin/tg-ws-proxy`, `/etc/init.d/tg-ws-proxy`,
-and ships a default `/etc/tg-ws-proxy/config.conf` (conffile). The manager
-transaction guarantees secret/state files exist with correct permissions
-BEFORE start (manager-owned surface), and preserves user config across
-switch/update/remove-preserve paths via the existing snapshot machinery.
+## 5. Shared manager-owned lifecycle surface
 
-Post-install mandatory surface on a clean router:
-binary (executable) + init script + config.conf + secret/state +
-working service lifecycle actions.
+/etc/init.d/tg-ws-proxy, /etc/tg-ws-proxy/config.conf and secret.conf
+belong to the MANAGER (shipped by the zapret2-manager package and repaired
+at runtime by ensure_shared_lifecycle()). Provider installs only replace
+provider runtime. A clean router is a first-class install target; the old
+ETG_SERVICE_OWNER_MISSING dead-end is removed.
 
-## 5. Hard post-install health gate (local only)
+Secret: generated by the manager, chmod 600, never returned to the browser,
+never placed in argv, preserved across updates.
 
-Implemented in `proxy-provider.uc` (TG lifecycle domain; NOT health-run.sh /
-Service Health Matrix). Gate steps, all hard:
+## 6. Health
 
-1. expected provider package installed (`apk info -e`);
-2. `/usr/bin/tg-ws-proxy` exists and executable;
-3. `/etc/init.d/tg-ws-proxy` exists;
-4. config exists;
-5. secret exists with correct permissions;
-6. service enabled per requested state;
-7. exactly one `tg-ws-proxy` process;
-8. process owns the TCP listener (netstat -tulpn evidence);
-9. listener sits on expected HOST:PORT (bounded local TCP probe allowed);
-10. backend reread matches committed provider/version.
+Local hard install gate: binary present+executable, init script present,
+config+secret present, exactly one tg-ws-proxy process, process owns the
+TCP listener, backend reread matches committed provider/version.
+External Telegram/WAN reachability is NEVER an install gate — it is a
+separate network health signal (healthy/degraded/unavailable).
+health-run.sh / Service Health Matrix is not used for this gate.
 
-External Telegram/WAN reachability is NEVER an install gate. It is reported
-separately as network health: healthy/degraded/unavailable.
+## 7. Rollback
 
-## 6. Go supply chain fix
+Any failure (download, digest, archive safety, APK install, start,
+listener, health) rolls back to the previous working provider via
+restore_previous(): previous package/binary restored, settings restored,
+service restarted. The failed version never becomes installed state.
 
-`PKG_MIRROR_HASH:=skip` is not a pin. The real mirror hash for the pinned
-upstream commit must be computed (SDK `make package/tg-ws-proxy-go/download`
-reports the computed hash on mismatch) and committed. A producer-side gate
-fails any release where a provider Makefile carries `PKG_MIRROR_HASH:=skip`.
+## 8. Testing
 
-Until that lands, the Go producer is NOT release-ready — enforced by CI.
+TDD with behavioral sandbox tests executing the REAL proxy-provider.uc
+under ucode with stubbed apk/network/service boundaries:
+discovery (multi-version, drafts/prereleases, malicious asset URL
+rejection), exact-version install, downgrade, adapters, health gate,
+rollback, config preservation. CI gates mirror these; they do not replace
+real-router acceptance (root@192.168.1.1 verified reachable).
 
-## 7. Testing strategy
+## 9. Remaining work (actionable)
 
-TDD throughout. Behavioral sandbox tests execute the REAL `proxy-provider.uc`
-transaction code under ucode with stubbed `run()` boundaries
-(package manager, network, filesystem, service). Required coverage:
-
-- clean install Rust / Go (owner surface created by APK, no preinstall)
-- update Rust / Go (config preserved)
-- switch Rust->Go / Go->Rust (one active provider at all times)
-- failed install / failed health / failed switch -> full rollback
-- SHA mismatch, wrong arch, corrupt manifest rows rejected
-- remove cleanup; reboot persistence modeled via enabled-state assertions
-- one active process/provider; no duplicate nft ownership
-
-CI gates: provider-feed manifest contract, provider Makefile pinning gate
-(no `skip` hashes), sandbox transaction suite. CI does not replace the
-real-router acceptance below.
-
-## 8. Real-router acceptance
-
-Target: root@192.168.1.1 (OpenWrt 25.12.5, aarch64, manager present,
-providers absent — verified by read-only SSH probe). Acceptance drives ONLY
-the canonical ubus/UI path: install Rust, reboot, switch Go, reboot,
-switch back, remove; asserting the §5 gate items plus absence of stale nft
-rules and orphan processes at every stage.
-
-## 9. LuCI cross-check (Workstream A interplay)
-
-Telegram operations stay bounded async (existing jobs model); long installs
-must never hold the LuCI RPC synchronously. After B changes, all v1 pages are
-re-driven in the browser (see Workstream A acceptance list).
+- [ ] Go discovery fixtures + GoAdapter sandbox test
+- [ ] Rust->Go and Go->Rust switch sandbox tests
+- [ ] failed-health rollback sandbox test
+- [ ] reboot persistence check (enabled state) on router
+- [ ] LuCI Telegram page wiring to availableVersions[] UX
+- [ ] CI gate registration for the new suite
+- [ ] real-router acceptance: Rust clean install / remove / Go / switch
+- [ ] browser acceptance across all v1 pages after TG changes
