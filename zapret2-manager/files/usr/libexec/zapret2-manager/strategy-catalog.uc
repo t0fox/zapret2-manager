@@ -1203,7 +1203,9 @@ export const strategy_catalog_activate_snapshot = function(root, prepared) {
 	let managedMetadata = null;
 	try { managedMetadata = stat(MANAGED_ROOT); } catch (e) { managedMetadata = null; }
 	let hadManaged = managedMetadata != null && managedMetadata.type == 'directory';
-	if (command_rc('mkdir ' + shell_quote('/etc/zapret2-manager/catalog')) != 0)
+	// The package ships /etc/zapret2-manager/catalog, so plain mkdir fails
+	// with EEXIST on every real installation; -p makes activation idempotent.
+	if (command_rc('mkdir -p ' + shell_quote('/etc/zapret2-manager/catalog')) != 0)
 		return error_result('EWRITE', 'managed catalog directory could not be prepared');
 	if (hadManaged && command_rc('mv ' + shell_quote(MANAGED_ROOT) + ' ' + shell_quote(previousNew)) != 0)
 		return error_result('EWRITE', 'current managed catalog could not be staged for replacement');

@@ -13,6 +13,7 @@ const FIXTURE_ROOT = path.join(ROOT, 'tests', 'fixtures', 'avatar-strategy');
 const INSTALLED_ROOT = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share',
   'zapret2-manager', 'catalog', 'avatar');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc');
+const CATALOG_UC = MODULE;
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(
@@ -342,4 +343,22 @@ test('catalog winner records retain the planner tie-breaker provenance fields', 
   assert.equal(typeof entry.metadata, 'object');
   assert.equal(typeof entry.args, 'string');
   assert.equal(typeof entry.rawArgs, 'string');
+});
+
+test('catalog activation prepares the managed parent idempotently (mkdir -p)', () => {
+  const source = fs.readFileSync(CATALOG_UC, 'utf8');
+  // Real-router evidence: the package ships /etc/zapret2-manager/catalog, so a
+  // plain mkdir failed with EEXIST and every managed update died with EWRITE
+  // before touching the staged snapshot.
+  assert.match(source, /mkdir -p .*\/etc\/zapret2-manager\/catalog/);
+  assert.doesNotMatch(source, /command_rc\('mkdir ' \+ shell_quote\('\/etc\/zapret2-manager\/catalog'\)\)/);
+});
+
+test('catalog activation prepares the managed parent idempotently (mkdir -p)', () => {
+  // Real-router evidence: the package ships /etc/zapret2-manager/catalog, so a
+  // plain mkdir failed with EEXIST and every managed update died with EWRITE
+  // before touching the staged snapshot.
+  const source = fs.readFileSync(CATALOG_UC, 'utf8');
+  assert.match(source, /command_rc\('mkdir -p ' \+ shell_quote\('\/etc\/zapret2-manager\/catalog'\)\)/);
+  assert.doesNotMatch(source, /command_rc\('mkdir ' \+ shell_quote\('\/etc\/zapret2-manager\/catalog'\)\)/);
 });
