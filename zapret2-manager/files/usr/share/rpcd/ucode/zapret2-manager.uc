@@ -851,7 +851,22 @@ function strategy_child_response(output, streamRc) {
 	let body = substr(output, 0, markerAt), childRc = +rcText;
 	if (length(body) > STRATEGY_MAX_CHILD_RESPONSE_BYTES)
 		return { ok: false, error: { code: 'EOUTPUT', message: 'Strategy child response exceeded the safe bound' } };
-	if (childRc != 0) return { ok: false, error: { code: 'ECHILD', message: 'Strategy child exited unsuccessfully' } };
+	if (childRc != 0) {
+		let bounded = length(body) > 2048 ? substr(body, 0, 2048) : body;
+		try {
+			let parsed = json(body);
+			if (parsed != null && type(parsed) == 'object') {
+				parsed.childExitCode = childRc;
+				if (parsed.error == null) parsed.error = { code: 'ECHILD', message: 'Strategy child exited rc=' + childRc };
+				else {
+					parsed.error.childExitCode = childRc;
+					parsed.error.childOutput = bounded;
+				}
+				return parsed;
+			}
+		} catch (e) {}
+		return { ok: false, error: { code: 'ECHILD', message: 'Strategy child exited rc=' + childRc, childExitCode: childRc, childOutput: bounded } };
+	}
 	try {
 		let parsed = json(body);
 		return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Strategy response was empty' } };
