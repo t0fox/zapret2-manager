@@ -204,9 +204,13 @@ exit 0`);
 case "$(cat ${path.join(dir, 'service.state').replace(/\\/g, '/')} 2>/dev/null)" in *started*)
   printf '1234 root 1234 S ${BINPATH} --config\\n';; esac
 exit 0`);
-  // netstat can be forced to fail for rollback test via NETSTAT_FAIL env
+  // netstat can be forced to fail for rollback test via NETSTAT_FAIL env,
+  // or delayed: LISTEN_DELAY=1 makes the first probe empty (procd fork race)
   writeExecutable(path.join(bin, 'netstat'), `#!/bin/sh
 if [ -n "$NETSTAT_FAIL" ]; then exit 0; fi
+if [ -f "${path.join(tmpDir, 'listen-delay')}" ] && [ ! -f "${path.join(tmpDir, 'listen-seen')}" ]; then
+  touch "${path.join(tmpDir, 'listen-seen')}"; exit 0
+fi
 case "$(cat ${path.join(dir, 'service.state').replace(/\\/g, '/')} 2>/dev/null)" in *started*)
   printf 'tcp 0 0 127.0.0.1:1443 0.0.0.0:* LISTEN 1234/${BINPATH}\\n';; esac
 exit 0`);
@@ -389,6 +393,21 @@ test('failed health gate rolls back to previous working provider and keeps confi
   assert.equal(afterState.activeVersion, beforeState.activeVersion, 'version must roll back');
   const afterCfg = fs.readFileSync(cfgPath, 'utf8');
   assert.equal(afterCfg, beforeCfg, 'config must be restored after rollback');
+});
+
+// ------------------------------------------------------------------
+// Health gate tolerates the procd fork race (delayed listener)
+// ------------------------------------------------------------------
+test('health gate waits for procd fork race before declaring failure', (t) => {
+  const s = sandbox(t);
+  fs.writeFileSync(path.join(s.dir, 'listen-delay'), '');
+  s.ownerSurface();
+  const answer = callJson(s.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'rust' })`);
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  const install = callJson(s.env, 'proxy_provider_install', `proxy_provider_install({ provider: 'rust', checkToken: '${answer.checkToken}', version: '2.0.0' })`);
+  assert.equal(install.ok, true, JSON.stringify(install));
+  assert.equal(install.health && install.health.ok, true, 'delayed listener must be tolerated');
+  assert.equal(install.version, '2.0.0');
 });
 
 // ------------------------------------------------------------------

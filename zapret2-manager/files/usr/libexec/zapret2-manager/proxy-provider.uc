@@ -684,31 +684,41 @@ function install_go_apk(candidate) {
 }
 
 // Local hard health gate. External Telegram reachability is NEVER part of
-// this gate; it is a separate runtime signal.
+// this gate; it is a separate runtime signal. Process/listener detection
+// waits bounded seconds for procd to actually fork+exec the binary.
 function tg_provider_health(providerId) {
 	if (stat(BINARY_PATH) == null) return { ok: false, code: 'EBINARY', message: 'Binary tg-ws-proxy отсутствует.' };
 	if (stat(INIT_PATH) == null) return { ok: false, code: 'EINIT', message: 'Init script tg-ws-proxy отсутствует.' };
 	if (stat(SECRET_PATH) == null) return { ok: false, code: 'ESECRET', message: 'Secret файл отсутствует.' };
-	let psLines = split(run('ps w').out, '\n');
-	let processes = [];
-	for (let i = 0; i < length(psLines); i++)
-		if (index(psLines[i], BINARY_PATH) >= 0) push(processes, psLines[i]);
-	if (length(processes) > 1) return { ok: false, code: 'EPROCESSCOUNT', message: 'Запущено более одного процесса tg-ws-proxy.' };
-	if (length(processes) < 1) return { ok: false, code: 'EPROCESS', message: 'Процесс tg-ws-proxy не найден после запуска.' };
-	let netLines = split(run('netstat -tlnp 2>/dev/null').out, '\n');
-	for (let j = 0; j < length(netLines); j++) {
-		let rowLine = netLines[j];
-		if (index(rowLine, 'LISTEN') >= 0 && index(rowLine, BINARY_PATH) >= 0) {
-			let port = null;
-			let parts = split(trim(rowLine), /\s+/);
-			if (length(parts) >= 4) {
-				let seg = split(parts[3], ':');
-				port = seg[length(seg) - 1];
+	let lastProcessCode = 'EPROCESS', lastProcessMessage = 'Процесс tg-ws-proxy не найден после запуска.';
+	let processes = [], port = null;
+	for (let attempt = 0; attempt < 6; attempt++) {
+		if (attempt > 0) run('sleep 1');
+		processes = [];
+		let psLines = split(run('ps w').out, '\n');
+		for (let i = 0; i < length(psLines); i++)
+			if (index(psLines[i], BINARY_PATH) >= 0) push(processes, psLines[i]);
+		if (length(processes) == 0) { lastProcessCode = 'EPROCESS'; lastProcessMessage = 'Процесс tg-ws-proxy не найден после запуска.'; continue; }
+		if (length(processes) > 1) { lastProcessCode = 'EPROCESSCOUNT'; lastProcessMessage = 'Запущено более одного процесса tg-ws-proxy.'; break; }
+		port = null;
+		let netLines = split(run('netstat -tlnp 2>/dev/null').out, '\n');
+		for (let j = 0; j < length(netLines); j++) {
+			let rowLine = netLines[j];
+			if (index(rowLine, 'LISTEN') >= 0 && index(rowLine, BINARY_PATH) >= 0) {
+				let parts = split(trim(rowLine), /\s+/);
+				if (length(parts) >= 4) {
+					let seg = split(parts[3], ':');
+					port = seg[length(seg) - 1];
+				}
+				break;
 			}
-			return { ok: true, listenerPort: port, processEvidence: trim(processes[0]) };
 		}
+		if (port != null)
+			return { ok: true, listenerPort: port, processEvidence: trim(processes[0]) };
+		lastProcessCode = 'ELISTENER';
+		lastProcessMessage = 'Процесс запущен, но не владеет TCP listener.';
 	}
-	return { ok: false, code: 'ELISTENER', message: 'Процесс запущен, но не владеет TCP listener.' };
+	return { ok: false, code: lastProcessCode, message: lastProcessMessage };
 }
 
 // Unified lifecycle transaction for BOTH providers: resolve exact selected
@@ -760,6 +770,9 @@ export const proxy_provider_install = function (input) {
 				else {
 					let health = tg_provider_health(provider.id);
 					if (!health.ok) {
+						// We started this service; the failed version must not
+						// keep running while rollback restores the previous one.
+						service('stop');
 						let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 						let restartedOk = wasRunning ? service('start') == 0 : true;
 						if (!restartedOk) push(rollbackFailures, 'previous-service-restart');
@@ -777,7 +790,11 @@ export const proxy_provider_install = function (input) {
 							status: reread,
 							settingsPreserved: settingsSnapshot.hadConfig === true
 						};
-						if (!result.ok) result.error = { code: 'EVERIFY', message: 'Установка не подтверждена повторным чтением.' };
+						if (!result.ok) {
+							service('stop');
+							result.rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+							result.error = { code: 'EVERIFY', message: 'Установка не подтверждена повторным чтением.' };
+						}
 					}
 				}
 			}
