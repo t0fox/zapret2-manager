@@ -700,18 +700,20 @@ function tg_provider_health(providerId) {
 			if (index(psLines[i], BINARY_PATH) >= 0) push(processes, psLines[i]);
 		if (length(processes) == 0) { lastProcessCode = 'EPROCESS'; lastProcessMessage = 'Процесс tg-ws-proxy не найден после запуска.'; continue; }
 		if (length(processes) > 1) { lastProcessCode = 'EPROCESSCOUNT'; lastProcessMessage = 'Запущено более одного процесса tg-ws-proxy.'; break; }
+		let pid = trim(split(trim(processes[0]), /\s+/)[0]);
 		port = null;
 		let netLines = split(run('netstat -tlnp 2>/dev/null').out, '\n');
 		for (let j = 0; j < length(netLines); j++) {
 			let rowLine = netLines[j];
-			if (index(rowLine, 'LISTEN') >= 0 && index(rowLine, BINARY_PATH) >= 0) {
-				let parts = split(trim(rowLine), /\s+/);
-				if (length(parts) >= 4) {
-					let seg = split(parts[3], ':');
-					port = seg[length(seg) - 1];
-				}
-				break;
+			// busybox netstat -p prints "PID/basename", never the full path.
+			if (index(rowLine, 'LISTEN') < 0) continue;
+			if (pid != '' && index(rowLine, pid + '/') < 0 && index(rowLine, ' ' + pid + ' ') < 0) continue;
+			let parts = split(trim(rowLine), /\s+/);
+			if (length(parts) >= 4) {
+				let seg = split(parts[3], ':');
+				port = seg[length(seg) - 1];
 			}
+			break;
 		}
 		if (port != null)
 			return { ok: true, listenerPort: port, processEvidence: trim(processes[0]) };

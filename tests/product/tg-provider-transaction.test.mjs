@@ -204,15 +204,16 @@ exit 0`);
 case "$(cat ${path.join(dir, 'service.state').replace(/\\/g, '/')} 2>/dev/null)" in *started*)
   printf '1234 root 1234 S ${BINPATH} --config\\n';; esac
 exit 0`);
-  // netstat can be forced to fail for rollback test via NETSTAT_FAIL env,
-  // or delayed: LISTEN_DELAY=1 makes the first probe empty (procd fork race)
+  // netstat stub mimics REAL busybox -p output: "PID/basename", no path.
+  // NETSTAT_FAIL forces empty output; LISTEN_DELAY=1 simulates the procd
+  // fork race by emitting the LISTEN row only from the second probe on.
   writeExecutable(path.join(bin, 'netstat'), `#!/bin/sh
 if [ -n "$NETSTAT_FAIL" ]; then exit 0; fi
 if [ -f "${path.join(tmpDir, 'listen-delay')}" ] && [ ! -f "${path.join(tmpDir, 'listen-seen')}" ]; then
   touch "${path.join(tmpDir, 'listen-seen')}"; exit 0
 fi
 case "$(cat ${path.join(dir, 'service.state').replace(/\\/g, '/')} 2>/dev/null)" in *started*)
-  printf 'tcp 0 0 127.0.0.1:1443 0.0.0.0:* LISTEN 1234/${BINPATH}\\n';; esac
+  printf 'tcp        0      0 127.0.0.1:1443     0.0.0.0:*   LISTEN      1234/tg-ws-proxy\\n';; esac
 exit 0`);
   for (const name of ['awk', 'cut', 'tr', 'head', 'basename', 'sed', 'wc', 'df']) {
     writeExecutable(path.join(bin, name), '#!/bin/sh\nexec /usr/bin/' + name + ' "$@"\n');
