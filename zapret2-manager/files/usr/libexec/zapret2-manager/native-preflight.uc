@@ -112,7 +112,7 @@ function probe_binary_capabilities(binaryPath) {
 
 function command_for(candidate, mode) {
 	let tokens = z2m_tokenize(candidate).tokens;
-	let cmd = shell_escape(NFQWS2_BIN) + ' ' + mode + ' --qnum=30999';
+	let cmd = 'cd /opt/zapret2 && ' + shell_escape(NFQWS2_BIN) + ' ' + mode + ' --qnum=30999';
 	for (let i = 0; i < length(RUNTIME_LUA_FILES); i++)
 		cmd += ' --lua-init=' + shell_escape('@' + RUNTIME_LUA_ROOT + RUNTIME_LUA_FILES[i]);
 	for (let i = 0; i < length(tokens); i++) cmd += ' ' + shell_escape(tokens[i].value);
