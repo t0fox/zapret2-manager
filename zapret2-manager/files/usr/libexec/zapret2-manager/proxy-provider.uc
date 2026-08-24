@@ -24,10 +24,12 @@ const MAX_METADATA = 4194304;
 // Keys must stay within proxycfg's CONF_KEY_MAP (LOGLEVEL is not one).
 const DEFAULT_CONFIG_BODY = '# Default Telegram MTProto WebSocket proxy configuration (manager-owned).\n' +
 	'# Provider updates preserve this file.\n\nHOST=127.0.0.1\nPORT=1443\n';
+// Secret storage uses proxycfg's canonical `SECRET=<32hex>` format so both
+// subsystems parse the same file; the init layer maps it to TG_* env vars.
 const DEFAULT_INIT_BODY = '#!/bin/sh /etc/rc.common\n' +
 	'START=99\nSTOP=10\nUSE_PROCD=1\n' +
 	'start_service() {\n\tlocal secret host port\n' +
-	'\tsecret="$(cat /etc/tg-ws-proxy/secret.conf 2>/dev/null | sed -n \'s/^TG_SECRET=//p\')"\n' +
+	'\tsecret="$(cat /etc/tg-ws-proxy/secret.conf 2>/dev/null | sed -n \'s/^SECRET=//p\' | head -n 1)"\n' +
 	'\thost="$(cat /etc/tg-ws-proxy/config.conf 2>/dev/null | sed -n \'s/^HOST=//p\' | head -n 1)"\n' +
 	'\tport="$(cat /etc/tg-ws-proxy/config.conf 2>/dev/null | sed -n \'s/^PORT=//p\' | head -n 1)"\n' +
 	'\t[ -n "$secret" ] || return 1\n' +
@@ -121,6 +123,10 @@ function atomic_json(path, value) {
 
 function random_token() {
 	return trim(run("(cat /proc/sys/kernel/random/uuid; cat /proc/sys/kernel/random/uuid) | tr -cd 'a-f0-9' | cut -c1-48").out);
+}
+
+function random_hex32() {
+	return substr(trim(run("(cat /proc/sys/kernel/random/uuid; cat /proc/sys/kernel/random/uuid) | tr -cd 'a-f0-9' | cut -c1-32").out), 0, 32);
 }
 
 function compare_versions(a, b) {
@@ -603,8 +609,26 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 // Manager-owned shared TG lifecycle surface. Guarantees init script,
 // default config and secret exist BEFORE any provider install runs, so a
 // clean router never hits "no service owner -> cannot install".
+// Repair semantics (design §5: manager-owned surface, repaired at runtime):
+//  - init script is rewritten whenever its content drifts from
+//    DEFAULT_INIT_BODY (e.g. after package update changes the body);
+//  - secret.conf missing OR in the legacy `TG_SECRET=` format is migrated to
+//    the canonical `SECRET=<32hex>` without changing ownership/mode;
+//  - config.conf is only created when missing (user edits are preserved).
 function ensure_shared_lifecycle() {
 	let failures = [];
+	let noRepair = getenv('Z2M_TGPROVIDER_NO_REPAIR') == '1';
+	if (!noRepair) {
+		if (stat(INIT_PATH) != null) {
+			let cur = readfile(INIT_PATH);
+			if (cur == null || cur != DEFAULT_INIT_BODY) {
+				let tmp = INIT_PATH + '.z2m.new';
+				if (!writefile(tmp, DEFAULT_INIT_BODY)) push(failures, 'init-repair-write');
+				else if (run('chmod 755 ' + literal(tmp) + ' && mv -f ' + literal(tmp) + ' ' + literal(INIT_PATH)).rc != 0)
+					push(failures, 'init-repair');
+			}
+		}
+	}
 	if (stat(INIT_PATH) == null) {
 		run('mkdir -p ' + literal(substr(INIT_PATH, 0, INIT_PATH.lastIndexOf('/'))));
 		if (!writefile(INIT_PATH, DEFAULT_INIT_BODY)) push(failures, 'init-write');
@@ -615,10 +639,16 @@ function ensure_shared_lifecycle() {
 		if (!writefile(CONFIG_DIR + '/config.conf', DEFAULT_CONFIG_BODY))
 			push(failures, 'config-write');
 	}
-	if (stat(SECRET_PATH) == null) {
-		let token = random_token();
+	let secretRaw = stat(SECRET_PATH) != null ? readfile(SECRET_PATH) : null;
+	let canonical = match(secretRaw != null ? secretRaw : '', /(^|\n)SECRET=[a-f0-9]{32}(\n|$)/) != null;
+	if (!canonical) {
+		// Migrate the legacy TG_SECRET=48hex form by reusing its first 32 hex
+		// characters; otherwise generate a fresh CSPRNG secret.
+		let legacy = match(secretRaw != null ? secretRaw : '', /TG_SECRET=([a-f0-9]{48})/);
+		let token = legacy != null ? substr(legacy[1], 0, 32) : random_hex32();
 		run('mkdir -p ' + literal(CONFIG_DIR));
-		if (token == null || !writefile(SECRET_PATH, 'TG_SECRET=' + token + '\n')) push(failures, 'secret-write');
+		if (token == null || !writefile(SECRET_PATH, '# MTProto secret for tg-ws-proxy — managed by zapret2-manager.\nSECRET=' + token + '\n'))
+			push(failures, 'secret-write');
 		else if (run('chmod 600 ' + literal(SECRET_PATH)).rc != 0) push(failures, 'secret-chmod');
 	}
 	return length(failures) == 0 ? { ok: true } : error('ESTATE', 'Не удалось подготовить shared lifecycle: ' + join(',', failures));

@@ -31,6 +31,20 @@ test('shell commands stay within BusyBox (OpenWrt) compatibility', () => {
   assert.doesNotMatch(source, /-quit\b/, 'busybox find has no -quit action');
 });
 
+test('shared lifecycle repair: init drift rewritten, secret in proxycfg format', () => {
+  // Real-router evidence: an existing older init kept binding 0.0.0.0 while
+  // config.conf declared HOST=127.0.0.1, so proxycfg exact_listener never
+  // matched and overview stayed "Не подтверждён". Repair must rewrite drifted
+  // init bodies and migrate legacy TG_SECRET= storage to SECRET=<32hex>.
+  const fn = source.slice(source.indexOf('function ensure_shared_lifecycle'),
+    source.indexOf('function download_verified_artifact'));
+  assert.match(fn, /cur != DEFAULT_INIT_BODY/, 'init drift must be repaired');
+  assert.match(fn, /SECRET=/, 'secret file uses canonical SECRET= key');
+  assert.match(fn, /TG_SECRET=/, 'legacy TG_SECRET storage is recognised for migration');
+  assert.match(fn, /\{48\}/, 'legacy 48-hex secret is truncated to the canonical 32-hex form');
+  assert.doesNotMatch(source, /LOGLEVEL=/, 'config keys stay inside CONF_KEY_MAP');
+});
+
 test('shared lifecycle owner is ensured before any install mutation', () => {
   assert.match(source, /function ensure_shared_lifecycle/);
   const ensuredAt = source.indexOf('ensure_shared_lifecycle()');

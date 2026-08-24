@@ -231,6 +231,9 @@ exit 0`);
     Z2M_TGPROVIDER_INIT: path.join(etcDir, 'init.d', 'tg-ws-proxy'),
     Z2M_TGPROVIDER_CONFIG: path.join(etcDir, 'tg-ws-proxy'),
     Z2M_TGPROVIDER_BINARY: path.join(dir, 'usr.bin.tg-ws-proxy'),
+    // The sandbox init stub stands in for the package-provided init; runtime
+    // repair must not clobber it inside behavioral tests.
+    Z2M_TGPROVIDER_NO_REPAIR: '1',
   };
 
   function seedRustInstalled(version = '1.9.0', pkgver = '1.9.0-r1') {
