@@ -57,15 +57,12 @@ function runSandbox(injection) {
 function dumpDiagnostics(injection) {
   try {
     const errFile = '/root/z2m-worker-debug-last.err';
-    const fs = require('node:fs');
-    const raw = execFileSync('sudo', ['-n', 'cat', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
+    const raw = execFileSync('sudo', ['-n', 'cat', errFile], { encoding: 'utf8', maxBuffer: 1024*1024, ignoreExitCode: true });
     fs.mkdirSync(path.join(ROOT_DIR, 'test-diagnostics'), { recursive: true });
     fs.writeFileSync(path.join(ROOT_DIR, 'test-diagnostics', injection + '.err'), raw.slice(-8000));
     fs.writeFileSync(path.join(ROOT_DIR, 'test-diagnostics', injection + '.verdict'),
       JSON.stringify({ injection, ...lastVerdict }, null, 1));
-    const tail = require('node:child_process')
-      .execFileSync('sudo', ['-n', 'tail', '-60', errFile], { encoding: 'utf8', maxBuffer: 1024*1024 });
-    for (const line of tail.split('\n')) {
+    for (const line of raw.split('\n').slice(-60)) {
       if (line.trim()) console.error('::error title=worker ' + injection + '::' + line.slice(0, 400));
     }
   } catch (e) {
