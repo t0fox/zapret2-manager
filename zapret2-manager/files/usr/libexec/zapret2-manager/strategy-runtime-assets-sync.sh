@@ -48,7 +48,8 @@ ensure_dir "$ETC_ROOT/lists"
 ensure_dir "$STATE_ROOT"
 if [ "$(id -u)" = "0" ]; then
 	chown root:root "$STATE_ROOT" 2>/dev/null || true
-	chmod 0755 "$STATE_ROOT"
+	# z2m-root-bootstrap policy: final persistent roots must be exactly 0700.
+	chmod 0700 "$STATE_ROOT"
 fi
 ensure_dir "$STATE_DIR"
 if [ "$(id -u)" = "0" ]; then
