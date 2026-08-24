@@ -78,7 +78,9 @@ copy_if_missing_or_custom() {
 		return 0
 	fi
 	cp "$_src" "$_dst"
-	if [ "${_dst##*.}" = "lua" ]; then chmod 0755 "$_dst"; else chmod 0644 "$_dst"; fi
+	if [ "${_dst##*.}" = "lua" ]; then chmod 0755 "$_dst";
+	elif [ "${_dst##*.}" = "sh" ]; then chmod 0755 "$_dst"; # scripts stay executable (create_ipset.sh is invoked by the zapret2 init)
+	else chmod 0644 "$_dst"; fi
 }
 
 materialize() {
