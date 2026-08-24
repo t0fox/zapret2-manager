@@ -226,6 +226,50 @@ function runtime_context_from_environment() {
 	return { ok: true, environment: is_object(environment) ? environment : {}, runtimeInputs: runtime };
 }
 
+function synthetic_runtime_inputs() {
+	// Cold-start Preview/Apply must be possible before any nfqws2 instance
+	// exists. Synthesize a minimal environment from filesystem inventory
+	// (blobs/lua/functions) with empty baseArgs so candidate compilation
+	// can proceed without authoritative live composition.
+	return synthetic_environment_with_inputs({ source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: [] });
+}
+
+function synthetic_environment_with_inputs(runtimeInputs) {
+	let liveBlobs = {}, liveLua = {}, liveFunctions = {
+		circular: { present: true }, fake: { present: true }, multidisorder: { present: true },
+		multisplit: { present: true }, send: { present: true }, drop: { present: true },
+		udplen: { present: true }, hostfakesplit: { present: true }, fakedsplit: { present: true },
+		synack: { present: true }, synack_split: { present: true }, pktmod: { present: true },
+		z2k_dynamic_ttl: { present: true }, z2k_quic_morph_v2: { present: true },
+		z2k_timing_morph: { present: true }, z2k_range_rand: { present: true },
+		z2k_nohost_key: { present: true }
+	};
+	let fakeFiles = [];
+	try { fakeFiles = lsdir('/opt/zapret2/files/fake') || []; } catch (e) { fakeFiles = []; }
+	for (let fn in fakeFiles) {
+		if (!is_string(fn) || !length(fn)) continue;
+		liveBlobs[fn] = { path: fn, present: true };
+	}
+	liveBlobs['fake_default_tls'] = { present: true, safe: true };
+	liveBlobs['fake_default_http'] = { present: true, safe: true };
+	liveBlobs['fake_default_quic'] = { present: true, safe: true };
+	liveBlobs['tls_google'] = { path: 'tls_clienthello_www_google_com.bin', present: stat('/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin') != null, safe: true };
+	liveBlobs['quic_google'] = { path: 'quic_initial_www_google_com.bin', present: stat('/opt/zapret2/files/fake/quic_initial_www_google_com.bin') != null, safe: true };
+	liveBlobs['quic_dbankcloud'] = { path: 'quic_initial_dbankcloud_ru.bin', present: stat('/opt/zapret2/files/fake/quic_initial_dbankcloud_ru.bin') != null, safe: true };
+	liveBlobs['quic5'] = { path: 'quic_5.bin', present: stat('/opt/zapret2/files/fake/quic_5.bin') != null, safe: true };
+	liveBlobs['quic4'] = { path: 'quic_4.bin', present: stat('/opt/zapret2/files/fake/quic_4.bin') != null, safe: true };
+	liveBlobs['quic1'] = { path: 'quic_1.bin', present: stat('/opt/zapret2/files/fake/quic_1.bin') != null, safe: true };
+	liveBlobs['quic6'] = { path: 'quic_6.bin', present: stat('/opt/zapret2/files/fake/quic_6.bin') != null, safe: true };
+	let luaEntries = [];
+	try { luaEntries = lsdir('/opt/zapret2/lua') || []; } catch (e) { luaEntries = []; }
+	for (let lf in luaEntries)
+		if (is_string(lf) && length(lf)) liveLua[lf] = { present: true };
+	return { ok: true, environment: {
+		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake', listRoot: '/lists', ipsetRoot: '/lists' },
+		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}
+	}, runtimeInputs: runtimeInputs };
+}
+
 function live_runtime_inputs() {
 	let entries = [], found = [];
 	try { entries = lsdir('/proc') || []; } catch (e) { entries = []; }
@@ -238,7 +282,7 @@ function live_runtime_inputs() {
 		for (let value in argv) if (is_string(value) && length(value)) push(cleaned, value);
 		if (length(cleaned) && cleaned[0] == ENGINE_PATH) push(found, cleaned);
 	}
-	if (length(found) != 1) return error_result('EUNAVAILABLE', 'authoritative live nfqws2 process composition is unavailable');
+	if (length(found) != 1) return synthetic_runtime_inputs();
 	let applied = null;
 	try { applied = read_var('NFQWS2_OPT'); } catch (e) { applied = null; }
 	if (!is_string(applied)) return error_result('EUNAVAILABLE', 'authoritative applied Strategy options are unavailable');
