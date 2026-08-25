@@ -38,8 +38,14 @@ function ensure_root() {
 	try { mkdir(root()); } catch (e) { }
 	let metadata = null;
 	try { metadata = stat(root()); } catch (e) { metadata = null; }
-	return object(metadata) && metadata.type == 'directory' && readlink(root()) == null
-		&& (test_mode() || (metadata.uid == 0 && metadata.gid == 0 && metadata.mode % 512 == 448));
+	if (test_mode()) return object(metadata) && metadata.type == 'directory' && readlink(root()) == null;
+	if (object(metadata) && metadata.type == 'directory' && readlink(root()) == null && metadata.uid == 0 && metadata.gid == 0) {
+		if (metadata.mode % 512 != 448) {
+			try { let p = popen('chmod 0700 ' + shell(root()) + ' 2>/dev/null', 'r'); if (p) p.close(); metadata = stat(root()); } catch (e) {}
+		}
+		return object(metadata) && metadata.type == 'directory' && readlink(root()) == null && metadata.uid == 0 && metadata.gid == 0 && metadata.mode % 512 == 448;
+	}
+	return false;
 }
 function atomic(file, value) {
 	if (!ensure_root()) return false;
