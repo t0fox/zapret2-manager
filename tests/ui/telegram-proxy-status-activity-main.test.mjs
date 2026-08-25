@@ -55,10 +55,12 @@ test('Telegram Overview composes one service summary, compact chain and one tech
   assert.match(statusSource, /Сервис/);
   assert.doesNotMatch(statusSource, /Дополнительное состояние/);
   assert.match(statusSource, /z2m-proxy-health-chain/);
-  assert.match(statusSource, /Провайдер/);
-  assert.match(statusSource, /Telegram DC/);
+  // Truthful chain: process/listener/Telegram only — no meaningless
+  // «Provider Готов» runtime row.
+  assert.doesNotMatch(statusSource, /\['provider',/);
+  assert.match(statusSource, /_\('Telegram'\)/);
+  assert.match(statusSource, /Подключение подтверждено/);
   assert.equal((statusSource.match(/Технические сведения/g) || []).length, 1);
-  assert.match(statusSource, /Состояние провайдера/);
   assert.match(core, /canonicalProjection\(pstatus, object\(data\.health/);
 });
 

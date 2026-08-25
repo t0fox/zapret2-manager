@@ -286,3 +286,65 @@
   .z2m-services-page .z2m-source-row{grid-template-columns:1fr}
   .z2m-services-page .z2m-source-meta{justify-content:flex-start}
 }
+
+/* Telegram Proxy: connection profile, routing summary, release block, preset diff */
+.z2m-proxy-profile-card>.bd{display:grid;gap:10px}
+.z2m-proxy-profile-switch{display:flex;gap:8px;flex-wrap:wrap}
+.z2m-proxy-profile-btn.active{cursor:default;opacity:.92}
+.z2m-proxy-profile-desc{margin:0;color:var(--tx2);font-size:12px;line-height:1.5}
+.z2m-proxy-routing-summary{display:grid;gap:0;margin-bottom:12px;border:1px solid var(--border);border-radius:6px;background:var(--panel2);overflow:hidden}
+.z2m-proxy-routing-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 12px;font-size:12.5px}
+.z2m-proxy-routing-row+.z2m-proxy-routing-row{border-top:1px solid var(--border)}
+.z2m-proxy-routing-row span{color:var(--tx3)}
+.z2m-proxy-routing-row strong{font-weight:600;overflow-wrap:anywhere;text-align:right}
+.z2m-proxy-advanced{border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.z2m-proxy-advanced>summary{padding:11px 14px;color:var(--blue);cursor:pointer;background:var(--panel2);font-size:12.5px;font-weight:600;list-style:none}
+.z2m-proxy-advanced>summary::-webkit-details-marker{display:none}
+.z2m-proxy-advanced>summary:before{content:"▸ ";white-space:pre}
+.z2m-proxy-advanced[open]>summary:before{content:"▾ "}
+.z2m-proxy-advanced>summary:hover{background:var(--panel)}
+.z2m-proxy-release-date{font-weight:600;color:var(--tx2)}
+.z2m-proxy-release-meta{justify-content:flex-end!important}
+.z2m-proxy-release-actions{margin-top:2px;align-items:center}
+.z2m-proxy-release-actions .z2m-btn{min-height:28px;padding:3px 10px;font-size:11.5px}
+.z2m-proxy-release-link{color:var(--blue);text-decoration:none;font-size:12px}
+.z2m-proxy-release-link:hover{text-decoration:underline}
+.z2m-proxy-preset-confirm p{margin:0 0 8px;color:var(--tx2);font-size:12.5px;line-height:1.5}
+.z2m-proxy-preset-confirm .z2m-dim{margin:8px 0 0;color:var(--tx3);font-size:11.5px}
+.z2m-proxy-preset-diff{display:grid;gap:0;margin:6px 0 4px;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:12px}
+.z2m-proxy-preset-diff-head,.z2m-proxy-preset-diff-row{display:grid;grid-template-columns:minmax(120px,1.2fr) minmax(90px,1fr) minmax(90px,1fr);gap:10px;padding:7px 11px}
+.z2m-proxy-preset-diff-head{background:var(--panel2);color:var(--tx3);font-size:11px}
+.z2m-proxy-preset-diff-row{border-top:1px solid var(--border)}
+.z2m-proxy-preset-diff-row span:first-child{color:var(--tx2)}
+.z2m-proxy-preset-diff-row span{overflow-wrap:anywhere}
+
+/* Telegram Proxy polish: component head, compact cards, operation facts, LAN addr */
+.z2m-proxy-component-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:2px}
+.z2m-proxy-component-head h2{margin:0;font-size:16px;line-height:22px}
+.z2m-proxy-component-head p{margin:3px 0 0;color:var(--tx3);font-size:12px}
+.z2m-proxy-checked-note{align-self:center;color:var(--green);font-size:11.5px;white-space:nowrap}
+.z2m-proxy-provider-card .bd{display:grid;gap:9px}
+.z2m-proxy-provider-sub{margin:0;color:var(--tx3);font-size:12px;line-height:1.5}
+.z2m-proxy-provider-chips{display:flex;gap:6px;flex-wrap:wrap}
+.z2m-proxy-provider-rows .z2m-proxy-info-row{padding:7px 0}
+.z2m-proxy-provider-alert{display:grid;gap:3px;padding:9px 11px;border:1px solid #6d3b35;border-radius:6px;background:rgba(226,105,90,.05);color:#f0a096;font-size:12px}
+.z2m-proxy-provider-alert-reason{color:var(--tx3);font-size:11.5px}
+.z2m-proxy-op-facts{display:grid;gap:5px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel2);font-size:12.5px}
+.z2m-proxy-op-facts span{color:var(--tx3)}
+.z2m-proxy-addr-line{font-size:13px;letter-spacing:.2px}
+.z2m-proxy-status-g{color:var(--green)}
+.z2m-proxy-status-o{color:var(--orange)}
+.z2m-proxy-status-r{color:#ef8275}
+@media(max-width:920px){.z2m-proxy-component-head{flex-direction:column;align-items:stretch}}
+
+/* Telegram Proxy polish round 2 */
+.z2m-proxy-routing-row{display:grid;grid-template-columns:1fr auto;gap:8px 20px;align-items:baseline}
+.z2m-proxy-routing-row span{color:var(--tx3)}
+.z2m-proxy-routing-row strong{font-weight:600;text-align:right;max-width:60%;overflow-wrap:anywhere}
+.z2m-proxy-control.align-right{display:flex;justify-content:flex-end;align-items:center}
+.z2m-proxy-control.align-right .z2m-proxy-field-hint{flex:1 1 100%;order:2}
+.z2m-proxy-provider-card.release-active{border-color:var(--blue)!important;box-shadow:inset 3px 0 0 var(--blue)!important}
+.z2m-proxy-provider-card.release-active .hd h2{color:var(--blue)}
+.z2m-proxy-provider-card{cursor:default}
+.z2m-proxy-provider-card.release-active{cursor:pointer}
+.z2m-progress-bar{transition:width .7s cubic-bezier(.25,.6,.3,1)}

@@ -12,12 +12,12 @@ test('TG version UI is truthful about bounded version/source backend support', (
   const backend = fs.readFileSync(BACKEND, 'utf8');
 
   assert.doesNotMatch(ui, /latest-only|Исторический выбор версий недоступен|Источник пакета не выбирается/i);
-  assert.match(ui, /Установленная версия/);
+  assert.match(ui, /_\('Установлено'\)/);
   assert.match(ui, /installedVersionDisplay/);
   assert.match(ui, /packageVersion/);
   assert.doesNotMatch(ui, /_\('Package version'\)/,
     'package version must be folded into the installed-version value, not shown as a separate row');
-  assert.match(ui, /Последняя версия/);
+  assert.match(ui, /_\('Последняя'\)/);
   assert.match(ui, /status\.packages/);
   assert.match(ui, /provider === provider\.id/);
   assert.match(ui, /Версия/);
@@ -48,14 +48,39 @@ test('TG version/source contract is wired through the canonical product API', ()
 test('TG installation UI exposes provider and clean version choices, not transport sources', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   const backend = fs.readFileSync(BACKEND, 'utf8');
-  assert.doesNotMatch(ui, /sourceSelect|aria-label': _('Источник')|_\('Источник'\)|— несовместима/);
+  // The old transport-source selector stays gone; «Источник» in the routing
+  // summary is a different, legitimate label.
+  assert.doesNotMatch(ui, /sourceSelect|aria-label': _('Источник')|— несовместима/);
   assert.match(ui, /selected\.version/);
   assert.match(ui, /releaseBody|releaseName|releaseUrl/);
-  assert.match(ui, /Что изменилось/);
+  assert.match(ui, /Что нового в /);
   assert.match(ui, /escape|textContent|sanitize/i);
   assert.match(backend, /releaseName/);
   assert.match(backend, /releaseBody/);
   assert.match(backend, /releaseUrl/);
+});
+
+test('Backend keeps the full GitHub release identity for EVERY version row', () => {
+  const backend = fs.readFileSync(BACKEND, 'utf8');
+  // parse_release captures display metadata for each release
+  assert.match(backend, /name:\s*type\(release\.name\)\s*==\s*'string'\s*\?\s*release\.name\s*:\s*''/);
+  assert.match(backend, /body:\s*type\(release\.body\)\s*==\s*'string'\s*\?\s*release\.body\s*:\s*''/);
+  // public_version_row forwards it — no metadata flattening into a latest blob
+  assert.match(backend, /releaseId:\s*candidate\.releaseId/);
+  assert.match(backend, /tag:\s*candidate\.tag/);
+  assert.match(backend, /publishedAt:\s*candidate\.publishedAt/);
+  assert.match(backend, /draft:\s*candidate\.draft === true/);
+  assert.match(backend, /releaseBody:\s*candidate\.body/);
+});
+
+test('UI maps release identity per dropdown entry and binds the changelog to it', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  assert.match(ui, /function updateChoicesFor|function choicesForProvider/);
+  assert.match(ui, /releaseId:\s*v\.releaseId/);
+  assert.match(ui, /publishedAt:\s*v\.publishedAt/);
+  assert.match(ui, /releaseBody:\s*v\.releaseBody/);
+  assert.match(ui, /tgReleaseKey/);
+  assert.match(ui, /choicesForProvider\(data,\s*provider\.id\)/);
 });
 
 test('TG release details are rendered from the selected version without source controls', () => {
@@ -63,7 +88,11 @@ test('TG release details are rendered from the selected version without source c
   assert.match(ui, /release details|releaseDetails|releaseBody/);
   assert.match(ui, /publishedAt|releaseDate/);
   assert.match(ui, /Открыть релиз на GitHub/);
-  assert.match(ui, /Автор не указал описание изменений/);
+  // Empty-body contract: a genuinely empty upstream body gets a neutral
+  // message; the old "Автор не указал..." wording blamed the author for a
+  // bug that was actually Z2M dropping the body.
+  assert.match(ui, /Описание изменений для этого релиза не опубликовано\./);
+  assert.doesNotMatch(ui, /Автор не указал/);
   assert.match(ui, /options|E\('option'/);
   assert.doesNotMatch(ui, /sourceVersions|sources\.filter/i);
 });
@@ -79,8 +108,11 @@ test('TG UI keeps distinct truthful package revisions and omits artifact-less ta
 test('TG release notes use a safe structured Markdown view and compact summary', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   assert.match(ui, /renderReleaseMarkdown|markdownBlocks|renderMarkdown/);
-  assert.match(ui, /Показать полный changelog/);
-  assert.match(ui, /<\/details>|E\('details'/);
+  // Compact block: collapsed bullet summary, «Подробнее» swaps to the full
+  // body (no duplication), «Свернуть» returns to the compact form.
+  assert.match(ui, /Подробнее/);
+  assert.match(ui, /Свернуть/);
+  assert.doesNotMatch(ui, /Показать полный changelog/);
   assert.match(ui, /<\/code>|E\('code'/);
   assert.match(ui, /<\/ul>|E\('ul'/);
   assert.match(ui, /https\?:|noopener noreferrer/);

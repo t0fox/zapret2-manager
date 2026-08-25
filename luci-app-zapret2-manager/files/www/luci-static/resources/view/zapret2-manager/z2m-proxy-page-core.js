@@ -37,7 +37,11 @@ var state = {
   tgOperationTimer: null,
   tgRetry: null,
   tgPollGeneration: 0,
-  tgViewportLocked: false
+  tgViewportLocked: false,
+  tgReleaseExpanded: false,
+  tgReleaseKey: null,
+  tgReleaseCurrent: null,
+  tgSettingsAdvanced: false
 };
 
 var PANE_ALIASES = { install: 'component', status: 'overview', activity: 'journal' };
@@ -166,13 +170,26 @@ function mutation(ctx, name, promise) {
 
 function tgOperationLabel(stage) {
   var labels = {
-    PREPARE: _('Подготовка'), PREFLIGHT: _('Предварительная проверка'), DOWNLOAD: _('Загрузка'),
-    VERIFY: _('Проверка артефакта'), BACKUP: _('Сохранение текущего состояния'), INSTALL: _('Установка'),
-    CONFIG_VALIDATE: _('Проверка конфигурации'), RESTART: _('Перезапуск сервиса'),
-    HEALTHCHECK: _('Проверка работоспособности'), COMMIT: _('Подтверждение'),
+    PREPARE: _('Подготовка'), PREFLIGHT: _('Проверяем выбранный релиз'), DOWNLOAD: _('Скачиваем'),
+    VERIFY: _('Проверяем целостность'), BACKUP: _('Создаём точку отката'), INSTALL: _('Устанавливаем'),
+    CONFIG_VALIDATE: _('Проверяем конфигурацию'), RESTART: _('Запускаем сервис'),
+    HEALTHCHECK: _('Проверяем Telegram Proxy'), COMMIT: _('Готово'),
+    STOP: _('Останавливаем'), REMOVE: _('Удаляем провайдер'),
     ROLLING_BACK: _('Откат'), ROLLED_BACK: _('Откат выполнен')
   };
   return labels[stage] || display(stage);
+}
+function operationTitle(operation) {
+  var titles = {
+    INSTALL: _('Установка'), UPDATE: _('Обновление'), DOWNGRADE: _('Откат версии'),
+    SWITCH: _('Переключение'), REMOVE: _('Удаление')
+  };
+  var base = titles[operation && operation.type] || _('Изменение TG Proxy');
+  if (operation && operation.type !== 'REMOVE' && operation.provider)
+    base += ' ' + (operation.provider === 'rust' ? 'Rust' : 'Go');
+  if (operation && operation.type !== 'REMOVE' && operation.version)
+    base += ' ' + operation.version;
+  return base;
 }
 function tgViewportLock(locked) {
   if (state.tgViewportLocked === locked) return;
@@ -203,59 +220,110 @@ function tgViewportLock(locked) {
   }
 }
 function tgOperationBody(operation) {
-  // Legacy acceptance marker: «Установка выполняется» is now rendered in the locked transaction modal.
   var running = operation && (operation.status === 'RUNNING' || operation.status === 'ROLLING_BACK');
-  var errorText = operation && operation.error && operation.error.message || operation && operation.recoveryError;
-  var rollback = operation && operation.rollback;
-  return E('div', { 'class': 'z2m-tg-operation-body', role: 'status', 'aria-live': 'polite' }, compact([
-    E('strong', {}, running ? _('Изменение выполняется…') : operation && operation.status === 'COMPLETE' ? _('Изменение завершено') : _('Изменение не выполнено')),
-    E('p', {}, running ? _('Дождитесь завершения: сервер завершит операцию и проверит работоспособность сервиса.') : errorText || (rollback && rollback.status === 'ROLLED_BACK' ? _('Предыдущая реализация восстановлена.') : _('Сервер завершил операцию.'))),
-    E('div', { 'class': 'z2m-tg-operation-stage' }, [E('span', {}, tgOperationLabel(operation && operation.currentStage)), E('strong', {}, String(operation && operation.progressPercent != null ? operation.progressPercent : 0) + '%')]),
-    E('div', { 'class': 'z2m-progress-track' }, E('div', { 'class': 'z2m-progress-bar', style: 'width:' + Math.max(0, Math.min(100, Number(operation && operation.progressPercent || 0))) + '%' })),
-    E('div', { 'class': 'z2m-tg-operation-meta' }, _('Операция: ') + display(operation && operation.operationId)),
-    !running && rollback ? E('div', { 'class': 'z2m-tg-operation-rollback' }, _('Откат: ') + display(rollback.status)) : null
-  ]));
+  var failed = operation && operation.status === 'FAILED';
+  var rolledBack = operation && (operation.status === 'ROLLED_BACK' || operation.rollbackState === 'ROLLED_BACK');
+  var rollbackBroken = operation && operation.rollbackState === 'ROLLBACK_FAILED';
+  var errorText = operation && operation.error && operation.error.message;
+  var percent = Math.max(0, Math.min(100, Number(operation && operation.progress || 0)));
+  var body = [E('strong', {}, running ? operationTitle(operation) + '…' : failed ? operationTitle(operation) + ' — не выполнено' : operation.status === 'COMPLETE' ? operationTitle(operation) + ' — готово' : operationTitle(operation))];
+  if (running) body.push(E('p', {}, display(operation && operation.message) !== '—' ? display(operation.message) : _('Дождитесь завершения: при ошибке сервер восстановит предыдущее состояние.')));
+  if (failed || rolledBack) {
+    body.push(E('div', { 'class': 'z2m-proxy-op-facts' }, compact([
+      operation && operation.stage ? E('div', {}, [E('span', {}, _('Этап: ')), E('strong', {}, tgOperationLabel(operation.stage))]) : null,
+      errorText ? E('div', {}, [E('span', {}, _('Причина: ')), E('strong', {}, errorText)]) : null,
+      rolledBack ? E('div', { 'class': 'z2m-proxy-ok' }, _('Предыдущая версия восстановлена ✓')) : null,
+      rollbackBroken ? E('div', { 'class': 'z2m-proxy-provider-unavailable' }, _('⚠ Автоматический откат не удался — проверьте журнал.')) : null
+    ])));
+    if (operation && operation.error && operation.error.code)
+      body.push(E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Технические детали')), E('code', {}, display(operation.error.code))]));
+  }
+  if (running) {
+    body.push(E('div', { 'class': 'z2m-tg-operation-stage' }, [E('span', {}, tgOperationLabel(operation && operation.stage)), E('strong', {}, percent + '%')]));
+    body.push(E('div', { 'class': 'z2m-progress-track' }, E('div', { 'class': 'z2m-progress-bar', style: 'width:' + percent + '%' })));
+  }
+  return E('div', { 'class': 'z2m-tg-operation-body', role: 'status', 'aria-live': 'polite' }, body);
+}
+// Progress smoothing: shown percent eases toward the backend stage value
+// and keeps drifting a few percent forward during long stages, so the bar
+// moves continuously instead of jumping between stage boundaries.
+function startProgressTicker() {
+  if (state.tgProgressTimer) return;
+  if (state.tgProgressShown == null) state.tgProgressShown = 0;
+  state.tgProgressTimer = setInterval(function () {
+    var op = state.tgOperation;
+    var modal = document.querySelector('#z2m-modal');
+    if (!op || op.status !== 'RUNNING' || !modal || !modal.classList.contains('on')) {
+      clearInterval(state.tgProgressTimer);
+      state.tgProgressTimer = null;
+      return;
+    }
+    var target = Number(op.progress || 0);
+    if (state.tgProgressShown == null || state.tgProgressShown < 3) state.tgProgressShown = Math.max(3, target);
+    var cap = Math.min(97, target + 7);
+    if (state.tgProgressShown < target) state.tgProgressShown = Math.min(target, state.tgProgressShown + Math.max(1.2, (target - state.tgProgressShown) * 0.25));
+    else if (state.tgProgressShown < cap) state.tgProgressShown = Math.min(cap, state.tgProgressShown + 0.35);
+    else if (state.tgProgressShown > target) state.tgProgressShown = target;
+    var bar = modal.querySelector('.z2m-progress-bar');
+    var pct = modal.querySelector('.z2m-tg-operation-stage strong');
+    if (bar) bar.style.width = Math.round(state.tgProgressShown) + '%';
+    if (pct) pct.textContent = Math.round(state.tgProgressShown) + '%';
+  }, 300);
+}
+function normalizeOperation(record) {
+  if (!record) return null;
+  var op = Object.assign({}, record);
+  if (!op.status && op.state) op.status = op.state;
+  if (op.progress == null) op.progress = 0;
+  return op;
 }
 function renderTgOperationModal(ctx, operation) {
   if (!operation) return;
   var running = operation.status === 'RUNNING' || operation.status === 'ROLLING_BACK';
+  if (running) startProgressTicker();
   tgViewportLock(running);
   var footer = [];
-  if (!running && (operation.status === 'FAILED' || operation.status === 'ROLLED_BACK') && state.tgRetry) footer.push(ctx.shell.button(_('Повторить'), 'danger sm', function () {
-    ctx.shell.closeModal();
-    state.tgRetry();
-  }));
+  if (!running && (operation.status === 'FAILED' || operation.status === 'ROLLED_BACK') && state.tgRetry)
+    footer.push(ctx.shell.button(_('Повторить'), 'danger sm', function () {
+      ctx.shell.closeModal();
+      tgViewportLock(false);
+      state.tgOperation = null;
+      state.tgRetry();
+    }));
   if (!running) footer.push(ctx.shell.button(_('Завершить'), 'primary sm', function () {
     ctx.shell.closeModal();
     tgViewportLock(false);
     state.tgOperation = null;
     state.tgRetry = null;
+    state.busy = null;
     if (state.tgOperationTimer) { clearTimeout(state.tgOperationTimer); state.tgOperationTimer = null; }
     ctx.refresh('proxy');
   }));
-  ctx.shell.openModal(operation.status === 'COMPLETE' ? _('TG Proxy установлен') : running ? _('Изменение TG Proxy') : operation.status === 'ROLLED_BACK' ? _('TG Proxy восстановлен') : _('Ошибка изменения TG Proxy'), tgOperationBody(operation), footer);
+  ctx.shell.openModal(operationTitle(operation), tgOperationBody(operation), footer);
   var close = document.querySelector('#z2m-modal .z2m-modal-close');
   if (close && running) { close.hidden = true; close.disabled = true; }
 }
-function watchTgOperation(ctx, operationId, retry) {
+function watchTgOperation(ctx, operationId, retry, meta) {
   if (state.tgOperationTimer) clearTimeout(state.tgOperationTimer);
   state.tgOperationTimer = null;
   state.tgPollGeneration++;
   var generation = state.tgPollGeneration;
-  state.tgOperation = { operationId: operationId, status: 'RUNNING', currentStage: 'PREPARE', progressPercent: 0 };
+  state.tgOperation = normalizeOperation(Object.assign({ status: 'RUNNING', stage: 'PREPARE', progress: 5 }, meta || {}, { operationId: operationId }));
   state.tgRetry = retry || null;
   renderTgOperationModal(ctx, state.tgOperation);
   function poll() {
     if (generation !== state.tgPollGeneration) return;
-    ctx.api.tg.product.operationStatus({ operationId: operationId }).then(function (answer) {
+    ctx.api.tg.product.operationStatus(operationId ? { operationId: operationId } : {}).then(function (answer) {
       if (generation !== state.tgPollGeneration) return;
-      if (!answer || answer.ok === false || !answer.operation) throw answer && answer.error || new Error(_('Состояние операции недоступно.'));
-      state.tgOperation = answer.operation;
-      renderTgOperationModal(ctx, state.tgOperation);
-      if (state.tgOperation.status === 'RUNNING' || state.tgOperation.status === 'ROLLING_BACK') state.tgOperationTimer = setTimeout(poll, 900);
+      if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Состояние операции недоступно.'));
+      var op = normalizeOperation(answer.operation);
+      if (!op) return;
+      state.tgOperation = op;
+      renderTgOperationModal(ctx, op);
+      if (op.status === 'RUNNING' || op.status === 'ROLLING_BACK') state.tgOperationTimer = setTimeout(poll, 800);
     }).catch(function (error) {
       if (generation !== state.tgPollGeneration) return;
-      // The operation remains backend-owned; keep the modal and recover on the next status poll.
+      // The operation remains backend-owned; keep the modal and recover on the next poll.
       state.tgOperation = Object.assign({}, state.tgOperation, { recoveryError: ctx.api.normalizeError(error).message });
       renderTgOperationModal(ctx, state.tgOperation);
       state.tgOperationTimer = setTimeout(poll, 1500);
@@ -263,31 +331,80 @@ function watchTgOperation(ctx, operationId, retry) {
   }
   poll();
 }
-// The backend transaction is synchronous by contract: proxy_provider_install
-// resolves to { ok, provider, version, health } in one RPC round trip. An
-// async operation envelope (operationId) remains supported for forward
-// compatibility, but success must never depend on it.
-function finishTgTransaction(ctx, answer, retry, title) {
+// Re-attach after a page (re)load: poll the durable record until it reaches a
+// terminal state, so an in-flight transaction is never silently lost.
+function watchAttachedTgOperation(ctx) {
+  var generation = ++state.tgPollGeneration;
+  function poll() {
+    if (generation !== state.tgPollGeneration) return;
+    ctx.api.tg.product.operationStatus({}).then(function (answer) {
+      if (generation !== state.tgPollGeneration) return;
+      var op = normalizeOperation(answer && answer.operation);
+      if (!op) return;
+      state.tgOperation = op;
+      renderTgOperationModal(ctx, op);
+      if (op.status === 'RUNNING' || op.status === 'ROLLING_BACK') state.tgOperationTimer = setTimeout(poll, 800);
+    }).catch(function () {
+      if (generation !== state.tgPollGeneration) return;
+      state.tgOperationTimer = setTimeout(poll, 1500);
+    });
+  }
+  poll();
+}
+function showOperationFailure(ctx, retry, error) {
+  // Prefer the durable operation record (stage/reason/rollback) over a raw toast.
+  ctx.api.tg.product.operationStatus({}).then(function (answer) {
+    var op = normalizeOperation(answer && answer.operation);
+    if (op && (op.status === 'FAILED' || op.status === 'ROLLED_BACK')) {
+      state.tgOperation = op;
+      state.tgRetry = retry || null;
+      renderTgOperationModal(ctx, op);
+      return;
+    }
+    throw error || new Error(_('Операция не выполнена.'));
+  }).catch(function (e) { showError(ctx, e); });
+}
+// The backend transaction is synchronous by contract: the switch RPC resolves
+// to { ok, provider, version, health } in one round trip, with live stage
+// progress served from the durable record while it runs.
+function finishTgTransaction(ctx, answer, retry) {
+  state.tgPollGeneration++;
   if (answer && answer.operationId) { watchTgOperation(ctx, answer.operationId, retry); return; }
+  ctx.api.tg.product.operationStatus({}).then(function (opAnswer) {
+    var op = normalizeOperation(opAnswer && opAnswer.operation);
+    if (op && op.status !== 'COMPLETE') {
+      state.tgOperation = op;
+      state.tgRetry = retry || null;
+      renderTgOperationModal(ctx, op);
+      return;
+    }
+    showSuccessModal(ctx, answer);
+  }).catch(function () { showSuccessModal(ctx, answer); });
+}
+function showSuccessModal(ctx, answer) {
   var shell = ctx.shell;
   var identity = answer && answer.provider ? String(answer.provider).toUpperCase() : '';
   if (answer && answer.version) identity += ' ' + answer.version;
-  shell.openModal(title, E('div', { 'class': 'z2m-tg-confirm-body' }, [
+  if (answer && answer.changed === false) {
+    shell.showToast(_('Версия уже установлена.'), 'ok');
+    return ctx.refresh('proxy');
+  }
+  shell.openModal(_('Готово'), E('div', { 'class': 'z2m-tg-confirm-body' }, [
     E('strong', {}, identity || _('Готово')),
-    E('p', {}, _('Сервер установил выбранную версию, перезапустил сервис и подтвердил локальную проверку работоспособности.'))
+    E('p', {}, _('Сервер установил выбранную версию, перезапустил сервис и подтвердил локальную проверку.'))
   ]), [shell.button(_('Завершить'), 'primary sm', function () {
     shell.closeModal();
     ctx.refresh('proxy');
   })]);
 }
 function tgTransactionConfirm(ctx, kind, provider, item, start) {
-  var labels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Переключить') };
+  var labels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Установить и переключиться') };
   var titles = { INSTALL: _('Установить TG Proxy?'), UPDATE: _('Обновить TG Proxy?'), DOWNGRADE: _('Откатить версию TG Proxy?'), PROVIDER_SWITCH: _('Переключить реализацию TG Proxy?') };
   var messages = {
-    INSTALL: _('Будет подготовлен и проверен выбранный артефакт, затем сервер активирует его после проверки состояния.'),
-    UPDATE: _('Будет загружено обновление и проверено, что процесс, слушатель и проверка Telegram работают.'),
-    DOWNGRADE: _('Будет установлена выбранная более старая версия с сохранением текущей конфигурации и откатом при ошибке.'),
-    PROVIDER_SWITCH: _('Текущий провайдер останется сохранённым до успешной проверки нового провайдера; при ошибке сервер выполнит откат.')
+    INSTALL: _('Будет подготовлен и проверен выбранный релиз, затем сервис запустится и пройдёт проверку подключения.'),
+    UPDATE: _('Будет скачано обновление, сервис перезапустится; при ошибке предыдущая версия восстановится автоматически.'),
+    DOWNGRADE: _('Будет установлена выбранная более старая версия с сохранением настроек и откатом при ошибке.'),
+    PROVIDER_SWITCH: _('Текущий провайдер останется активным до успешной проверки нового; при ошибке сервер выполнит откат.')
   };
   ctx.shell.openModal(titles[kind], E('div', { 'class': 'z2m-tg-confirm-body' }, [
     E('strong', {}, provider.title + ' · ' + display(item.version)), E('p', {}, messages[kind])
@@ -352,7 +469,7 @@ function reveal(ctx) {
             navigator.clipboard.writeText(url).then(function () {
               ctx.shell.showToast(_('Ссылка скопирована.'), 'ok');
             }).catch(function () { ctx.shell.showToast(_('Не удалось скопировать ссылку.'), 'err'); });
-          })]),
+          })]), E('a', { href: url, target: '_blank', rel: 'noopener noreferrer', 'class': 'z2m-btn primary sm z2m-proxy-open-tg', style: 'text-decoration:none' }, _('Открыть Telegram')),
           E('div', { 'class': 'z2m-dim' }, _('Закрытие окна удалит ссылку из UI state.'))
         ]), [ctx.shell.button(_('Закрыть'), '', function () {
           state.revealed = null;
@@ -469,14 +586,56 @@ function versionChoices(versions) {
   });
 }
 
+// Version choice list for one provider. checkUpdates rows win: the backend
+// attaches the full release identity (releaseId/tag/name/publishedAt/body)
+// to each of them, so every dropdown entry carries its own changelog.
+function updateChoicesFor(data, providerId) {
+  var updateAnswer = object(data.providerUpdates && data.providerUpdates.value && data.providerUpdates.value[providerId]);
+  if (!(updateAnswer && updateAnswer.ok && Array.isArray(updateAnswer.availableVersions))) return [];
+  return updateAnswer.availableVersions.map(function (v) {
+    return {
+      version: v.version,
+      prerelease: v.prerelease === true,
+      artifactKind: v.artifactKind,
+      installable: v.installable === true,
+      unavailableReason: v.reason || null,
+      incompatibilityReason: v.reason || null,
+      artifactAvailable: v.installable === true,
+      architectureCompatible: v.installable === true,
+      sourceId: 'official-github-release',
+      displayVersion: v.version + (v.prerelease ? ' (prerelease)' : ''),
+      update: v.update,
+      tag: v.tag || null,
+      releaseId: v.releaseId || '',
+      releaseName: v.releaseName || '',
+      publishedAt: v.publishedAt || null,
+      draft: v.draft === true,
+      releaseBody: v.releaseBody != null ? v.releaseBody : '',
+      releaseUrl: v.releaseUrl || null
+    };
+  });
+}
+
+function choicesForProvider(data, providerId) {
+  var updateChoices = updateChoicesFor(data, providerId);
+  if (updateChoices.length) return updateChoices;
+  var versionRow = providerVersions(data).filter(function (item) { return item && item.id === providerId; })[0] || {};
+  return versionChoices(array(versionRow.versions));
+}
+
 function safeMarkdownText(value) {
   var holder = document.createElement('span');
   holder.textContent = String(value === null || value === undefined ? '' : value).slice(0, 32768);
   return holder.textContent;
 }
 
-function safeReleaseUrl(value) {
-  return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : null;
+function safeReleaseUrl(value, providerId) {
+  if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return null;
+  // Hard allowlist: only the official upstream repository of THIS provider.
+  var repos = { rust: 'https://github.com/valnesfjord/tg-ws-proxy-rs/', go: 'https://github.com/spatiumstas/tg-ws-proxy-go/' };
+  var prefix = repos[providerId];
+  if (!prefix) return null;
+  return value.indexOf(prefix) === 0 || value === prefix.slice(0, -1) ? value : null;
 }
 
 function markdownInline(value) {
@@ -533,11 +692,11 @@ function renderReleaseMarkdown(body) {
   if (code) flushCode();
   flushParagraph();
   flushList();
-  return blocks.length ? blocks : [E('p', { 'class': 'z2m-proxy-release-empty' }, _('Автор не указал описание изменений для этого релиза.'))];
+  return blocks.length ? blocks : [E('p', { 'class': 'z2m-proxy-release-empty' }, _('Описание изменений для этого релиза не опубликовано.'))];
 }
 
 function releaseSummary(item) {
-  if (!item || !item.releaseBody) return E('p', { 'class': 'z2m-proxy-release-empty' }, _('Автор не указал описание изменений для этого релиза.'));
+  if (!item || !item.releaseBody) return E('p', { 'class': 'z2m-proxy-release-empty' }, _('Описание изменений для этого релиза не опубликовано.'));
   var lines = safeMarkdownText(item.releaseBody).replace(/\r\n?/g, '\n').split('\n'), points = [];
   for (var i = 0; i < lines.length && points.length < 3; i++) {
     var line = lines[i].trim().replace(/^#{1,3}\s+/, '').replace(/^[-*+]\s+/, '').replace(/^\d+[.)]\s+/, '');
@@ -545,26 +704,48 @@ function releaseSummary(item) {
     points.push(line.slice(0, 220));
   }
   return points.length ? E('ul', { 'class': 'z2m-proxy-release-summary' }, points.map(function (point) { return E('li', {}, markdownInline(point)); })) :
-    E('p', { 'class': 'z2m-proxy-release-empty' }, _('Автор не указал описание изменений для этого релиза.'));
+    E('p', { 'class': 'z2m-proxy-release-empty' }, _('Описание изменений для этого релиза не опубликовано.'));
 }
 
-function selectedReleasePanel(provider, item) {
+function releaseDateHuman(value) {
+  var months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  var found = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value === null || value === undefined ? '' : value));
+  return found ? (+found[3]) + ' ' + months[+found[2] - 1] + ' ' + found[1] : '';
+}
+
+// Compact "Что нового" block bound to the EXACT selected release identity.
+// Collapsed: up to three bullet points. Expanded («Подробнее»): the full
+// sanitized Markdown body INSTEAD of the summary — never both at once.
+function selectedReleaseBlock(ctx, provider, item) {
   if (!item || !item.version) return E('section', { 'class': 'z2m-panel z2m-proxy-selected-release' }, E('div', { 'class': 'bd' }, _('Выберите версию, чтобы увидеть описание релиза.')));
-  var url = safeReleaseUrl(item.releaseUrl), full = item.releaseBody ? E('details', { 'class': 'z2m-proxy-release-full' }, [
-    E('summary', {}, _('Показать полный changelog')),
-    E('div', { 'class': 'z2m-proxy-release-markdown' }, renderReleaseMarkdown(item.releaseBody))
-  ]) : null;
-  return E('section', { 'class': 'z2m-panel z2m-proxy-selected-release' }, [
-    E('div', { 'class': 'hd' }, [E('div', {}, [E('h2', {}, provider.title + ' ' + item.version), E('div', { 'class': 'sub' }, _('Выбранная версия'))])]),
+  var shell = ctx.shell;
+  var url = safeReleaseUrl(item.releaseUrl, provider && provider.id);
+  var expanded = state.tgReleaseExpanded === true;
+  var date = releaseDateHuman(item.publishedAt);
+  var meta = compact([
+    date ? E('span', { 'class': 'z2m-proxy-release-date' }, date) : null,
+    item.releaseName ? E('span', {}, display(item.releaseName)) : null
+  ]);
+  var body = !String(item.releaseBody == null ? '' : item.releaseBody).trim()
+    ? E('p', { 'class': 'z2m-proxy-release-empty' }, _('Описание изменений для этого релиза не опубликовано.'))
+    : expanded
+      ? E('div', { 'class': 'z2m-proxy-release-markdown' }, renderReleaseMarkdown(item.releaseBody))
+      : releaseSummary(item);
+  var toggle = String(item.releaseBody == null ? '' : item.releaseBody).trim() ? shell.button(
+    expanded ? _('Свернуть') : _('Подробнее'), 'sm', function () {
+      state.tgReleaseExpanded = !expanded;
+      if (typeof state.tgReleaseRefresh === 'function') state.tgReleaseRefresh();
+    }) : null;
+  return E('section', { 'class': 'z2m-panel z2m-proxy-selected-release' + (expanded ? ' expanded' : '') }, [
+    E('div', { 'class': 'hd' }, [E('h2', {}, _('Что нового в ') + provider.title + ' ' + item.version),
+      meta.length ? E('div', { 'class': 'sub z2m-proxy-release-meta' }, meta) : null]),
     E('div', { 'class': 'bd' }, [
-      E('div', { 'class': 'z2m-proxy-release-meta' }, [
-        E('span', {}, _('Дата релиза: ') + display(item.publishedAt || '—')),
-        item.releaseName ? E('span', {}, display(item.releaseName)) : null
-      ]),
-      E('h3', {}, _('Что изменилось')),
-      releaseSummary(item),
-      full,
-      url ? E('a', { href: url, target: '_blank', rel: 'noopener noreferrer', 'class': 'z2m-proxy-release-link' }, _('Открыть релиз на GitHub')) : null
+      body,
+      toggle || url ? E('div', { 'class': 'z2m-btnrow z2m-proxy-release-actions' }, compact([
+        toggle,
+        url ? E('a', { href: url, target: '_blank', rel: 'noopener noreferrer', 'class': 'z2m-proxy-release-link' }, _('Открыть релиз на GitHub') + ' →') : null
+      ])) : null
     ])
   ]);
 }
@@ -594,220 +775,226 @@ function releaseVersionCompare(left, right) {
   return 0;
 }
 
+function versionOptionLabel(item, latestVersion, installedVersion) {
+  var marks = [];
+  if (latestVersion && item.version === latestVersion) marks.push(_('последняя'));
+  if (installedVersion && item.version === installedVersion) marks.push(_('установлена'));
+  if (item.prerelease) marks.push(_('предварительная'));
+  return item.version + (marks.length ? ' — ' + marks.join(', ') : '');
+}
+
 function providerCard(ctx, data, provider, status, releasePanel) {
   var shell = ctx.shell;
   var preflight = array(object(data.providerPreflight && data.providerPreflight.value).providers)
     .filter(function (item) { return item && item.provider === provider.id; })[0] || {};
-  var versionRow = providerVersions(data).filter(function (item) { return item && item.id === provider.id; })[0] || {};
-  var versions = array(versionRow.versions);
-  var updateAnswer = object(data.providerUpdates && data.providerUpdates.value && data.providerUpdates.value[provider.id]);
-  var updateChoices = [];
-  if (updateAnswer && updateAnswer.ok && Array.isArray(updateAnswer.availableVersions)) {
-    updateChoices = updateAnswer.availableVersions.map(function (v) {
-      return {
-        version: v.version,
-        prerelease: v.prerelease === true,
-        artifactKind: v.artifactKind,
-        installable: v.installable === true,
-        unavailableReason: v.reason || null,
-        incompatibilityReason: v.reason || null,
-        artifactAvailable: v.installable === true,
-        architectureCompatible: v.installable === true,
-        sourceId: 'official-github-release',
-        displayVersion: v.version + (v.prerelease ? ' (prerelease)' : ''),
-        update: v.update,
-        releaseUrl: v.releaseUrl || null,
-        releaseBody: v.releaseBody || null
-      };
-    });
-  }
+  var choices = choicesForProvider(data, provider.id);
   var selection = state.tgSelections[provider.id] || {};
-  var fallbackChoices = versionChoices(versions);
-  var choices = updateChoices.length ? updateChoices : fallbackChoices;
   var first = choices[0] || {};
   var selected = candidateForVersion(choices, selection.version || first.version);
   if (selected.version) state.tgSelections[provider.id] = { sourceId: selected.sourceId, version: selected.version };
   var isActive = providerInstalled(status.installed) && status.activeProvider === provider.id;
   var installedPackage = array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {};
   var installedVersion = installedPackage.version || (isActive ? status.activeVersion : null) || installedPackage.packageVersion;
-  var packageVersion = installedPackage.packageVersion ||
-    (isActive ? status.activePackageVersion : null);
+  var packageVersion = installedPackage.packageVersion || (isActive ? status.activePackageVersion : null);
   var latest = choices.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || first;
-  var selectedIdentity = selected.packageVersion || selected.version;
-  var installedIdentity = packageVersion || installedVersion;
-  var selectedPackageVersion = selected.packageVersion;
-  var installedLatest = isActive && installedIdentity && selectedIdentity === installedIdentity;
+  var selectedIdentity = selected.version;
+  var installedIdentity = installedVersion;
   var needsUpdate = isActive && installedVersion && releaseVersionCompare(latest.version, installedVersion) > 0;
   var switching = providerInstalled(status.installed) && !isActive;
-  var selectedRelation = isActive && installedIdentity ? releaseVersionCompare(selectedIdentity, installedIdentity) : null;
-  var actionLabels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Переключить') };
-  function actionKindFor(candidate) {
-    var candidateIdentity = candidate && (candidate.packageVersion || candidate.version);
-    var relation = isActive && installedIdentity ? releaseVersionCompare(candidateIdentity, installedIdentity) : null;
-    return switching ? 'PROVIDER_SWITCH' : !providerInstalled(status.installed) ? 'INSTALL' : relation != null && relation < 0 ? 'DOWNGRADE' : 'UPDATE';
-  }
-  function actionLabelFor(candidate) {
-    var candidateIdentity = candidate && (candidate.packageVersion || candidate.version);
-    return isActive && installedIdentity && candidateIdentity === installedIdentity ? _('Актуально') : actionLabels[actionKindFor(candidate)];
-  }
-  function actionDisabledFor(candidate) {
-    var candidateIdentity = candidate && (candidate.packageVersion || candidate.version);
-    return !!state.busy || preflight.available === false || !candidate || !candidate.version || candidate.installable === false ||
-      (isActive && installedIdentity && candidateIdentity === installedIdentity);
-  }
-  var installedVersionValue = installedVersionDisplay(installedVersion, packageVersion);
-  var unavailableReason = preflight.available === false ? preflight.reason || _('Провайдер недоступен.') :
-    selected.installable === false ? selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна.') :
-    !selected.version ? _('Нет доступных версий для этого провайдера.') : null;
   var benefits = providerBenefits(provider.id);
-  var diagnostics = E('details', { 'class': 'z2m-proxy-technical z2m-proxy-provider-diagnostics' }, [
+  var diagnostics = selected.version ? E('details', { 'class': 'z2m-proxy-technical z2m-proxy-provider-diagnostics' }, [
     E('summary', {}, _('Подробнее')),
     compatibilityDetails(selected)
-  ]);
-  var action;
+  ]) : null;
+  var actionLabels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Установить и переключиться') };
+  function actionKindFor(candidate) {
+    var candidateVersion = candidate && candidate.version;
+    var relation = isActive && installedIdentity ? releaseVersionCompare(candidateVersion, installedIdentity) : null;
+    return switching ? 'PROVIDER_SWITCH' : !providerInstalled(status.installed) ? 'INSTALL' : relation != null && relation < 0 ? 'DOWNGRADE' : 'UPDATE';
+  }
+  function actionDisabledFor(candidate) {
+    var candidateVersion = candidate && candidate.version;
+    return !!state.busy || preflight.available === false || !candidate || !candidate.version || candidate.installable === false ||
+      (isActive && installedIdentity && candidateVersion === installedIdentity);
+  }
+  // Success preflight is silent: a healthy device shows no compatibility
+  // noise. Only a real failure becomes a provider-local alert.
+  var updateCheckFailed = choices.length === 0 && !providerInstalled(status.installed);
+  var unavailableReason = preflight.available === false ? (preflight.reason || _('Провайдер недоступен для этого устройства.')) :
+    updateCheckFailed ? _('Не удалось проверить обновления. Повторите попытку позже — проверьте подключение роутера к сети.') :
+    selected.version && selected.installable === false ? (selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна для устройства.')) : null;
   var versionSelect = choices.length > 1 ? E('select', { 'aria-label': _('Версия'), value: selected.version || '', change: function (event) {
     var next = candidateForVersion(choices, event.target.value);
     state.tgSelections[provider.id] = { sourceId: next.sourceId, version: next.version };
+    // In-place updates only: a full pane re-render inside the change handler
+    // destroys the select mid-interaction and wedges the dropdown after a few
+    // quick switches.
     releasePanel.update(provider, next);
-    diagnostics.replaceChildren(E('summary', {}, _('Подробнее')), compatibilityDetails(next));
-    if (action && action.tagName === 'BUTTON') {
-      action.textContent = actionLabelFor(next);
-      action.disabled = actionDisabledFor(next);
-    }
+    actionsRow.replaceChildren(buildAction(next));
+    if (diagnostics) diagnostics.replaceChildren(E('summary', {}, _('Подробнее')), compatibilityDetails(next));
   } }, choices.map(function (item) {
-    return E('option', { value: item.version }, item.version);
+    return E('option', { value: item.version }, versionOptionLabel(item, first.version, isActive ? installedVersion : null));
   })) : E('strong', { 'class': 'z2m-proxy-version-static' }, display(selected.version || latest.version));
-  var actionLabel = actionLabelFor(selected);
-  var actionNeedsButton = choices.length > 1 || !installedLatest;
-  action = actionNeedsButton ? shell.button(actionLabel, 'primary sm', function () {
-    var liveSelection = state.tgSelections[provider.id] || { sourceId: selected.sourceId, version: selected.version };
-    var liveCandidate = candidateForVersion(choices, liveSelection.version) || selected;
-    var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
-    function start() {
-      state.busy = 'provider-install';
-      ctx.api.tg.product.checkUpdates(request).then(function (check) {
-        if (!check || check.ok === false || !check.checkToken) throw check && check.error || new Error(_('Выбранная версия не прошла проверку.'));
-        return ctx.api.tg.product.switch({ provider: provider.id, version: liveCandidate.version, checkToken: check.checkToken });
-      }).then(function (answer) {
-        if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог установить Telegram Proxy.'));
-        state.busy = null;
-        finishTgTransaction(ctx, answer, start, _('TG Proxy установлен'));
-      }).catch(function (error) { state.busy = null; showError(ctx, error); });
-    }
-    tgTransactionConfirm(ctx, actionKindFor(liveCandidate), provider, liveCandidate, start);
-  }, actionDisabledFor(selected)) : E('span', { 'class': 'z2m-proxy-installed-state' }, '✓ ' + _('Актуально'));
-  // Compatibility marker for older acceptance readers: update.installable === false
-  // is now represented by the selected version's exact incompatibilityReason.
-
-  return E('article', { 'class': 'z2m-panel z2m-proxy-provider-card' + (isActive ? ' selected' : '') }, [
+  function buildAction(candidate) {
+    var isInstalled = isActive && installedIdentity && candidate.version === installedIdentity;
+    if (isInstalled) return E('span', { 'class': 'z2m-proxy-installed-state' }, '✓ ' + _('Установлена актуальная версия'));
+    return shell.button(actionLabels[actionKindFor(candidate)], 'primary sm', function () {
+      var liveCandidate = candidateForVersion(choices, (state.tgSelections[provider.id] || {}).version) || candidate;
+      var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
+      function start() {
+        state.busy = 'provider-install';
+        ctx.api.tg.product.checkUpdates(request).then(function (check) {
+          if (!check || check.ok === false || !check.checkToken) throw check && check.error || new Error(_('Выбранная версия не прошла проверку.'));
+          return ctx.api.tg.product.switch({ provider: provider.id, version: liveCandidate.version, checkToken: check.checkToken });
+        }).then(function (answer) {
+          if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог установить Telegram Proxy.'));
+          state.busy = null;
+          finishTgTransaction(ctx, answer, start);
+        }).catch(function (error) {
+          state.busy = null;
+          showOperationFailure(ctx, start, error);
+        });
+      }
+      tgTransactionConfirm(ctx, actionKindFor(liveCandidate), provider, liveCandidate, start);
+    }, actionDisabledFor(candidate));
+  }
+  var actionsRow = E('div', { 'class': 'z2m-btnrow z2m-proxy-provider-actions' }, [buildAction(selected)]);
+  var cardEl = E('article', { 'class': 'z2m-panel z2m-proxy-provider-card' + (isActive ? ' selected' : '') + (state.tgReleaseCurrent && state.tgReleaseCurrent.provider && state.tgReleaseCurrent.provider.id === provider.id ? ' release-active' : '') }, [
     E('div', { 'class': 'hd' }, compact([
       E('div', { 'class': 'z2m-proxy-provider-heading' }, [providerIcon(provider.id), E('h2', {}, provider.title)]),
-      isActive ? E('div', { 'class': 'sp' }, shell.chip(needsUpdate ? _('Доступно обновление') : _('Активна'), needsUpdate ? 'o' : 'g', true)) : null
+      E('div', { 'class': 'sp z2m-proxy-provider-chips' }, compact([
+        isActive ? shell.chip(_('Активен'), 'g', true) : null,
+        needsUpdate ? shell.chip(_('Доступно обновление'), 'o', true) : null
+      ]))
     ])),
     E('div', { 'class': 'bd' }, compact([
       E('strong', { 'class': 'z2m-proxy-provider-short' }, benefits.title),
-      E('ul', { 'class': 'z2m-proxy-provider-benefits' }, benefits.items.map(function (item) { return E('li', {}, item); })),
-      E('div', { 'class': 'z2m-proxy-info-list' }, [
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, installedVersionValue)]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя версия')), E('strong', {}, display(latest.displayVersion || latest.version))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': !unavailableReason ? 'z2m-proxy-ok' : '' }, unavailableReason ? _('Недоступно') : _('Проверка перед установкой'))])
+      E('p', { 'class': 'z2m-proxy-provider-sub' }, benefits.items[0]),
+      E('div', { 'class': 'z2m-proxy-info-list z2m-proxy-provider-rows' }, [
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установлено')), E('strong', {}, installedVersionDisplay(installedVersion, packageVersion))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя')), E('strong', {}, display(latest.displayVersion || latest.version))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect])
       ]),
-      E('div', { 'class': unavailableReason ? 'z2m-proxy-install-state unavailable' : 'z2m-proxy-install-state ready' }, unavailableReason ? '⚠ ' + unavailableReason : '✓ ' + _('Можно установить на это устройство')),
+      unavailableReason ? E('div', { 'class': 'z2m-proxy-provider-alert' }, [
+        E('div', {}, '⚠ ' + _('Эта версия недоступна для устройства')),
+        E('div', { 'class': 'z2m-proxy-provider-alert-reason' }, unavailableReason)
+      ]) : null,
       diagnostics,
-      E('div', { 'class': 'z2m-btnrow z2m-proxy-provider-actions' }, [action])
+      actionsRow
     ]))
   ]);
+  // Clicking the card (outside interactive controls) switches the changelog
+  // block to this provider's selected release.
+  cardEl.addEventListener('click', function (event) {
+    if (event.target.closest('select, button, a, input, textarea, details, summary')) return;
+    releasePanel.update(provider, selected);
+  });
+  return cardEl;
 }
+
 function installPane(ctx, data) {
   var shell = ctx.shell;
   var status = providerStatus(data);
   var recoveredOperation = object(data.providerOperation && data.providerOperation.value).operation;
-  if (!state.tgOperation && recoveredOperation && (recoveredOperation.status === 'RUNNING' || recoveredOperation.status === 'ROLLING_BACK'))
-    watchTgOperation(ctx, recoveredOperation.operationId, state.tgRetry);
+  if (recoveredOperation && (recoveredOperation.state === 'RUNNING' || recoveredOperation.status === 'RUNNING' ||
+    recoveredOperation.state === 'ROLLING_BACK' || recoveredOperation.status === 'ROLLING_BACK')) {
+    // A transaction is in flight (possibly started before a page reload):
+    // re-attach to it and block new operations until it reaches a terminal state.
+    state.busy = state.busy || 'operation';
+    if (!state.tgOperation) {
+      state.tgOperation = Object.assign({}, recoveredOperation, { status: recoveredOperation.state || recoveredOperation.status });
+      watchAttachedTgOperation(ctx);
+    }
+  }
   var providers = providerCatalog(data).slice().sort(function (left, right) { return left.id === 'go' ? -1 : right.id === 'go' ? 1 : 0; });
   var selectedVersionPanel = E('div', { 'class': 'z2m-proxy-selected-release-wrap' });
   var releasePanel = {
     update: function (provider, item) {
+      var key = (provider && provider.id ? provider.id : '') + '@' + (item && item.version ? item.version : '');
+      if (state.tgReleaseKey !== key) { state.tgReleaseKey = key; state.tgReleaseExpanded = false; }
       state.tgSelectedRelease = item && item.version ? { provider: provider.id, version: item.version } : null;
-      selectedVersionPanel.replaceChildren(selectedReleasePanel(provider, item));
+      state.tgReleaseCurrent = { provider: provider, item: item };
+      selectedVersionPanel.replaceChildren(selectedReleaseBlock(ctx, provider, item));
+      Array.prototype.forEach.call(document.querySelectorAll('.z2m-proxy-provider-card'), function (c) {
+        var title = (c.querySelector('h2') || {}).textContent || '';
+        c.classList.toggle('release-active', !!provider && title === (provider.title || title));
+      });
     }
   };
+  state.tgReleaseRefresh = function () {
+    var current = state.tgReleaseCurrent;
+    if (current) releasePanel.update(current.provider, current.item);
+  };
   var cards = providers.map(function (provider) { return providerCard(ctx, data, provider, status, releasePanel); });
-  var initialProvider = providers.filter(function (provider) { return state.tgSelectedRelease && state.tgSelectedRelease.provider === provider.id; })[0] || providers[0];
-  var initialVersions = initialProvider ? providerVersions(data).filter(function (row) { return row && row.id === initialProvider.id; })[0] || {} : {};
-  var initialChoices = versionChoices(initialVersions.versions);
+  var initialProvider = providers.filter(function (provider) { return state.tgSelectedRelease && state.tgSelectedRelease.provider === provider.id; })[0] ||
+    providers.filter(function (provider) { return choicesForProvider(data, provider.id).length > 0; })[0] || providers[0];
+  var initialChoices = initialProvider ? choicesForProvider(data, initialProvider.id) : [];
   var initialVersion = state.tgSelectedRelease && state.tgSelectedRelease.provider === (initialProvider || {}).id ? state.tgSelectedRelease.version : (initialChoices[0] || {}).version;
   releasePanel.update(initialProvider || { id: '', title: _('Telegram Proxy') }, candidateForVersion(initialChoices, initialVersion));
-  var footer = [];
-  var preflight = object(data.providerPreflight && data.providerPreflight.value);
-  function refreshChecks() {
-    if (state.busy) return;
-    state.busy = 'preflight';
-    ctx.refresh('proxy').then(function () { state.busy = null; }).catch(function (error) { state.busy = null; showError(ctx, error); });
+  // Manual fresh check on demand; the automatic check still runs on load.
+  var checking = state.tgCheckingUpdates === true;
+  var checkedJustNow = state.tgCheckedAt && (Date.now() - state.tgCheckedAt) < 5000;
+  function checkUpdatesNow() {
+    if (state.tgCheckingUpdates) return;
+    state.tgCheckingUpdates = true;
+    ctx.root.replaceChildren(render(ctx));
+    ctx.refresh('proxy').then(function () {
+      state.tgCheckingUpdates = false;
+      state.tgCheckedAt = Date.now();
+      ctx.root.replaceChildren(render(ctx));
+      ctx.shell.showToast(_('Проверено только что'), 'ok');
+    }).catch(function (error) {
+      state.tgCheckingUpdates = false;
+      ctx.root.replaceChildren(render(ctx));
+      showError(ctx, error);
+    });
   }
-
+  var head = E('div', { 'class': 'z2m-proxy-component-head' }, [
+    E('div', {}, [
+      E('h2', {}, _('Telegram Proxy')),
+      E('p', { 'class': 'z2m-dim' }, providerInstalled(status.installed)
+        ? _('Установлен: ') + activeProviderLabel(data, status) + ' ' + installedVersionDisplay(status.activeVersion, status.activePackageVersion)
+        : _('Не установлен — установите Rust или Go ниже'))
+    ]),
+    E('div', { 'class': 'z2m-btnrow' }, compact([
+      shell.button(checking ? _('Проверяем обновления…') : _('Проверить обновления'), 'sm', checkUpdatesNow, checking || !!state.busy),
+      checkedJustNow && !checking ? E('span', { 'class': 'z2m-proxy-checked-note' }, _('Проверено только что')) : null
+    ]))
+  ]);
+  var removeFooter = [];
   if (providerInstalled(status.installed)) {
-    footer.push(shell.button(_('Удалить'), 'danger sm', function () {
+    removeFooter.push(shell.button(_('Удалить'), 'danger sm', function () {
       tgUninstallConfirm(ctx, false, function () {
         state.busy = 'provider-remove';
         ctx.api.tg.product.remove({ confirm: 'REMOVE' }).then(function (answer) {
           if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог удалить Telegram Proxy.'));
           state.busy = null;
-          if (answer.operationId) { watchTgOperation(ctx, answer.operationId, null); return null; }
-          ctx.shell.showToast(_('TG Proxy удалён.'), 'ok');
-          return ctx.refresh('proxy');
-        }).catch(function (error) { state.busy = null; showError(ctx, error); });
+          finishTgTransaction(ctx, answer, null);
+        }).catch(function (error) { state.busy = null; showOperationFailure(ctx, null, error); });
       });
     }, !!state.busy));
-    footer.push(shell.button(_('Удалить полностью'), 'danger sm', function () {
+    removeFooter.push(shell.button(_('Удалить полностью'), 'danger sm', function () {
       tgUninstallConfirm(ctx, true, function () {
         state.busy = 'provider-purge';
         ctx.api.tg.product.purge({ confirm: 'PURGE' }).then(function (answer) {
           if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог выполнить полную очистку.'));
           state.busy = null;
-          if (answer.operationId) { watchTgOperation(ctx, answer.operationId, null); return null; }
           ctx.shell.showToast(_('TG Proxy и настройки удалены.'), 'ok');
           return ctx.refresh('proxy');
         }).catch(function (error) { state.busy = null; showError(ctx, error); });
       });
     }, !!state.busy));
   }
-
-  var checks = [
-    { label: _('Архитектура'), value: display(preflight.architecture), good: !!preflight.architecture }
-  ].concat(array(preflight.providers).map(function (item) {
-    return { label: item.provider === 'rust' ? 'Rust' : 'Go', value: item.available ? _('Готов') : display(item.reason), good: item.available === true };
-  }));
-  var removePanel = null;
-  if (footer.length) {
-    removePanel = E('details', { 'class': 'z2m-proxy-danger-zone' }, [
-      E('summary', {}, _('Дополнительные действия')),
-      E('div', { 'class': 'z2m-proxy-danger-zone-body' }, [
-        E('strong', {}, _('Удаление Telegram Proxy')),
-        E('p', {}, _('Обычное удаление сохраняет настройки. Полная очистка удаляет конфигурацию и secret.')),
-        E('div', { 'class': 'z2m-btnrow' }, footer)
-      ])
-    ]);
-  }
+  var removePanel = removeFooter.length ? E('details', { 'class': 'z2m-proxy-danger-zone' }, [
+    E('summary', {}, _('Удаление Telegram Proxy')),
+    E('div', { 'class': 'z2m-proxy-danger-zone-body' }, [
+      E('strong', {}, _('Удаление Telegram Proxy')),
+      E('p', {}, _('Обычное удаление сохраняет настройки. Полная очистка удаляет конфигурацию и секрет.')),
+      E('div', { 'class': 'z2m-btnrow' }, removeFooter)
+    ])
+  ]) : null;
   return E('div', { 'class': 'z2m-proxy-pane' }, compact([
-    shell.statePanel({
-      title: providerInstalled(status.installed) ? _('Компонент установлен') : _('Компонент не установлен'),
-      message: providerInstalled(status.installed)
-        ? _('Выбрано: ') + String(status.activeProvider || '—') + ' ' + String(status.activeVersion || '')
-        : _('Это нормально: TG Proxy полностью опционален и не влияет на остальные функции Zapret2 Manager.'),
-      kind: providerInstalled(status.installed) ? 'success' : 'info'
-    }),
-    data.providerCatalog && data.providerCatalog.error ? shell.statePanel({
-      title: _('Каталог недоступен'), message: data.providerCatalog.error.message, kind: 'error'
-    }) : null,
-    shell.panel(_('Проверка готовности'), E('details', { 'class': 'z2m-proxy-preflight-disclosure', open: !providerInstalled(status.installed) || checks.some(function (item) { return !item.good; }) }, [
-      E('summary', {}, checks.every(function (item) { return item.good; }) ? _('Устройство совместимо · проверка пройдена') : _('Некоторые реализации недоступны')),
-      E('div', { 'class': 'z2m-proxy-preflight' }, checks.map(function (item) {
-        return E('div', { 'class': 'z2m-proxy-check ' + (item.good ? 'good' : 'warn') }, [E('span', {}, item.label), E('strong', {}, item.value)]);
-      })),
-      shell.button(_('Повторить проверку'), 'sm', refreshChecks, !!state.busy)
-    ]), _('Перед установкой проверяются устройство и доступность реализации')),
+    head,
     E('div', { 'class': 'z2m-grid z2m-grid-2 z2m-proxy-provider-grid' }, cards),
     selectedVersionPanel,
     removePanel
@@ -866,27 +1053,12 @@ function statusPane(ctx, data, normalized) {
   var listenerAddress = listener.address || applied.host;
   var listenerPort = listener.port !== undefined ? listener.port : applied.port;
   var infoRow = function (row) { return E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, row[0]), E('strong', {}, row[1])]); };
-  var serviceRows = [
-    [_('Провайдер'), activeProviderLabel(data, pstatus)],
-    [_('Слушатель'), normalized.listener && listenerAddress ? display(listenerAddress) + ':' + display(listenerPort) : _('Не подтверждён')],
-    [_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion)],
-    [_('Автозапуск'), object(cfg.autostart).rcDEnabled ? _('Включён') : _('Выключен')],
-    [_('Активные сессии'), normalized.activeConnections === null || normalized.activeConnections === undefined ? '—' : String(normalized.activeConnections)]
-  ];
-  var health = [
-    ['provider', _('Провайдер'), installed, installed ? _('Готов') : _('Не установлен')],
-    ['process', _('Процесс'), normalized.process, normalized.process ? _('Запущен') : _('Остановлен')],
-    ['listener', _('Слушатель'), normalized.listener, normalized.listener ? _('Готов') : _('Не подтверждён')],
-    ['telegram-dc', _('Telegram DC'), normalized.outbound, normalized.outbound ? _('Готова') : _('Не подтверждена')]
-  ];
   var rawHealth = object(data.health && data.health.value);
   var runtime = object(raw.runtime);
   var technicalRows = [
     [_('PID'), display(raw.pid !== undefined ? raw.pid : runtime.pid)],
     [_('Ревизия'), display(cfg.appliedRevision)],
-    [_('Состояние провайдера'), pstatus.drift ? _('Обнаружен дрейф') : _('Синхронизирован')],
-    [_('Ревизия пакета'), display(pstatus.activePackageVersion)],
-    [_('Внутреннее состояние'), display(pstatus.state !== undefined ? pstatus.state : raw.state)]
+    [_('Ревизия пакета'), display(pstatus.activePackageVersion)]
   ];
   var technicalEvidence = ProductUX.redact({
     status: raw,
@@ -899,17 +1071,34 @@ function statusPane(ctx, data, normalized) {
       provider: pstatus.generatedAt !== undefined ? pstatus.generatedAt : pstatus.updatedAt
     }
   });
-  var humanStatus = normalized.truth === 'healthy' ? _('Работает') : normalized.process ? _('Работает с ограничениями') : _('Остановлен');
-  var statusMessage = normalized.truth === 'healthy' ? _('Все проверки пройдены.') : normalized.process ?
-    (normalized.outbound ? _('Прокси локально работает, но часть проверок требует внимания.') : _('Прокси локально работает, но соединение с Telegram DC ещё не подтверждено.')) :
-    _('Процесс Telegram Proxy сейчас не запущен.');
+  // Truthful status contract: green ONLY with local health AND confirmed
+  // Telegram DC reachability; degraded when the upstream side is unproven;
+  // red on local failure. Never a green «Работает» from process+listener alone.
+  var localOk = normalized.process && normalized.listener;
+  var upstreamOk = normalized.outbound === true;
+  var humanStatus = !localOk ? _('Не работает') : upstreamOk ? _('Работает') : _('Работает с ограничениями');
+  var statusKind = !localOk ? 'r' : upstreamOk ? 'g' : 'o';
+  var statusMessage = !localOk ? _('Процесс Telegram Proxy не запущен или слушатель недоступен.') :
+    upstreamOk ? _('Локальный слушатель и доступность Telegram DC подтверждены.') :
+    _('Локальный прокси работает, но доступность Telegram DC пока не подтверждена.');
   function healthStep(row) {
     return E('div', { 'class': 'z2m-proxy-health-step ' + (row[2] ? 'ok' : 'warn') }, compact([
       E('span', {}, row[1]),
       E('strong', {}, row[3]),
-      !row[2] && (row[0] === 'listener' || row[0] === 'telegram-dc') ? shell.button(_('Проверить снова'), 'ghost sm', function () { return ctx.refresh('proxy'); }, !!state.busy) : null
+      !row[2] && row[0] === 'telegram' ? shell.button(_('Проверить снова'), 'ghost sm', function () { return ctx.refresh('proxy'); }, !!state.busy) : null
     ]));
   }
+  var listenerLabel = normalized.listener && listenerAddress ? display(listenerAddress) + ':' + display(listenerPort) : _('Не подтверждён');
+  var health = [
+    ['process', _('Процесс'), normalized.process, normalized.process ? _('Запущен') : _('Остановлен')],
+    ['listener', _('Слушатель'), normalized.listener, listenerLabel],
+    ['telegram', _('Telegram'), upstreamOk, upstreamOk ? _('Подключение подтверждено') : _('Не подтверждено')]
+  ];
+  var serviceRows = [
+    [_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion)],
+    [_('Автозапуск'), object(cfg.autostart).rcDEnabled ? _('Включён') : _('Выключен')],
+    [_('Активные сессии'), normalized.activeConnections === null || normalized.activeConnections === undefined ? '—' : String(normalized.activeConnections)]
+  ];
   return E('div', { 'class': 'z2m-proxy-pane' }, [
     E('section', { 'class': 'z2m-panel z2m-proxy-status-panel' }, [
       E('div', { 'class': 'bd' }, [
@@ -917,7 +1106,7 @@ function statusPane(ctx, data, normalized) {
           E('div', { 'class': 'z2m-proxy-status-summary' }, [
             E('div', { 'class': 'z2m-proxy-telegram-logo' }, E('img', { src: L.resource('view/zapret2-manager/icons/telegram.svg'), alt: 'Telegram' })),
             E('div', {}, [
-              E('h3', {}, humanStatus),
+              E('h3', { 'class': 'z2m-proxy-status-' + statusKind }, humanStatus),
               E('p', { 'class': 'z2m-proxy-status-meta' }, activeProviderLabel(data, pstatus) + ' · ' + installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion) + ' · ' + (object(cfg.autostart).rcDEnabled ? _('Автозапуск включён') : _('Автозапуск выключен'))),
               E('p', {}, statusMessage)
             ])
@@ -925,7 +1114,7 @@ function statusPane(ctx, data, normalized) {
           E('div', { 'class': 'z2m-btnrow z2m-proxy-lifecycle-actions' }, actions)
         ]),
         E('div', { 'class': 'z2m-proxy-status-section' }, [
-          E('h3', {}, _('Цепочка работоспособности')),
+          E('h3', {}, _('Состояние')),
           E('div', { 'class': 'z2m-proxy-health-chain' }, health.map(healthStep))
         ]),
         E('div', { 'class': 'z2m-proxy-status-section' }, [
@@ -979,20 +1168,206 @@ function settingsSection(ctx, data, settings, title, subtitle, fields) {
     grid
   ]);
 }
+
+// ---- connection profiles (product UX over raw config keys) ---------------------
+//
+// Local fallback templates mirror the backend presets in proxycfg.uc
+// (upstream defaults of tg-ws-proxy-rs / tg-ws-proxy-go). The backend value
+// from proxy_config_get.presets wins whenever it is present.
+var PROFILE_TEMPLATES = {
+  recommended: {
+    port: 1443, defaultDomains: true, cfPriority: true, cfBalance: false,
+    faketlsDomain: '', dcIps: [], cfDomains: [], cfWorkerDomains: [],
+    mtprotoProxies: [], outboundProxy: '', noProxy: '',
+    poolSize: 4, bufKb: 256, maxConnections: 0, quiet: false, verbose: false
+  },
+  direct: {
+    port: 1443, defaultDomains: false, cfPriority: false, cfBalance: false,
+    faketlsDomain: '', dcIps: [], cfDomains: [], cfWorkerDomains: [],
+    mtprotoProxies: [], outboundProxy: '', noProxy: '',
+    poolSize: 4, bufKb: 256, maxConnections: 0, quiet: false, verbose: false
+  }
+};
+var CONNECTION_FACT_KEYS = ['enabled', 'autostart', 'host', 'linkIp'];
+
+function profilePresets(data) {
+  var block = object(object(data.config && data.config.value).presets);
+  var recommended = object(block.recommended).settings;
+  var direct = object(block.direct).settings;
+  return {
+    recommended: Object.keys(recommended).length ? recommended : PROFILE_TEMPLATES.recommended,
+    direct: Object.keys(direct).length ? direct : PROFILE_TEMPLATES.direct,
+    lanAddress: block.lanAddress || null
+  };
+}
+
+function routingCustomized(settings) {
+  settings = object(settings);
+  return array(settings.dcIps).length > 0 || array(settings.cfDomains).length > 0 ||
+    array(settings.cfWorkerDomains).length > 0 || array(settings.mtprotoProxies).length > 0 ||
+    String(settings.outboundProxy == null ? '' : settings.outboundProxy).trim() !== '';
+}
+
+// Frontend mirror of proxycfg detect_config_profile(): only the ROUTING
+// signature decides, so toggling enabled/autostart or editing the listener
+// never silently demotes the active profile.
+function detectConfigProfile(settings) {
+  settings = object(settings);
+  if (routingCustomized(settings)) return 'custom';
+  if (settings.defaultDomains === true && settings.cfPriority === true && settings.cfBalance !== true) return 'recommended';
+  if (settings.defaultDomains === false && settings.cfPriority === false) return 'direct';
+  return 'custom';
+}
+
+// A profile owns routing + tuning; connection facts stay with the user.
+function profileSettingsFor(presets, name, current) {
+  current = object(current);
+  var merged = clone(name === 'direct' ? presets.direct : presets.recommended);
+  CONNECTION_FACT_KEYS.forEach(function (key) { merged[key] = current[key]; });
+  return ProxyModel.safeSettings(merged);
+}
+
+var SETTING_LABELS = {
+  enabled: _('Включено'), autostart: _('Автозапуск'), host: _('Адрес прослушивания'),
+  port: _('Порт'), linkIp: _('Адрес в ссылке'), faketlsDomain: _('FakeTLS SNI'),
+  dcIps: _('Маршруты Telegram DC'), cfDomains: _('Cloudflare домены'),
+  cfWorkerDomains: _('CF Worker домены'), cfPriority: _('Приоритет Cloudflare'),
+  cfBalance: _('CF round-robin'), defaultDomains: _('Cloudflare fallback'),
+  outboundProxy: _('Исходящий proxy'), noProxy: _('Исключения исходящего proxy'),
+  poolSize: _('WS pool на DC'), bufKb: _('Буфер сокета, KiB'),
+  maxConnections: _('Максимум подключений'), quiet: _('Тихое логирование'), verbose: _('Отладочный лог')
+};
+
+function settingValueDisplay(value) {
+  if (value === true) return _('Вкл');
+  if (value === false) return _('Выкл');
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '(—)';
+  var text = String(value === null || value === undefined ? '' : value);
+  return text === '' ? '(—)' : text;
+}
+
+function presetDiffRows(current, target) {
+  current = ProxyModel.safeSettings(current);
+  target = ProxyModel.safeSettings(target);
+  var ids = ['port', 'defaultDomains', 'cfPriority', 'cfBalance', 'faketlsDomain', 'dcIps',
+    'cfDomains', 'cfWorkerDomains', 'outboundProxy', 'noProxy', 'poolSize', 'bufKb',
+    'maxConnections', 'quiet', 'verbose'];
+  var rows = [];
+  ids.forEach(function (id) {
+    var before = JSON.stringify(current[id] !== undefined ? current[id] : null);
+    var after = JSON.stringify(target[id] !== undefined ? target[id] : null);
+    if (before !== after) rows.push({ id: id, label: SETTING_LABELS[id] || id,
+      from: settingValueDisplay(current[id]), to: settingValueDisplay(target[id]) });
+  });
+  return rows;
+}
+
+function profileCard(ctx, data, settings, presets) {
+  var shell = ctx.shell;
+  var active = detectConfigProfile(settings);
+  var descriptions = {
+    recommended: _('Использует резервные маршруты Cloudflare при проблемах с прямым подключением к Telegram.'),
+    direct: _('Только прямое подключение к Telegram — без резервных Cloudflare-маршрутов.'),
+    custom: _('Используются собственные значения маршрутизации — их можно изменить в дополнительных настройках.')
+  };
+  function pick(name) {
+    if (name === 'custom') {
+      state.tgSettingsAdvanced = true;
+      ctx.root.replaceChildren(render(ctx));
+      return;
+    }
+    stage(ctx, data, profileSettingsFor(presets, name, workingConfig(ctx, data)));
+    ctx.shell.showToast(name === 'recommended' ? _('Рекомендуемый профиль применён как черновик.') : _('Прямой профиль применён как черновик.'), 'ok');
+  }
+  var buttons = E('div', { 'class': 'z2m-proxy-profile-switch', role: 'group', 'aria-label': _('Профиль подключения') },
+    [['recommended', _('Рекомендуемый')], ['direct', _('Прямой')], ['custom', _('Пользовательский')]].map(function (pair) {
+      var name = pair[0], isActive = active === name;
+      return shell.button(pair[1], (isActive ? 'primary ' : '') + 'sm z2m-proxy-profile-btn' + (isActive ? ' active' : ''),
+        function () { pick(name); }, isActive && name === 'custom');
+    }));
+  return E('section', { 'class': 'z2m-panel z2m-proxy-profile-card' }, [
+    E('div', { 'class': 'hd' }, [E('h2', {}, _('Профиль подключения'))]),
+    E('div', { 'class': 'bd' }, [
+      buttons,
+      E('p', { 'class': 'z2m-proxy-profile-desc' }, descriptions[active] || descriptions.custom)
+    ])
+  ]);
+}
+
+function routingSummaryCard(shell, settings, toggleAdvanced) {
+  settings = object(settings);
+  var ownDomains = array(settings.cfDomains).length + array(settings.cfWorkerDomains).length > 0;
+  var rows = [
+    [_('Cloudflare fallback'), settings.defaultDomains === true ? _('Включён') : _('Выключен'), settings.defaultDomains === true],
+    [_('Источник'), settings.defaultDomains === true ? _('Flowseal (встроенный список)') : ownDomains ? _('Свои домены') : _('Не настроено'), settings.defaultDomains === true || ownDomains],
+    [_('Приоритет'), settings.cfPriority === true ? _('Cloudflare сначала') : _('Прямое подключение сначала'), true]
+  ];
+  return E('section', { 'class': 'z2m-proxy-form-section' }, [
+    E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Маршрутизация')), E('p', {}, _('Как прокси достигает Telegram'))]),
+    E('div', { 'class': 'z2m-proxy-routing-summary' }, rows.map(function (row) {
+      return E('div', { 'class': 'z2m-proxy-routing-row' }, [
+        E('span', {}, row[0]),
+        E('strong', { 'class': row[2] ? 'z2m-proxy-ok' : 'z2m-dim' }, row[1])
+      ]);
+    })),
+    E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Дополнительные настройки'), '', toggleAdvanced)])
+  ]);
+}
+
+function restoreRecommended(ctx, data, presets, current) {
+  var shell = ctx.shell;
+  var target = profileSettingsFor(presets, 'recommended', current);
+  var rows = presetDiffRows(current, target);
+  var body = E('div', { 'class': 'z2m-tg-confirm-body z2m-proxy-preset-confirm' }, [
+    E('strong', {}, _('Восстановить рекомендуемые настройки?')),
+    E('p', {}, _('Будут восстановлены рекомендованные значения маршрутизации и порта. Включение, автозапуск и адрес прослушивания сохранятся.')),
+    rows.length ? E('div', { 'class': 'z2m-proxy-preset-diff' }, [
+      E('div', { 'class': 'z2m-proxy-preset-diff-head' }, [E('span', {}, _('Параметр')), E('span', {}, _('Сейчас')), E('span', {}, _('Станет'))])
+    ].concat(rows.map(function (row) {
+      return E('div', { 'class': 'z2m-proxy-preset-diff-row' }, [
+        E('span', {}, row.label), E('span', {}, row.from), E('span', { 'class': 'z2m-proxy-ok' }, row.to)
+      ]);
+    }))) : E('p', {}, _('Изменений нет: текущая конфигурация уже соответствует рекомендуемому профилю.')),
+    E('p', { 'class': 'z2m-dim' }, _('Secret не сбрасывается и не меняется.'))
+  ]);
+  shell.openModal(_('Рекомендуемый профиль'), body, [
+    shell.button(_('Отмена'), '', shell.closeModal),
+    shell.button(_('Применить рекомендуемые'), 'primary sm', function () {
+      shell.closeModal();
+      if (!rows.length) return;
+      stage(ctx, data, target);
+      ctx.shell.showToast(_('Рекомендуемые настройки применены как черновик.'), 'ok');
+    }, !rows.length)
+  ]);
+}
 function settingsPane(ctx, data) {
   var shell = ctx.shell;
   var pstatus = providerStatus(data);
   var installed = providerInstalled(pstatus.installed);
   var settings = workingConfig(ctx, data);
   var draft = currentDraft(ctx);
+  var presets = profilePresets(data);
+  var cfgValue = object(data.config && data.config.value);
+  var lanAddress = presets.lanAddress;
+  // Canonical hydration: autostart truth lives in the rc.d symlink state, not
+  // in a possibly stale applied snapshot. Without a user draft the form shows
+  // exactly what the backend reports — opening Settings never creates dirt.
+  if (!draft.settings) {
+    settings.autostart = object(cfgValue.autostart).rcDEnabled === true;
+    settings.enabled = settings.enabled === true;
+  }
+  var lanEnabled = !!lanAddress && settings.host === lanAddress;
+  var loopbackHost = !settings.host || (String(settings.host).indexOf('127.') === 0);
+  var showLanToggle = !!lanAddress && (lanEnabled || loopbackHost);
+  var advertised = settings.linkIp || settings.host || lanAddress || '';
   var fallbackEntries = array(settings.mtprotoProxies);
   function fields(ids) {
     var hints = {
-      host: _('Требуется конкретный локальный IPv4. Wildcard bind запрещён.'),
-      port: _('Диапазон 1–65535. Значение провайдера по умолчанию: 1443.'),
-      linkIp: _('Пустое значение использует адрес прослушивания.'),
+      host: _('Куда привязан процесс: LAN IPv4 для доступа с других устройств или 127.x только для самого роутера.'),
+      port: _('Диапазон 1–65535. Рекомендуемое значение провайдера: 1443.'),
+      linkIp: _('Адрес, который получает клиент в ссылке. Пусто = адрес прослушивания.'),
       faketlsDomain: _('Полное доменное имя для FakeTLS SNI.'),
-      dcIps: _('По одному DC:IPv4 в строке, максимум 16.'),
+      dcIps: _('По одному DC:IPv4 в строке, максимум 16. Пусто — значения по умолчанию провайдера.'),
       cfDomains: _('По одному домену в строке, максимум 8.'),
       cfWorkerDomains: _('По одному Worker-домену в строке, максимум 8.'),
       outboundProxy: _('Поддерживаются http://, socks5:// и socks5h://.'),
@@ -1007,37 +1382,105 @@ function settingsPane(ctx, data) {
       return result;
     });
   }
+  function toggleAdvanced() {
+    state.tgSettingsAdvanced = !state.tgSettingsAdvanced;
+    ctx.root.replaceChildren(render(ctx));
+  }
+  function setLanAccess(enabled) {
+    var next = clone(settings);
+    next.host = enabled && lanAddress ? lanAddress : '127.0.0.1';
+    if (enabled) next.linkIp = '';
+    stage(ctx, data, ProxyModel.safeSettings(next));
+  }
+  function controlRow(labelText, control, hint, alignRight) {
+    return [E('label', {}, labelText), E('div', { 'class': 'z2m-proxy-control' + (alignRight ? ' align-right' : '') }, compact([
+      control, hint ? E('div', { 'class': 'z2m-proxy-field-hint' }, hint) : null
+    ]))];
+  }
+  var basicGrid = E('div', { 'class': 'z2m-cbi z2m-proxy-form-grid' });
+  [
+    controlRow(_('Прокси'), ctx.shell.switchControl({ checked: settings.enabled === true, label: _('Прокси'), onChange: function (value) {
+      var next = clone(settings); next.enabled = value; stage(ctx, data, next);
+    } }), null, true),
+    controlRow(_('Автозапуск'), ctx.shell.switchControl({ checked: settings.autostart === true, label: _('Автозапуск'), onChange: function (value) {
+      var next = clone(settings); next.autostart = value; stage(ctx, data, next);
+    } }, _('Запускать Telegram Proxy после перезагрузки роутера')), null, true),
+    showLanToggle ? controlRow(_('Доступ из локальной сети'), ctx.shell.switchControl({ checked: lanEnabled, label: _('Доступ из локальной сети'), onChange: setLanAccess },
+      _('Разрешить подключение с устройств в вашей сети')), null, true) : null,
+    controlRow(_('Адрес для подключения'), E('strong', { 'class': 'z2m-proxy-addr-line' }, (advertised || '—') + ':' + display(settings.port)),
+      _('Этот адрес получают Telegram-клиенты в ссылке и QR')),
+    controlRow(_('Порт'), (function () {
+      var portField = fields(['port'])[0];
+      var portNode = fieldNode(ctx, portField, settings.port, function (value) {
+        var next = clone(settings); next.port = value; stage(ctx, data, next);
+      });
+      return portNode[1].querySelector ? portNode[1] : E('span', {}, '');
+    })())
+  ].forEach(function (row) { if (!row) return; basicGrid.appendChild(row[0]); basicGrid.appendChild(row[1]); });
+  var basicSection = E('section', { 'class': 'z2m-proxy-form-section' }, [
+    E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Основное')), E('p', {}, _('Запуск сервиса и доступ клиентов'))]),
+    basicGrid
+  ]);
+  // LuCI E() stringifies attributes: open:false would become open="false"
+  // (a truthy attribute). Build the details node and set the DOM property.
+  function advancedNode() {
+    var secretMeta = object(cfgValue.secret);
+    var node = E('details', { 'class': 'z2m-proxy-advanced' }, compact([
+      E('summary', {}, _('Дополнительные настройки')),
+      settingsSection(ctx, data, settings, _('Адресация'), _('Точная настройка адресов, если автоопределение не подходит'), fields(['host', 'linkIp'])),
+      settingsSection(ctx, data, settings, _('Маршрутизация'), _('Прямые маршруты Telegram DC и приоритеты'), fields(['dcIps', 'defaultDomains', 'cfPriority', 'cfBalance'])),
+      settingsSection(ctx, data, settings, _('Cloudflare'), _('Свои домены вместо встроенного списка Flowseal'), fields(['cfDomains', 'cfWorkerDomains'])),
+      E('section', { 'class': 'z2m-proxy-form-section' }, [
+        E('div', { 'class': 'z2m-proxy-form-head' }, [
+          E('h3', {}, _('Fallback-прокси')),
+          E('p', {}, _('Резервные upstream MTProto-маршруты под управлением сервера. Секретные записи не возвращаются в браузер.'))
+        ]),
+        E('div', { 'class': 'z2m-state-panel warn' }, [
+          E('strong', { 'class': 'z2m-state-title' }, _('Контракт секрета на стороне сервера')),
+          E('div', { 'class': 'z2m-state-message' }, _('Интерфейс не показывает и не сохраняет существующие секреты в черновике или журнале. Управляемых резервных записей: ') + String(fallbackEntries.length)),
+          E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Обновить состояние'), 'sm', function () { return ctx.refresh('proxy'); })])
+        ]),
+        settingsSection(ctx, data, settings, _('Исходящее соединение'), _('Необязательный HTTP/SOCKS proxy для исходящих подключений'), fields(['outboundProxy', 'noProxy']))
+      ]),
+      settingsSection(ctx, data, settings, _('FakeTLS'), _('Маскировка подключений под HTTPS-трафик'), fields(['faketlsDomain'])),
+      settingsSection(ctx, data, settings, _('Производительность'), _('Ограничения рабочего процесса провайдера'), fields(['poolSize', 'bufKb', 'maxConnections'])),
+      E('section', { 'class': 'z2m-proxy-form-section' }, [
+        E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Логи и диагностика')), E('p', {}, _('Режим логирования провайдера'))]),
+        settingsSection(ctx, data, settings, '', '', fields(['quiet', 'verbose'])),
+        E('div', { 'class': 'z2m-state-panel ' + (secretMeta.exists === true ? '' : 'warn') }, [
+          E('strong', { 'class': 'z2m-state-title' }, secretMeta.exists === true ? _('Секрет настроен ✓') : _('Секрет не найден')),
+          E('div', { 'class': 'z2m-state-message' }, secretMeta.exists === true
+            ? _('Секрет хранится на роутере (0600) и никогда не отображается в настройках.')
+            : _('Секрет будет создан автоматически при включении прокси.'))
+        ]),
+        E('details', { 'class': 'z2m-proxy-technical' }, [
+          E('summary', {}, _('Технические сведения')),
+          E('div', { 'class': 'z2m-proxy-info-list' }, [
+            E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Config path'), E('strong', {}, '/etc/tg-ws-proxy/config.conf')]),
+            E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Secret path'), E('strong', {}, '/etc/tg-ws-proxy/secret.conf · 0600')]),
+            E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Init'), E('strong', {}, '/etc/init.d/tg-ws-proxy')])
+          ])
+        ])
+      ])
+    ]));
+    node.open = state.tgSettingsAdvanced === true;
+    return node;
+  }
   return E('div', { 'class': 'z2m-proxy-pane' }, compact([
     !installed ? shell.statePanel({
       message: _('Настройки можно подготовить заранее, но применить их получится только после установки Rust или Go.'),
       kind: 'info'
     }) : null,
+    profileCard(ctx, data, settings, presets),
     shell.panel(_('Настройки Telegram Proxy'), E('div', {}, [
-      settingsSection(ctx, data, settings, _('Основное'), _('Слушатель, ссылка и запуск сервиса'), fields(['enabled','autostart','host','port','linkIp','faketlsDomain'])),
-      settingsSection(ctx, data, settings, _('Маршруты Telegram DC'), _('Прямые маршруты Telegram DC'), fields(['dcIps'])),
-      settingsSection(ctx, data, settings, _('Маршрутизация Cloudflare'), _('Домены и адреса Worker для WebSocket-маршрутизации'), fields(['cfDomains','cfWorkerDomains','cfPriority','cfBalance','defaultDomains'])),
-      E('section', { 'class': 'z2m-proxy-form-section' }, [
-        E('div', { 'class': 'z2m-proxy-form-head' }, [
-          E('h3', {}, _('Резервный MTProto-маршрут')),
-          E('p', {}, _('Поведение Avatar сохранено как безопасная резервная секция под управлением сервера. Секретные записи не возвращаются в браузер.'))
-        ]),
-        E('div', { 'class': 'z2m-state-panel warn' }, [
-          E('strong', { 'class': 'z2m-state-title' }, _('Контракт секрета на стороне сервера')),
-          E('div', { 'class': 'z2m-state-message' }, _('Интерфейс не показывает и не сохраняет существующие секреты исходящего соединения в черновике или журнале. Управляемых резервных записей: ') + String(fallbackEntries.length)),
-          E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Обновить состояние'), 'sm', function () { return ctx.refresh('proxy'); })])
-        ])
-      ]),
-      settingsSection(ctx, data, settings, _('Исходящее соединение'), _('Необязательный HTTP/SOCKS proxy для исходящих подключений'), fields(['outboundProxy','noProxy'])),
-      settingsSection(ctx, data, settings, _('Ресурсы и логирование'), _('Ограничения рабочего процесса провайдера'), fields(['poolSize','bufKb','maxConnections','quiet','verbose'])),
-      E('details', { 'class': 'z2m-proxy-technical' }, [
-        E('summary', {}, _('Технические сведения')),
-        E('div', { 'class': 'z2m-proxy-info-list' }, [
-          E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Config path'), E('strong', {}, '/etc/tg-ws-proxy/config.conf')]),
-          E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Secret path'), E('strong', {}, '/etc/tg-ws-proxy/secret.conf · 0600')]),
-          E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Init'), E('strong', {}, '/etc/init.d/tg-ws-proxy')])
-        ])
-      ])
-    ]), _('Изменения сохраняются как черновик и применяются общим coordinator workflow.'), draft.settings ? shell.button(_('Показать различия'), 'primary sm', ctx.openSemanticDiff, false) : null),
+      basicSection,
+      routingSummaryCard(shell, settings, toggleAdvanced),
+      advancedNode()
+    ]), _('Изменения сохраняются как черновик и применяются общим coordinator workflow.'),
+      E('div', { 'class': 'z2m-btnrow' }, compact([
+        shell.button(_('Восстановить рекомендуемые'), '', function () { restoreRecommended(ctx, data, presets, settings); }, false),
+        draft.settings ? shell.button(_('Показать различия'), 'primary sm', ctx.openSemanticDiff, false) : null
+      ]))),
     state.preview ? shell.statePanel({ message: _('Предпросмотр сервера готов; применение выполняется общим координатором.'), kind: 'success' }) : null
   ]));
 }

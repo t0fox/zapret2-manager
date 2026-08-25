@@ -9,7 +9,7 @@ test('TG UI uses action-specific confirmation and durable operation polling', ()
   const ui = fs.readFileSync(UI, 'utf8');
   const api = fs.readFileSync(API, 'utf8');
   for (const marker of ['INSTALL', 'UPDATE', 'DOWNGRADE', 'PROVIDER_SWITCH', 'operationId',
-    'tgProductOperationStatus', 'currentStage', 'progressPercent', 'ROLLING_BACK',
+    'tgProductOperationStatus', 'stage', 'progress', 'ROLLING_BACK',
     'Дождитесь завершения', 'Повторить', 'Завершить'])
     assert.match(ui + api, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
   assert.match(ui, /install|update|downgrade|switch/i);

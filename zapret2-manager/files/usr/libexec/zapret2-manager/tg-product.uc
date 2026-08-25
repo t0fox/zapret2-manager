@@ -7,7 +7,7 @@ import { proxycfg_get, proxycfg_validate, proxycfg_preview, proxycfg_apply,
 	proxycfg_health, proxycfg_start, proxycfg_stop, proxycfg_restart } from './proxycfg.uc';
 import { proxy_provider_catalog, proxy_provider_status,
 	proxy_provider_versions, proxy_provider_check_updates, proxy_provider_install,
-	proxy_provider_remove, proxy_provider_purge } from './proxy-provider.uc';
+	proxy_provider_remove, proxy_provider_purge, proxy_provider_operation_status } from './proxy-provider.uc';
 import { proxy_provider_preflight } from './proxy-provider-preflight.uc';
 
 const SCHEMA = 'tg-product.v2';
@@ -116,7 +116,12 @@ export const tg_product_versions = function () {
 	}
 	return { ok: source.ok === true, optional: true, latestOnly: false, architecture: source.architecture, providers: rows };
 };
-export const tg_product_operation_status = function () { return { ok: true, operation: null, state: 'idle' }; };
+export const tg_product_operation_status = function (input) {
+	let answer = proxy_provider_operation_status(type(input) == 'object' && input != null ? input : {});
+	if (answer == null || answer.operation == null)
+		return { ok: true, operation: null, state: 'idle' };
+	return { ok: true, operation: answer.operation, state: answer.operation.state };
+};
 export const tg_product_validate = function (input) { return proxycfg_validate(input); };
 export const tg_product_preview = function (input) { return proxycfg_preview(input); };
 export const tg_product_apply = function (input) { invalidate_status_cache(); return proxycfg_apply(input); };

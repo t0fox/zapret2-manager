@@ -328,6 +328,65 @@ function sanitize_config(c) {
 	};
 }
 
+// ---- connection profiles -------------------------------------------------------
+//
+// Product-level presets on top of the raw config keys. Values are upstream
+// defaults, never invented:
+//   Rust (tg-ws-proxy-rs): port 1443 + pool 4 are upstream defaults;
+//     DEFAULT_DOMAINS=1 -> TG_DEFAULT_DOMAINS=true, the upstream-supported
+//     built-in Cloudflare list ("Fetch and use the built-in CF proxy domain
+//     list from GitHub — no Cloudflare setup needed"); CF_PRIORITY=1 tries
+//     CF before direct WS. cfDomain/cfWorkerDomain/mtprotoProxy/outboundProxy/
+//     frontingDomain stay EMPTY until the user sets them.
+//   Go (tg-ws-proxy-go): same Z2M keys materialize the upstream defaults —
+//     HOST/PORT map to --host/--port; empty DC_IPS keeps upstream
+//     DC_IP_DEFAULT behavior; DEFAULT_DOMAINS=1 keeps Go's default
+//     CFPROXY_DOMAINS_URL source active (its init only passes --no-cfproxy
+//     when DEFAULT_DOMAINS=0 and no custom domains exist); CF_PRIORITY!=0
+//     avoids the --cfproxy-priority=false downgrade; FAKE_TLS_DOMAIN and
+//     EXTRA_ARGS stay empty.
+// The listener host/linkIp/enabled/autostart are NOT part of a profile: they
+// are connection facts owned by the user (safe explicit-IPv4 contract).
+
+function recommended_profile_settings() {
+	return {
+		port: 1443,
+		defaultDomains: true,
+		cfPriority: true,
+		cfBalance: false,
+		faketlsDomain: '',
+		dcIps: [], cfDomains: [], cfWorkerDomains: [],
+		mtprotoProxies: [],
+		outboundProxy: '', noProxy: '',
+		poolSize: 4, bufKb: 256, maxConnections: 0,
+		quiet: false, verbose: false
+	};
+}
+
+function direct_profile_settings() {
+	let c = recommended_profile_settings();
+	c.defaultDomains = false;
+	c.cfPriority = false;
+	return c;
+}
+
+function profile_routing_is_default(c) {
+	return length(c.dcIps) == 0 && length(c.cfDomains) == 0 &&
+		length(c.cfWorkerDomains) == 0 && length(c.mtprotoProxies) == 0 &&
+		trim('' + (c.outboundProxy != null ? c.outboundProxy : '')) == '';
+}
+
+// detect_config_profile(config) -> 'recommended' | 'direct' | 'custom'
+// Only the ROUTING signature decides: toggling enabled/autostart or editing
+// the listen address/port never silently demotes an active profile.
+function detect_config_profile(c) {
+	if (c == null || type(c) != 'object') return 'custom';
+	if (!profile_routing_is_default(c)) return 'custom';
+	if (c.defaultDomains === true && c.cfPriority === true && c.cfBalance !== true) return 'recommended';
+	if (c.defaultDomains === false && c.cfPriority === false) return 'direct';
+	return 'custom';
+}
+
 // ---- proxy entries / config normalization -------------------------------------
 
 function normalize_proxy_entries(value) {
@@ -1445,7 +1504,10 @@ function route_upstream(config) {
 		attempted: true, ok: true, target: activeTarget, detail: 'established upstream socket owned by tg-ws-proxy'
 	};
 	if (!have_nc()) return { attempted: false, ok: false, detail: 'nc unavailable', target: null };
-	let host = UPSTREAM_HOST;
+	// Probe by IP: busybox nc cannot resolve names reliably on every build,
+	// and the DC address is exactly what the provider itself uses as its
+	// default (DC2). Name is only the last resort.
+	let host = '149.154.167.220';
 	if (config != null && type(config.dcIps) == 'array' && length(config.dcIps) > 0) {
 		let first = '' + config.dcIps[0];
 		let cut = index(first, ':');
@@ -1519,6 +1581,19 @@ function quick_infra_health(full, rr) {
 	return { ok: length(failures) == 0, failures: failures, reread: { pids: rr.pids, listeners: rr.listeners } };
 }
 
+function config_presets_block(appliedSan) {
+	let lan = probe_lan_addresses();
+	return {
+		schema: CFG_SCHEMA,
+		activeProfile: detect_config_profile(appliedSan),
+		lanAddress: length(lan) > 0 ? lan[0] : null,
+		recommended: { settings: sanitize_config(recommended_profile_settings()) },
+		direct: { settings: sanitize_config(direct_profile_settings()) },
+		note: 'presets apply on first initialization or via explicit restore; existing user configs are never rewritten automatically'
+	};
+}
+
+
 // ---- exported methods ---------------------------------------------------------
 
 export const proxycfg_get = function() {
@@ -1549,6 +1624,7 @@ export const proxycfg_get = function() {
 		secret: sec,
 		draft: draft,
 		applied: appliedSan,
+		presets: config_presets_block(appliedSan),
 		appliedRevision: appliedRev,
 		appliedAt: (state != null && state.applied != null) ? state.applied.appliedAt : null,
 		autostart: { applied: appliedAuto, rcDEnabled: init.enabled, drift: drift.drift, message: drift.message },
@@ -1673,7 +1749,7 @@ export const proxycfg_apply = function(input) {
 		if (src2 != 0) return apply_fail(snap, 'ETARGET', 'init ' + serviceAction + ' failed (rc ' + src2 + ')', []);
 	}
 
-	let rr = reread(5000);
+	let rr = reread(9000);
 	let verify = full.enabled ? verify_started(full, rr) : verify_stopped(rr);
 	if (!verify.ok) return apply_fail(snap, 'ETARGET', 'post-apply listener verification failed', verify.failures);
 	let health = quick_infra_health(full, rr);
@@ -1700,7 +1776,7 @@ export const proxycfg_start = function() {
 		return { ok: false, error: { code: 'ECONFLICT', message: 'port ' + cur.config.port + ' is already held' }, conflicts: conflicts };
 	let rc = service_do('start');
 	if (rc != 0) return rpc_err('ETARGET', 'init start failed (rc ' + rc + ') — run /etc/init.d/tg-ws-proxy validate for the gate reason');
-	let rr = reread(5000);
+	let rr = reread(9000);
 	let v = verify_started(cur.config, rr);
 	if (!v.ok)
 		return { ok: false, error: { code: 'ETARGET', message: 'started but listener verification failed' }, failures: v.failures, reread: { pids: rr.pids, listeners: rr.listeners } };
@@ -1728,7 +1804,7 @@ export const proxycfg_restart = function() {
 	if (sec.mode != 384 || sec.secret == null) return rpc_err('ESTATE', 'secret.conf insecure or malformed — rotate via proxy_secret_rotate');
 	let rc = service_do('restart');
 	if (rc != 0) return rpc_err('ETARGET', 'init restart failed (rc ' + rc + ')');
-	let rr = reread(5000);
+	let rr = reread(9000);
 	let v = verify_started(cur.config, rr);
 	if (!v.ok)
 		return { ok: false, error: { code: 'ETARGET', message: 'restarted but listener verification failed' }, failures: v.failures, reread: { pids: rr.pids, listeners: rr.listeners } };
@@ -1772,7 +1848,7 @@ export const proxycfg_secret_rotate = function() {
 	}
 	let rc = service_do('restart');
 	if (rc != 0) return secret_rotation_failure(snap, 'restart', 'proxy restart failed after secret rotation', []);
-	let rr = reread(5000);
+	let rr = reread(9000);
 	let verification = verify_started(snap.config, rr);
 	if (!verification.ok) return secret_rotation_failure(snap, 'verify-listener', 'listener verification failed after secret rotation', verification.failures);
 	event_proxy('info', 'proxy secret rotation completed', { stage: 'complete', restarted: true, verified: true });
@@ -1910,7 +1986,7 @@ export const proxycfg_quick_install = function () {
 	let action = ev0.running ? 'restart' : 'start';
 	let rc = service_do(action);
 	if (rc != 0) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'init ' + action + ' failed (rc ' + rc + ')' }, rolledBack: true, rollbackFailures: r.failures }; }
-	let rr = reread(5000);
+	let rr = reread(9000);
 	let v = verify_started(config, rr);
 	if (!v.ok) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'post-install verification failed' }, failures: v.failures, rolledBack: true, rollbackFailures: r.failures }; }
 	let rm = popen('rm -rf ' + SNAP_DIR + ' 2>/dev/null', 'r');

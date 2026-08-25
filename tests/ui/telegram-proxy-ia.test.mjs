@@ -18,7 +18,9 @@ test('Telegram Proxy exposes the service-first information architecture', () => 
 });
 
 test('Telegram Proxy status is represented by the shared main dashboard card pattern', () => {
-  assert.match(overview, /ctx\.api\.tg\.product\.status\(\)/);
+  // The staged overview loader owns the secondary TG RPCs.
+  const loading = fs.readFileSync(`${ROOT}/z2m-overview-loading.js`, 'utf8');
+  assert.match(loading, /ctx\.api\.tg\.product\.status\(\)|tg\.product\.status\(\)/);
   assert.match(overview, /tgHealth/);
   assert.match(overview, /tgStatus/);
   assert.match(overview, /card-telegram/);
@@ -31,8 +33,9 @@ test('Telegram Proxy status is represented by the shared main dashboard card pat
 test('Telegram Proxy keeps package revisions out of the normal version label and allows Rust rollback', () => {
   assert.match(tg, /function installedVersionDisplay/);
   assert.match(tg, /version !== null && version !== undefined && version !== ''/);
-  assert.match(tg, /function actionLabelFor/);
-  assert.match(tg, /action\.tagName === 'BUTTON'/);
+  // CTA follows the selected version immediately (label + availability).
+  assert.match(tg, /function actionKindFor/);
+  assert.match(tg, /ctx\.root\.replaceChildren\(render\(ctx\)\)/);
   assert.match(tg, /Откатить версию/);
   assert.match(tg, /function providerCatalog\(data\)/);
   assert.match(tg, /providerVersions\(data\)\.map/);

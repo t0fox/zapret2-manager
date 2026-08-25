@@ -11,7 +11,7 @@ test('proxy status projection consumes canonical Telegram listener and outbound 
   const source = fs.readFileSync(CORE, 'utf8');
   const render = source.slice(source.indexOf('function render(ctx)'));
 
-  assert.match(render, /canonicalProjection\(pstatus\)/);
+  assert.match(render, /canonicalProjection\(pstatus,/);
   assert.match(render, /listener:\s*canonical\.listener/);
   assert.match(render, /outbound:\s*canonical\.outbound/);
 });
@@ -32,14 +32,17 @@ test('app header derives its chip from the canonical service status projection',
   assert.match(source, /function statusState\(initial\)/);
   assert.match(source, /function updateHeaderStatus\(data\)/);
   assert.match(source, /statusState\(initial\)/);
-  assert.match(load, /Api\.service\.status\(\)/);
+  // Bounded app-shell prerequisite: status_fast observes process/queue state
+  // without spawning the full diagnostic collector.
+  assert.match(load, /Api\.service\.statusFast\(\)/);
   assert.doesNotMatch(load, /Api\.engine\.status\(\)/);
 });
 
 test('LuCI ACL exposes read-only engine status for engine-gated product views', () => {
-  const acl = JSON.parse(fs.readFileSync(ACL, 'utf8'))['zapret2-manager'];
-  assert.deepEqual(acl.read.ubus['zapret2-manager-engine'], ['engine_status']);
-  assert.equal(acl.write.ubus['zapret2-manager-engine'], undefined);
+  // Engine lifecycle lives in its dedicated engine ACL object.
+  const acl = JSON.parse(fs.readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager-engine.json', 'utf8'))['zapret2-manager-engine'];
+  assert.ok(acl.read.ubus['zapret2-manager-engine'].includes('engine_status'));
+  assert.equal(acl.write.ubus['zapret2-manager-engine'].includes('engine_status'), false);
 });
 
 test('DNS form collapses before the 768px tablet viewport', () => {

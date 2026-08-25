@@ -35,10 +35,12 @@ test('TG versions expose official release candidates to the product facade', () 
   assert.match(PRODUCT, /releaseUrl/);
 });
 
-test('TG update checks use the direct release candidate instead of APK simulation', () => {
+test('TG update checks use verified direct release artifacts per provider adapter', () => {
   assert.match(PROVIDER, /assetSha256/);
-  assert.match(PROVIDER, /direct.*release|release.*direct/i);
-  assert.match(PROVIDER, /function install_direct_candidate/);
+  // Verified download of the exact GitHub release asset, per-adapter install.
+  assert.match(PROVIDER, /function download_verified_artifact/);
+  assert.match(PROVIDER, /function install_rust_archive/);
+  assert.match(PROVIDER, /function install_go_apk/);
   assert.match(PROVIDER, /sha256sum/);
   assert.match(PROVIDER, /uclient-fetch/);
   assert.doesNotMatch(PROVIDER, /apk add --simulate[\s\S]*candidate\.installable/);
