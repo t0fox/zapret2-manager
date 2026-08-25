@@ -17,14 +17,17 @@ const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
 const AUTHORITATIVE_CATALOG_DIGEST = 'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136';
 const AUTHORITATIVE_CATALOG_REPOSITORY = 'avatarDD/zapret-gui';
 const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
+const MAX_COMPILE_ATTEMPTS = 80;
+const MAX_VERIFICATION_CANDIDATES = 20;
+const MAX_FINALISTS = 20;
+// Deprecated single cap: kept for backward compat, planner now uses mode-dependent exploration budget
 const MAX_EXECUTION_CANDIDATES = 20;
-const MAX_COMPILE_ATTEMPTS = 64;
 
 // Cost model: STATIC nearly free, PREFLIGHT cheap, PROCESS_START expensive,
 // NETWORK_PROBE more expensive, MULTI_HOST/BODY/STUN most expensive.
 // Planner only uses cheap static scoring; expensive probes are deferred to worker's staged funnel.
 const COST_MODEL = { STATIC: 1, PREFLIGHT: 5, PROCESS_START: 100, NETWORK_PROBE: 500, MULTI_HOST: 1500 };
-const MODE_BUDGETS = { quick: { exploration: 30, verification: 10 }, standard: { exploration: 60, verification: 20 }, full: { exploration: 80, verification: 20 } };
+const MODE_BUDGETS = { quick: { exploration: 30, verification: 10, finalists: 10 }, standard: { exploration: 60, verification: 20, finalists: 20 }, full: { exploration: 80, verification: 20, finalists: 20 } };
 
 const KNOWN_DPI = {
 	tls_dpi: { must: ['filter-l7=tls', 'tls_client_hello'], bad: ['filter-l7=quic', 'quic_initial'] },
@@ -1057,9 +1060,13 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 	timings.compileMs = monotonic_ms() - compileStarted;
 	let rankingStarted = monotonic_ms();
 	candidates = dedup_candidates(sort_candidates(candidates));
-	let compiledAccepted = length(candidates);
-	// Diversity: Top-20 must not be 20 near-identical semantics; round-robin across families
-	if (length(candidates) > MAX_EXECUTION_CANDIDATES) candidates = select_diverse(candidates, MAX_EXECUTION_CANDIDATES);
+	let dedupedCount = length(candidates);
+	let compiledAccepted = dedupedCount;
+	let explorationBudget = (MODE_BUDGETS[value.mode] || MODE_BUDGETS.standard).exploration;
+	let verificationBudget = (MODE_BUDGETS[value.mode] || MODE_BUDGETS.standard).verification;
+	let finalistsBudget = (MODE_BUDGETS[value.mode] || MODE_BUDGETS.standard).finalists;
+	// Diversity at exploration-plan stage: family-aware bounded selection up to exploration budget
+	if (length(candidates) > explorationBudget) candidates = select_diverse(candidates, explorationBudget);
 	let shortlisted = length(candidates);
 	for (let i = 0; i < length(candidates); i++) candidates[i].ordinal = i + 1;
 	timings.rankingMs = monotonic_ms() - rankingStarted;
@@ -1068,11 +1075,7 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		schema: 1, request: copy(value), targetProfile: copy(profile),
 		catalogDigest: catalog.aggregateDigest || null,
 		compilerDigest: catalog.compilerDigest || null,
-		candidates: copy(candidates), execution: { catalogEntriesConsidered,
-			lightweightEligible, compileAttempts, compiledAccepted,
-			candidatesCompiled: compiledAccepted, candidatesEligible: lightweightEligible,
-			candidatesShortlisted: shortlisted, maxCandidates: MAX_EXECUTION_CANDIDATES,
-			timings: copy(timings) },
+		candidates: copy(candidates), execution: { catalogEntriesConsidered, universeCount: catalogEntriesConsidered, dedupedCount, lightweightEligible, eligibleCount: lightweightEligible, compileAttempts, compiledAccepted, candidatesCompiled: compiledAccepted, candidatesEligible: lightweightEligible, candidatesShortlisted: shortlisted, shortlisted, explorationBudget, verificationBudget, finalistsBudget, maxCandidates: explorationBudget, maxExplorationCandidates: explorationBudget, maxVerificationCandidates: verificationBudget, maxFinalists: finalistsBudget, timings: copy(timings) },
 	} };
 }
 

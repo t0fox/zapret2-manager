@@ -413,14 +413,18 @@ function renderSearchForm(ctx, controls, title) {
 function renderProgress(ctx, status, request) {
   var progress = Number(status.progress), total = Number(status.total), counts = object(status.counts);
   var working = counts.working || 0;
-  var budget = budgetForMode(request.mode);
+  var explorationExecuted = counts.explorationExecuted != null ? counts.explorationExecuted : progress;
+  var promoted = counts.promoted || 0;
+  var verificationExecuted = counts.verificationExecuted != null ? counts.verificationExecuted : working;
+  var explorationBudget = budgetForMode(request.mode);
+  var verificationBudget = request.mode === 'quick' ? 10 : 20;
   var isRunning = status.status === 'running' || status.status === 'starting' || status.phase === 'cancelling';
-  // Real stages: Подготовка, Проверка соединения, Поиск рабочих вариантов, Проверка лучших вариантов, Выбор результата
+  // Real stages: Подготовка, Проверка соединения, Поиск рабочих вариантов (exploration), Проверка лучших вариантов (verification), Выбор результата
   var stageDefs = [
     { id: 'prep', label: _('Подготовка'), done: status.phase !== 'validating' && status.phase !== 'planning' && status.status !== 'starting', pct: 100 },
     { id: 'baseline', label: _('Проверка соединения'), done: ['searching','executing','probing','verifying','ranking','reconciling','completed','cancelled','error'].indexOf(status.phase) >= 0, pct: 100 },
-    { id: 'exploration', label: _('Поиск рабочих вариантов'), pct: Math.min(100, Math.round((progress / budget) * 100)) || 0, detail: String(progress || 0) + ' / ' + String(budget) },
-    { id: 'verification', label: _('Проверка лучших вариантов'), pct: Math.min(100, Math.round((working / 20) * 100)) || 0, detail: String(working) + ' / 20' },
+    { id: 'exploration', label: _('Поиск рабочих вариантов'), pct: Math.min(100, Math.round((explorationExecuted / explorationBudget) * 100)) || 0, detail: String(explorationExecuted || 0) + ' / ' + String(explorationBudget) },
+    { id: 'verification', label: _('Проверка лучших вариантов'), pct: Math.min(100, Math.round((verificationExecuted / (promoted || verificationBudget)) * 100)) || 0, detail: String(working) + ' / ' + String(promoted || verificationBudget) + (promoted ? '' : ' max') },
     { id: 'ranking', label: _('Выбор результата'), done: terminal(status), pct: terminal(status) ? 100 : 0 }
   ];
   var overallPct = Math.round((stageDefs[0].pct + stageDefs[1].pct + stageDefs[2].pct + stageDefs[3].pct + stageDefs[4].pct) / 5);

@@ -278,17 +278,19 @@ test('standard prepends twenty full presets, while full keeps only the requested
   assert.deepEqual(fullUdp.candidates.map(item => item.strategyId), ['udp-full']);
 });
 
-test('large catalogs use a bounded precompile pool and expose execution counters', () => {
+test('large catalogs use a bounded precompile pool and expose execution counters (funnel: full 9000 -> exploration 80)', () => {
   const result = invoke(`planner.scanner_plan_build_synthetic_test(${JSON.stringify(request('full'))}, 9000)`);
   assert.equal(result.ok, true, JSON.stringify(result));
   const execution = result.plan.execution;
   assert.equal(execution.catalogEntriesConsidered, 9000);
   assert.ok(execution.lightweightEligible >= 9000);
-  assert.ok(execution.compileAttempts <= 64);
-  assert.ok(execution.compiledAccepted <= 20);
-  assert.ok(execution.candidatesShortlisted <= 20);
-  assert.ok(execution.maxCandidates <= 20);
-  assert.ok(result.plan.candidates.length <= 20);
+  assert.ok(execution.compileAttempts <= 80);
+  assert.ok(execution.compiledAccepted <= 80);
+  assert.ok(execution.candidatesShortlisted <= 80);
+  assert.ok(execution.maxCandidates <= 80);
+  assert.ok(execution.explorationBudget === 80);
+  assert.ok(execution.verificationBudget === 20);
+  assert.ok(result.plan.candidates.length <= 80);
 });
 
 test('generated entries append after catalog candidates and known DPI filtering runs after generation', () => {

@@ -14,14 +14,17 @@ const CLI = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/z
 const SCANNER_JS = fs.readFileSync(path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css'), 'utf8');
 
-test('planner bounded: 9000 universe must not produce 9000 runtime candidates', () => {
-  assert.match(PLANNER, /MAX_EXECUTION_CANDIDATES\s*=\s*20/);
-  assert.match(PLANNER, /MAX_COMPILE_ATTEMPTS\s*=\s*64/);
+test('planner bounded: 9000 universe must not produce 9000 runtime candidates (funnel: 630->60->20)', () => {
+  assert.match(PLANNER, /MAX_COMPILE_ATTEMPTS\s*=\s*80/);
+  assert.match(PLANNER, /MAX_VERIFICATION_CANDIDATES\s*=\s*20/);
   assert.match(PLANNER, /COST_MODEL/);
   assert.match(PLANNER, /MODE_BUDGETS/);
+  assert.match(PLANNER, /exploration:\s*30/);
+  assert.match(PLANNER, /exploration:\s*60/);
+  assert.match(PLANNER, /exploration:\s*80/);
   assert.match(PLANNER, /select_diverse/);
-  // synthetic test exists that asserts 9000 -> <=20
   assert.match(PLANNER, /scanner_plan_build_synthetic_test/);
+  assert.match(PLANNER, /explorationBudget/);
 });
 
 test('semantic dedupe uses normalized compiled token stream + dependency closure', () => {
