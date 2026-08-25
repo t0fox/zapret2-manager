@@ -5,7 +5,6 @@ import path from 'node:path';
 
 const root = path.resolve('.');
 const dns = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns.js'), 'utf8');
-const serviceAdapter = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns-service-adapter.js'), 'utf8');
 const tg = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js'), 'utf8');
 
@@ -16,10 +15,8 @@ test('DNS product UI adapts current Avatar per-domain behavior on canonical RPCs
     assert.match(dns, new RegExp(domain.replace('.', '\\.') ), domain);
   assert.match(dns, /Добавить правило/);
   assert.match(dns, /Удалить/);
-  assert.match(dns, /Preview|предпросмотр/i);
   assert.match(dns, /product\.validate/);
-  assert.match(dns, /product\.preview/);
-  assert.match(dns, /product\.apply/);
+  assert.match(dns, /product\.get/);
   assert.doesNotMatch(dns, /\/api\/dns-routing\//);
 });
 
@@ -29,10 +26,13 @@ test('DNS UI exposes all canonical product calls through the Z2M API module', ()
   assert.match(api, /product:\{get:calls\.dnsProductGet/);
 });
 
-test('Service DNS coordinator uses the canonical product writer', () => {
-  for (const method of ['product.validate', 'product.preview', 'product.apply', 'product.get'])
-    assert.match(serviceAdapter, new RegExp(method.replace('.', '\\.' )), method);
-  assert.doesNotMatch(serviceAdapter, /serviceSet|serviceApplyAsync|serviceApplyStatus|servicePreview|serviceStatus/);
+test('Service DNS applies through the canonical product writer with local lifecycle', () => {
+  // The page-local apply flow validates against the backend, persists the
+  // selection set, applies it revision-checked and rereads canonical state.
+  for (const call of ['product\\.validate', 'product\\.get', 'serviceSet', 'serviceApply', 'serviceStatus'])
+    assert.match(dns, new RegExp(call), call);
+  // The coordinator-era adapter file must not exist anymore.
+  assert.equal(fs.existsSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns-service-adapter.js')), false);
 });
 
 test('Telegram Proxy UI adapts current Avatar connection and lifecycle interactions', () => {
@@ -45,7 +45,8 @@ test('Telegram Proxy UI adapts current Avatar connection and lifecycle interacti
   assert.match(tg, /Ссылка \/ QR/);
   assert.match(tg, /Скопировать ссылку/);
   assert.match(tg, /provider-install/);
-  assert.match(tg, /Изменение выполняется/);
+  // Contract update: locked transaction modal is titled by operation type.
+  assert.match(tg, /Изменение TG Proxy/);
   assert.match(tg, /navigator\.clipboard\.writeText/);
   assert.doesNotMatch(tg, /\/api\/tgproxy\//);
 });

@@ -75,18 +75,6 @@ function runningState(status) {
   var value = RuntimeState.state(status);
   return value === 'running' ? true : value === 'stopped' ? false : null;
 }
-function strategyDraft(ctx) {
-  return ctx.store.get().draft && ctx.store.get().draft.strategy || {};
-}
-function setStrategyDraft(ctx, patch) {
-  ctx.setDraft('strategy', Object.assign({}, strategyDraft(ctx), patch || {}));
-}
-function clearStrategyField(ctx, field) {
-  var next = Object.assign({}, strategyDraft(ctx));
-  delete next[field];
-  if (Object.keys(next).length) ctx.setDraft('strategy', next);
-  else ctx.clearDraft('strategy');
-}
 
 function load(ctx) {
 	// Delegated to z2m-overview-loading.js: strictly staged orchestration
@@ -118,12 +106,7 @@ function render(ctx) {
   var active = activeStrategy(preview);
   var catalog = candidates(preview);
   var snapshot = ctx.store.get();
-  var pending = snapshot.pending || {};
-  var pendingOverride = pending.pendingOverride || null;
   var activeId = format.text(view.strategy.id || active && (active.candidateId || active.managerId));
-  var selectedOverrideId = format.text(runtime.overrideStrategyId || pending.pendingStrategyId || activeId ||
-    catalog.map(candidateId).filter(Boolean)[0]);
-  var rules = asArray(object(preview.overrides).rules);
   var running = runningState(status);
   var advanced = !!(snapshot.ui && snapshot.ui.advanced);
 
@@ -215,7 +198,7 @@ function render(ctx) {
   }
   function openHelp() {
     shell.openModal(_('Как это работает'), E('div', {}, [
-      E('p', {}, _('Применённая конфигурация, черновик, активная проверка и завершённый результат отображаются раздельно.')),
+      E('p', {}, _('Применённая конфигурация, активная проверка и завершённый результат отображаются раздельно.')),
       E('p', {}, _('Рабочий статус показывается только после положительного подтверждения сервера. Неподтверждённые блоки скрываются.')),
       E('p', {}, _('Расширенный режим раскрывает технические идентификаторы, argv и служебные сведения.'))
     ]));
@@ -307,41 +290,6 @@ function render(ctx) {
       renderRunResult(answer.run);
       pollRun();
     }).catch(showError);
-  }
-
-  function stageOverride(operation) {
-    var current = ctx.store.get();
-    ctx.store.update({ pending: Object.assign({}, current.pending, { pendingOverride: operation }) });
-    setStrategyDraft(ctx, {
-      override: operation,
-      changes: Object.assign({}, strategyDraft(ctx).changes || {}, {
-        override: { label: _('Точечное правило'), before: null, after: _('изменение') }
-      })
-    });
-    reload();
-  }
-  function stageOverrideSet() {
-    var target = normalizeTarget(targetInput.value);
-    if (!target || target.indexOf('.') < 0 || selectedOverrideId === null) {
-      shell.showToast(_('Выберите стратегию и укажите корректный ресурс.'), 'err');
-      return;
-    }
-    stageOverride({ action: 'override_set', target: target, strategyId: selectedOverrideId, enabled: true, priority: 10 });
-  }
-  function stageOverrideDelete(rule) {
-    if (rule && rule.id) stageOverride({ action: 'override_delete', id: rule.id });
-  }
-  function clearPendingOverride(refresh) {
-    var current = ctx.store.get();
-    var nextPending = Object.assign({}, current.pending);
-    delete nextPending.pendingOverride;
-    ctx.store.update({ pending: nextPending });
-    clearStrategyField(ctx, 'override');
-    if (refresh !== false) reload();
-  }
-  function applyPendingOverride() {
-    if (!pendingOverride || activeId === null) return;
-    if (ctx.openSemanticDiff) ctx.openSemanticDiff();
   }
 
   function envelopeValue(key) { return object(data[key] && data[key].value); }

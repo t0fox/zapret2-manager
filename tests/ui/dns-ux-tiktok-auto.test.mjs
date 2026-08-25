@@ -23,8 +23,9 @@ test('DNS service rows expose human provider labels and non-redundant draft stat
   assert.match(dns, /Сейчас:/);
   assert.match(dns, /Будет:/);
   assert.match(dns, /Не применено/);
-  assert.match(dns, /Изменено сервисов:/);
-  assert.match(dns, /Предпросмотр/);
+  // Page-local action block replaced the coordinator-era preview row.
+  assert.match(dns, /несохранённ/);
+  assert.doesNotMatch(dns, /Предпросмотр/);
 });
 
 test('TikTok auto-fix is scoped to TikTok and never mutates global DNS from the UI', () => {
@@ -32,7 +33,9 @@ test('TikTok auto-fix is scoped to TikTok and never mutates global DNS from the 
   assert.match(dns, /Автоисправление ленты/);
   assert.match(dns, /v77\.tiktokcdn\.com/);
   assert.match(dns, /tiktok-auto|tiktokAuto|tiktok_auto/);
-  assert.doesNotMatch(dns, /global\.set|dns\.global\.(?:apply|set)\(/);
+  // The auto-fix path itself stays scoped to the TikTok service API; the
+  // global DNS form has its own explicit user-driven local Apply.
+  assert.doesNotMatch(dns, /function toggleTiktok[\s\S]{0,900}global\.(?:set|apply)/);
 });
 
 test('DNS access sidebar keeps technical ownership details behind disclosure', () => {

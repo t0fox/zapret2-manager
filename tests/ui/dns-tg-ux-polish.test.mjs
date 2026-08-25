@@ -61,7 +61,7 @@ test('DNS first screen exposes health hierarchy without removing advanced owners
     assert.match(source, new RegExp(marker, 'i'), marker);
   assert.match(source, /ProductUX\.errorMessage/);
   assert.match(source, /rollbackAvailable/);
-  for (const rpc of ['product\.preview', 'product\.validate', 'product\.apply', 'api\.dns\.rollback', 'serviceApplyStatus'])
+  for (const rpc of ['product\.validate', 'dns\.set', 'dns\.apply', 'global\.set', 'global\.apply', 'api\.dns\.rollback', 'serviceApplyStatus'])
     assert.match(source, new RegExp(rpc), rpc);
 });
 

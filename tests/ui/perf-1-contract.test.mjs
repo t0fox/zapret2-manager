@@ -78,7 +78,7 @@ function loadTabCache() {
 function loadNavigationHarness({ cache, moduleHooks }) {
   const source = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js');
   const start = source.indexOf('    function loadTabData(tab, module, force) {');
-  const end = source.indexOf('    function rollbackActions(', start);
+  const end = source.indexOf('    function updateHeaderStatus(', start);
   assert.ok(start >= 0 && end > start, 'app navigation functions must be present');
   const calls = { render: 0, mount: 0, load: 0, busy: [] };
   const navigationModule = {

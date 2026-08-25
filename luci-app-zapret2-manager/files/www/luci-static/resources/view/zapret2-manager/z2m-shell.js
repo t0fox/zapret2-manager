@@ -348,28 +348,6 @@ function closeModal() {
   host.replaceChildren();
 }
 
-function renderApplyBar(availability) {
-  availability = availability || {};
-  var reason = Format.text(availability.reason);
-  var disabled = availability.enabled !== true;
-  return E('div', {
-    'class': 'z2m-applybar hidden',
-    id: 'z2m-applybar'
-  }, E('div', { 'class': 'in' }, [
-    chip(_('Черновик'), 'o'),
-    E('span', { 'class': 'txt', id: 'z2m-apply-text' }, _('Есть несохранённые изменения. На работу роутера пока не влияет.')),
-    optional(function (value) {
-      return E('span', { 'class': 'z2m-apply-reason z2m-dim', id: 'z2m-apply-reason' },
-        disabled ? _('Применение заблокировано: ') + value : '');
-    }, reason) || E('span', { 'class': 'z2m-apply-reason z2m-dim', id: 'z2m-apply-reason' }),
-    E('div', { 'class': 'sp' }, [
-      button(_('Отменить все'), '', null, false, { id: 'z2m-discard-drafts' }),
-      button(_('Показать различия'), '', null, false, { id: 'z2m-preview-drafts' }),
-      button(_('Применить'), 'primary', null, disabled, { id: 'z2m-apply-drafts' })
-    ])
-  ]));
-}
-
 return baseclass.extend({
   avatar: AvatarUi,
   format: Format,
@@ -386,6 +364,5 @@ return baseclass.extend({
   empty: empty,
   showToast: showToast,
   openModal: openModal,
-  closeModal: closeModal,
-  renderApplyBar: renderApplyBar
+  closeModal: closeModal
 });

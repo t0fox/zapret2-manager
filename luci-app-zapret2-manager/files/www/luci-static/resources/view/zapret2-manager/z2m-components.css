@@ -31,8 +31,6 @@
 .z2m-single-row{grid-template-columns:minmax(0,1fr) auto}
 
 .z2m-change-list{border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-top:10px}
-.z2m-draft-preview+.z2m-draft-preview{margin-top:14px}
-.z2m-draft-preview h4{margin:0 0 7px}
 .z2m-service-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0}
 .z2m-service-toolbar>input{flex:1 1 220px}
 

@@ -377,16 +377,14 @@
 
 
 
-.z2m-applybar{position:fixed;left:0;right:0;bottom:0;background:var(--hdr);border-top:1px solid #000;z-index:50;box-shadow:0 -6px 18px rgba(0,0,0,.4)}
-.z2m-applybar .in{max-width:1180px;margin:0 auto;padding:11px 20px;display:flex;align-items:center;gap:14px}
-.z2m-applybar .txt{font-size:13px;color:var(--tx2)}
-.z2m-applybar .sp{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-.z2m-applybar.hidden{display:none}
-.z2m-apply-reason{color:var(--orange);max-width:360px}
-.z2m-draft-preview{border-bottom:1px solid var(--border);padding:0 0 14px;margin:0 0 14px}
-.z2m-draft-preview:last-child{border-bottom:0;margin-bottom:0}
-.z2m-draft-preview h4{margin:0 0 9px;font-size:14px}
-.z2m-draft-preview .warnbar{margin:0 0 10px}
+/* Page-local unsaved-change actions: owned by the section they belong to. */
+.z2m-local-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.z2m-local-dirty{color:var(--orange);font-size:12px;white-space:nowrap}
+@media(max-width:480px){
+  .z2m-local-actions{flex-direction:row;align-items:center;justify-content:flex-start}
+  .z2m-local-dirty{width:100%;order:-1;white-space:normal}
+  .z2m-panel .hd{flex-wrap:wrap}.z2m-panel .hd .sp{margin-left:0;width:100%}
+}
 .z2m-scrim,.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.76);display:none;align-items:center;justify-content:center;z-index:80;padding:24px}
 .z2m-scrim.on{display:flex}
 .z2m-scrim.modal-overlay.on,.modal-overlay.on{display:flex}
@@ -450,7 +448,7 @@
   .z2m-cbi>*,.z2m-svcrow>*,.z2m-kpi,.z2m-kpis>*,.z2m-row2>*,.z2m-panel,.z2m-panel .bd>*{min-width:0}
   .z2m-tech,.z2m-console,.z2m-diff{overflow-wrap:anywhere;word-break:break-word}
   .z2m-app table.t{font-size:12px}.z2m-app table.t td,.z2m-app table.t th{padding-left:6px;padding-right:6px}
-  .z2m-btnrow,.z2m-phead{flex-wrap:wrap}.z2m-applybar,.z2m-applybar>div{flex-wrap:wrap;gap:8px}.z2m-kpis{grid-template-columns:1fr 1fr}
+  .z2m-btnrow,.z2m-phead{flex-wrap:wrap}.z2m-kpis{grid-template-columns:1fr 1fr}
 }
 
 .z2m-content{position:relative;min-height:360px}

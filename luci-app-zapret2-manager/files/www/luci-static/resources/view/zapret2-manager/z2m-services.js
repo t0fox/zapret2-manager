@@ -41,19 +41,12 @@ function normalizeError(api, error) {
     : { code: error && error.code || 'error', message: error && error.message || String(error || 'Unknown error') };
 }
 
-function hydrate(snapshot, draft) {
+function hydrate(snapshot) {
   var baseline = DomainHubModel.normalize(snapshot);
   var working = clone(baseline);
-  draft = object(draft);
-  if (draft.expectedRevision && draft.expectedRevision !== baseline.revision) return { baseline: baseline, working: working };
-  if (object(draft.catalog).enabled) working.enabled = array(draft.catalog.enabled).slice().sort();
-  if (object(draft.lists).include) working.userDomains.include = array(draft.lists.include).slice().sort();
-  if (object(draft.lists).exclude) working.userDomains.exclude = array(draft.lists.exclude).slice().sort();
   working.userDomains.conflicts = working.userDomains.include.filter(function (domain) {
     return working.userDomains.exclude.indexOf(domain) >= 0;
   });
-  if (draft.autohost) working.autohostOps = clone(draft.autohost);
-  if (draft.sources) working.sourceOps = clone(draft.sources);
   return { baseline: baseline, working: working };
 }
 
@@ -70,13 +63,11 @@ function rerender(ctx) {
 }
 function stage(ctx, next) {
   state.working = next;
-  var draft = DomainHubModel.draft(state.baseline, next);
-  if (draft) ctx.setDraft('services', draft);
-  else ctx.clearDraft('services');
   return rerender(ctx);
 }
-function currentDraft(ctx) {
-  return ctx.store.get().draft && ctx.store.get().draft.services || null;
+function pendingDraft() {
+  if (!state.baseline || !state.working) return null;
+  return DomainHubModel.draft(state.baseline, state.working);
 }
 function enabledMap(enabled) {
   var result = {};
@@ -377,6 +368,7 @@ function renderSources(ctx) {
 }
 
 function render(ctx) {
+  state.ctx = ctx;
   var envelope = ctx.data && ctx.data.hub || {};
   if (envelope.error) {
     return E('section', { 'class': 'z2m-view on', id: 'z2m-view-services' }, [
@@ -384,9 +376,12 @@ function render(ctx) {
       ctx.shell.statePanel({ title: _('Domain hub недоступен'), message: envelope.error.message, kind: 'error' })
     ]);
   }
-  var hydrated = hydrate(envelope.value || {}, currentDraft(ctx));
+  var hydrated = hydrate(envelope.value || {});
   state.baseline = hydrated.baseline;
-  state.working = hydrated.working;
+  if (!state.working) state.working = hydrated.working;
+  else state.working.userDomains.conflicts = state.working.userDomains.include.filter(function (domain) {
+    return state.working.userDomains.exclude.indexOf(domain) >= 0;
+  });
   var panes = {
     catalog: renderCatalog(ctx),
     domains: renderDomains(ctx),
@@ -404,13 +399,12 @@ function render(ctx) {
     state.tab = id;
     paneHost.replaceChildren(panes[id]);
   }, { 'aria-label': _('Разделы сервисов и доменов') });
-  var draft = currentDraft(ctx);
+  var draft = pendingDraft();
+  var changeCount = draft ? Object.keys(object(draft.changes)).length : 0;
   return E('section', { 'class': 'z2m-view on z2m-services-page', id: 'z2m-view-services' }, [
     E('div', { 'class': 'z2m-phead' }, [
       E('div', {}, [E('h1', {}, _('Сервисы и домены')), E('p', {}, _('Каталог сервисов, пользовательские домены, Autohostlist и источники'))]),
-      draft ? E('div', { 'class': 'sp' }, ctx.shell.button(_('Показать различия'), 'primary sm', function () {
-        ctx.openSemanticDiff();
-      })) : null
+      E('div', { 'class': 'sp' }, hubActions(ctx.shell, changeCount, cancelHubChanges, applyHubChanges))
     ]),
     state.working.userDomains.conflicts.length ? ctx.shell.statePanel({
       title: _('Применение заблокировано'),
@@ -422,87 +416,63 @@ function render(ctx) {
   ]);
 }
 
-function resetDraft() {
-  state.baseline = null;
-  state.working = null;
-  state.error = null;
+function changesLabel(count) {
+  var mod10 = count % 10, mod100 = count % 100;
+  var word = mod10 === 1 && mod100 !== 11 ? _('несохранённое изменение') :
+    (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) ? _('несохранённых изменения') :
+    _('несохранённых изменений');
+  return count + ' ' + word;
 }
-function createAdapter(api, module) {
-  var hub = api && api.domainHub || {};
-  function reloadAppliedState() {
-    return hub.get().then(function (value) {
-      return {
-        value: value || {},
-        revision: value && value.revision,
-        precondition: value && value.precondition || { revision: value && value.revision }
-      };
-    });
+function hubActions(shell, changeCount, onCancel, onApply) {
+  if (!changeCount) return null;
+  return E('div', { 'class': 'z2m-local-actions', 'data-testid': 'z2m-local-actions' }, [
+    E('span', { 'class': 'z2m-local-dirty', 'data-testid': 'z2m-local-dirty' }, changesLabel(changeCount)),
+    shell.button(_('Отменить'), 'sm', onCancel),
+    shell.button(_('Применить'), 'primary sm', onApply)
+  ]);
+}
+function cancelHubChanges() {
+  if (!state.baseline) return;
+  state.working = clone(DomainHubModel.normalize(state.baseline));
+  return rerender(state.ctx);
+}
+function applyHubChanges() {
+  var ctx = state.ctx || {};
+  var api = ctx.api;
+  var shell = ctx.shell;
+  if (!api || !api.domainHub) return;
+  var payload = pendingDraft();
+  if (!payload) return;
+  if (payload.applicable === false || payload.blocker) {
+    shell.showToast(payload.blocker || _('Изменения заблокированы.'), 'err');
+    return;
   }
-  function validateDraft(scope, value) {
-    value = object(value);
-    if (!value.expectedRevision || !value.expectedCatalogDigest)
-      return Promise.resolve({ ok: false, message: _('Domain hub draft не содержит revision/digest.') });
-    if (value.applicable === false || value.blocker)
-      return Promise.resolve({ ok: false, message: value.blocker || _('Domain hub draft заблокирован.') });
-    if (array(object(value.lists).include).some(function (domain) {
-      return array(object(value.lists).exclude).indexOf(domain) >= 0;
-    })) return Promise.resolve({ ok: false, message: _('Конфликт include/exclude.') });
-    return Promise.resolve({ ok: true });
-  }
-  function previewDraft(scope, value) {
-    return edit(hub.preview, value).then(function (answer) {
-      if (answer && answer.precondition) {
-        answer.precondition = {
-          revision: answer.precondition.revision,
-          fileSha256: answer.precondition.fileSha256,
-          catalogDigest: answer.precondition.catalogDigest
-        };
-      }
-      return answer;
-    });
-  }
-  return {
-    supported: true,
-    validateDraft: validateDraft,
-    previewDraft: previewDraft,
-    previewValid: function (answer) {
-      var precondition = object(answer && answer.precondition);
-      var fileShaOk = precondition.fileSha256 === null || (typeof precondition.fileSha256 === 'string' && precondition.fileSha256.length > 0);
-      return !!(answer && answer.ok === true && answer.mutated === false && answer.precondition &&
-        answer.precondition.revision && fileShaOk &&
-        typeof answer.precondition.catalogDigest === 'string' && answer.precondition.catalogDigest.length > 0);
-    },
-    applyDraft: function (scope, value) {
-      var payload = clone(value);
-      payload.requestId = requestId();
-      return edit(hub.apply, payload);
-    },
-    reloadAppliedState: reloadAppliedState,
-    verifyApplied: function (value, context, read) {
-      var actual = object(read && read.value);
-      return same(object(actual.catalog).enabled, object(value.catalog).enabled) &&
-        same(object(actual.userDomains).include, object(value.lists).include) &&
-        same(object(actual.userDomains).exclude, object(value.lists).exclude);
-    },
-    rollbackResult: function (answer) {
-      var rollback = object(answer && answer.rollback);
-      return rollback.available === true ? {
-        snapshot: rollback.snapshotId,
-        revision: rollback.expectedRevision
-      } : null;
-    },
-    resetDraft: module && module.resetDraft ? module.resetDraft : resetDraft
-  };
+  var request = clone(payload);
+  request.requestId = requestId();
+  edit(api.domainHub.apply, request).then(function (answer) {
+    if (!answer || answer.ok === false) throw answer && answer.error || answer || new Error('domain hub apply failed');
+    return api.domainHub.get();
+  }).then(function (value) {
+    var fresh = DomainHubModel.normalize(value || {});
+    var matches = same(object(fresh.catalog).enabled, object(payload.catalog).enabled) &&
+      same(object(fresh.userDomains).include, object(payload.lists).include) &&
+      same(object(fresh.userDomains).exclude, object(payload.lists).exclude);
+    if (!matches) throw { message: _('Backend не подтвердил применённые изменения.') };
+    state.baseline = fresh;
+    state.working = clone(fresh);
+    shell.showToast(_('Настройки сервисов применены.'), 'ok');
+    return rerender(ctx);
+  }).catch(function (error) {
+    shell.showToast(normalizeError(api, error).message, 'err');
+  });
 }
 
 return baseclass.extend({
   id: 'services',
-  title: _('Сервисы и домены'),
-  subtitle: _('Каталог, пользовательские домены, Autohostlist и источники'),
+  title: _('������� � ������'),
+  subtitle: _('�������, ���������������� ������, Autohostlist � ���������'),
   load: load,
   render: render,
   mount: function () { state.disposed = false; },
-  unmount: function () { state.disposed = true; if (state.checkTimer) window.clearTimeout(state.checkTimer); state.checkTimer = null; },
-  resetDraft: resetDraft,
-  createAdapter: createAdapter
+  unmount: function () { state.disposed = true; if (state.checkTimer) window.clearTimeout(state.checkTimer); state.checkTimer = null; }
 });

@@ -13,10 +13,12 @@ var PANES = [
 ];
 var SERVICE_TERMINAL = ['completed','applied','failed','rolled-back','cancelled','canceled','stopped'];
 var DNS_MODES = { system: _('Системный DNS — без изменений'), doh: _('DoH через https-dns-proxy'), dot: _('DoT через stubby'), udp: _('Свой DNS по UDP/53') };
+var GLOBAL_FIELDS = ['mode','primary','secondary','hijack','cache','cacheSize','edns','minTtl','strictOrder','blockAaaa','customRules'];
 var state = {
   pane: 'setup',
-  manual: null, manualBaseline: null,
-  selections: null, serviceBaseline: null, serviceLabels: {},
+  manual: null, manualBaseline: null, manualBaselineRevision: null,
+  selections: null, serviceBaseline: null, serviceBaselineRevision: null, serviceLabels: {},
+  serviceApplyBusy: false, manualApplyBusy: false, globalApplyBusy: false,
   globalDraft: null, globalBaseline: null, globalProviders: [],
   providerBusy: {}, providerResults: {}, providerErrors: {},
   providerBatch: { total: 0, completed: 0, working: 0, failed: 0 },
@@ -40,7 +42,7 @@ function componentState(item) {
   return { label: _('неизвестно'), kind: 'o' };
 }
 
-/* ---- dns scope adapter (existing) ---- */
+/* ---- page-local unsaved state ---- */
 function dnsEntries(value) {
   value = object(value);
   return asArray(value.entries || value.manualEntries || value.overrides || value.applied || value.draft && value.draft.entries).map(function (entry) {
@@ -51,64 +53,38 @@ function sameEntries(left, right) {
   var actual = Array.isArray(right) ? { entries: right } : right;
   return JSON.stringify(dnsEntries({ entries: left })) === JSON.stringify(dnsEntries(actual));
 }
-function createAdapter(api, dnsModule) {
-  api = api || {};
-  dnsModule = dnsModule || {};
-  function expected(value) { return dnsEntries({ entries: object(value).entries }); }
-  function reloadAppliedState() {
-    return api.dns.product.get().then(function (answer) {
-      var overrides = answer && answer.applied && answer.applied.overrides || [];
-      var revision = answer && answer.revision && answer.revision.overrides;
-      return { value: { entries: dnsEntries({ entries: overrides }), raw: answer || {} }, revision: revision, raw: answer || {} };
-    });
-  }
-  function validate(value) {
-    return edit(api.dns.product.validate, { scope: 'overrides', value: { entries: expected(value) }, revision: value && value.revision }).then(function (answer) {
-      var errors = asArray(answer && answer.errors);
-      if (!answer || answer.ok === false || answer.error || errors.length || answer.valid !== true)
-        return { ok: false, message: answer && answer.error && (answer.error.message || answer.error) || errors[0] && (errors[0].message || errors[0]) || _('Проверка DNS не пройдена.') };
-      return Object.assign({}, answer, { ok: true });
-    });
-  }
-  return {
-    supported: true,
-    validateDraft: function (scope, value) { return validate(value); },
-    previewDraft: function (scope, value, context) {
-      return validate(value).then(function (answer) {
-        if (!answer || answer.ok !== true) return answer;
-        var read = context && context.applied && context.applied.dns || {};
-        var revision = read && typeof read.revision !== 'object' ? read.revision : null;
-        if (revision === null || revision === undefined) revision = read && read.raw && read.raw.revision && read.raw.revision.overrides;
-        return edit(api.dns.product.preview, { scope: 'overrides', value: { entries: expected(value) }, revision: revision }).then(function (preview) {
-          return Object.assign({}, preview || {}, { precondition: { revision: revision } });
-        });
-      });
-    },
-    applyDraft: function (scope, value, expectedRevision) {
-      return edit(api.dns.product.apply, { scope: 'overrides', value: { entries: expected(value) }, revision: expectedRevision });
-    },
-    reloadAppliedState: reloadAppliedState,
-    verifyApplied: function (value, context, read) {
-      return sameEntries(expected(value), read && read.value);
-    },
-    resetDraft: function () { if (dnsModule.resetDraft) dnsModule.resetDraft(); }
-  };
-}
-
-/* ---- dns-global scope adapter ---- */
-/* ---- helpers ---- */
-function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
 function cloneEntries(dns) {
   var source = dns && (dns.entries || dns.manualEntries || dns.overrides || dns.applied || dns.draft && dns.draft.entries) || [];
   return asArray(source).map(function (entry) {
     return { domain: entry.domain || '', ip: entry.ip || entry.address || '', enabled: entry.enabled !== false };
   });
 }
-function dnsDraftChanges(baseline, entries) {
-  return sameEntries(baseline, entries) ? {} : {
-    entries: { label: _('Ручные DNS-переопределения'), before: cloneEntries({ entries: baseline }), after: cloneEntries({ entries: entries }) }
-  };
+function sameSelections(left, right) {
+  return JSON.stringify(object(left)) === JSON.stringify(object(right));
 }
+function changesLabel(count) {
+  var mod10 = count % 10, mod100 = count % 100;
+  var word = mod10 === 1 && mod100 !== 11 ? _('несохранённое изменение') :
+    (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) ? _('несохранённых изменения') :
+    _('несохранённых изменений');
+  return count + ' ' + word;
+}
+function discardServiceSelections() {
+  state.selections = null;
+  state.serviceBaseline = null;
+  state.serviceBaselineRevision = null;
+}
+function discardManualRules() {
+  state.manual = null;
+  state.manualBaseline = null;
+  state.manualBaselineRevision = null;
+}
+function discardGlobalForm() {
+  state.globalDraft = null;
+  state.globalBaseline = null;
+}
+function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
+
 function providerRows(value) {
   var source = value && (value.providers || value.items || value.available) || value || [];
   if (Array.isArray(source)) return source;
@@ -242,33 +218,6 @@ function serviceDnsChanges() {
   });
   return changes;
 }
-function updateServiceDnsDraft(ctx) {
-  var changes = serviceDnsChanges();
-  if (Object.keys(changes).length) ctx.setDraft('service-dns', { changes: changes });
-  else ctx.clearDraft('service-dns');
-}
-function openDraft(scope) {
-  if (scope !== 'service-dns') return;
-  state.pane = 'access';
-  if (typeof state.openPane === 'function') state.openPane('access');
-}
-function focusDraft(ctx, scope) {
-  if (scope !== 'service-dns' || !ctx || !ctx.root || !ctx.root.querySelector) return;
-  var target = ctx.root.querySelector('[data-service-dns-id].changed') || ctx.root.querySelector('#z2m-service-dns-grid');
-  if (!target) return;
-  target.classList.add('focus');
-  if (target.scrollIntoView) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  window.setTimeout(function () { target.classList.remove('focus'); }, 1800);
-}
-function resetDraft(scope) {
-  if (!scope || scope === 'service-dns') {
-    state.selections = null;
-    state.serviceBaseline = null;
-    state.serviceLabels = {};
-  }
-  if (!scope || scope === 'dns') { state.manual = null; state.manualBaseline = null; }
-  if (!scope || scope === 'dns-global') { state.globalDraft = null; state.globalBaseline = null; }
-}
 function scheduleTiktokAutoCheck(ctx) {
   if (state.tiktokAutoTimer) window.clearTimeout(state.tiktokAutoTimer);
   state.tiktokAutoTimer = null;
@@ -362,8 +311,15 @@ function render(ctx) {
   if (state.manual == null) {
     state.manualBaseline = cloneEntries({ entries: Array.isArray(productOverrides) ? productOverrides : dns });
     state.manual = cloneEntries({ entries: state.manualBaseline });
+    state.manualBaselineRevision = product.revision && product.revision.overrides != null ?
+      String(product.revision.overrides) : null;
   }
-  if (state.serviceBaseline == null) state.serviceBaseline = Object.assign({}, loadedSelections);
+  if (state.serviceBaseline == null) {
+    state.serviceBaseline = Object.assign({}, loadedSelections);
+    var freshDraftRevision = serviceStatus.draftRevision != null ? serviceStatus.draftRevision :
+      product.revision && product.revision.service_dns;
+    state.serviceBaselineRevision = freshDraftRevision != null ? String(freshDraftRevision) : null;
+  }
   if (state.selections == null) state.selections = Object.assign({}, state.serviceBaseline);
   if (!Object.keys(state.serviceLabels).length) state.serviceLabels = serviceLabelMap(serviceStatus);
   Object.keys(serviceCatalogData.labels).forEach(function (id) {
@@ -386,7 +342,8 @@ function render(ctx) {
       strictOrder: draft.strictOrder !== false,
       blockAaaa: draft.blockAaaa === true,
       customRules: draft.customRules || global.customRules || '',
-      revision: draft.revision || 0
+      revision: product.revision && product.revision.global != null ?
+        String(product.revision.global) : String(draft.revision || 0)
     };
     state.globalDraft = Object.assign({}, state.globalBaseline);
   }
@@ -427,26 +384,227 @@ function render(ctx) {
     var mapped = ProductUX.errorMessage(ctx.api.normalizeError(error));
     shell.showToast(mapped.message, 'err');
   }
-  function updateGlobalDraft(updated) {
-    var d = state.globalDraft;
-    var b = state.globalBaseline;
-    var hasChanges = d.mode !== b.mode || d.primary !== b.primary || d.secondary !== b.secondary ||
-      d.hijack !== b.hijack || d.cache !== b.cache || d.cacheSize !== b.cacheSize ||
-      d.edns !== b.edns || d.minTtl !== b.minTtl || d.strictOrder !== b.strictOrder ||
-      d.blockAaaa !== b.blockAaaa || d.customRules !== b.customRules;
-    if (hasChanges) {
-      ctx.setDraft('dns-global', {
-        changes: { global: { label: _('Глобальные DNS настройки'), before: b, after: d } },
-        revision: d.revision
-      });
-    } else {
-      ctx.clearDraft('dns-global');
-    }
+
+  /* ---- page-local apply lifecycle ---- */
+  function revisionMismatch(expected, actual) {
+    return expected != null && actual != null && String(expected) !== String(actual);
   }
-  function updateDnsDraft(entries) {
-    var changes = dnsDraftChanges(state.manualBaseline || [], entries);
-    if (Object.keys(changes).length) ctx.setDraft('dns', { entries: entries, changes: changes });
-    else ctx.clearDraft('dns');
+  function conflictMessage() {
+    return _('Настройки DNS изменились в другой сессии. Обновите страницу и повторите изменение.');
+  }
+  function applyError(error) {
+    var normalized = ctx.api.normalizeError(error);
+    var mapped = ProductUX.errorMessage(normalized, _('Не удалось применить настройки DNS.'));
+    if (window.console && window.console.warn) window.console.warn('[z2m-dns] apply failed:', normalized.code || '', mapped.technical || normalized.message);
+    shell.showToast(_('Не удалось применить настройки DNS.') + ' ' + mapped.message, 'err');
+  }
+  function localActions(dirtyCount, busy, onCancel, onApply) {
+    var cancel = shell.button(_('Отменить'), 'sm', onCancel, !dirtyCount || busy);
+    var apply = shell.button(_('Применить'), 'primary sm', function () {
+      apply.disabled = true;
+      onApply(apply);
+    }, !dirtyCount || busy);
+    apply.setAttribute('data-testid', 'z2m-local-apply');
+    return E('div', { 'class': 'z2m-local-actions', 'data-testid': 'z2m-local-actions' }, [
+      dirtyCount ? E('span', { 'class': 'z2m-local-dirty', 'data-testid': 'z2m-local-dirty' }, changesLabel(dirtyCount)) : E('span'),
+      cancel,
+      apply
+    ]);
+  }
+
+  function cancelServiceDns() {
+    state.selections = Object.assign({}, state.serviceBaseline);
+    renderPane();
+  }
+  function applyServiceDns(button) {
+    if (state.serviceApplyBusy) return;
+    var desired = Object.assign({}, state.selections);
+    if (!Object.keys(serviceDnsChanges()).length) return;
+    state.serviceApplyBusy = true;
+    if (button) button.disabled = true;
+    var finish = function () {
+      state.serviceApplyBusy = false;
+      if (button) button.disabled = false;
+    };
+    var stagedSet = null;
+    ctx.api.dns.serviceStatus().then(function (status) {
+      if (revisionMismatch(state.serviceBaselineRevision, status && status.draftRevision))
+        throw { code: 'E_REVISION_CONFLICT', message: conflictMessage() };
+      return edit(ctx.api.dns.product.validate, {
+        scope: 'service_dns',
+        value: { selections: desired },
+        revision: status && status.draftRevision
+      });
+    }).then(function (answer) {
+      if (!answer || answer.ok === false || answer.error)
+        throw answer && answer.error || answer || new Error('service_dns validation failed');
+      return edit(ctx.api.dns.serviceSet, { selections: desired });
+    }).then(function (saved) {
+      if (!saved || saved.ok !== true)
+        throw saved && saved.error || saved || new Error('service_dns set failed');
+      stagedSet = saved;
+      // Track the accepted write so a retry after a failed apply is not
+      // mistaken for an external revision conflict.
+      if (saved.draftRevision != null) state.serviceBaselineRevision = String(saved.draftRevision);
+      return edit(ctx.api.dns.serviceApply, { revision: saved.draftRevision }).then(undefined, function (error) {
+        var normalized = ctx.api.normalizeError(error);
+        if (normalized.code === 'EAPPLYTIMEOUT') {
+          // Long-running apply: hand over to the existing async operation poller.
+          state.operation = { operationId: stagedSet.operationId || normalized.operationId };
+          scheduleServiceOperationPoll();
+          throw { handled: true };
+        }
+        throw error;
+      });
+    }).then(function () {
+      return ctx.api.dns.serviceStatus();
+    }).then(function (status) {
+      var appliedSelections = selectionMap(status);
+      if (!sameSelections(appliedSelections, desired))
+        throw { code: 'E_VERIFY', message: _('Backend не подтвердил применённые назначения.') };
+      state.serviceBaseline = appliedSelections;
+      state.serviceBaselineRevision = status && status.draftRevision != null ? String(status.draftRevision) : null;
+      state.selections = Object.assign({}, state.serviceBaseline);
+      finish();
+      shell.showToast(_('Настройки DNS применены.'), 'ok');
+      renderPane();
+    }).catch(function (error) {
+      finish();
+      if (error && error.handled) { renderPane(); return; }
+      if (error && error.code === 'E_REVISION_CONFLICT') {
+        // Local edits stay in place; user re-bases by updating the page.
+        shell.showToast(conflictMessage(), 'err');
+        return;
+      }
+      applyError(error);
+    });
+  }
+
+  function manualChangedCount() {
+    var before = {}, after = {};
+    dnsEntries({ entries: state.manualBaseline || [] }).forEach(function (entry) { before[entry.domain] = JSON.stringify(entry); });
+    dnsEntries({ entries: state.manual || [] }).forEach(function (entry) { after[entry.domain] = JSON.stringify(entry); });
+    var ids = {};
+    Object.keys(before).forEach(function (key) { ids[key] = true; });
+    Object.keys(after).forEach(function (key) { ids[key] = true; });
+    return Object.keys(ids).filter(function (key) { return before[key] !== after[key]; }).length;
+  }
+  function cancelManualRules() {
+    state.manual = cloneEntries({ entries: state.manualBaseline });
+    renderPane();
+  }
+  function applyManualRules(button) {
+    if (state.manualApplyBusy) return;
+    var desired = cloneEntries({ entries: state.manual || [] });
+    if (!manualChangedCount()) return;
+    state.manualApplyBusy = true;
+    if (button) button.disabled = true;
+    var finish = function () {
+      state.manualApplyBusy = false;
+      if (button) button.disabled = false;
+    };
+    ctx.api.dns.product.get().then(function (answer) {
+      var revision = answer && answer.revision && answer.revision.overrides;
+      if (revisionMismatch(state.manualBaselineRevision, revision))
+        throw { code: 'E_REVISION_CONFLICT', message: conflictMessage() };
+      return edit(ctx.api.dns.product.validate, {
+        scope: 'overrides', value: { entries: desired }, revision: revision
+      }).then(function (validated) {
+        if (!validated || validated.ok === false || validated.error)
+          throw validated && validated.error || validated || new Error('overrides validation failed');
+        return edit(ctx.api.dns.set, { entries: desired, revision: revision });
+      }).then(function (saved) {
+        if (!saved || saved.ok !== true)
+          throw saved && saved.error || saved || new Error('overrides set failed');
+        if (saved.revision != null) state.manualBaselineRevision = String(saved.revision);
+        return edit(ctx.api.dns.apply, {});
+      });
+    }).then(function (applied) {
+      if (!applied || applied.ok === false || applied.error)
+        throw applied && applied.error || applied || new Error('overrides apply failed');
+      return ctx.api.dns.product.get();
+    }).then(function (answer) {
+      if (!sameEntries(answer && answer.applied && answer.applied.overrides, desired))
+        throw { code: 'E_VERIFY', message: _('Backend не подтвердил применённые правила.') };
+      state.manualBaseline = cloneEntries({ entries: answer.applied.overrides });
+      state.manualBaselineRevision = answer.revision && answer.revision.overrides != null ?
+        String(answer.revision.overrides) : null;
+      state.manual = cloneEntries({ entries: state.manualBaseline });
+      finish();
+      shell.showToast(_('Настройки DNS применены.'), 'ok');
+      renderPane();
+    }).catch(function (error) {
+      finish();
+      if (error && error.code === 'E_REVISION_CONFLICT') {
+        shell.showToast(conflictMessage(), 'err');
+        return;
+      }
+      applyError(error);
+    });
+  }
+
+  function globalChangedCount() {
+    var baseline = state.globalBaseline || {}, current = state.globalDraft || {};
+    return GLOBAL_FIELDS.filter(function (field) {
+      return String(baseline[field]) !== String(current[field]);
+    }).length;
+  }
+  function cancelGlobalForm() {
+    state.globalDraft = Object.assign({}, state.globalBaseline);
+    renderPane();
+  }
+  function applyGlobalForm(button) {
+    if (state.globalApplyBusy) return;
+    var payloadValue = {};
+    GLOBAL_FIELDS.forEach(function (field) { payloadValue[field] = state.globalDraft[field]; });
+    if (!globalChangedCount()) return;
+    state.globalApplyBusy = true;
+    if (button) button.disabled = true;
+    var finish = function () {
+      state.globalApplyBusy = false;
+      if (button) button.disabled = false;
+    };
+    function readCanonical() {
+      return globalRead(ctx.api, function () { return ctx.api.dns.product.get(); });
+    }
+    readCanonical().then(function (canonical) {
+      if (revisionMismatch(state.globalBaseline && state.globalBaseline.revision, canonical.revision))
+        throw { code: 'E_REVISION_CONFLICT', message: conflictMessage() };
+      return edit(ctx.api.dns.product.validate, {
+        scope: 'global', value: payloadValue, revision: canonical.revision
+      }).then(function (validated) {
+        if (!validated || validated.ok === false || validated.error)
+          throw validated && validated.error || validated || new Error('global validation failed');
+        return edit(ctx.api.dns.global.set, Object.assign({}, payloadValue, { revision: canonical.revision }));
+      }).then(function (saved) {
+        if (!saved || saved.ok === false || saved.error)
+          throw saved && saved.error || saved || new Error('global set failed');
+        if (saved.revision != null && state.globalBaseline) state.globalBaseline.revision = String(saved.revision);
+        return ctx.api.dns.global.apply();
+      });
+    }).then(function (applied) {
+      if (!applied || applied.ok === false || applied.error)
+        throw applied && applied.error || applied || new Error('global apply failed');
+      return readCanonical();
+    }).then(function (canonical) {
+      var mismatch = GLOBAL_FIELDS.filter(function (field) {
+        return String(canonical[field]) !== String(payloadValue[field]);
+      }).length;
+      if (mismatch) throw { code: 'E_VERIFY', message: _('Backend не подтвердил применённые настройки.') };
+      state.globalBaseline = { revision: String(canonical.revision || 0) };
+      GLOBAL_FIELDS.forEach(function (field) { state.globalBaseline[field] = canonical[field]; });
+      state.globalDraft = Object.assign({}, state.globalBaseline);
+      finish();
+      shell.showToast(_('Настройки DNS применены.'), 'ok');
+      renderPane();
+    }).catch(function (error) {
+      finish();
+      if (error && error.code === 'E_REVISION_CONFLICT') {
+        shell.showToast(conflictMessage(), 'err');
+        return;
+      }
+      applyError(error);
+    });
   }
   function setPane(id) {
     state.pane = id;
@@ -464,7 +622,6 @@ function render(ctx) {
     });
     modeSelect.addEventListener('change', function () {
       state.globalDraft.mode = modeSelect.value;
-      updateGlobalDraft();
       renderPane();
     });
 
@@ -475,7 +632,6 @@ function render(ctx) {
     });
     primSelect.addEventListener('change', function () {
       state.globalDraft.primary = primSelect.value;
-      updateGlobalDraft();
       renderPane();
     });
 
@@ -486,21 +642,18 @@ function render(ctx) {
     });
     secSelect.addEventListener('change', function () {
       state.globalDraft.secondary = secSelect.value;
-      updateGlobalDraft();
       renderPane();
     });
 
     var hijackSw = E('span', { 'class': 'z2m-sw' + (dg.hijack ? ' on' : ''), 'data-set': 'dnsHijack', role: 'switch', 'aria-checked': dg.hijack ? 'true' : 'false', tabindex: '0', 'aria-label': _('Запрещать сторонний DNS в сети') }, [E('i')]);
     hijackSw.addEventListener('click', function () {
       state.globalDraft.hijack = !state.globalDraft.hijack;
-      updateGlobalDraft();
       renderPane();
     });
 
     var cacheSw = E('span', { 'class': 'z2m-sw' + (dg.cache ? ' on' : ''), 'data-set': 'dnsCache', role: 'switch', 'aria-checked': dg.cache ? 'true' : 'false', tabindex: '0', 'aria-label': _('Кэшировать ответы') }, [E('i')]);
     cacheSw.addEventListener('click', function () {
       state.globalDraft.cache = !state.globalDraft.cache;
-      updateGlobalDraft();
       renderPane();
     });
 
@@ -583,7 +736,7 @@ function render(ctx) {
           E('div', { 'class': 'z2m-dns-form-row' }, [E('label', {}, _('Запрещать сторонний DNS в сети')), E('div', { 'class': 'z2m-dns-toggle-control' }, [hijackSw]), E('span', { 'class': 'z2m-hint' }, _('Перехват UDP/TCP-запросов на порт 53.'))]),
           E('div', { 'class': 'z2m-dns-form-row' }, [E('label', {}, _('Кэшировать ответы')), E('div', { 'class': 'z2m-dns-toggle-control' }, [cacheSw]), E('span', { 'class': 'z2m-hint' }, dg.cacheSize + ' ' + _('записей'))])
         ])
-      ]), _('Используется всеми клиентами сети')),
+      ]), _('Используется всеми клиентами сети'), localActions(globalChangedCount(), state.globalApplyBusy, cancelGlobalForm, applyGlobalForm)),
       shell.panel(_('Состояние'), E('div', { 'class': 'bd tight' }, [renderStatusTable()])),
       shell.panel(_('Проверка DNS'), E('div', {}, [checkResult, E('div', { 'class': 'btnrow', style: 'margin-top:8px' }, [checkButton])]))
     ]);
@@ -777,8 +930,7 @@ function render(ctx) {
         var success = serviceOperationSucceeded(state.operation);
         clearServiceOperation();
         if (success) {
-          resetDraft('service-dns');
-          ctx.clearDraft('service-dns');
+          discardServiceSelections();
           shell.showToast(_('DNS для сервисов применён.'), 'ok');
         } else shell.showToast(_('Применение DNS для сервисов завершилось с ошибкой.'), 'err');
         return ctx.refresh('dns');
@@ -882,7 +1034,7 @@ function render(ctx) {
         var action = E('div', { 'class': 'z2m-service-dns-action z2m-service-dns-control' }, [select]);
         var rowChildren = [info, action];
         var row = E('div', { 'class': 'z2m-service-dns-row' + (changed ? ' changed' : '') + (id === 'tiktok' ? ' tiktok-row' : ''), 'data-service-dns-id': id, 'data-service-name': (item.name + ' ' + domains).toLowerCase() }, rowChildren);
-        select.addEventListener('change', function () { state.selections[id] = select.value; updateServiceDnsDraft(ctx); renderPane(); });
+        select.addEventListener('change', function () { state.selections[id] = select.value; renderPane(); });
         groupBody.appendChild(row);
         records.push({ row: row, category: category, name: (item.name + ' ' + domains).toLowerCase(), configured: !!after, changed: changed });
       });
@@ -899,8 +1051,7 @@ function render(ctx) {
     }
     search.addEventListener('input', applyFilter); categoryFilter.addEventListener('change', applyFilter); assignmentFilter.addEventListener('change', applyFilter); changedOnly.addEventListener('change', applyFilter);
     var toolbar = E('div', { 'class': 'z2m-service-dns-toolbar' }, [searchControl, E('div', { 'class': 'z2m-service-dns-filterbar' }, [categoryFilter, assignmentFilter]), E('label', { 'class': 'z2m-service-dns-changed' }, [changedOnly, _('Только изменённые')])]);
-    var draftActions = changeIds.length ? E('div', { 'class': 'z2m-dns-service-actions' }, [E('strong', {}, _('Изменено сервисов: ') + changeIds.length), shell.button(_('Отменить'), 'sm', function () { state.selections = Object.assign({}, state.serviceBaseline); updateServiceDnsDraft(ctx); renderPane(); }), shell.button(_('Предпросмотр'), 'sm', function () { ctx.openSemanticDiff(); }), shell.button(_('Применить'), 'primary sm', function () { ctx.openSemanticDiff(); })]) : null;
-    var accessSummary = E('p', { 'class': 'z2m-service-dns-summary' }, String(items.length) + ' ' + _('сервисов') + ' · ' + String(configured) + ' ' + _('настроено') + ' · ' + String(items.length - configured) + ' ' + _('по умолчанию') + (changeIds.length ? ' · ' + String(changeIds.length) + ' ' + _('изменения') : ''));
+    var accessSummary = E('p', { 'class': 'z2m-service-dns-summary' }, String(items.length) + ' ' + _('сервисов') + ' · ' + String(configured) + ' ' + _('настроено') + ' · ' + String(items.length - configured) + ' ' + _('по умолчанию'));
     var technical = E('details', { 'class': 'z2m-service-dns-technical' }, [
       E('summary', {}, _('Технические детали')),
       E('div', { 'class': 'z2m-service-dns-technical-grid' }, [
@@ -910,7 +1061,7 @@ function render(ctx) {
       ]),
       E('code', {}, '/etc/config/dhcp · address=/v77.tiktokcdn.com/<IP>')
     ]);
-    return shell.panel(_('Доступ сервисов'), E('div', { 'class': 'z2m-service-dns-access' }, [accessSummary, toolbar, draftActions, groupsRoot, technical]), _('Профиль DNS выбирается отдельно для каждого сервиса.'));
+    return shell.panel(_('DNS для сервисов'), E('div', { 'class': 'z2m-service-dns-access' }, [accessSummary, toolbar, groupsRoot, technical]), _('Назначьте DNS отдельным сервисам.'), localActions(changeIds.length, state.serviceApplyBusy, cancelServiceDns, applyServiceDns));
   }
 
   /* ---- donor-adapted per-domain routing pane ---- */
@@ -935,8 +1086,6 @@ function render(ctx) {
       var next = rules.filter(function (item) { return item.domain !== domain; });
       next.push({ domain: domain, ip: providerIdValue, enabled: true });
       state.manual = next;
-      updateDnsDraft(next);
-      shell.showToast(_('Правило добавлено в черновик.'), 'ok');
       renderPane();
     }
     var addButton = shell.button(_('Добавить правило'), 'primary sm', function () {
@@ -960,8 +1109,6 @@ function render(ctx) {
       var provider = providerOptions.filter(function (item) { return routingAddress(item) === String(rule.ip || rule.address || ''); })[0];
       var remove = shell.button(_('Удалить'), 'danger sm', function () {
         state.manual = rules.filter(function (item) { return item.domain !== rule.domain; });
-        updateDnsDraft(state.manual);
-        shell.showToast(_('Правило удалено из черновика.'), 'ok');
         renderPane();
       });
       return E('div', { 'class': 'z2m-dns-routing-row' }, [
@@ -970,18 +1117,17 @@ function render(ctx) {
         remove
       ]);
     })) : shell.empty(_('Правил пока нет. Добавьте домен или выберите быстрый пресет.'));
-    var changed = !sameEntries(state.manualBaseline || [], rules);
+    var changedCount = manualChangedCount();
     var productError = data.product && data.product.error;
     return E('div', { 'class': 'z2m-dns-routing-layout', 'data-testid': 'dns-routing-pane' }, [
       productError ? shell.statePanel({ title: _('Canonical DNS facade недоступен'), message: productError.message, kind: 'warn' }) : null,
       shell.panel(_('Per-domain DNS'), E('div', {}, [
-        E('p', { 'class': 'z2m-dim' }, _('Поведение адаптировано из Avatar: правило добавляется в черновик, затем проходит Preview → Validate → Apply через canonical DNS backend.')),
+        E('p', { 'class': 'z2m-dim' }, _('Правило отправляет запросы по домену на выбранный DNS-сервер. Изменения применяются кнопкой «Применить» ниже.')),
         form,
         E('div', { 'class': 'z2m-dns-routing-presets' }, [E('strong', {}, _('Быстрые пресеты')), E('div', { 'class': 'z2m-btnrow' }, quickButtons)])
       ])),
-      shell.panel(_('Правила'), rows, _('Активные изменения не влияют на роутер до подтверждения в общем окне применения.')),
-      E('div', { 'class': 'z2m-btnrow z2m-dns-routing-actions' }, [
-        shell.button(_('Предпросмотр и применить'), 'primary', function () { ctx.openSemanticDiff(); }, !changed),
+      shell.panel(_('Правила'), rows, _('Правила применяются к dnsmasq только после нажатия «Применить».'), localActions(changedCount, state.manualApplyBusy, cancelManualRules, applyManualRules)),
+      E('div', { 'class': 'btnrow z2m-dns-routing-actions' }, [
         shell.button(_('Обновить состояние'), 'sm', function () { return ctx.refresh('dns'); })
       ])
     ]);
@@ -993,30 +1139,25 @@ function render(ctx) {
     var ecsSw = E('span', { 'class': 'z2m-sw' + (dg.edns ? ' on' : ''), role: 'switch', 'aria-checked': dg.edns ? 'true' : 'false', tabindex: '0', 'aria-label': _('EDNS Client Subnet') }, [E('i')]);
     ecsSw.addEventListener('click', function () {
       state.globalDraft.edns = !state.globalDraft.edns;
-      updateGlobalDraft();
       renderPane();
     });
     var soSw = E('span', { 'class': 'z2m-sw' + (dg.strictOrder ? ' on' : ''), role: 'switch', 'aria-checked': dg.strictOrder ? 'true' : 'false', tabindex: '0', 'aria-label': _('Использовать DNS-серверы по порядку') }, [E('i')]);
     soSw.addEventListener('click', function () {
       state.globalDraft.strictOrder = !state.globalDraft.strictOrder;
-      updateGlobalDraft();
       renderPane();
     });
     var aaaaSw = E('span', { 'class': 'z2m-sw' + (dg.blockAaaa ? ' on' : ''), role: 'switch', 'aria-checked': dg.blockAaaa ? 'true' : 'false', tabindex: '0', 'aria-label': _('Блокировать IPv6-ответы') }, [E('i')]);
     aaaaSw.addEventListener('click', function () {
       state.globalDraft.blockAaaa = !state.globalDraft.blockAaaa;
-      updateGlobalDraft();
       renderPane();
     });
     var ttlInp = E('input', { type: 'number', value: dg.minTtl, style: 'max-width:120px', 'aria-label': _('Минимальный TTL') });
     ttlInp.addEventListener('change', function () {
       state.globalDraft.minTtl = int(ttlInp.value) || 60;
-      updateGlobalDraft();
     });
     var rulesTa = E('textarea', { id: 'z2m-dns-custom-rules', placeholder: 'server=/example.com/1.1.1.1', 'aria-label': _('Дополнительные правила dnsmasq') }, dg.customRules);
     rulesTa.addEventListener('input', function () {
       state.globalDraft.customRules = rulesTa.value;
-      updateGlobalDraft();
     });
 
     var components = data.components && data.components.value || {};
@@ -1059,7 +1200,7 @@ function render(ctx) {
           E('label', {}, _('Дополнительные правила dnsmasq')),
           E('div', {}, [rulesTa, E('div', { 'class': 'hint' }, _('Проверяются перед применением. Некорректные строки будут пропущены.'))])
         ])
-      ])),
+      ]), null, localActions(globalChangedCount(), state.globalApplyBusy, cancelGlobalForm, applyGlobalForm)),
       shell.panel(_('Компоненты DNS'), compBody, _('Состояние компонентов по данным backend.'))
     ]);
   }
@@ -1218,6 +1359,5 @@ function unmount() {
 
 return baseclass.extend({
   id: 'dns', title: _('DNS'), subtitle: _('Настройка DNS, проверки провайдеров и доступ сервисов'),
-  load: load, render: render, mount: mount, unmount: unmount,
-  openDraft: openDraft, focusDraft: focusDraft, resetDraft: resetDraft,
-  createAdapter: createAdapter});
+  load: load, render: render, mount: mount, unmount: unmount
+});

@@ -144,9 +144,9 @@ test('Diagnostics is the only canonical Monitoring and Logs viewer', () => {
 test('DNS keeps backend ownership and exposes task-first workflow language', () => {
   const dns = read('z2m-dns.js');
   const api = read('z2m-api.js');
-  for (const method of ['product.get', 'product.providers', 'product.status', 'product.preview', 'product.apply'])
+  for (const method of ['product.get', 'product.providers', 'product.status', 'product.validate'])
     assert.match(dns, new RegExp(method.replace('.', '\\.'), 'i'), method);
-  for (const copy of ['Preview', 'Apply', 'Rollback', 'Провайдер'])
+  for (const copy of ['Apply', 'Rollback', 'Провайдер'])
     assert.match(dns, new RegExp(copy, 'i'), copy);
   assert.match(dns, /Технические|Дополнительные параметры|Компоненты DNS/i);
   assert.match(api, /dns:\{[\s\S]*product:/);
