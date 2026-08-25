@@ -70,6 +70,20 @@ function tg_product_update_method(req) { return tg_edit_call(tg_product_update, 
 function tg_product_remove_method(req) { return tg_edit_call(tg_product_remove, req); }
 function tg_product_purge_method(req) { return tg_edit_call(tg_product_purge, req); }
 
+function shell_escape_early(value) {
+	let s = '' + (value == null ? '' : value), out = "'";
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		out += c == "'" ? "'\\''" : c;
+	}
+	return out + "'";
+}
+function shell_quote_early(value) { return shell_escape_early(value); }
+// Hoist-safe aliases for status_refresh_async (defined below before the
+// later shell_escape/shell_quote declaration).
+function shell_escape(value) { return shell_escape_early(value); }
+function shell_quote(value) { return shell_quote_early(value); }
+
 function now() { return time(); }
 
 function cache_fresh() {
@@ -93,15 +107,13 @@ function status_refresh_async() {
 	if (!writefile('/tmp/zapret2-manager/status.refresh.stamp', sprintf('%d', now()))) return;
 	try { mkdir(lock); } catch (e) { return; } // someone won the race
 	try {
-		popen('(' + shell_escape('/bin/sh') + ' -c ' + shell_quote(
-			'/usr/bin/ucode ' + COLLECTOR + ' --no-print >/dev/null 2>&1; rm -rf ' + shell_quote(lock)
-		) + ') &', 'r').close();
+		popen('( /usr/bin/ucode ' + shell_escape(COLLECTOR) + ' --no-print >/dev/null 2>&1; rm -rf ' + shell_escape(lock) + ' ) &', 'r').close();
 	} catch (e) { try { unlink(lock); } catch (x) { } }
 }
 
 function run_lock_cleanup(lock) {
 	try {
-		popen('(' + shell_escape('/bin/sh') + ' -c ' + shell_quote('rm -rf ' + shell_quote(lock)) + ') &', 'r').close();
+		popen('rm -rf ' + shell_escape(lock) + ' 2>/dev/null', 'r').close();
 	} catch (e) { }
 }
 
@@ -165,14 +177,6 @@ function staging_tempfile(prefix) {
 	if (!p) return null;
 	let path = trim(p.read('all') || ''), rc = p.close();
 	return rc == 0 && index(path, prefix) == 0 && length(path) <= 64 ? path : null;
-}
-function shell_escape(value) {
-	let s = '' + (value == null ? '' : value), out = "'";
-	for (let i = 0; i < length(s); i++) {
-		let c = substr(s, i, 1);
-		out += c == "'" ? "'\\''" : c;
-	}
-	return out + "'";
 }
 function lists_action(sub) {
 	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' ' + sub + ' 2>/dev/null';

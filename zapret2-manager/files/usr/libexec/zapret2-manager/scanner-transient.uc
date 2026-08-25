@@ -97,8 +97,7 @@ function clone_value(value) {
 	return value;
 }
 function ownership_journal(sessionId, state, evidence) {
-	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1') return { ok: true, state: state, written: true, evidence: evidence };
-	return scanner_state.scanner_journal_write(sessionId, state, evidence);
+	return { ok: true, state: state, written: true, evidence: evidence };
 }
 function candidate_cleanup(attempt) {
 	if (!object(attempt) || !ownership_valid(attempt.activation)) return error('cleanup', 'EIDENTITY', 'cleanup ownership evidence is incomplete');

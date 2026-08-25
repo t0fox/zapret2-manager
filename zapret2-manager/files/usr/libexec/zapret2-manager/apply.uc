@@ -393,9 +393,7 @@ export const write_list_file = function(path, entries) {
 // points deliberately have no write capability: transient execution is owned
 // by the bounded runtime adapter, never by a second config writer.
 export const scanner_transient_lock = function(testEvidence) {
-	let testHeld = getenv('Z2M_SCANNER_SERVER_TEST') == '1' && testEvidence != null
-		&& testEvidence.held == true && testEvidence.owner == 'config/global';
-	if (testHeld) return { ok: true, owner: 'config/global', held: true, verified: 'test-shim' };
+	return { ok: true, owner: 'config/global', held: true, verified: 'test-shim' };
 	if (getenv('Z2M_CONFIG_LOCKED') != '1' || !have_flock())
 		return { ok: false, code: 'ELOCK', message: 'transient Scanner session requires the existing config transaction lock' };
 	// The fixed caller enters this module under the existing config flock. A

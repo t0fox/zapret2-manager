@@ -218,18 +218,22 @@ return L.view.extend({
       content.setAttribute('aria-busy', busy === true ? 'true' : 'false');
     }
     function buildContext(tab, module, data, root) {
-      return {
+      var ctx = {
         route: tab,
         routeParams: paramsFromHash(),
         api: Api, store: store, shell: Shell, root: root || content,
         data: data || {}, initial: initial || {},
         navigate: navigateTo,
-        refresh: function (next) { return activate(next || tab, true); },
+        refresh: function (next) {
+          if (activeContext !== ctx) return Promise.resolve();
+          return activate(next || tab, true);
+        },
         invalidateCache: function (target) {
           var route = target && draftMeta(target).tab || target || tab;
           invalidateTabCache(route);
         },
         rerender: function () {
+          if (activeContext !== ctx) return Promise.resolve();
           var token = ++activationToken;
           renderTabData(tab, module, tabDataCache[tab] || data || {}, token, true);
           setContentBusy(false);
@@ -241,6 +245,7 @@ return L.view.extend({
         applyDrafts: function () { return applyDrafts(coordinator, store.snapshotDraft(), { root: content }); },
         coordinator: coordinator
       };
+      return ctx;
     }
     function loadTabData(tab, module, force) {
       if (tabLoadPromises[tab]) return tabLoadPromises[tab];

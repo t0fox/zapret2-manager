@@ -391,6 +391,7 @@ export const collect_observations = function() {
 	});
 	return {
 		generatedAt: iso_now(),
+		serviceState: svc_state,
 		engine: engine,
 		runtime: runtime_out,
 		strategy: strategy_out,
