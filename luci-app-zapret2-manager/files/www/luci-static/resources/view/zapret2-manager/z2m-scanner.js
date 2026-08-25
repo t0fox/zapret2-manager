@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-icons as Icons';
 
