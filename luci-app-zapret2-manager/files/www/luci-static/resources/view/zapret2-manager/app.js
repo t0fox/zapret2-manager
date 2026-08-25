@@ -77,6 +77,17 @@ function syncTabCacheSession() {
   tabLoadPromises = {};
 }
 
+function tabFromHash() {
+  return Navigation.normalize(window.location.hash);
+}
+function paramsFromHash() {
+  return Navigation.parse(window.location.hash).params || {};
+}
+function setHash(tab) {
+  tab = Navigation.normalize(tab);
+  var target = Navigation.hash(tab);
+  if (window.location.hash !== target) window.location.hash = target;
+}
 function statusState(initial) {
   var value = RuntimeState.state(initial);
   if (value === 'unavailable') return { label: _('недоступно'), kind: 'r' };
