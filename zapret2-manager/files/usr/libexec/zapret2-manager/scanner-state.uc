@@ -176,7 +176,20 @@ function request_digest(request) { return hash(canonical_json(request)); }
 function plan_digest(plan) { return hash(canonical_json({ schema: plan?.schema, request: plan?.request, targetProfile: plan?.targetProfile, catalogDigest: plan?.catalogDigest, compilerDigest: plan?.compilerDigest, candidates: plan?.candidates })); }
 function result_projection(value) {
 	if (!object(value)) return null;
-	let sanitizedEvidence = object(value.evidence) ? sanitize_numbers(copy(value.evidence)) : null;
+	// Trim evidence for failed/infra to stay under helper 1024-member limit
+	let rawEvidence = object(value.evidence) ? copy(value.evidence) : null;
+	let sanitizedEvidence = null;
+	if (object(rawEvidence)) {
+		if (value.success === true) sanitizedEvidence = sanitize_numbers(rawEvidence);
+		else {
+			// failed/infra: keep minimal evidence (metrics successRate 0, failureClass) to save members
+			let minimal = {};
+			if (object(rawEvidence.metrics) && rawEvidence.metrics.successRate != null) minimal.metrics = {successRate: 0};
+			if (rawEvidence.failureClass) minimal.failureClass = rawEvidence.failureClass;
+			if (rawEvidence.infrastructure) minimal.infrastructure = true;
+			sanitizedEvidence = sanitize_numbers(minimal);
+		}
+	}
 	let sanitizedScore = type(value.score) == 'int' ? value.score : (type(value.score) == 'double' ? int(value.score) : null);
 	if (type(value.score) == 'double' && (value.score > -1 && value.score < 1 && value.score != 0)) sanitizedScore = int(value.score*1000);
 	let out = {
