@@ -462,13 +462,31 @@ function reveal(ctx) {
           E('code', { 'class': 'z2m-proxy-link' }, url),
           Qr.render(url, 240),
           E('div', { 'class': 'z2m-btnrow' }, [ctx.shell.button(_('Скопировать ссылку'), 'primary sm', function () {
-            if (!navigator.clipboard || !navigator.clipboard.writeText) {
-              ctx.shell.showToast(_('Буфер обмена недоступен в этом браузере.'), 'err');
-              return;
+            function fallbackCopy(text) {
+              try {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'absolute';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                var ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                return ok;
+              } catch (e) { return false; }
             }
-            navigator.clipboard.writeText(url).then(function () {
-              ctx.shell.showToast(_('Ссылка скопирована.'), 'ok');
-            }).catch(function () { ctx.shell.showToast(_('Не удалось скопировать ссылку.'), 'err'); });
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(url).then(function () {
+                ctx.shell.showToast(_('Ссылка скопирована.'), 'ok');
+              }).catch(function () {
+                if (fallbackCopy(url)) ctx.shell.showToast(_('Ссылка скопирована.'), 'ok');
+                else ctx.shell.showToast(_('Не удалось скопировать ссылку.'), 'err');
+              });
+            } else {
+              if (fallbackCopy(url)) ctx.shell.showToast(_('Ссылка скопирована.'), 'ok');
+              else ctx.shell.showToast(_('Буфер обмена недоступен в этом браузере.'), 'err');
+            }
           })]), E('a', { href: url, target: '_blank', rel: 'noopener noreferrer', 'class': 'z2m-btn primary sm z2m-proxy-open-tg', style: 'text-decoration:none' }, _('Открыть Telegram')),
           E('div', { 'class': 'z2m-dim' }, _('Закрытие окна удалит ссылку из UI state.'))
         ]), [ctx.shell.button(_('Закрыть'), '', function () {

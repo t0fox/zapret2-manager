@@ -387,7 +387,7 @@
 .z2m-draft-preview:last-child{border-bottom:0;margin-bottom:0}
 .z2m-draft-preview h4{margin:0 0 9px;font-size:14px}
 .z2m-draft-preview .warnbar{margin:0 0 10px}
-.z2m-scrim,.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:80;padding:24px}
+.z2m-scrim,.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.76);display:none;align-items:center;justify-content:center;z-index:80;padding:24px}
 .z2m-scrim.on{display:flex}
 .z2m-scrim.modal-overlay.on,.modal-overlay.on{display:flex}
 .z2m-modal,.modal-content{background:var(--panel);border:1px solid var(--border2);border-radius:6px;width:min(700px,100%);max-height:84vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.55)}
