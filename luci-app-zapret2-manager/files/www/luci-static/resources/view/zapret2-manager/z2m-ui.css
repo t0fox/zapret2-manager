@@ -377,6 +377,10 @@
 
 
 
+.z2m-draft-preview{border-bottom:1px solid var(--border);padding:0 0 14px;margin:0 0 14px}
+.z2m-draft-preview:last-child{border-bottom:0;margin-bottom:0}
+.z2m-draft-preview h4{margin:0 0 9px;font-size:14px}
+.z2m-draft-preview .warnbar{margin:0 0 10px}
 /* Page-local unsaved-change actions: owned by the section they belong to. */
 .z2m-local-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .z2m-local-dirty{color:var(--orange);font-size:12px;white-space:nowrap}

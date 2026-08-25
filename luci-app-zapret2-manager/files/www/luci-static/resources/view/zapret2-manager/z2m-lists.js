@@ -43,7 +43,7 @@ function render(ctx) {
   }, false);
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-lists' }, [
     E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Списки и данные')), E('p', {}, _('Совместимый экран пользовательских доменов; запись принадлежит Domain Hub'))])]),
-    shell.panel(_('Пользовательские домены'), E('div', { 'class': 'z2m-row2' }, [shell.panel(_('Всегда включать'), include), shell.panel(_('Всегда исключать'), exclude)]), _('По одному домену в строке. Preview, revision check и verification выполняются одним координатором.')),
+    shell.panel(_('Пользовательские домены'), E('div', { 'class': 'z2m-row2' }, [shell.panel(_('Всегда включать'), include), shell.panel(_('Всегда исключать'), exclude)]), _('По одному домену в строке. Preview, revision check и verification выполняются Domain Hub.')),
     E('div', { 'class': 'z2m-page-actions' }, [apply, status])
   ]);
 }
