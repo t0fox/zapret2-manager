@@ -112,7 +112,7 @@ function valid_base64(value) {
 function valid_json_node(value, depth, budget) {
 	if (++budget.nodes > 65536 || depth > 64) return false;
 	let kind = type(value);
-	if (value == null || kind == 'bool' || kind == 'int' || kind == 'string') return true;
+	if (value == null || kind == 'bool' || kind == 'int' || kind == 'double' || kind == 'string') return true;
 	if (kind != 'array' && kind != 'object') return false;
 	if (++budget.containers > 1024) return false;
 	if (kind == 'object') {
