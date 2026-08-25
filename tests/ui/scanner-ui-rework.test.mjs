@@ -12,36 +12,59 @@ const product = () => read('z2m-scanner-product.js');
 const diagnostics = () => read('z2m-blockcheck-page.js');
 const uiCss = () => read('z2m-ui.css');
 
-test('Scanner primary UI uses human product language and keeps advanced parameters disclosed', () => {
+test('Scanner primary UI mirrors Avatar scan.js layout card + bc-form + diag-progress in LuCI', () => {
   const source = scanner();
-  assert.match(source, /Подбор стратегии/);
-  assert.match(source, /Найдём рабочий вариант для сайта/);
-  assert.match(source, /Сайт/);
-  assert.match(source, /Режим проверки/);
-  assert.match(source, /Найти стратегию/);
-  assert.match(source, /Дополнительные параметры/);
-  assert.match(source, /z2m-scanner-search-body/);
-  assert.match(source, /z2m-scanner-options/);
+  assert.match(source, /Параметры сканирования/);
+  assert.match(source, /Целевой домен/);
+  assert.match(source, /Протокол/);
+  assert.match(source, /Режим/);
+  assert.match(source, /Быстрый/);
+  assert.match(source, /Запустить/);
+  assert.match(source, /Продолжить/);
+  assert.match(source, /Остановить/);
+  assert.match(source, /card/);
+  assert.match(source, /bc-form/);
+  assert.match(source, /bc-actions/);
+  assert.match(source, /diag-progress/);
+  assert.match(source, /scan-target/);
+  assert.match(source, /scan-protocol/);
+  assert.match(source, /scan-mode/);
+  assert.match(source, /scan-progress-bar/);
+  assert.match(source, /scan-phase/);
+  assert.match(source, /scan-working-count/);
+  assert.match(source, /scan-failed-count/);
+  assert.match(source, /scan-success-rate/);
+  assert.match(source, /scan-elapsed-time/);
   assert.match(source, /z2m-scanner-icon/);
-  assert.match(source, /Проверяем/);
-  assert.match(source, /Рабочих найдено/);
-  assert.doesNotMatch(source, /controls\.resume/);
-  assert.match(source, /recordPending\(error\).*waiting-record/s);
-  assert.match(source, /state\.status = \{ status: 'starting', phase: 'validating' \}[\s\S]*?refresh\(ctx\);/);
-  assert.doesNotMatch(source, /Strategy Scanner|Server-owned candidate execution and evidence|Target\/domain|DPI hint\/filter|Start Scanner|Stop Scanner|Resume Scanner/);
+  assert.match(source, /Найдено:/);
+  assert.match(source, /Не подошло:/);
+  assert.match(source, /Успешность:/);
+  assert.doesNotMatch(source, /Scanner record is unavailable/);
+  assert.doesNotMatch(source, /RPC недоступен/);
+  assert.doesNotMatch(source, /\[object HTMLElement\]/);
+  assert.doesNotMatch(source, /test contract compatibility/);
+  assert.doesNotMatch(source, /z2m-scanner-options.*legacy/);
 });
 
-test('Scanner result has explicit success and no-result product states', () => {
+test('Scanner results show working, summary, best_strategy, per_host, score, throughput, body_passed', () => {
   const source = scanner();
-  assert.match(source, /Рабочая стратегия не найдена/);
-  assert.match(source, /Посмотреть результаты/);
-  assert.match(source, /Открыть в Стратегиях/);
-  assert.match(source, /Проверить ещё раз/);
-  assert.match(source, /z2m-scanner-best-card/);
-  assert.match(source, /z2m-scanner-no-best/);
-  assert.match(source, /z2m-scanner-error-card/);
-  assert.match(source, /z2m-scanner-retry-panel/);
+  assert.match(source, /Найденные стратегии/);
+  assert.match(source, /Работающие стратегии не найдены/);
+  assert.match(source, /Протестировано:/);
+  assert.match(source, /Рабочих:/);
+  assert.match(source, /Успешность:/);
+  assert.match(source, /Лучшая:/);
+  assert.match(source, /score/);
+  assert.match(source, /KB\/s/);
+  assert.match(source, /body.?OK|body_passed/i);
+  assert.match(source, /perHost|per_host|probe_per_host/);
+  assert.match(source, /scan-results-summary/);
+  assert.match(source, /scan-results-list/);
   assert.match(source, /z2m\.strategy\.scanner-handoff\.v1/);
+  assert.match(source, /Применить/);
+  assert.match(source, /scan-current-strategy/);
+  assert.doesNotMatch(source, /Scanner record is unavailable/);
+  assert.doesNotMatch(source, /\[object HTMLElement\]/);
 });
 
 test('Scanner history is humanized and hides technical identity behind details', () => {

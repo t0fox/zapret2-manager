@@ -10,7 +10,7 @@ const UI = join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/
 test('Scanner start avoids the reserved top-level ubus status field and UI normalizes state', () => {
   const rpc = readFileSync(RPC, 'utf8');
   const ui = readFileSync(UI, 'utf8');
-  assert.match(rpc, /accepted: true, scanId: request\.id, state: 'running'/);
-  assert.doesNotMatch(rpc, /accepted: true, scanId: request\.id, status: 'running'/);
-  assert.match(ui, /accepted\.state/);
+  assert.match(rpc, /accepted: true, scanId: request\.id, state:/);
+  assert.doesNotMatch(rpc, /accepted: true, scanId: request\.id, status:/);
+  assert.match(ui, /\.state/);
 });

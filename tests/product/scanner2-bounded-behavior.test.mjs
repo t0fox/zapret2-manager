@@ -112,37 +112,51 @@ test('RPC bound: status bounded metadata, results Top finalists only, diagnosed 
   assert.match(WORKER, /bounded/);
 });
 
-test('real progress: staged user-facing stages with real completed units', () => {
-  assert.match(SCANNER_JS, /Подготовка/);
-  assert.match(SCANNER_JS, /Проверка соединения/);
-  assert.match(SCANNER_JS, /Поиск рабочих вариантов/);
-  assert.match(SCANNER_JS, /Проверка лучших вариантов/);
-  assert.match(SCANNER_JS, /Выбор результата/);
-  assert.match(SCANNER_JS, /budgetForMode/);
+test('real progress: Avatar diag-progress with phase, current_strategy, working/failed, success_rate, elapsed', () => {
+  assert.match(SCANNER_JS, /diag-progress/);
+  assert.match(SCANNER_JS, /scan-progress-bar/);
+  assert.match(SCANNER_JS, /scan-phase/);
+  assert.match(SCANNER_JS, /scan-current-strategy|current_strategy|currentCandidate/);
+  assert.match(SCANNER_JS, /scan-working-count|Найдено:/);
+  assert.match(SCANNER_JS, /scan-failed-count|Не подошло:/);
+  assert.match(SCANNER_JS, /scan-success-rate|Успешность:/);
+  assert.match(SCANNER_JS, /scan-elapsed-time|elapsed/);
+  assert.match(SCANNER_JS, /setInterval/);
+  assert.match(SCANNER_JS, /2000/);
+  assert.doesNotMatch(SCANNER_JS, /budgetForMode/);
 });
 
-test('UI: start page has target, protocol TCP/UDP, depth Быстро/Обычно/Тщательно, bounded workload hint', () => {
-  assert.match(SCANNER_JS, /Цель/);
+test('UI: start page has Avatar card + bc-form target/protocol/mode quick/standard/full', () => {
+  assert.match(SCANNER_JS, /Параметры сканирования/);
+  assert.match(SCANNER_JS, /Целевой домен/);
   assert.match(SCANNER_JS, /Протокол/);
-  assert.match(SCANNER_JS, /Глубина/);
-  assert.match(SCANNER_JS, /Быстро/);
-  assert.match(SCANNER_JS, /Обычно/);
-  assert.match(SCANNER_JS, /Тщательно/);
-  assert.match(SCANNER_JS, /Начать сканирование/);
-  assert.match(SCANNER_JS, /Будет проверено до/);
+  assert.match(SCANNER_JS, /Режим/);
+  assert.match(SCANNER_JS, /Быстрый/);
+  assert.match(SCANNER_JS, /Стандарт/);
+  assert.match(SCANNER_JS, /Полный/);
+  assert.match(SCANNER_JS, /Запустить/);
+  assert.match(SCANNER_JS, /Продолжить/);
+  assert.match(SCANNER_JS, /Остановить/);
+  assert.match(SCANNER_JS, /bc-form/);
+  assert.match(SCANNER_JS, /bc-actions/);
 });
 
-test('UI: results show Recommendation, Top3, remaining 17, Open in Strategies handoff', () => {
-  assert.match(SCANNER_JS, /Рекомендуется/);
-  assert.match(SCANNER_JS, /Альтернативы/);
-  assert.match(SCANNER_JS, /Ещё найдено/);
-  assert.match(SCANNER_JS, /Открыть в Стратегиях/);
-  assert.match(SCANNER_JS, /Сохранить как стратегию/);
+test('UI: results show Avatar working, summary, best_strategy, per_host, score, throughput, body_passed', () => {
+  assert.match(SCANNER_JS, /Найденные стратегии/);
+  assert.match(SCANNER_JS, /Работающие стратегии не найдены/);
+  assert.match(SCANNER_JS, /Протестировано:/);
+  assert.match(SCANNER_JS, /Лучшая:/);
+  assert.match(SCANNER_JS, /score/);
+  assert.match(SCANNER_JS, /KB\/s/);
+  assert.match(SCANNER_JS, /body.?OK|body_passed/i);
+  assert.match(SCANNER_JS, /perHost|per_host|probe_per_host/);
+  assert.match(SCANNER_JS, /scan-results-summary/);
+  assert.match(SCANNER_JS, /Применить/);
 });
 
-test('baseline: open shows Обход не требуется, not random best', () => {
-  assert.match(SCANNER_JS, /Обход для этого адреса не требуется/);
+test('baseline: worker has baselineOpen, UI shows normal results', () => {
   assert.match(WORKER, /baselineOpen/);
+  assert.doesNotMatch(SCANNER_JS, /Обход для этого адреса не требуется/);
 });
 
 test('transient runtime: capture pre-scan, temporary candidate, cleanup owned artifacts', () => {

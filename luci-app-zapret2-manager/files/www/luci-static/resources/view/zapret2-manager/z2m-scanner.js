@@ -10,9 +10,6 @@ var state = {
 };
 var MAX_STATUS_RETRIES = 20;
 var MODE_BUDGETS = { quick: 30, standard: 60, full: 80 };
-// Найдём рабочий вариант для сайта — legacy product string kept for test contract compatibility
-// z2m-scanner-options — legacy class kept for test contract compatibility
-// Подбор стратегии — Сайт — Режим проверки — Найти стратегию — legacy UI strings for test contract compatibility
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }

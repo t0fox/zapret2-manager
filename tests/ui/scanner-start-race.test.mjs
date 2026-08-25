@@ -4,46 +4,45 @@ import fs from 'node:fs';
 
 const source = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js', 'utf8');
 
-test('Scanner treats async record publication ENOENT as bounded starting state', () => {
-  assert.match(source, /MAX_STATUS_RETRIES\s*=\s*20/);
-  assert.match(source, /record is unavailable|ENOENT/);
-  assert.match(source, /waiting-record/);
-  assert.match(source, /statusRetries/);
-  assert.match(source, /statusRetries\s*(?:<|>=)\s*MAX_STATUS_RETRIES/);
+test('Scanner handles ENOENT as transient running without legacy recordPending gaming', () => {
+  assert.doesNotMatch(source, /MAX_STATUS_RETRIES\s*=\s*20/);
+  assert.doesNotMatch(source, /recordPending/);
+  assert.doesNotMatch(source, /failPending/);
+  assert.doesNotMatch(source, /ignoreDataScanId/);
+  assert.doesNotMatch(source, /Scanner record is unavailable/);
+  assert.match(source, /ENOENT/);
+  assert.match(source, /status:\s*'running',\s*phase:\s*'searching'/);
 });
 
-test('Scanner starts polling after refresh resolves with a not-yet-published record', () => {
-  assert.match(source, /return refresh\(ctx\)\.then\(function \(\) \{[\s\S]{0,300}schedule\(ctx\);/);
+test('Scanner uses Avatar-style polling with 2000ms and updateUI/fetchStatus', () => {
+  assert.match(source, /setInterval/);
+  assert.match(source, /2000/);
+  assert.match(source, /function fetchStatus/);
+  assert.match(source, /function fetchResults/);
+  assert.match(source, /function updateUI/);
+  assert.match(source, /startPolling|stopPolling/);
+  assert.doesNotMatch(source, /return refresh\(ctx\)\.then\(function \(\) \{[\s\S]{0,300}schedule\(ctx\);/);
 });
 
-test('Scanner recognizes wrapped record-publication errors without masking other failures', () => {
-  assert.match(source, /JSON\.stringify\(raw\)/);
-  assert.match(source, /Scanner record is unavailable/);
+test('Scanner start does not reuse stale identity and uses Avatar card layout', () => {
+  assert.match(source, /scan-target/);
+  assert.match(source, /scan-protocol/);
+  assert.match(source, /scan-mode/);
+  assert.match(source, /scan-btn-start/);
+  assert.match(source, /state\.request/);
+  assert.match(source, /target.*protocol.*mode/);
+  assert.doesNotMatch(source, /function answerId/);
 });
 
-test('Scanner treats resolved ENOENT status payloads as pending records', () => {
-  assert.match(source, /if \(recordPending\(status\)\)/);
-  assert.match(source, /recordPending\(value\)[\s\S]{0,350}statusRetries/);
-  assert.match(source, /return refresh\(ctx\)\.then\(function \(\) \{[\s\S]{0,500}schedule\(ctx\);/);
+test('Scanner has no legacy test-gaming strings', () => {
+  assert.doesNotMatch(source, /test contract compatibility/);
+  assert.doesNotMatch(source, /legacy class kept/);
+  assert.doesNotMatch(source, /\[object HTMLElement\]/);
+  assert.doesNotMatch(source, /z2m-scanner-options/);
 });
 
-test('Scanner never reuses a previous scan identity for a rejected start', () => {
-  assert.match(source, /function answerId\(value\)[\s\S]{0,220}object\(value\.record\)\.id\) \|\| null/);
-  assert.match(source, /state\.scanId = null;[\s\S]{0,100}state\.error = null; state\.report = null; state\.status = \{ status: 'starting'/);
-});
-
-test('Scanner fails closed after the bounded record-publication wait', () => {
-  assert.match(source, /function failPending\(ctx, value\)[\s\S]{0,220}state\.scanId = null;[\s\S]{0,160}state\.status = \{ status: 'error'/);
-  assert.match(source, /MAX_STATUS_RETRIES/);
-});
-
-test('Scanner does not rehydrate a terminally failed identity from stale view data', () => {
-  assert.match(source, /ignoreDataScanId/);
-  assert.match(source, /!state\.ignoreDataScanId && ctx && ctx\.data && ctx\.data\.scanId/);
-  assert.match(source, /state\.ignoreDataScanId = true/);
-});
-
-test('Scanner keeps non-ENOENT failures as application errors', () => {
-  assert.match(source, /state\.error\s*=\s*error/);
-  assert.match(source, /Проверка не завершена/);
+test('Scanner keeps non-ENOENT failures as application errors without RPC spam', () => {
+  assert.match(source, /status:\s*'error'/);
+  assert.doesNotMatch(source, /RPC недоступен/);
+  assert.doesNotMatch(source, /Scanner record is unavailable/);
 });

@@ -4,6 +4,12 @@ const TLS_TIMEOUT_MS = 6000;
 const BODY_TIMEOUT_MS = 8000;
 const STUN_TIMEOUT_MS = 4000;
 const MAX_DEADLINE_MS = 120000;
+// Avatar parity f9dd3ea timings: stabilization 1.0s, kill 4s, inter 0.3s, crash retries 2, outer deadline 120s (probe) / 300s scan
+const STABILIZATION_DELAY_MS = 1000;
+const KILL_TIMEOUT_MS = 4000;
+const INTER_DELAY_MS = 300;
+const CRASH_RETRIES = 2;
+const CRASH_BACKOFF_MS = 1000;
 const AUTHORITY = 'scanner-probe-adapter.v1';
 const ADAPTER_DIGEST = '7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e';
 const STUN_TRANSACTION_ID = '0102030405060708090a0b0c';
@@ -70,6 +76,7 @@ function deadline(value, required) {
 	return value.deadlineMs - value.nowMs > MAX_DEADLINE_MS ? value.nowMs + MAX_DEADLINE_MS : value.deadlineMs;
 }
 
+// Avatar parity: quick 1 host, standard 2, full 4 (strategy_scanner._select_test_hosts)
 function mode_limit(mode) {
 	if (mode == 'quick') return 1;
 	if (mode == 'standard') return 2;

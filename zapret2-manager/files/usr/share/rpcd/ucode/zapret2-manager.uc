@@ -578,7 +578,30 @@ function scanner_start_async_impl(req) {
 
 function scanner_start_async(req) {
 	try { return scanner_start_async_impl(req); }
-	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner start failed before worker launch.' } }; }
+	catch (e) {
+		try {
+			let edit = null;
+			try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (x) {}
+			if (edit == null) try { if (req && req.edit != null) edit = req.edit; } catch (x) {}
+			if (type(edit) == 'string') {
+				let parsed = json(edit);
+				let id = parsed?.id || parsed?.request?.id;
+				if (type(id) == 'string' && match(id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
+					let rec = scanner_state.scanner_state_load(id);
+					if (rec.ok) {
+						let errRec = rec.state;
+						errRec.status = 'error';
+						errRec.phase = 'launch';
+						errRec.error = 'Scanner start failed before worker launch: ' + (e?.message || e);
+						errRec.recovery = { state: 'uncertain', message: errRec.error };
+						errRec.finishedAt = time();
+						scanner_state.scanner_state_save(errRec);
+					}
+				}
+			}
+		} catch (x) {}
+		return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner start failed before worker launch.' } };
+	}
 }
 
 function scanner_edit_action(sub, req, tag) {
