@@ -113,7 +113,8 @@ function publish_revision(id, suffix, value, revision) {
 	let result = native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision);
 	if (!result.ok) {
 		try { let p = popen('printf %s\\n ' + shell(sprintf('atomic_write_json_revision %s%s rev %s failed: %J len %d', id, suffix, revision, result, length(sprintf('%J', value)))) + ' >> /tmp/scanner-publish.log 2>&1', 'r'); if (p) p.close(); } catch (e) {}
-		try { let raw=sprintf('%J', value); let snippet=substr(raw,0,4000); let p2=popen('printf \"FAIL_JSON rev %s len %d snippet: %s\\n\" '+shell(''+revision)+' '+shell(''+length(raw))+' '+shell(snippet)+' >> /tmp/publish_fail.json 2>&1', 'r'); if(p2) p2.close(); } catch(e2) {}
+		try { let raw=sprintf('%J', value); let p2=popen('printf \"%s\" '+shell(raw)+' > /tmp/publish_fail_full.json 2>&1', 'r'); if(p2) p2.close(); } catch(e2) {}
+		try { let raw=sprintf('%J', value); let snippet=substr(raw,0,4000); let p3=popen('printf \"FAIL_JSON rev %s len %d snippet: %s\\n\" '+shell(''+revision)+' '+shell(''+length(raw))+' '+shell(snippet)+' >> /tmp/publish_fail.json 2>&1', 'r'); if(p3) p3.close(); } catch(e3) {}
 	}
 	return result.ok;
 }
