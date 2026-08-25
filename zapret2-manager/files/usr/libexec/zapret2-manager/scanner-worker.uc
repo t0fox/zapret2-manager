@@ -167,6 +167,72 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);
 	return scanner_candidate_verdict(baseline, [classified]);
 }
+function cheap_probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
+	let raw = seam(seams, 'cheapProbe');
+	if (raw != null) {
+		if (type(raw) == 'function') raw = raw(candidate, plan);
+		if (raw != null) {
+			let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);
+			return scanner_candidate_verdict(baseline, [classified]);
+		}
+	}
+	raw = seam(seams, 'probe');
+	if (type(raw) == 'function') raw = raw(candidate, plan);
+	if (raw != null && test_mode()) {
+		let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);
+		return scanner_candidate_verdict(baseline, [classified]);
+	}
+	let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
+	if (candidate.protocol == 'udp') {
+		let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: 'quick', cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_profile_digest(plan.targetProfile) });
+		if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
+		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+		if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
+		raw = executed.observations?.[0] || null;
+	} else {
+		let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, 'ipv4', { nowMs: now, deadlineMs: end, mode: 'quick', cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_profile_digest(plan.targetProfile) });
+		if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
+		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+		if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
+		raw = executed.observations?.[0] || null;
+	}
+	if (raw == null) return scanner_candidate_verdict({ infrastructureFailure: true, error: 'PROBE_DEPENDENCY' }, []);
+	let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);
+	return scanner_candidate_verdict(baseline, [classified]);
+}
+function full_verify_candidate(candidate, plan, baseline, seams, outerDeadline) {
+	let raw = seam(seams, 'fullProbe');
+	if (raw != null) {
+		if (type(raw) == 'function') raw = raw(candidate, plan);
+		if (raw != null) {
+			let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);
+			return scanner_candidate_verdict(baseline, [classified]);
+		}
+	}
+	raw = seam(seams, 'probe');
+	if (type(raw) == 'function') raw = raw(candidate, plan);
+	if (raw != null && test_mode()) {
+		let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);
+		return scanner_candidate_verdict(baseline, [classified]);
+	}
+	let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
+	if (candidate.protocol == 'udp') {
+		let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_profile_digest(plan.targetProfile) });
+		if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
+		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+		if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
+		raw = executed.observations?.[0] || null;
+	} else {
+		let adapted = scanner_probe_adapter_staged(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_profile_digest(plan.targetProfile) });
+		if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
+		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+		if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
+		raw = executed.observations?.[0] || null;
+	}
+	if (raw == null) return scanner_candidate_verdict({ infrastructureFailure: true, error: 'PROBE_DEPENDENCY' }, []);
+	let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);
+	return scanner_candidate_verdict(baseline, [classified]);
+}
 function result_identity(value) { return state.scanner_state_digest({ candidateId: value.candidateId, ordinal: value.ordinal, planDigest: value.planDigest, verdict: value.verdict, success: value.success, score: value.score, reason: value.reason, evidence: value.evidence }); }
 function cleanup_attempt(attempt) { if (!attempt) return { ok: true, evidence: null }; try { return scanner_candidate_cleanup(attempt); } catch (e) { return { ok: false, error: e }; } }
 function merge_recovery(existing, update) {
@@ -479,23 +545,78 @@ scanner_worker_run_impl = function(input, seams) {
 		lifecycle.attempt = activated.attempt;
 		if (seams?.throwAfterActivation === true) { let failure = null; failure(); }
 		phase(record, 'probing', candidate.scannerId); checkpoint(record, 'probing');
-		let verdict = probe_candidate(plan.candidates[i], plan, baseline, seams, probeDeadline);
+		// STAGE D: Cheap exploration probe (quick, single host) — progressive elimination
+		let cheapVerdict = cheap_probe_candidate(plan.candidates[i], plan, baseline, seams, probeDeadline);
+		if (cheapVerdict.ok === false || (cheapVerdict.evidence?.infrastructure === true && cheapVerdict.reason == 'PROBE_DEPENDENCY')) {
+			record.counts.infrastructure++;
+			let cause = string(cheapVerdict.error?.code || cheapVerdict.reason || 'INFRA');
+			if (cause == infraLastCause) infraConsecutive++; else { infraConsecutive = 1; infraLastCause = cause; }
+			if (infraConsecutive >= INFRA_CONSECUTIVE_LIMIT) {
+				record.error = 'Не удалось подготовить среду сканирования: ' + cause;
+				record.recovery = { state: 'verified', failure: cheapVerdict.error || cheapVerdict.evidence, infraConsecutive, infraCause: cause };
+				let cleanedInfra = scanner_candidate_cleanup(activated.attempt);
+				if (!cleanedInfra.ok) { record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleanedInfra, evidence: cleanedInfra }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
+				return finish(record, session, seams, 'error', record.error);
+			}
+			// Single infra: count, cleanup, continue to next candidate (do not treat as failed strategy)
+			explorationCount++;
+			record.heartbeatAt = time(); checkpoint(record, 'probe');
+			let cleanedInfra = scanner_candidate_cleanup(activated.attempt);
+			if (!cleanedInfra.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleanedInfra, evidence: cleanedInfra }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
+			if (cleanedInfra.cleanup?.evidence?.tableChecked === true) record.recovery = merge_recovery(record.recovery, { tableChecked: true, tablePresent: false });
+			let infraResult = { candidateId: candidate.scannerId, ordinal: candidate.ordinal, identityKind: candidate.identityKind == null ? null : candidate.identityKind, strategyId: candidate.strategyId == null ? null : candidate.strategyId, strategyRevision: integer(candidate.strategyRevision) ? candidate.strategyRevision : null, saveRequired: candidate.saveRequired === true, source: string(candidate.source) ? candidate.source : null, compiledTokens: type(candidate.compiledTokens) == 'array' ? copy(candidate.compiledTokens) : null, compiledDigest: digest(candidate.compiledDigest) ? candidate.compiledDigest : null, dependencyClosure: object(candidate.dependencyClosure) ? copy(candidate.dependencyClosure) : null, dependencyDigest: digest(candidate.dependencyDigest) ? candidate.dependencyDigest : null, candidateCatalogDigest: digest(candidate.catalogDigest) ? candidate.catalogDigest : record.catalogDigest, candidateCompilerDigest: digest(candidate.compilerDigest) ? candidate.compilerDigest : record.compilerDigest, verdict: 'infrastructure', success: false, score: null, reason: cheapVerdict.reason || 'INFRASTRUCTURE', evidence: candidate_evidence(cheapVerdict.evidence) };
+			infraResult.planDigest = record.planDigest; infraResult.evidenceIdentity = result_identity(infraResult); push(record.results, infraResult); record.counts.infrastructure++; record.progress = i + 1; record.cursor = { nextCandidate: i + 1 }; record.currentCandidate = null; lifecycle.attempt = null; event(record, 'candidate', candidate.scannerId); checkpoint(record, 'candidate-result');
+			if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
+			continue;
+		}
+		infraConsecutive = 0; infraLastCause = null;
+		explorationCount++;
+		// Progressive elimination: cheap clearly failed -> eliminate without full verification
+		if (cheapVerdict.verdict != 'working' && cheapVerdict.success !== true) {
+			record.heartbeatAt = time(); checkpoint(record, 'probe');
+			let cleanedCheap = scanner_candidate_cleanup(activated.attempt);
+			if (!cleanedCheap.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleanedCheap, evidence: cleanedCheap }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
+			if (cleanedCheap.cleanup?.evidence?.tableChecked === true) record.recovery = merge_recovery(record.recovery, { tableChecked: true, tablePresent: false });
+			let cheapResult = { candidateId: candidate.scannerId, ordinal: candidate.ordinal, identityKind: candidate.identityKind == null ? null : candidate.identityKind, strategyId: candidate.strategyId == null ? null : candidate.strategyId, strategyRevision: integer(candidate.strategyRevision) ? candidate.strategyRevision : null, saveRequired: candidate.saveRequired === true, source: string(candidate.source) ? candidate.source : null, compiledTokens: type(candidate.compiledTokens) == 'array' ? copy(candidate.compiledTokens) : null, compiledDigest: digest(candidate.compiledDigest) ? candidate.compiledDigest : null, dependencyClosure: object(candidate.dependencyClosure) ? copy(candidate.dependencyClosure) : null, dependencyDigest: digest(candidate.dependencyDigest) ? candidate.dependencyDigest : null, candidateCatalogDigest: digest(candidate.catalogDigest) ? candidate.catalogDigest : record.catalogDigest, candidateCompilerDigest: digest(candidate.compilerDigest) ? candidate.compilerDigest : record.compilerDigest, verdict: cheapVerdict.verdict, success: false, score: type(cheapVerdict.score) == 'double' || type(cheapVerdict.score) == 'int' ? cheapVerdict.score : null, reason: cheapVerdict.reason, evidence: candidate_evidence(cheapVerdict.evidence) };
+			cheapResult.planDigest = record.planDigest; cheapResult.evidenceIdentity = result_identity(cheapResult); push(record.results, cheapResult); record.counts.failed++; record.progress = i + 1; record.cursor = { nextCandidate: i + 1 }; record.currentCandidate = null; lifecycle.attempt = null; event(record, 'candidate', candidate.scannerId); checkpoint(record, 'candidate-result');
+			if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
+			continue;
+		}
+		// Promising -> STAGE F: Full verification (staged, multi-host) — bounded to 20
+		if (verificationCount >= FINALISTS_TARGET) {
+			// Verification budget exhausted: record cheap success as working but not fully verified? Treat as failed for ranking outside top20
+			record.heartbeatAt = time(); checkpoint(record, 'probe');
+			let cleanedBudget = scanner_candidate_cleanup(activated.attempt);
+			if (!cleanedBudget.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleanedBudget, evidence: cleanedBudget }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
+			let budgetResult = { candidateId: candidate.scannerId, ordinal: candidate.ordinal, identityKind: candidate.identityKind == null ? null : candidate.identityKind, strategyId: candidate.strategyId == null ? null : candidate.strategyId, strategyRevision: integer(candidate.strategyRevision) ? candidate.strategyRevision : null, saveRequired: candidate.saveRequired === true, source: string(candidate.source) ? candidate.source : null, compiledTokens: type(candidate.compiledTokens) == 'array' ? copy(candidate.compiledTokens) : null, compiledDigest: digest(candidate.compiledDigest) ? candidate.compiledDigest : null, dependencyClosure: object(candidate.dependencyClosure) ? copy(candidate.dependencyClosure) : null, dependencyDigest: digest(candidate.dependencyDigest) ? candidate.dependencyDigest : null, candidateCatalogDigest: digest(candidate.catalogDigest) ? candidate.catalogDigest : record.catalogDigest, candidateCompilerDigest: digest(candidate.compilerDigest) ? candidate.compilerDigest : record.compilerDigest, verdict: 'working', success: true, score: type(cheapVerdict.score) == 'double' || type(cheapVerdict.score) == 'int' ? cheapVerdict.score : null, reason: cheapVerdict.reason, evidence: candidate_evidence(cheapVerdict.evidence) };
+			budgetResult.planDigest = record.planDigest; budgetResult.evidenceIdentity = result_identity(budgetResult); push(record.results, budgetResult); record.counts.working++; verificationCount++; record.progress = i + 1; record.cursor = { nextCandidate: i + 1 }; record.currentCandidate = null; lifecycle.attempt = null; event(record, 'candidate', candidate.scannerId); checkpoint(record, 'candidate-result');
+			if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
+			continue;
+		}
+		phase(record, 'verifying', candidate.scannerId); checkpoint(record, 'verifying');
+		let verdict = full_verify_candidate(plan.candidates[i], plan, baseline, seams, probeDeadline);
 		if (verdict.ok === false || (verdict.evidence?.infrastructure === true && verdict.reason == 'PROBE_DEPENDENCY')) {
-			record.counts.infrastructure++; record.error = verdict.error?.code || verdict.reason || 'EDEPENDENCY';
-			// Early infra stop: 5 consecutive same-cause infrastructure failures
+			record.counts.infrastructure++;
 			let cause = string(verdict.error?.code || verdict.reason || 'INFRA');
 			if (cause == infraLastCause) infraConsecutive++; else { infraConsecutive = 1; infraLastCause = cause; }
 			if (infraConsecutive >= INFRA_CONSECUTIVE_LIMIT) {
 				record.error = 'Не удалось подготовить среду сканирования: ' + cause;
 				record.recovery = { state: 'verified', failure: verdict.error || verdict.evidence, infraConsecutive, infraCause: cause };
+				let cleanedFullInfra = scanner_candidate_cleanup(activated.attempt);
+				if (!cleanedFullInfra.ok) { record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleanedFullInfra, evidence: cleanedFullInfra }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
 				return finish(record, session, seams, 'error', record.error);
 			}
-			record.recovery = { state: 'verified', failure: verdict.error || verdict.evidence };
-			return finish(record, session, seams, 'error', record.error);
+			// Single full infra: record as infra, cleanup, continue
+			record.heartbeatAt = time(); checkpoint(record, 'probe');
+			let cleanedFullInfra = scanner_candidate_cleanup(activated.attempt);
+			if (!cleanedFullInfra.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleanedFullInfra, evidence: cleanedFullInfra }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
+			if (cleanedFullInfra.cleanup?.evidence?.tableChecked === true) record.recovery = merge_recovery(record.recovery, { tableChecked: true, tablePresent: false });
+			let fullInfraResult = { candidateId: candidate.scannerId, ordinal: candidate.ordinal, identityKind: candidate.identityKind == null ? null : candidate.identityKind, strategyId: candidate.strategyId == null ? null : candidate.strategyId, strategyRevision: integer(candidate.strategyRevision) ? candidate.strategyRevision : null, saveRequired: candidate.saveRequired === true, source: string(candidate.source) ? candidate.source : null, compiledTokens: type(candidate.compiledTokens) == 'array' ? copy(candidate.compiledTokens) : null, compiledDigest: digest(candidate.compiledDigest) ? candidate.compiledDigest : null, dependencyClosure: object(candidate.dependencyClosure) ? copy(candidate.dependencyClosure) : null, dependencyDigest: digest(candidate.dependencyDigest) ? candidate.dependencyDigest : null, candidateCatalogDigest: digest(candidate.catalogDigest) ? candidate.catalogDigest : record.catalogDigest, candidateCompilerDigest: digest(candidate.compilerDigest) ? candidate.compilerDigest : record.compilerDigest, verdict: 'infrastructure', success: false, score: null, reason: verdict.reason || 'INFRASTRUCTURE', evidence: candidate_evidence(verdict.evidence) };
+			fullInfraResult.planDigest = record.planDigest; fullInfraResult.evidenceIdentity = result_identity(fullInfraResult); push(record.results, fullInfraResult); record.counts.infrastructure++; record.progress = i + 1; record.cursor = { nextCandidate: i + 1 }; record.currentCandidate = null; lifecycle.attempt = null; event(record, 'candidate', candidate.scannerId); checkpoint(record, 'candidate-result');
+			if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
+			continue;
 		}
-		// Reset infra consecutive on successful probe handling (non-infra)
 		infraConsecutive = 0; infraLastCause = null;
-		explorationCount++;
 		record.heartbeatAt = time(); checkpoint(record, 'probe');
 		let cleaned = scanner_candidate_cleanup(activated.attempt);
 		if (!cleaned.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleaned, evidence: cleaned }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
