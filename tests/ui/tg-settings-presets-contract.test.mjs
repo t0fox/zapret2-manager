@@ -50,30 +50,41 @@ test('Settings UI leads with a connection profile, compact routing summary and h
   // Human explanation, no architecture/device-capability junk.
   assert.match(ui, /Использует резервные маршруты Cloudflare при проблемах/);
   assert.doesNotMatch(ui, /aarch64|implementation ready|readiness/i);
-  // Compact routing summary instead of raw expert fields.
+  // Compact routing summary instead of raw expert fields — chips, not table.
   assert.match(ui, /function routingSummaryCard/);
-  assert.match(ui, /Cloudflare fallback/);
-  assert.match(ui, /_\('Источник'\)/);
-  // Flowseal is the single canonical CF domain authority shown to the user.
-  assert.match(ui, /Flowseal \(встроенный список\)/);
+  assert.match(ui, /z2m-tg-routing-chips/);
+  assert.match(ui, /Fallback включён|Cloudflare fallback/);
+  assert.match(ui, /Flowseal/);
+  assert.doesNotMatch(ui, /z2m-proxy-routing-summary/);
   assert.match(ui, /Дополнительные настройки/);
+  // Exactly one entry — duplicate button removed.
+  assert.equal((ui.match(/Дополнительные настройки/g) || []).length, 1, 'exactly one Дополнительные настройки');
   // Advanced collapsed by default. LuCI E() stringifies attributes
   // (open:false -> open="false" => open), so the DOM property must be set.
   assert.match(ui, /tgSettingsAdvanced: false/);
   assert.match(ui, /node\.open = state\.tgSettingsAdvanced === true/);
+  // No stretched CBI as top-level Basic layout.
+  assert.doesNotMatch(ui, /z2m-cbi z2m-proxy-form-grid/);
+  assert.match(ui, /z2m-tg-settings/);
 });
 
 test('Settings hydrate canonical state and never invent dirty drafts', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   // autostart truth = rc.d symlink state from the backend, not stale snapshot
   assert.match(ui, /rcDEnabled === true/);
-  assert.match(ui, /if \(!draft\.settings\)/);
+  // New compact Settings uses local unsaved state, not global draft.
+  assert.match(ui, /state\.tgSettingsLocal/);
+  assert.match(ui, /isSettingsDirty/);
+  assert.match(ui, /Несохранённые изменения/);
+  assert.match(ui, /Сохранить изменения/);
+  assert.doesNotMatch(ui, /координатор/i);
 });
 
 test('LAN access is a first-class toggle with an advertised address line', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   assert.match(ui, /Доступ из локальной сети/);
-  assert.match(ui, /Адрес для подключения/);
+  assert.match(ui, /Адрес и порт/);
+  assert.match(ui, /Этот адрес используется в ссылке и QR/);
   assert.match(ui, /function setLanAccess/);
   // loopback-only bind is the endless-connecting root cause; LAN bind default
   assert.match(ui, /lanAddress/);
@@ -81,8 +92,8 @@ test('LAN access is a first-class toggle with an advertised address line', () =>
   const provider = fs.readFileSync(PROVIDER, 'utf8');
   assert.match(provider, /function lan_address/);
   assert.match(provider, /'ENABLED=1\\nHOST=' \+ host \+ '\\nPORT=1443\\nLINK_IP=\\n'/);
-  // Manager init refuses to raise a disabled config (state consistency)
-  assert.match(provider, /\[ "\$enabled" = "1" \] \|\| return 0/);
+  // Manager init refuses to raise a disabled config (state consistency) — full canonical validates ENABLED and refuses to start
+  assert.match(provider, /ENABLED.*1.*log_refuse|enabled.*return 0/);
 });
 
 test('Operation progress is a real backend-backed model, not a fake spinner', () => {

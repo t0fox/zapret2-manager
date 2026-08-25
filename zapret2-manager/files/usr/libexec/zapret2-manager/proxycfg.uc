@@ -1521,6 +1521,180 @@ function route_upstream(config) {
 
 // ---- health -------------------------------------------------------------------
 
+function parse_proc_environ(pid) {
+	let raw = readfile('/proc/' + pid + '/environ');
+	if (!raw) return null;
+	let parts = split(raw, chr(0));
+	let map = {};
+	for (let i = 0; i < length(parts); i++) {
+		let p = parts[i];
+		if (p == '') continue;
+		let eq = index(p, '=');
+		if (eq < 0) continue;
+		let k = substr(p, 0, eq);
+		let v = substr(p, eq + 1);
+		map[k] = v;
+	}
+	return map;
+}
+
+function parse_proc_cmdline(pid) {
+	let raw = readfile('/proc/' + pid + '/cmdline');
+	if (!raw) return null;
+	let parts = split(raw, chr(0));
+	let out = [];
+	for (let i = 0; i < length(parts); i++) if (parts[i] != '') push(out, parts[i]);
+	return out;
+}
+
+function probe_effective_runtime(pids, desired) {
+	let sanitizedDesired = desired != null ? sanitize_config(desired) : null;
+	if (sanitizedDesired == null || sanitizedDesired.enabled != true) {
+		return { desired: sanitizedDesired, effective: null, drift: false, mismatches: [], reason: 'disabled' };
+	}
+	if (type(pids) != 'array' || length(pids) == 0) {
+		return { desired: sanitizedDesired, effective: null, drift: true, mismatches: ['not running'], reason: 'not running' };
+	}
+	let pid = pids[0];
+	let env = parse_proc_environ(pid);
+	let cmd = parse_proc_cmdline(pid);
+	if (env == null || cmd == null) {
+		return { desired: sanitizedDesired, effective: null, drift: true, mismatches: ['proc read failed'], reason: 'proc read failed' };
+	}
+	let rawMtp = env['TG_MTPROTO_PROXY'] != null ? env['TG_MTPROTO_PROXY'] : '';
+	let mtpRawList = rawMtp != '' ? split(rawMtp, ',') : [];
+	let mtpSanitized = [];
+	for (let mi = 0; mi < length(mtpRawList); mi++) {
+		let entry = trim(mtpRawList[mi]);
+		if (entry == '') continue;
+		let p1 = index(entry, ':');
+		let rest = p1 >= 0 ? substr(entry, p1 + 1) : '';
+		let p2 = index(rest, ':');
+		let h = p1 >= 0 ? substr(entry, 0, p1) : entry;
+		let portPart = p2 >= 0 ? substr(rest, 0, p2) : rest;
+		// Never expose secret material — store only host/port/hasSecret
+		push(mtpSanitized, { host: h, port: portPart, hasSecret: true });
+	}
+	let effective = {
+		host: env['TG_HOST'] != null ? env['TG_HOST'] : null,
+		port: env['TG_PORT'] != null ? (all_digits(env['TG_PORT']) ? +env['TG_PORT'] : env['TG_PORT']) : null,
+		linkIp: env['TG_LINK_IP'] != null ? env['TG_LINK_IP'] : '',
+		poolSize: env['TG_POOL_SIZE'] != null ? (all_digits(env['TG_POOL_SIZE']) ? +env['TG_POOL_SIZE'] : null) : null,
+		bufKb: env['TG_BUF_KB'] != null ? (all_digits(env['TG_BUF_KB']) ? +env['TG_BUF_KB'] : null) : null,
+		maxConnections: env['TG_MAX_CONNECTIONS'] != null ? (all_digits(env['TG_MAX_CONNECTIONS']) ? +env['TG_MAX_CONNECTIONS'] : null) : null,
+		quiet: env['TG_QUIET'] == 'true',
+		verbose: env['TG_VERBOSE'] == 'true',
+		faketlsDomain: env['TG_LISTEN_FAKETLS_DOMAIN'] != null ? env['TG_LISTEN_FAKETLS_DOMAIN'] : '',
+		cfDomains: env['TG_CF_DOMAIN'] != null && env['TG_CF_DOMAIN'] != '' ? split(env['TG_CF_DOMAIN'], ',') : [],
+		cfWorkerDomains: env['TG_CF_WORKER_DOMAIN'] != null && env['TG_CF_WORKER_DOMAIN'] != '' ? split(env['TG_CF_WORKER_DOMAIN'], ',') : [],
+		cfPriority: env['TG_CF_PRIORITY'] == 'true',
+		cfBalance: env['TG_CF_BALANCE'] == 'true',
+		defaultDomains: env['TG_DEFAULT_DOMAINS'] == 'true',
+		mtprotoProxies: mtpSanitized,
+		outboundProxy: env['TG_OUTBOUND_PROXY'] != null ? env['TG_OUTBOUND_PROXY'] : '',
+		noProxy: env['TG_NO_PROXY'] != null ? env['TG_NO_PROXY'] : '',
+		dcIps: []
+	};
+	let dc = [];
+	for (let i = 0; i < length(cmd); i++) {
+		if (cmd[i] == '--dc-ip' && i + 1 < length(cmd)) {
+			push(dc, cmd[i + 1]);
+		}
+	}
+	effective.dcIps = dc;
+	// Normalize mtproto/outbound comparision: effective arrays are comma-split raw strings; desired is already split via sanitize.
+	let mismatches = [];
+	function eqList(a, b) {
+		if (length(a) != length(b)) return false;
+		for (let i = 0; i < length(a); i++) if (a[i] != b[i]) return false;
+		return true;
+	}
+	if (effective.host != sanitizedDesired.host) push(mismatches, 'host');
+	if (effective.port != sanitizedDesired.port) push(mismatches, 'port');
+	if (effective.linkIp != sanitizedDesired.linkIp) push(mismatches, 'linkIp');
+	if (effective.poolSize != sanitizedDesired.poolSize) push(mismatches, 'poolSize');
+	if (effective.bufKb != sanitizedDesired.bufKb) push(mismatches, 'bufKb');
+	let desiredMax = sanitizedDesired.maxConnections;
+	let effMax = effective.maxConnections;
+	// Both 0/null means auto; treat null as 0 for comparison
+	if ((effMax == null ? 0 : effMax) != (desiredMax == null ? 0 : desiredMax)) push(mismatches, 'maxConnections');
+	if (effective.quiet != sanitizedDesired.quiet) push(mismatches, 'quiet');
+	if (effective.verbose != sanitizedDesired.verbose) push(mismatches, 'verbose');
+	if (effective.faketlsDomain != sanitizedDesired.faketlsDomain) push(mismatches, 'faketlsDomain');
+	if (!eqList(effective.cfDomains, sanitizedDesired.cfDomains)) push(mismatches, 'cfDomains');
+	if (!eqList(effective.cfWorkerDomains, sanitizedDesired.cfWorkerDomains)) push(mismatches, 'cfWorkerDomains');
+	if (effective.cfPriority != sanitizedDesired.cfPriority) push(mismatches, 'cfPriority');
+	if (effective.cfBalance != sanitizedDesired.cfBalance) push(mismatches, 'cfBalance');
+	if (effective.defaultDomains != sanitizedDesired.defaultDomains) push(mismatches, 'defaultDomains');
+	if (effective.outboundProxy != sanitizedDesired.outboundProxy) push(mismatches, 'outboundProxy');
+	if (effective.noProxy != sanitizedDesired.noProxy) push(mismatches, 'noProxy');
+	if (!eqList(effective.dcIps, sanitizedDesired.dcIps)) push(mismatches, 'dcIps');
+	{
+		let a = effective.mtprotoProxies, b = sanitizedDesired.mtprotoProxies;
+		let mismatchMtp = false;
+		if (length(a) != length(b)) mismatchMtp = true;
+		else {
+			for (let i = 0; i < length(a); i++) {
+				if (a[i].host != b[i].host || '' + a[i].port != '' + b[i].port || a[i].hasSecret != b[i].hasSecret) { mismatchMtp = true; break; }
+			}
+		}
+		if (mismatchMtp) push(mismatches, 'mtprotoProxies');
+	}
+	let drift = length(mismatches) > 0;
+	return { desired: sanitizedDesired, effective: effective, drift: drift, mismatches: mismatches };
+}
+
+function build_coverage(config) {
+	if (config == null) return { dcIps: [], dcCount: 0, hasExplicitAllDc: false, hasDefaultFallback: false, cfPriority: false, mode: 'unknown' };
+	let c = sanitize_config(config);
+	let count = length(c.dcIps);
+	let hasAll = count >= 5;
+	if (hasAll) {
+		let needed = ['1:', '2:', '3:', '4:', '5:'];
+		for (let i = 0; i < length(needed); i++) {
+			let found = false;
+			for (let j = 0; j < length(c.dcIps); j++) if (substr(c.dcIps[j], 0, 2) == needed[i]) { found = true; break; }
+			if (!found) { hasAll = false; break; }
+		}
+	}
+	return {
+		dcIps: c.dcIps,
+		dcCount: count,
+		hasExplicitAllDc: hasAll,
+		hasDefaultFallback: (c.defaultDomains == true || length(c.cfDomains) > 0 || length(c.cfWorkerDomains) > 0),
+		cfPriority: c.cfPriority,
+		cfBalance: c.cfBalance,
+		defaultDomains: c.defaultDomains,
+		mode: detect_config_profile(c),
+		note: hasAll ? 'explicit DC1-DC5 coverage' : (c.defaultDomains ? 'relies on default CF domains for coverage' : 'uses provider defaults (DC2+DC4 only) — may miss media on other DCs')
+	};
+}
+
+function probe_sessions(pids, listeners) {
+	let rr = reread();
+	let count = null;
+	let detail = '';
+	if (rr.running == true) {
+		let pids2 = rr.pids;
+		let all = rr.listeners;
+		// count ESTABLISHED via netstat -tnp parsing is done in proxy.uc, but here we use netstat raw count
+		let raw = run('netstat -tnp 2>/dev/null');
+		let lines = split(raw.out, '\n');
+		let c = 0;
+		for (let i = 0; i < length(lines); i++) {
+			let line = trim(lines[i]);
+			if (index(line, 'ESTABLISHED') < 0) continue;
+			if (index(line, 'tg-ws-proxy') < 0) continue;
+			c++;
+		}
+		count = c;
+		detail = count + ' ESTABLISHED sessions owned by tg-ws-proxy';
+	} else {
+		detail = 'not running';
+	}
+	return { count: count, detail: detail };
+}
+
 function assemble_health(ev, rt) {
 	let checks = [];
 	function chk(name, ok, detail) { push(checks, { name: name, ok: (ok == true), detail: (detail != null ? detail : '') }); }
@@ -1536,7 +1710,16 @@ function assemble_health(ev, rt) {
 	chk('pid', ev.running == true, (ev.running == true ? ('pid ' + join(',', ev.pids)) : 'not running'));
 	let exact = (ev.config != null && type(ev.listeners) == 'array') ? exact_listener(ev.config, ev.listeners) : null;
 	chk('listener', exact != null, (exact != null ? (exact.address + ':' + exact.port) : (ev.running == true ? 'process exists but the configured listener does NOT' : 'no listener')));
-
+	// effective runtime drift check - gate for enabled configs only
+	let eff = rt.effectiveRuntime;
+	if (ev.config != null && ev.config.enabled == true) {
+		let driftOk = (eff != null && eff.drift == false);
+		let driftDetail = '';
+		if (eff == null) driftDetail = 'no effective runtime data';
+		else if (eff.drift == true) driftDetail = 'drift: ' + join(', ', eff.mismatches) + ' — desired vs effective mismatch';
+		else driftDetail = 'desired == effective (no drift)';
+		chk('effectiveRuntime', driftOk, driftDetail);
+	}
 	let local = (rt.local != null) ? rt.local : { attempted: false };
 	let upstream = (rt.upstream != null) ? rt.upstream : { attempted: false };
 	let infraOk = true;
@@ -1544,6 +1727,9 @@ function assemble_health(ev, rt) {
 	return {
 		ok: (infraOk && local.ok == true),
 		checks: checks,
+		effectiveRuntime: rt.effectiveRuntime,
+		coverage: rt.coverage,
+		sessions: rt.sessions,
 		route: {
 			local: {
 				attempted: local.attempted == true, ok: local.ok == true,
@@ -1554,10 +1740,12 @@ function assemble_health(ev, rt) {
 				attempted: upstream.attempted == true, ok: upstream.ok == true,
 				target: (upstream.target != null ? upstream.target : null),
 				detail: (upstream.detail != null ? upstream.detail : (upstream.attempted == true ? '' : 'not attempted')),
-				meaning: 'TCP 443 reachability of a Telegram edge — NOT an MTProto handshake; Telegram end-to-end is never claimed from these probes'
+				meaning: 'TCP 443 reachability of a Telegram edge — NOT an MTProto handshake; degraded/informational only, never gates health',
+				informational: true,
+				degraded: true
 			}
 		},
-		note: 'health = package/binary/config/secret/procd/PID/listener + bounded route probes; a listening socket never proves Telegram works'
+		note: 'health = package/binary/config/secret/procd/PID/listener/effectiveRuntime + bounded route probes; upstream TCP probe is degraded/informational and never proves Telegram media works'
 	};
 }
 
@@ -1903,6 +2091,11 @@ export const proxycfg_health = function(input) {
 	let rt = {};
 	if (cur.ok && rr.running) rt.local = route_local(cur.config); else rt.local = { attempted: false, ok: false, detail: 'not running or no valid config' };
 	if (doUpstream) rt.upstream = route_upstream(cur.ok ? cur.config : null); else rt.upstream = { attempted: false, ok: false, detail: 'skipped (upstream:false)' };
+	// effective runtime audit (sanitized, never exposes secret)
+	rt.effectiveRuntime = probe_effective_runtime(rr.pids, cur.ok ? cur.config : null);
+	// coverage and sessions are informational but part of health payload
+	rt.coverage = build_coverage(cur.ok ? cur.config : null);
+	rt.sessions = probe_sessions(rr.pids, rr.listeners);
 	return assemble_health(ev, rt);
 };
 

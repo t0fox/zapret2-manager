@@ -14,6 +14,10 @@ const MAX_RESULTS = 128;
 const HEARTBEAT_MAX_AGE = 120;
 const PROBE_BUDGET_MS = 120000;
 const SCAN_BUDGET_MS = 300000;
+// Scanner 2.0 bounded budgets: exploration (cheap probes), verification (full probes), finalists 20, early infra stop
+const BUDGETS = { quick: { exploration: 30, verification: 10 }, standard: { exploration: 80, verification: 20 }, full: { exploration: 100, verification: 20 } };
+const FINALISTS_TARGET = 20;
+const INFRA_CONSECUTIVE_LIMIT = 5;
 function object(value) { return type(value) == 'object' && value != null; }
 function array(value) { return type(value) == 'array'; }
 function string(value) { return type(value) == 'string'; }
@@ -440,9 +444,24 @@ scanner_worker_run_impl = function(input, seams) {
 	record.baseline = copy(baseline);
 	record.baselineIdentity = state.scanner_state_digest(record.baseline);
 	phase(record, 'baselining', null); checkpoint(record, 'baseline');
+	// Staged funnel budgets and adaptive stop
+	let budgetForMode = BUDGETS[req.mode] || BUDGETS.standard;
+	let infraConsecutive = 0, infraLastCause = null;
+	let explorationCount = 0, verificationCount = 0;
+	// User-facing stage: Поиск рабочих вариантов (exploration) vs Проверка лучших (verification)
+	phase(record, 'searching', null); checkpoint(record, 'searching');
 	let start = integer(record.cursor?.nextCandidate) ? record.cursor.nextCandidate : 0;
 	for (let i = start; i < length(plan.candidates) && i < MAX_RESULTS; i++) {
 		if (!budget(probeStarted)) { record.error = 'Scanner probe deadline exceeded.'; record.recovery = { state: 'uncertain' }; return finish(record, session, seams, 'error', record.error); }
+		// Bounded exploration budget
+		if (explorationCount >= budgetForMode.exploration) {
+			if (record.counts.working >= FINALISTS_TARGET) break;
+			record.error = 'Exploration budget exhausted.';
+			break;
+		}
+		if (verificationCount >= FINALISTS_TARGET) break;
+		// Adaptive stop: already have 20 verified working and next groups ranking significantly lower -> stop early
+		if (record.counts.working >= FINALISTS_TARGET && i >= start + FINALISTS_TARGET + 10) break;
 		if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
 		let candidate = copy(plan.candidates[i]);
 		candidate.sessionId = session.sessionId; candidate.generation = session.generation;
@@ -463,9 +482,20 @@ scanner_worker_run_impl = function(input, seams) {
 		let verdict = probe_candidate(plan.candidates[i], plan, baseline, seams, probeDeadline);
 		if (verdict.ok === false || (verdict.evidence?.infrastructure === true && verdict.reason == 'PROBE_DEPENDENCY')) {
 			record.counts.infrastructure++; record.error = verdict.error?.code || verdict.reason || 'EDEPENDENCY';
+			// Early infra stop: 5 consecutive same-cause infrastructure failures
+			let cause = string(verdict.error?.code || verdict.reason || 'INFRA');
+			if (cause == infraLastCause) infraConsecutive++; else { infraConsecutive = 1; infraLastCause = cause; }
+			if (infraConsecutive >= INFRA_CONSECUTIVE_LIMIT) {
+				record.error = 'Не удалось подготовить среду сканирования: ' + cause;
+				record.recovery = { state: 'verified', failure: verdict.error || verdict.evidence, infraConsecutive, infraCause: cause };
+				return finish(record, session, seams, 'error', record.error);
+			}
 			record.recovery = { state: 'verified', failure: verdict.error || verdict.evidence };
 			return finish(record, session, seams, 'error', record.error);
 		}
+		// Reset infra consecutive on successful probe handling (non-infra)
+		infraConsecutive = 0; infraLastCause = null;
+		explorationCount++;
 		record.heartbeatAt = time(); checkpoint(record, 'probe');
 		let cleaned = scanner_candidate_cleanup(activated.attempt);
 		if (!cleaned.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleaned, evidence: cleaned }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
@@ -485,7 +515,7 @@ scanner_worker_run_impl = function(input, seams) {
 			verdict: verdict.verdict, success: verdict.success === true,
 			score: type(verdict.score) == 'double' || type(verdict.score) == 'int' ? verdict.score : null,
 			reason: verdict.reason, evidence: candidate_evidence(verdict.evidence) };
-		result.planDigest = record.planDigest; result.evidenceIdentity = result_identity(result); push(record.results, result); if (result.success) record.counts.working++; else if (verdict.verdict == 'infrastructure') record.counts.infrastructure++; else record.counts.failed++;
+		result.planDigest = record.planDigest; result.evidenceIdentity = result_identity(result); push(record.results, result); if (result.success) { record.counts.working++; verificationCount++; } else if (verdict.verdict == 'infrastructure') record.counts.infrastructure++; else record.counts.failed++;
 		record.progress = i + 1; record.cursor = { nextCandidate: i + 1 }; record.currentCandidate = null; lifecycle.attempt = null; event(record, 'candidate', candidate.scannerId); checkpoint(record, 'candidate-result');
 		if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
 	}

@@ -1,0 +1,4 @@
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|0644
+zapret2-manager/files/etc/init.d/tg-ws-proxy|/etc/init.d/tg-ws-proxy|0644
+zapret2-manager/files/etc/tg-ws-proxy/config.conf|/etc/tg-ws-proxy/config.conf|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh|/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh|0644

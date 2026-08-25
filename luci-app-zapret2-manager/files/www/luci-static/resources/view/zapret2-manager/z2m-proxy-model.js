@@ -39,6 +39,12 @@ function classify(value) {
     array(value.listeners).some(function (item) { return item && (item.ready === true || item.listening === true); });
   var outbound = value.outbound === true || object(value.outbound).ready === true ||
     object(value.health).outbound === true || object(value.health).dcConnectivity === true;
+  // Effective runtime drift (desired != effective) must gate healthy status.
+  // Basic Telegram connection (one TCP probe) is NOT acceptance for media.
+  var eff = object(value.health).effectiveRuntime || object(value.effectiveRuntime);
+  if (eff && eff.drift === true) return 'degraded';
+  var healthOk = object(value.health).ok;
+  if (healthOk === false) return 'degraded';
   return listener && outbound ? 'healthy' : 'degraded';
 }
 function normalize(value) {

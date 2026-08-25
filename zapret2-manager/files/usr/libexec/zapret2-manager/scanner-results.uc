@@ -19,12 +19,40 @@ export const scanner_rank_results = function(results, catalogIndex) {
 		|| r.verdict?.status === 'working' || r.verdict?.status === 'pass') { push(working,r); continue; }
     push(failed,r);
   }
+  function complexity_penalty(r) {
+    // Prefer simpler when otherwise equal: penalty increases with actions/repeats/multi
+    let c = r.complexity || r.compiledTokens && [length(r.compiledTokens),0,0] || [0,0,0];
+    if (type(c) != 'array' || length(c) < 3) c = [0,0,0];
+    return (c[0]||0)*8 + (c[1]||0)*2 + (c[2]||0)*12;
+  }
+  function latency_of(r) {
+    let m = r.evidence?.metrics || r.verdict || {};
+    return m.averageLatencyMs != null ? m.averageLatencyMs : (m.latencyMs != null ? m.latencyMs : (m.latency != null ? m.latency : 120));
+  }
+  function coverage_of(r) {
+    let m = r.evidence?.metrics || {};
+    return m.successRate != null ? m.successRate : (r.success ? 1 : 0);
+  }
   function score(r){
+    // Explainable components: success * (min(kbps,2048)/max(latency,50))*1000 - complexity_penalty
     let s = 0;
     if (r.verdict?.tcp?.pinned) s += 1000 + (r.verdict.tcp.latency||0);
     if (r.verdict?.udp?.pinned) s += 800 + (r.verdict.udp.latency||0);
     if (r.verdict?.score) s += r.verdict.score;
     if (r.score) s += r.score;
+    // Apply explainable adjustments: latency, coverage, complexity
+    let latency = latency_of(r), coverage = coverage_of(r), penalty = complexity_penalty(r);
+    let base = r.score != null ? r.score : s;
+    // If we have real metrics, recompute base as coverage * (kbps/latency)*1000
+    let kbps = r.evidence?.metrics?.averageKbps || r.evidence?.metrics?.kbps || 0;
+    if (kbps > 0 && latency > 0) {
+      let kbpsCapped = kbps > 2048 ? 2048 : kbps;
+      let lat = latency < 50 ? 50 : latency;
+      base = coverage * (kbpsCapped / lat) * 1000;
+      if (coverage >= 1) base += 3000;
+      else if (coverage < 0.9) base -= 1000;
+    }
+    s = base - penalty * 6;
     return -s;
   }
   sort(working, function(a, b) {
@@ -34,7 +62,29 @@ export const scanner_rank_results = function(results, catalogIndex) {
     let right = b.identity?.candidate || b.candidateId || '';
     return left < right ? -1 : (left > right ? 1 : 0);
   });
-  return { ok:true, ranked:working, failed, infra };
+  // Bounded Top-20: normal result page must not show 9000 rows; backend stores bounded top set
+  let finalists = length(working) > 20 ? slice(working, 0, 20) : working;
+  let top3 = slice(finalists, 0, 3);
+  let best = length(finalists) ? finalists[0] : null;
+  // Add explainable breakdown to each finalist for Best reason UI
+  for (let i = 0; i < length(finalists); i++) {
+    let r = finalists[i];
+    let latency = latency_of(r), kbps = r.evidence?.metrics?.averageKbps || r.evidence?.metrics?.kbps || 0;
+    let coverage = coverage_of(r), penalty = complexity_penalty(r);
+    r.scoreBreakdown = { success: r.success === true ? 1 : 0, latencyMs: latency, kbps: kbps, coverage: coverage, complexityPenalty: penalty, finalScore: r.score };
+    if (i == 0 && r.success) {
+      let reason = 'Работает';
+      if (coverage >= 1) reason += ' на всех проверенных адресах';
+      else if (coverage > 0) reason += ' на ' + Math.round(coverage*100) + '% адресов';
+      reason += ', медианная задержка ' + latency + ' мс';
+      if (penalty > 20) reason += ', высокая сложность';
+      else if (penalty < 8) reason += ', низкая сложность';
+      else reason += ', умеренная сложность';
+      reason += ', без повторных ошибок.';
+      r.bestReason = reason;
+    }
+  }
+  return { ok:true, ranked:finalists, failed, infra, allRanked: working, top3: top3, best: best, finalists: finalists, workingCount: length(working), totalWorking: length(working) };
 };
 
 export const scanner_report_build = function(ranked) {
@@ -44,7 +94,13 @@ export const scanner_report_build = function(ranked) {
   let total = length(ranked.ranked)+length(ranked.failed||[])+length(ranked.infra||[]);
   let tested = length(ranked.ranked)+length(ranked.failed||[]);
   let success = length(ranked.ranked);
-  return { ok:true, report:{ tested, total, successRate: tested?success/tested:0, best: ranked.ranked[0]||null, evidence: copy(ranked) } };
+  let finalists = array(ranked.finalists) ? ranked.finalists : ranked.ranked;
+  let top3 = array(ranked.top3) ? ranked.top3 : slice(ranked.ranked, 0, 3);
+  let best = ranked.best || (length(ranked.ranked) ? ranked.ranked[0] : null);
+  // Ensure finalists bounded to 20
+  if (length(finalists) > 20) finalists = slice(finalists, 0, 20);
+  if (length(top3) > 3) top3 = slice(top3, 0, 3);
+  return { ok:true, report:{ tested, total, successRate: tested?success/tested:0, best: best, top3: top3, finalists: finalists, topCandidates: finalists, evidence: copy(ranked), summary: { tested, total, success, top3Count: length(top3), finalistsCount: length(finalists) } } };
 };
 
 export const scanner_report_from_record = function(record) {

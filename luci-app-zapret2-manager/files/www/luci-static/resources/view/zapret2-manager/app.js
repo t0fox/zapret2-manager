@@ -444,6 +444,8 @@ return L.view.extend({
         break;
       }
       if (!raw || typeof raw !== 'object') return;
+      // Only global runtime status has runtimeSummary; per-tab scan/service status must not overwrite the global header
+      if (!raw.runtimeSummary) return;
       var service = statusState(raw);
       var next = Shell.chip(service.label, service.kind, true);
       if (next && headerStatus.parentNode) headerStatus.replaceWith(next);

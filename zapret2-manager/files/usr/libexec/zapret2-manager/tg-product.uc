@@ -61,6 +61,12 @@ function status_model() {
 	}
 	let observed = runtime && runtime.detectedProvider ? runtime.detectedProvider.id : null;
 	let running = providers.running === true || runtime.running === true;
+	let eff = health != null && health.effectiveRuntime != null ? health.effectiveRuntime : null;
+	let runtimeDrift = eff != null && eff.drift === true;
+	let readinessDrift = providers.drift === true || runtimeDrift === true;
+	// If effective runtime drifts while enabled, the service cannot be considered healthy —
+	// overview must not claim «Работает» (text/messages alone are not acceptance).
+	let effectiveStatus = running ? (runtimeDrift ? 'degraded' : 'running') : (providers.installed === true ? 'stopped' : 'not-installed');
 	return {
 		ok: providers.ok === true && runtime.ok === true && config.ok === true,
 		schema: SCHEMA,
@@ -69,19 +75,20 @@ function status_model() {
 		selected: { provider: selected, desired: selected },
 		installed: installed,
 		observed: { provider: observed, running: running },
-		status: running ? 'running' : (providers.installed === true ? 'stopped' : 'not-installed'),
+		status: effectiveStatus,
 		sharedConfig: { present: config.ok === true && config.configFile && config.configFile.exists === true,
 			state: config.ok === true ? config.state : null, appliedRevision: config.appliedRevision, redacted: true },
 		readiness: { installed: providers.installed === true, binaryPresent: providers.binaryPresent === true,
-			configPreserved: providers.configPreserved === true, ready: providers.installed === true && providers.binaryPresent === true && config.ok === true,
-			drift: providers.drift === true },
+			configPreserved: providers.configPreserved === true, ready: providers.installed === true && providers.binaryPresent === true && config.ok === true && !runtimeDrift,
+			drift: readinessDrift, runtimeDrift: runtimeDrift },
 		health: health,
+		effectiveRuntime: eff,
 		activeProvider: selected,
 		activeVersion: providers.activeVersion,
 		activePackageVersion: providers.activePackageVersion,
 		binaryPresent: providers.binaryPresent === true,
 		configPreserved: providers.configPreserved === true,
-		drift: providers.drift === true,
+		drift: readinessDrift,
 		packages: providers.packages
 	};
 }

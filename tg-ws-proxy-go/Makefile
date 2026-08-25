@@ -57,8 +57,12 @@ endef
 
 define Package/tg-ws-proxy-go/install
 	$(call GoPackage/Package/Install/Bin,$(1))
-	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./files/etc/init.d/tg-ws-proxy $(1)/etc/init.d/tg-ws-proxy
+	# Provider init is manager-owned: the canonical adapter lives in
+	# zapret2-manager (DEFAULT_INIT_BODY / /etc/init.d/tg-ws-proxy). The
+	# provider package must not overwrite it with a divergent per-provider
+	# script — Package installation, repair, provider switch, restart and
+	# Settings apply must all materialize/use the SAME canonical mapping.
+	# Only the binary is provider-specific.
 	$(INSTALL_DIR) $(1)/usr/share/licenses/tg-ws-proxy-go
 	$(INSTALL_DATA) ./files/usr/share/licenses/tg-ws-proxy-go/LICENSE \
 		$(1)/usr/share/licenses/tg-ws-proxy-go/LICENSE

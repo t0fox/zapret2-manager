@@ -20,6 +20,12 @@ const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 const MAX_EXECUTION_CANDIDATES = 20;
 const MAX_COMPILE_ATTEMPTS = 64;
 
+// Cost model: STATIC nearly free, PREFLIGHT cheap, PROCESS_START expensive,
+// NETWORK_PROBE more expensive, MULTI_HOST/BODY/STUN most expensive.
+// Planner only uses cheap static scoring; expensive probes are deferred to worker's staged funnel.
+const COST_MODEL = { STATIC: 1, PREFLIGHT: 5, PROCESS_START: 100, NETWORK_PROBE: 500, MULTI_HOST: 1500 };
+const MODE_BUDGETS = { quick: { exploration: 30, verification: 10 }, standard: { exploration: 60, verification: 20 }, full: { exploration: 80, verification: 20 } };
+
 const KNOWN_DPI = {
 	tls_dpi: { must: ['filter-l7=tls', 'tls_client_hello'], bad: ['filter-l7=quic', 'quic_initial'] },
 	clienthello_dpi: { must: ['filter-l7=tls', 'tls_client_hello'], bad: ['filter-l7=quic'] },
@@ -737,6 +743,57 @@ function dedup_candidates(values) {
 	return result;
 }
 
+function candidate_family(candidate) {
+	let text = candidate_text(candidate);
+	if (index(text, 'multisplit') >= 0) return 'multisplit';
+	if (index(text, 'fake') >= 0 && index(text, 'multisplit') < 0) return 'fake';
+	if (index(text, 'split') >= 0) return 'split';
+	if (index(text, 'disorder') >= 0) return 'disorder';
+	if (index(text, 'autottl') >= 0) return 'autottl';
+	if (index(text, 'hostfake') >= 0) return 'hostfake';
+	if (index(text, 'oob') >= 0) return 'oob';
+	if (index(text, 'desync') >= 0) return 'desync-other';
+	return 'other';
+}
+
+function select_diverse(sorted, limit) {
+	if (length(sorted) <= limit) return sorted;
+	// Ensure family diversity: round-robin across families in ranking order
+	let byFamily = {}, order = [];
+	for (let i = 0; i < length(sorted); i++) {
+		let family = candidate_family(sorted[i]);
+		if (byFamily[family] == null) { byFamily[family] = []; push(order, family); }
+		push(byFamily[family], sorted[i]);
+	}
+	let result = [], indices = {};
+	for (let i = 0; i < length(order); i++) indices[order[i]] = 0;
+	let added = 0, rounds = 0;
+	while (added < limit && rounds < limit * 2) {
+		let progressed = false;
+		for (let i = 0; i < length(order) && added < limit; i++) {
+			let family = order[i], idx = indices[family], list = byFamily[family];
+			if (idx < length(list)) {
+				push(result, list[idx]);
+				indices[family] = idx + 1;
+				added++;
+				progressed = true;
+			}
+		}
+		if (!progressed) break;
+		rounds++;
+	}
+	// If still not enough (e.g., one family dominates), fill remaining by overall ranking order
+	if (length(result) < limit) {
+		let seen = {};
+		for (let i = 0; i < length(result); i++) seen[result[i].scannerId] = true;
+		for (let i = 0; i < length(sorted) && length(result) < limit; i++) {
+			if (!seen[sorted[i].scannerId]) push(result, sorted[i]);
+		}
+	}
+	// Restore deterministic ranking order among selected diverse set
+	return sort_candidates(result);
+}
+
 function catalog_snapshot(value) {
 	if (is_object(value) && value.ok == true && is_object(value.catalog)) return value.catalog;
 	return is_object(value) ? value : null;
@@ -1001,7 +1058,8 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 	let rankingStarted = monotonic_ms();
 	candidates = dedup_candidates(sort_candidates(candidates));
 	let compiledAccepted = length(candidates);
-	if (length(candidates) > MAX_EXECUTION_CANDIDATES) candidates = slice(candidates, 0, MAX_EXECUTION_CANDIDATES);
+	// Diversity: Top-20 must not be 20 near-identical semantics; round-robin across families
+	if (length(candidates) > MAX_EXECUTION_CANDIDATES) candidates = select_diverse(candidates, MAX_EXECUTION_CANDIDATES);
 	let shortlisted = length(candidates);
 	for (let i = 0; i < length(candidates); i++) candidates[i].ordinal = i + 1;
 	timings.rankingMs = monotonic_ms() - rankingStarted;

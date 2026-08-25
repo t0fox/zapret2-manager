@@ -423,11 +423,39 @@ function tgUninstallConfirm(ctx, purge, start) {
   })]);
 }
 function stage(ctx, data, settings) {
-  var baseline = { revision: revision(data), settings: appliedConfig(data) };
-  var draft = ProxyModel.draft(baseline, { settings: settings });
-  if (draft) ctx.setDraft('proxy', draft);
-  else ctx.clearDraft('proxy');
-  ctx.refresh('proxy');
+  setLocalSettings(ctx, data, settings);
+}
+function getLocalSettings(ctx, data) {
+  if (state.tgSettingsLocal && state.tgSettingsLocal.revision === revision(data)) return clone(state.tgSettingsLocal.settings);
+  return clone(workingConfig(ctx, data));
+}
+function setLocalSettings(ctx, data, settings) {
+  state.tgSettingsLocal = { revision: revision(data), settings: ProxyModel.safeSettings(settings) };
+  ctx.root.replaceChildren(render(ctx));
+}
+function isSettingsDirty(ctx, data) {
+  if (!state.tgSettingsLocal) return false;
+  var applied = ProxyModel.safeSettings(appliedConfig(data));
+  var local = ProxyModel.safeSettings(getLocalSettings(ctx, data));
+  return JSON.stringify(applied) !== JSON.stringify(local);
+}
+function resetLocalSettings(ctx, data) {
+  state.tgSettingsLocal = null;
+  ctx.root.replaceChildren(render(ctx));
+}
+function saveSettings(ctx, data) {
+  var local = getLocalSettings(ctx, data);
+  var rev = revision(data);
+  ctx.shell.showToast(_('Сохраняем…'), 'info');
+  edit(ctx.api.proxy.configValidate, { config: local }).then(function (v) {
+    if (!v || v.ok === false) throw v && v.error || new Error('validate failed');
+    return edit(ctx.api.proxy.configApply, { config: local, expectedAppliedRevision: rev });
+  }).then(function (res) {
+    if (!res || res.ok === false) throw res && res.error || new Error('apply failed');
+    state.tgSettingsLocal = null;
+    ctx.shell.showToast(_('Настройки сохранены.'), 'ok');
+    return ctx.refresh('proxy');
+  }).catch(function (e) { showError(ctx, e); });
 }
 function truthLabel(truth) {
   var labels = {
@@ -452,7 +480,7 @@ function confirm(ctx, title, message, label, action, danger) {
 }
 function reveal(ctx) {
   confirm(ctx, _('Показать секретную ссылку?'),
-    _('Ссылка содержит proxy secret. Она не будет сохранена в store, журнале или coordinator draft.'),
+    _('Ссылка содержит proxy secret. Она не будет сохранена.'),
     _('Показать'), function () {
       edit(ctx.api.proxy.linkInfo, { reveal: true, confirm: 'REVEAL' }).then(function (answer) {
         var url = answer && (answer.https_link || answer.link);
@@ -1184,20 +1212,21 @@ function fieldNode(ctx, field, value, onChange) {
   ]))];
 }
 function settingsSection(ctx, data, settings, title, subtitle, fields) {
-  var grid = E('div', { 'class': 'z2m-cbi z2m-proxy-form-grid' });
+  var grid = E('div', { 'class': 'z2m-tg-settings-grid' });
   fields.forEach(function (field) {
     var nodes = fieldNode(ctx, field, settings[field.id], function (value) {
       var next = clone(settings);
       next[field.id] = value;
-      stage(ctx, data, next);
+      setLocalSettings(ctx, data, next);
     });
-    grid.appendChild(nodes[0]);
-    grid.appendChild(nodes[1]);
+    var row = E('div', { 'class': 'z2m-tg-settings-row' }, [
+      E('label', {}, field.label),
+      E('div', { 'class': 'z2m-tg-settings-control' }, [nodes[1], field.hint ? E('div', { 'class': 'z2m-proxy-field-hint' }, field.hint) : null])
+    ]);
+    grid.appendChild(row);
   });
-  return E('section', { 'class': 'z2m-proxy-form-section' }, [
-    E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, title), E('p', {}, subtitle)]),
-    grid
-  ]);
+  var head = title ? E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, title), subtitle ? E('p', {}, subtitle) : null]) : null;
+  return E('section', { 'class': 'z2m-proxy-form-section' }, compact([head, grid]));
 }
 
 // ---- connection profiles (product UX over raw config keys) ---------------------
@@ -1299,7 +1328,7 @@ function profileCard(ctx, data, settings, presets) {
   var descriptions = {
     recommended: _('Использует резервные маршруты Cloudflare при проблемах с прямым подключением к Telegram.'),
     direct: _('Только прямое подключение к Telegram — без резервных Cloudflare-маршрутов.'),
-    custom: _('Используются собственные значения маршрутизации — их можно изменить в дополнительных настройках.')
+    custom: _('Используются собственные значения — их можно изменить в дополнительных настройках.')
   };
   function pick(name) {
     if (name === 'custom') {
@@ -1307,41 +1336,35 @@ function profileCard(ctx, data, settings, presets) {
       ctx.root.replaceChildren(render(ctx));
       return;
     }
-    stage(ctx, data, profileSettingsFor(presets, name, workingConfig(ctx, data)));
-    ctx.shell.showToast(name === 'recommended' ? _('Рекомендуемый профиль применён как черновик.') : _('Прямой профиль применён как черновик.'), 'ok');
+    var next = profileSettingsFor(presets, name, getLocalSettings(ctx, data));
+    setLocalSettings(ctx, data, next);
   }
-  var buttons = E('div', { 'class': 'z2m-proxy-profile-switch', role: 'group', 'aria-label': _('Профиль подключения') },
+  var buttons = E('div', { 'class': 'z2m-tg-profile-switch', role: 'group', 'aria-label': _('Профиль подключения') },
     [['recommended', _('Рекомендуемый')], ['direct', _('Прямой')], ['custom', _('Пользовательский')]].map(function (pair) {
       var name = pair[0], isActive = active === name;
-      return shell.button(pair[1], (isActive ? 'primary ' : '') + 'sm z2m-proxy-profile-btn' + (isActive ? ' active' : ''),
-        function () { pick(name); }, isActive && name === 'custom');
+      return shell.button(pair[1], (isActive ? 'primary ' : '') + 'sm z2m-tg-profile-btn' + (isActive ? ' active' : ''),
+        function () { pick(name); }, false);
     }));
-  return E('section', { 'class': 'z2m-panel z2m-proxy-profile-card' }, [
-    E('div', { 'class': 'hd' }, [E('h2', {}, _('Профиль подключения'))]),
+  return E('section', { 'class': 'z2m-panel z2m-proxy-profile-card z2m-tg-profile' }, [
+    E('div', { 'class': 'hd' }, [E('h2', {}, _('Режим подключения'))]),
     E('div', { 'class': 'bd' }, [
       buttons,
-      E('p', { 'class': 'z2m-proxy-profile-desc' }, descriptions[active] || descriptions.custom)
+      E('p', { 'class': 'z2m-tg-profile-desc' }, descriptions[active] || descriptions.custom)
     ])
   ]);
 }
 
-function routingSummaryCard(shell, settings, toggleAdvanced) {
+function routingSummaryCard(shell, settings) {
   settings = object(settings);
   var ownDomains = array(settings.cfDomains).length + array(settings.cfWorkerDomains).length > 0;
-  var rows = [
-    [_('Cloudflare fallback'), settings.defaultDomains === true ? _('Включён') : _('Выключен'), settings.defaultDomains === true],
-    [_('Источник'), settings.defaultDomains === true ? _('Flowseal (встроенный список)') : ownDomains ? _('Свои домены') : _('Не настроено'), settings.defaultDomains === true || ownDomains],
-    [_('Приоритет'), settings.cfPriority === true ? _('Cloudflare сначала') : _('Прямое подключение сначала'), true]
-  ];
+  var chips = compact([
+    E('span', { 'class': 'z2m-tg-routing-chip' + (settings.defaultDomains === true ? ' on' : '') }, settings.defaultDomains === true ? _('Fallback включён') : _('Fallback выключен')),
+    settings.defaultDomains === true ? E('span', { 'class': 'z2m-tg-routing-chip' }, _('Flowseal')) : (ownDomains ? E('span', { 'class': 'z2m-tg-routing-chip' }, _('Свои домены')) : null),
+    E('span', { 'class': 'z2m-tg-routing-chip' }, settings.cfPriority === true ? _('Cloudflare сначала') : _('Прямое сначала'))
+  ]);
   return E('section', { 'class': 'z2m-proxy-form-section' }, [
     E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Маршрутизация')), E('p', {}, _('Как прокси достигает Telegram'))]),
-    E('div', { 'class': 'z2m-proxy-routing-summary' }, rows.map(function (row) {
-      return E('div', { 'class': 'z2m-proxy-routing-row' }, [
-        E('span', {}, row[0]),
-        E('strong', { 'class': row[2] ? 'z2m-proxy-ok' : 'z2m-dim' }, row[1])
-      ]);
-    })),
-    E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Дополнительные настройки'), '', toggleAdvanced)])
+    E('div', { 'class': 'z2m-tg-routing-chips' }, chips)
   ]);
 }
 
@@ -1367,7 +1390,7 @@ function restoreRecommended(ctx, data, presets, current) {
       shell.closeModal();
       if (!rows.length) return;
       stage(ctx, data, target);
-      ctx.shell.showToast(_('Рекомендуемые настройки применены как черновик.'), 'ok');
+      ctx.shell.showToast(_('Рекомендуемые настройки применены.'), 'ok');
     }, !rows.length)
   ]);
 }
@@ -1375,21 +1398,19 @@ function settingsPane(ctx, data) {
   var shell = ctx.shell;
   var pstatus = providerStatus(data);
   var installed = providerInstalled(pstatus.installed);
-  var settings = workingConfig(ctx, data);
+  var applied = ProxyModel.safeSettings(appliedConfig(data));
+  var settings = getLocalSettings(ctx, data);
   var draft = currentDraft(ctx);
   var presets = profilePresets(data);
   var cfgValue = object(data.config && data.config.value);
   var lanAddress = presets.lanAddress;
-  // Canonical hydration: autostart truth lives in the rc.d symlink state, not
-  // in a possibly stale applied snapshot. Without a user draft the form shows
-  // exactly what the backend reports — opening Settings never creates dirt.
-  if (!draft.settings) {
-    settings.autostart = object(cfgValue.autostart).rcDEnabled === true;
-    settings.enabled = settings.enabled === true;
+  if (!state.tgSettingsLocal) {
+    var hyd = clone(settings);
+    hyd.autostart = object(cfgValue.autostart).rcDEnabled === true;
+    hyd.enabled = hyd.enabled === true;
+    settings = ProxyModel.safeSettings(hyd);
   }
   var lanEnabled = !!lanAddress && settings.host === lanAddress;
-  var loopbackHost = !settings.host || (String(settings.host).indexOf('127.') === 0);
-  var showLanToggle = !!lanAddress && (lanEnabled || loopbackHost);
   var advertised = settings.linkIp || settings.host || lanAddress || '';
   var fallbackEntries = array(settings.mtprotoProxies);
   function fields(ids) {
@@ -1421,99 +1442,95 @@ function settingsPane(ctx, data) {
     var next = clone(settings);
     next.host = enabled && lanAddress ? lanAddress : '127.0.0.1';
     if (enabled) next.linkIp = '';
-    stage(ctx, data, ProxyModel.safeSettings(next));
+    setLocalSettings(ctx, data, ProxyModel.safeSettings(next));
   }
-  function controlRow(labelText, control, hint, alignRight) {
-    return [E('label', {}, labelText), E('div', { 'class': 'z2m-proxy-control' + (alignRight ? ' align-right' : '') }, compact([
-      control, hint ? E('div', { 'class': 'z2m-proxy-field-hint' }, hint) : null
-    ]))];
+  var dirty = isSettingsDirty(ctx, data);
+  var mainRows = [];
+  mainRows.push(E('div', { 'class': 'z2m-tg-settings-row' }, [
+    E('label', {}, _('Прокси')),
+    E('div', { 'class': 'z2m-tg-settings-control' }, [ctx.shell.switchControl({ checked: settings.enabled === true, label: _('Прокси'), onChange: function (v) { var n=clone(settings); n.enabled=v; setLocalSettings(ctx,data,ProxyModel.safeSettings(n)); } })])
+  ]));
+  mainRows.push(E('div', { 'class': 'z2m-tg-settings-row' }, [
+    E('label', {}, _('Автозапуск')),
+    E('div', { 'class': 'z2m-tg-settings-control' }, [ctx.shell.switchControl({ checked: settings.autostart === true, label: _('Автозапуск'), onChange: function (v) { var n=clone(settings); n.autostart=v; setLocalSettings(ctx,data,ProxyModel.safeSettings(n)); } })])
+  ]));
+  if (!!lanAddress && (lanEnabled || !settings.host || String(settings.host).indexOf('127.')===0)) {
+    mainRows.push(E('div', { 'class': 'z2m-tg-settings-row' }, [
+      E('label', {}, _('Доступ из локальной сети')),
+      E('div', { 'class': 'z2m-tg-settings-control' }, [ctx.shell.switchControl({ checked: lanEnabled, label: _('Доступ из локальной сети'), onChange: setLanAccess })])
+    ]));
   }
-  var basicGrid = E('div', { 'class': 'z2m-cbi z2m-proxy-form-grid' });
-  [
-    controlRow(_('Прокси'), ctx.shell.switchControl({ checked: settings.enabled === true, label: _('Прокси'), onChange: function (value) {
-      var next = clone(settings); next.enabled = value; stage(ctx, data, next);
-    } }), null, true),
-    controlRow(_('Автозапуск'), ctx.shell.switchControl({ checked: settings.autostart === true, label: _('Автозапуск'), onChange: function (value) {
-      var next = clone(settings); next.autostart = value; stage(ctx, data, next);
-    } }, _('Запускать Telegram Proxy после перезагрузки роутера')), null, true),
-    showLanToggle ? controlRow(_('Доступ из локальной сети'), ctx.shell.switchControl({ checked: lanEnabled, label: _('Доступ из локальной сети'), onChange: setLanAccess },
-      _('Разрешить подключение с устройств в вашей сети')), null, true) : null,
-    controlRow(_('Адрес для подключения'), E('strong', { 'class': 'z2m-proxy-addr-line' }, (advertised || '—') + ':' + display(settings.port)),
-      _('Этот адрес получают Telegram-клиенты в ссылке и QR')),
-    controlRow(_('Порт'), (function () {
-      var portField = fields(['port'])[0];
-      var portNode = fieldNode(ctx, portField, settings.port, function (value) {
-        var next = clone(settings); next.port = value; stage(ctx, data, next);
-      });
-      return portNode[1].querySelector ? portNode[1] : E('span', {}, '');
-    })())
-  ].forEach(function (row) { if (!row) return; basicGrid.appendChild(row[0]); basicGrid.appendChild(row[1]); });
-  var basicSection = E('section', { 'class': 'z2m-proxy-form-section' }, [
-    E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Основное')), E('p', {}, _('Запуск сервиса и доступ клиентов'))]),
-    basicGrid
-  ]);
-  // LuCI E() stringifies attributes: open:false would become open="false"
-  // (a truthy attribute). Build the details node and set the DOM property.
-  function advancedNode() {
-    var secretMeta = object(cfgValue.secret);
-    var node = E('details', { 'class': 'z2m-proxy-advanced' }, compact([
-      E('summary', {}, _('Дополнительные настройки')),
-      settingsSection(ctx, data, settings, _('Адресация'), _('Точная настройка адресов, если автоопределение не подходит'), fields(['host', 'linkIp'])),
-      settingsSection(ctx, data, settings, _('Маршрутизация'), _('Прямые маршруты Telegram DC и приоритеты'), fields(['dcIps', 'defaultDomains', 'cfPriority', 'cfBalance'])),
-      settingsSection(ctx, data, settings, _('Cloudflare'), _('Свои домены вместо встроенного списка Flowseal'), fields(['cfDomains', 'cfWorkerDomains'])),
-      E('section', { 'class': 'z2m-proxy-form-section' }, [
-        E('div', { 'class': 'z2m-proxy-form-head' }, [
-          E('h3', {}, _('Fallback-прокси')),
-          E('p', {}, _('Резервные upstream MTProto-маршруты под управлением сервера. Секретные записи не возвращаются в браузер.'))
+  var portField = fields(['port'])[0];
+  var portInput = E('input', { type: 'number', value: settings.port, min: '1', max: '65535', 'aria-label': _('Порт'), style: 'width:90px' });
+  portInput.addEventListener('change', function () {
+    var v = parseInt(portInput.value, 10);
+    if (!isFinite(v)) return;
+    var n=clone(settings); n.port=v; setLocalSettings(ctx,data,ProxyModel.safeSettings(n));
+  });
+  mainRows.push(E('div', { 'class': 'z2m-tg-settings-row' }, [
+    E('label', {}, _('Адрес и порт')),
+    E('div', { 'class': 'z2m-tg-settings-control' }, [
+      E('div', { 'class': 'z2m-tg-settings-addr' }, [E('strong', {}, advertised || '—'), E('span', {}, ' : '), portInput]),
+      E('div', { 'class': 'z2m-tg-settings-hint' }, _('Этот адрес используется в ссылке и QR.'))
+    ])
+  ]));
+  var mainSection = E('div', { 'class': 'z2m-tg-settings' }, [
+    E('div', { 'class': 'z2m-proxy-form-section' }, [
+      E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Основное'))]),
+      E('div', { 'class': 'z2m-tg-settings-grid' }, mainRows)
+    ]),
+    routingSummaryCard(shell, settings),
+    (function () {
+      var node = E('details', { 'class': 'z2m-proxy-advanced' }, [
+        E('summary', {}, _('Дополнительные настройки')),
+        settingsSection(ctx, data, settings, _('Адресация'), null, fields(['host', 'linkIp'])),
+        settingsSection(ctx, data, settings, _('Маршрутизация'), null, fields(['dcIps', 'defaultDomains', 'cfPriority', 'cfBalance'])),
+        settingsSection(ctx, data, settings, _('Cloudflare'), null, fields(['cfDomains', 'cfWorkerDomains'])),
+        E('section', { 'class': 'z2m-proxy-form-section' }, [
+          E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Fallback-прокси'))]),
+          E('div', { 'class': 'z2m-state-panel warn' }, [
+            E('strong', { 'class': 'z2m-state-title' }, _('Контракт секрета на стороне сервера')),
+            E('div', { 'class': 'z2m-state-message' }, _('Интерфейс не показывает существующие секреты. Управляемых резервных записей: ') + String(fallbackEntries.length)),
+            E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Обновить состояние'), 'sm', function () { return ctx.refresh('proxy'); })])
+          ]),
+          settingsSection(ctx, data, settings, _('Исходящее соединение'), null, fields(['outboundProxy', 'noProxy']))
         ]),
-        E('div', { 'class': 'z2m-state-panel warn' }, [
-          E('strong', { 'class': 'z2m-state-title' }, _('Контракт секрета на стороне сервера')),
-          E('div', { 'class': 'z2m-state-message' }, _('Интерфейс не показывает и не сохраняет существующие секреты в черновике или журнале. Управляемых резервных записей: ') + String(fallbackEntries.length)),
-          E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Обновить состояние'), 'sm', function () { return ctx.refresh('proxy'); })])
-        ]),
-        settingsSection(ctx, data, settings, _('Исходящее соединение'), _('Необязательный HTTP/SOCKS proxy для исходящих подключений'), fields(['outboundProxy', 'noProxy']))
-      ]),
-      settingsSection(ctx, data, settings, _('FakeTLS'), _('Маскировка подключений под HTTPS-трафик'), fields(['faketlsDomain'])),
-      settingsSection(ctx, data, settings, _('Производительность'), _('Ограничения рабочего процесса провайдера'), fields(['poolSize', 'bufKb', 'maxConnections'])),
-      E('section', { 'class': 'z2m-proxy-form-section' }, [
-        E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Логи и диагностика')), E('p', {}, _('Режим логирования провайдера'))]),
-        settingsSection(ctx, data, settings, '', '', fields(['quiet', 'verbose'])),
-        E('div', { 'class': 'z2m-state-panel ' + (secretMeta.exists === true ? '' : 'warn') }, [
-          E('strong', { 'class': 'z2m-state-title' }, secretMeta.exists === true ? _('Секрет настроен ✓') : _('Секрет не найден')),
-          E('div', { 'class': 'z2m-state-message' }, secretMeta.exists === true
-            ? _('Секрет хранится на роутере (0600) и никогда не отображается в настройках.')
-            : _('Секрет будет создан автоматически при включении прокси.'))
-        ]),
-        E('details', { 'class': 'z2m-proxy-technical' }, [
-          E('summary', {}, _('Технические сведения')),
-          E('div', { 'class': 'z2m-proxy-info-list' }, [
-            E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Config path'), E('strong', {}, '/etc/tg-ws-proxy/config.conf')]),
-            E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Secret path'), E('strong', {}, '/etc/tg-ws-proxy/secret.conf · 0600')]),
-            E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Init'), E('strong', {}, '/etc/init.d/tg-ws-proxy')])
+        settingsSection(ctx, data, settings, _('FakeTLS'), null, fields(['faketlsDomain'])),
+        settingsSection(ctx, data, settings, _('Производительность'), null, fields(['poolSize', 'bufKb', 'maxConnections'])),
+        E('section', { 'class': 'z2m-proxy-form-section' }, [
+          E('div', { 'class': 'z2m-proxy-form-head' }, [E('h3', {}, _('Логи и диагностика'))]),
+          settingsSection(ctx, data, settings, '', '', fields(['quiet', 'verbose'])),
+          E('div', { 'class': 'z2m-state-panel ' + (object(cfgValue.secret).exists === true ? '' : 'warn') }, [
+            E('strong', { 'class': 'z2m-state-title' }, object(cfgValue.secret).exists === true ? _('Секрет настроен ✓') : _('Секрет не найден')),
+            E('div', { 'class': 'z2m-state-message' }, object(cfgValue.secret).exists === true ? _('Секрет хранится на роутере (0600) и никогда не отображается в настройках.') : _('Секрет будет создан автоматически при включении прокси.'))
+          ]),
+          E('details', { 'class': 'z2m-proxy-technical' }, [
+            E('summary', {}, _('Технические сведения')),
+            E('div', { 'class': 'z2m-proxy-info-list' }, [
+              E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Config path'), E('strong', {}, '/etc/tg-ws-proxy/config.conf')]),
+              E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Secret path'), E('strong', {}, '/etc/tg-ws-proxy/secret.conf · 0600')]),
+              E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, 'Init'), E('strong', {}, '/etc/init.d/tg-ws-proxy')])
+            ])
           ])
         ])
-      ])
-    ]));
-    node.open = state.tgSettingsAdvanced === true;
-    return node;
-  }
-  return E('div', { 'class': 'z2m-proxy-pane' }, compact([
-    !installed ? shell.statePanel({
-      message: _('Настройки можно подготовить заранее, но применить их получится только после установки Rust или Go.'),
-      kind: 'info'
-    }) : null,
+      ]);
+      node.open = state.tgSettingsAdvanced === true;
+      return node;
+    })(),
+    dirty ? E('div', { 'class': 'z2m-tg-settings-actions' }, [
+      E('span', { 'class': 'z2m-dim' }, _('Несохранённые изменения')),
+      shell.button(_('Отменить'), '', function () { resetLocalSettings(ctx,data); }),
+      shell.button(_('Сохранить изменения'), 'primary', function () { saveSettings(ctx,data); })
+    ]) : null
+  ]);
+  return E('div', { 'class': 'z2m-proxy-pane' }, [
+    !installed ? shell.statePanel({ message: _('Настройки можно подготовить заранее, но применить их получится только после установки Rust или Go.'), kind: 'info' }) : null,
     profileCard(ctx, data, settings, presets),
-    shell.panel(_('Настройки Telegram Proxy'), E('div', {}, [
-      basicSection,
-      routingSummaryCard(shell, settings, toggleAdvanced),
-      advancedNode()
-    ]), _('Изменения сохраняются как черновик и применяются общим coordinator workflow.'),
-      E('div', { 'class': 'z2m-btnrow' }, compact([
-        shell.button(_('Восстановить рекомендуемые'), '', function () { restoreRecommended(ctx, data, presets, settings); }, false),
-        draft.settings ? shell.button(_('Показать различия'), 'primary sm', ctx.openSemanticDiff, false) : null
-      ]))),
-    state.preview ? shell.statePanel({ message: _('Предпросмотр сервера готов; применение выполняется общим координатором.'), kind: 'success' }) : null
-  ]));
+    shell.panel(_('Настройки Telegram Proxy'), mainSection),
+    E('div', { 'class': 'z2m-btnrow' }, [
+      shell.button(_('Восстановить рекомендуемые'), '', function () { restoreRecommended(ctx, data, presets, settings); })
+    ])
+  ]);
 }
 function activityPane(ctx, data) {
   var shell = ctx.shell;

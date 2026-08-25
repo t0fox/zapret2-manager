@@ -89,19 +89,246 @@ function default_config_body() {
 }
 // Secret storage uses proxycfg's canonical `SECRET=<32hex>` format so both
 // subsystems parse the same file; the init layer maps it to TG_* env vars.
-const DEFAULT_INIT_BODY = '#!/bin/sh /etc/rc.common\n' +
-	'START=99\nSTOP=10\nUSE_PROCD=1\n' +
-	'start_service() {\n\tlocal enabled secret host port\n' +
-	'\tenabled="$(sed -n \'s/^ENABLED=//p\' /etc/tg-ws-proxy/config.conf 2>/dev/null | head -n 1 | tr -d \'\\r\')"\n' +
-	'\t[ "$enabled" = "1" ] || return 0\n' +
-	'\tsecret="$(cat /etc/tg-ws-proxy/secret.conf 2>/dev/null | sed -n \'s/^SECRET=//p\' | head -n 1)"\n' +
-	'\thost="$(cat /etc/tg-ws-proxy/config.conf 2>/dev/null | sed -n \'s/^HOST=//p\' | head -n 1)"\n' +
-	'\tport="$(cat /etc/tg-ws-proxy/config.conf 2>/dev/null | sed -n \'s/^PORT=//p\' | head -n 1)"\n' +
-	'\t[ -n "$secret" ] || return 1\n' +
-	'\tprocd_open_instance\n\tprocd_set_param command ' + BINARY_PATH + '\n' +
-	'\tprocd_set_param env TG_SECRET="$secret" TG_HOST="$host" TG_PORT="$port"\n' +
-	'\tprocd_set_param file /etc/tg-ws-proxy/config.conf\n' +
-	'\tprocd_set_param respawn 3600 5 0\n\tprocd_close_instance\n}\n';
+const DEFAULT_INIT_BODY = 	'#!/bin/sh /etc/rc.common\n' +
+	'# init.d/tg-ws-proxy — procd service for the pinned tg-ws-proxy-rs MTProto bridge.\n' +
+	'#\n' +
+	'# INDEPENDENCE: this service manages ONLY /usr/bin/tg-ws-proxy. It never calls\n' +
+	'# /etc/init.d/zapret2 (the bypass engine) and nothing on the zapret2 side calls\n' +
+	'# this script — a restart of one service never restarts the other.\n' +
+	'#\n' +
+	'# STARTUP GATES (validate_config REFUSES to start — reason on stderr + syslog —\n' +
+	'# when any of these holds):\n' +
+	'#   1. the binary is missing/not executable (package partially removed);\n' +
+	'#   2. config.conf is missing/unreadable (no manager apply has happened);\n' +
+	'#   3. ENABLED != 1 (operator intent lives in the manager-owned config, and a\n' +
+	'#      boot start with a disabled config stays down even if an rc.d symlink\n' +
+	'#      exists);\n' +
+	'#   4. secret.conf is missing, has a mode other than 0600, or SECRET is not\n' +
+	'#      exactly 32 lowercase hex chars (the provider-required format);\n' +
+	'#   5. HOST is empty or a wildcard (0.0.0.0 / :: / *) — v1 has NO wildcard\n' +
+	'#      bind: the listener must bind the explicit LAN address (or a 127.x\n' +
+	'#      loopback for diagnostics), and a HOST that is not a local interface\n' +
+	'#      address is refused instead of falling back to wildcard;\n' +
+	'#   6. PORT is not an integer in 1..65535;\n' +
+	'#   7. a listener already holds HOST:PORT, 0.0.0.0:PORT or :::PORT (a wildcard\n' +
+	'#      holder conflicts with any bind of that port).\n' +
+	'#\n' +
+	'# SECRET HANDLING: the MTProto secret reaches the provider ONLY through the\n' +
+	'# TG_SECRET environment variable — at v1.6.5 every provider flag except\n' +
+	'# --dc-ip has an env alias, so the secret never appears in argv (no ps\n' +
+	'# exposure). Residual: it is visible to root via /proc/<pid>/environ; accepted\n' +
+	'# and documented in docs/research/tg-ws-proxy-provider.md. DC mappings go via\n' +
+	'# argv (--dc-ip) because no env alias exists — IPs are not secret material.\n' +
+	'#\n' +
+	'# LOGGING: the provider writes to $LOG_FILE (pre-created 0600 below). Its\n' +
+	'# startup tg:// link EMBEDS the secret, so the log must stay root-only from\n' +
+	'# the first byte; the manager\'s proxy_logs_tail redacts secret patterns before\n' +
+	'# returning anything.\n' +
+	'#\n' +
+	'# NO FIREWALL RULES are installed here (v1): exposure is governed by the bind\n' +
+	'# address alone — LAN-only by policy, never WAN.\n' +
+	'\n' +
+	'USE_PROCD=1\n' +
+	'START=90\n' +
+	'STOP=10\n' +
+	'\n' +
+	'PROG=' + BINARY_PATH + '\n' +
+	'CONF_DIR=/etc/tg-ws-proxy\n' +
+	'CONF="$CONF_DIR/config.conf"\n' +
+	'SECRET_CONF="$CONF_DIR/secret.conf"\n' +
+	'LOG_FILE=/var/log/tg-ws-proxy.log\n' +
+	'\n' +
+	'log_refuse() {\n' +
+	'	echo "tg-ws-proxy: refusing start: $*" >&2\n' +
+	'	logger -t tg-ws-proxy -p daemon.err "init: refusing start: $*"\n' +
+	'}\n' +
+	'\n' +
+	'# conf_val KEY — value of the first active `KEY=` assignment (quotes stripped).\n' +
+	'# KEY is always a constant here; values are manager-validated before they ever\n' +
+	'# reach the file.\n' +
+	'conf_val() {\n' +
+	'	sed -n "s/^$1=//p" "$CONF" 2>/dev/null | head -n 1 | sed \'s/^"//; s/"$//\' | tr -d \'\\r\'\n' +
+	'}\n' +
+	'\n' +
+	'# ipv4_ok ADDR — dotted quad, four octets 0..255, no leading zeros ("0" ok).\n' +
+	'ipv4_ok() {\n' +
+	'	case "$1" in\n' +
+	'		""|*[!0-9.]*) return 1 ;;\n' +
+	'	esac\n' +
+	'	local IFS=.\n' +
+	'	set -- $1\n' +
+	'	[ "$#" -eq 4 ] || return 1\n' +
+	'	local o\n' +
+	'	for o; do\n' +
+	'		case "$o" in\n' +
+	'			0|[1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) : ;;\n' +
+	'			*) return 1 ;;\n' +
+	'		esac\n' +
+	'	done\n' +
+	'	return 0\n' +
+	'}\n' +
+	'\n' +
+	'# port_held HOST PORT — non-empty output when a listener holds HOST:PORT or a\n' +
+	'# wildcard (:IPv4-any / :IPv6-any) of PORT.\n' +
+	'port_held() {\n' +
+	'	netstat -tln 2>/dev/null | awk \'NR>2 {print $4}\' | while IFS= read -r la; do\n' +
+	'		case "$la" in\n' +
+	'			"$1:$2"|"0.0.0.0:$2"|":::$2") echo held; break ;;\n' +
+	'		esac\n' +
+	'	done\n' +
+	'}\n' +
+	'\n' +
+	'validate_config() {\n' +
+	'	[ -x "$PROG" ] || { log_refuse "binary $PROG missing or not executable (package tg-ws-proxy-rs not installed?)"; return 1; }\n' +
+	'	[ -f "$CONF" ] || { log_refuse "config $CONF missing — apply a configuration first (zapret2-manager proxy_config_apply)"; return 1; }\n' +
+	'	[ -r "$CONF" ] || { log_refuse "config $CONF is not readable"; return 1; }\n' +
+	'\n' +
+	'	local ENABLED; ENABLED=$(conf_val ENABLED)\n' +
+	'	[ "$ENABLED" = "1" ] || { log_refuse "disabled by config (ENABLED != 1) — enable via the manager, not by editing init"; return 1; }\n' +
+	'\n' +
+	'	[ -f "$SECRET_CONF" ] || { log_refuse "secret $SECRET_CONF missing — generate/rotate via zapret2-manager proxy_secret_rotate"; return 1; }\n' +
+	'	local MODE; MODE=$(ls -l "$SECRET_CONF" 2>/dev/null | awk \'{print $1}\')\n' +
+	'	local OCT\n' +
+	'	case "$MODE" in\n' +
+	'		-rw-------) OCT=600 ;;\n' +
+	'		*)         OCT= ;;\n' +
+	'	esac\n' +
+	'	[ -n "$OCT" ] || { log_refuse "secret $SECRET_CONF has mode ${MODE:-unknown} — expected 600"; return 1; }\n' +
+	'	SECRET=$(sed -n \'s/^SECRET=//p\' "$SECRET_CONF" 2>/dev/null | head -n 1 | tr -d \'\\r\')\n' +
+	'	if [ "${#SECRET}" -ne 32 ] || ! printf \'%s\' "$SECRET" | grep -q \'^[0-9a-f]*$\'; then\n' +
+	'		log_refuse "SECRET in $SECRET_CONF is malformed — expected exactly 32 lowercase hex chars"\n' +
+	'		return 1\n' +
+	'	fi\n' +
+	'\n' +
+	'	HOST=$(conf_val HOST)\n' +
+	'	PORT=$(conf_val PORT)\n' +
+	'	case "$HOST" in\n' +
+	'		""|0.0.0.0|"::"|"*")\n' +
+	'			log_refuse "HOST \'$HOST\' is empty or a wildcard — v1 policy requires an explicit LAN (or 127.x loopback) bind; wildcard is not supported"\n' +
+	'			return 1 ;;\n' +
+	'	esac\n' +
+	'	if ! ipv4_ok "$HOST"; then\n' +
+	'		log_refuse "HOST \'$HOST\' is not a valid IPv4 address (IPv6 bind is not supported in v1)"\n' +
+	'		return 1\n' +
+	'	fi\n' +
+	'	case "$HOST" in\n' +
+	'		127.*)\n' +
+	'			: ;;  # loopback bind allowed for diagnostics\n' +
+	'		*)\n' +
+	'			ip -o addr show 2>/dev/null | grep -qw "$HOST" || {\n' +
+	'				log_refuse "HOST $HOST is not a local interface address — refusing instead of falling back to wildcard"\n' +
+	'				return 1\n' +
+	'			} ;;\n' +
+	'	esac\n' +
+	'\n' +
+	'	case "$PORT" in\n' +
+	'		""|*[!0-9]*) log_refuse "PORT \'$PORT\' is not numeric"; return 1 ;;\n' +
+	'	esac\n' +
+	'	[ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || { log_refuse "PORT $PORT out of range (1..65535)"; return 1; }\n' +
+	'\n' +
+	'	[ -z "$(port_held "$HOST" "$PORT")" ] || {\n' +
+	'		log_refuse "port $PORT is already bound by this address or a wildcard holder — port conflict"\n' +
+	'		return 1\n' +
+	'	}\n' +
+	'	return 0\n' +
+	'}\n' +
+	'\n' +
+	'start_service() {\n' +
+	'	validate_config || return 1\n' +
+	'\n' +
+	'	# Optional values (richly validated by the manager before they land here;\n' +
+	'	# only coarse safety gates belong in init).\n' +
+	'	LINK_IP=$(conf_val LINK_IP)\n' +
+	'	POOL_SIZE=$(conf_val POOL_SIZE)\n' +
+	'	BUF_KB=$(conf_val BUF_KB)\n' +
+	'	MAX_CONNECTIONS=$(conf_val MAX_CONNECTIONS)\n' +
+	'	QUIET=$(conf_val QUIET)\n' +
+	'	VERBOSE=$(conf_val VERBOSE)\n' +
+	'	FAKETLS_DOMAIN=$(conf_val FAKETLS_DOMAIN)\n' +
+	'	DC_IPS=$(conf_val DC_IPS)\n' +
+	'	CF_DOMAINS=$(conf_val CF_DOMAINS)\n' +
+	'	CF_WORKER_DOMAINS=$(conf_val CF_WORKER_DOMAINS)\n' +
+	'	CF_PRIORITY=$(conf_val CF_PRIORITY)\n' +
+	'	CF_BALANCE=$(conf_val CF_BALANCE)\n' +
+	'	DEFAULT_DOMAINS=$(conf_val DEFAULT_DOMAINS)\n' +
+	'	MTPROTO_PROXIES=$(conf_val MTPROTO_PROXIES)\n' +
+	'	OUTBOUND_PROXY=$(conf_val OUTBOUND_PROXY)\n' +
+	'	NO_PROXY=$(conf_val NO_PROXY)\n' +
+	'\n' +
+	'	# The provider prints its startup tg:// link (embedding the secret) into\n' +
+	'	# the log — keep the log root-only from the first byte.\n' +
+	'	[ -f "$LOG_FILE" ] || { touch "$LOG_FILE" && chmod 0600 "$LOG_FILE"; }\n' +
+	'\n' +
+	'	# argv carries ONLY --dc-ip pairs (the one provider option with no env\n' +
+	'	# alias; DC IPs are not secret). procd execs argv without a shell — each\n' +
+	'	# token is exactly one argv element. Every pair is re-gated here.\n' +
+	'	# Build dc-ip args FIRST, before repurposing $@ for env vars.\n' +
+	'	local pair dc ip oldifs\n' +
+	'	local dc_args=""\n' +
+	'	if [ -n "$DC_IPS" ]; then\n' +
+	'		oldifs=$IFS; IFS=,\n' +
+	'		for pair in $DC_IPS; do\n' +
+	'			dc=${pair%%:*}\n' +
+	'			ip=${pair#*:}\n' +
+	'			case "$dc" in\n' +
+	'				""|*[!0-9-]*|*-*)   # digits with an optional single -N suffix\n' +
+	'					log_refuse "DC_IPS entry \'$pair\' is malformed (expected DC:IPv4, e.g. 2:149.154.167.220)"\n' +
+	'					return 1 ;;\n' +
+	'			esac\n' +
+	'			if [ "$ip" = "$pair" ] || ! ipv4_ok "$ip"; then\n' +
+	'				log_refuse "DC_IPS entry \'$pair\' is malformed (expected DC:IPv4, e.g. 2:149.154.167.220)"\n' +
+	'				return 1\n' +
+	'			fi\n' +
+	'			dc_args="$dc_args --dc-ip $pair"\n' +
+	'		done\n' +
+	'		IFS=$oldifs\n' +
+	'	fi\n' +
+	'\n' +
+	'	# Build env vars as separate arguments. procd_set_param env OVERWRITES on\n' +
+	'	# each call, so accumulate all in one call via the positional args.\n' +
+	'	set -- TG_HOST="$HOST" TG_PORT="$PORT" TG_SECRET="$SECRET" TG_LOG_FILE="$LOG_FILE"\n' +
+	'	[ -n "$LINK_IP" ] && set -- "$@" TG_LINK_IP="$LINK_IP"\n' +
+	'	[ -n "$POOL_SIZE" ] && set -- "$@" TG_POOL_SIZE="$POOL_SIZE"\n' +
+	'	[ -n "$BUF_KB" ] && set -- "$@" TG_BUF_KB="$BUF_KB"\n' +
+	'	[ -n "$MAX_CONNECTIONS" ] && set -- "$@" TG_MAX_CONNECTIONS="$MAX_CONNECTIONS"\n' +
+	'	[ "$QUIET" = "1" ] && set -- "$@" TG_QUIET=true\n' +
+	'	[ "$VERBOSE" = "1" ] && set -- "$@" TG_VERBOSE=true\n' +
+	'	[ -n "$FAKETLS_DOMAIN" ] && set -- "$@" TG_LISTEN_FAKETLS_DOMAIN="$FAKETLS_DOMAIN"\n' +
+	'	[ -n "$CF_DOMAINS" ] && set -- "$@" TG_CF_DOMAIN="$CF_DOMAINS"\n' +
+	'	[ -n "$CF_WORKER_DOMAINS" ] && set -- "$@" TG_CF_WORKER_DOMAIN="$CF_WORKER_DOMAINS"\n' +
+	'	[ "$CF_PRIORITY" = "1" ] && set -- "$@" TG_CF_PRIORITY=true\n' +
+	'	[ "$CF_BALANCE" = "1" ] && set -- "$@" TG_CF_BALANCE=true\n' +
+	'	[ "$DEFAULT_DOMAINS" = "1" ] && set -- "$@" TG_DEFAULT_DOMAINS=true\n' +
+	'	[ -n "$MTPROTO_PROXIES" ] && set -- "$@" TG_MTPROTO_PROXY="$MTPROTO_PROXIES"\n' +
+	'	[ -n "$OUTBOUND_PROXY" ] && set -- "$@" TG_OUTBOUND_PROXY="$OUTBOUND_PROXY"\n' +
+	'	[ -n "$NO_PROXY" ] && set -- "$@" TG_NO_PROXY="$NO_PROXY"\n' +
+	'\n' +
+	'	procd_open_instance\n' +
+	'	procd_set_param command "$PROG" $dc_args\n' +
+	'	procd_set_param env "$@"\n' +
+	'\n' +
+	'	# BOUNDED respawn: procd restarts a crashed instance at most 5 times (5s\n' +
+	'	# apart) when it dies inside a 3600s window, then stops retrying — no\n' +
+	'	# infinite restart loop.\n' +
+	'	procd_set_param respawn 3600 5 5\n' +
+	'	procd_set_param stdout 1\n' +
+	'	procd_set_param stderr 1\n' +
+	'	procd_close_instance\n' +
+	'}\n' +
+	'\n' +
+	'# Config change needs a full process restart: all provider settings are fixed\n' +
+	'# at process start (env/argv), there is no live-reload signal.\n' +
+	'reload_service() {\n' +
+	'	stop\n' +
+	'	start\n' +
+	'}\n' +
+	'\n' +
+	'extra_command "validate" "Validate config + secret + bind/port gates without starting"\n' +
+	'\n' +
+	'validate() {\n' +
+	'	validate_config && echo "tg-ws-proxy: config OK"\n' +
+	'}\n';
+
 
 const PROVIDERS = [
 	{
