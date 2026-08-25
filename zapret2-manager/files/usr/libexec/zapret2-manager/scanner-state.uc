@@ -26,9 +26,15 @@ function copy(value) {
 	return value;
 }
 function sanitize_numbers(value) {
-	if (type(value) == 'double') return int(value);
+	if (type(value) == 'double') {
+		try { let p=popen('printf \"sanitize top double %s\\n\" '+shell(sprintf('%J', value))+' >> /tmp/sanitize.log 2>&1', 'r'); if(p) p.close(); } catch(e) {}
+		return int(value);
+	}
 	if (type(value) == 'array') { let out=[]; for(let i=0;i<length(value);i++) push(out, sanitize_numbers(value[i])); return out; }
-	if (object(value)) { let out={}; for(let k in value) { let v=value[k]; if (type(v)=='double') { if (k=='successRate' || k=='coverage' || k=='success_rate') v=int(v*1000); else v=int(v); } else v=sanitize_numbers(v); out[k]=v; } return out; }
+	if (object(value)) { let out={}; for(let k in value) { let v=value[k]; if (type(v)=='double') {
+		try { let p=popen('printf \"sanitize double key=%s val=%s\\n\" '+shell(k)+' '+shell(sprintf('%J', v))+' >> /tmp/sanitize.log 2>&1', 'r'); if(p) p.close(); } catch(e) {}
+		if (k=='successRate' || k=='coverage' || k=='success_rate') v=int(v*1000); else v=int(v);
+	} else v=sanitize_numbers(v); out[k]=v; } return out; }
 	return value;
 }
 function root() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? (getenv('Z2M_SCANNER_STATE_ROOT') || ROOT) : ROOT; }
@@ -107,6 +113,7 @@ function publish_revision(id, suffix, value, revision) {
 	let result = native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision);
 	if (!result.ok) {
 		try { let p = popen('printf %s\\n ' + shell(sprintf('atomic_write_json_revision %s%s rev %s failed: %J len %d', id, suffix, revision, result, length(sprintf('%J', value)))) + ' >> /tmp/scanner-publish.log 2>&1', 'r'); if (p) p.close(); } catch (e) {}
+		try { let raw=sprintf('%J', value); let snippet=substr(raw,0,4000); let p2=popen('printf \"FAIL_JSON rev %s len %d snippet: %s\\n\" '+shell(''+revision)+' '+shell(''+length(raw))+' '+shell(snippet)+' >> /tmp/publish_fail.json 2>&1', 'r'); if(p2) p2.close(); } catch(e2) {}
 	}
 	return result.ok;
 }
