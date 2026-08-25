@@ -25,6 +25,12 @@ function copy(value) {
 	if (object(value)) { let out = {}; for (let key in value) out[key] = copy(value[key]); return out; }
 	return value;
 }
+function sanitize_numbers(value) {
+	if (type(value) == 'double') return int(value);
+	if (type(value) == 'array') { let out=[]; for(let i=0;i<length(value);i++) push(out, sanitize_numbers(value[i])); return out; }
+	if (object(value)) { let out={}; for(let k in value) { let v=value[k]; if (type(v)=='double') { if (k=='successRate' || k=='coverage' || k=='success_rate') v=int(v*1000); else v=int(v); } else v=sanitize_numbers(v); out[k]=v; } return out; }
+	return value;
+}
 function root() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? (getenv('Z2M_SCANNER_STATE_ROOT') || ROOT) : ROOT; }
 function path(id, suffix) { return root() + '/' + id + suffix; }
 function test_mode() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1'; }
@@ -163,25 +169,39 @@ function request_digest(request) { return hash(canonical_json(request)); }
 function plan_digest(plan) { return hash(canonical_json({ schema: plan?.schema, request: plan?.request, targetProfile: plan?.targetProfile, catalogDigest: plan?.catalogDigest, compilerDigest: plan?.compilerDigest, candidates: plan?.candidates })); }
 function result_projection(value) {
 	if (!object(value)) return null;
+	let sanitizedScore = type(value.score) == 'int' ? value.score : (type(value.score) == 'double' ? int(value.score) : null);
+	let rawEvidence = object(value.evidence) ? copy(value.evidence) : null;
+	let sanitizedEvidence = object(rawEvidence) ? sanitize_numbers(rawEvidence) : null;
+	// Trim evidence for failed/infra to stay under helper 1024-member limit (keep minimal)
+	if (object(sanitizedEvidence) && value.success !== true) {
+		let minimal = {};
+		if (object(sanitizedEvidence.metrics) && sanitizedEvidence.metrics.successRate != null) minimal.metrics = {successRate: 0};
+		if (sanitizedEvidence.failureClass) minimal.failureClass = sanitizedEvidence.failureClass;
+		if (sanitizedEvidence.infrastructure) minimal.infrastructure = true;
+		sanitizedEvidence = minimal;
+	}
 	let out = {
 		candidateId: text(value.candidateId), ordinal: integer(value.ordinal) ? value.ordinal : 0,
 		verdict: text(value.verdict) || 'infrastructure', success: value.success == true,
-		score: type(value.score) == 'double' || type(value.score) == 'int' ? value.score : null,
-		reason: text(value.reason), evidence: object(value.evidence) ? copy(value.evidence) : null,
+		score: sanitizedScore,
+		reason: text(value.reason), evidence: sanitizedEvidence,
 		planDigest: digest(value.planDigest) ? value.planDigest : null,
 		evidenceIdentity: digest(value.evidenceIdentity) ? value.evidenceIdentity : null,
 	};
 	// Avatar parity: expose throughput, body_passed, success_rate, per_host, score, latency for report compatibility
 	// Keep Z2M canonical identity where stricter: preserve strategyId/revision/saveRequired etc.
-	let metrics = object(value.evidence) && object(value.evidence.metrics) ? value.evidence.metrics : {};
-	let kbps = metrics.averageKbps != null ? metrics.averageKbps : (metrics.kbps != null ? metrics.kbps : 0);
-	let sr = metrics.successRate != null ? metrics.successRate : (value.success === true ? 1 : 0);
+	let metrics = object(value.evidence) && object(value.evidence.metrics) ? sanitize_numbers(copy(value.evidence.metrics)) : {};
+	let kbpsRaw = metrics.averageKbps != null ? metrics.averageKbps : (metrics.kbps != null ? metrics.kbps : 0);
+	let srRaw = metrics.successRate != null ? metrics.successRate : (value.success === true ? 1 : 0);
 	let perHost = metrics.perHost || metrics.perProbe;
 	if (type(perHost) != 'array') {
-		if (object(value.evidence) && type(value.evidence.perHost) == 'array') perHost = value.evidence.perHost;
+		if (object(value.evidence) && type(value.evidence.perHost) == 'array') perHost = sanitize_numbers(copy(value.evidence.perHost));
 		else perHost = [];
-	}
-	let latency = metrics.averageLatencyMs != null ? metrics.averageLatencyMs : (metrics.latencyMs != null ? metrics.latencyMs : (metrics.stunLatencyMs != null ? metrics.stunLatencyMs : 0));
+	} else perHost = sanitize_numbers(copy(perHost));
+	let latencyRaw = metrics.averageLatencyMs != null ? metrics.averageLatencyMs : (metrics.latencyMs != null ? metrics.latencyMs : (metrics.stunLatencyMs != null ? metrics.stunLatencyMs : 0));
+	let kbps = type(kbpsRaw)=='double'?int(kbpsRaw):kbpsRaw;
+	let sr = type(srRaw)=='double'?(srRaw>1?int(srRaw):int(srRaw*1000)):srRaw;
+	let latency = type(latencyRaw)=='double'?int(latencyRaw):latencyRaw;
 	out.throughput_kbps = kbps;
 	out.body_passed = value.success === true;
 	if (object(metrics) && metrics.bodyPassed === false) out.body_passed = false;
@@ -239,21 +259,30 @@ function public_record(value) {
 		planDigest: digest(value.planDigest) ? value.planDigest : null, status: text(value.status) || 'error', phase: text(value.phase) || 'error',
 		progress: integer(value.progress) ? value.progress : 0, total: integer(value.total) ? value.total : 0,
 		cursor: { nextCandidate: integer(value.cursor?.nextCandidate) ? value.cursor.nextCandidate : 0 },
-		currentCandidate: text(value.currentCandidate), counts: object(value.counts) ? copy(value.counts) : { working: 0, failed: 0, infrastructure: 0 },
-		results: bounded_results(value.results), baseline: object(value.baseline) ? copy(value.baseline) : null,
+		currentCandidate: text(value.currentCandidate), counts: object(value.counts) ? sanitize_numbers(copy(value.counts)) : { working: 0, failed: 0, infrastructure: 0 },
+		results: bounded_results(value.results), baseline: object(value.baseline) ? sanitize_numbers(copy(value.baseline)) : null,
 		baselineIdentity: digest(value.baselineIdentity) ? value.baselineIdentity : null,
 		baselineExecutorCalls: integer(value.baselineExecutorCalls) ? value.baselineExecutorCalls : 0,
-		error: text(value.error), recovery: object(value.recovery) ? copy(value.recovery) : { state: 'not_required' },
+		error: text(value.error), recovery: object(value.recovery) ? sanitize_numbers(copy(value.recovery)) : { state: 'not_required' },
 		cancellationRequested: value.cancellationRequested == true, worker: object(value.worker) ? copy(value.worker) : null,
 		heartbeatAt: integer(value.heartbeatAt) ? value.heartbeatAt : time(), startedAt: integer(value.startedAt) ? value.startedAt : null,
 		finishedAt: integer(value.finishedAt) ? value.finishedAt : null, events: bounded_events(value.events),
 	};
-	if (object(value.planAuthority) && type(value.planAuthority.candidates) == 'array') out.planAuthority = copy(value.planAuthority);
+	if (index(['completed','cancelled','error'], out.status) >= 0 && object(value.planAuthority) && type(value.planAuthority.candidates) == 'array') out.planAuthority = sanitize_numbers(copy(value.planAuthority));
+	else if (object(value.planAuthority)) {
+		let pa = {};
+		if (digest(value.planAuthority.catalogDigest)) pa.catalogDigest = value.planAuthority.catalogDigest;
+		if (digest(value.planAuthority.compilerDigest)) pa.compilerDigest = value.planAuthority.compilerDigest;
+		if (digest(value.planDigest)) pa.planDigest = value.planDigest;
+		if (integer(value.planAuthority.execution?.candidatesCompiled)) pa.candidatesCompiled = value.planAuthority.execution.candidatesCompiled;
+		if (integer(value.planAuthority.execution?.candidatesShortlisted)) pa.candidatesShortlisted = value.planAuthority.execution.candidatesShortlisted;
+		out.planAuthority = sanitize_numbers(pa);
+	}
 	// Avatar parity: expose elapsed_seconds for get_status compatibility (strategy_scanner.get_status elapsed)
 	if (out.startedAt != null && out.finishedAt != null) out.elapsed_seconds = out.finishedAt - out.startedAt;
 	else if (out.startedAt != null && out.heartbeatAt != null) out.elapsed_seconds = out.heartbeatAt - out.startedAt;
 	else out.elapsed_seconds = 0;
-	return out;
+	return sanitize_numbers(out);
 }
 function valid_record(value) {
 	return object(value) && value.schema == 1 && safe_id(value.id) && integer(value.revision)
