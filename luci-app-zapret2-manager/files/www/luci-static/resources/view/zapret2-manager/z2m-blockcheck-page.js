@@ -21,8 +21,11 @@ function bounded(promise, label) {
 }
 function refresh(ctx) {
   return Promise.all([bounded(ctx.api.blockcheck.status(), 'basic'), bounded(ctx.api.blockcheck2.status(), 'extended'), bounded(ctx.api.blockcheckw.status(), 'search'), bounded(ctx.api.blockDetector.status(), 'dns')]).then(function (values) {
-    state.loadError = null; state.timedOut = values.some(function (item) { return item.timeout; });
-    values.forEach(function (item) { if (item.error && !state.loadError) state.loadError = item.error; });
+    state.loadError = null; state.timedOut = values.slice(0,3).some(function (item) { return item.timeout; });
+    // Only basic/extended/search are required for the diagnostics tab to be considered loaded.
+    // blockDetector (dns) is optional and must not take down the whole tab.
+    values.slice(0,3).forEach(function (item) { if (item.error && !state.loadError) state.loadError = item.error; });
+    if (values[3] && values[3].error) state.detectorError = values[3].error; else state.detectorError = null;
     state.diagnostic = object(values[0].value).job;
     state.official = object(values[1].value).job;
     state.fast = object(values[2].value).job;

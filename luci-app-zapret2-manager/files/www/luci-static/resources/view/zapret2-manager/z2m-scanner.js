@@ -164,15 +164,10 @@ function schedule(ctx) {
     call(ctx, 'status', { id: state.scanId }).then(function (value) {
       if (state.disposed || generation !== state.generation) return;
       if (recordPending(value)) {
-        if (state.statusRetries >= MAX_STATUS_RETRIES) {
-          return failPending(ctx, value);
-        }
-        state.statusRetries++;
-        state.status = { status: 'starting', phase: 'waiting-record' };
-        state.error = null;
-        return refresh(ctx).then(function () { schedule(ctx); });
+        state.error = value;
+        state.status = { status: 'error', error: 'Scanner record is unavailable (backend contract violation for accepted scan)' };
+        return refresh(ctx);
       }
-      state.statusRetries = 0;
       state.error = null;
       state.status = value || {};
       if (!terminal(state.status)) return refresh(ctx).then(function () { schedule(ctx); });
@@ -184,11 +179,9 @@ function schedule(ctx) {
     }).catch(function (error) {
       if (state.disposed || generation !== state.generation) return;
       if (recordPending(error)) {
-        if (state.statusRetries >= MAX_STATUS_RETRIES) return failPending(ctx, error);
-        state.statusRetries++;
-        state.status = { status: 'starting', phase: 'waiting-record' };
-        state.error = null;
-        return schedule(ctx);
+        state.error = error;
+        state.status = { status: 'error', error: 'Scanner record is unavailable (backend contract violation)' };
+        return refresh(ctx);
       }
       state.error = error;
       schedule(ctx);
@@ -201,12 +194,10 @@ function load(ctx) {
   var id = state.scanId;
   return call(ctx, 'status', { id: id }).then(function (status) {
     if (recordPending(status)) {
-      state.statusRetries = Math.min(state.statusRetries + 1, MAX_STATUS_RETRIES);
-      state.status = { status: 'starting', phase: 'waiting-record' };
-      state.error = null;
+      state.error = status;
+      state.status = { status: 'error', error: 'Scanner record is unavailable (backend contract violation)' };
       return { scanId: id, status: state.status, report: state.report };
     }
-    state.statusRetries = 0;
     state.error = null;
     state.status = status || {};
     if (!terminal(state.status)) return { scanId: id, status: state.status, report: state.report };

@@ -457,14 +457,39 @@ export const scanner_worker_resume = function(input, seams) {
 	return scanner_worker_resume_impl({ id: record.id, request: record.request, resume: true, record, resumePlan: copy(plan) }, seams);
 };
 
+function update_durable_error(id, phase, error) {
+	try {
+		let loaded = state.scanner_state_load(id);
+		if (!loaded.ok) return;
+		let rec = loaded.state;
+		rec.status = 'error';
+		rec.phase = phase || 'error';
+		rec.error = error && (error.message || error.code) ? (error.message || error.code) : String(error || 'Scanner failed');
+		rec.recovery = { state: 'uncertain', message: rec.error };
+		rec.finishedAt = time();
+		rec.heartbeatAt = time();
+		state.scanner_state_save(rec);
+	} catch (e) {}
+}
 scanner_worker_run_impl = function(input, seams) {
 	if (!object(input) || !object(input.request)) return error('EINPUT', 'Scanner worker request is invalid.');
 	let prepared = input.resume === true && input.resumePlan != null ? request_validate(input.request) : request_and_plan(input, seams);
-	if (!prepared.ok) return prepared;
+	if (!prepared.ok) {
+		if (input.id) update_durable_error(input.id, 'planning', prepared.error);
+		return prepared;
+	}
 	let req = prepared.value || prepared.request, plan = input.resume === true && input.resumePlan != null ? input.resumePlan : prepared.plan, persistedPlan = input.resume === true && input.record ? input.record.planAuthority : prepared.persistedPlan, identity = self_identity(seams);
-	if (!integer(identity.pid) || !integer(identity.startTime)) return error('EDEPENDENCY', 'Scanner worker identity is unavailable.');
+	if (!integer(identity.pid) || !integer(identity.startTime)) {
+		if (input.id) update_durable_error(input.id, 'planning', { code: 'EDEPENDENCY', message: 'Scanner worker identity is unavailable.' });
+		return error('EDEPENDENCY', 'Scanner worker identity is unavailable.');
+	}
 	lifecycle = { seams, stage: 'start', session: null, attempt: null, record: null, claimed: null };
-	let record = input.record || {
+	let existingRecord = null;
+	if (input.id) {
+		let loaded = state.scanner_state_load(input.id);
+		if (loaded.ok) existingRecord = loaded.state;
+	}
+	let record = existingRecord || input.record || {
 		schema: 1, id: null, revision: 0, request: copy(req), requestDigest: null,
 		catalogDigest: plan.catalogDigest, compilerDigest: plan.compilerDigest, planDigest: null,
 		status: 'idle', phase: 'idle', progress: 0, total: length(plan.candidates), cursor: { nextCandidate: 0 },
@@ -480,11 +505,20 @@ scanner_worker_run_impl = function(input, seams) {
 	lifecycle.record = record;
 	record.id = input.id || record.id || 'scan-' + time(); record.request = copy(req); record.requestDigest = state.scanner_state_digest(req);
 	record.catalogDigest = persistedPlan.catalogDigest; record.compilerDigest = persistedPlan.compilerDigest; record.planDigest = plan_identity(persistedPlan);
-	if (!digest(record.requestDigest) || !digest(record.planDigest)) return error('EDEPENDENCY', 'Scanner identity digests are unavailable.');
+	if (!digest(record.requestDigest) || !digest(record.planDigest)) {
+		if (input.id) update_durable_error(input.id, 'planning', { code: 'EDEPENDENCY', message: 'Scanner identity digests are unavailable.' });
+		return error('EDEPENDENCY', 'Scanner identity digests are unavailable.');
+	}
 	let dependencies = seam(seams, 'dependencyPreflight') || scanner_dependency_preflight();
-	if (!dependencies.ok) return dependencies;
+	if (!dependencies.ok) {
+		if (input.id) update_durable_error(input.id, 'planning', dependencies.error);
+		return dependencies;
+	}
 	let claimed = state.scanner_state_claim(record.id || 'pending', identity, input.resume === true);
-	if (!claimed.ok) return claimed;
+	if (!claimed.ok) {
+		if (input.id) update_durable_error(input.id, 'planning', claimed.error);
+		return claimed;
+	}
 	lifecycle.claimed = { id: record.id, identity: copy(identity) };
 	record.worker = { pid: identity.pid, startTime: identity.startTime, owner: 'scanner/worker', generation: integer(identity.generation) ? identity.generation : 0 };
 	record.status = 'running'; record.startedAt = record.startedAt || time(); record.recovery = { state: 'not_required' }; phase(record, 'validating', null);

@@ -24,6 +24,7 @@
 
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
+import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
 	dns_product_rollback } from '/usr/libexec/zapret2-manager/dns-product.uc';
@@ -397,6 +398,7 @@ function blockcheck_rollback_method(req) { return blockcheck_apply_method(req); 
 
 // ---- jobs + blockcheck (SLICE 4) --------------------------------------------
 const JOBS_CLI = '/usr/libexec/zapret2-manager/jobs-cli.uc';
+const BLOCK_DETECTOR_CLI = '/usr/libexec/zapret2-manager/block-detector-cli.uc';
 
 function jobs_action(sub) {
 	let cmd = '/usr/bin/ucode ' + JOBS_CLI + ' ' + sub + ' 2>/dev/null';
@@ -468,26 +470,110 @@ function scanner_start_async_impl(req) {
 	try { request = json(edit); } catch (e) { return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is malformed' } }; }
 	if (type(request) != 'object' || request == null)
 		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is invalid' } };
+	if (request.request == null && request.target == null)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner request is invalid' } };
+	let inner = request.request != null ? request.request : request;
+	if (inner.target == null && request.target != null) inner.target = request.target;
+	if (inner.protocol == null && request.protocol != null) inner.protocol = request.protocol;
+	if (inner.mode == null && request.mode != null) inner.mode = request.mode;
+	if (inner.dpi_type == null && request.dpi_type != null) inner.dpi_type = request.dpi_type;
+	if (type(inner.target) != 'string' || length(inner.target) < 1)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target is required' } };
 	if (request.id == null) request.id = 'scan-' + time() + '-' + (++scanner_start_sequence);
 	if (type(request.id) != 'string' || !match(request.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/))
 		return { ok: false, error: { code: 'EINPUT', message: 'Scanner id is invalid' } };
+	// Durable acceptance: create initial record before launching worker
+	let initialRequest = inner;
+	let initialRecord = null;
+	try {
+		let created = scanner_state.scanner_state_create(initialRequest, { schema: 1, request: initialRequest, catalogDigest: '0'.repeat(64), compilerDigest: '0'.repeat(64), candidates: [] });
+		created.id = request.id;
+		created.status = 'starting';
+		created.phase = 'queued';
+		created.progress = 0;
+		created.total = 0;
+		created.request = initialRequest;
+		created.requestDigest = scanner_state.scanner_state_digest(initialRequest);
+		created.catalogDigest = '0'.repeat(64);
+		created.compilerDigest = '0'.repeat(64);
+		created.planDigest = scanner_state.scanner_state_digest({ schema: 1, request: initialRequest });
+		created.heartbeatAt = time();
+		created.startedAt = time();
+		let saved = scanner_state.scanner_state_save(created);
+		if (!saved.ok) {
+			let loadBack = scanner_state.scanner_state_load(request.id);
+			if (!loadBack.ok) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record could not be created', detail: saved.error } };
+			initialRecord = loadBack.state;
+		} else {
+			let loadBack = scanner_state.scanner_state_load(request.id);
+			if (!loadBack.ok) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record not readable after creation' } };
+			initialRecord = loadBack.state;
+		}
+	} catch (e) {
+		return { ok: false, error: { code: 'EIO', message: 'Scanner durable record creation failed', detail: '' + e } };
+	}
+	if (initialRecord == null) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record is null after creation' } };
 	let serialized = sprintf('%J', request), tmp = null;
 	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX 2>/dev/null', 'r');
 	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
 	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
 		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
 		if (tmp) try { unlink(tmp); } catch (e) { }
+		// Update already-created record to error: launch failure
+		try {
+			let rec = scanner_state.scanner_state_load(request.id);
+			if (rec.ok) {
+				let errRec = rec.state;
+				errRec.status = 'error';
+				errRec.phase = 'launch';
+				errRec.error = 'Scanner worker could not be launched: temp file unavailable';
+				errRec.recovery = { state: 'uncertain', message: 'launch failed' };
+				errRec.finishedAt = time();
+				scanner_state.scanner_state_save(errRec);
+			}
+		} catch (e) {}
 		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	}
 	let wrote = null; try { wrote = writefile(tmp, serialized); } catch (e) { wrote = null; }
-	if (wrote == null) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
+	if (wrote == null) {
+		try { unlink(tmp); } catch (ignore) { }
+		try {
+			let rec = scanner_state.scanner_state_load(request.id);
+			if (rec.ok) {
+				let errRec = rec.state;
+				errRec.status = 'error';
+				errRec.phase = 'launch';
+				errRec.error = 'request temp file could not be written';
+				errRec.finishedAt = time();
+				scanner_state.scanner_state_save(errRec);
+			}
+		} catch (e) {}
+		return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } };
+	}
 	let workerCommand = '/usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
-		+ ' >/dev/null 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1';
+		+ ' >/tmp/zapret2-manager/scanner/' + request.id + '.worker.log 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1';
 	let cmd = 'setsid sh -c ' + shell_escape(workerCommand) + ' >/dev/null 2>&1 &';
 	let launched = popen(cmd, 'r');
-	if (!launched) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } }; }
+	if (!launched) {
+		try { unlink(tmp); } catch (e) { }
+		try {
+			let rec = scanner_state.scanner_state_load(request.id);
+			if (rec.ok) {
+				let errRec = rec.state;
+				errRec.status = 'error';
+				errRec.phase = 'launch';
+				errRec.error = 'Scanner worker could not be launched';
+				errRec.finishedAt = time();
+				scanner_state.scanner_state_save(errRec);
+			}
+		} catch (e) {}
+		return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } };
+	}
 	launched.close();
-	return { ok: true, accepted: true, scanId: request.id, state: 'running' };
+	// Verify durable record still readable after launch
+	let verify = scanner_state.scanner_state_load(request.id);
+	if (!verify.ok) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record not readable after launch' } };
+	return { ok: true, accepted: true, scanId: request.id, state: verify.state.status || 'starting', record: verify.state };
 }
 
 function scanner_start_async(req) {
@@ -608,6 +694,11 @@ function cli_edit_action(cli, sub, req, tag) {
 		return { ok: false, error: 'no output', raw: out };
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
+
+function block_detector_start_method(req) { return cli_edit_action(BLOCK_DETECTOR_CLI, 'start', req, 'block-detector'); }
+function block_detector_status_method(req) { return cli_action(BLOCK_DETECTOR_CLI, 'status'); }
+function block_detector_results_method(req) { return cli_action(BLOCK_DETECTOR_CLI, 'results'); }
+function block_detector_stop_method(req) { return cli_action(BLOCK_DETECTOR_CLI, 'stop'); }
 
 function versions_method(req) { return cli_action(MAINT_CLI, 'versions'); }
 function maintenance_status_method(req) { return cli_action(MAINT_CLI, 'status'); }
@@ -1111,6 +1202,10 @@ return {
 		blockcheck_apply: { args: { edit: 'string' }, call: function (req) { return blockcheck_apply_method(req); } },
 		blockcheck_preview: { args: { edit: 'string' }, call: function (req) { return blockcheck_preview_method(req); } },
 		blockcheck_rollback: { args: { edit: 'string' }, call: function (req) { return blockcheck_rollback_method(req); } },
+		block_detector_start: { args: { edit: 'string' }, call: function (req) { return block_detector_start_method(req); } },
+		block_detector_status: { call: function (req) { return block_detector_status_method(req); } },
+		block_detector_results: { call: function (req) { return block_detector_results_method(req); } },
+		block_detector_stop: { args: { edit: 'string' }, call: function (req) { return block_detector_stop_method(req); } },
 		health_matrix_get: { call: function (req) { return health_matrix_get_method(req); } },
 		health_matrix_start: { args: { edit: 'string' }, call: function (req) { return health_matrix_start_method(req); } },
 		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },
