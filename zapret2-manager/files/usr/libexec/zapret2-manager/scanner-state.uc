@@ -90,9 +90,19 @@ function publish_revision(id, suffix, value, revision) {
 		return atomic(path(id, suffix), value);
 	}
 	let made = native.mkdir_private('runtime', 'scanner', true);
-	if (!made.ok) return false;
-	if (id != '') { made = native.mkdir_private('runtime', 'scanner/' + id, true); if (!made.ok) return false; }
-	return native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision).ok;
+	if (!made.ok) {
+		try { let p = popen('printf %s\\n ' + shell(sprintf('mkdir_private scanner failed: %J', made)) + ' >> /tmp/scanner-publish.log 2>&1', 'r'); if (p) p.close(); } catch (e) {}
+		return false;
+	}
+	if (id != '') { made = native.mkdir_private('runtime', 'scanner/' + id, true); if (!made.ok) {
+		try { let p = popen('printf %s\\n ' + shell(sprintf('mkdir_private scanner/%s failed: %J', id, made)) + ' >> /tmp/scanner-publish.log 2>&1', 'r'); if (p) p.close(); } catch (e) {}
+		return false;
+	} }
+	let result = native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision);
+	if (!result.ok) {
+		try { let p = popen('printf %s\\n ' + shell(sprintf('atomic_write_json_revision %s%s rev %s failed: %J len %d', id, suffix, revision, result, length(sprintf('%J', value)))) + ' >> /tmp/scanner-publish.log 2>&1', 'r'); if (p) p.close(); } catch (e) {}
+	}
+	return result.ok;
 }
 function publish_cancel(id) {
 	if (test_mode()) return atomic(path(id, '.cancel'), { id, stopRequested: true, updatedAt: time() });
