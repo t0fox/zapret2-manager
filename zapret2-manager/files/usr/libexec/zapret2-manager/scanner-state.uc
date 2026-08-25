@@ -225,7 +225,17 @@ function public_record(value) {
 		heartbeatAt: integer(value.heartbeatAt) ? value.heartbeatAt : time(), startedAt: integer(value.startedAt) ? value.startedAt : null,
 		finishedAt: integer(value.finishedAt) ? value.finishedAt : null, events: bounded_events(value.events),
 	};
-	if (object(value.planAuthority) && type(value.planAuthority.candidates) == 'array') out.planAuthority = sanitize_numbers(copy(value.planAuthority));
+	// Interim running records store planAuthority as digest-only to stay under helper 1024-member canonical limit
+	// Full candidates are only needed for terminal verification/handoff
+	if (index(['completed','cancelled','error'], out.status) >= 0 && object(value.planAuthority) && type(value.planAuthority.candidates) == 'array') out.planAuthority = sanitize_numbers(copy(value.planAuthority));
+	else if (object(value.planAuthority)) {
+		let pa = {};
+		if (digest(value.planAuthority.catalogDigest)) pa.catalogDigest = value.planAuthority.catalogDigest;
+		if (digest(value.planAuthority.compilerDigest)) pa.compilerDigest = value.planAuthority.compilerDigest;
+		if (digest(value.planDigest)) pa.planDigest = value.planDigest;
+		if (integer(value.planAuthority.execution?.candidatesCompiled)) pa.candidatesCompiled = value.planAuthority.execution.candidatesCompiled;
+		out.planAuthority = pa;
+	}
 	return sanitize_numbers(out);
 }
 function valid_record(value) {

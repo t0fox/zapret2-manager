@@ -110,14 +110,14 @@ function valid_base64(value) {
 }
 
 function valid_json_node(value, depth, budget) {
-	if (++budget.nodes > 65536 || depth > 64) return false;
+	if (++budget.nodes > 131072 || depth > 64) return false;
 	let kind = type(value);
 	if (value == null || kind == 'bool' || kind == 'int' || kind == 'double' || kind == 'string') return true;
 	if (kind != 'array' && kind != 'object') return false;
-	if (++budget.containers > 1024) return false;
+	if (++budget.containers > 2048) return false;
 	if (kind == 'object') {
 		for (let key in value) {
-			if (++budget.members > 1024 || length(key) > 4096 || index(key, sprintf('%c', 0)) >= 0)
+			if (++budget.members > 4096 || length(key) > 4096 || index(key, sprintf('%c', 0)) >= 0)
 				return false;
 			if (!valid_json_node(value[key], depth + 1, budget)) return false;
 		}
