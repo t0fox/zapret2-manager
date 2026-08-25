@@ -467,11 +467,24 @@ function reveal(ctx) {
                 var ta = document.createElement('textarea');
                 ta.value = text;
                 ta.setAttribute('readonly', '');
-                ta.style.position = 'absolute';
+                ta.style.position = 'fixed';
+                ta.style.top = '0';
                 ta.style.left = '-9999px';
                 document.body.appendChild(ta);
+                ta.focus();
                 ta.select();
-                var ok = document.execCommand('copy');
+                try { ta.setSelectionRange(0, 99999); } catch (e) {}
+                var ok = false;
+                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+                if (!ok && window.getSelection) {
+                  var range = document.createRange();
+                  range.selectNodeContents(ta);
+                  var sel = window.getSelection();
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                  try { ok = document.execCommand('copy'); } catch (e) {}
+                  sel.removeAllRanges();
+                }
                 document.body.removeChild(ta);
                 return ok;
               } catch (e) { return false; }
