@@ -38,7 +38,16 @@ test('shared lifecycle repair: init drift rewritten, secret in proxycfg format',
   // init bodies and migrate legacy TG_SECRET= storage to SECRET=<32hex>.
   const fn = source.slice(source.indexOf('function ensure_shared_lifecycle'),
     source.indexOf('function download_verified_artifact'));
-  assert.match(fn, /cur != DEFAULT_INIT_BODY/, 'init drift must be repaired');
+  assert.match(fn, /cur != canonicalInit/, 'init drift must be repaired against the canonical runtime adapter');
+  assert.match(fn, /canonical_init_body\(\)/, 'init body must come from the single canonical source');
+  assert.doesNotMatch(source, /'#!\/bin\/sh \/etc\/rc\.common/, '239-line init body must NOT be embedded in provider.uc (single source of truth)');
+  assert.match(source, /usr\/share\/zapret2-manager\/tg-canonical-init\.sh/,
+    'provider must read /usr/share/zapret2-manager/tg-canonical-init.sh as the single canonical init');
+  const canonical = fs.readFileSync(path.join(ROOT, 'zapret2-manager', 'files',
+    'usr', 'share', 'zapret2-manager', 'tg-canonical-init.sh'), 'utf8');
+  assert.match(canonical, /^#!\/bin\/sh \/etc\/rc\.common/, 'canonical init is a complete rc.common script');
+  assert.match(fs.readFileSync(path.join(ROOT, 'tg-ws-proxy-rs', 'files', 'etc', 'init.d', 'tg-ws-proxy'), 'utf8'),
+    /^#!\/bin\/sh \/etc\/rc\.common/, 'upstream reference init stays for comparison');
   assert.match(fn, /SECRET=/, 'secret file uses canonical SECRET= key');
   assert.match(fn, /TG_SECRET=/, 'legacy TG_SECRET storage is recognised for migration');
   assert.match(fn, /\{48\}/, 'legacy 48-hex secret is truncated to the canonical 32-hex form');

@@ -92,8 +92,11 @@ test('LAN access is a first-class toggle with an advertised address line', () =>
   const provider = fs.readFileSync(PROVIDER, 'utf8');
   assert.match(provider, /function lan_address/);
   assert.match(provider, /'ENABLED=1\\nHOST=' \+ host \+ '\\nPORT=1443\\nLINK_IP=\\n'/);
-  // Manager init refuses to raise a disabled config (state consistency) — full canonical validates ENABLED and refuses to start
-  assert.match(provider, /ENABLED.*1.*log_refuse|enabled.*return 0/);
+  // Manager init refuses to raise a disabled config (state consistency) —
+  // the canonical init validates ENABLED and refuses to start (single source
+  // of truth: tg-canonical-init.sh, read by canonical_init_body()).
+  const canonical = fs.readFileSync('zapret2-manager/files/usr/share/zapret2-manager/tg-canonical-init.sh', 'utf8');
+  assert.match(canonical, /ENABLED.*=.*"1".*\|\|.*log_refuse/, 'canonical init must refuse ENABLED != 1');
 });
 
 test('Operation progress is a real backend-backed model, not a fake spinner', () => {

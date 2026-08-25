@@ -52,8 +52,9 @@ endef
 define Package/tg-ws-proxy-rs/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tg-ws-proxy $(1)/usr/bin/tg-ws-proxy
-	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./files/etc/init.d/tg-ws-proxy $(1)/etc/init.d/tg-ws-proxy
+	# Init is manager-owned single source - provider only installs binary
+	# $(INSTALL_DIR) $(1)/etc/init.d
+	# $(INSTALL_BIN) ./files/etc/init.d/tg-ws-proxy $(1)/etc/init.d/tg-ws-proxy
 	$(INSTALL_DIR) $(1)/etc/tg-ws-proxy
 	$(INSTALL_CONF) ./files/etc/tg-ws-proxy/config.conf $(1)/etc/tg-ws-proxy/config.conf
 	$(INSTALL_DIR) $(1)/usr/share/licenses/tg-ws-proxy-rs

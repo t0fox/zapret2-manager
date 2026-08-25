@@ -1237,7 +1237,15 @@ function settingsSection(ctx, data, settings, title, subtitle, fields) {
 var PROFILE_TEMPLATES = {
   recommended: {
     port: 1443, defaultDomains: true, cfPriority: true, cfBalance: false,
-    faketlsDomain: '', dcIps: [], cfDomains: [], cfWorkerDomains: [],
+    // Live-trace contract: media aliases 10001-10005 must be mapped or the
+    // provider drops media sessions with "no fallback IP available".
+    dcIps: [
+      '1:149.154.175.50', '2:149.154.167.51', '3:149.154.175.100',
+      '4:149.154.167.91', '5:149.154.171.5',
+      '10001:149.154.175.50', '10002:149.154.167.51', '10003:149.154.175.100',
+      '10004:149.154.167.91', '10005:149.154.171.5'
+    ],
+    cfDomains: [], cfWorkerDomains: [],
     mtprotoProxies: [], outboundProxy: '', noProxy: '',
     poolSize: 4, bufKb: 256, maxConnections: 0, quiet: false, verbose: false
   },
@@ -1261,9 +1269,21 @@ function profilePresets(data) {
   };
 }
 
+// The canonical Recommended DC set (DC1-5 + media aliases 10001-10005) counts
+// as default routing — it IS the shipped preset, not a user customization.
+var RECOMMENDED_DC_SET = [
+  '1:149.154.175.50', '2:149.154.167.51', '3:149.154.175.100',
+  '4:149.154.167.91', '5:149.154.171.5',
+  '10001:149.154.175.50', '10002:149.154.167.51', '10003:149.154.175.100',
+  '10004:149.154.167.91', '10005:149.154.171.5'
+];
+
 function routingCustomized(settings) {
   settings = object(settings);
-  return array(settings.dcIps).length > 0 || array(settings.cfDomains).length > 0 ||
+  var dc = array(settings.dcIps);
+  var dcDefault = dc.length === 0 || (dc.length === RECOMMENDED_DC_SET.length &&
+    RECOMMENDED_DC_SET.every(function (v, i) { return dc[i] === v; }));
+  return !dcDefault || array(settings.cfDomains).length > 0 ||
     array(settings.cfWorkerDomains).length > 0 || array(settings.mtprotoProxies).length > 0 ||
     String(settings.outboundProxy == null ? '' : settings.outboundProxy).trim() !== '';
 }

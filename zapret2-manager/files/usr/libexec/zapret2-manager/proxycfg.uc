@@ -347,6 +347,29 @@ function sanitize_config(c) {
 //     EXTRA_ARGS stay empty.
 // The listener host/linkIp/enabled/autostart are NOT part of a profile: they
 // are connection facts owned by the user (safe explicit-IPv4 contract).
+//
+// RECOMMENDED DC COVERAGE (live-trace contract, router 192.168.1.1 evidence):
+// Telegram clients address media servers as DC 1000N (positive dc_idx on the
+// wire, e.g. DC10003 during photo/video load). tg-ws-proxy-rs resolves ONLY
+// explicit --dc-ip entries or its built-in table (DC 1-5, 203) — an unmapped
+// media alias is dropped with "no fallback IP available" BEFORE any upstream
+// connect, which is the exact P1 media-failure boundary. The Recommended
+// preset therefore passes explicit production IPs for DC1-5 PLUS the media
+// aliases 10001-10005 (media shares its base DC's production IP; IPs are the
+// provider's own DEFAULT_DC_IPS table, not invented).
+
+const RECOMMENDED_DC_IPS = [
+	'1:149.154.175.50', '2:149.154.167.51', '3:149.154.175.100',
+	'4:149.154.167.91', '5:149.154.171.5',
+	'10001:149.154.175.50', '10002:149.154.167.51', '10003:149.154.175.100',
+	'10004:149.154.167.91', '10005:149.154.171.5'
+];
+
+function same_dc_set(a, b) {
+	if (length(a) != length(b)) return false;
+	for (let i = 0; i < length(a); i++) if (a[i] != b[i]) return false;
+	return true;
+}
 
 function recommended_profile_settings() {
 	return {
@@ -355,7 +378,7 @@ function recommended_profile_settings() {
 		cfPriority: true,
 		cfBalance: false,
 		faketlsDomain: '',
-		dcIps: [], cfDomains: [], cfWorkerDomains: [],
+		dcIps: RECOMMENDED_DC_IPS, cfDomains: [], cfWorkerDomains: [],
 		mtprotoProxies: [],
 		outboundProxy: '', noProxy: '',
 		poolSize: 4, bufKb: 256, maxConnections: 0,
@@ -371,7 +394,11 @@ function direct_profile_settings() {
 }
 
 function profile_routing_is_default(c) {
-	return length(c.dcIps) == 0 && length(c.cfDomains) == 0 &&
+	// The canonical Recommended DC set (DC1-5 + media aliases 10001-10005)
+	// counts as "default routing": it IS the preset the manager ships, not a
+	// user customization. Any other DC list is custom.
+	let dcDefault = length(c.dcIps) == 0 || same_dc_set(c.dcIps, RECOMMENDED_DC_IPS);
+	return dcDefault && length(c.cfDomains) == 0 &&
 		length(c.cfWorkerDomains) == 0 && length(c.mtprotoProxies) == 0 &&
 		trim('' + (c.outboundProxy != null ? c.outboundProxy : '')) == '';
 }
@@ -1657,16 +1684,29 @@ function build_coverage(config) {
 			if (!found) { hasAll = false; break; }
 		}
 	}
+	// Media alias coverage: Telegram clients address media as DC 1000N. An
+	// unmapped alias is dropped by the provider before any upstream connect
+	// (live-trace P1 boundary), so its absence is an explicit coverage gap.
+	let mediaNeeded = ['10001:', '10002:', '10003:', '10004:', '10005:'];
+	let mediaCount = 0;
+	for (let m = 0; m < length(mediaNeeded); m++) {
+		for (let j2 = 0; j2 < length(c.dcIps); j2++)
+			if (substr(c.dcIps[j2], 0, 6) == mediaNeeded[m]) { mediaCount++; break; }
+	}
 	return {
 		dcIps: c.dcIps,
 		dcCount: count,
 		hasExplicitAllDc: hasAll,
+		hasMediaAliases: mediaCount == 5,
+		mediaAliasCount: mediaCount,
 		hasDefaultFallback: (c.defaultDomains == true || length(c.cfDomains) > 0 || length(c.cfWorkerDomains) > 0),
 		cfPriority: c.cfPriority,
 		cfBalance: c.cfBalance,
 		defaultDomains: c.defaultDomains,
 		mode: detect_config_profile(c),
-		note: hasAll ? 'explicit DC1-DC5 coverage' : (c.defaultDomains ? 'relies on default CF domains for coverage' : 'uses provider defaults (DC2+DC4 only) — may miss media on other DCs')
+		note: (hasAll && mediaCount == 5) ? 'explicit DC1-DC5 + media alias coverage'
+			: (hasAll ? 'explicit DC1-DC5 but media aliases 10001-10005 missing — media sessions may be dropped'
+			: (c.defaultDomains ? 'relies on default CF domains for coverage' : 'uses provider defaults (DC2+DC4 only) - may miss media on other DCs'))
 	};
 }
 

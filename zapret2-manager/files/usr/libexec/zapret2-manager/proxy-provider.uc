@@ -83,7 +83,14 @@ function default_config_body() {
 		'# Recommended profile: upstream default Cloudflare fallback routes.\n\n' +
 		'ENABLED=1\nHOST=' + host + '\nPORT=1443\nLINK_IP=\n' +
 		'POOL_SIZE=4\nBUF_KB=256\nMAX_CONNECTIONS=\nQUIET=0\nVERBOSE=0\n' +
-		'FAKETLS_DOMAIN=\nDC_IPS=\nCF_DOMAINS=\nCF_WORKER_DOMAINS=\n' +
+		'FAKETLS_DOMAIN=\n' +
+		// Live-trace contract: media aliases 10001-10005 must be mapped or the
+		// provider drops those sessions with "no fallback IP available".
+		'DC_IPS=1:149.154.175.50,2:149.154.167.51,3:149.154.175.100,' +
+			'4:149.154.167.91,5:149.154.171.5,' +
+			'10001:149.154.175.50,10002:149.154.167.51,10003:149.154.175.100,' +
+			'10004:149.154.167.91,10005:149.154.171.5\n' +
+		'CF_DOMAINS=\nCF_WORKER_DOMAINS=\n' +
 		'CF_PRIORITY=1\nCF_BALANCE=0\nDEFAULT_DOMAINS=1\n' +
 		'MTPROTO_PROXIES=\nOUTBOUND_PROXY=\nNO_PROXY=\n';
 }
@@ -808,21 +815,24 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 //  - config.conf is only created when missing (user edits are preserved).
 function ensure_shared_lifecycle() {
 	let failures = [];
+	let canonicalInit = canonical_init_body();
+	if (canonicalInit == null)
+		push(failures, 'canonical-init-missing');
 	let noRepair = getenv('Z2M_TGPROVIDER_NO_REPAIR') == '1';
-	if (!noRepair) {
+	if (canonicalInit != null && !noRepair) {
 		if (stat(INIT_PATH) != null) {
 			let cur = readfile(INIT_PATH);
-			if (cur == null || cur != DEFAULT_INIT_BODY) {
+			if (cur == null || cur != canonicalInit) {
 				let tmp = INIT_PATH + '.z2m.new';
-				if (!writefile(tmp, canonical)) push(failures, 'init-repair-write');
+				if (!writefile(tmp, canonicalInit)) push(failures, 'init-repair-write');
 				else if (run('chmod 755 ' + literal(tmp) + ' && mv -f ' + literal(tmp) + ' ' + literal(INIT_PATH)).rc != 0)
 					push(failures, 'init-repair');
 			}
 		}
 	}
-	if (stat(INIT_PATH) == null) {
+	if (canonicalInit != null && stat(INIT_PATH) == null) {
 		run('mkdir -p ' + literal(substr(INIT_PATH, 0, INIT_PATH.lastIndexOf('/'))));
-		if (!writefile(INIT_PATH, canonical)) push(failures, 'init-write');
+		if (!writefile(INIT_PATH, canonicalInit)) push(failures, 'init-write');
 		else if (run('chmod 755 ' + literal(INIT_PATH)).rc != 0) push(failures, 'init-chmod');
 	}
 	if (stat(CONFIG_DIR + '/config.conf') == null) {
