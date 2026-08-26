@@ -3336,4 +3336,13 @@
 .z2m-catalog-progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #5faee3 0%, #7ec8e3 100%); border-radius: 999px; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
 .z2m-catalog-progress-status { margin-top: 8px; font-size: 12px; color: var(--tx2); line-height: 1.3; }
 .z2m-catalog-progress[data-phase="error"] .z2m-catalog-progress-bar { background: linear-gradient(90deg, #e57373, #ef9a9a); }
+.z2m-catalog-progress[data-phase="error"] { border-color: rgba(229,115,115,0.45); background: rgba(229,115,115,0.07); }
+.z2m-catalog-progress[data-phase="error"] .z2m-catalog-progress-status {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid rgba(229,115,115,0.35); border-radius: 6px;
+  background: rgba(229,115,115,0.12); color: #ff8a80; font-weight: 500;
+}
+.z2m-catalog-progress[data-phase="error"] .z2m-catalog-progress-status::before { content: "⚠️"; font-size: 14px; }
+.z2m-catalog-progress-error-action { margin-left: auto; }
+.z2m-catalog-progress[data-phase="error"] .z2m-catalog-progress-track { opacity: 0.5; }
 .z2m-catalog-progress[data-phase="done"] .z2m-catalog-progress-bar { background: linear-gradient(90deg, #66bb6a, #a5d6a7); }

@@ -1248,7 +1248,13 @@ function renderCatalogProgress() {
     var status = host.querySelector('.z2m-catalog-progress-status');
     var percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
     if (bar) { bar.style.width = percent + '%'; bar.setAttribute('aria-valuenow', String(percent)); }
-    if (status) status.textContent = data.text || '';
+    if (status) {
+      if (data.phase === 'error') {
+        status.innerHTML = '<span>' + escapeHtml(data.text || '') + '</span><button class="btn btn-sm btn-primary z2m-catalog-progress-error-action" data-action="retryCatalogUpdate">Повторить</button>';
+      } else {
+        status.textContent = data.text || '';
+      }
+    }
     host.setAttribute('data-phase', data.phase || '');
   }
   function updateCatalogProgress(phase, percent, text) {
@@ -1691,7 +1697,7 @@ function clearSelection() { state.selectedIds = {}; renderBulkBar(); }
 function onClick(event) {
   var el = event.target.closest('[data-action]'); if (!el || !state.root.contains(el)) return;
   var action = el.dataset.action, id = el.dataset.strategyId;
-  if (action === 'refreshCatalog') refreshCatalog();
+  if (action === 'refreshCatalog' || action === 'retryCatalogUpdate') refreshCatalog();
   else if (action === 'openCreate') openCreate();
   else if (action === 'openEdit') openEdit(id);
   else if (action === 'duplicateStrategy') duplicateStrategy(id);
