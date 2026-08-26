@@ -124,9 +124,12 @@ function z2kLuaEvidence(value) {
 function normalizeZ2k(input, engineReady) {
   input = object(input);
   var value = object(input.z2k || input.component || input);
-  var rawStatus = first(value.status || value.state, 'unknown');
-  var updateState = z2kUpdateState(rawStatus);
-  var explicitHealth = value.health || value.integrity;
+  var remoteStatus = first(value.status || value.state, 'unknown');
+  var updateState = z2kUpdateState(remoteStatus);
+  var local = object(value.local);
+  var hasLocal = local && (local.installed !== undefined || local.lua !== undefined || local.integrity !== undefined || local.integrityOk !== undefined || local.commit !== undefined);
+  var explicitHealth = value.health || value.integrity || local.health;
+  if (local.integrity === 'broken' && !explicitHealth) explicitHealth = 'broken';
   // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
   // plus materialized/integrity-checked assets. Without a proven engine the
   // component is a requires-engine install gate — regardless of bundled
@@ -136,12 +139,25 @@ function normalizeZ2k(input, engineReady) {
   if (engineReady !== true) {
     healthState = 'missing';
     summary = 'Требуется совместимый Zapret2 Engine.';
+  } else if (hasLocal) {
+    var localEvidence = z2kLuaEvidence(local);
+    if (local.installed === false) healthState = 'missing';
+    else if (local.integrityOk === false || local.integrity === 'broken') healthState = 'broken';
+    else if (localEvidence) healthState = 'ready';
+    else healthState = 'degraded';
+    if (explicitHealth) {
+      var claimedLocal = health(explicitHealth, 'degraded');
+      var severityLocal = { ready: 0, degraded: 1, broken: 2, missing: 3 };
+      if ((severityLocal[claimedLocal] || 1) > (severityLocal[healthState] || 1)) healthState = claimedLocal;
+    }
+    summary = healthState === 'ready'
+      ? 'Autocircular, detectors и расширения Zapret2.'
+      : 'Z2K Core требует проверки целостности ресурсов.';
   } else {
-    // Evidence-based baseline: explicit backend fields may only DOWNGRADE,
-    // never fabricate readiness without materialized Lua evidence.
-    var evidence = z2kLuaEvidence(value);
-    if (rawStatus === 'broken' || rawStatus === 'missing') healthState = rawStatus;
-    else if (evidence) healthState = 'ready';
+    // Legacy fallback: production shape before local projection
+    var legacyEvidence = z2kLuaEvidence(value);
+    if (remoteStatus === 'broken' || remoteStatus === 'missing') healthState = remoteStatus;
+    else if (legacyEvidence) healthState = 'ready';
     else healthState = 'degraded';
     if (explicitHealth) {
       var claimed = health(explicitHealth, 'degraded');
@@ -152,16 +168,27 @@ function normalizeZ2k(input, engineReady) {
       ? 'Autocircular, detectors и расширения Zapret2.'
       : 'Z2K Core требует проверки целостности ресурсов.';
   }
-  var compatibilityState = compatibility(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
-  var safeUpdate = object(value.safeUpdate);
-  var rebases = array(value.rebases || value.adapted || object(value.plan).rebases);
-  var reviews = array(value.reviews || value.watched || object(value.plan).reviews);
+  var compatibilityState;
+  if (hasLocal) {
+    var compatRaw = value.compatibility || value.compatibilityState || (local.integrityOk === true ? 'compatible' : null);
+    compatibilityState = compatibility(compatRaw, value.compatible === true ? 'compatible' : null);
+    if (compatibilityState === 'unverified' && local.integrityOk === true) compatibilityState = 'compatible';
+  } else {
+    compatibilityState = compatibility(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
+  }
+  var safeUpdate = object(value.safeUpdate || local.safeUpdate);
+  var rebases = array(value.rebases || value.adapted || object(value.plan).rebases || local.rebases);
+  var reviews = array(value.reviews || value.watched || object(value.plan).reviews || local.reviews);
   var actions = {
     primary: engineReady !== true ? 'details'
       : healthState === 'missing' || healthState === 'broken' ? 'repair'
       : updateState === 'update-available' ? 'update'
       : updateState === 'integration-required' ? 'details' : 'check'
   };
+  var luaSrc = hasLocal ? object(local.lua) : object(value.lua);
+  var provenanceSrc = hasLocal && local.provenance ? object(local.provenance) : object(value.provenance);
+  var versionRaw = first(local.commit || (local.provenance && local.provenance.commit) || value.runtime || value.runtimeVersion, null);
+  if (versionRaw && /^[a-f0-9]{7,40}$/.test(versionRaw)) versionRaw = versionRaw.slice(0, 7);
   return {
     id: 'z2k-core',
     label: 'Z2K Core',
@@ -169,19 +196,19 @@ function normalizeZ2k(input, engineReady) {
     updateState: updateState,
     compatibility: compatibilityState,
     summary: summary,
-    version: first(value.runtime || value.runtimeVersion, null),
+    version: versionRaw,
     actions: actions,
     counters: {
-      lua: object(value.lua).ready !== undefined && object(value.lua).total !== undefined ? String(object(value.lua).ready) + ' / ' + String(object(value.lua).total) : null,
+      lua: luaSrc.ready !== undefined && luaSrc.total !== undefined ? String(luaSrc.ready) + ' / ' + String(luaSrc.total) : null,
       safeUpdate: safeUpdate.count !== undefined ? String(safeUpdate.count) : null
     },
     details: {
-      engineDelta: first(value.engineDelta, null),
-      provenance: object(value.provenance),
+      engineDelta: first(value.engineDelta || local.engineDelta, null),
+      provenance: provenanceSrc,
       rebases: rebases,
       reviews: reviews,
-      trustMode: first(value.trustMode, null),
-      manifest: object(value.manifest)
+      trustMode: first(value.trustMode || local.trustMode, null),
+      manifest: object(value.manifest || local.manifest)
     }
   };
 }

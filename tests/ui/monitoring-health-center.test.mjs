@@ -45,7 +45,8 @@ test('health projection preserves five-state semantics and owner actions', () =>
   assert.equal(result.cards.strategy.status, 'ok');
   assert.equal(result.cards.firewall.status, 'ok');
   assert.equal(result.cards.scanner.status, 'unknown');
-  assert.equal(result.cards.warp.status, 'unknown');
+  assert.equal(result.cards.warp.status, 'off');
+  assert.equal(result.cards.warp.optional, true);
   assert.equal(result.cards.engine.freshness.state, 'fresh');
   assert.equal(result.cards.engine.owner.route, 'engine');
   assert.equal(result.cards.scanner.owner.route, 'scan');

@@ -160,9 +160,17 @@ function hasValue(value, key) { return value && value[key] !== null && value[key
 function booleanValue(value, key) { return hasValue(value, key) ? value[key] === true : null; }
 function evidenceTimestamp(value) {
   value = object(value);
-  return timestamp(value.generatedAt !== undefined ? value.generatedAt :
+  var raw = value.generatedAt !== undefined ? value.generatedAt :
     value.updatedAt !== undefined ? value.updatedAt :
-    value.timestamp !== undefined ? value.timestamp : value.checkedAt);
+    value.timestamp !== undefined ? value.timestamp : value.checkedAt;
+  if (raw === null || raw === undefined) return null;
+  var num = number(raw);
+  if (num !== null) return num > 100000000000 ? Math.floor(num / 1000) : Math.floor(num);
+  if (typeof raw === 'string') {
+    var parsed = Date.parse(raw);
+    if (!isNaN(parsed)) return Math.floor(parsed / 1000);
+  }
+  return null;
 }
 function freshness(value, now, staleAfterSec) {
   var stamp = evidenceTimestamp(value);
@@ -178,7 +186,7 @@ function errorText(envelope) {
 function owner(id) {
   return { route: HEALTH_ROUTES[id] || 'diagnostics', label: id === 'scanner' ? 'Открыть Scanner' : 'Открыть раздел' };
 }
-function healthCard(id, label, status, reason, source, raw, now, staleAfterSec) {
+function healthCard(id, label, status, reason, source, raw, now, staleAfterSec, optional) {
   status = HEALTH_STATUSES.indexOf(status) >= 0 ? status : 'unknown';
   var fresh = freshness(source, now, staleAfterSec);
   if (status === 'ok' && !fresh.isUsable) status = 'unknown';
@@ -191,7 +199,8 @@ function healthCard(id, label, status, reason, source, raw, now, staleAfterSec) 
     owner: owner(id),
     freshness: fresh,
     evidence: redact(raw || source),
-    source: text(source && source.schema) || null
+    source: text(source && source.schema) || null,
+    optional: optional === true
   };
 }
 function deriveEngine(data, fast, now, staleAfterSec) {
@@ -223,15 +232,33 @@ function deriveStrategy(data, fast, now, staleAfterSec) {
 }
 function deriveFirewall(data, fast, now, staleAfterSec) {
   var system = valueOf(data, 'system');
-  var queue = firstObject(fast.health && fast.health.queue, fast.queue, system.health && system.health.queue);
-  var rules = hasValue(fast.runtime, 'rulesPresent') ? fast.runtime.rulesPresent :
+  var full = valueOf(data, 'full');
+  var queue = firstObject(fast.health && fast.health.queue, fast.queue, system.health && system.health.queue, full.health && full.health.queue);
+  var fastRules = hasValue(fast.runtime, 'rulesPresent') ? fast.runtime.rulesPresent :
     hasValue(fast, 'rulesPresent') ? fast.rulesPresent : null;
+  var fullRules = null;
+  var fullFresh = false;
+  if (Object.keys(full).length) {
+    var fullStamp = evidenceTimestamp(full);
+    var fullAge = fullStamp !== null ? Math.max(0, now - fullStamp) : null;
+    fullFresh = fullStamp !== null && fullAge !== null && fullAge <= 300;
+    if (fullFresh) {
+      var rs = full.runtimeSummary && full.runtimeSummary.nfqueue ? full.runtimeSummary.nfqueue.rulesPresent : null;
+      if (rs !== null && rs !== undefined) fullRules = rs === true ? true : rs === false ? false : null;
+      if (fullRules === null && hasValue(full.runtime, 'rulesPresent')) fullRules = full.runtime.rulesPresent;
+      if (fullRules === null && hasValue(full, 'rulesPresent')) fullRules = full.rulesPresent;
+      // Also check legacy full path: full.runtime.rulesPresent already handled
+      if (fullRules === null && full.runtimeSummary && hasValue(full.runtimeSummary, 'rulesPresent')) fullRules = full.runtimeSummary.rulesPresent;
+    }
+  }
+  var rules = fastRules !== null ? fastRules : fullRules;
+  var rulesSource = fastRules !== null ? 'fast' : (fullRules !== null ? 'cached-collector' : null);
   var status = 'unknown', reason = 'NFQUEUE/firewall evidence is not available.';
   if (queue.ownerConflict === true) { status = 'error'; reason = 'Обнаружен конфликт владельца NFQUEUE 300.'; }
   else if (queue.registered === false || rules === false) { status = 'error'; reason = 'NFQUEUE 300 или firewall rules не зарегистрированы.'; }
   else if (queue.registered === true && rules === true) { status = 'ok'; reason = 'NFQUEUE 300 и firewall rules подтверждены.'; }
-  else if (queue.registered === true || rules === true) { status = 'degraded'; reason = 'Подтверждена только часть firewall/NFQUEUE состояния.'; }
-  return healthCard('firewall', 'Firewall / NFQUEUE 300', status, reason, firstObject(fast, system), { queue: queue, rulesPresent: rules }, now, staleAfterSec);
+  else if (queue.registered === true || rules === true) { status = 'unknown'; reason = queue.registered === true ? 'NFQUEUE подтверждён, firewall rules не измерены.' : 'firewall rules подтверждены, NFQUEUE не измерен.'; }
+  return healthCard('firewall', 'Firewall / NFQUEUE 300', status, reason, firstObject(fast, full, system), { queue: queue, rulesPresent: rules, rulesSource: rulesSource }, now, staleAfterSec);
 }
 function deriveScanner(data, fast, now, staleAfterSec) {
   var generation = hasValue(fast, 'generation') ? fast.generation : null;
@@ -255,11 +282,35 @@ function deriveTelegram(data, now, staleAfterSec) {
   var value = valueOf(data, 'telegram');
   var statusValue = text(value.status || (value.observed && value.observed.running ? 'running' : null));
   var status = 'unknown', reason = errorText(envelope) || 'Telegram Proxy evidence is not available.';
-  if (value.installed === false || statusValue === 'not-installed') { status = 'off'; reason = 'Telegram Proxy не установлен.'; }
+  if (value.installed === false || statusValue === 'not-installed' || (Array.isArray(value.installed) && value.installed.length === 0 && statusValue !== 'running' && statusValue !== 'degraded')) { status = 'off'; reason = 'Telegram Proxy не установлен.'; }
   else if (statusValue === 'stopped') { status = 'off'; reason = 'Telegram Proxy установлен, процесс остановлен.'; }
   else if (value.readiness && value.readiness.ready === false) { status = 'degraded'; reason = 'Telegram Proxy установлен, но readiness не подтверждён.'; }
   else if (statusValue === 'running' || (value.observed && value.observed.running === true)) { status = 'ok'; reason = 'Telegram Proxy работает.'; }
-  return healthCard('telegram', 'Telegram Proxy', status, reason, value, value, now, staleAfterSec);
+  return healthCard('telegram', 'Telegram Proxy', status, reason, value, value, now, staleAfterSec, true);
+}
+function deriveProxy(data, now, staleAfterSec) {
+  var envelope = envelopeFor(data, 'proxy');
+  var value = valueOf(data, 'proxy');
+  if (!Object.keys(value).length) return null;
+  var err = errorText(envelope);
+  if (err) return healthCard('proxy', 'Proxy runtime', 'unknown', err, value, value, now, staleAfterSec, true);
+  // Legacy payload with explicit status field (used by old tests/fixtures)
+  var legacyStatus = text(value.status);
+  if (legacyStatus === 'running') return healthCard('proxy', 'Proxy runtime', 'ok', 'Proxy runtime работает.', value, value, now, staleAfterSec, true);
+  if (legacyStatus === 'stopped') return healthCard('proxy', 'Proxy runtime', 'off', 'Proxy runtime остановлен.', value, value, now, staleAfterSec, true);
+  if (legacyStatus === 'not-installed') return healthCard('proxy', 'Proxy runtime', 'off', 'Proxy runtime не установлен.', value, value, now, staleAfterSec, true);
+  // Production proxycfg_health shape: checks array + ok + generatedAt
+  var checks = array(value.checks);
+  var pkgCheck = checks.find(function (c) { return c.name === 'package'; });
+  if (pkgCheck && pkgCheck.ok !== true) return healthCard('proxy', 'Proxy runtime', 'off', 'Proxy runtime не установлен (пакет отсутствует).', value, value, now, staleAfterSec, true);
+  if (value.ok === true) return healthCard('proxy', 'Proxy runtime', 'ok', 'Proxy runtime работает.', value, value, now, staleAfterSec, true);
+  var drift = value.effectiveRuntime && value.effectiveRuntime.drift === true;
+  if (drift) return healthCard('proxy', 'Proxy runtime', 'degraded', 'Proxy runtime: drift эффективного конфига.', value, value, now, staleAfterSec, true);
+  var pidCheck = checks.find(function (c) { return c.name === 'pid'; });
+  if (pidCheck && pidCheck.ok !== true) return healthCard('proxy', 'Proxy runtime', 'off', 'Proxy runtime остановлен.', value, value, now, staleAfterSec, true);
+  // Any other check failure is degraded, not error, unless truly malformed
+  if (value.ok === false) return healthCard('proxy', 'Proxy runtime', 'degraded', 'Proxy runtime: часть проверок не пройдена.', value, value, now, staleAfterSec, true);
+  return healthCard('proxy', 'Proxy runtime', 'unknown', 'Состояние proxy runtime не подтверждено.', value, value, now, staleAfterSec, true);
 }
 function normalizeHealth(data, options) {
   data = object(data); options = object(options);
@@ -275,10 +326,10 @@ function normalizeHealth(data, options) {
     scanner: deriveScanner(data, fast, now, staleAfterSec),
     dns: deriveDns(data, now, staleAfterSec),
     telegram: deriveTelegram(data, now, staleAfterSec),
-    warp: healthCard('warp', 'WARP', 'unknown', 'Backend WARP не подтверждён.', {}, {}, now, staleAfterSec)
+    warp: healthCard('warp', 'WARP', 'off', 'Компонент не установлен: в текущем Z2M runtime нет поддержанного backend owner.', { generatedAt: now }, { generatedAt: now }, now, staleAfterSec, true)
   };
-  var proxy = valueOf(data, 'proxy');
-  if (Object.keys(proxy).length) cards.proxy = healthCard('proxy', 'Proxy runtime', proxy.status === 'running' ? 'ok' : proxy.status === 'stopped' ? 'off' : 'unknown', 'Состояние proxy runtime.', proxy, proxy, now, staleAfterSec);
+  var proxyCard = deriveProxy(data, now, staleAfterSec);
+  if (proxyCard) cards.proxy = proxyCard;
   var system = valueOf(data, 'system');
   return {
     cards: cards,
@@ -289,7 +340,11 @@ function normalizeHealth(data, options) {
       cpu: system.cpu || null
     }),
     actions: { report: { id: 'diagnostics', label: 'Собрать диагностический отчёт', owner: 'diagnostics' } },
-    warnings: Object.keys(cards).map(function (key) { return cards[key]; }).filter(function (card) { return card.status !== 'ok'; }).map(function (card) {
+    warnings: Object.keys(cards).map(function (key) { return cards[key]; }).filter(function (card) {
+      if (card.status === 'ok') return false;
+      if (card.status === 'off' && card.optional === true) return false;
+      return true;
+    }).map(function (card) {
       return { component: card.label, status: card.status, reason: card.reason, owner: card.owner };
     })
   };

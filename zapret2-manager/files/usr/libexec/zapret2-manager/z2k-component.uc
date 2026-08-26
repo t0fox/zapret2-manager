@@ -5,7 +5,7 @@
 // installs Z2K init scripts, schedulers, webpanel files, or a second runtime.
 import { readfile, stat, readlink } from 'fs';
 import { z2k_upstream_plan, z2k_upstream_check } from './z2k-upstream.uc';
-import { asset_registry_apply_bundle } from './asset-registry.uc';
+import { asset_registry_apply_bundle, asset_registry_list } from './asset-registry.uc';
 
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
 const STAGE_ROOT = '/tmp/z2m-resource-update';
@@ -19,14 +19,30 @@ function under(path, root) { return string(path) && string(root) && path != root
 function classification() { try { let value = json(readfile(CLASSIFICATION)); return object(value) && value.schema == 'zapret2-manager.z2k-integration.v1' && object(value.source) && type(value.files) == 'array' ? value : null; } catch (e) { return null; } }
 function class_for(map, sourcePath) { for (let i = 0; i < length(map.files); i++) if (map.files[i].sourcePath == sourcePath) return map.files[i]; return null; }
 function asset_type(item) { return item.type == 'bin' ? 'blob' : (item.type == 'lua' ? 'lua' : null); }
-
+function installedShaFor(path) {
+	try {
+		let listed = asset_registry_list(null);
+		if (!listed || !listed.ok || type(listed.assets) != 'array') return null;
+		for (let i = 0; i < length(listed.assets); i++) {
+			let a = listed.assets[i];
+			if (a.provenance && a.provenance.sourcePath == path) return a.contentSha256 || null;
+			let idFromPath = 'lua:' + substr(path, length('files/lua/'), length(path) - length('files/lua/') - 4);
+			if (a.id == idFromPath) return a.contentSha256 || null;
+		}
+	} catch (e) {}
+	return null;
+}
 export const z2k_component_plan = function(remoteManifest) {
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
 	let checked = z2k_upstream_plan(remoteManifest); if (!checked.ok) return checked;
 	let exactManaged = [], adapted = [], ignored = [], watched = [];
 	for (let sourcePath in keys(checked.manifest.files_sha256)) {
 		let item = class_for(map, sourcePath); if (item == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K file has no explicit integration class.', { sourcePath: sourcePath });
-		if (item.class == 'exact-managed' && item.basedOnSha256 != checked.manifest.files_sha256[sourcePath]) push(exactManaged, { sourcePath: sourcePath, localName: item.localName, type: asset_type(item), sha256: checked.manifest.files_sha256[sourcePath] });
+		if (item.class == 'exact-managed') {
+			let installed = installedShaFor(sourcePath);
+			if (installed == null) push(exactManaged, { sourcePath: sourcePath, localName: item.localName, type: asset_type(item), sha256: checked.manifest.files_sha256[sourcePath] });
+			else if (installed != checked.manifest.files_sha256[sourcePath]) push(exactManaged, { sourcePath: sourcePath, localName: item.localName, type: asset_type(item), sha256: checked.manifest.files_sha256[sourcePath] });
+		}
 		else if (item.class == 'adapted' && item.basedOnSha256 != checked.manifest.files_sha256[sourcePath]) push(adapted, sourcePath);
 		else if (item.class == 'ignored-platform' && item.basedOnSha256 != checked.manifest.files_sha256[sourcePath]) push(ignored, sourcePath);
 		else if (item.class == 'watched' && item.basedOnSha256 != checked.manifest.files_sha256[sourcePath]) push(watched, sourcePath);

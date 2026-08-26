@@ -47,7 +47,7 @@ export const dns_product_providers = function() {
 };
 
 export const dns_product_status = function() {
-	return { ok: true, dns: dns_get(), global: dns_global_get(), service_dns: service_dns_status() };
+	return { ok: true, generatedAt: time(), dns: dns_get(), global: dns_global_get(), service_dns: service_dns_status() };
 };
 
 export const dns_product_validate = function(req) {

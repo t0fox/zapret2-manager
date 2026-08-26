@@ -23,8 +23,10 @@ function load(ctx) {
     return AvatarLog.load(ctx);
   }
   var fastCall = ctx.api.service && ctx.api.service.statusFast ? ctx.api.service.statusFast() : Promise.reject(new Error('status_fast unavailable'));
+  var fullCall = ctx.api.service && ctx.api.service.status ? ctx.api.service.status() : Promise.resolve({});
   return Promise.allSettled([
     fastCall,
+    fullCall,
     ctx.api.maintenance.status(),
     ctx.api.engine.status(),
     ctx.api.dns.product.status(),
@@ -33,11 +35,12 @@ function load(ctx) {
   ]).then(function (results) {
     return {
       fast: settled(results[0], ctx.api),
-      system: settled(results[1], ctx.api),
-      engine: settled(results[2], ctx.api),
-      dns: settled(results[3], ctx.api),
-      proxy: settled(results[4], ctx.api),
-      telegram: settled(results[5], ctx.api)
+      full: settled(results[1], ctx.api),
+      system: settled(results[2], ctx.api),
+      engine: settled(results[3], ctx.api),
+      dns: settled(results[4], ctx.api),
+      proxy: settled(results[5], ctx.api),
+      telegram: settled(results[6], ctx.api)
     };
   });
 }

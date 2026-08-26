@@ -1,5 +1,6 @@
 'use strict';
 import { readfile, stat, unlink, popen } from 'fs';
+import { asset_registry_list } from './asset-registry.uc';
 
 const MANIFEST_URL = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json';
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
@@ -26,6 +27,20 @@ function validate_manifest(value, rawSize) {
 }
 function classification() { let value = read_json(CLASSIFICATION); return type(value) == 'object' && value != null && value.schema == 'zapret2-manager.z2k-integration.v1' && type(value.files) == 'array' ? value : null; }
 function class_for(value, path) { for (let item in value.files) if (item.sourcePath == path) return item; return null; }
+function installedShaFor(path) {
+	try {
+		let listed = asset_registry_list(null);
+		if (!listed || !listed.ok || type(listed.assets) != 'array') return null;
+		for (let i = 0; i < length(listed.assets); i++) {
+			let a = listed.assets[i];
+			if (a.provenance && a.provenance.sourcePath == path) return a.contentSha256 || null;
+			// Fallback: match by id derived from sourcePath (e.g., files/lua/z2k-alert.lua -> lua:z2k-alert)
+			let idFromPath = 'lua:' + substr(path, length('files/lua/'), length(path) - length('files/lua/') - 4);
+			if (a.id == idFromPath) return a.contentSha256 || null;
+		}
+	} catch (e) {}
+	return null;
+}
 function plan(value) {
 	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
@@ -34,8 +49,13 @@ function plan(value) {
 		let digest = checked.manifest.files_sha256[path], item = class_for(map, path);
 		if (item == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Новый Z2K файл отсутствует в integration classification.', { path: path });
 		if (item.class == 'adapted' && item.basedOnSha256 != digest) push(rebases, path);
-		else if (item.class == 'exact-managed' && item.basedOnSha256 != digest) push(updates, path);
+		else if (item.class == 'exact-managed') {
+			let installed = installedShaFor(path);
+			if (installed == null) push(updates, path);
+			else if (installed != digest) push(updates, path);
+		}
 		else if (item.class == 'watched' && item.basedOnSha256 != digest) push(reviews, path);
+		else if (item.class == 'ignored-platform' && false) { /* explicit no-op, never auto-update */ }
 	}
 	if (length(rebases)) return { ok: true, status: 'rebase-required', updates: updates, rebases: rebases, reviews: reviews, manifest: checked.manifest };
 	if (length(reviews)) return { ok: true, status: 'review-required', updates: updates, rebases: rebases, reviews: reviews, manifest: checked.manifest };

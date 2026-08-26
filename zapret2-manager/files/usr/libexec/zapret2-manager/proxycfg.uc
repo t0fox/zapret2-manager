@@ -1766,6 +1766,7 @@ function assemble_health(ev, rt) {
 	for (let i = 0; i < length(checks); i++) if (checks[i].ok != true) infraOk = false;
 	return {
 		ok: (infraOk && local.ok == true),
+		generatedAt: time(),
 		checks: checks,
 		effectiveRuntime: rt.effectiveRuntime,
 		coverage: rt.coverage,

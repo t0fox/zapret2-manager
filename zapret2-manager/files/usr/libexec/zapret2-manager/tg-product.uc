@@ -49,6 +49,7 @@ function catalog_model() {
 }
 
 function status_model() {
+	let now = time();
 	let providers = proxy_provider_status(), runtime = proxy_status(), config = proxycfg_get();
 	// Product status is polled alongside the dedicated health RPC. Keep this
 	// read local so every status refresh does not repeat the bounded upstream
@@ -69,6 +70,7 @@ function status_model() {
 	let effectiveStatus = running ? (runtimeDrift ? 'degraded' : 'running') : (providers.installed === true ? 'stopped' : 'not-installed');
 	return {
 		ok: providers.ok === true && runtime.ok === true && config.ok === true,
+		generatedAt: now,
 		schema: SCHEMA,
 		product: 'telegram-proxy',
 		optional: true,

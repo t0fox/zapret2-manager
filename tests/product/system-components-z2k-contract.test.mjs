@@ -6,7 +6,8 @@ const source = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manage
 
 test('Resource Center exposes a bounded Z2K classification projection', () => {
   assert.match(source, /function z2k_projection\s*\(/);
-  assert.match(source, /answer\.z2k\s*=\s*z2k_projection\(/);
+  assert.match(source, /z2k_projection\(/);
+  assert.match(source, /answer\.z2k/);
   assert.match(source, /status:\s*signed\.status/);
   assert.match(source, /updates:\s*plan\.updates/);
   assert.match(source, /rebases:\s*plan\.rebases/);
