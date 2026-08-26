@@ -24,6 +24,7 @@
 
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
+import { catalog_refresh_start, catalog_refresh_status } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
 import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
@@ -1085,6 +1086,18 @@ function strategies_validate_method(req) { return strategy_edit_action('validate
 function strategies_apply_method(req) { return strategy_edit_action('apply', req); }
 function strategies_catalog_status_method(req) { return strategy_read_action('catalog_status', req); }
 function strategies_catalog_reload_method(req) { return strategy_noarg_action('catalog_reload'); }
+function strategies_catalog_refresh_start_method(req) {
+  let p = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-refresh-cli.uc start 2>/dev/null', 'r');
+  if (!p) return { ok: false, error: { code: 'EIO', message: 'refresh worker unavailable' } };
+  let out = p.read('all') || ''; p.close();
+  try { let v = json(out); return v || { ok: false, error: { code: 'EIO', message: 'refresh start no output' } }; } catch(e) { return { ok: false, error: { code: 'EIO', message: 'refresh start malformed' } }; }
+}
+function strategies_catalog_refresh_status_method(req) {
+  let p = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-refresh-cli.uc status 2>/dev/null', 'r');
+  if (!p) return { ok: false, error: { code: 'EIO', message: 'refresh status unavailable' } };
+  let out = p.read('all') || ''; p.close();
+  try { let v = json(out); return v || { ok: false, error: { code: 'EIO', message: 'refresh status no output' } }; } catch(e) { return { ok: false, error: { code: 'EIO', message: 'refresh status malformed' } }; }
+}
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
 
 // ---- Strategies Operations & Autocircular State (5-column state.tsv) ----------
@@ -1364,6 +1377,8 @@ return {
 		strategies_apply: { args: { edit: 'string' }, call: function (req) { return strategies_apply_method(req); } },
 		strategies_catalog_status: { call: function (req) { return strategies_catalog_status_method(req); } },
 		strategies_catalog_reload: { call: function (req) { return strategies_catalog_reload_method(req); } },
+		strategies_catalog_refresh_start: { call: function (req) { return strategies_catalog_refresh_start_method(req); } },
+		strategies_catalog_refresh_status: { call: function (req) { return strategies_catalog_refresh_status_method(req); } },
 		strategies_catalog_update: { args: { edit: 'string' }, call: function (req) { return strategies_catalog_update_method(req); } },
 		strategies_import_profiles: { args: { edit: 'string' }, call: function (req) { return strategies_import_profiles_method(req); } },
 		strategies_state:  { call: function (req) { return strategies_state_method(req); } },

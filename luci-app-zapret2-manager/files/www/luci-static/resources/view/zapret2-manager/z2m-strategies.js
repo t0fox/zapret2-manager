@@ -1266,17 +1266,20 @@ function renderCatalogProgress() {
     renderCatalogProgress();
   }
   function refreshCatalog() {
-  if (state.pending || !state.ctx || !state.ctx.api.strategies.catalogReload) return;
-  state.pending = 'catalog';
-  updateCatalogProgress('init', 5, 'Инициализация...');
-  renderAll();
-  renderCatalogProgress();
-  var sourceUpdate = state.ctx.api.strategies.catalogUpdate ? call(state.ctx.api.strategies.catalogUpdate, { transaction: 'apply' }) : Promise.resolve({ ok: true });
-  updateCatalogProgress('check', 15, 'Проверка источника...');
-  sourceUpdate.then(function (source) {
+  if (state.pending || !state.ctx) return;
+  var hasAsync = !!(state.ctx.api.strategies.catalogRefreshStart && state.ctx.api.strategies.catalogRefreshStatus);
+  if (!hasAsync) {
+    if (!state.ctx.api.strategies.catalogReload) return;
+    state.pending = 'catalog';
+    updateCatalogProgress('init', 5, 'Инициализация...');
+    renderAll(); renderCatalogProgress();
+    var sourceUpdate = state.ctx.api.strategies.catalogUpdate ? call(state.ctx.api.strategies.catalogUpdate, { transaction: 'apply' }) : Promise.resolve({ ok: true });
+    updateCatalogProgress('check', 15, 'Проверка источника...');
+    sourceUpdate.then(function (source) {
       if (!source || source.ok === false) {
         var code = source && source.error && source.error.code;
         if (code === 'EINCOMPLETE' || code === 'EUNAVAILABLE') {
+          updateCatalogProgress('load', 35, 'Загрузка каталога...');
           return call(state.ctx.api.strategies.catalogReload);
         }
         throw source || new Error('Не удалось обновить источник каталога.');
@@ -1296,7 +1299,8 @@ function renderCatalogProgress() {
     }).then(function () {
       updateCatalogProgress('done', 100, 'Готово');
       setTimeout(hideCatalogProgress, 1200);
-      notify('ok', 'Каталог стратегий обновлён.'); }, function (error) {
+      notify('ok', 'Каталог стратегий обновлён.');
+    }, function (error) {
       var msg = errorText(state.ctx, error);
       var isTimeout = /timeout|timed out|превышено/i.test(msg) || /timeout/i.test(String(error && error.code || ''));
       if (isTimeout) {
@@ -1305,9 +1309,67 @@ function renderCatalogProgress() {
       } else {
         notify('err', msg);
       }
+    }).then(function () { state.pending = null; renderAll(); renderCatalogProgress(); });
+    return;
+  }
+  if (state.pending === 'catalog') return;
+  state.pending = 'catalog';
+  updateCatalogProgress('init', 5, 'Инициализация...');
+  renderAll(); renderCatalogProgress();
+  var startPromise = state.ctx.api.strategies.catalogRefreshStart ? call(state.ctx.api.strategies.catalogRefreshStart) : Promise.resolve({ ok: false, error: { code: 'ENOSUPPORT', message: 'refresh not supported' } });
+  startPromise.then(function (res) {
+    if (!res || res.ok !== true) {
+      var code = res && res.error && res.error.code;
+      if (code === 'EBUSY' && res.operationId) {
+        res = { ok: true, accepted: true, operationId: res.operationId, state: 'running' };
+      } else {
+        throw res;
+      }
+    }
+    var opId = res.operationId;
+    updateCatalogProgress('check', 15, 'Проверка источника...');
+    var poll = function () {
+      return call(state.ctx.api.strategies.catalogRefreshStatus).then(function (st) {
+        if (!st || st.ok !== true) throw st;
+        var phase = st.phase || st.state || 'verifying';
+        var pct = st.percent != null ? st.percent : (phase === 'verifying' ? 30 : phase === 'indexing' ? 60 : phase === 'activating' ? 80 : phase === 'done' ? 100 : 35);
+        var txtMap = { queued: 'В очереди...', verifying: 'Проверка каталога...', indexing: 'Построение индекса...', activating: 'Активация...', done: 'Готово', completed: 'Готово' };
+        var txt = txtMap[phase] || txtMap[st.state] || 'Обновляем стратегии…';
+        if (st.state === 'running' || st.state === 'queued' || st.state === 'verifying' || st.state === 'indexing' || st.state === 'activating') {
+          updateCatalogProgress(phase, pct, txt);
+        }
+        if (st.state === 'completed' || st.state === 'done') {
+          updateCatalogProgress('done', 100, 'Готово');
+          return refreshData(true).then(function () {
+            setTimeout(hideCatalogProgress, 1200);
+            notify('ok', 'Каталог стратегий обновлён.');
+          });
+        }
+        if (st.state === 'error') {
+          var emsg = st.error && (st.error.message || st.error.code) || 'Unknown';
+          updateCatalogProgress('error', 100, 'Ошибка: ' + emsg);
+          throw st;
+        }
+        return new Promise(function (resolve) { setTimeout(resolve, 1200); }).then(poll);
+      });
+    };
+    updateCatalogProgress('load', 25, 'Запуск проверки...');
+    return new Promise(function (resolve) { setTimeout(resolve, 600); }).then(poll);
+  }).then(function () {
+  }, function (error) {
+    var msg = errorText(state.ctx, error);
+    var isTimeout = /timeout|timed out|превышено/i.test(msg) || /timeout/i.test(String(error && error.code || '') || String(error && error.error && error.error.code || ''));
+    if (isTimeout) {
+      updateCatalogProgress('error', 100, 'Превышено время ожидания — попробуйте ещё раз');
+      notify('err', 'Превышено время ожидания (XHR timeout). Попробуйте ещё раз.');
+    } else if (error && error.state === 'error') {
+      notify('err', msg);
+    } else {
+      notify('err', msg);
+    }
   }).then(function () { state.pending = null; renderAll(); renderCatalogProgress(); });
-}
-function mutate(action, request, options) {
+  }
+  function mutate(action, request, options) {
   options = object(options);
   var scoped = options.scope === 'card';
   if (!Model.canMutate(!!state.pending) || state.operationPending) return Promise.resolve(null);
