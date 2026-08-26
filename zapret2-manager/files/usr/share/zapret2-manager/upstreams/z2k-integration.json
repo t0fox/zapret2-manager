@@ -8,7 +8,7 @@
     "seq": 26
   },
   "manifestSchema": 1,
-  "manifestFileCount": 140,
+  "manifestFileCount": 141,
   "files": [
     {
       "sourcePath": "files/000-zapret2.sh",
@@ -290,6 +290,17 @@
       "localName": "runtime-assets/bin/zero_256.bin",
       "runtimeTarget": "/runtime-assets/bin/zero_256.bin",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/zero_256.bin",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/ACTIVE_DISCORD_UDP.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "2fe18b3bd20807d36704d0b072092ee49ae84edca907a4420ab9a0f0f28fddcf",
+      "localName": "runtime-assets/bin/ACTIVE_DISCORD_UDP.bin",
+      "runtimeTarget": "/runtime-assets/bin/ACTIVE_DISCORD_UDP.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/ACTIVE_DISCORD_UDP.bin",
       "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },

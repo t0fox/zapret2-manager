@@ -26,7 +26,7 @@ function load_manifest() { let raw = readfile(MANIFEST); if (raw == null || leng
 function source(manifest, id) { for (let i = 0; i < length(manifest.sources); i++) if (manifest.sources[i].id == id) return manifest.sources[i]; return null; }
 function bundle(manifest, id) { for (let i = 0; i < length(manifest.bundles); i++) if (manifest.bundles[i].id == id) return manifest.bundles[i]; return null; }
 function registry_asset(assets, id) { for (let i = 0; i < length(assets); i++) if (assets[i].id == id) return assets[i]; return null; }
-function state_label(state) { return ({ current: 'Актуально', update: 'Доступно обновление', missing: 'Не установлено', checking: 'Проверяем', unavailable: 'Источник недоступен', stale: 'Проверка устарела', error: 'Ошибка проверки', attention: 'Требуется внимание' })[state] || 'Требуется внимание'; }
+function state_label(state) { return ({ current: 'Актуально', update: 'Доступно обновление', missing: 'Не установлено', checking: 'Проверяем', unavailable: 'Источник недоступен', stale: 'Проверка устарела', error: 'Ошибка проверки', attention: 'Требуется внимание', unknown: 'Не проверено' })[state] || 'Требуется внимание'; }
 function current_asset(item, assets) {
 	let registered = registry_asset(assets, item.id);
 	if (registered != null) return regular(registered.path) ? { record: registered, path: registered.path, sha256: sha256(registered.path), byteSize: stat(registered.path).size, ownership: registered.ownership } : { record: registered, path: registered.path, sha256: null, byteSize: 0, ownership: registered.ownership };
@@ -200,15 +200,19 @@ export const resource_center_status = function () {
 			answer.sources[i].verification = persisted.signedSources;
 			if (!persisted.signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); }
 			else {
-				// Canonical product state must not contradict Resources: use z2k plan status, not row_for vs packaged
+				// Canonical product state must not contradict Resources: use z2k plan status, honest unknown
 				if (remote.status === 'current') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
 				else if (remote.status === 'update-available') { answer.sources[i].state = 'update'; answer.sources[i].status = state_label('update'); }
 				else if (remote.status === 'rebase-required' || remote.status === 'review-required') { answer.sources[i].state = 'attention'; answer.sources[i].status = state_label('attention'); }
-				else if (remote.status === 'unknown') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
+				else if (remote.status === 'unknown') { answer.sources[i].state = 'unknown'; answer.sources[i].status = state_label('unknown'); }
 			}
 		}
 	} else {
 		answer.signedSources = { z2k: { state: 'unknown', status: 'Проверка источника выполняется только явно', checkMode: 'allow-untrusted', trustMode: 'allow-untrusted', verified: false } };
+		for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') {
+			answer.sources[i].state = 'unknown';
+			answer.sources[i].status = state_label('unknown');
+		}
 	}
 	return answer;
 };
@@ -228,7 +232,7 @@ export const resource_center_check = function () {
 			if (signed.status === 'current') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
 			else if (signed.status === 'update-available') { answer.sources[i].state = 'update'; answer.sources[i].status = state_label('update'); }
 			else if (signed.status === 'rebase-required' || signed.status === 'review-required') { answer.sources[i].state = 'attention'; answer.sources[i].status = state_label('attention'); }
-			else if (signed.status === 'unknown') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
+			else if (signed.status === 'unknown') { answer.sources[i].state = 'unknown'; answer.sources[i].status = state_label('unknown'); }
 		}
 	}
 	save_check_state(signed, answer.checkedAt, answer.signedSources.z2k);

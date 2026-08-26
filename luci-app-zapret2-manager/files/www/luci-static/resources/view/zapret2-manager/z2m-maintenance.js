@@ -196,36 +196,36 @@ function formatLastCheck(shell, value) {
   return t;
 }
 function componentStateLabel(component) {
-  // Unified per-component labels — Engine: Работает, Z2K: Актуален
+  // Unified per-component labels — Engine: Работает, Z2K: Актуален — with canonical severity precedence
+  // Priority: broken/error/incompatible > integration/review/update/degraded > healthy/current > unknown/off
   if (component.id === 'engine') {
     if (component.health === 'missing') return _('Не установлен');
     if (component.health === 'broken') return _('Ошибка');
+    if (component.compatibility === 'incompatible') return _('Несовместим');
     if (component.health === 'checking') return _('Проверяется');
     var svc = component.details && component.details.serviceState;
     if (svc === 'paused') return _('Приостановлен');
     if (svc === 'stopped') return _('Остановлен');
-    if (component.health === 'degraded') {
-      // Degraded without explicit stopped/pause is attention, not muted
-      return _('Требует внимания');
-    }
+    if (component.health === 'degraded') return _('Требует внимания');
     if (component.updateState === 'integration-required') return _('Требует внимания');
     if (component.updateState === 'update-available') return _('Доступно обновление');
-    if (component.compatibility === 'incompatible') return _('Несовместим');
     // Healthy installed+running+compatible => Работает (green)
     return _('Работает');
   }
   if (component.id === 'z2k-core') {
     if (component.health === 'missing') {
-      // Missing because engine not ready vs truly not installed — keep distinct but muted
       return component.summary && String(component.summary).indexOf('Engine') >=0 ? _('Требуется Zapret2 Engine') : _('Не установлен');
     }
     if (component.health === 'broken') return _('Ошибка');
+    if (component.compatibility === 'incompatible') return _('Несовместим');
     if (component.health === 'checking') return _('Проверяется');
     if (component.updateState === 'integration-required') return _('Требует внимания');
     if (component.updateState === 'update-available') return _('Доступно обновление');
-    if (component.compatibility === 'incompatible') return _('Несовместим');
     if (component.health === 'ready' && component.updateState === 'current' && component.compatibility === 'compatible') return _('Актуален');
-    if (component.health === 'ready') return _('Актуален');
+    if (component.health === 'ready') {
+      if (component.updateState === 'unknown') return _('Работает');
+      return _('Актуален');
+    }
     return _('Требует внимания');
   }
   var health = component.health;
