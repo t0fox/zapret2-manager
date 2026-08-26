@@ -487,7 +487,7 @@ function scanner_start_async_impl(req) {
 	let initialRequest = inner;
 	let initialRecord = null;
 	try {
-		let created = scanner_state.scanner_state_create(initialRequest, { schema: 1, request: initialRequest, catalogDigest: '0'.repeat(64), compilerDigest: '0'.repeat(64), candidates: [] });
+		let created = scanner_state.scanner_state_create(initialRequest, { schema: 1, request: initialRequest, catalogDigest: '0000000000000000000000000000000000000000000000000000000000000000', compilerDigest: '0000000000000000000000000000000000000000000000000000000000000000', candidates: [] });
 		created.id = request.id;
 		created.status = 'starting';
 		created.phase = 'queued';
@@ -495,8 +495,8 @@ function scanner_start_async_impl(req) {
 		created.total = 0;
 		created.request = initialRequest;
 		created.requestDigest = scanner_state.scanner_state_digest(initialRequest);
-		created.catalogDigest = '0'.repeat(64);
-		created.compilerDigest = '0'.repeat(64);
+		created.catalogDigest = '0000000000000000000000000000000000000000000000000000000000000000';
+		created.compilerDigest = '0000000000000000000000000000000000000000000000000000000000000000';
 		created.planDigest = scanner_state.scanner_state_digest({ schema: 1, request: initialRequest });
 		created.heartbeatAt = time();
 		created.startedAt = time();
