@@ -3346,3 +3346,5 @@
 .z2m-catalog-progress-error-action { margin-left: auto; }
 .z2m-catalog-progress[data-phase="error"] .z2m-catalog-progress-track { opacity: 0.5; }
 .z2m-catalog-progress[data-phase="done"] .z2m-catalog-progress-bar { background: linear-gradient(90deg, #66bb6a, #a5d6a7); }
+
+.z2m-catalog-progress-timer { margin-top: 6px; font-size: 11px; color: var(--tx3); line-height: 1.2; }
