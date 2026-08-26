@@ -48,7 +48,7 @@ function source_rows(manifest, rows) {
 }
 function z2k_projection(signed) {
 	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updates: [], rebases: [], reviews: [], trustMode: 'allow-untrusted', verified: false, source: null, manifest: null };
-	let plan = object(signed.plan), manifest = object(signed.manifest);
+	let plan = object(signed.plan) ? signed.plan : {}, manifest = object(signed.manifest) ? signed.manifest : {};
 	return {
 		status: signed.status || 'unknown',
 		updates: plan.updates || [],

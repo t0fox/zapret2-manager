@@ -76,9 +76,9 @@ function add_legacy_environment(environment) {
 	let blobFiles = {};
 	for (let filename in (lsdir(environment.paths.blobRoot) || [])) {
 		if (substr(filename, -4) != '.bin') continue;
-		let path = environment.paths.blobRoot + '/' + filename;
-		if (!regular(path)) continue;
-		let descriptor = { path: path, available: true, present: true, safe: true, symlink: false };
+		let absPath = environment.paths.blobRoot + '/' + filename;
+		if (!regular(absPath)) continue;
+		let descriptor = { path: filename, available: true, present: true, safe: true, symlink: false };
 		let stem = substr(filename, 0, length(filename) - 4);
 		environment.blobs[stem] = descriptor;
 		blobFiles[filename] = descriptor;
@@ -108,7 +108,24 @@ function state_load() {
 }
 function atomic_write(path, content) {
 	let slash = rindex(path, '/'), parent = slash > 0 ? substr(path, 0, slash) : null;
-	if (parent) { try { mkdir(parent); } catch (e) { } if (!directory(parent)) return false; }
+	if (parent) {
+		let missing = [], cur = parent;
+		while (length(missing) < 4) {
+			if (directory(cur)) break;
+			push(missing, cur);
+			let cut = rindex(cur, '/');
+			if (type(cut) != 'int' || cut <= 0) break;
+			cur = substr(cur, 0, cut);
+		}
+		for (let i = length(missing) - 1; i >= 0; i--) {
+			try { mkdir(missing[i]); } catch(e) {}
+			if (!directory(missing[i])) {
+				let r = command('mkdir -p ' + shell_quote(missing[i]));
+				if (r.rc != 0 || !directory(missing[i])) return false;
+			}
+		}
+		if (!directory(parent)) return false;
+	}
 	let tmp = path + '.tmp.' + time();
 	try { writefile(tmp, content); } catch (e) { return false; }
 	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return false; }
@@ -369,7 +386,7 @@ export const asset_registry_apply_bundle = function(request) {
 	}
 	if (result == null) for (let i = 0; i < length(prepared); i++) {
 		let entry = prepared[i], item = entry.item, old = entry.old, path = changed[i].path;
-		if (!atomic_write(path, entry.content) || !postflight(path, item)) { result = fail('EVERIFY', 'resource activation postflight failed', { id: item.id }); break; }
+		if (!atomic_write(path, entry.content) || !postflight(path, item)) { let actualSha = sha256_file(path), actualSize = content_size(path); result = fail('EVERIFY', 'resource activation postflight failed', { id: item.id, expectedSha256: item.sha256, actualSha256: actualSha, expectedSize: item.byteSize, actualSize: actualSize }); break; }
 		if (old == null) {
 			push(state.assets, { schema: 1, type: item.type, id: item.id, name: item.name || substr(item.id, length(item.type) + 1), ownership: 'manager', mutable: true, provenance: copy(entry.provenance), contentSha256: item.sha256, byteSize: item.byteSize, revision: 1, lastChecked: time(), lastUpdated: time(), path: path, legacyPath: null, references: [], validation: { status: 'passed', errors: [] } });
 		} else {

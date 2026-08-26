@@ -457,6 +457,17 @@
       "requiredCapabilities": []
     },
     {
+      "sourcePath": "files/lists/warp-endpoints.txt",
+      "class": "exact-managed",
+      "type": "txt",
+      "basedOnSha256": "a9b033dcbd09939256d8783d3a9c70589165a17d2835c44c63b0665b372f28e0",
+      "localName": "runtime-assets/lists/warp-endpoints.txt",
+      "runtimeTarget": "/runtime-assets/lists/warp-endpoints.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/warp-endpoints.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
       "sourcePath": "files/lists/youtube_ips.txt",
       "class": "exact-managed",
       "type": "txt",
@@ -550,7 +561,7 @@
       "sourcePath": "files/lua/z2k-state-persist.lua",
       "class": "adapted",
       "type": "lua",
-      "basedOnSha256": "fa4cd3fc83449b1d85e92e75848109cc03340343af87fc014ced423bd9574219",
+      "basedOnSha256": "df4d6c1429a727deaf182762807f23841e6f7df1243264158c6d420188953576",
       "localPath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua",
       "localSha256": "24c0daaf74e0fc4f7dad0d2f06bfca69b9bffa82938e8b7b2fb6fea8f10f79c7",
       "adaptationId": "z2m-state-mode-contract-v1",
@@ -642,6 +653,14 @@
       "consumer": "not installed by Z2M; provenance only"
     },
     {
+      "sourcePath": "files/z2k-dns-check.sh",
+      "class": "watched",
+      "type": "sh",
+      "basedOnSha256": "077964013ff52e425d73416354dd4c7214068bb6ded6262c8374168ab67eb287",
+      "localName": null,
+      "consumer": "upstream semantic review only"
+    },
+    {
       "sourcePath": "files/z2k-fix-tg-watchdog.sh",
       "class": "ignored-platform",
       "type": "sh",
@@ -652,7 +671,7 @@
       "sourcePath": "files/z2k-geosite.sh",
       "class": "watched",
       "type": "sh",
-      "basedOnSha256": "4e6b35c7784511bb83104adcef39b0a9d91940ea068bbaff7597cf0167eac90f",
+      "basedOnSha256": "516839c1e52913a88fc4eb94ff9ba0c84f744fc626740f7f1e06d62c57b0fb7d",
       "localName": null,
       "consumer": "upstream semantic review only"
     },
@@ -709,7 +728,7 @@
       "sourcePath": "files/z2k-update-lists.sh",
       "class": "watched",
       "type": "sh",
-      "basedOnSha256": "48c5f9250798a2a839041ce165d8ecf6c2becd7f5464702ba059f87b95bbadd3",
+      "basedOnSha256": "22f8dfad23bf5ea084fe14c2a104d59d73aae5a0f739af3b7a3baac4a9d5ed3c",
       "localName": null,
       "consumer": "upstream semantic review only"
     },
@@ -907,6 +926,13 @@
       "class": "ignored-platform",
       "type": "sh",
       "basedOnSha256": "d16d95e2ca878f04a2093a8b64aa4daadf21c637e5a934dc41cfc3257bb27817",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "webpanel/lighttpd.conf",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "e17a7953047aef3d215cf071297b7378ccd2d0a8a7a88f76a0bcad8abfd0455f",
       "consumer": "not installed by Z2M; provenance only"
     },
     {
@@ -1159,6 +1185,41 @@
       "class": "ignored-platform",
       "type": "css",
       "basedOnSha256": "6c9079eb073b400a4c79d382323283fec9b83847ff5eb81e9215cdb050713d9a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "z2k-warpd/builds/z2k-warpd-linux-amd64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "65525edd69c2e72832092b362cbab954f2c4c1ed5ac2d2ff575b300585e1d493",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "z2k-warpd/builds/z2k-warpd-linux-arm",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "b0f34fb47a6f9842c68fd1c31015d76d26e3b7a204461d8f43c0c4404695d62a",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "z2k-warpd/builds/z2k-warpd-linux-arm64",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "6234bafd85cdc204aadae4063cee7db99e9b1085280c6c0d0a584b25a18bcf7f",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "z2k-warpd/builds/z2k-warpd-linux-mips",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "f1c8cdb6ff6ae79abcbbcae58dc7f1f96a8e456caf381a2ae40e46da6b719a71",
+      "consumer": "not installed by Z2M; provenance only"
+    },
+    {
+      "sourcePath": "z2k-warpd/builds/z2k-warpd-linux-mipsel",
+      "class": "ignored-platform",
+      "type": "file",
+      "basedOnSha256": "58dababfe3d76d76860cfe3d7391ce7163f92d752a65e02dc72ed018058daf43",
       "consumer": "not installed by Z2M; provenance only"
     },
     {
