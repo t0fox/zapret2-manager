@@ -357,7 +357,7 @@ function blob_dependency(environment, reference, sourceOverride) {
 	let descriptor = is_object(environment.blobs) ? environment.blobs[reference] : null;
 	let source = sourceOverride != null ? sourceOverride : descriptor_path(descriptor, null), resolved = source == null ? null
 		: resolve_path(source, is_object(environment.paths) ? environment.paths : {}, 'blob');
-	let inline = sourceOverride != null && !!inline_blob_source(sourceOverride);
+	let inline = (sourceOverride != null && !!inline_blob_source(sourceOverride)) || !!inline_blob_source(reference);
 	return {
 		available: inline || (descriptor != null && descriptor_safe(descriptor)
 			&& descriptor_present(descriptor, false) && (resolved != null || source == null)),

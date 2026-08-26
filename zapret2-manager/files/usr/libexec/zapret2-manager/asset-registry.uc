@@ -349,9 +349,14 @@ export const asset_registry_apply_bundle = function(request) {
 		if (!normalized.ok) return normalized;
 		if (normalized.content != content) return fail('EVALIDATION', 'resource bundle asset is not canonical', { id: item.id });
 		let old = find_asset(state, item.id);
+		let isPromotion = old != null && old.ownership == 'package' && old.provenance && old.provenance.kind == 'builtin/package';
 		if (old != null) {
-			if (old.ownership == 'package' || old.mutable != true || !old.provenance || old.provenance.kind != 'catalog/upstream') return fail('EPOLICY', 'package or user resource cannot be replaced by upstream', { id: item.id });
-			if (item.expectedRevision == null || item.expectedRevision != old.revision) return fail('ECONFLICT', 'resource revision is stale', { id: item.id, expectedRevision: old.revision });
+			if (isPromotion) {
+				if (item.expectedRevision != null && item.expectedRevision != old.revision) return fail('ECONFLICT', 'resource revision is stale', { id: item.id, expectedRevision: old.revision });
+			} else {
+				if (old.ownership == 'package' || old.mutable != true || !old.provenance || old.provenance.kind != 'catalog/upstream') return fail('EPOLICY', 'package or user resource cannot be replaced by upstream', { id: item.id });
+				if (item.expectedRevision == null || item.expectedRevision != old.revision) return fail('ECONFLICT', 'resource revision is stale', { id: item.id, expectedRevision: old.revision });
+			}
 		} else if (find_asset(state, item.id) != null) return fail('ECONFLICT', 'resource asset ID already exists', { id: item.id });
 		let provenance = item.provenance;
 		if (!object(provenance) || provenance.kind != 'catalog/upstream' || !string(provenance.source) || !string(provenance.sourceCommit)
@@ -369,9 +374,16 @@ export const asset_registry_apply_bundle = function(request) {
 	// Preflight every target before creating the rollback snapshot or mutating
 	// any asset. This keeps a multi-asset bundle all-or-nothing.
 	for (let i = 0; i < length(prepared); i++) {
-		let entry = prepared[i], item = entry.item, old = entry.old, path = old != null ? old.path : server_asset_path(item.type, substr(item.id, length(item.type) + 1));
-		if (old == null && (!asset_parent_safe(item.type) || stat(path) != null)) { result = fail('ESAFETY', 'resource target path is not safe', { id: item.id }); break; }
-		if (old != null && (!mutable_asset_path_safe(old) || old.path != path)) { result = fail('ESAFETY', 'resource target path is not manager-owned', { id: item.id }); break; }
+		let entry = prepared[i], item = entry.item, old = entry.old, isPromotion = old != null && old.ownership == 'package' && old.provenance && old.provenance.kind == 'builtin/package';
+		let path = null;
+		if (isPromotion) path = server_asset_path(item.type, substr(item.id, length(item.type) + 1));
+		else if (old != null) path = old.path;
+		else path = server_asset_path(item.type, substr(item.id, length(item.type) + 1));
+		if (isPromotion) {
+			if (!asset_parent_safe(item.type) || (stat(path) != null && !regular(path))) { result = fail('ESAFETY', 'resource target path is not safe', { id: item.id }); break; }
+			if (!regular(old.path)) { result = fail('ESAFETY', 'package baseline is missing', { id: item.id }); break; }
+		} else if (old == null && (!asset_parent_safe(item.type) || stat(path) != null)) { result = fail('ESAFETY', 'resource target path is not safe', { id: item.id }); break; }
+		else if (old != null && (!mutable_asset_path_safe(old) || old.path != path)) { result = fail('ESAFETY', 'resource target path is not manager-owned', { id: item.id }); break; }
 		let previous = stat(path) != null && regular(path) ? readfile(path) : null, previousPath = rollback_path(path), oldPrevious = null;
 		if (previous == null && stat(path) != null) { result = fail('ESAFETY', 'resource target is not a regular file', { id: item.id }); break; }
 		if (stat(previousPath) != null) { if (!regular(previousPath)) { result = fail('ESAFETY', 'resource rollback path is not a regular file', { id: item.id }); break; } oldPrevious = readfile(previousPath); }
@@ -389,6 +401,8 @@ export const asset_registry_apply_bundle = function(request) {
 		if (!atomic_write(path, entry.content) || !postflight(path, item)) { let actualSha = sha256_file(path), actualSize = content_size(path); result = fail('EVERIFY', 'resource activation postflight failed', { id: item.id, expectedSha256: item.sha256, actualSha256: actualSha, expectedSize: item.byteSize, actualSize: actualSize }); break; }
 		if (old == null) {
 			push(state.assets, { schema: 1, type: item.type, id: item.id, name: item.name || substr(item.id, length(item.type) + 1), ownership: 'manager', mutable: true, provenance: copy(entry.provenance), contentSha256: item.sha256, byteSize: item.byteSize, revision: 1, lastChecked: time(), lastUpdated: time(), path: path, legacyPath: null, references: [], validation: { status: 'passed', errors: [] } });
+		} else if (old.ownership == 'package' && old.provenance && old.provenance.kind == 'builtin/package') {
+			old.path = path; old.ownership = 'manager'; old.mutable = true; old.provenance = copy(entry.provenance); old.contentSha256 = item.sha256; old.byteSize = item.byteSize; old.revision++; old.lastChecked = time(); old.lastUpdated = time(); if (item.name) old.name = item.name;
 		} else {
 			old.provenance = copy(entry.provenance); old.contentSha256 = item.sha256; old.byteSize = item.byteSize; old.revision++; old.lastChecked = time(); old.lastUpdated = time(); if (item.name) old.name = item.name;
 		}
@@ -442,6 +456,13 @@ export const asset_registry_environment = function() {
 		if (asset.type == 'blob') environment.blobs[asset.id] = descriptor;
 		if (asset.type == 'hostlist' || asset.type == 'hosts') environment.lists[asset.id] = descriptor;
 		if (asset.type == 'ipset') environment.lists[asset.id] = descriptor;
+	}
+	for (let i = 0; i < length(listed.assets); i++) {
+		let asset = listed.assets[i];
+		if (asset.type != 'lua' || !regular(asset.path)) continue;
+		let raw = readfile(asset.path);
+		if (raw == null) continue;
+		for (let name in legacy_function_names(raw)) environment.functions[name] = { path: asset.path, available: true, present: true, safe: true, symlink: false };
 	}
 	return environment;
 };
