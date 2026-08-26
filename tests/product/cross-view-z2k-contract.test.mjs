@@ -20,7 +20,8 @@ test('Resources page must be single-page: no PANES concept', () => {
   assert.doesNotMatch(src, /active === 'updates'/);
   assert.doesNotMatch(src, /subTabs\(PANES/);
   assert.match(src, /ResourcesModel\.buildModel/, 'must use ResourcesModel.buildModel');
-  assert.match(src, /z2m-resource-group-card/, 'must render grouped cards, not 4 tabs');
+  assert.match(src, /z2m-resource-group-row/, 'must render compact grouped rows, not 4 tabs nor large cards');
+  assert.doesNotMatch(src, /z2m-resource-group-card/, 'must not use old large card layout');
 });
 
 test('Ownership classification must be in model, not coarse pane filter', () => {

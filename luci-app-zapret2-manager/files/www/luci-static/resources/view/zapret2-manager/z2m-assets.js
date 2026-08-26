@@ -183,55 +183,57 @@ function render(ctx) {
     var isExpanded = !!expanded[group.id];
     var counts = countsText(group.counts);
     var totalLine = group.total + ' ' + _('ресурса') + (group.total === 1 ? '' : group.total < 5 ? 'а' : 'ов') + (counts ? ' · ' + counts : '');
-    var sourceLine = group.repository ? E('div', { 'class': 'z2m-dim mono' }, text(group.repository)) : null;
-    var consumerLine = group.consumer ? E('div', { 'class': 'z2m-dim' }, _('Используется: ') + group.consumer) : null;
+    var metaLine = totalLine;
+    if (group.consumer || group.repository) {
+      var extra = [group.consumer, group.repository].filter(Boolean).join(' · ');
+      if (extra) metaLine = totalLine + ' · ' + extra;
+    }
+    // For user group with 0, metaLine is empty, show special
     var state = group.state || 'unknown';
     var badge = stateBadge({ state: state, status: HUMAN_STATES[state] || group.stateLabel });
 
-    // User empty state
     if (group.id === 'user' && group.total === 0) {
-      return E('section', { 'class': 'z2m-resource-group-card z2m-resource-group-user' }, [
-        E('div', { 'class': 'z2m-resource-group-head' }, [
-          E('div', {}, [E('h2', {}, group.label), E('div', { 'class': 'z2m-dim' }, _('Пользовательских ресурсов пока нет.'))]),
-          badge
-        ]),
-        E('div', { 'class': 'z2m-resource-group-actions' }, [
-          ctx.shell.button(_('+ Добавить ресурс'), 'primary sm', openImport)
+      return E('section', { 'class': 'z2m-resource-group-row z2m-resource-group-empty', 'data-group-id': group.id }, [
+        E('div', { 'class': 'z2m-resource-group-main' }, [
+          E('div', { 'class': 'z2m-resource-group-left' }, [
+            E('h2', {}, group.label),
+            E('div', { 'class': 'z2m-resource-group-meta' }, _('Пользовательских ресурсов нет.'))
+          ]),
+          E('div', { 'class': 'z2m-resource-group-side' }, [
+            badge,
+            ctx.shell.button(_('+ Добавить'), 'sm', openImport)
+          ])
         ])
       ]);
     }
 
-    var header = E('div', { 'class': 'z2m-resource-group-head' }, [
-      E('div', {}, [
-        E('h2', {}, group.label),
-        E('div', { 'class': 'z2m-dim' }, totalLine),
-        consumerLine,
-        sourceLine
-      ]),
-      E('div', { 'class': 'z2m-resource-group-badge' }, badge)
+    var titleRow = E('div', { 'class': 'z2m-resource-group-title' }, [E('h2', {}, group.label), badge]);
+    var left = E('div', { 'class': 'z2m-resource-group-left' }, [
+      titleRow,
+      E('div', { 'class': 'z2m-resource-group-meta' }, metaLine)
     ]);
-
-    var actions = E('div', { 'class': 'z2m-resource-group-actions' }, []);
-    var showBtnLabel = group.id === 'z2k-resources' ? _('Показать ') + group.total : _('Показать');
+    var rightChildren = [];
     if (group.total > 0) {
-      actions.appendChild(ctx.shell.button(isExpanded ? _('Скрыть') : showBtnLabel, 'sm', function () {
+      rightChildren.push(ctx.shell.button(isExpanded ? _('Свернуть') : _('Развернуть'), 'sm', function () {
         expanded[group.id] = !expanded[group.id];
         body.replaceChildren(renderBody());
       }));
     }
     if (group.id === 'user' && group.total > 0) {
-      actions.appendChild(ctx.shell.button(_('+ Добавить ресурс'), 'sm', openImport));
+      rightChildren.push(ctx.shell.button(_('+ Добавить'), 'sm', openImport));
     }
+    var right = E('div', { 'class': 'z2m-resource-group-side' }, rightChildren);
 
-    var cardChildren = [header];
-    // Advanced metadata for group
+    var headerRow = E('div', { 'class': 'z2m-resource-group-main' }, [left, right]);
+
+    var children = [headerRow];
+
     if (advanced && group.source) {
-      var advLines = [];
-      if (group.source.commit) advLines.push(E('div', { 'class': 'z2m-dim mono' }, _('Commit источника') + ': ' + text(group.source.commit)));
-      if (group.commit && group.commit !== group.source.commit) advLines.push(E('div', { 'class': 'z2m-dim mono' }, _('Provenance: ') + text(group.commit)));
-      if (advLines.length) cardChildren.push(E('div', { 'class': 'z2m-resource-group-adv' }, advLines));
+      var adv = [];
+      if (group.source.commit) adv.push(E('div', { 'class': 'z2m-dim mono' }, _('Commit источника') + ': ' + text(group.source.commit)));
+      if (group.commit && group.commit !== group.source.commit) adv.push(E('div', { 'class': 'z2m-dim mono' }, _('Provenance: ') + text(group.commit)));
+      if (adv.length) children.push(E('details', { 'class': 'z2m-resource-group-adv' }, [E('summary', {}, _('▸ Технические сведения')), E('div', {}, adv)]));
     }
-    cardChildren.push(actions);
 
     if (isExpanded && group.assets.length) {
       var filteredAssets = [];
@@ -251,7 +253,6 @@ function render(ctx) {
         var showBadge = ResourcesModel.shouldShowBadge(asset);
         var assetBadge = showBadge ? stateBadge(asset) : null;
         var used = refs(asset).length ? refs(asset).map(function (r) { return r.consumer; }).join(', ') : '—';
-        // Advanced row details
         var advMeta = null;
         if (advanced) {
           var parts = [];
@@ -263,19 +264,19 @@ function render(ctx) {
         return E('div', { 'class': 'z2m-resource-table-row', 'data-resource-id': text(asset.id) }, [
           E('div', { 'class': 'z2m-resource-table-name' }, [
             E('span', { 'class': 'z2m-resource-type-icon' }, icon(asset.type)),
-            E('strong', {}, text(asset.name || asset.id)),
+            E('span', {}, E('strong', {}, text(asset.name || asset.id))),
             advMeta,
             assetBadge ? E('span', { 'class': 'z2m-resource-table-badge' }, assetBadge) : null
           ]),
           E('span', { 'class': 'z2m-dim' }, label(asset.type)),
           E('span', { 'class': 'z2m-dim' }, used),
-          ctx.shell.button(_('Открыть'), 'sm', function () { openAsset(asset); })
+          ctx.shell.button(_('Открыть'), 'link sm', function () { openAsset(asset); })
         ]);
       });
-      cardChildren.push(E('div', { 'class': 'z2m-resource-table' }, [tableHead].concat(rows)));
+      children.push(E('div', { 'class': 'z2m-resource-table' }, [tableHead].concat(rows)));
     }
 
-    return E('section', { 'class': 'z2m-resource-group-card', 'data-group-id': group.id }, cardChildren);
+    return E('section', { 'class': 'z2m-resource-group-row', 'data-group-id': group.id }, children);
   }
 
   function openImport() {
