@@ -2,7 +2,7 @@
 'require rpc';
 'require baseclass';
 var calls={
- status:rpc.declare({object:'zapret2-manager',method:'status',reject:true}),statusFast:rpc.declare({object:'zapret2-manager',method:'status_fast',reject:true}),start:rpc.declare({object:'zapret2-manager',method:'start',reject:true}),stop:rpc.declare({object:'zapret2-manager',method:'stop',reject:true}),restart:rpc.declare({object:'zapret2-manager',method:'restart',reject:true}),
+ status:rpc.declare({object:'zapret2-manager',method:'status',reject:true, timeout: 60}),statusFast:rpc.declare({object:'zapret2-manager',method:'status_fast',reject:true, timeout: 60}),start:rpc.declare({object:'zapret2-manager',method:'start',reject:true}),stop:rpc.declare({object:'zapret2-manager',method:'stop',reject:true}),restart:rpc.declare({object:'zapret2-manager',method:'restart',reject:true}),
  profilesList:rpc.declare({object:'zapret2-manager',method:'profiles_list',reject:true}),profilesCreate:rpc.declare({object:'zapret2-manager',method:'profiles_create',params:['edit'],reject:true}),profilesUpdate:rpc.declare({object:'zapret2-manager',method:'profiles_update',params:['edit'],reject:true}),profilesClone:rpc.declare({object:'zapret2-manager',method:'profiles_clone',params:['edit'],reject:true}),profilesDelete:rpc.declare({object:'zapret2-manager',method:'profiles_delete',params:['edit'],reject:true}),profilesReorder:rpc.declare({object:'zapret2-manager',method:'profiles_reorder',params:['edit'],reject:true}),profilesValidate:rpc.declare({object:'zapret2-manager',method:'profiles_validate',params:['edit'],reject:true}),profilesImportApplied:rpc.declare({object:'zapret2-manager',method:'profiles_import_applied',reject:true}),profilesApply:rpc.declare({object:'zapret2-manager',method:'profiles_apply',params:['edit'],reject:true}),
  discordProfilePreview:rpc.declare({object:'zapret2-manager',method:'discord_profile_preview',reject:true}),discordProfileApply:rpc.declare({object:'zapret2-manager',method:'discord_profile_apply',params:['edit'],reject:true}),discordProfileRollback:rpc.declare({object:'zapret2-manager',method:'discord_profile_rollback',reject:true}),
  orchestraRunStart:rpc.declare({object:'zapret2-manager',method:'orchestra_run_start',params:['edit'],reject:true}),orchestraRunStatus:rpc.declare({object:'zapret2-manager',method:'orchestra_run_status',params:['edit'],reject:true}),orchestraProbePreflight:rpc.declare({object:'zapret2-manager',method:'orchestra_probe_preflight',reject:true}),
@@ -19,16 +19,16 @@ serviceDnsProviders:rpc.declare({object:'zapret2-manager',method:'service_dns_pr
  versions:rpc.declare({object:'zapret2-manager',method:'versions',reject:true}),maintenanceStatus:rpc.declare({object:'zapret2-manager',method:'maintenance_status',reject:true}),backupList:rpc.declare({object:'zapret2-manager',method:'backup_list',reject:true}),backupCreate:rpc.declare({object:'zapret2-manager',method:'backup_create',params:['edit'],reject:true}),backupRestorePreview:rpc.declare({object:'zapret2-manager',method:'backup_restore_preview',params:['edit'],reject:true}),backupRestore:rpc.declare({object:'zapret2-manager',method:'backup_restore',params:['edit'],reject:true}),backupDelete:rpc.declare({object:'zapret2-manager',method:'backup_delete',params:['edit'],reject:true}),eventsTail:rpc.declare({object:'zapret2-manager',method:'events_tail',params:['edit'],reject:true}),monitorSnapshot:rpc.declare({object:'zapret2-manager-monitor',method:'monitor_snapshot',params:['edit'],reject:true}),diagnosticsExport:rpc.declare({object:'zapret2-manager',method:'diagnostics_export',reject:true})
 };
 calls.tgProductOperationStatus=rpc.declare({object:'zapret2-manager',method:'tg_product_operation_status',params:['edit'],reject:true});
-calls.strategiesState=rpc.declare({object:'zapret2-manager',method:'strategies_state',reject:true});
+calls.strategiesState=rpc.declare({object:'zapret2-manager',method:'strategies_state',reject:true, timeout: 60});
 calls.strategiesStateSet=rpc.declare({object:'zapret2-manager',method:'strategies_state_set',params:['edit'],reject:true});
-calls.strategiesPools=rpc.declare({object:'zapret2-manager',method:'strategies_pools',reject:true});
+calls.strategiesPools=rpc.declare({object:'zapret2-manager',method:'strategies_pools',reject:true, timeout: 60});
 calls.scannerHistoryList=rpc.declare({object:'zapret2-manager',method:'scanner_history_list',params:['edit'],reject:true});
 calls.scannerHistoryGet=rpc.declare({object:'zapret2-manager',method:'scanner_history_get',params:['edit'],reject:true});
 calls.strategiesCatalogUpdate=rpc.declare({object:'zapret2-manager',method:'strategies_catalog_update',params:['edit'],reject:true, timeout: 60});
 calls.strategiesStateClear=rpc.declare({object:'zapret2-manager',method:'strategies_state_clear',params:['edit'],reject:true});
-calls.strategiesDebugGet=rpc.declare({object:'zapret2-manager',method:'strategies_debug_get',reject:true});
+calls.strategiesDebugGet=rpc.declare({object:'zapret2-manager',method:'strategies_debug_get',reject:true, timeout: 60});
 calls.strategiesDebugSet=rpc.declare({object:'zapret2-manager',method:'strategies_debug_set',params:['edit'],reject:true});
-calls.healthcheckStatus=rpc.declare({object:'zapret2-manager',method:'healthcheck_status',reject:true});
+calls.healthcheckStatus=rpc.declare({object:'zapret2-manager',method:'healthcheck_status',reject:true, timeout: 60});
 calls.healthcheckRun=rpc.declare({object:'zapret2-manager',method:'healthcheck_run',params:['edit'],reject:true});
 calls.healthcheckEnable=rpc.declare({object:'zapret2-manager',method:'healthcheck_enable',params:['edit'],reject:true});
 calls.healthcheckDisable=rpc.declare({object:'zapret2-manager',method:'healthcheck_disable',params:['edit'],reject:true});
