@@ -1242,7 +1242,12 @@ function refreshCatalog() {
   state.pending = 'catalog'; renderAll();
   var sourceUpdate = state.ctx.api.strategies.catalogUpdate ? call(state.ctx.api.strategies.catalogUpdate, { transaction: 'apply' }) : Promise.resolve({ ok: true });
   sourceUpdate.then(function (source) {
-    if (!source || source.ok === false) throw source || new Error('Источник каталога недоступен');
+    if (!source || source.ok === false) {
+        var code = source && source.error && source.error.code;
+        if (code === 'EINCOMPLETE' || code === 'EUNAVAILABLE') {
+          return call(state.ctx.api.strategies.catalogReload);
+        }
+        throw source || new Error('Источник каталога недоступен');
     return call(state.ctx.api.strategies.catalogReload);
   }).then(function (answer) {
     if (!answer || answer.ok === false) throw answer || new Error('Каталог не обновлён');

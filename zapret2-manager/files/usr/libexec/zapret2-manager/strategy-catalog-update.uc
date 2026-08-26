@@ -48,8 +48,7 @@ function failure(state, reason) {
 function apply_snapshot(input) {
 	if (!is_object(input) || input.completeSnapshot != true || !candidate_safe(input.stagedRoot)
 		|| input.dependenciesVerified !== true)
-		return failure('rejected-incomplete-source', { code: 'EUNAVAILABLE', message:
-			'A complete verified catalog snapshot and dependency evidence are required; partial remote files are rejected' });
+		return failure('rejected-incomplete-source', { code: 'EINCOMPLETE', message: 'A complete verified catalog snapshot is required for update; no staged snapshot was provided' });
 	let prepared = strategy_catalog_prepare_snapshot(input.stagedRoot);
 	if (!prepared.ok) return failure('verification-error', { code: prepared.error && prepared.error.code || 'EVERIFY',
 		message: 'catalog snapshot was not installed: ' + (prepared.error && prepared.error.message || 'verification failed'),
