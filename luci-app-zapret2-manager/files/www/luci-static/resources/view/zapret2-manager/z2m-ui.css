@@ -3329,3 +3329,11 @@
   .z2m-components-page .z2m-engine-pane{grid-template-columns:minmax(0,1.35fr) minmax(320px,.85fr);align-items:start}
   .z2m-components-page .z2m-engine-pane>.z2m-panel:first-child{grid-row:span 2}
 }
+
+/* Catalog update progress bar - interactive with smooth animation */
+.z2m-catalog-progress { margin: 14px 0 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.z2m-catalog-progress-track { height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+.z2m-catalog-progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #5faee3 0%, #7ec8e3 100%); border-radius: 999px; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.z2m-catalog-progress-status { margin-top: 8px; font-size: 12px; color: var(--tx2); line-height: 1.3; }
+.z2m-catalog-progress[data-phase="error"] .z2m-catalog-progress-bar { background: linear-gradient(90deg, #e57373, #ef9a9a); }
+.z2m-catalog-progress[data-phase="done"] .z2m-catalog-progress-bar { background: linear-gradient(90deg, #66bb6a, #a5d6a7); }

@@ -28,6 +28,7 @@ var FILTER_PRESETS = {
 var state = {
   ctx: null, root: null, data: {}, rows: [], selectedId: null,
   pending: null, operationPending: null, editorLoadingId: null, editor: null, preview: null, selectedIds: {},
+  catalogProgress: null,
   detailLoading: {},
   listUI: null, pollTimer: null, disposed: false, loaded: false,
   healthcheck: null, healthcheckCatalog: [], healthcheckSettings: { open: false, loading: false, draft: null, error: null },
@@ -1237,10 +1238,35 @@ function refreshData(full) {
     }
   });
 }
-function refreshCatalog() {
+function renderCatalogProgress() {
+    var host = state.root && state.root.querySelector('#catalog-progress');
+    if (!host) return;
+    var data = state.catalogProgress;
+    if (!data || !data.visible) { host.style.display = 'none'; return; }
+    host.style.display = 'block';
+    var bar = host.querySelector('.z2m-catalog-progress-bar');
+    var status = host.querySelector('.z2m-catalog-progress-status');
+    var percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+    if (bar) { bar.style.width = percent + '%'; bar.setAttribute('aria-valuenow', String(percent)); }
+    if (status) status.textContent = data.text || '';
+    host.setAttribute('data-phase', data.phase || '');
+  }
+  function updateCatalogProgress(phase, percent, text) {
+    state.catalogProgress = { visible: true, phase: phase, percent: percent, text: text };
+    renderCatalogProgress();
+  }
+  function hideCatalogProgress() {
+    if (state.catalogProgress) state.catalogProgress.visible = false;
+    renderCatalogProgress();
+  }
+  function refreshCatalog() {
   if (state.pending || !state.ctx || !state.ctx.api.strategies.catalogReload) return;
-  state.pending = 'catalog'; renderAll();
+  state.pending = 'catalog';
+  updateCatalogProgress('init', 5, 'Инициализация...');
+  renderAll();
+  renderCatalogProgress();
   var sourceUpdate = state.ctx.api.strategies.catalogUpdate ? call(state.ctx.api.strategies.catalogUpdate, { transaction: 'apply' }) : Promise.resolve({ ok: true });
+  updateCatalogProgress('check', 15, 'Проверка источника...');
   sourceUpdate.then(function (source) {
       if (!source || source.ok === false) {
         var code = source && source.error && source.error.code;
@@ -1249,13 +1275,31 @@ function refreshCatalog() {
         }
         throw source || new Error('Не удалось обновить источник каталога.');
       }
+      updateCatalogProgress('verify', 60, 'Верификация...');
       return call(state.ctx.api.strategies.catalogReload);
     }).then(function (answer) {
-    if (!answer || answer.ok === false) throw answer || new Error('Каталог не обновлён');
-    return refreshData(true);
-  }).then(function () { notify('ok', 'Каталог стратегий обновлён'); }, function (error) {
-    notify('err', errorText(state.ctx, error));
-  }).then(function () { state.pending = null; renderAll(); });
+      if (!answer || answer.ok === false) {
+        var msg = errorText(state.ctx, answer);
+        if (/timeout|timed out|превышено/i.test(msg) || (answer && answer.error && /timeout/i.test(String(answer.error.code||'')))) {
+          updateCatalogProgress('error', 100, 'Превышено время ожидания — попробуйте ещё раз');
+        }
+        throw answer || new Error('Не удалось обновить каталог.');
+      }
+      updateCatalogProgress('index', 80, 'Индексация...');
+      return refreshData(true);
+    }).then(function () {
+      updateCatalogProgress('done', 100, 'Готово');
+      setTimeout(hideCatalogProgress, 1200);
+      notify('ok', 'Каталог стратегий обновлён.'); }, function (error) {
+      var msg = errorText(state.ctx, error);
+      var isTimeout = /timeout|timed out|превышено/i.test(msg) || /timeout/i.test(String(error && error.code || ''));
+      if (isTimeout) {
+        updateCatalogProgress('error', 100, 'Превышено время ожидания — попробуйте ещё раз');
+        notify('err', 'Превышено время ожидания (XHR timeout). Попробуйте ещё раз — таймаут увеличен до 60с.');
+      } else {
+        notify('err', msg);
+      }
+  }).then(function () { state.pending = null; renderAll(); renderCatalogProgress(); });
 }
 function mutate(action, request, options) {
   options = object(options);
@@ -1726,7 +1770,7 @@ function unbindEvents() { if (!state.root) return; state.root.removeEventListene
 function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
-  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
   var pasteButton = root.querySelector('[data-action="pasteFromClipboard"]');
   if (pasteButton) pasteButton.innerHTML = svgIcon('clipboard', 14) + '<span>Вставить из буфера</span>';
   var createButton = root.querySelector('[data-action="openCreate"]');
@@ -1764,7 +1808,7 @@ function boundedRead(method, timeout, message) {
 function load(ctx) {
   // The target verifies a large immutable catalog on the healthy path. This
   // is a bounded error timeout, never an empty-state fallback.
-  var readTimeout = 35000;
+  var readTimeout = 60000;
   var reads = [
     boundedRead(ctx.api.strategies.list, readTimeout, 'Не удалось получить список стратегий.'),
     boundedRead(ctx.api.strategies.catalogStatus, readTimeout, 'Не удалось получить состояние каталога.'),
