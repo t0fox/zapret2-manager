@@ -504,3 +504,9 @@
   .z2m-components-hero-main{gap:12px}
   .z2m-component-card{padding:14px}
 }
+
+/* Advanced toggle relocated from Settings to Components bottom — compact */
+.z2m-advanced-block { padding: 4px 0; }
+.z2m-advanced-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--border); margin-top: 8px; }
+.z2m-advanced-row strong { font-size: 13px; font-weight: 600; }
+.z2m-advanced-row p { margin: 2px 0 0; font-size: 12px; }

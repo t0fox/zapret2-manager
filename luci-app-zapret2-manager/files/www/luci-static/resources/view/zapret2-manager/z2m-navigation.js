@@ -58,7 +58,7 @@ var GROUPS = [
       { id: 'system', label: _('Система'), hidden: true },
       { id: 'components', label: _('Компоненты') },
       { id: 'backups', label: _('Резервные копии') },
-      { id: 'settings', label: _('Настройки') }
+      { id: 'settings', label: _('Настройки'), hidden: true }
     ]
   }
 ];

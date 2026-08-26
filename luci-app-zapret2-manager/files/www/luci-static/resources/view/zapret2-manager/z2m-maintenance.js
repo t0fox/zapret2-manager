@@ -11,7 +11,8 @@ var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
   lists: _('Списки'),
-  profiles: _('Профили')
+  profiles: _('Профили'),
+  all: _('Полная резервная копия')
 };
 var PANE_META = {
   components: { title: _('Компоненты'), subtitle: _('Обязательные компоненты системы и их состояние') },
@@ -58,7 +59,8 @@ var state = {
   busy: null,
   componentBusy: false,
   engineExpanded: false,
-  z2kExpanded: false
+  z2kExpanded: false,
+  showAllBackups: false
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -88,7 +90,7 @@ function boundedLoad(promise, label) {
 function activePane(ctx) {
   var route = ctx.route || '';
   if (route === 'backups') return 'backups';
-  if (route === 'settings') return 'settings';
+  if (route === 'settings') return 'components';
   return 'components';
 }
 function telegramCardState(tg) {
@@ -703,6 +705,31 @@ function renderComponents(ctx, data) {
           actions: [E('a', { href: '#/warp', 'class': 'z2m-btn sm' }, _('Подробнее →'))]
         })
       ])
+    ]),
+    E('section', { 'class': 'z2m-components-section z2m-components-section--advanced' }, [
+      E('div', { 'class': 'z2m-components-section-head' }, [
+        E('h2', {}, _('ДОПОЛНИТЕЛЬНО')),
+        E('span', { 'class': 'z2m-dim' }, '')
+      ]),
+      E('div', { 'class': 'z2m-advanced-block' }, (function() {
+        var ui = object(ctx.store.get().ui || {});
+        var advanced = ui.advanced === true;
+        var toggle = ctx.shell.switchControl({
+          checked: advanced,
+          label: _('Расширенный режим интерфейса'),
+          onChange: function (enabled) {
+            ctx.store.update({ ui: Object.assign({}, ctx.store.get().ui || {}, { advanced: enabled }) });
+            ctx.rerender();
+          }
+        });
+        return E('div', { 'class': 'z2m-advanced-row' }, [
+          E('div', {}, [
+            E('strong', {}, _('Расширенный режим')),
+            E('p', { 'class': 'z2m-dim' }, _('Показывать технические данные и диагностические поля.'))
+          ]),
+          toggle
+        ]);
+      })())
     ])
   ]);
 }
@@ -730,7 +757,7 @@ function previewBackup(ctx, record) {
   });
 }
 function deleteBackup(ctx, record) {
-  confirmAction(ctx, _('Удалить backup?'),
+  confirmAction(ctx, _('Удалить резервную копию?'),
     (SCOPE_LABELS[record.scope] || record.scope) + ' · ' + formatTime(ctx.shell, record.takenAt),
     _('Удалить'), function () {
       mutation(ctx, 'backup-delete', edit(ctx.api.maintenance.backupDelete, {
@@ -740,7 +767,7 @@ function deleteBackup(ctx, record) {
         if (!answer) return;
         state.preview = null;
         state.previewModel = null;
-        ctx.shell.showToast(_('Backup удалён.'), 'ok');
+        ctx.shell.showToast(_('Резервная копия удалена.'), 'ok');
         refresh(ctx);
       });
     });
@@ -748,7 +775,7 @@ function deleteBackup(ctx, record) {
 function restoreBackup(ctx) {
   var preview = state.previewModel;
   if (!preview) return;
-  confirmAction(ctx, _('Восстановить backup?'),
+  confirmAction(ctx, _('Восстановить резервную копию?'),
     _('Сервер сначала проверит идентификатор и ревизию предпросмотра, сохранит текущее состояние, выполнит восстановление и повторно прочитает каждый файл.'),
     _('Восстановить'), function () {
       var request = MaintenanceModel.restoreRequest(preview, true);
@@ -760,7 +787,7 @@ function restoreBackup(ctx) {
         if (!answer) return;
         state.verification = MaintenanceModel.verifyRestore(answer);
         if (state.verification.verified) {
-          ctx.shell.showToast(_('Backup восстановлен и проверен.'), 'ok');
+          ctx.shell.showToast(_('Резервная копия восстановлена и проверена.'), 'ok');
           state.preview = null;
           state.previewModel = null;
           refresh(ctx);
@@ -788,10 +815,10 @@ function renderPreview(ctx) {
     { label: _('Целостность'), value: preview.integrity || '' },
     { label: _('Проверка версии'), value: preview.versionGate || '' }
   ].filter(function (row) { return row.value; });
-  var restore = shell.button(_('Восстановить этот архив'), 'danger', restoreBackup.bind(null, ctx),
+  var restore = shell.button(_('Восстановить копию'), 'danger', restoreBackup.bind(null, ctx),
     !preview.allowed || !!state.busy);
   return E('section', { 'class': 'z2m-panel', id: 'z2m-backup-preview' }, [
-    E('div', { 'class': 'hd' }, [E('h2', {}, _('Предпросмотр восстановления')), E('div', { 'class': 'sp' }, restore)]),
+    E('div', { 'class': 'hd' }, [E('h2', {}, _('Восстановление резервной копии')), E('div', { 'class': 'sp' }, restore)]),
     E('div', { 'class': 'bd' }, [
       preview.blocker ? shell.statePanel({ title: _('Восстановление заблокировано'), message: preview.blocker, kind: 'error' }) : null,
       metadata.length ? kvPanel(shell, metadata) : null,
@@ -804,6 +831,7 @@ function renderPreview(ctx) {
 function renderBackups(ctx, data) {
   var shell = ctx.shell;
   var records = MaintenanceModel.backups(data.backups && data.backups.value || {}, 100);
+  var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced);
   var scopeSelect = E('select', { id: 'z2m-backup-scope', 'aria-label': _('Область резервной копии') }, [
   ].concat(SCOPES.map(function (scope) {
     return E('option', { value: scope }, SCOPE_LABELS[scope]);
@@ -813,37 +841,48 @@ function renderBackups(ctx, data) {
       scope: scope || scopeSelect.value
     })).then(function (answer) {
       if (!answer) return;
-      shell.showToast(_('Backup создан.'), 'ok');
+      shell.showToast(_('Резервная копия создана.'), 'ok');
       refresh(ctx);
     });
   }
-  var createAllButton = shell.button(_('Создать полный backup · Всё'), 'primary', function () { create('all'); }, !!state.busy);
+  var createAllButton = shell.button(_('Создать полную копию'), 'primary', function () { create('all'); }, !!state.busy);
   var createScopedButton = shell.button(_('Создать выбранную область'), 'sm', function () { create(scopeSelect.value); }, !!state.busy);
-  var rows = records.map(function (record) {
+  var visibleRecords = state.showAllBackups ? records : records.slice(0, 5);
+  var rows = visibleRecords.map(function (record) {
+    var label = SCOPE_LABELS[record.scope] || (record.scope === 'all' ? _('Полная резервная копия') : record.scope);
     return E('div', { 'class': 'z2m-backup-row' }, [
       E('div', {}, [
-        E('div', { 'class': 'nm' }, SCOPE_LABELS[record.scope] || record.scope),
+        E('div', { 'class': 'nm' }, label),
         E('div', { 'class': 'co' }, formatTime(shell, record.takenAt)),
-        record.manifestSha256 ? E('div', { 'class': 'z2m-tech' }, record.manifestSha256) : null
+        (advanced && record.manifestSha256) ? E('div', { 'class': 'z2m-tech' }, 'SHA-256: ' + record.manifestSha256.slice(0, 8) + '...') : null
       ]),
       E('div', { 'class': 'z2m-btnrow' }, [
-        shell.button(_('Предпросмотр'), 'sm', previewBackup.bind(null, ctx, record), !!state.busy),
+        shell.button(_('Восстановить'), 'sm', previewBackup.bind(null, ctx, record), !!state.busy),
         shell.button(_('Удалить'), 'danger sm', deleteBackup.bind(null, ctx, record), !!state.busy)
       ])
     ]);
   });
+  var toggleButton = null;
+  if (records.length > 5) {
+    toggleButton = state.showAllBackups
+      ? shell.button(_('Скрыть старые'), 'sm', function () { state.showAllBackups = false; rerender(ctx); }, false)
+      : shell.button(_('Показать все (' + records.length + ')'), 'sm', function () { state.showAllBackups = true; rerender(ctx); }, false);
+  }
   return E('div', {}, [
-    shell.panel(_('Резервные копии'), E('div', {}, [
-      E('p', { 'class': 'z2m-dim' }, _('Полный backup сохраняет всё состояние менеджера и подходит для обычного восстановления.')),
+    shell.panel(_('Создать резервную копию'), E('div', {}, [
+      E('p', { 'class': 'z2m-dim' }, _('Сохранит всё состояние Zapret2 Manager.')),
       E('div', { 'class': 'z2m-btnrow' }, [createAllButton]),
       E('details', { 'class': 'z2m-acc z2m-backup-advanced' }, [
         E('summary', {}, _('Дополнительно')),
         E('div', { 'class': 'z2m-btnrow' }, [scopeSelect, createScopedButton])
-      ]),
-      E('div', { 'class': 'z2m-backup-history' }, rows.length ? rows : [
-        shell.statePanel({ message: _('История backup пуста.'), kind: 'info' })
       ])
-    ]), _('Перед восстановлением откройте предпросмотр: система проверит целостность, версию и список изменений.')),
+    ])),
+    E('div', {}, [
+      E('div', { 'class': 'z2m-backup-history' }, rows.length ? rows : [
+        shell.statePanel({ message: _('История резервных копий пуста.'), kind: 'info' })
+      ]),
+      toggleButton ? E('div', { 'class': 'z2m-btnrow', style: 'margin-top:10px;justify-content:center' }, [toggleButton]) : null
+    ]),
     renderPreview(ctx)
   ]);
 }
