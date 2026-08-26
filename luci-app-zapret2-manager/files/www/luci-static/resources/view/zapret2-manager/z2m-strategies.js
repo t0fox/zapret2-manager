@@ -1323,7 +1323,8 @@ function renderCatalogProgress() {
     }).then(function (answer) {
       if (!answer || answer.ok === false) {
         var msg = errorText(state.ctx, answer);
-        if (/timeout|timed out|превышено/i.test(msg) || (answer && answer.error && /timeout/i.test(String(answer.error.code||'')))) {
+        var hasExceeded2 = msg.toLowerCase().indexOf('превышено') >= 0;
+        if (/timeout|timed out/i.test(msg) || hasExceeded2 || (answer && answer.error && /timeout/i.test(String(answer.error.code||'')))) {
           updateCatalogProgress('error', 100, 'Превышено время ожидания — попробуйте ещё раз');
         }
         throw answer || new Error('Не удалось обновить каталог.');
@@ -1336,7 +1337,8 @@ function renderCatalogProgress() {
       notify('ok', 'Каталог стратегий обновлён.');
     }, function (error) {
       var msg = errorText(state.ctx, error);
-      var isTimeout = /timeout|timed out|превышено/i.test(msg) || /timeout/i.test(String(error && error.code || ''));
+      var hasExceeded3 = msg.toLowerCase().indexOf('превышено') >= 0;
+      var isTimeout = /timeout|timed out/i.test(msg) || hasExceeded3 || /timeout/i.test(String(error && error.code || ''));
       if (isTimeout) {
         updateCatalogProgress('error', 100, 'Превышено время ожидания — попробуйте ещё раз');
         notify('err', 'Превышено время ожидания (XHR timeout). Попробуйте ещё раз — таймаут увеличен до 60с.');
@@ -1394,7 +1396,8 @@ function renderCatalogProgress() {
         var pollMsg = errorText(state.ctx, pollErr);
         var pollCode = pollErr && (pollErr.code || (pollErr.error && pollErr.error.code) || '') || '';
         var pollHay = (String(pollCode) + ' ' + String(pollMsg)).toLowerCase();
-        var isTransient = /timeout|timed out|превышено|rpc|ubus|object not found|eobject|\bnetwork\b|\boffline\b|connection|session/.test(pollHay) || pollRetry < 3;
+        var hasTimeoutWord = pollHay.indexOf('timeout') >= 0 || pollHay.indexOf('timed out') >= 0 || pollHay.indexOf('превышено') >= 0;
+        var isTransient = hasTimeoutWord || /rpc|ubus|object not found|eobject|\bnetwork\b|\boffline\b|connection|session/.test(pollHay) || pollRetry < 3;
         // Only retry on transport-like errors, not on logical backend errors (EVERIFY/EINDEX/ESTALE)
         var isBackendLogical = /everify|eindex|estale|eincomplete|eio|ebusy/.test(pollHay);
         if (!isBackendLogical && isTransient && pollRetry < 3) {
@@ -1415,7 +1418,8 @@ function renderCatalogProgress() {
     // Respect normalized kind: only show framed “retry” box for retryable
     // transport/timeout failures; logical backend errors already have framed
     // message from the poll’s state===error branch above.
-    var isTimeout = kind === 'session_failure' || /timeout|timed out|превышено/i.test(msg) || /timeout/i.test(String(error && error.code || '') || String(error && error.error && error.error.code || ''));
+    var hasExceeded = msg.toLowerCase().indexOf('превышено') >= 0 || String(error && error.code || '').toLowerCase().indexOf('превышено') >= 0 || String(error && error.error && error.error.code || '').toLowerCase().indexOf('превышено') >= 0;
+    var isTimeout = kind === 'session_failure' || /timeout|timed out/i.test(msg) || hasExceeded || /timeout/i.test(String(error && error.code || '') || String(error && error.error && error.error.code || ''));
     var isRpcTransient = kind === 'rpc_unavailable' || kind === 'provider_unavailable';
     if (isTimeout) {
       updateCatalogProgress('error', 100, 'Превышено время ожидания — попробуйте ещё раз');
