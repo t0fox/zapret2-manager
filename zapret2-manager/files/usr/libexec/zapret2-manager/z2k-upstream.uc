@@ -1,6 +1,7 @@
 'use strict';
 import { readfile, stat, unlink, popen } from 'fs';
 import { asset_registry_list } from './asset-registry.uc';
+import { z2k_candidate_gate, z2k_state_persist_compat_raw } from './z2k-compat.uc';
 
 const MANIFEST_URL = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json';
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
@@ -42,85 +43,98 @@ function installedShaFor(path) {
 	return null;
 }
 function is_compatible_raw(raw) {
-	// Pure compatibility predicate for Z2M sidecar — testable without network.
-	// Checks the MINIMAL contract the sidecar depends on:
-	// - z2k_state_persist global
-	// - exported get_record (precise: "  get_record =" or ".get_record" or "get_record(")
-	// - exported _state (precise: "  _state =" or "._state") — avoids false-positive via load_state
-	// - circular wrapper
-	// Conservative on-device gate; behavioral candidate harness in CI proves full semantics.
-	if (type(raw) != 'string') return false;
-	if (index(raw, 'z2k_state_persist') < 0) return false;
-	if (index(raw, 'circular') < 0) return false;
-	if (index(raw, '  _state =') < 0 && index(raw, '._state') < 0) return false;
-	if (index(raw, '  get_record =') < 0 && index(raw, '.get_record') < 0 && index(raw, 'get_record(') < 0) return false;
-	return true;
+	// Deprecated wrapper — use z2k-compat.uc as authority.
+	// Kept for backward compat; delegates to shared module.
+	return z2k_state_persist_compat_raw(raw);
 }
 function is_state_persist_compatible(expectedDigest) {
-	// Compatibility gate for Z2M sidecar: new z2k-state-persist must expose
-	// the minimal upstream API that the sidecar depends on.
-	// If the new file does not contain the required symbols, the update must be
-	// review-required (incompatible), not rebase-required, and must not replace
-	// the working runtime.
-	try {
-		let tmp = temp_file();
-		if (tmp == null) return false;
-		let url = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/files/lua/z2k-state-persist.lua';
-		let nonce = '' + time() + '-' + expectedDigest;
-		if (!fetch_file(source_url(url, nonce), tmp)) { cleanup([tmp]); return false; }
-		let raw = readfile(tmp);
-		cleanup([tmp]);
-		if (raw == null) return false;
-		return is_compatible_raw(raw);
-	} catch (e) { return false; }
+	// Deprecated — plan is now pure, check-time uses content-bound candidate gate.
+	// Kept for compat; not used in pure plan.
+	return false;
+}
+function sha256_file(path) {
+	// Local helper for check-time candidate verification (mirrors z2k-compat).
+	let p = popen('sha256sum ' + quote(path) + " 2>/dev/null | awk '{print $1}'", 'r');
+	if (!p) return null;
+	let out = trim(p.read('all') || ''), rc = p.close();
+	return rc == 0 && match(out, /^[a-f0-9]{64}$/) ? lc(out) : null;
 }
 function plan(value) {
+	// PURE: deterministic from manifest + classification + registry. No network.
 	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
-	let updates = [], rebases = [], reviews = [];
+	let updates = [], rebases = [], reviews = [], reviewDetails = [];
 	for (let path in keys(checked.manifest.files_sha256)) {
 		let digest = checked.manifest.files_sha256[path], item = class_for(map, path);
-		if (item == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Новый Z2K файл отсутствует в integration classification.', { path: path });
+		if (item == null) {
+			// Unknown future upstream file — safe degradation to review-required, not hard crash.
+			push(reviews, path);
+			push(reviewDetails, { path: path, reason: 'unclassified-upstream-file' });
+			continue;
+		}
 		if (item.class == 'adapted' && item.basedOnSha256 != digest) push(rebases, path);
 		else if (item.class == 'exact-managed') {
 			let installed = installedShaFor(path);
 			let needsUpdate = (installed == null) || (installed != digest);
-			if (needsUpdate) {
-				if (path == "files/lua/z2k-state-persist.lua" && !is_state_persist_compatible(digest)) {
-					push(reviews, path);
-				} else {
-					push(updates, path);
-				}
-			}
+			if (needsUpdate) push(updates, path);
 		}
 		else if (item.class == 'watched' && item.basedOnSha256 != digest) push(reviews, path);
-		else if (item.class == 'ignored-platform' && false) { /* explicit no-op, never auto-update */ }
+		else if (item.class == 'ignored-platform' && false) { /* explicit no-op */ }
 	}
-	if (length(rebases)) return { ok: true, status: 'rebase-required', updates: updates, rebases: rebases, reviews: reviews, manifest: checked.manifest };
-	if (length(reviews)) return { ok: true, status: 'review-required', updates: updates, rebases: rebases, reviews: reviews, manifest: checked.manifest };
-	return { ok: true, status: length(updates) ? 'update-available' : 'current', updates: updates, rebases: [], reviews: [], manifest: checked.manifest };
+	// Deterministic precedence: rebase > review > update > current
+	if (length(rebases)) return { ok: true, status: 'rebase-required', updates: updates, rebases: rebases, reviews: reviews, reviewDetails: reviewDetails, manifest: checked.manifest };
+	if (length(reviews)) return { ok: true, status: 'review-required', updates: updates, rebases: rebases, reviews: reviews, reviewDetails: reviewDetails, manifest: checked.manifest };
+	return { ok: true, status: length(updates) ? 'update-available' : 'current', updates: updates, rebases: [], reviews: [], reviewDetails: reviewDetails, manifest: checked.manifest };
+}
+function fetch_untrusted_manifest_once() {
+	let mf = temp_file(); if (mf == null) return fail('EIO', 'Не удалось создать private Z2K staging file.');
+	let nonce = '' + time() + '-' + 0;
+	if (!fetch_file(source_url(MANIFEST_URL, nonce), mf)) { cleanup([mf]); return fail('EUNAVAILABLE', 'Не удалось получить UPDATES.json.'); }
+	let size = stat(mf), raw = readfile(mf), value = null;
+	try { value = json(raw); } catch (e) { cleanup([mf]); return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json не является JSON.'); }
+	let validated = validate_manifest(value, size && size.size); cleanup([mf]);
+	if (!validated.ok) return validated;
+	return { ok: true, manifest: validated.manifest, trustMode: 'allow-untrusted' };
 }
 function fetch_untrusted_manifest() {
-	let manifest = temp_file(); if (manifest == null) return fail('EIO', 'Не удалось создать private Z2K staging file.');
-	let last = null;
-	for (let attempt = 0; attempt < 2; attempt++) {
-		cleanup([manifest]);
-		let nonce = '' + time() + '-' + attempt;
-		if (!fetch_file(source_url(MANIFEST_URL, nonce), manifest)) { last = fail('EUNAVAILABLE', 'Не удалось получить UPDATES.json.'); continue; }
-		let size = stat(manifest), raw = readfile(manifest), value = null;
-		try { value = json(raw); } catch (e) { cleanup([manifest]); return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json не является JSON.'); }
-		let validated = validate_manifest(value, size && size.size); cleanup([manifest]);
-		if (!validated.ok) return validated;
-		return { ok: true, manifest: validated.manifest, trustMode: 'allow-untrusted' };
-	}
-	cleanup([manifest]); return last || fail('EUNAVAILABLE', 'Z2K manifest unavailable.');
+	// Kept for compat — single attempt. New check uses retry wrapper.
+	return fetch_untrusted_manifest_once();
 }
 
 export const z2k_state_persist_compat_raw = function(raw) { return is_compatible_raw(raw); };
 export const z2k_upstream_plan = function(remoteManifest) { return plan(remoteManifest); };
 export const z2k_upstream_check = function() {
 	if (!ALLOW_UNTRUSTED) return fail('EUNSUPPORTED', 'Signed Z2K verification is disabled in this build.');
-	let remote = fetch_untrusted_manifest(); if (!remote.ok) return remote;
-	let checked = plan(remote.manifest); if (!checked.ok) return checked;
-	return { ok: true, status: checked.status, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };
+	let lastErr = null;
+	for (let attempt = 0; attempt < 2; attempt++) {
+		let remote = fetch_untrusted_manifest_once(); if (!remote.ok) { lastErr = remote; continue; }
+		let checked = plan(remote.manifest); if (!checked.ok) return checked;
+		// Content-bound preflight for state-persist if it is in updates
+		let needGate = false; for (let i = 0; i < length(checked.updates); i++) if (checked.updates[i] == 'files/lua/z2k-state-persist.lua') needGate = true;
+		if (needGate) {
+			let expected = checked.manifest.files_sha256['files/lua/z2k-state-persist.lua'];
+			let cand = temp_file(); if (cand == null) return fail('EIO', 'Не удалось создать private Z2K staging file.');
+			let url = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/files/lua/z2k-state-persist.lua';
+			let nonce = '' + time() + '-' + attempt + '-' + expected;
+			let ok = fetch_file(source_url(url, nonce), cand);
+			if (!ok) { cleanup([cand]); lastErr = fail('EUNAVAILABLE', 'Не удалось получить candidate z2k-state-persist.lua'); continue; }
+			let actual = sha256_file(cand);
+			if (actual == null || lc(actual) != lc(expected)) { cleanup([cand]); lastErr = fail('ESTALE', 'candidate SHA does not match manifest', { sourcePath: 'files/lua/z2k-state-persist.lua', expectedSha256: expected, actualSha256: actual }); continue; }
+			let gate = z2k_candidate_gate('files/lua/z2k-state-persist.lua', cand, expected);
+			cleanup([cand]);
+			if (!gate.ok) {
+				// Move from updates to reviews, recalc status
+				let newUpdates = []; for (let i = 0; i < length(checked.updates); i++) if (checked.updates[i] != 'files/lua/z2k-state-persist.lua') push(newUpdates, checked.updates[i]);
+				let newReviews = []; for (let i = 0; i < length(checked.reviews); i++) push(newReviews, checked.reviews[i]); push(newReviews, 'files/lua/z2k-state-persist.lua');
+				checked.updates = newUpdates;
+				checked.reviews = newReviews;
+				if (length(checked.rebases)) checked.status = 'rebase-required';
+				else if (length(checked.reviews)) checked.status = 'review-required';
+				else if (length(checked.updates)) checked.status = 'update-available';
+				else checked.status = 'current';
+			}
+		}
+		return { ok: true, status: checked.status, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };
+	}
+	return lastErr || fail('ESTALE', 'Z2K manifest/candidate race — retry limit exceeded');
 };

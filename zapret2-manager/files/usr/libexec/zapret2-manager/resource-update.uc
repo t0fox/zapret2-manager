@@ -4,8 +4,8 @@
 // Asset Registry remains the only writer of managed asset metadata and bytes.
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
 import { asset_registry_list, asset_registry_apply_bundle } from './asset-registry.uc';
-import { z2k_upstream_check } from './z2k-upstream.uc';
-import { z2k_component_apply } from './z2k-component.uc';
+import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
+import { z2k_candidate_gate } from './z2k-compat.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -398,6 +398,27 @@ export const resource_center_update = function (request) {
 			push(staged, { type: assetType, id: assetId, name: item.localName || assetId, stagedPath: path, sha256: lc(targetSha), byteSize: byteSize, expectedRevision: registered && registered.revision || null, dependencies: [], provenance: { kind: 'catalog/upstream', source: sourceValue.repository, sourceCommit: remoteCommit, sourcePath: sourcePath, bundleId: selected.id, version: remoteVersion } });
 			diagnostics.targetAssets[i].result = 'staged';
 		}
+		// AUTHORITATIVE STAGED GATE: verify staged bytes (identity + sidecar seam) BEFORE any apply.
+		// This is the load-bearing invariant: THE BYTES THAT PASS THE GATE ARE THE BYTES THAT ARE ACTIVATED.
+		for (let g = 0; g < length(staged); g++) {
+			let sp = staged[g].provenance.sourcePath;
+			let exp = staged[g].sha256;
+			let candPath = staged[g].stagedPath;
+			let gate = z2k_candidate_gate(sp, candPath, exp);
+			if (!gate.ok) {
+				cleanup(root, paths);
+				diagnostics.targetAssets[g].result = gate.error && gate.error.code == 'ESTALE' ? 'stale' : 'incompatible';
+				let code = gate.error && gate.error.code ? gate.error.code : 'EZ2K_REVIEW_REQUIRED';
+				let msg = code == 'ESTALE' ? 'staged candidate SHA does not match manifest (race)' : 'staged candidate incompatible — review required';
+				let e = fail(code, msg, { sourcePath: sp, expectedSha256: exp, actualSha256: gate.actualSha256, missing: gate.missing, diagnostics: diagnostics });
+				e.diagnostics = diagnostics;
+				e.pathUsed = diagPathUsed;
+				e.reviews = [sp];
+				e.status = 'review-required';
+				// Atomicity: no registry mutation, preserve runtime/state
+				return e;
+			}
+		}
 		diagnostics.staged = length(staged);
 		if (!length(staged)) {
 			cleanup(root, paths);
@@ -437,11 +458,11 @@ export const resource_center_update = function (request) {
 					}
 				}
 				diagnostics.postflightMatched = postflightMatched;
-				// Re-check canonical plan to ensure no remaining updates (unless new upstream or rebase/review)
-				let rechecked = null; try { rechecked = z2k_upstream_check(); } catch (e) { rechecked = null; }
-				if (rechecked && rechecked.ok && rechecked.status != 'current' && rechecked.plan) {
-					// If the recheck still reports the same updates, it's a postflight failure, not success
-					let stillUpdates = rechecked.plan.updates || [];
+				// POST-APPLY REPLAN against SAME manifest snapshot (no network) and persist CHECK_STATE.
+				// This makes resources_status immediately reflect post-apply truth (TASK 7).
+				let newPlan = null; try { newPlan = z2k_upstream_plan(signedForZ2k.manifest); } catch (e) { newPlan = null; }
+				if (newPlan && newPlan.ok && newPlan.status != 'current') {
+					let stillUpdates = newPlan.updates || [];
 					let overlap = false;
 					for (let u = 0; u < length(stillUpdates); u++) for (let p = 0; p < length(planUpdates); p++) if (stillUpdates[u] == planUpdates[p]) overlap = true;
 					if (overlap && length(stillUpdates) >= length(planUpdates)) {
@@ -450,6 +471,12 @@ export const resource_center_update = function (request) {
 						e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e;
 					}
 				}
+				// Persist post-apply truth without network (resources_status remains network-free)
+				try {
+					let newSigned = { ok: true, status: newPlan ? newPlan.status : 'current', source: signedForZ2k.source, trustMode: signedForZ2k.trustMode, manifest: signedForZ2k.manifest, plan: newPlan || { updates: [], rebases: [], reviews: [] } };
+					let newSignedSources = { state: newPlan && newPlan.status == 'current' ? 'current' : (newPlan && newPlan.status == 'update-available' ? 'attention' : 'attention'), status: newPlan ? newPlan.status : 'current', checkMode: 'allow-untrusted', trustMode: newSigned.trustMode || 'allow-untrusted', verified: false, evidence: { repository: newSigned.source.repository, branch: newSigned.source.branch, trustMode: newSigned.trustMode || null, manifestSeq: newSigned.manifest.seq, manifestCurrent: newSigned.manifest.current } };
+					save_check_state(newSigned, time(), newSignedSources);
+				} catch (e) {}
 			}
 		} else {
 			// Mark all as failed
