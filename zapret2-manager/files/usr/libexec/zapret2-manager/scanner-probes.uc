@@ -1,11 +1,21 @@
 'use strict';
 
+// Avatar parity f9dd3ea: TLS 6s (2048 B), Body 8s 65KB ISP 8K status 400 15-21K, STUN 4s retries 2
+// Timing: STABILIZATION_DELAY 1.0s, PROBE_TIMEOUT 6s, BODY 8s, STUN 4s, KILL 4s, INTER 0.3s, crash retries 2
 const TLS_READ_LIMIT = 2048;
 const BODY_MINIMUM = 65536;
 const BLOCK_MIN = 15000;
 const BLOCK_MAX = 21000;
 const BLOCK_WIDE_MIN = 10240;
 const BLOCK_WIDE_MAX = 25600;
+const STABILIZATION_DELAY = 1.0;
+const PROBE_TIMEOUT = 6;
+const BODY_TIMEOUT = 8;
+const STUN_TIMEOUT = 4;
+const KILL_TIMEOUT = 4;
+const INTER_DELAY = 0.3;
+const CRASH_RETRIES = 2;
+const CRASH_BACKOFF = 1.0;
 
 const UNAVAILABLE_ERRORS = {
 	NO_ADDR: true, DNS_ERR: true, RESOLVE_ERR: true, NET_UNREACH: true, HOST_UNREACH: true,
@@ -69,6 +79,7 @@ function baseline_family_complete(raw) {
 		&& type(raw.finishedAt) == 'int' && raw.finishedAt >= raw.startedAt;
 }
 
+// Avatar _run_baseline_test: per-AF baseline_open (ipv4/ipv6), unavailable excluded, BASELINE_OPEN clears success
 export const scanner_baseline_classify = function(raw) {
 	if (!is_object(raw) || (raw.protocol != 'tcp' && raw.protocol != 'udp'))
 		return { protocol: null, baselineOpen: false, allAvailableOpen: false,
@@ -279,6 +290,7 @@ export const scanner_score = function(result) {
 	return round_to(rate * (kbps / (latency * 1.0)) * 1000, 2);
 };
 
+// Avatar _deep_probe: TCP TLS 6s + body 8s 65KB ISP 8K status 400 15-21K, host/AF aggregation quick 1 host standard 2 full 4, weighted 0.4/0.6
 export const scanner_tcp_classify = function(raw) {
 	if (is_object(raw) && is_object(raw.staged)) return scanner_staged_classify(raw.staged);
 	if (!is_object(raw) || type(raw.hosts) != 'array' || !length(raw.hosts) || length(raw.hosts) > 8)
@@ -445,6 +457,7 @@ export const scanner_candidate_verdict = function(baseline, tests) {
 			evidence: { infrastructure: true, baselineSuppressed: false,
 				failureClass: evidence.failureClass || 'probe_dependency_failure' } };
 	}
+	// Avatar parity: BASELINE_OPEN clears success (all available AFs open => no fix needed)
 	if (baseline.allAvailableOpen === true)
 		return { verdict: 'failed', reason: 'BASELINE_OPEN', success: false,
 			evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open' } };

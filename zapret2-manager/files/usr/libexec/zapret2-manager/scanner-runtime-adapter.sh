@@ -418,7 +418,7 @@ lock_acquire() {
 	nonce=$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)
 	case "$nonce" in *[!a-f0-9]*|'') fail ELOCKED lock ;; esac
 	[ "$(printf '%s' "$nonce" | wc -c)" = 64 ] || fail ELOCKED lock
-	flock -n "$LOCK" sh -c 'umask 077; set -C; holder="$1"; descriptor="$2"; ready="$3"; session="$4"; nonce="$5"; start=$(awk '\''{print $22}'\'' "/proc/$$/stat"); printf "%s|%s|%s|%s\n" "$session" "$$" "$start" "$nonce" > "$descriptor" || exit 61; printf "%s\n" "$$" > "$holder" || exit 62; printf "%s|%s|%s\n" "$session" "$nonce" "$$" > "$ready" || exit 63; trap '\''rm -f "$descriptor" "$holder" "$ready"; exit 0'\'' TERM INT HUP; while :; do sleep 1; done' sh "$DIR/lock-holder.pid" "$LOCK_OWNER" "$DIR/lock.ready" "$session" "$nonce" >/dev/null 2>&1 &
+	flock -n "$LOCK" sh -c 'umask 077; set -C; holder="$1"; descriptor="$2"; ready="$3"; session="$4"; nonce="$5"; start=$(awk '\''{print $22}'\'' "/proc/$$/stat"); printf "%s|%s|%s|%s\n" "$session" "$$" "$start" "$nonce" > "$descriptor" || exit 61; printf "%s\n" "$$" > "$holder" || exit 62; printf "%s|%s|%s\n" "$session" "$nonce" "$$" > "$ready" || exit 63; trap '\''rm -f "$descriptor" "$holder" "$ready"; exit 0'\'' TERM INT HUP; i=0; while [ "$i" -lt 600 ]; do sleep 1; i=$((i+1)); done; rm -f "$descriptor" "$holder" "$ready"; exit 0' sh "$DIR/lock-holder.pid" "$LOCK_OWNER" "$DIR/lock.ready" "$session" "$nonce" >/dev/null 2>&1 &
 	owner=$!; i=0; while [ "$i" -lt 20 ] && [ ! -s "$DIR/lock.ready" ]; do short_sleep; i=$((i + 1)); done
 	ready_record=$(cat "$DIR/lock.ready" 2>/dev/null | tr -d '\n' || true)
 	ready_pid=$(cat "$DIR/lock-holder.pid" 2>/dev/null || true)

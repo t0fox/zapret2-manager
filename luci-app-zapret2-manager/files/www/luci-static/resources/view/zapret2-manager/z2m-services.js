@@ -319,7 +319,7 @@ function renderDomains(ctx) {
     }) : null,
     fields,
     E('details', { 'class': 'z2m-service-dns-technical' }, [E('summary', {}, _('Технические детали')), E('p', { 'class': 'z2m-dim' }, _('Изменения проходят через Domain Hub: preview → revision check → apply → verification.'))])
-  ]), _('Домены применяются через общий координатор и могут быть отменены до сохранения.'));
+  ]), _('Изменения применяются кнопкой «Применить» и проверяются по revision.'));
 }
 
 function renderAutohost(ctx) {
@@ -469,8 +469,8 @@ function applyHubChanges() {
 
 return baseclass.extend({
   id: 'services',
-  title: _('������� � ������'),
-  subtitle: _('�������, ���������������� ������, Autohostlist � ���������'),
+  title: _('������� � ������'),
+  subtitle: _('�������, ���������������� ������, Autohostlist � ���������'),
   load: load,
   render: render,
   mount: function () { state.disposed = false; },

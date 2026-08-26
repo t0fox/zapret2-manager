@@ -42,22 +42,65 @@ function historyCounts(item) {
   if (counts.failed !== undefined) values.push(_('ошибок ') + String(counts.failed));
   return values.join(' · ') || _('Результаты уточняются');
 }
-function historyBest(record) { var report = object(object(record).report), evidence = object(report.evidence); return object(report.bestReference || report.best || evidence.best || (array(evidence.ranked)[0])); }
-function openHistoryStrategy(ctx, record) {
-  var best = historyBest(record), id = best.id || best.strategyId || best.strategy_id || best.candidateId;
-  if (!id || typeof sessionStorage === 'undefined') return;
-  var strategy = object(best.strategy || best.generatedStrategy || best);
-  strategy.id = text(strategy.id || id);
-  strategy.name = text(strategy.name || best.strategyName || _('Стратегия из проверки'));
-  strategy.profiles = array(strategy.profiles).length ? strategy.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(strategy.args) }];
-  strategy.metadata = Object.assign({}, object(strategy.metadata), { provenance: Object.assign({}, object(strategy.metadata).provenance, { source: 'scanner', scanId: record.id, target: object(record.request).target }) });
+function historyBest(record) { var report = object(object(record).report), evidence = object(report.evidence); return object(report.bestReference || report.best_strategy || report.best || evidence.best || (array(evidence.ranked)[0])); }
+function isGeneratedCandidate(cand) {
+  cand = object(cand);
+  var id = cand.candidateId || cand.scannerId || cand.id || cand.strategyId || '';
+  return cand.saveRequired === true || cand.identityKind === 'generated' || String(id).indexOf('generated:') === 0;
+}
+function handoffStrategy(ctx, strategy, provenance) {
+  if (typeof sessionStorage === 'undefined') return;
+  strategy.metadata = Object.assign({}, object(strategy.metadata), { provenance: Object.assign({}, object(strategy.metadata).provenance, provenance) });
   sessionStorage.setItem('z2m.strategy.scanner-handoff.v1', JSON.stringify({ version: 1, strategy: strategy, provenance: strategy.metadata.provenance }));
   ctx.shell.closeModal();
   if (ctx.navigate) ctx.navigate('strategy');
 }
+function openHistoryStrategy(ctx, record) {
+  var best = historyBest(record);
+  var candidateId = best.candidateId || best.scannerId || best.id || best.strategyId || best.strategy_id;
+  if (!candidateId || typeof sessionStorage === 'undefined') return;
+  var isGen = isGeneratedCandidate(best);
+  var target = object(record.request).target || '';
+  // Avatar handoff: apply_strategy idx → user strategy → preview/validate/apply existing Strategy, no second Apply
+  // Keep Z2M canonical identity where stricter: catalog/user Strategies use existing Strategy reference,
+  // generated unmatched use saveGenerated → Strategy subsystem for permanent mutation
+  if (isGen) {
+    // Generated unmatched: create user Strategy via existing Strategy subsystem, then handoff
+    ctx.api.scanner.saveGenerated(edit({ scanId: record.id, candidateId: candidateId })).then(function (answer) {
+      var strat = object(answer).strategy || object(object(answer).payload) || object(answer);
+      // Backend returns {ok:true, strategy:{...}} with canonical user Strategy identity
+      if (strat && strat.id) {
+        handoffStrategy(ctx, strat, { source: 'scanner', scanId: record.id, candidateId: candidateId, target: target });
+        if (ctx.shell && ctx.shell.showToast) ctx.shell.showToast(_('Стратегия сохранена'), 'info');
+      } else {
+        // Fallback: craft local strategy if backend did not return one (should not happen)
+        var strategy = object(best.strategy || best.generatedStrategy || best);
+        strategy.id = text(strategy.id || candidateId);
+        strategy.name = text(strategy.name || best.strategyName || _('Стратегия из проверки'));
+        var tokens = array(strategy.compiledTokens || best.compiledTokens);
+        strategy.profiles = array(strategy.profiles).length ? strategy.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(strategy.args || (tokens.length ? tokens.join(' ') : '')) }];
+        handoffStrategy(ctx, strategy, { source: 'scanner', scanId: record.id, candidateId: candidateId, target: target });
+      }
+    }).catch(function (error) {
+      var msg = ctx.api.normalizeError ? ctx.api.normalizeError(error).message : String(error.message || error);
+      if (ctx.shell && ctx.shell.showToast) ctx.shell.showToast(msg, 'err');
+      else ctx.shell.openModal(_('Ошибка сохранения'), ctx.shell.statePanel({ title: _('Не удалось сохранить стратегию'), message: msg, kind: 'error' }));
+    });
+    return;
+  }
+  // Catalog/user Strategy: use existing Strategy reference – no creation, handoff to preview/validate/apply
+  var strategyId = best.strategyId || best.id || candidateId;
+  var strategy = object(best.strategy || best.generatedStrategy || best);
+  strategy.id = text(strategy.id || strategyId);
+  strategy.name = text(strategy.name || best.strategyName || _('Стратегия из проверки'));
+  if (best.strategyRevision != null) strategy.revision = best.strategyRevision;
+  var tokens = array(strategy.compiledTokens || best.compiledTokens);
+  strategy.profiles = array(strategy.profiles).length ? strategy.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(strategy.args || (tokens.length ? tokens.join(' ') : '')) }];
+  handoffStrategy(ctx, strategy, { source: 'scanner', scanId: record.id, strategyId: strategyId, candidateId: candidateId, target: target });
+}
 function historyDetailBody(ctx, record) {
-  record = object(record); var request = object(record.request), counts = object(record.counts), report = object(record.report), best = historyBest(record), tested = counts.tested !== undefined ? counts.tested : (record.tested || report.tested || 0), working = counts.working !== undefined ? counts.working : array(object(report.evidence).ranked).length, failed = counts.failed !== undefined ? counts.failed : array(object(report.evidence).failed).length, technical = { id: record.id, generation: record.generation, phase: record.phase, revision: record.revision, paths: record.paths, runtime: record.runtime };
-  return E('div', { 'class': 'z2m-scanner-detail' }, [E('div', { 'class': 'z2m-scanner-detail-heading' }, [icon(statusClass(record.status) === 'is-error' ? 'warning' : 'history'), E('div', {}, [E('strong', {}, request.target || _('Сайт не указан')), E('span', {}, statusLabel(record.status) + ' · ' + humanDate(record.startedAt || record.createdAt))])]), E('div', { 'class': 'z2m-scanner-detail-grid' }, [E('div', {}, [E('span', {}, _('Проверено')), E('strong', {}, String(tested))]), E('div', {}, [E('span', {}, _('Рабочих')), E('strong', {}, String(working))]), E('div', {}, [E('span', {}, _('Ошибок')), E('strong', {}, String(failed))])]), best && (best.id || best.strategyId || best.candidateId) ? E('div', { 'class': 'z2m-scanner-detail-best' }, [icon('strategy', 'is-success'), E('div', {}, [E('span', {}, _('Лучший результат')), E('strong', {}, text(best.name || best.strategyName || _('Вариант найден')))])]) : null, E('details', { 'class': 'z2m-scanner-technical' }, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, JSON.stringify(technical, null, 2))])]);
+  record = object(record); var request = object(record.request), counts = object(record.counts), report = object(record.report), best = historyBest(record), tested = counts.tested !== undefined ? counts.tested : (record.tested || report.tested || report.total_tested || 0), working = counts.working !== undefined ? counts.working : (report.working_count !== undefined ? report.working_count : array(object(report.evidence).ranked).length), failed = counts.failed !== undefined ? counts.failed : (report.failed_count !== undefined ? report.failed_count : array(object(report.evidence).failed).length), technical = { id: record.id, generation: record.generation, phase: record.phase, revision: record.revision, paths: record.paths, runtime: record.runtime };
+  return E('div', { 'class': 'z2m-scanner-detail' }, [E('div', { 'class': 'z2m-scanner-detail-heading' }, [icon(statusClass(record.status) === 'is-error' ? 'warning' : 'history'), E('div', {}, [E('strong', {}, request.target || _('Сайт не указан')), E('span', {}, statusLabel(record.status) + ' · ' + humanDate(record.startedAt || record.createdAt))])]), E('div', { 'class': 'z2m-scanner-detail-grid' }, [E('div', {}, [E('span', {}, _('Проверено')), E('strong', {}, String(tested))]), E('div', {}, [E('span', {}, _('Рабочих')), E('strong', {}, String(working))]), E('div', {}, [E('span', {}, _('Ошибок')), E('strong', {}, String(failed))])]), best && (best.id || best.strategyId || best.candidateId) ? E('div', { 'class': 'z2m-scanner-detail-best' }, [icon('strategy', 'is-success'), E('div', {}, [E('span', {}, _('Лучший результат')), E('strong', {}, text(best.name || best.strategyName || best.candidateId || _('Вариант найден')))])]) : null, E('details', { 'class': 'z2m-scanner-technical' }, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, JSON.stringify(technical, null, 2))])]);
 }
 function openHistoryDetail(ctx, item, button) {
   button.disabled = true;
