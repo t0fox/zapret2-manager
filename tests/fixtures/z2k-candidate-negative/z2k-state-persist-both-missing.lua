@@ -23,9 +23,9 @@
 --     UCB stay OUT — those are Этап 6.)
 --   - Storage key = desync.arg.key when provided, else desync.func_instance.
 --
--- Unit tests: tests/test_z2k_state_persist.lua (Lua harness) and
--- tests/test_z2k_state_persist.sh (shell wrapper) — run via
--- tests/run_all.sh, or directly with `lua5.3 tests/test_z2k_state_persist.lua`.
+-- Unit tests: tests/test_z2k_missing_persist.lua (Lua harness) and
+-- tests/test_z2k_missing_persist.sh (shell wrapper) — run via
+-- tests/run_all.sh, or directly with `lua5.3 tests/test_z2k_missing_persist.lua`.
 
 -- Test isolation: env overrides redirect state into a tmp dir for unit tests.
 local STATE_DIR_PRIMARY = os.getenv("Z2K_STATE_DIR_OVERRIDE")
@@ -57,7 +57,7 @@ local function is_blank(s)
   return (s == nil) or (tostring(s) == "")
 end
 
-local function normalize_hostkey_for_state(hostkey)
+local function normalize_hostkey_for_missing(hostkey)
   if hostkey == nil then return nil end
   local s = tostring(hostkey)
   if s == "" then return nil end
@@ -93,7 +93,7 @@ local function can_replace_file_via_parent_dir(path)
   return true
 end
 
-local function create_empty_state_file(path)
+local function create_empty_missing_file(path)
   local f = io.open(path, "w")
   if not f then return false end
   f:write("# z2k autocircular state (persisted circular nstrategy)\n")
@@ -102,24 +102,24 @@ local function create_empty_state_file(path)
   return true
 end
 
-local function choose_state_file_for_read()
+local function choose_missing_file_for_read()
   if can_append_existing_file(STATE_FILE_PRIMARY) then return STATE_FILE_PRIMARY end
   if can_read_file(STATE_FILE_FALLBACK) then return STATE_FILE_FALLBACK end
   if can_read_file(STATE_FILE_PRIMARY) then return STATE_FILE_PRIMARY end
   return nil
 end
 
-local function choose_state_file_for_write()
+local function choose_missing_file_for_write()
   if can_append_existing_file(STATE_FILE_PRIMARY) then return STATE_FILE_PRIMARY end
   if can_replace_file_via_parent_dir(STATE_FILE_PRIMARY) then return STATE_FILE_PRIMARY end
   if can_append_existing_file(STATE_FILE_FALLBACK) then return STATE_FILE_FALLBACK end
   if can_replace_file_via_parent_dir(STATE_FILE_FALLBACK) then return STATE_FILE_FALLBACK end
-  if create_empty_state_file(STATE_FILE_FALLBACK) then return STATE_FILE_FALLBACK end
+  if create_empty_missing_file(STATE_FILE_FALLBACK) then return STATE_FILE_FALLBACK end
   return nil
 end
 
 -- Merge a TSV file's rows into dest (last-newer-ts wins per host).
-local function merge_state_file_into(path, dest)
+local function merge_missing_file_into(path, dest)
   if not path or not dest then return end
   local f = io.open(path, "r")
   if not f then return end
@@ -131,7 +131,7 @@ local function merge_state_file_into(path, dest)
       if askey and host and strat then
         local n = tonumber(strat)
         if n and n >= 1 then
-          local hn = normalize_hostkey_for_state(host)
+          local hn = normalize_hostkey_for_missing(host)
           if hn then
             if not dest[askey] then dest[askey] = {} end
             local tsn = tonumber(ts) or 0
@@ -163,14 +163,14 @@ local function snapshot_strategies(src)
   return out
 end
 
-local function load_state()
+local function load_missing()
   if loaded then return end
   loaded = true
   state = {}
-  local path = choose_state_file_for_read()
+  local path = choose_missing_file_for_read()
   if not path then return end
-  merge_state_file_into(STATE_FILE_PRIMARY, state)
-  merge_state_file_into(STATE_FILE_FALLBACK, state)
+  merge_missing_file_into(STATE_FILE_PRIMARY, state)
+  merge_missing_file_into(STATE_FILE_FALLBACK, state)
   -- Prime the external-edit baseline from the disk we just loaded. Without this
   -- `last_written` starts empty and the first reconcile would treat EVERY disk
   -- row as an outside edit (re-adopting it / rewinding any in-RAM drift that
@@ -234,14 +234,14 @@ local function release_lock(lockfile)
   if lockfile then os.remove(lockfile) end
 end
 
-local function write_state()
+local function write_missing()
   local now = now_t()
   if now ~= 0 and (now - last_write) < write_interval then
     return                       -- debounced; the next packet's write flushes it
   end
   last_write = now
 
-  local path = choose_state_file_for_write()
+  local path = choose_missing_file_for_write()
   if not path then return end
 
   local locked, lockfile = acquire_lock(path)
@@ -249,7 +249,7 @@ local function write_state()
 
   -- Merge existing on-disk rows so a concurrent writer's entries are not lost.
   local merged = {}
-  merge_state_file_into(path, merged)
+  merge_missing_file_into(path, merged)
   -- A readable file whose row is gone = a real external delete; an unreadable
   -- file = a transient I/O failure we must NOT mistake for "everything deleted".
   local disk_readable = can_read_file(path)
@@ -338,14 +338,14 @@ local function ensure_autostate_record(askey, hostkey)
   return autostate[askey][hostkey]
 end
 
-local function get_record_for_desync(desync, do_seed)
-  if do_seed then load_state() end
+local function missing_for_desync(desync, do_seed)
+  if do_seed then load_missing() end
   local hkf = get_hostkey_func(desync)
   if not hkf then return nil, nil, nil end
   local hostkey = hkf(desync)
   if not hostkey then return nil, nil, nil end
   local askey = get_askey(desync)
-  local hostn = normalize_hostkey_for_state(hostkey)
+  local hostn = normalize_hostkey_for_missing(hostkey)
   if not hostn then return nil, nil, nil end
   local hrec = ensure_autostate_record(askey, hostkey)
   if do_seed and not hrec.nstrategy then
@@ -366,7 +366,7 @@ local function clear_persisted(askey, hostn)
     -- crash within the write_interval window leaves the row on disk and the
     -- next start re-seeds the supposedly-cleared entry.
     last_write = 0
-    write_state()
+    write_missing()
   end
 end
 
@@ -383,7 +383,7 @@ local function persist_if_changed(askey, hostn, hrec)
   local mode = (state[askey] and state[askey][hostn] and state[askey][hostn].mode) or "auto"
   if not state[askey] then state[askey] = {} end
   state[askey][hostn] = { strategy = n, ts = now_t(), mode = mode }
-  write_state()
+  write_missing()
   return true
 end
 
@@ -410,11 +410,11 @@ local function now_f()
   return tonumber(os.time() or 0) or 0
 end
 
--- Native conntrack success/failure flags stamped on desync.track.lua_state.automate
+-- Native conntrack success/failure flags stamped on desync.track.lua_missing.automate
 -- (crec) by the native success/failure detectors and z2k detectors.
 local function conn_record_flags(desync)
   local tr = desync and desync.track
-  local ls = tr and tr.lua_state
+  local ls = tr and tr.lua_missing
   local crec = ls and ls.automate
   if not crec then return false, false, false, false end
   return (crec.nocheck and true or false),
@@ -492,7 +492,7 @@ local function set_live_nstrategy(askey, hostn, n)
   local ah = autostate and autostate[askey]
   if not ah then return end
   for hostkey, arec in pairs(ah) do
-    if normalize_hostkey_for_state(hostkey) == hostn then
+    if normalize_hostkey_for_missing(hostkey) == hostn then
       arec.nstrategy = n
       -- Вместе со стратегией обнуляем накопленные неудачи хоста.
       --
@@ -522,7 +522,7 @@ local function reconcile_external_edits()
   last_reconcile = now
 
   -- Read the SAME view the bridge actually persists to — primary AND fallback,
-  -- newer-ts winning — exactly like load_state(). Reading only the primary would
+  -- newer-ts winning — exactly like load_missing(). Reading only the primary would
   -- be wrong on a read-only /opt where the bridge writes the /tmp fallback: the
   -- primary would look empty and every host would be (mis)read as deleted,
   -- turning reconcile into a mass-reset loop. If NEITHER file is readable we
@@ -532,8 +532,8 @@ local function reconcile_external_edits()
   local f_ok = can_read_file(STATE_FILE_FALLBACK)
   if not (p_ok or f_ok) then return end
   local disk = {}
-  if p_ok then merge_state_file_into(STATE_FILE_PRIMARY, disk) end
-  if f_ok then merge_state_file_into(STATE_FILE_FALLBACK, disk) end
+  if p_ok then merge_missing_file_into(STATE_FILE_PRIMARY, disk) end
+  if f_ok then merge_missing_file_into(STATE_FILE_FALLBACK, disk) end
 
   -- (1) External DELETE — present at our last write, gone from disk now → the
   --     operator removed it (×) → reset its live rotation to strategy 1 and drop
@@ -583,7 +583,7 @@ if type(circular) == "function" then
     local nstrategy_before_circular   -- snapshot before orig_circular mutates hrec
     -- pre-block errors stay swallowed: never break the nfqws desync path.
     pcall(function()
-      askey_before, hostn_before, hrec_before = get_record_for_desync(desync, true)
+      askey_before, hostn_before, hrec_before = missing_for_desync(desync, true)
     end)
 
     -- Apply external state.tsv edits (webpanel × / manual) to the live autostate
@@ -631,7 +631,7 @@ if type(circular) == "function" then
       pcall(function()
         local askey_after, hostn_after, hrec_after
         pcall(function()
-          askey_after, hostn_after, hrec_after = get_record_for_desync(desync, false)
+          askey_after, hostn_after, hrec_after = missing_for_desync(desync, false)
         end)
         -- Stay bound to circular()'s host record (askey_before); askey_after may
         -- point at an executed instance (e.g. fake_1_2), not the circular state.
@@ -647,7 +647,7 @@ if type(circular) == "function" then
 
         -- SEED-RECOVERY (display-truth invariant). If the pre-circular seed
         -- missed for this host (nstrategy_before_circular == nil — e.g. the first
-        -- real packet created the record only now, or load_state lost the race)
+        -- real packet created the record only now, or load_missing lost the race)
         -- circular fell back to its default nstrategy=1 (zapret-auto.lua) while
         -- disk still holds the real pinned/persisted value. Without this, that
         -- cosmetic 1 then gets persisted over the truth and the display lies.
@@ -661,16 +661,16 @@ if type(circular) == "function" then
         if nstrategy_before_circular == nil and tonumber(hrec.nstrategy) == 1
            and askey and hostn then
           local rec = state[askey] and state[askey][hostn]
-          -- The in-RAM `state` can lag the truth: a pin written AFTER load_state
+          -- The in-RAM `state` can lag the truth: a pin written AFTER load_missing
           -- ran, or arriving inside the reconcile debounce window, is on DISK but
           -- not yet in `state`. Read disk DIRECTLY (only in this rare recovery
           -- path — a fresh record that circular defaulted to 1) so the pin is
           -- honored before the default-1 persist below can clobber it. Same
-          -- merged primary+fallback view load_state/reconcile use.
+          -- merged primary+fallback view load_missing/reconcile use.
           if not (rec and tonumber(rec.strategy)) then
             local disk = {}
-            if can_read_file(STATE_FILE_PRIMARY) then merge_state_file_into(STATE_FILE_PRIMARY, disk) end
-            if can_read_file(STATE_FILE_FALLBACK) then merge_state_file_into(STATE_FILE_FALLBACK, disk) end
+            if can_read_file(STATE_FILE_PRIMARY) then merge_missing_file_into(STATE_FILE_PRIMARY, disk) end
+            if can_read_file(STATE_FILE_FALLBACK) then merge_missing_file_into(STATE_FILE_FALLBACK, disk) end
             rec = disk[askey] and disk[askey][hostn]
           end
           if rec and tonumber(rec.strategy) and tonumber(rec.strategy) ~= 1 then
@@ -698,14 +698,14 @@ if type(circular) == "function" then
         -- priority over every success state (nocheck may be latched from an
         -- earlier ServerHello, then a fatal alert arrives in this callback).
         local server_active_event = server_active_after
-        local successful_state = nocheck_after and (not failure_after)
+        local successful_missing = nocheck_after and (not failure_after)
           and (not neutral_after) and (not server_active_event)
-        local response_state = has_positive_incoming_response(desync)
+        local response_missing = has_positive_incoming_response(desync)
           and (not failure_after) and (not neutral_after) and (not server_active_event)
         -- QUIC flows may not reliably trigger the success detector, but
         -- nstrategy>1 already means circular rotated this host — persist that
         -- candidate for QUIC keys.
-        local quic_candidate_state =
+        local quic_candidate_missing =
           is_quic_key(askey) and (desync and desync.l7payload == "quic_initial")
           and (not failure_after) and (not server_active_event)
           and n_after and n_after > 1
@@ -714,7 +714,7 @@ if type(circular) == "function" then
           (desync.l7payload == "tls_client_hello" or
            desync.l7payload == "quic_initial" or
            desync.l7payload == "http_req")
-        local success_event = successful_state or response_state or quic_candidate_state
+        local success_event = successful_missing or response_missing or quic_candidate_missing
 
         -- Sticky-success revert (THE accuracy fix). orig_circular advances
         -- nstrategy on TCP-level signals (retrans / lua failures) that fire on
@@ -736,7 +736,7 @@ if type(circular) == "function" then
         -- срабатывал ни разу.
         local sticky_key = (hostn and askey)
           and (hostn .. "|" .. tostring(askey)) or nil
-        -- z2k content-gated sticky re-arm. A BARE TLS ServerHello (response_state)
+        -- z2k content-gated sticky re-arm. A BARE TLS ServerHello (response_missing)
         -- on a handshake-but-BLOCKED host (whatsapp/Meta) must NOT re-arm the
         -- sticky timestamp — otherwise the ~150 ServerHellos perpetually refresh
         -- it and the revert below snaps the rotation that the rotator's content
@@ -744,7 +744,7 @@ if type(circular) == "function" then
         -- deadlock layer). A ServerHello only counts as content-backed once SOME
         -- flow under this host has actually delivered real reverse content (the
         -- rotator's hrec.content_seen_last gate, fresh within STICKY_WINDOW_SEC).
-        -- A real terminal success (nocheck/inseq>26K -> successful_state) and the
+        -- A real terminal success (nocheck/inseq>26K -> successful_missing) and the
         -- QUIC candidate path are NOT gated — those are strong proofs already.
         local content_backed = hrec.content_seen_last
           and (now_f() - (tonumber(hrec.content_seen_last) or 0)) <= STICKY_WINDOW_SEC
@@ -755,18 +755,18 @@ if type(circular) == "function" then
         -- перевзвести sticky для S+1 — то есть повлиять на стратегию, через
         -- которую он вообще не проходил.
         --
-        -- crec — это desync.track.lua_state.automate (движок: automate_conn_record
+        -- crec — это desync.track.lua_missing.automate (движок: automate_conn_record
         -- в lua/zapret-auto.lua), та же таблица, куда пишет z2k-alert.lua.
         -- Сверяем с nstrategy_before_circular, а не с hrec.nstrategy: если
         -- circular только что сдвинул номер, flow законно шёл на прежнем.
-        local flow_crec = desync and desync.track and desync.track.lua_state
-          and desync.track.lua_state.automate
+        local flow_crec = desync and desync.track and desync.track.lua_missing
+          and desync.track.lua_missing.automate
         local flow_nstrat = flow_crec and tonumber(flow_crec.z2k_nstrat)
         -- Без метки не судим — ослепить перевзвод хуже, чем разрешить лишний.
         local flow_current = (flow_nstrat == nil) or (nstrategy_before_circular == nil)
           or (flow_nstrat == nstrategy_before_circular)
-        local rearm_event = flow_current and (successful_state or quic_candidate_state
-          or (response_state and content_backed))
+        local rearm_event = flow_current and (successful_missing or quic_candidate_missing
+          or (response_missing and content_backed))
         _G.Z2K_STICKY_SUCCESS_TS = _G.Z2K_STICKY_SUCCESS_TS or {}
         if rearm_event and sticky_key then
           _G.Z2K_STICKY_SUCCESS_TS[sticky_key] = now_f()
@@ -810,16 +810,16 @@ if type(circular) == "function" then
 end
 
 -- Exported API (used by unit tests; webpanel/diag read state.tsv directly).
-z2k_state_persist = {
-  load_state = load_state,
-  get_record = get_record_for_desync,
+z2k_missing_persist = {
+  load_missing = load_missing,
+  missing = missing_for_desync,
   persist_if_changed = persist_if_changed,
   clear_persisted = clear_persisted,
-  write_state = write_state,
+  write_missing = write_missing,
   -- flush(): bypass the debounce and force an immediate write (tests / shutdown).
-  flush = function() last_write = 0; write_state() end,
+  flush = function() last_write = 0; write_missing() end,
   state_file = function() return STATE_FILE_PRIMARY end,
-  _state = function() return state end,
+  _missing = function() return state end,
   _set_interval = function(n) write_interval = tonumber(n) or write_interval end,
   _reset = function() loaded = false; state = {}; last_write = 0; last_written = {}; last_reconcile = 0; _G.Z2K_STICKY_SUCCESS_TS = {} end,
 }

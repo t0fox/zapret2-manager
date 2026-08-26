@@ -41,6 +41,21 @@ function installedShaFor(path) {
 	} catch (e) {}
 	return null;
 }
+function is_compatible_raw(raw) {
+	// Pure compatibility predicate for Z2M sidecar — testable without network.
+	// Checks the MINIMAL contract the sidecar depends on:
+	// - z2k_state_persist global
+	// - exported get_record (precise: "  get_record =" or ".get_record" or "get_record(")
+	// - exported _state (precise: "  _state =" or "._state") — avoids false-positive via load_state
+	// - circular wrapper
+	// Conservative on-device gate; behavioral candidate harness in CI proves full semantics.
+	if (type(raw) != 'string') return false;
+	if (index(raw, 'z2k_state_persist') < 0) return false;
+	if (index(raw, 'circular') < 0) return false;
+	if (index(raw, '  _state =') < 0 && index(raw, '._state') < 0) return false;
+	if (index(raw, '  get_record =') < 0 && index(raw, '.get_record') < 0 && index(raw, 'get_record(') < 0) return false;
+	return true;
+}
 function is_state_persist_compatible(expectedDigest) {
 	// Compatibility gate for Z2M sidecar: new z2k-state-persist must expose
 	// the minimal upstream API that the sidecar depends on.
@@ -56,16 +71,7 @@ function is_state_persist_compatible(expectedDigest) {
 		let raw = readfile(tmp);
 		cleanup([tmp]);
 		if (raw == null) return false;
-		// Required upstream interface for Z2M sidecar (minimal):
-		// - z2k_state_persist global must be defined
-		// - get_record must exist
-		// - _state must exist (function or table)
-		// - circular wrapping must be present
-		if (index(raw, 'z2k_state_persist') < 0) return false;
-		if (index(raw, 'get_record') < 0) return false;
-		if (index(raw, '_state') < 0) return false;
-		if (index(raw, 'circular') < 0) return false;
-		return true;
+		return is_compatible_raw(raw);
 	} catch (e) { return false; }
 }
 function plan(value) {
@@ -110,6 +116,7 @@ function fetch_untrusted_manifest() {
 	cleanup([manifest]); return last || fail('EUNAVAILABLE', 'Z2K manifest unavailable.');
 }
 
+export const z2k_state_persist_compat_raw = function(raw) { return is_compatible_raw(raw); };
 export const z2k_upstream_plan = function(remoteManifest) { return plan(remoteManifest); };
 export const z2k_upstream_check = function() {
 	if (!ALLOW_UNTRUSTED) return fail('EUNSUPPORTED', 'Signed Z2K verification is disabled in this build.');

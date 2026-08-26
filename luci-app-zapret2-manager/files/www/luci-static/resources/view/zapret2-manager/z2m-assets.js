@@ -52,12 +52,29 @@ function importPanel(ctx, assets) { var rows = Array.isArray(assets) ? assets : 
 function hexRows(bytes, max) { return Tooling.boundedHexView(bytes, { maxBytes: max || 4096, columns: 16 }).rows.map(function (row) { return row.offset.toString(16).padStart(8, '0') + '  ' + row.hex.padEnd(47, ' ') + '  ' + row.ascii; }).join('\n'); }
 function errorList(errors) { return E('ul', { 'class': 'z2m-asset-errors' }, (errors || []).map(function (error) { return E('li', {}, [error.line ? _('строка ') + error.line + ': ' : '', text(error.message, _('Ошибка проверки'))]); })); }
 function luaEditor(state, readOnly) {
-  var editor = E('textarea', { 'class': 'z2m-asset-editor z2m-lua-editor-input', spellcheck: false }), overlay = E('pre', { 'class': 'z2m-lua-editor-overlay', 'aria-hidden': 'true' }), gutter = E('pre', { 'class': 'z2m-lua-editor-gutter', 'aria-hidden': 'true' }), wrap = E('div', { 'class': 'z2m-lua-editor' }, [gutter, E('div', { 'class': 'z2m-lua-editor-code' }, [overlay, editor])]);
+  var editor = E('textarea', { 'class': 'z2m-lua-editor-input', spellcheck: false, wrap: 'off', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off' }), gutter = E('pre', { 'class': 'z2m-lua-editor-gutter', 'aria-hidden': 'true' }), wrap = E('div', { 'class': 'z2m-lua-editor' }, [gutter, editor]);
+  editor.style.width = '100%';
+  editor.style.maxWidth = 'none';
+  editor.style.height = '100%';
+  editor.style.minHeight = '310px';
+  editor.style.margin = '0';
+  editor.style.padding = '12px 14px';
+  editor.style.boxSizing = 'border-box';
+  editor.style.resize = 'none';
+  editor.style.overflow = 'auto';
+  editor.style.background = 'transparent';
+  editor.style.color = 'var(--tx)';
+  editor.style.caretColor = 'var(--tx)';
+  editor.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+  editor.style.fontSize = '12px';
+  editor.style.lineHeight = '1.55';
+  editor.style.tabSize = '4';
+  editor.style.whiteSpace = 'pre';
   editor.value = state.content || '';
   editor.readOnly = readOnly === true;
-  function sync() { var source = editor.value || ''; overlay.innerHTML = Tooling.highlightLua(source) + (source.endsWith('\n') || !source ? '\n' : ''); gutter.textContent = Array.from({ length: Math.max(1, source.split('\n').length) }, function (_, index) { return String(index + 1); }).join('\n') + '\n'; overlay.scrollTop = editor.scrollTop; overlay.scrollLeft = editor.scrollLeft; gutter.scrollTop = editor.scrollTop; }
+  function sync() { var source = editor.value || ''; gutter.textContent = Array.from({ length: Math.max(1, source.split('\n').length) }, function (_, index) { return String(index + 1); }).join('\n') + '\n'; gutter.scrollTop = editor.scrollTop; }
   if (!readOnly) editor.addEventListener('input', function () { state.dirty = true; state.content = editor.value; sync(); });
-  editor.addEventListener('scroll', sync); sync(); return wrap;
+  editor.addEventListener('scroll', function () { gutter.scrollTop = editor.scrollTop; }); sync(); return wrap;
 }
 function workspace(ctx, selected, close) {
   var asset = selected, root = E('section', { 'class': 'z2m-asset-workspace' }), state = { mode: asset.type === 'blob' ? 'view' : 'edit', bytes: null, content: '', validation: null, dirty: false };

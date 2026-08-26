@@ -185,6 +185,12 @@ function inline_bundle(request) {
 	let answer = asset_registry_apply_bundle({ bundleId: bundle.bundleId, version: bundle.version || 'test', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', assets: staged }); cleanup(root, paths); return answer;
 }
 export const resource_center_status = function () {
+	// STALE-PROJECTION REGRESSION GUARD (see tests/product/z2k-candidate-compatibility.test.mjs):
+	// This returns the PERSISTED CHECK_STATE (/etc/zapret2-manager/resource-source-check.json),
+	// NOT a live fetch. After a sidecar migration or manifest change, it may still show
+	// the previous status (e.g., rebase-required) until an explicit resources_check
+	// (z2k_upstream_check) refreshes CHECK_STATE via save_check_state(). Do not make
+	// this live — that would add network I/O to every status poll.
 	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, null);
 	if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);

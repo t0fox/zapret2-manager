@@ -812,7 +812,7 @@ end
 -- Exported API (used by unit tests; webpanel/diag read state.tsv directly).
 z2k_state_persist = {
   load_state = load_state,
-  get_record = get_record_for_desync,
+  XGETRECORD = get_record_for_desync,
   persist_if_changed = persist_if_changed,
   clear_persisted = clear_persisted,
   write_state = write_state,

@@ -819,7 +819,7 @@ z2k_state_persist = {
   -- flush(): bypass the debounce and force an immediate write (tests / shutdown).
   flush = function() last_write = 0; write_state() end,
   state_file = function() return STATE_FILE_PRIMARY end,
-  _state = function() return state end,
+  XSTATE = function() return state end,
   _set_interval = function(n) write_interval = tonumber(n) or write_interval end,
   _reset = function() loaded = false; state = {}; last_write = 0; last_written = {}; last_reconcile = 0; _G.Z2K_STICKY_SUCCESS_TS = {} end,
 }

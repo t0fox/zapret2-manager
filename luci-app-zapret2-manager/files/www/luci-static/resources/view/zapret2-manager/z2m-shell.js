@@ -7,7 +7,7 @@ var modalKeyHandler = null;
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head) return;
-  var revision = '?v=lua-fix-1';
+  var revision = '?v=lua-robust-1';
   var existing = document.getElementById(id);
   if (existing) {
     var expected = L.resource('view/zapret2-manager/' + filename) + revision;

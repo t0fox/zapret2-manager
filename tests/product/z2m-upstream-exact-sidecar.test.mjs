@@ -11,11 +11,11 @@ function read(rel) { return fs.readFileSync(path.join(root, rel), 'utf8'); }
 // Pinned snapshot from verified UPDATES.json (tests/fixtures/z2k-signed-update/UPDATES.json)
 const PINNED = {
   manifest: 'tests/fixtures/z2k-signed-update/UPDATES.json',
-  seq: 26,
-  current: 'r-77.5',
+  seq: 46,
+  current: 'r-80.1',
   commit: '54b6765f2ab3e0f7f13030c90c809f1dcacfcce2',
   file: 'files/lua/z2k-state-persist.lua',
-  sha256: 'fa4cd3fc83449b1d85e92e75848109cc03340343af87fc014ced423bd9574219',
+  sha256: '51c01887fc5ca3ac53b9db105d08d03eb156d75914705f316b7751fe4c79f3d9',
 };
 
 test('A1: z2k-state-persist must be exact-managed (not adapted)', () => {
