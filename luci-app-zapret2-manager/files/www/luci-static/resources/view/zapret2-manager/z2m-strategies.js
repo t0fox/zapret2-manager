@@ -1362,8 +1362,10 @@ function renderCatalogProgress() {
     }
     var opId = res.operationId;
     updateCatalogProgress('check', 15, 'Проверка источника...');
+    var pollRetry = 0;
     var poll = function () {
       return call(state.ctx.api.strategies.catalogRefreshStatus).then(function (st) {
+        pollRetry = 0;
         if (!st || st.ok !== true) throw st;
         var phase = st.phase || st.state || 'verifying';
         var pct = st.percent != null ? st.percent : (phase === 'verifying' ? 30 : phase === 'indexing' ? 60 : phase === 'activating' ? 80 : phase === 'done' ? 100 : 35);
@@ -1381,10 +1383,26 @@ function renderCatalogProgress() {
         }
         if (st.state === 'error') {
           var emsg = st.error && (st.error.message || st.error.code) || 'Unknown';
+          // Keep error framed at same progress line; timer hidden by renderCatalogProgress
           updateCatalogProgress('error', 100, 'Ошибка: ' + emsg);
           throw st;
         }
         return new Promise(function (resolve) { setTimeout(resolve, 1200); }).then(poll);
+      }).catch(function (pollErr) {
+        // Transient transport errors (RPC/session/timeout) during polling should be
+        // retried, not surfaced as “RPC-компонент недоступен” at verifying phase.
+        var pollMsg = errorText(state.ctx, pollErr);
+        var pollCode = pollErr && (pollErr.code || (pollErr.error && pollErr.error.code) || '') || '';
+        var pollHay = (String(pollCode) + ' ' + String(pollMsg)).toLowerCase();
+        var isTransient = /timeout|timed out|превышено|rpc|ubus|object not found|eobject|\bnetwork\b|\boffline\b|connection|session/.test(pollHay) || pollRetry < 3;
+        // Only retry on transport-like errors, not on logical backend errors (EVERIFY/EINDEX/ESTALE)
+        var isBackendLogical = /everify|eindex|estale|eincomplete|eio|ebusy/.test(pollHay);
+        if (!isBackendLogical && isTransient && pollRetry < 3) {
+          pollRetry += 1;
+          // keep current progress visible while retrying, don't flash error
+          return new Promise(function (resolve) { setTimeout(resolve, 900 * pollRetry); }).then(poll);
+        }
+        throw pollErr;
       });
     };
     updateCatalogProgress('load', 25, 'Запуск проверки...');
@@ -1392,13 +1410,30 @@ function renderCatalogProgress() {
   }).then(function () {
   }, function (error) {
     var msg = errorText(state.ctx, error);
-    var isTimeout = /timeout|timed out|превышено/i.test(msg) || /timeout/i.test(String(error && error.code || '') || String(error && error.error && error.error.code || ''));
+    var normalized = state.ctx && state.ctx.api && state.ctx.api.normalizeError ? state.ctx.api.normalizeError(error) : null;
+    var kind = normalized && normalized.kind || '';
+    // Respect normalized kind: only show framed “retry” box for retryable
+    // transport/timeout failures; logical backend errors already have framed
+    // message from the poll’s state===error branch above.
+    var isTimeout = kind === 'session_failure' || /timeout|timed out|превышено/i.test(msg) || /timeout/i.test(String(error && error.code || '') || String(error && error.error && error.error.code || ''));
+    var isRpcTransient = kind === 'rpc_unavailable' || kind === 'provider_unavailable';
     if (isTimeout) {
       updateCatalogProgress('error', 100, 'Превышено время ожидания — попробуйте ещё раз');
       notify('err', 'Превышено время ожидания (XHR timeout). Попробуйте ещё раз.');
+    } else if (isRpcTransient) {
+      // Preserve the narrow “RPC-компонент недоступен” message but keep it in
+      // the same framed progress line (renderCatalogProgress phase=error).
+      updateCatalogProgress('error', 100, msg);
+      notify('err', msg);
     } else if (error && error.state === 'error') {
+      // Already framed via poll; just toast
       notify('err', msg);
     } else {
+      // Generic backend error — ensure it’s also framed at progress line
+      // if we haven’t already (e.g., start EBUSY without operationId)
+      if (!state.catalogProgress || state.catalogProgress.phase !== 'error') {
+        updateCatalogProgress('error', 100, msg);
+      }
       notify('err', msg);
     }
   }).then(function () { state.pending = null; renderAll(); renderCatalogProgress(); });

@@ -4,7 +4,7 @@ import { strategy_catalog_resolve, strategy_catalog_write_read_index } from './s
 
 const STATE_PATH = '/tmp/zapret2-manager/catalog-refresh.json';
 const STATE_TMP = STATE_PATH + '.tmp';
-const STALE_SECONDS = 120;
+const STALE_SECONDS = 300;
 const MAX_STATE_BYTES = 64 * 1024;
 
 function object(v) { return type(v) == 'object' && v != null; }
@@ -85,12 +85,13 @@ export const catalog_refresh_start = function() {
     pid: null
   };
   if (!state_save(rec)) return { ok: false, error: { code: 'EIO', message: 'Could not persist refresh operation' } };
-  // launch worker
-  let worker_code = 'import { strategy_catalog_resolve, strategy_catalog_write_read_index } from "/usr/libexec/zapret2-manager/strategy-catalog.uc"; let s=require("fs"); let st=s.readfile("/tmp/zapret2-manager/catalog-refresh.json"); let cur=json(st); cur.phase="verifying"; cur.percent=15; cur.heartbeatAt=time(); s.writefile("/tmp/zapret2-manager/catalog-refresh.json", sprintf("%J", cur)+"\\n"); let r=strategy_catalog_resolve({forceVerify:true}); if (!r || r.ok!=true) { cur.state="error"; cur.error=r && r.error ? r.error : {code:"EVERIFY",message:"forceVerify failed"}; cur.finishedAt=time(); s.writefile("/tmp/zapret2-manager/catalog-refresh.json", sprintf("%J", cur)+"\\n"); exit(1); } cur.phase="indexing"; cur.percent=60; cur.heartbeatAt=time(); s.writefile("/tmp/zapret2-manager/catalog-refresh.json", sprintf("%J", cur)+"\\n"); let w=strategy_catalog_write_read_index(null); cur.phase="activating"; cur.percent=80; cur.heartbeatAt=time(); s.writefile("/tmp/zapret2-manager/catalog-refresh.json", sprintf("%J", cur)+"\\n"); if (!w || w.ok!=true || w.written!=true) { cur.state="error"; cur.error=w && w.error ? w.error : {code:"EINDEX",message:"index rebuild failed"}; cur.finishedAt=time(); s.writefile("/tmp/zapret2-manager/catalog-refresh.json", sprintf("%J", cur)+"\\n"); exit(1); } cur.state="completed"; cur.phase="done"; cur.percent=100; cur.finishedAt=time(); cur.result={ok:true, digest:r.aggregateDigest, root:r.root}; s.writefile("/tmp/zapret2-manager/catalog-refresh.json", sprintf("%J", cur)+"\\n");';
-  let cmd = 'sh -c ' + shell('/usr/bin/ucode -e ' + shell(worker_code) + ' >/tmp/catalog-refresh.log 2>&1 &');
-  let p = popen(cmd, 'r');
+  // launch worker via dedicated CLI in background — avoids inline `require("fs")` bug
+  // and reuses the tested catalog_refresh_worker_run path (fs imports + correct error
+  // propagation). The CLI is invoked detached; its stdout/stderr goes to a log.
+  let workerCmd = '/usr/bin/ucode ' + shell('/usr/libexec/zapret2-manager/strategy-catalog-refresh-cli.uc') + ' run >/tmp/catalog-refresh.log 2>&1';
+  let bg = 'sh -c ' + shell(workerCmd + ' &');
+  let p = popen(bg, 'r');
   if (p) p.close();
-  // update with pid if possible (not critical)
   return { ok: true, accepted: true, operationId: opId, state: 'running', phase: 'queued', percent: 5, startedAt: rec.startedAt };
 };
 

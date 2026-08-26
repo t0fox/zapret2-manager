@@ -25,8 +25,8 @@ calls.strategiesPools=rpc.declare({object:'zapret2-manager',method:'strategies_p
 calls.scannerHistoryList=rpc.declare({object:'zapret2-manager',method:'scanner_history_list',params:['edit'],reject:true});
 calls.scannerHistoryGet=rpc.declare({object:'zapret2-manager',method:'scanner_history_get',params:['edit'],reject:true});
 calls.strategiesCatalogUpdate=rpc.declare({object:'zapret2-manager',method:'strategies_catalog_update',params:['edit'],reject:true, timeout: 60});
-calls.strategiesCatalogRefreshStart=rpc.declare({object:'zapret2-manager',method:'strategies_catalog_refresh_start',reject:true, timeout: 10});
-calls.strategiesCatalogRefreshStatus=rpc.declare({object:'zapret2-manager',method:'strategies_catalog_refresh_status',reject:true, timeout: 10});
+calls.strategiesCatalogRefreshStart=rpc.declare({object:'zapret2-manager',method:'strategies_catalog_refresh_start',reject:true, timeout: 30});
+calls.strategiesCatalogRefreshStatus=rpc.declare({object:'zapret2-manager',method:'strategies_catalog_refresh_status',reject:true, timeout: 30});
 calls.strategiesStateClear=rpc.declare({object:'zapret2-manager',method:'strategies_state_clear',params:['edit'],reject:true});
 calls.strategiesDebugGet=rpc.declare({object:'zapret2-manager',method:'strategies_debug_get',reject:true, timeout: 60});
 calls.strategiesDebugSet=rpc.declare({object:'zapret2-manager',method:'strategies_debug_set',params:['edit'],reject:true});
@@ -73,7 +73,7 @@ function normalizeError(error){
  if (/not.?installed|component.?missing|package.?missing|enoent/.test(hay)) { kind='component_not_installed'; message=_('Компонент не установлен.'); retryable=false; }
  else if (/provider|backend provider/.test(hay) && /unavailable|missing|not found|object not found|disabled/.test(hay)) { kind='provider_unavailable'; message=_('Backend provider недоступен.'); retryable=true; }
  else if (/dependency|epref|eprobe|missing dependency|requires/.test(hay)) { kind='dependency_unavailable'; message=_('Зависимость недоступна.'); retryable=true; }
- else if (/object not found|classconstructor|rpc|ubus|eobject|-32000/.test(hay)) { kind='rpc_unavailable'; message=_('RPC-компонент недоступен.'); retryable=true; }
+ else if (/object not found|method not found|no such object|no such method|classconstructor|\brpc\b|\bubus\b|eobject|-3200/.test(hay)) { kind='rpc_unavailable'; message=_('RPC-компонент недоступен.'); retryable=true; }
  else if (/malformed|schema|invalid response|parse error|unexpected response/.test(hay)) { kind='malformed_response'; message=_('Backend вернул некорректный ответ.'); retryable=false; }
  else if (/reject|invalid input|validation|bad request|einput/.test(hay)) { kind='request_rejected'; message=_('Запрос отклонён. Проверьте введённые данные.'); retryable=false; }
  else if (/session|auth|login|expired|401|403|network|timeout|offline|connection/.test(hay)) { kind='session_failure'; message=_('Сеанс LuCI или сетевое соединение недоступны.'); retryable=true; }
