@@ -6,7 +6,7 @@ var state = {
   request: { target: 'youtube.com', protocol: 'tcp', mode: 'standard', resume: false, dpi_type: '' },
   scanId: null, status: null, report: null, error: null,
   timer: null, disposed: true, generation: 0, statusRetries: 0, ignoreDataScanId: false,
-  showAll: false
+  showAll: false, targetError: null
 };
 var MAX_STATUS_RETRIES = 20;
 var MODE_BUDGETS = { quick: 30, standard: 60, full: 80 };
@@ -18,16 +18,82 @@ function text(value) { return value === null || value === undefined ? '' : Strin
 function terminal(value) { return ['completed', 'cancelled', 'error'].indexOf(object(value).status) >= 0; }
 function statusValue(data) { return object(data && data.status || state.status); }
 function resultValue(data) { return object(data && data.report || state.report); }
+function isValidHostname(host) {
+  if (!host || typeof host !== 'string') return false;
+  host = host.trim().toLowerCase();
+  if (host.endsWith('.')) host = host.slice(0, -1);
+  if (host.length < 1 || host.length > 253) return false;
+  if (host.indexOf(':') >= 0) return false;
+  if (host.indexOf(' ') >= 0) return false;
+  if (host.indexOf('.') < 0) return false;
+  if (!/^[a-z0-9][a-z0-9.-]{1,252}$/.test(host)) return false;
+  if (host.startsWith('-') || host.endsWith('-') || host.startsWith('.') || host.endsWith('.')) return false;
+  if (host.indexOf('..') >= 0) return false;
+  var labels = host.split('.');
+  for (var i = 0; i < labels.length; i++) {
+    var l = labels[i];
+    if (l.length < 1 || l.length > 63) return false;
+    if (l.startsWith('-') || l.endsWith('-')) return false;
+    if (!/^[a-z0-9-]+$/.test(l)) return false;
+  }
+  return true;
+}
+function normalizeTarget(input) {
+  if (input == null) return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+  var raw = String(input).trim();
+  if (!raw) return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+  if (raw.length > 253 + 100) {
+    // allow longer for URL, but hostname part will be checked later
+    if (raw.indexOf('://') < 0 && raw.indexOf('/') < 0 && raw.length > 253) return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+  }
+  if (raw.indexOf(' ') >= 0 && raw.indexOf('://') < 0 && raw.indexOf('/') < 0) {
+    return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+  }
+  var hostname = null;
+  try {
+    if (raw.indexOf('://') >= 0) {
+      var url = new URL(raw);
+      hostname = url.hostname;
+    } else if (raw.startsWith('//')) {
+      var url2 = new URL('https:' + raw);
+      hostname = url2.hostname;
+    } else if (raw.indexOf('/') >= 0) {
+      var slash = raw.indexOf('/');
+      var before = raw.slice(0, slash);
+      var after = raw.slice(slash + 1);
+      if (after.indexOf(' ') >= 0) return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+      try {
+        var url3 = new URL('https://' + raw);
+        hostname = url3.hostname;
+      } catch (e) {
+        hostname = before;
+      }
+    } else {
+      hostname = raw;
+    }
+  } catch (e) {
+    return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+  }
+  if (!hostname) return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+  hostname = hostname.trim().toLowerCase();
+  if (hostname.endsWith('.')) hostname = hostname.slice(0, -1);
+  if (!isValidHostname(hostname)) return { ok: false, error: _('Введите домен или ссылку на сайт.') };
+  return { ok: true, hostname: hostname, original: raw };
+}
 function safeRequest(value) {
   value = object(value);
   var mode = ['quick', 'standard', 'full'].indexOf(value.mode) >= 0 ? value.mode : 'standard';
   var protocol = value.protocol === 'udp' ? 'udp' : 'tcp';
+  var rawTarget = text(value.target || 'youtube.com').trim();
+  var normalized = normalizeTarget(rawTarget);
+  var target = normalized.ok ? normalized.hostname : rawTarget;
   return {
-    target: text(value.target || 'youtube.com').trim(),
+    target: target,
     protocol: protocol,
     mode: mode,
     resume: value.resume === true,
-    dpi_type: text(value.dpi_type).trim()
+    dpi_type: text(value.dpi_type).trim(),
+    _normalized: normalized
   };
 }
 function modeLabel(value) {
@@ -242,9 +308,19 @@ function scannerErrorPanel(ctx, status, controls) {
 }
 function start(ctx, controls) {
   if (state.status && state.status.status === 'running') return;
+  var rawTarget = controls.target.value;
+  var normalized = normalizeTarget(rawTarget);
+  if (!normalized.ok) {
+    state.targetError = normalized.error;
+    state.error = null;
+    refresh(ctx);
+    return;
+  }
+  state.targetError = null;
+  controls.target.value = normalized.hostname;
   var protocolVal = controls.protocol.value;
   if (protocolVal === 'auto') protocolVal = 'tcp';
-  state.request = safeRequest({ target: controls.target.value, protocol: protocolVal, mode: controls.mode.value, resume: false, dpi_type: controls.dpi.value });
+  state.request = safeRequest({ target: normalized.hostname, protocol: protocolVal, mode: controls.mode.value, resume: false, dpi_type: controls.dpi.value });
   state.scanId = null; state.ignoreDataScanId = false; state.error = null; state.report = null; state.status = { status: 'starting', phase: 'validating' };
   state.statusRetries = 0; state.showAll = false;
   refresh(ctx).catch(function () {});
@@ -418,10 +494,10 @@ function renderProgress(ctx, status, request) {
     { id: 'verification', label: _('Проверка лучших вариантов'), pct: Math.min(100, Math.round((verificationExecuted / (promoted || verificationBudget)) * 100)) || 0, detail: String(working) + ' / ' + String(promoted || verificationBudget) + (promoted ? '' : ' max') },
     { id: 'ranking', label: _('Выбор результата'), done: terminal(status), pct: terminal(status) ? 100 : 0 }
   ];
-  var overallPct = Math.round((stageDefs[0].pct + stageDefs[1].pct + stageDefs[2].pct + stageDefs[3].pct + stageDefs[4].pct) / 5);
   var currentFamily = status.currentCandidate ? String(status.currentCandidate).split(':').pop().slice(0, 18) : '';
+  var hasCurrent = !!status.currentCandidate && typeof status.currentCandidate === 'string' && status.currentCandidate.length > 0;
   return E('article', { 'class': 'z2m-scanner-progress-card card' }, [
-    E('div', { 'class': 'z2m-scanner-progress-heading' }, [icon('activity'), E('div', {}, [E('strong', {}, _('Проверяем ') + request.target), E('span', {}, _('Прогресс ') + String(overallPct) + '%')])]),
+    E('div', { 'class': 'z2m-scanner-progress-heading' }, [icon('activity'), E('div', {}, [E('strong', {}, _('Проверяем ') + request.target), E('span', {}, _('Проверка выполняется'))])]),
     E('div', { 'class': 'z2m-scanner-stages' }, stageDefs.map(function (s) {
       return E('div', { 'class': 'z2m-scanner-stage' + (s.done ? ' is-done' : '') }, [
         E('span', { 'class': 'z2m-scanner-stage-label' }, s.label),
@@ -430,7 +506,7 @@ function renderProgress(ctx, status, request) {
       ]);
     })),
     E('div', { 'class': 'z2m-scanner-progress-meta' }, [
-      isRunning && status.phase ? E('span', {}, _('Проверяется: ') + candidateShort({ candidateId: status.currentCandidate, protocol: request.protocol }) + (currentFamily ? ' (' + _('Вариант') + ' ' + String(progress || 0) + ' ' + _('из бюджета') + ' ' + String(budget) + ')' : '')) : E('span', {}, phaseLabel(status.phase)),
+      hasCurrent && isRunning ? E('span', {}, _('Проверяется: ') + candidateShort({ candidateId: status.currentCandidate, protocol: request.protocol }) + (currentFamily ? ' (' + _('Вариант') + ' ' + String(progress || 0) + ' ' + _('из бюджета') + ' ' + String(explorationBudget) + ')' : '')) : E('span', {}, phaseLabel(status.phase)),
       E('span', {}, _('Рабочих найдено: ') + String(working))
     ]),
     isRunning ? ctx.shell.button(_('Остановить'), 'danger sm', function () { stop(ctx); }) : null
@@ -479,6 +555,7 @@ function render(ctx, data) {
   var search = !running ? E('section', { 'class': 'z2m-scanner-search-body card' + (terminalResult || status.error || state.error ? ' z2m-scanner-retry-panel' : '') }, [
     E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Найдём подходящую стратегию')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
     formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network'),
+    state.targetError ? E('div', { 'class': 'z2m-scanner-field-error', style: 'color:#d63638;font-size:0.9em;margin-top:4px' }, state.targetError) : null,
     segmentedField(_('Протокол'), protSelect, 'route'),
     segmentedField(_('Глубина'), modeSelect, 'gauge'),
     E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Будет проверено до ') + String(budgetForMode(request.mode)) + ' ' + _('вариантов') + ', ' + _('отбор до 20 лучших')),
@@ -491,7 +568,7 @@ function render(ctx, data) {
     content,
     search
   ]);
-  controls.target.addEventListener('input', function () { state.request.target = controls.target.value; });
+  controls.target.addEventListener('input', function () { state.request.target = controls.target.value; if (state.targetError) { state.targetError = null; refresh(ctx); } });
   controls.dpi.addEventListener('input', function () { state.request.dpi_type = controls.dpi.value; });
   return root;
 }

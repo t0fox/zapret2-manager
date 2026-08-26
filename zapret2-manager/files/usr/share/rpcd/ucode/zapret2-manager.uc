@@ -480,6 +480,17 @@ function scanner_start_async_impl(req) {
 	if (inner.dpi_type == null && request.dpi_type != null) inner.dpi_type = request.dpi_type;
 	if (type(inner.target) != 'string' || length(inner.target) < 1)
 		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target is required' } };
+	// strict hostname boundary - must pass before any durable side effects (NO scanId, NO record, NO history)
+	if (!match(inner.target, /^[a-z0-9][a-z0-9.-]{1,252}$/) || index(inner.target, '.') < 0 || index(inner.target, ':') >= 0)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target must be a strict hostname.', path: 'target' } };
+	if (substr(inner.target, length(inner.target) - 1, 1) == '.')
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target must be a strict hostname.', path: 'target' } };
+	if (index(inner.target, '..') >= 0)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target must be a strict hostname.', path: 'target' } };
+	if (inner.protocol != null && inner.protocol != 'tcp' && inner.protocol != 'udp')
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner request fields are invalid.' } };
+	if (inner.mode != null && inner.mode != 'quick' && inner.mode != 'standard' && inner.mode != 'full')
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner request fields are invalid.' } };
 	if (request.id == null) request.id = 'scan-' + time() + '-' + (++scanner_start_sequence);
 	if (type(request.id) != 'string' || !match(request.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/))
 		return { ok: false, error: { code: 'EINPUT', message: 'Scanner id is invalid' } };

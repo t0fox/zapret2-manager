@@ -2,11 +2,9 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-icons as Icons';
 'require view.zapret2-manager.z2m-scanner as Scanner';
-'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
 
 var TABS = [
   { id: 'search', label: _('Подбор стратегии') },
-  { id: 'diagnostics', label: _('Диагностика') },
   { id: 'history', label: _('История') }
 ];
 var state = { activeTab: 'search', child: null, childContext: null, host: null, nav: null, root: null, ctx: null, history: [], detail: null, historyError: null };
@@ -19,11 +17,47 @@ function dateValue(value) { if (typeof value === 'number' && isFinite(value)) re
 function icon(name, className) { return Icons.wrappedNode(name, { size: 18, wrapperClass: 'z2m-scanner-icon' + (className ? ' ' + className : '') }); }
 function statusLabel(value) { return ({ completed: _('Завершено'), running: _('Выполняется'), probing: _('Выполняется'), starting: _('Подготавливается'), cancelled: _('Остановлено'), stopped: _('Остановлено'), error: _('Ошибка') })[text(value)] || _('Состояние уточняется'); }
 function statusClass(value) { return ({ completed: 'is-success', running: 'is-running', probing: 'is-running', starting: 'is-running', cancelled: 'is-stopped', stopped: 'is-stopped', error: 'is-error' })[text(value)] || 'is-unknown'; }
+function historyStatusLabel(item) {
+  item = object(item);
+  var counts = object(item.counts);
+  var working = counts.working != null ? counts.working : 0;
+  var status = text(item.status);
+  if (status === 'completed' && working > 0) return _('Найдено');
+  if (status === 'completed' && working === 0) return _('Не найдено');
+  if (status === 'cancelled' || status === 'stopped') return _('Остановлено');
+  if (status === 'error') return _('Ошибка');
+  return statusLabel(status);
+}
+function historyStatusClass(item) {
+  item = object(item);
+  var counts = object(item.counts);
+  var working = counts.working != null ? counts.working : 0;
+  var status = text(item.status);
+  if (status === 'completed' && working > 0) return 'is-success';
+  if (status === 'completed' && working === 0) return 'is-stopped';
+  if (status === 'cancelled' || status === 'stopped') return 'is-stopped';
+  if (status === 'error') return 'is-error';
+  return statusClass(status);
+}
+function isObviouslyInvalidHistory(item) {
+  item = object(item);
+  var req = object(item.request);
+  var target = text(req.target);
+  if (!target) return false;
+  var hasUrl = target.indexOf('://') >= 0 || target.indexOf(' ') >= 0 || target.indexOf('/') >= 0 && target.length > 253;
+  if (!hasUrl) return false;
+  var progress = item.progress != null ? item.progress : 0;
+  var total = item.total != null ? item.total : 0;
+  return progress === 0 && total === 0 && text(item.status) === 'error';
+}
 function humanDate(value) { var time = dateValue(value); return time ? new Date(time).toLocaleString() : _('Дата неизвестна'); }
 function historyTimestamp(item) { item = object(item); return item.startedAt || item.createdAt || item.updatedAt || item.finishedAt || item.completedAt; }
 function historyTime(value) { var time = dateValue(value); return time ? new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : _('Время неизвестно'); }
 function diagnosticRecord(item) { item = object(item); var provenance = object(item.provenance || object(item.metadata).provenance); return item.debug === true || item.kind === 'diagnostic' || item.source === 'diagnostic' || provenance.source === 'diagnostic' || /^scan-debug-/i.test(text(item.id)); }
-function historySort(items) { return array(items).slice().sort(function (a, b) { return Number(diagnosticRecord(a)) - Number(diagnosticRecord(b)) || dateValue(historyTimestamp(b)) - dateValue(historyTimestamp(a)); }); }
+function historySort(items) {
+  var filtered = array(items).filter(function (it) { return !isObviouslyInvalidHistory(it); });
+  return filtered.slice().sort(function (a, b) { return Number(diagnosticRecord(a)) - Number(diagnosticRecord(b)) || dateValue(historyTimestamp(b)) - dateValue(historyTimestamp(a)); });
+}
 function historyGroupKey(value) { var time = dateValue(value); return time ? new Date(time).toISOString().slice(0, 10) : 'undated'; }
 function historyGroupLabel(key) {
   if (key === 'undated') return _('Без даты');
@@ -115,9 +149,9 @@ function openHistoryDetail(ctx, item, button) {
 }
 function tabFrom(ctx) {
   var value = ctx && ctx.routeParams && ctx.routeParams.tab;
-  return value === 'diagnostic' || value === 'blockcheck' ? 'diagnostics' : (value === 'history' ? 'history' : 'search');
+  return value === 'history' ? 'history' : 'search';
 }
-function childFor(tab) { return tab === 'diagnostics' ? BlockCheck : (tab === 'search' ? Scanner : null); }
+function childFor(tab) { return tab === 'search' ? Scanner : null; }
 function activeLabel(tab) { return (TABS.filter(function (item) { return item.id === tab; })[0] || TABS[0]).label; }
 function boundedChildLoad(child, ctx) {
   var work = child && child.load ? child.load(ctx) : Promise.resolve({});
@@ -158,7 +192,7 @@ function renderHistory(ctx) {
   var groupNodes = order.map(function (key) {
     var rows = groups[key].map(function (item) {
       var request = object(item.request), debug = diagnosticRecord(item), started = historyTimestamp(item), action = ctx.shell.button(item.status === 'running' || item.status === 'probing' ? _('Открыть') : _('Подробнее'), 'sm', function () { openHistoryDetail(ctx, item, action); });
-      return E('article', { 'class': 'z2m-scanner-history-row', 'data-scanner-history-id': item.id }, [E('div', { 'class': 'z2m-scanner-history-icon' }, [icon(debug ? 'bug' : 'history')]), E('div', { 'class': 'z2m-scanner-history-main' }, [E('strong', {}, request.target || _('Сайт не указан')), E('span', {}, started ? historyTime(started) : _('Время неизвестно')), debug ? E('span', { 'class': 'z2m-scanner-debug-label' }, _('Диагностический запуск')) : null]), E('div', { 'class': 'z2m-scanner-history-result' }, [E('span', { 'class': 'z2m-scanner-status-badge ' + statusClass(item.status) }, [icon(item.status === 'error' ? 'circle-alert' : item.status === 'completed' ? 'circle-check' : item.status === 'cancelled' ? 'stop-square' : 'activity'), E('span', {}, statusLabel(item.status))]), E('span', { 'class': 'z2m-dim' }, historyCounts(item))]), E('div', { 'class': 'z2m-scanner-history-action' }, action)]);
+      return E('article', { 'class': 'z2m-scanner-history-row', 'data-scanner-history-id': item.id }, [E('div', { 'class': 'z2m-scanner-history-icon' }, [icon(debug ? 'bug' : 'history')]), E('div', { 'class': 'z2m-scanner-history-main' }, [E('strong', {}, request.target || _('Сайт не указан')), E('span', {}, started ? historyTime(started) : _('Время неизвестно')), debug ? E('span', { 'class': 'z2m-scanner-debug-label' }, _('Диагностический запуск')) : null]), E('div', { 'class': 'z2m-scanner-history-result' }, [E('span', { 'class': 'z2m-scanner-status-badge ' + historyStatusClass(item) }, [icon(item.status === 'error' ? 'circle-alert' : (item.status === 'completed' && (object(item.counts).working || 0) > 0) ? 'circle-check' : item.status === 'cancelled' ? 'stop-square' : 'activity'), E('span', {}, historyStatusLabel(item))]), E('span', { 'class': 'z2m-dim' }, historyCounts(item))]), E('div', { 'class': 'z2m-scanner-history-action' }, action)]);
     });
     return E('section', { 'class': 'z2m-scanner-history-group' }, [E('h3', {}, historyGroupLabel(key)), E('div', { 'class': 'z2m-scanner-history-list' }, rows)]);
   });
@@ -215,4 +249,4 @@ function render(ctx) {
 function mount() {}
 function unmount() { unmountChild(); state.root = null; state.host = null; state.nav = null; state.ctx = null; }
 
-return baseclass.extend({ id: 'scanner-product', title: _('Сканирование'), subtitle: _('Подбор стратегии, диагностика и история'), load: load, render: render, mount: mount, unmount: unmount });
+return baseclass.extend({ id: 'scanner-product', title: _('Сканирование'), subtitle: _('Подбор стратегии и история'), load: load, render: render, mount: mount, unmount: unmount });
