@@ -1238,6 +1238,12 @@ function refreshData(full) {
     }
   });
 }
+function formatCatalogDuration(sec) {
+    sec = Math.max(0, Math.floor(Number(sec) || 0));
+    if (sec < 60) return sec + "с";
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return m + "м " + (s < 10 ? "0" : "") + s + "с";
+  }
 function renderCatalogProgress() {
     var host = state.root && state.root.querySelector('#catalog-progress');
     if (!host) return;
