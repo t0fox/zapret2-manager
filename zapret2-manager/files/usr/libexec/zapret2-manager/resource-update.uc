@@ -34,7 +34,18 @@ function current_asset(item, assets) {
 	return null;
 }
 function row_for(item, assets) {
-	let current = current_asset(item, assets), registered = registry_asset(assets, item.id), state = current == null ? 'missing' : (registered != null && registered.ownership != 'package' && (!registered.provenance || registered.provenance.kind != 'catalog/upstream') ? 'attention' : (current.sha256 == item.sha256 && current.byteSize == item.byteSize ? 'current' : 'update'));
+	let current = current_asset(item, assets), registered = registry_asset(assets, item.id), state;
+	if (current == null) state = 'missing';
+	else if (registered != null && registered.ownership != 'package' && (!registered.provenance || registered.provenance.kind != 'catalog/upstream')) state = 'attention';
+	else if (registered != null && registered.provenance && registered.provenance.kind == 'catalog/upstream') {
+		// For dynamic catalog/upstream assets, split A/B/C:
+		// A: actual file vs registered record -> integrity (broken if mismatch)
+		// B: registered vs packaged baseline is NOT an update signal here (handled via C)
+		// C: update availability is via z2k_upstream_check, not row_for
+		if (current.sha256 == null || registered.contentSha256 == null) state = 'attention';
+		else if (current.sha256 != registered.contentSha256 || current.byteSize != registered.byteSize) state = 'attention';
+		else state = 'current';
+	} else state = (current.sha256 == item.sha256 && current.byteSize == item.byteSize ? 'current' : 'update');
 	return { id: item.id, type: item.type, name: item.name, sourcePath: item.sourcePath, path: current && current.path || item.packagePath || null, ownership: current && current.ownership || null, packageBaseline: current != null && current.ownership == 'package', revision: registered && registered.revision || 0, contentSha256: current && current.sha256 || null, byteSize: current && current.byteSize || 0, lastChecked: registered && registered.lastChecked || null, lastUpdated: registered && registered.lastUpdated || null, state: state, status: state_label(state), references: registered && registered.references || [], compatibility: item.compatibility || {}, dependencies: item.dependencies || [], source: item.sourceId || null, sourceCommit: item.sourceCommit || null, safeToUpdate: state != 'attention' };
 }
 function source_rows(manifest, rows) {
@@ -132,7 +143,7 @@ function z2k_local_projection(manifest) {
 	// ready already counts lua only; ensure total reflects luaTotal
 	let integrity = hasAttention ? 'broken' : hasMissing ? 'broken' : baselineMatched === total ? 'verified' : 'diverged';
 	let integrityOk = !hasMissing && !hasAttention;
-	let installed = !hasMissing && !hasAttention && installedCount > 0 && total > 0;
+	let installed = !hasMissing && installedCount > 0 && total > 0;
 	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked };
 }
 function load_check_state() {
@@ -188,6 +199,13 @@ export const resource_center_status = function () {
 			answer.sources[i].checkMode = persisted.signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest';
 			answer.sources[i].verification = persisted.signedSources;
 			if (!persisted.signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); }
+			else {
+				// Canonical product state must not contradict Resources: use z2k plan status, not row_for vs packaged
+				if (remote.status === 'current') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
+				else if (remote.status === 'update-available') { answer.sources[i].state = 'update'; answer.sources[i].status = state_label('update'); }
+				else if (remote.status === 'rebase-required' || remote.status === 'review-required') { answer.sources[i].state = 'attention'; answer.sources[i].status = state_label('attention'); }
+				else if (remote.status === 'unknown') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
+			}
 		}
 	} else {
 		answer.signedSources = { z2k: { state: 'unknown', status: 'Проверка источника выполняется только явно', checkMode: 'allow-untrusted', trustMode: 'allow-untrusted', verified: false } };
@@ -202,7 +220,17 @@ export const resource_center_check = function () {
 	remote.local = local;
 	answer.z2k = remote;
 	answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? (signed.trustMode == 'allow-untrusted' ? 'Источник разрешён без проверки подписи' : signed.status) : 'Ошибка проверки источника', checkMode: signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest', trustMode: signed.trustMode || null, verified: signed.ok === true && signed.trustMode != 'allow-untrusted', evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, trustMode: signed.trustMode || null, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'Z2K source check failed' } } };
-	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') { answer.sources[i].checkMode = signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest'; answer.sources[i].verification = answer.signedSources.z2k; if (!signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); } }
+	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') {
+		answer.sources[i].checkMode = signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest';
+		answer.sources[i].verification = answer.signedSources.z2k;
+		if (!signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); }
+		else {
+			if (signed.status === 'current') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
+			else if (signed.status === 'update-available') { answer.sources[i].state = 'update'; answer.sources[i].status = state_label('update'); }
+			else if (signed.status === 'rebase-required' || signed.status === 'review-required') { answer.sources[i].state = 'attention'; answer.sources[i].status = state_label('attention'); }
+			else if (signed.status === 'unknown') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
+		}
+	}
 	save_check_state(signed, answer.checkedAt, answer.signedSources.z2k);
 	return answer;
 };

@@ -86,7 +86,7 @@ var ALIASES = {
   maintenance: 'components',
   updates: 'components',
   engine: 'components',
-  settings: 'settings',
+  settings: 'components',
   'unified-routing': 'unified-routing',
   monitor: 'monitor',
   logs: 'logs'

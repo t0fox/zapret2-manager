@@ -7,7 +7,7 @@ var modalKeyHandler = null;
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head) return;
-  var revision = '?v=scanner-hoverfix-1';
+  var revision = '?v=z2k-unify-1';
   var existing = document.getElementById(id);
   if (existing) {
     var expected = L.resource('view/zapret2-manager/' + filename) + revision;
