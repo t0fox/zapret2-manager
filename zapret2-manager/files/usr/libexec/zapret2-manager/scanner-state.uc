@@ -296,7 +296,7 @@ function valid_record(value) {
 	return object(value) && value.schema == 1 && safe_id(value.id) && integer(value.revision)
 		&& object(value.request) && digest(value.requestDigest) && digest(value.planDigest)
 		&& digest(value.catalogDigest) && digest(value.compilerDigest)
-		&& index(['idle', 'running', 'completed', 'cancelled', 'error'], value.status) >= 0
+		&& index(['idle', 'starting', 'running', 'completed', 'cancelled', 'error'], value.status) >= 0
 		&& type(value.results) == 'array' && length(value.results) <= MAX_RESULTS;
 }
 function valid_journal(value, id) {
