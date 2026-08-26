@@ -9,63 +9,52 @@ function read(rel) {
   return fs.readFileSync(path.join(path.resolve(''), rel), 'utf8');
 }
 
-// --- Test 1-3: Ownership classification ---
+// --- Single-page IA: no PANES dead code ---
 
-test('catalog/upstream asset must be in Installed, never in User', () => {
+test('Resources page must be single-page: no PANES concept', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  // renderUser must only allow imported and user-created, not catalog/upstream
-  assert.match(src, /kind === 'imported' \|\| kind === 'user-created'/, 'renderUser must filter only imported/user-created');
-  const userFn2 = src.slice(src.indexOf('function renderUser'), src.indexOf('function renderUser') + 800);
-  assert.doesNotMatch(userFn2, /ownership !== 'package'/, 'renderUser should not use coarse ownership !== package');
-  // Also check that catalog/upstream is not in User function body
-  const userFn = src.slice(src.indexOf('function renderUser'), src.indexOf('function renderUser') + 800);
-  const hasCatalogInUser = /catalog\/upstream/.test(userFn);
-  assert.equal(hasCatalogInUser, false, 'catalog/upstream should not be in User filter');
+  assert.doesNotMatch(src, /var PANES/, 'PANES must be removed');
+  assert.doesNotMatch(src, /function renderUpdates/, 'renderUpdates pane must be removed');
+  assert.doesNotMatch(src, /function renderInstalled/, 'renderInstalled pane must be removed');
+  // renderUser/renderSources as pane handlers must be gone; generic helpers may remain but pane dispatch must be gone
+  assert.doesNotMatch(src, /active === 'updates'/);
+  assert.doesNotMatch(src, /subTabs\(PANES/);
+  assert.match(src, /ResourcesModel\.buildModel/, 'must use ResourcesModel.buildModel');
+  assert.match(src, /z2m-resource-group-card/, 'must render grouped cards, not 4 tabs');
 });
 
-test('imported asset must be in User', () => {
-  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  assert.match(src, /kind === 'imported'/);
-  // Simulate the filter logic
+test('Ownership classification must be in model, not coarse pane filter', () => {
+  const model = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js');
+  assert.match(model, /isUserKind/, 'model must define isUserKind');
+  assert.match(model, /kind === 'imported' \|\| kind === 'user-created'/, 'user = imported|user-created');
+  assert.doesNotMatch(model, /ownership !== 'package'/, 'must not use coarse ownership !== package');
   function isUser(asset) {
     const kind = asset && asset.provenance && asset.provenance.kind;
     return kind === 'imported' || kind === 'user-created';
   }
   assert.equal(isUser({ provenance: { kind: 'imported' } }), true);
-  assert.equal(isUser({ provenance: { kind: 'catalog/upstream' } }), false);
-});
-
-test('user-created asset must be in User', () => {
-  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  assert.match(src, /kind === 'user-created'/);
-  function isUser(asset) {
-    const kind = asset && asset.provenance && asset.provenance.kind;
-    return kind === 'imported' || kind === 'user-created';
-  }
   assert.equal(isUser({ provenance: { kind: 'user-created' } }), true);
-  assert.equal(isUser({ provenance: { kind: 'generated' } }), false, 'generated should not be User per clarification');
+  assert.equal(isUser({ provenance: { kind: 'catalog/upstream' } }), false);
+  assert.equal(isUser({ provenance: { kind: 'generated' } }), false);
+  assert.equal(isUser({ provenance: { kind: 'builtin/package' } }), false);
 });
 
-test('generated asset should not be automatically classified as User (investigate, not blind fallback)', () => {
-  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  // Should not have a generic fallback that puts generated in User
-  // The file should not contain a catch-all for generated in renderUser
-  const userFn = src.slice(src.indexOf('function renderUser'), src.indexOf('function renderUser') + 800);
-  assert.doesNotMatch(userFn, /generated/);
-  // And should not use ownership !== 'package' which would catch generated
-  assert.doesNotMatch(userFn, /ownership !== 'package'/);
+test('catalog/upstream must never be classified as User (model)', () => {
+  const modelSrc = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js');
+  assert.match(modelSrc, /catalog\/upstream/);
+  // Simulate model assignment: imported/user-created -> user group, catalog/upstream -> system
+  function isUserKind(kind) { return kind === 'imported' || kind === 'user-created'; }
+  assert.equal(isUserKind('catalog/upstream'), false);
+  assert.equal(isUserKind('imported'), true);
 });
 
 // --- Test 4: UNKNOWN != ATTENTION ---
 
 test('asset without state and without error evidence must not be attention', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  // stateBadge must not fallback to attention
   assert.match(src, /row\.state \|\| 'unknown'/, 'stateBadge must fallback to unknown, not attention');
   assert.doesNotMatch(src, /row\.state \|\| 'attention'/);
-  // HUMAN_STATES must have unknown
   assert.match(src, /unknown: _\('Неизвестно'\)/);
-  // Simulate
   function stateBadge(row) {
     const HUMAN_STATES = { current: 'Актуально', update: 'Доступно обновление', attention: 'Требуется внимание', error: 'Ошибка проверки', unknown: 'Неизвестно' };
     const state = row.state || 'unknown';
@@ -80,11 +69,9 @@ test('asset without state and without error evidence must not be attention', () 
 // --- Test 5: Z2K current + healthy assets → Components current/ready, Resources no attention ---
 
 test('Z2K current + healthy assets: Components = current/ready, Resources no attention', () => {
-  // Simulate normalizeZ2k logic for healthy current
   const local = { installed: true, integrityOk: true, integrity: 'verified', lua: { ready: 7, total: 7 }, baselineMatched: 7 };
   const hasLocal = true;
   const engineReady = true;
-  // Simplified health check from z2m-components-model
   let healthState;
   if (engineReady !== true) healthState = 'missing';
   else if (hasLocal) {
@@ -94,12 +81,9 @@ test('Z2K current + healthy assets: Components = current/ready, Resources no att
     else healthState = 'degraded';
   }
   assert.equal(healthState, 'ready');
-  // updateState would be current from remote
   const updateState = 'current';
   assert.equal(updateState, 'current');
-  // Resources: catalog/upstream asset without state should be unknown, not attention
   function resourcesStateForHealthyAsset(asset) {
-    // asset is catalog/upstream, exists, correct provenance, no error, but row.state is missing
     const row = { state: undefined, status: undefined };
     const state = row.state || 'unknown';
     return state;
@@ -108,16 +92,17 @@ test('Z2K current + healthy assets: Components = current/ready, Resources no att
   assert.notEqual(resourcesStateForHealthyAsset({}), 'attention');
 });
 
-// --- Test 6: Z2K update available → Components update-available, Resources shows asset delta, no second product ---
+// --- Test 6: Z2K update/rebase/review callouts must be distinct and demoted to Подробнее→components ---
 
-test('Z2K update available: Components update-available, Resources shows asset info, no second product action', () => {
+test('Z2K update/rebase/review callouts must be distinct and navigate to components, no second product update', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  // renderUpdates for z2k-resources should be demoted to Подробнее, not primary Обновить ресурс
   assert.match(src, /Подробнее/);
-  const z2kUpdatesSection = src.slice(src.indexOf('function renderUpdates'), src.indexOf('function renderUpdates') + 2000);
-  assert.match(z2kUpdatesSection, /z2k-resources.*Подробнее/s);
-  assert.doesNotMatch(z2kUpdatesSection, /Обновить ресурс.*primary sm.*z2k-curated-lua/);
-  // But backend capability must remain
+  assert.match(src, /Доступно обновление/);
+  assert.match(src, /Требуется адаптация/);
+  assert.match(src, /Требуется проверка/);
+  // Must navigate to components, not perform resource_center_update directly
+  assert.match(src, /ctx\.navigate\('components'\)/);
+  assert.doesNotMatch(src, /Обновить ресурс.*primary sm.*z2k-curated-lua/);
   const backend = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
   assert.match(backend, /resource_center_update/);
   assert.match(backend, /z2k-curated-lua/);
@@ -126,27 +111,16 @@ test('Z2K update available: Components update-available, Resources shows asset i
 // --- Test 7: critical Z2K asset integrity failure → Components not Актуален (behavioral, production-equivalent) ---
 
 test('critical Z2K asset corrupted → canonical z2k health degraded, Components not Актуален', () => {
-  // Behavioral: simulate production row_for + z2k_local_projection with actual vs registered mismatch
-  // This is the production-equivalent path: row_for for catalog/upstream with actual != registered => attention/broken
-  // We test the actual logic from resource-update.uc via a minimal harness
   const fsCode = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
-  // Verify the production row_for now correctly distinguishes A (actual vs registered) for catalog/upstream -> attention on mismatch
   assert.match(fsCode, /catalog\/upstream[\s\S]*?current\.sha256 != registered\.contentSha256[\s\S]*?state = 'attention'/, 'row_for must treat actual != registered as attention for catalog/upstream');
   assert.match(fsCode, /catalog\/upstream[\s\S]*?state = 'current'/, 'row_for must have current for healthy catalog/upstream');
 
-  // Simulate the local projection's integrity check with a corrupted critical asset
-  // Mock a listed asset with expected SHA AAA, but actual file SHA BBB (corrupted)
-  const AAA = 'a'.repeat(64);
-  const BBB = 'b'.repeat(64);
-  // Mock the row_for result for a corrupted z2k-modern-core
   const corruptedRow = { id: 'lua:z2k-modern-core', type: 'lua', state: 'attention', status: 'Требуется внимание' };
   const healthyRow = { id: 'lua:z2k-modern-core', type: 'lua', state: 'current', status: 'Актуально' };
-  // The z2k_local_projection would see hasAttention true for corrupted
   let hasAttentionCorrupted = corruptedRow.state === 'attention';
   let hasAttentionHealthy = healthyRow.state === 'attention';
   assert.equal(hasAttentionCorrupted, true);
   assert.equal(hasAttentionHealthy, false);
-  // And then integrity and health
   function projectionHealth(rows) {
     let hasMissing = rows.some(r => r.state === 'missing');
     let hasAttention = rows.some(r => r.state === 'attention');
@@ -171,18 +145,10 @@ test('critical Z2K asset corrupted → canonical z2k health degraded, Components
   assert.equal(healthy.healthState, 'ready', 'healthy should be ready');
   assert.equal(corrupted.healthState, 'broken', 'corrupted critical asset must make health broken');
   assert.notEqual(corrupted.healthState, 'ready');
-  // Components would show Ошибка (r) not Актуален (g) for broken
   const kindMap = { 'Актуален': 'g', 'Ошибка': 'r', 'Доступно обновление': 'o' };
   assert.equal(kindMap['Ошибка'], 'r');
   assert.notEqual(kindMap['Актуален'], kindMap['Ошибка']);
-  // Control case: p-79.18 healthy with actual == registered (AAA) even though packaged is old, should be current/verified
-  const pUpstreamSha = 'c'.repeat(64);
-  const packagedOldSha = 'd'.repeat(64);
-  // For catalog/upstream after dynamic update, actual == registered == p-79.18, but packaged is old -> should still be current (not attention)
-  // Our row_for now checks actual == registered, so it will be current, not update/attention
-  // Simulate: registered AAA = p-79.18, actual AAA = p-79.18, item.sha256 = old
-  // Then row_for returns current, so baselineMatched 7/7, integrity verified, health ready
-  const dynamicHealthyRow = { id: 'lua:z2k-alert', type: 'lua', state: 'current' }; // actual == registered, so current
+  const dynamicHealthyRow = { id: 'lua:z2k-alert', type: 'lua', state: 'current' };
   const dynamicHealthyProj = projectionHealth([dynamicHealthyRow, healthyRow]);
   assert.equal(dynamicHealthyProj.healthState, 'ready', 'dynamic p-79.18 healthy should be ready, not broken');
 });
@@ -193,46 +159,12 @@ test('source commit must be labeled Commit источника, not version', () 
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
   assert.match(src, /Commit источника/);
   assert.doesNotMatch(src, /Базовая ревизия каталога/);
-  // Product version p-* should only be in Components, not in Sources mono commit line
-  const sourcesFn = src.slice(src.indexOf('function renderSources'), src.indexOf('function renderSources') + 800);
-  assert.match(sourcesFn, /Commit источника/);
-  assert.doesNotMatch(sourcesFn, /Версия Z2K/);
-});
-
-// --- Regression for the visible conflict ---
-
-test('Regression: System Z2K Core = Актуален should not coexist with Z2K catalog/upstream assets = Требуется внимание without real error', () => {
-  // This is the exact bug: System says Актуален (health ready, current), but Resources shows catalog/upstream assets as attention
-  // After fix, healthy catalog/upstream assets without state should be unknown/muted, not attention
-  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  // The fix is stateBadge fallback to unknown, not attention
-  assert.match(src, /row\.state \|\| 'unknown'/);
-  // And renderUser must not put catalog/upstream in User
-  const userFn = src.slice(src.indexOf('function renderUser'), src.indexOf('function renderUser') + 600);
-  assert.match(userFn, /imported.*user-created/);
-  // Simulate the conflict scenario
-  const healthyCatalogAsset = { provenance: { kind: 'catalog/upstream' }, state: undefined };
-  // Old buggy logic: would be attention
-  function oldStateBadge(row) { return row.state || 'attention'; }
-  function newStateBadge(row) { return row.state || 'unknown'; }
-  assert.equal(oldStateBadge(healthyCatalogAsset), 'attention');
-  assert.equal(newStateBadge(healthyCatalogAsset), 'unknown');
-  assert.notEqual(newStateBadge(healthyCatalogAsset), 'attention');
-  // And it should be in Installed, not User
-  function isUserOld(asset) { return asset.ownership !== 'package'; }
-  function isUserNew(asset) { const k = asset.provenance && asset.provenance.kind; return k === 'imported' || k === 'user-created'; }
-  const catalogAsset = { ownership: 'manager', provenance: { kind: 'catalog/upstream' } };
-  assert.equal(isUserOld(catalogAsset), true, 'old logic incorrectly puts catalog/upstream in User');
-  assert.equal(isUserNew(catalogAsset), false, 'new logic correctly keeps catalog/upstream out of User');
 });
 
 test('Navigation settings alias must be canonical components (behavioral)', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js');
   assert.match(src, /settings:\s*'components'/, 'ALIASES settings must map to components');
   assert.doesNotMatch(src, /settings:\s*'settings'/);
-  // Behavioral: load the module via vm and check normalize
-  // vm already imported as * from node:vm
-  // Need to handle the file's top-level return baseclass.extend
   const rawCode = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js');
   const code = rawCode.replace(/return\s+baseclass\.extend/, 'this.__nav = baseclass.extend');
   let captured = null;
@@ -260,7 +192,6 @@ test('Navigation settings alias must be canonical components (behavioral)', () =
 test('UNKNOWN != ATTENTION behavioral: stateBadge must be muted for unknown', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
   assert.match(src, /HUMAN_STATES.*unknown/);
-  // Simulate the actual stateBadge kind logic
   function kindForState(state) {
     const s = state || 'unknown';
     if (s === 'current') return 'good';
@@ -272,4 +203,25 @@ test('UNKNOWN != ATTENTION behavioral: stateBadge must be muted for unknown', ()
   assert.equal(kindForState('attention'), 'danger');
   assert.notEqual(kindForState('unknown'), kindForState('attention'));
   assert.equal(kindForState(undefined), 'muted');
+});
+
+test('Resources page must not show Package baseline as top-level product card', () => {
+  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
+  // Package baseline should be in technical disclosure, not as a regular group card with same styling as Z2K
+  // The grouped view should have special handling for hiddenGroups / technical disclosure
+  assert.match(src, /hiddenGroups|Дополнительно|Package baseline/, 'must have technical disclosure for package baseline');
+  // Should not have dedicated top-level card creation for package-baseline like other groups in basic mode
+  const modelSrc = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js');
+  assert.match(modelSrc, /hiddenBasic|package-baseline/, 'model must hide package-baseline as technical');
+});
+
+test('Rebase/review require distinct labels from update-available', () => {
+  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
+  assert.match(src, /Требуется адаптация/);
+  assert.match(src, /Требуется проверка/);
+  assert.match(src, /Доступно обновление/);
+  // Ensure rebase/review are not labeled as simple update
+  const modelSrc = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js');
+  assert.match(modelSrc, /rebase-required/);
+  assert.match(modelSrc, /review-required/);
 });

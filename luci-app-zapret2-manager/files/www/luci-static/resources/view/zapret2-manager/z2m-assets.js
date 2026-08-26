@@ -2,8 +2,8 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 'require view.zapret2-manager.z2m-asset-tooling as Tooling';
+'require view.zapret2-manager.z2m-resources-model as ResourcesModel';
 
-var PANES = [['updates', _('Обновления')], ['installed', _('Установленные')], ['user', _('Пользовательские')], ['sources', _('Источники')]];
 var HUMAN_STATES = { current: _('Актуально'), update: _('Доступно обновление'), missing: _('Не установлено'), checking: _('Проверяем'), unavailable: _('Источник недоступен'), stale: _('Проверка устарела'), attention: _('Требуется внимание'), error: _('Ошибка проверки'), unknown: _('Неизвестно') };
 function text(value, fallback) { return value == null || value === '' ? (fallback || '') : String(value); }
 function json(value) { return JSON.stringify(value); }
@@ -47,12 +47,7 @@ function metadata(asset) { var provenance = asset.provenance || {}; return E('dl
 function detailModal(ctx, asset) { ctx.shell.openModal(_('Ресурс ' + text(asset.name || asset.id)), E('div', { 'class': 'z2m-resource-detail' }, [E('p', {}, [E('strong', {}, text(asset.name || asset.id)), E('span', { 'class': 'z2m-dim' }, ' · ' + label(asset.type))]), metadata(asset), E('details', {}, [E('summary', {}, _('Технические детали')), E('pre', {}, JSON.stringify(asset, null, 2))])]), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal)); }
 function resourceCard(ctx, asset, open) { var actions = E('div', { 'class': 'z2m-resource-actions' }); actions.appendChild(ctx.shell.button(_('Открыть workspace'), 'primary sm', function () { open(asset); })); actions.appendChild(ctx.shell.button(_('Подробнее'), 'link sm', function () { detailModal(ctx, asset); })); if (asset.ownership !== 'package' && refs(asset).length) actions.appendChild(E('span', { 'class': 'z2m-dim' }, _('Удаление запрещено: есть ссылки'))); return E('article', { 'class': 'z2m-resource-row', 'data-resource-id': text(asset.id) }, [E('span', { 'class': 'z2m-resource-type-icon', 'aria-hidden': 'true' }, icon(asset.type)), E('div', { 'class': 'z2m-resource-main' }, [E('strong', {}, text(asset.name || asset.id)), E('span', { 'class': 'z2m-resource-subtitle' }, label(asset.type)), E('span', { 'class': 'z2m-resource-meta' }, asset.ownership === 'package' ? _('Package baseline · immutable') : text(asset.provenance && asset.provenance.kind, _('Asset Registry')))]), E('div', { 'class': 'z2m-resource-state' }, [stateBadge(asset), refs(asset).length ? E('span', { 'class': 'z2m-dim' }, _('Используется: ') + refs(asset).map(function (ref) { return ref.consumer; }).join(', ')) : null]), actions]); }
 
-function importPanel(ctx, assets) { var rows = Array.isArray(assets) ? assets : [], existing = {}, type = E('select', { 'class': 'z2m-select', 'aria-label': _('Тип ресурса') }), id = E('input', { type: 'text', 'class': 'z2m-input', placeholder: 'hostlist:example', 'aria-label': _('Стабильный ID') }), content = E('textarea', { rows: 5, placeholder: _('Текст ресурса; для blob/geo используйте hex'), 'aria-label': _('Содержимое ресурса') }), status = E('span', { 'class': 'z2m-dim' }); rows.forEach(function (asset) { existing[asset.id] = asset; }); ['lua', 'blob', 'ipset', 'hostlist', 'hosts', 'geosite', 'geoip'].forEach(function (value) { type.appendChild(E('option', { value: value }, label(value))); }); var button = ctx.shell.button(_('Импортировать'), 'primary', function () { var value = text(id.value).trim(), kind = type.value, current = existing[value], encoded = null; if (!value || value.indexOf(kind + ':') !== 0) { status.textContent = _('ID должен иметь вид type:slug.'); status.className = 'warnbar'; return; } try { encoded = ['blob', 'geosite', 'geoip'].indexOf(kind) >= 0 ? Tooling.bytesToBase64(Tooling.hexToBytes(content.value)) : Tooling.textToBase64(content.value); } catch (error) { status.textContent = error.message; status.className = 'warnbar'; return; } button.disabled = true; status.textContent = current ? _('Обновляем…') : _('Импортируем…'); var call = current ? ctx.api.assets.update(json({ id: value, expectedRevision: current.revision, contentBase64: encoded })) : ctx.api.assets.import(json({ type: kind, id: value, contentBase64: encoded, provenance: { kind: 'imported' } })); call.then(function (answer) { if (!answer || answer.ok === false || answer.error) throw answer; status.textContent = _('Ресурс сохранён.'); return ctx.refresh(ctx.route); }).catch(function (error) { status.textContent = message(ctx, error); status.className = 'warnbar'; }).then(function () { button.disabled = false; }); }); return E('details', { 'class': 'z2m-resource-import' }, [E('summary', {}, _('Импортировать или обновить пользовательский ресурс')), E('div', { 'class': 'z2m-stack' }, [E('div', { 'class': 'z2m-inline-form' }, [type, id]), content, E('div', { 'class': 'z2m-page-actions' }, [button, status])])]); }
-
-function renderUpdates(ctx, resources) { var updates = resources.updates || [], sources = resources.sources || [], bySource = {}, cards = []; updates.forEach(function (row) { (bySource[row.source] = bySource[row.source] || []).push(row); }); sources.forEach(function (source) { var isZ2K = source.id === 'z2k-resources'; var z2k = resources.z2k || {}; var z2kUpdates = isZ2K ? (z2k.updates || []) : null; var z2kRebases = isZ2K ? (z2k.rebases || []) : null; var z2kReviews = isZ2K ? (z2k.reviews || []) : null; var z2kStatus = isZ2K ? (z2k.status || 'unknown') : null; var rows = isZ2K ? (z2kStatus === 'update-available' ? z2kUpdates : z2kStatus === 'rebase-required' ? z2kRebases : z2kStatus === 'review-required' ? z2kReviews : []) : (bySource[source.id] || []); var count = isZ2K ? (z2kStatus === 'update-available' ? (z2kUpdates ? z2kUpdates.length : 0) : z2kStatus === 'rebase-required' ? (z2kRebases ? z2kRebases.length : 0) : z2kStatus === 'review-required' ? (z2kReviews ? z2kReviews.length : 0) : 0) : rows.length; var actions = [], verification = isZ2K && resources.signedSources && resources.signedSources.z2k || null; if (isZ2K && (z2kStatus === 'update-available' || z2kStatus === 'rebase-required' || z2kStatus === 'review-required')) actions.push(ctx.shell.button(_('Подробнее'), 'sm', function () { ctx.navigate('components'); })); var sourceForBadge = source; if (isZ2K) { var canonicalState = z2kStatus === 'current' ? 'current' : z2kStatus === 'update-available' ? 'update' : z2kStatus === 'unknown' ? 'unknown' : 'attention'; sourceForBadge = { state: canonicalState, status: canonicalState === 'current' ? 'Актуально' : canonicalState === 'update' ? 'Доступно обновление' : canonicalState === 'unknown' ? 'Не проверено' : 'Требуется внимание' }; } cards.push(E('article', { 'class': 'z2m-resource-source-card' }, [E('div', { 'class': 'z2m-resource-source-head' }, [E('strong', {}, source.label), stateBadge(sourceForBadge)]), E('p', { 'class': 'z2m-resource-copy' }, count > 0 ? _('Доступно обновлений: ') + count : _('Установленные ресурсы соответствуют источнику.')), verification ? E('p', { 'class': 'z2m-resource-verification' }, verification.trustMode === 'allow-untrusted' ? _('Источник разрешён без проверки подписи · allow-untrusted') : verification.verified ? _('Подпись Z2K подтверждена · signed-manifest') : _('Проверка источника не пройдена · обновление заблокировано')) : null, count > 0 && !isZ2K ? E('div', { 'class': 'z2m-resource-change-summary' }, [_('Потребители: ') + Object.keys(resources.summary && resources.summary.consumers || {}).length]) : null, actions.length ? E('div', { 'class': 'z2m-resource-actions' }, actions) : null])); }); var totalUpdates = 0; sources.forEach(function (s) { if (s.id === 'z2k-resources') { var zs = resources.z2k && resources.z2k.status; if (zs === 'update-available') totalUpdates += (resources.z2k.updates ? resources.z2k.updates.length : 0); else if (zs === 'rebase-required') totalUpdates += (resources.z2k.rebases ? resources.z2k.rebases.length : 0); else if (zs === 'review-required') totalUpdates += (resources.z2k.reviews ? resources.z2k.reviews.length : 0); } else totalUpdates += (bySource[s.id] || []).length; }); return E('div', { 'class': 'z2m-resource-stack' }, [E('div', { 'class': 'z2m-resource-summary' }, [E('strong', {}, text(totalUpdates, '0')), E('span', {}, _('обновлений доступно')), E('small', {}, _('Проверка только manifest/ETag · автоустановка выключена'))]), cards.length ? E('div', { 'class': 'z2m-resource-source-list' }, cards) : AvatarUi.state('empty', { title: _('Источники не настроены') })]); }
-function renderInstalled(ctx, resources, type, open) { var assetType = type, rows = (resources.installed || []).filter(function (row) { return !assetType || row.type === assetType; }), groups = {}; rows.forEach(function (row) { (groups[group(row.type)] = groups[group(row.type)] || []).push(row); }); var sections = Object.keys(groups).map(function (name) { return E('section', { 'class': 'z2m-resource-group' }, [E('div', { 'class': 'z2m-resource-group-head' }, [E('h2', {}, name), E('span', {}, groups[name].length)]), E('div', { 'class': 'z2m-resource-list' }, groups[name].map(function (row) { return resourceCard(ctx, row, open); }))]); }); return sections.length ? E('div', { 'class': 'z2m-resource-groups' }, sections) : AvatarUi.state('empty', { title: _('Ресурсов пока нет'), body: _('Пакетные и пользовательские ресурсы появятся после регистрации.') }); }
-function renderUser(ctx, assets, type, open) { var rows = (assets || []).filter(function (asset) { var kind = asset && asset.provenance && asset.provenance.kind; return asset && (kind === 'imported' || kind === 'user-created') && (!type || asset.type === type); }); return E('div', { 'class': 'z2m-resource-user' }, [importPanel(ctx, assets), rows.length ? E('div', { 'class': 'z2m-resource-list' }, rows.map(function (asset) { return resourceCard(ctx, asset, open); })) : AvatarUi.state('empty', { title: _('Пользовательских ресурсов пока нет'), body: _('Создайте или импортируйте ресурс — upstream обновления его не заменят.') })]); }
-function renderSources(resources) { return E('div', { 'class': 'z2m-resource-source-list' }, (resources.sources || []).map(function (source) { return E('article', { 'class': 'z2m-resource-source-card' }, [E('div', { 'class': 'z2m-resource-source-head' }, [E('strong', {}, source.label), stateBadge(source)]), E('p', {}, text(source.repository)), E('p', { 'class': 'mono' }, _('Commit источника') + ': ' + text(source.commit, '—'))]); })); }
+function importPanel(ctx, assets) { var rows = Array.isArray(assets) ? assets : [], existing = {}, type = E('select', { 'class': 'z2m-select', 'aria-label': _('Тип ресурса') }), id = E('input', { type: 'text', 'class': 'z2m-input', placeholder: 'hostlist:example', 'aria-label': _('Стабильный ID') }), content = E('textarea', { rows: 5, placeholder: _('Текст ресурса; для blob/geo используйте hex'), 'aria-label': _('Содержимое ресурса') }), status = E('span', { 'class': 'z2m-dim' }); rows.forEach(function (asset) { existing[asset.id] = asset; }); ['lua', 'blob', 'ipset', 'hostlist', 'hosts', 'geosite', 'geoip'].forEach(function (value) { type.appendChild(E('option', { value: value }, label(value))); }); var button = ctx.shell.button(_('Импортировать'), 'primary', function () { var value = text(id.value).trim(), kind = type.value, current = existing[value], encoded = null; if (!value || value.indexOf(kind + ':') !== 0) { status.textContent = _('ID должен иметь вид type:slug.'); status.className = 'warnbar'; return; } try { encoded = ['blob', 'geosite', 'geoip'].indexOf(kind) >= 0 ? Tooling.bytesToBase64(Tooling.hexToBytes(content.value)) : Tooling.textToBase64(content.value); } catch (error) { status.textContent = error.message; status.className = 'warnbar'; return; } button.disabled = true; status.textContent = current ? _('Обновляем…') : _('Импортируем…'); var call = current ? ctx.api.assets.update(json({ id: value, expectedRevision: current.revision, contentBase64: encoded })) : ctx.api.assets.import(json({ type: kind, id: value, contentBase64: encoded, provenance: { kind: 'imported' } })); call.then(function (answer) { if (!answer || answer.ok === false || answer.error) throw answer; status.textContent = _('Ресурс сохранён.'); return ctx.refresh(ctx.route); }).catch(function (error) { status.textContent = message(ctx, error); status.className = 'warnbar'; }).then(function () { button.disabled = false; }); }); return E('div', { 'class': 'z2m-import-panel' }, [E('div', { 'class': 'z2m-inline-form' }, [type, id]), content, E('div', { 'class': 'z2m-inline-form' }, [button, status])]); }
 
 function hexRows(bytes, max) { return Tooling.boundedHexView(bytes, { maxBytes: max || 4096, columns: 16 }).rows.map(function (row) { return row.offset.toString(16).padStart(8, '0') + '  ' + row.hex.padEnd(47, ' ') + '  ' + row.ascii; }).join('\n'); }
 function errorList(errors) { return E('ul', { 'class': 'z2m-asset-errors' }, (errors || []).map(function (error) { return E('li', {}, [error.line ? _('строка ') + error.line + ': ' : '', text(error.message, _('Ошибка проверки'))]); })); }
@@ -95,6 +90,277 @@ function workspace(ctx, selected, close) {
   paint(); loadContent(); return root;
 }
 
-function render(ctx) { var value = ctx.data && ctx.data.value || {}, resources = value.resources || {}, assets = value.assets && value.assets.assets || [], type = assetTypeForRoute(ctx.route, ctx.routeParams), root = E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' }), body = E('div', { 'class': 'z2m-resource-body' }), active = type ? 'installed' : 'updates'; function open(asset) { body.replaceChildren(workspace(ctx, asset, function () { body.replaceChildren(renderPane()); })); } function renderPane() { if (resources.error || resources.ok === false) return ctx.shell.statePanel({ message: resources.error && resources.error.message || _('Не удалось загрузить центр ресурсов.'), kind: 'error' }); if (active === 'updates') return renderUpdates(ctx, resources); if (active === 'installed') return renderInstalled(ctx, resources, type, open); if (active === 'user') return renderUser(ctx, assets, type, open); return renderSources(resources); } var tabs = ctx.shell.subTabs(PANES.map(function (item) { return { id: item[0], label: item[1] }; }), active, function (id) { active = id; body.replaceChildren(renderPane()); }, { id: 'z2m-resource-tabs', 'aria-label': _('Разделы ресурсов') }), check = ctx.shell.button(_('Проверить обновления'), 'sm', function () { check.disabled = true; ctx.api.resources.check().then(function (answer) { if (!answer || answer.ok === false || answer.error) throw answer; return ctx.refresh(ctx.route); }).catch(function (error) { ctx.shell.openModal(_('Проверка обновлений не выполнена'), resourceErrorBody(ctx, error), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal)); }).then(function () { check.disabled = false; }); }); root.appendChild(E('div', { 'class': 'z2m-phead z2m-resource-head' }, [E('div', {}, [E('h1', {}, _('Ресурсы')), E('p', {}, type ? routeLabel(type) : _('Обновления, установленные материалы, пользовательские ресурсы и источники'))]), E('div', { 'class': 'sp' }, [check]) ])); root.appendChild(tabs); root.appendChild(body); body.appendChild(renderPane()); var routeId = ctx.routeParams && (ctx.routeParams.id || ctx.routeParams.asset); if (routeId) { var selected = assets.filter(function (asset) { return asset.id === routeId; })[0]; if (selected) open(selected); } return root; }
+function countsText(counts) {
+  var parts = [];
+  if (counts.lua) parts.push(counts.lua + ' Lua');
+  if (counts.blob) parts.push(counts.blob + ' blobs');
+  var rest = 0;
+  for (var k in counts) if (k !== 'lua' && k !== 'blob') rest += counts[k];
+  if (rest) parts.push(rest + ' др.');
+  return parts.join(' · ') || _('нет данных');
+}
+
+function render(ctx) {
+  var value = ctx.data && ctx.data.value || {};
+  var resources = value.resources || {};
+  var assetsData = value.assets && value.assets.assets || [];
+  if (resources.error || resources.ok === false) {
+    return E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' }, [
+      ctx.shell.statePanel({ message: resources.error && resources.error.message || _('Не удалось загрузить центр ресурсов.'), kind: 'error' })
+    ]);
+  }
+  var advanced = !!(ctx.store && ctx.store.ui && ctx.store.ui.advanced);
+  var model = ResourcesModel.buildModel(resources, { assets: assetsData }, { advanced: advanced });
+  var summary = model.summary;
+  var allVisible = model.groups;
+  var hiddenGroups = model.hiddenGroups || [];
+
+  var filter = 'all';
+  var searchQuery = '';
+  var expanded = {};
+
+  var root = E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' });
+  var body = E('div', { 'class': 'z2m-resource-body' });
+
+  function openAsset(asset) {
+    body.replaceChildren(workspace(ctx, asset, function () { body.replaceChildren(renderBody()); }));
+  }
+
+  function matchesSearch(asset, q) {
+    if (!q) return true;
+    var s = q.toLowerCase();
+    return (asset.id && asset.id.toLowerCase().indexOf(s) >= 0) || (asset.name && asset.name.toLowerCase().indexOf(s) >= 0) || (asset.type && asset.type.toLowerCase().indexOf(s) >= 0);
+  }
+
+  function filteredGroups() {
+    var q = searchQuery.trim().toLowerCase();
+    var out = [];
+    for (var i = 0; i < allVisible.length; i++) {
+      var g = allVisible[i];
+      if (filter === 'system' && g.id === 'user') continue;
+      if (filter === 'user' && g.id !== 'user') continue;
+      // For user filter, even if group has 0 assets, show user group
+      // Apply search: keep group if any asset matches or group label matches
+      if (q) {
+        var labelMatch = g.label && g.label.toLowerCase().indexOf(q) >= 0;
+        var anyAssetMatch = false;
+        for (var ai = 0; ai < g.assets.length; ai++) if (matchesSearch(g.assets[ai], q)) { anyAssetMatch = true; break; }
+        if (!labelMatch && !anyAssetMatch) continue;
+      }
+      out.push(g);
+    }
+    return out;
+  }
+
+  function renderUpdateCallout() {
+    var callout = summary.updateCallout;
+    if (!callout) return null;
+    var label;
+    var detail = null;
+    if (callout.status === 'update-available') {
+      label = _('Доступно обновление ') + callout.label;
+      var from = text(callout.from) || '—';
+      var to = text(callout.to) || '—';
+      detail = E('span', { 'class': 'z2m-dim' }, from + ' → ' + to);
+    } else if (callout.status === 'rebase-required') {
+      label = _('Требуется адаптация ') + callout.label;
+    } else if (callout.status === 'review-required') {
+      label = _('Требуется проверка ') + callout.label;
+    } else {
+      label = _('Требуется внимание ') + callout.label;
+    }
+    return E('div', { 'class': 'z2m-resource-update-callout', 'data-status': callout.status }, [
+      E('div', { 'class': 'z2m-resource-update-callout-head' }, [
+        E('span', { 'class': 'z2m-resource-update-icon' }, callout.status === 'update-available' ? '↑' : '!'),
+        E('strong', {}, label),
+        detail
+      ].filter(Boolean)),
+      ctx.shell.button(_('Подробнее'), 'sm', function () { ctx.navigate('components'); })
+    ]);
+  }
+
+  function renderGroupCard(group) {
+    var isExpanded = !!expanded[group.id];
+    var counts = countsText(group.counts);
+    var totalLine = group.total + ' ' + _('ресурса') + (group.total === 1 ? '' : group.total < 5 ? 'а' : 'ов') + (counts ? ' · ' + counts : '');
+    var sourceLine = group.repository ? E('div', { 'class': 'z2m-dim mono' }, text(group.repository)) : null;
+    var consumerLine = group.consumer ? E('div', { 'class': 'z2m-dim' }, _('Используется: ') + group.consumer) : null;
+    var state = group.state || 'unknown';
+    var badge = stateBadge({ state: state, status: HUMAN_STATES[state] || group.stateLabel });
+
+    // User empty state
+    if (group.id === 'user' && group.total === 0) {
+      return E('section', { 'class': 'z2m-resource-group-card z2m-resource-group-user' }, [
+        E('div', { 'class': 'z2m-resource-group-head' }, [
+          E('div', {}, [E('h2', {}, group.label), E('div', { 'class': 'z2m-dim' }, _('Пользовательских ресурсов пока нет.'))]),
+          badge
+        ]),
+        E('div', { 'class': 'z2m-resource-group-actions' }, [
+          ctx.shell.button(_('+ Добавить ресурс'), 'primary sm', openImport)
+        ])
+      ]);
+    }
+
+    var header = E('div', { 'class': 'z2m-resource-group-head' }, [
+      E('div', {}, [
+        E('h2', {}, group.label),
+        E('div', { 'class': 'z2m-dim' }, totalLine),
+        consumerLine,
+        sourceLine
+      ]),
+      E('div', { 'class': 'z2m-resource-group-badge' }, badge)
+    ]);
+
+    var actions = E('div', { 'class': 'z2m-resource-group-actions' }, []);
+    var showBtnLabel = group.id === 'z2k-resources' ? _('Показать ') + group.total : _('Показать');
+    if (group.total > 0) {
+      actions.appendChild(ctx.shell.button(isExpanded ? _('Скрыть') : showBtnLabel, 'sm', function () {
+        expanded[group.id] = !expanded[group.id];
+        body.replaceChildren(renderBody());
+      }));
+    }
+    if (group.id === 'user' && group.total > 0) {
+      actions.appendChild(ctx.shell.button(_('+ Добавить ресурс'), 'sm', openImport));
+    }
+
+    var cardChildren = [header];
+    // Advanced metadata for group
+    if (advanced && group.source) {
+      var advLines = [];
+      if (group.source.commit) advLines.push(E('div', { 'class': 'z2m-dim mono' }, _('Commit источника') + ': ' + text(group.source.commit)));
+      if (group.commit && group.commit !== group.source.commit) advLines.push(E('div', { 'class': 'z2m-dim mono' }, _('Provenance: ') + text(group.commit)));
+      if (advLines.length) cardChildren.push(E('div', { 'class': 'z2m-resource-group-adv' }, advLines));
+    }
+    cardChildren.push(actions);
+
+    if (isExpanded && group.assets.length) {
+      var filteredAssets = [];
+      var q2 = searchQuery.trim().toLowerCase();
+      for (var ii = 0; ii < group.assets.length; ii++) {
+        var a = group.assets[ii];
+        if (q2 && !matchesSearch(a, q2) && !(group.label.toLowerCase().indexOf(q2) >= 0)) continue;
+        filteredAssets.push(a);
+      }
+      var tableHead = E('div', { 'class': 'z2m-resource-table-head' }, [
+        E('span', {}, _('Имя')),
+        E('span', {}, _('Тип')),
+        E('span', {}, _('Используется')),
+        E('span', {}, _('Действие'))
+      ]);
+      var rows = filteredAssets.map(function (asset) {
+        var showBadge = ResourcesModel.shouldShowBadge(asset);
+        var assetBadge = showBadge ? stateBadge(asset) : null;
+        var used = refs(asset).length ? refs(asset).map(function (r) { return r.consumer; }).join(', ') : '—';
+        // Advanced row details
+        var advMeta = null;
+        if (advanced) {
+          var parts = [];
+          if (asset.contentSha256) parts.push(asset.contentSha256.slice(0, 12) + '…');
+          if (asset.provenance && asset.provenance.kind) parts.push(asset.provenance.kind);
+          if (asset.revision) parts.push('r' + asset.revision);
+          advMeta = E('div', { 'class': 'z2m-dim mono' }, parts.join(' · '));
+        }
+        return E('div', { 'class': 'z2m-resource-table-row', 'data-resource-id': text(asset.id) }, [
+          E('div', { 'class': 'z2m-resource-table-name' }, [
+            E('span', { 'class': 'z2m-resource-type-icon' }, icon(asset.type)),
+            E('strong', {}, text(asset.name || asset.id)),
+            advMeta,
+            assetBadge ? E('span', { 'class': 'z2m-resource-table-badge' }, assetBadge) : null
+          ]),
+          E('span', { 'class': 'z2m-dim' }, label(asset.type)),
+          E('span', { 'class': 'z2m-dim' }, used),
+          ctx.shell.button(_('Открыть'), 'sm', function () { openAsset(asset); })
+        ]);
+      });
+      cardChildren.push(E('div', { 'class': 'z2m-resource-table' }, [tableHead].concat(rows)));
+    }
+
+    return E('section', { 'class': 'z2m-resource-group-card', 'data-group-id': group.id }, cardChildren);
+  }
+
+  function openImport() {
+    ctx.shell.openModal(_('Добавить ресурс'), E('div', {}, [
+      importPanel(ctx, assetsData),
+      E('p', { 'class': 'z2m-dim' }, _('После импорта ресурс появится в группе «Мои ресурсы».'))
+    ]), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal));
+  }
+
+  function renderBody() {
+    var callout = renderUpdateCallout();
+    var groupsToShow = filteredGroups();
+    var cards = groupsToShow.map(renderGroupCard);
+    var empty = null;
+    if (!cards.length) {
+      empty = AvatarUi.state('empty', { title: _('Ничего не найдено'), body: _('Попробуйте изменить фильтр или поисковый запрос.') });
+    }
+    var technical = null;
+    if (advanced && hiddenGroups.length) {
+      var pkg = hiddenGroups.find(function(g){ return g.id === 'package-baseline'; });
+      if (pkg) {
+        technical = E('details', { 'class': 'z2m-resource-technical' }, [
+          E('summary', {}, _('Дополнительно')),
+          E('div', { 'class': 'z2m-resource-technical-body' }, [
+            E('div', {}, [E('strong', {}, pkg.label), E('div', { 'class': 'z2m-dim mono' }, _('Commit: ') + text(pkg.commit || (pkg.source && pkg.source.commit) || '—'))]),
+            pkg.source && pkg.source.version ? E('div', { 'class': 'z2m-dim' }, _('Версия: ') + text(pkg.source.version)) : null,
+            pkg.source && pkg.source.repository ? E('div', { 'class': 'z2m-dim mono' }, text(pkg.source.repository)) : null,
+            E('div', { 'class': 'z2m-dim' }, pkg.total + ' ' + _('ресурсов')),
+            pkg.source && pkg.source.kind ? E('div', { 'class': 'z2m-dim' }, _('Provenance: ') + text(pkg.source.kind)) : null
+          ].filter(Boolean))
+        ]);
+      }
+    }
+    return E('div', { 'class': 'z2m-resource-groups' }, [].concat(callout ? [callout] : []).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
+  }
+
+  var summaryLine = E('div', { 'class': 'z2m-resource-summary' }, [
+    E('span', {}, summary.total + ' ' + _('ресурса') + (summary.total === 1 ? '' : summary.total < 5 ? 'а' : 'ов') + ' · ' + summary.user + ' ' + _('пользовательских') + ' · ' + summary.stateLabel)
+  ]);
+
+  var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов...'), 'aria-label': _('Поиск ресурсов') });
+  searchInput.addEventListener('input', function () { searchQuery = searchInput.value; body.replaceChildren(renderBody()); });
+
+  var filterTabs = ctx.shell.segmented([
+    { id: 'all', label: _('Все') },
+    { id: 'system', label: _('Системные') },
+    { id: 'user', label: _('Пользовательские') }
+  ], filter, function (id) { filter = id; body.replaceChildren(renderBody()); }, { 'aria-label': _('Фильтр ресурсов') });
+
+  var checkBtn = ctx.shell.button(_('Проверить обновления'), 'sm', function () {
+    checkBtn.disabled = true;
+    ctx.api.resources.check().then(function (answer) { if (!answer || answer.ok === false || answer.error) throw answer; return ctx.refresh(ctx.route); }).catch(function (error) {
+      ctx.shell.openModal(_('Проверка обновлений не выполнена'), resourceErrorBody(ctx, error), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal));
+    }).then(function () { checkBtn.disabled = false; });
+  });
+
+  var addBtn = ctx.shell.button(_('+ Добавить ресурс'), 'primary sm', openImport);
+
+  var header = E('div', { 'class': 'z2m-phead z2m-resource-head' }, [
+    E('div', {}, [
+      E('h1', {}, _('Ресурсы')),
+      E('p', {}, _('Файлы и данные, используемые Zapret2 Manager')),
+      summaryLine
+    ]),
+    E('div', { 'class': 'sp' }, [addBtn, checkBtn])
+  ]);
+
+  var controls = E('div', { 'class': 'z2m-resource-controls' }, [
+    filterTabs,
+    searchInput
+  ]);
+
+  root.appendChild(header);
+  root.appendChild(controls);
+  root.appendChild(body);
+  body.replaceChildren(renderBody());
+
+  var routeId = ctx.routeParams && (ctx.routeParams.id || ctx.routeParams.asset);
+  if (routeId) {
+    var sel = null;
+    for (var i = 0; i < assetsData.length; i++) if (assetsData[i].id === routeId) { sel = assetsData[i]; break; }
+    if (sel) openAsset(sel);
+  }
+
+  return root;
+}
 
 return baseclass.extend({ id: 'assets', title: _('Ресурсы'), subtitle: _('Центр обновлений и Asset Registry'), load: load, render: render, mount: function () {}, unmount: function () {} });
