@@ -41,6 +41,33 @@ function installedShaFor(path) {
 	} catch (e) {}
 	return null;
 }
+function is_state_persist_compatible(expectedDigest) {
+	// Compatibility gate for Z2M sidecar: new z2k-state-persist must expose
+	// the minimal upstream API that the sidecar depends on.
+	// If the new file does not contain the required symbols, the update must be
+	// review-required (incompatible), not rebase-required, and must not replace
+	// the working runtime.
+	try {
+		let tmp = temp_file();
+		if (tmp == null) return false;
+		let url = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/files/lua/z2k-state-persist.lua';
+		let nonce = '' + time() + '-' + expectedDigest;
+		if (!fetch_file(source_url(url, nonce), tmp)) { cleanup([tmp]); return false; }
+		let raw = readfile(tmp);
+		cleanup([tmp]);
+		if (raw == null) return false;
+		// Required upstream interface for Z2M sidecar (minimal):
+		// - z2k_state_persist global must be defined
+		// - get_record must exist
+		// - _state must exist (function or table)
+		// - circular wrapping must be present
+		if (index(raw, 'z2k_state_persist') < 0) return false;
+		if (index(raw, 'get_record') < 0) return false;
+		if (index(raw, '_state') < 0) return false;
+		if (index(raw, 'circular') < 0) return false;
+		return true;
+	} catch (e) { return false; }
+}
 function plan(value) {
 	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
@@ -51,8 +78,14 @@ function plan(value) {
 		if (item.class == 'adapted' && item.basedOnSha256 != digest) push(rebases, path);
 		else if (item.class == 'exact-managed') {
 			let installed = installedShaFor(path);
-			if (installed == null) push(updates, path);
-			else if (installed != digest) push(updates, path);
+			let needsUpdate = (installed == null) || (installed != digest);
+			if (needsUpdate) {
+				if (path == "files/lua/z2k-state-persist.lua" && !is_state_persist_compatible(digest)) {
+					push(reviews, path);
+				} else {
+					push(updates, path);
+				}
+			}
 		}
 		else if (item.class == 'watched' && item.basedOnSha256 != digest) push(reviews, path);
 		else if (item.class == 'ignored-platform' && false) { /* explicit no-op, never auto-update */ }

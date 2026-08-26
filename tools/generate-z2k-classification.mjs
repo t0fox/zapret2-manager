@@ -16,7 +16,7 @@ function localPath(sourcePath) {
   return null;
 }
 function classify(sourcePath) {
-  if (sourcePath === 'files/lua/z2k-state-persist.lua') return 'adapted';
+  if (sourcePath === 'files/lua/z2k-state-persist.lua') return 'exact-managed';
   if (sourcePath === 'files/etc/z2k-update-pub.pem' || sourcePath === 'files/etc/z2k-roots.pem') return 'watched';
   if (/^files\/(lua|fake|lists)\//.test(sourcePath)) return 'exact-managed';
   if (/^(files\/(init\.d|ndm|webpanel)\/|lib\/|mtproxy-client\/|webpanel\/|z2k\.sh$)/.test(sourcePath)) return 'ignored-platform';

@@ -108,8 +108,19 @@ materialize() {
 # profiles.
 align_luaopt() {
 	for INIT in "$BASE/init.d/openwrt/zapret2" /etc/init.d/zapret2; do
-		if [ -f "$INIT" ] && grep -q '^LUAOPT=' "$INIT"; then
-			sed -i 's|^LUAOPT=.*|LUAOPT="--lua-init=@$ZAPRET_BASE/lua/zapret-lib.lua --lua-init=@$ZAPRET_BASE/lua/zapret-antidpi.lua --lua-init=@$ZAPRET_BASE/lua/zapret-auto.lua --lua-init=@$ZAPRET_BASE/lua/z2k-modern-core.lua --lua-init=@$ZAPRET_BASE/lua/z2k-detectors.lua --lua-init=@$ZAPRET_BASE/lua/z2k-fooling-ext.lua --lua-init=@$ZAPRET_BASE/lua/z2k-state-persist.lua"|' "$INIT"
+		if [ -f "$INIT" ]; then
+			if grep -q '^LUAOPT=' "$INIT"; then
+				sed -i 's|^LUAOPT=.*|LUAOPT="--lua-init=@$ZAPRET_BASE/lua/zapret-lib.lua --lua-init=@$ZAPRET_BASE/lua/zapret-antidpi.lua --lua-init=@$ZAPRET_BASE/lua/zapret-auto.lua --lua-init=@$ZAPRET_BASE/lua/z2m-autocircular-policy.lua --lua-init=@$ZAPRET_BASE/lua/z2k-modern-core.lua --lua-init=@$ZAPRET_BASE/lua/z2k-detectors.lua --lua-init=@$ZAPRET_BASE/lua/z2k-fooling-ext.lua --lua-init=@$ZAPRET_BASE/lua/z2k-state-persist.lua"|' "$INIT"
+			fi
+			# Ensure Z2M autocircular sidecar is loaded before state-persist (upstream wrapper must be outer)
+			if grep -q 'LUA_Z2K_STATE_PERSIST=' "$INIT" && ! grep -q 'LUA_Z2M_POLICY' "$INIT"; then
+				sed -i '/^LUA_Z2K_STATE_PERSIST=/i LUA_Z2M_POLICY="$ZAPRET_BASE\/lua\/z2m-autocircular-policy.lua"\n[ -f "$LUA_Z2M_POLICY" ] \&\& LUAOPT="$LUAOPT --lua-init=@$LUA_Z2M_POLICY"' "$INIT"
+			fi
+			# Ensure canonical Z2M state path is visible to the upstream persistence layer
+			if ! grep -q 'Z2K_STATE_DIR_OVERRIDE' "$INIT"; then
+				sed -i '/^LUAOPT=/i export Z2K_STATE_DIR_OVERRIDE=\/etc\/zapret2-manager\/state\/autocircular' "$INIT"
+				sed -i '/^LUA_Z2K_STATE_PERSIST=/i export Z2K_STATE_DIR_OVERRIDE=\/etc\/zapret2-manager\/state\/autocircular' "$INIT"
+			fi
 		fi
 	done
 }
