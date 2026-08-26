@@ -31,7 +31,7 @@ function state_load() {
 }
 function state_save(obj) {
   ensure_parent();
-  let tmp = STATE_TMP + '.' + now() + '.' + Math.random();
+  let tmp = STATE_TMP + '.' + now() + '.' + sprintf('%08x', time() % 100000000);
   try { writefile(tmp, sprintf('%J', obj) + '\n'); } catch(e) { return false; }
   let p = popen('mv -f ' + shell(tmp) + ' ' + shell(STATE_PATH) + ' 2>/dev/null', 'r');
   let rc = p ? p.close() : -1;
