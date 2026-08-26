@@ -65,3 +65,19 @@ test('UI: cancelled renders neutral stopped state, not red error panel', () => {
   assert.match(SCANNER_JS, /Проверка остановлена/);
   assert.match(SCANNER_JS, /status\.status === 'cancelled' && !terminalResult && !state\.error \? scannerStoppedPanel/);
 });
+
+// Hover regression: Chromium forwards :hover from <label> to its labeled
+// control (the FIRST button of the group), so segmented buttons must never
+// be wrapped in a label, and the alien LuCI hover ring must be overridden.
+test('UI: segmented fields are not <label> (no label→button hover forwarding)', () => {
+  const seg = SCANNER_JS.match(/function segmentedField\(label, node, iconName\) \{\n([^\n]*)/);
+  assert.ok(seg, 'segmentedField defined');
+  assert.match(seg[1], /E\('div'/, 'segmentedField must render div, got: ' + seg[1]);
+  assert.doesNotMatch(seg[1], /E\('label'/);
+});
+
+test('CSS: segmented button hover is neutral, alien ring overridden', () => {
+  const CSS = fs.readFileSync(path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css'), 'utf8');
+  // LuCI cascade.css sets button:hover border-color with !important — ours must too.
+  assert.match(CSS, /\.z2m-app \.z2m-scanner-segmented button:hover\{border-color:transparent!important;box-shadow:none;outline:none/);
+});

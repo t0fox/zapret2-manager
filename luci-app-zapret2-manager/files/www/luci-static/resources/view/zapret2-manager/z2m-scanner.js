@@ -556,8 +556,11 @@ function render(ctx, data) {
     dpi: controls.dpi
   };
   // Wrap segmented controls into fields manually
+  // div, not label: Chromium forwards :hover from <label> to its labeled
+  // control (the FIRST button of the group), lighting a second segmented
+  // button whenever any other one is hovered. Buttons must not sit in a label.
   function segmentedField(label, node, iconName) {
-    return E('label', { 'class': 'z2m-scanner-field' }, [E('span', { 'class': 'z2m-scanner-field-label' }, [iconName ? icon(iconName) : null, E('span', {}, label)]), node]);
+    return E('div', { 'class': 'z2m-scanner-field' }, [E('span', { 'class': 'z2m-scanner-field-label' }, [iconName ? icon(iconName) : null, E('span', {}, label)]), node]);
   }
   var search = !running ? E('section', { 'class': 'z2m-scanner-search-body card' + (terminalResult || status.error || state.error ? ' z2m-scanner-retry-panel' : '') }, [
     E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Найдём подходящую стратегию')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
