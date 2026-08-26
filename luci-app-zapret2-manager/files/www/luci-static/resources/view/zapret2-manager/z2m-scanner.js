@@ -306,6 +306,13 @@ function scannerErrorPanel(ctx, status, controls) {
     E('div', { 'class': 'z2m-btnrow' }, [retry, E('details', { 'class': 'z2m-scanner-inline-details' }, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, detail || _('Нет дополнительных сведений.'))])])
   ]);
 }
+function scannerStoppedPanel(ctx, status, controls) {
+  var tested = Number(object(status).progress || 0);
+  return E('article', { 'class': 'z2m-scanner-no-best card', role: 'status' }, [
+    E('div', { 'class': 'z2m-scanner-state-heading' }, [icon('stop-square'), E('div', {}, [E('strong', {}, _('Проверка остановлена')), E('p', {}, _('Проверенные варианты') + ': ' + String(tested))])]),
+    E('div', { 'class': 'z2m-btnrow' }, [controls ? ctx.shell.button(_('Запустить снова'), 'primary', function () { start(ctx, controls); }) : null])
+  ]);
+}
 function start(ctx, controls) {
   if (state.status && state.status.status === 'running') return;
   var rawTarget = controls.target.value;
@@ -562,7 +569,7 @@ function render(ctx, data) {
     E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Дополнительные параметры'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [formField(_('Подсказка DPI'), controls.dpi, '', 'settings'), resumable(status) ? ctx.shell.button(_('Продолжить проверку'), 'sm', function () { resume(ctx); }) : null])]),
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
   ]) : null;
-  var content = running ? progressPanel : (status.error || state.error ? scannerErrorPanel(ctx, status, controls) : (terminalResult || (terminal(status) && !report ? ctx.shell.statePanel({ title: _('Результаты пока недоступны'), message: _('Попробуйте повторить проверку.'), kind: 'info', actions: [retry] }) : null)));
+  var content = running ? progressPanel : (status.status === 'cancelled' && !terminalResult && !state.error ? scannerStoppedPanel(ctx, status, controls) : (status.error || state.error ? scannerErrorPanel(ctx, status, controls) : (terminalResult || (terminal(status) && !report ? ctx.shell.statePanel({ title: _('Результаты пока недоступны'), message: _('Попробуйте повторить проверку.'), kind: 'info', actions: [retry] }) : null))));
   var root = E('section', { 'class': 'z2m-panel z2m-scanner-panel z2m-scanner-workflow', id: 'z2m-scanner' }, [
     E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('search'), E('strong', {}, _('Сканирование'))]), E('span', { 'class': 'z2m-dim' }, _('Подбор стратегии и история проверок'))]),
     content,

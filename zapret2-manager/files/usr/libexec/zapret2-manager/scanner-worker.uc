@@ -270,6 +270,21 @@ function terminal_reconciliation(record, transition, cleanupEvidence) {
 	let evidence = object(record.recovery) ? record.recovery : {};
 	let table = evidence.table || entry?.evidence?.table || entry?.evidence?.expectedTable;
 	if (!table) {
+		// Never-created vs lost: absence of a Scanner table is expected evidence
+		// only when no lifecycle stage ever created one. A journal that recorded
+		// TABLE_CREATED/ACTIVE means the table existed and its removal must be
+		// proven, not assumed.
+		let entries = journal?.ok && type(journal.journal.entries) == 'array' ? journal.journal.entries : [];
+		let everCreated = false;
+		for (let k = 0; k < length(entries); k++) {
+			let ev = entries[k]?.evidence;
+			if (object(ev) && (ev.table != null || ev.expectedTable != null || ev.tableCreated === true)) { everCreated = true; break; }
+		}
+		if (!everCreated && !evidence.tableChecked) {
+			let cleanupAny = cleanupEvidence || evidence.sessionCleanup;
+			if (object(cleanupAny) && cleanupAny.ok === true)
+				return { ok: true, decision: 'no_scanner_table_created', recovery: { state: 'verified', tablePresent: false, tableChecked: true, tableCreated: false, tableCleanupRequired: false } };
+		}
 		let cleanup = cleanupEvidence || evidence.sessionCleanup;
 		if (object(cleanup) && cleanup.ok === true && cleanup.verifiedCleanup === true)
 			return { ok: true, decision: 'no_scanner_table_created', recovery: { state: 'verified', tablePresent: false, tableChecked: true } };
@@ -300,6 +315,16 @@ function finish(record, session, seams, transition, message) {
 	if (reconciliation == null)
 		reconciliation = test_mode() ? task7_dependency('terminal_reconciliation', null)
 			: terminal_reconciliation(record, transition, cleanup);
+	if (!object(reconciliation) || reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') {
+		// Cancel with proven session cleanup is a verified stopped state: error
+		// is reserved for genuinely uncertain process/NFQUEUE/firewall/restore
+		// removal, never for "no scanner table exists".
+		let cancelledVerified = transition == 'cancelled' && object(cleanup) && cleanup.ok === true && cleanup.verifiedCleanup === true
+			&& !(object(cleanup.restore) && cleanup.restore.ok === false)
+			&& !(object(cleanup.lockRelease) && cleanup.lockRelease.ok === false);
+		if (cancelledVerified)
+			reconciliation = { ok: true, decision: reconciliation?.decision || 'cancelled_with_verified_cleanup', recovery: { state: 'verified', tablePresent: false, tableChecked: false } };
+	}
 	if (!object(reconciliation) || reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') {
 		record.status = 'error';
 		record.phase = 'recovery';
