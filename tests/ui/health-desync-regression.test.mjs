@@ -134,7 +134,11 @@ test('REGRESSION: remote trust/update state is separate from local readiness', (
   );
   // status must stay network-free (no fetch in status path) but still expose local
   // We check that resource_center_status function body does not call z2k_upstream_check or fetch
-  const statusFn = source.slice(source.indexOf('resource_center_status'), source.indexOf('resource_center_check'));
+  const statusFn = source.slice(source.indexOf('resource_center_status'), source.indexOf('resource_center_check'))
+    // strip comment lines (resource-update.uc is ucode/ECMAScript-flavored):
+    // documentation may legitimately NAME the network function while the
+    // executable body never calls it
+    .replace(/\/\/[^\n]*/g, '');
   assert.doesNotMatch(statusFn, /z2k_upstream_check|uclient-fetch|fetch_untrusted/, 'status must stay network-free');
   // and that check persists its result (so it survives the next status poll)
   assert.match(source, /resource-source-check|checkedAt|atomic_write/, 'check result must be persisted, not lost');
