@@ -51,7 +51,7 @@ test('Z2K update must show only Z2K busy, not Engine', () => {
 
 test('every operation must clear via finally or both then/catch', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
-  const checkFn = src.slice(src.indexOf('function checkUpdates'), src.indexOf('function checkUpdates') + 2000);
+  const checkFn = src.slice(src.indexOf('function checkUpdates'), src.indexOf('function checkUpdates') + 3500);
   const updateFn = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function updateZ2K') + 2000);
   const refreshFn = src.slice(src.indexOf('function refreshState'), src.indexOf('function refreshState') + 1500);
   for (const [name, fn] of [['checkUpdates', checkFn], ['updateZ2K', updateFn], ['refreshState', refreshFn]]) {
@@ -80,9 +80,9 @@ test('engine card binds scope engine; z2k card binds z2k; hero all', () => {
 test('scope drives backend calls: engine->fresh check/gateStatus, z2k->resources.check', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
   const fn = src.slice(src.indexOf('function checkUpdates'), src.indexOf('function updateZ2K'));
-  assert.match(fn, /scope === 'z2k'\)\s*promises\.push\(checkedResult\(ctx\.api\.resources\.check/);
-  assert.match(fn, /scope === 'engine'\)\s*\{\s*promises\.push\(checkedResult\(ctx\.api\.engine\.check\(\{\s*forceRefresh:\s*true/);
-  assert.match(fn, /if \(ctx\.api\.engine\.gateStatus\)\s*promises\.push\(checkedResult\(ctx\.api\.engine\.gateStatus/);
+  assert.match(fn, /scope === 'z2k'\)\s*addCheck\('z2k',\s*checkedResult\(ctx\.api\.resources\.check\(/);
+  assert.match(fn, /scope === 'engine'\)\s*\{\s*addCheck\('engine',\s*checkedResult\(ctx\.api\.engine\.check\(\{\s*forceRefresh:\s*true/);
+  assert.match(fn, /if \(ctx\.api\.engine\.gateStatus\)\s*addCheck\('engine-gate',\s*checkedResult\(ctx\.api\.engine\.gateStatus/);
   // bounded lifecycle guard present
   assert.match(fn, /Promise\.race\(\[Promise\.allSettled\(promises\)/);
 });

@@ -158,6 +158,7 @@ function z2kLuaEvidence(value) {
 function normalizeZ2k(input, engineReady) {
   input = object(input);
 	var value = object(input.z2k || input.component || input);
+	var plan = object(value.plan);
 	var remoteStatus = first(value.updateState || value.status || value.state, 'unknown');
 	var updateState = z2kUpdateState(remoteStatus);
 	var local = object(value.local);
@@ -211,14 +212,37 @@ function normalizeZ2k(input, engineReady) {
 		compatibilityStateValue = compatibilityRecord(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
 	}
 	var safeUpdate = object(value.safeUpdate || local.safeUpdate);
-	var rebases = array(value.rebases || value.adapted || object(value.plan).rebases || local.rebases);
-	var reviews = array(value.reviews || value.watched || object(value.plan).reviews || local.reviews);
-	var reviewDetails = array(value.reviewDetails || object(value.plan).reviewDetails || local.reviewDetails);
-  var actions = {
+	var rebases = array(value.rebases || value.adapted || plan.rebases || local.rebases);
+	var advisoryReviews = array(value.advisoryReviews || plan.advisoryReviews || local.advisoryReviews);
+	var blockingReviews = array(value.blockingReviews || plan.blockingReviews || local.blockingReviews);
+	var blockingReasons = array(value.blockingReasons || plan.blockingReasons || local.blockingReasons);
+	var reviews = array(value.reviews || value.watched || plan.reviews || local.reviews);
+	if (!reviews.length) reviews = advisoryReviews.concat(blockingReviews);
+	var reviewDetails = array(value.reviewDetails || plan.reviewDetails || local.reviewDetails);
+	var attentionState = first(value.attentionState || plan.attentionState, null);
+	if (attentionState === null) {
+		if (rebases.length || updateState === 'rebase-required') attentionState = 'rebase-required';
+		else if (blockingReviews.length || updateState === 'review-required') attentionState = 'review-required';
+		else if (updateState === 'integration-required') attentionState = 'integration-required';
+		else if (advisoryReviews.length) attentionState = 'review-advisory';
+		else attentionState = 'none';
+	}
+	var updates = array(value.updates || plan.updates);
+	var canApplyValue = value.canApply !== undefined ? value.canApply : plan.canApply;
+	var canApply = canApplyValue === undefined
+		? updateState === 'update-available' && attentionState !== 'rebase-required'
+			&& attentionState !== 'review-required' && attentionState !== 'integration-required'
+			&& blockingReviews.length === 0
+		: canApplyValue === true;
+	var manifest = object(value.manifest || plan.manifest || local.manifest);
+	var planToken = first(value.planToken || plan.planToken, null);
+	var actions = {
     primary: engineReady !== true ? 'details'
       : healthState === 'missing' || healthState === 'broken' ? 'repair'
-      : updateState === 'update-available' ? 'update'
-		: ['integration-required', 'review-required', 'rebase-required'].indexOf(updateState) >= 0 ? 'details' : 'check'
+		: updateState === 'update-available' && canApply === true ? 'update'
+		: ['integration-required', 'review-required', 'rebase-required'].indexOf(attentionState) >= 0
+			|| ['integration-required', 'review-required', 'rebase-required'].indexOf(updateState) >= 0
+			|| blockingReviews.length > 0 || rebases.length > 0 ? 'details' : 'check'
 	};
 	var luaSrc = hasLocal ? object(local.lua) : object(value.lua);
 	var provenanceSrc = hasLocal && local.provenance ? object(local.provenance) : object(value.provenance);
@@ -246,10 +270,17 @@ function normalizeZ2k(input, engineReady) {
 		health: healthState,
 		updateState: updateState,
 		updatePresentation: UpdatePresentation.describe(updateState),
+		attentionState: attentionState,
+		canApply: canApply,
+		updates: updates,
 		compatibility: compatibilityStateValue,
 		installedRelease: installedRelease,
 		availableRelease: availableRelease,
 		checkedAt: timestamp(value.checkedAt),
+		planToken: planToken,
+		advisoryReviews: advisoryReviews,
+		blockingReviews: blockingReviews,
+		blockingReasons: blockingReasons,
 		provenance: provenanceSrc,
 		reviews: reviews,
 		rebases: rebases,
@@ -268,8 +299,10 @@ function normalizeZ2k(input, engineReady) {
 		reviews: reviews,
 		reviewDetails: reviewDetails,
       trustMode: first(value.trustMode || local.trustMode, null),
-      manifest: object(value.manifest || local.manifest)
-    }
+      manifest: manifest,
+		planToken: planToken,
+		checkSnapshot: { checkedAt: timestamp(value.checkedAt), manifest: manifest }
+	  }
   };
 }
 

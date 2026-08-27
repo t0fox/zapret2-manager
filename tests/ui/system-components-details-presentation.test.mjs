@@ -58,7 +58,7 @@ function loadMaintenance() {
   assert.ok(returnIndex >= 0, 'maintenance module return marker must exist');
   const prefix = maintenanceSource.slice(0, returnIndex);
   const enginePanelCalls = [];
-  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K };\n})()`, {
+  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K, checkUpdates, updateZ2K, z2kNeedsIntegration };\n})()`, {
     baseclass: { extend: value => value },
     _: value => value,
     E: vnode,
@@ -118,6 +118,29 @@ function z2kRaw(overrides = {}) {
   };
 }
 
+test('Z2K model preserves snapshot identity and separates advisory attention from apply eligibility', () => {
+  const model = loadComponentsModel();
+  const component = model.normalizeZ2k({
+    updateState: 'update-available',
+    attentionState: 'review-advisory',
+    canApply: true,
+    planToken: 'z2k-plan-v1:200:48:r-80.3',
+    advisoryReviews: ['files/z2k-config-validator.sh'],
+    blockingReviews: [],
+    blockingReasons: [],
+    manifest: { seq: 48, current: 'r-80.3' },
+    local: { installed: true, lua: { ready: 7, total: 7 }, integrityOk: true },
+  }, true);
+
+  assert.equal(component.planToken, 'z2k-plan-v1:200:48:r-80.3');
+  assert.equal(component.attentionState, 'review-advisory');
+  assert.equal(component.canApply, true);
+  assert.equal(component.actions.primary, 'update');
+  assert.deepEqual(JSON.parse(JSON.stringify(component.advisoryReviews)), ['files/z2k-config-validator.sh']);
+  assert.equal(component.details.manifest.seq, 48);
+  assert.equal(component.details.manifest.current, 'r-80.3');
+});
+
 function makeContext(engine, z2k) {
   return {
     route: 'components',
@@ -137,7 +160,7 @@ function makeContext(engine, z2k) {
       normalizeError: error => error && error.message ? error : { message: String(error || 'unknown') },
       service: { restart: () => Promise.resolve({ ok: true }) },
       engine: { uninstall: () => Promise.resolve({ ok: true }) },
-      resources: { status: () => Promise.resolve({ ok: true }), check: () => Promise.resolve({ ok: true }) },
+      resources: { status: () => Promise.resolve({ ok: true }), check: () => Promise.resolve({ ok: true }), update: () => Promise.resolve({ ok: true }) },
       tg: { product: { status: () => Promise.resolve({ ok: true, status: 'not-installed', readiness: { installed: false } }) } },
     },
     data: {
@@ -148,6 +171,7 @@ function makeContext(engine, z2k) {
         telegram: { value: { ok: true, status: 'not-installed', readiness: { installed: false } } },
       },
     },
+    refresh: () => Promise.resolve(),
   };
 }
 
@@ -220,6 +244,129 @@ test('Z2K available release gets an update action only when the model says it is
   assert.match(textOf(details), /r-80\.4/);
   assert.ok(buttonsOf(details).includes('Обновить'));
   assert.ok(buttonsOf(details).includes('Проверить снова'));
+});
+
+test('Z2K blocking review suppresses update even when a remote update is present', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    updateState: 'update-available',
+    attentionState: 'review-required',
+    canApply: false,
+    availableRelease: 'r-80.4',
+    blockingReviews: ['files/etc/z2k-roots.pem'],
+    blockingReasons: ['trust root changed'],
+  }));
+  internals.state.z2kExpanded = true;
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
+
+  assert.ok(!buttonsOf(details).includes('Обновить'));
+  assert.match(textOf(details), /Требуется semantic review/);
+});
+
+test('Z2K advisory review keeps an applicable update action and explains the attention', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    updateState: 'update-available',
+    attentionState: 'review-advisory',
+    canApply: true,
+    availableRelease: 'r-80.4',
+    advisoryReviews: ['files/z2k-config-validator.sh'],
+    reviewDetails: [{ path: 'files/z2k-config-validator.sh', message: 'Наблюдаемый upstream-файл изменился.' }],
+  }));
+  internals.state.z2kExpanded = true;
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
+  const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
+  const updateState = findAll(details, node => classHas(node, 'z2m-component-update-state'))[0];
+  const chip = findAll(card, node => classHas(node, 'z2m-chip'))[0];
+
+  assert.ok(buttonsOf(details).includes('Обновить'));
+  assert.equal(textOf(chip), 'Доступно обновление');
+  assert.equal(textOf(updateState), 'СостояниеДоступно обновление');
+  assert.doesNotMatch(textOf(updateState), /Требует внимания/);
+  assert.match(textOf(details), /Требует внимания/);
+  assert.doesNotMatch(textOf(details), /Требуется semantic review/);
+  assert.match(textOf(details), /Наблюдаемый upstream-файл изменился/);
+});
+
+test('Z2K advisory current keeps the Актуален primary badge and separate warning', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    updateState: 'current',
+    attentionState: 'review-advisory',
+    canApply: false,
+    advisoryReviews: ['files/z2k-config-validator.sh'],
+    reviewDetails: [{ path: 'files/z2k-config-validator.sh', message: 'Наблюдаемый upstream-файл изменился.' }],
+  }));
+  internals.state.z2kExpanded = true;
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
+  const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
+  const chip = findAll(card, node => classHas(node, 'z2m-chip'))[0];
+  const updateState = findAll(details, node => classHas(node, 'z2m-component-update-state'))[0];
+
+  assert.equal(textOf(chip), 'Актуален');
+  assert.equal(textOf(updateState), 'СостояниеАктуально');
+  assert.match(textOf(details), /Требует внимания/);
+  assert.match(textOf(details), /Наблюдаемый upstream-файл изменился/);
+});
+
+test('Z2K collapsed integration attention follows canonical attention, blocking and rebase fields', () => {
+  const { internals } = loadMaintenance();
+
+  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'integration-required' }), true);
+  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', blockingReviews: ['files/etc/z2k-roots.pem'] }), true);
+  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', rebases: ['files/lua/z2k-state-persist.lua'] }), true);
+  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', advisoryReviews: ['files/z2k-config-validator.sh'] }), false);
+});
+
+test('Z2K rebase attention suppresses update and explains adapted files', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    updateState: 'current',
+    attentionState: 'rebase-required',
+    canApply: false,
+    rebases: ['files/lua/z2k-state-persist.lua'],
+  }));
+  internals.state.z2kExpanded = true;
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
+
+  assert.ok(!buttonsOf(details).includes('Обновить'));
+  assert.match(textOf(details), /Требуется адаптация/);
+  assert.match(textOf(details), /z2k-state-persist\.lua/);
+});
+
+test('Z2K update sends the exact successful check plan token to resources_update', async () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw());
+  const calls = [];
+  ctx.api.resources.check = () => Promise.resolve({
+    ok: true,
+    checkedAt: 200,
+    planToken: 'z2k-plan-v1:200:48:r-80.3',
+    z2k: {
+      ...z2kRaw({ updateState: 'update-available', canApply: true, planToken: 'z2k-plan-v1:200:48:r-80.3' }),
+    },
+  });
+  ctx.api.resources.update = edit => {
+    calls.push(JSON.parse(edit));
+    return Promise.resolve({ ok: true, planned: 1, applied: 1 });
+  };
+
+  internals.checkUpdates(ctx, 'z2k');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, updates: ['files/lua/x.lua'] });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(internals.state.z2kCheck.checkedAt, 200);
+  assert.equal(internals.state.z2kCheck.manifest.current, 'r-80.3');
+  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, planToken: 'z2k-plan-v1:200:48:r-80.3' }]);
 });
 
 test('Only one mandatory details panel is open at a time', () => {

@@ -75,6 +75,7 @@ var state = {
   engineOperationTimer: null,
   engineOperationPolling: false,
   engineOperationOverride: false,
+  z2kCheck: null,
   showAllBackups: false
 };
 function isBusyFor(componentId) {
@@ -286,12 +287,18 @@ function componentStateLabel(component) {
     return _('Работает');
   }
   if (component.id === 'z2k-core') {
+    var attentionState = component.attentionState;
+    var blockingReviews = Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
+    var rebases = Array.isArray(component.rebases) ? component.rebases : [];
     if (runtimeHealth === 'missing') {
       return component.summary && String(component.summary).indexOf('Engine') >=0 ? _('Требуется Zapret2 Engine') : _('Не установлен');
     }
     if (runtimeHealth === 'broken') return _('Ошибка');
     if (compatibility === 'incompatible') return _('Несовместим');
     if (runtimeHealth === 'checking') return _('Проверяется');
+    if (attentionState === 'rebase-required' || rebases.length) return _('Требуется адаптация');
+    if (attentionState === 'review-required' || blockingReviews.length) return _('Требуется проверка');
+    if (attentionState === 'integration-required') return _('Требуется интеграция');
     if (component.updateState === 'update-available') return _('Доступно обновление');
     if (component.updateState === 'review-required') return _('Требуется проверка');
     if (component.updateState === 'rebase-required') return _('Требуется адаптация');
@@ -376,14 +383,20 @@ function checkUpdates(ctx, scope) {
   state.componentOperation = { kind: 'check', scope: scope };
   rerender(ctx);
   var promises = [];
-  if (scope === 'all' || scope === 'z2k') promises.push(checkedResult(ctx.api.resources.check(), 'Проверка Z2K'));
+  var promiseScopes = [];
+  function addCheck(checkScope, promise) {
+    promiseScopes.push(checkScope);
+    promises.push(promise);
+  }
+  if (scope === 'all' || scope === 'z2k') addCheck('z2k', checkedResult(ctx.api.resources.check(), 'Проверка Z2K'));
   if (scope === 'all' || scope === 'engine') {
-    promises.push(checkedResult(ctx.api.engine.check({ forceRefresh: true }), 'Проверка движка'));
-    if (ctx.api.engine.gateStatus) promises.push(checkedResult(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
+    addCheck('engine', checkedResult(ctx.api.engine.check({ forceRefresh: true }), 'Проверка движка'));
+    if (ctx.api.engine.gateStatus) addCheck('engine-gate', checkedResult(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
   }
   // Bounded lifecycle: even a hung rpc transport must never leave busy forever.
+  var checkTimer = null;
   Promise.race([Promise.allSettled(promises), new Promise(function (_, reject) {
-    window.setTimeout(function () {
+    checkTimer = window.setTimeout(function () {
       reject({ code: 'frontend-timeout', message: _('Проверка обновлений превысила допустимое время.') });
     }, CHECK_TIMEOUT_MS);
   })]).then(function (results) {
@@ -393,16 +406,27 @@ function checkUpdates(ctx, scope) {
       if (firstError) showError(ctx, firstError.reason);
       return false;
     }
-    results.forEach(function (result) {
+    results.forEach(function (result, index) {
       var checkedAt = result && result.status === 'fulfilled' && result.value && result.value.checkedAt;
       if (checkedAt !== null && checkedAt !== undefined && checkedAt !== '')
         state.lastSuccessfulCheckAt = latestCanonicalTimestamp(state.lastSuccessfulCheckAt, checkedAt);
+      if (result && result.status === 'fulfilled' && promiseScopes[index] === 'z2k') {
+        var answer = result.value || {};
+        var z2k = object(answer.z2k);
+        var planToken = answer.planToken || z2k.planToken;
+        if (planToken) state.z2kCheck = {
+          planToken: planToken,
+          checkedAt: answer.checkedAt !== undefined ? answer.checkedAt : z2k.checkedAt,
+          manifest: object(z2k.manifest)
+        };
+      }
     });
     ctx.shell.showToast(_('Проверка обновлений завершена.'), 'ok');
     return true;
   }).catch(function (error) {
     showError(ctx, error);
   }).then(function () {
+    if (checkTimer) window.clearTimeout(checkTimer);
     state.skipEngineOperationStatus = true;
     state.componentOperation = null;
     rerender(ctx);
@@ -411,11 +435,17 @@ function checkUpdates(ctx, scope) {
     showError(ctx, error);
   });
 }
-function updateZ2K(ctx) {
+function updateZ2K(ctx, component) {
   if (state.componentOperation) return;
+  var snapshot = state.z2kCheck || {};
+  var planToken = component && component.planToken || snapshot.planToken;
+  if (!planToken) {
+    showError(ctx, { code: 'ECHECK_STALE', message: _('Сначала выполните успешную проверку обновлений Z2K.') });
+    return;
+  }
   state.componentOperation = { kind: 'update', scope: 'z2k' };
   rerender(ctx);
-  var payload = { bundleId: 'z2k-curated-lua', confirm: true };
+  var payload = { bundleId: 'z2k-curated-lua', confirm: true, planToken: planToken };
   var promise = ctx.api.resources.update ? ctx.api.resources.update(JSON.stringify(payload)) : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
   promise.then(function (answer) {
     if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
@@ -511,6 +541,29 @@ function z2kReleaseLabel(component) {
   if (release.value) return release.value;
   return component.details && component.details.localInstalled === false ? _('Не установлен') : _('Не определён');
 }
+function z2kCanApply(component) {
+  var attentionState = component && component.attentionState;
+  var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
+  return !!component && component.updateState === 'update-available'
+    && component.canApply === true
+    && ['review-required', 'rebase-required', 'integration-required'].indexOf(attentionState) < 0
+    && blockingReviews.length === 0;
+}
+function z2kUpdateLabel(component) {
+  if (component.attentionState === 'rebase-required' || (component.rebases && component.rebases.length)) return _('Требуется адаптация');
+  if (component.attentionState === 'review-required' || (component.blockingReviews && component.blockingReviews.length)) return _('Требуется проверка');
+  if (component.attentionState === 'integration-required') return _('Требуется интеграция');
+  return component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
+}
+function z2kNeedsIntegration(component) {
+  var attentionState = component && component.attentionState;
+  var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
+  var rebases = component && Array.isArray(component.rebases) ? component.rebases : [];
+  return ['integration-required', 'review-required', 'rebase-required'].indexOf(attentionState) >= 0
+    || ['integration-required', 'review-required', 'rebase-required'].indexOf(component && component.updateState) >= 0
+    || blockingReviews.length > 0
+    || rebases.length > 0;
+}
 function z2kReviewReason(component) {
   var details = component.details || {};
   var reviewDetails = details.reviewDetails || [];
@@ -523,8 +576,14 @@ function z2kReviewReason(component) {
     else if (reason) reasons.push(reason);
     else if (path) reasons.push(path);
   });
+  if (!reasons.length && component.blockingReasons && component.blockingReasons.length)
+    reasons.push(component.blockingReasons.join(', '));
   if (!reasons.length && component.reviews && component.reviews.length)
     reasons.push(_('Изменения в upstream-файлах требуют ручной semantic review: ') + component.reviews.join(', '));
+  if (!reasons.length && component.rebases && component.rebases.length)
+    reasons.push(_('Адаптированные файлы требуют ручного rebase: ') + component.rebases.join(', '));
+  if (!reasons.length && component.advisoryReviews && component.advisoryReviews.length)
+    reasons.push(_('Наблюдаемые upstream-файлы требуют внимания: ') + component.advisoryReviews.join(', '));
   return reasons.join(' ');
 }
 function componentCompatibilityLabel(component) {
@@ -590,10 +649,17 @@ function renderUpdateSection(ctx, options) {
   ]), 'z2m-component-updates');
 }
 function renderReviewCallout(component) {
-  if (component.updateState !== 'review-required' && !z2kReviewReason(component)) return null;
-  return E('aside', { 'class': 'z2m-component-review-callout', role: 'status' }, [
-    E('strong', {}, _('Требуется semantic review')),
-    E('p', {}, z2kReviewReason(component) || _('Изменения требуют ручной проверки перед обновлением.'))
+  var attentionState = component.attentionState;
+  var hasBlocking = attentionState === 'review-required' || (component.blockingReviews && component.blockingReviews.length);
+  var hasRebase = attentionState === 'rebase-required' || (component.rebases && component.rebases.length);
+  var hasAdvisory = attentionState === 'review-advisory' || (component.advisoryReviews && component.advisoryReviews.length);
+  if (!hasBlocking && !hasRebase && !hasAdvisory && component.updateState !== 'review-required' && !z2kReviewReason(component)) return null;
+  var title = hasRebase ? _('Требуется адаптация') : hasBlocking || component.updateState === 'review-required' ? _('Требуется semantic review') : _('Требует внимания');
+  var kind = hasRebase ? 'rebase' : hasBlocking ? 'blocking' : 'advisory';
+  var reason = z2kReviewReason(component) || (hasRebase ? _('Адаптированные файлы нельзя обновить автоматически.') : hasBlocking ? _('Изменения требуют ручной проверки перед обновлением.') : _('Наблюдаемый upstream-файл изменился; обновление остаётся доступным после проверки.'));
+  return E('aside', { 'class': 'z2m-component-review-callout z2m-component-review-callout--' + kind, role: 'status', 'aria-live': 'polite' }, [
+    E('strong', {}, title),
+    E('p', {}, reason)
   ]);
 }
 function engineActionWithCheck(ctx, component, action, label) {
@@ -702,8 +768,8 @@ function renderZ2KDetails(ctx, component) {
   var manifest = details.manifest || {};
   var localRevision = provenance.sourceCommit || provenance.commit;
   var isReady = (component.runtimeHealth || component.health) === 'ready';
-  var hasUpdate = component.updateState === 'update-available';
-  var updateLabel = component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
+  var hasUpdate = z2kCanApply(component);
+  var updateLabel = z2kUpdateLabel(component);
   var reviewReason = z2kReviewReason(component);
   var reviewDetails = details.reviewDetails || [];
   var reviewPaths = reviewDetails.map(function (item) { return item && item.path; }).filter(Boolean).join(', ');
@@ -739,7 +805,7 @@ function renderZ2KDetails(ctx, component) {
         { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
       ],
       actions: hasUpdate ? [
-        shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core')),
+        shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')),
         shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
       ] : [
         shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
@@ -853,14 +919,14 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
 function renderZ2KCard(ctx, component) {
   var shell = ctx.shell;
   var isReady = (component.runtimeHealth || component.health) === 'ready';
-  var hasUpdate = component.updateState === 'update-available';
-  var needsIntegration = ['integration-required', 'review-required', 'rebase-required'].indexOf(component.updateState) >= 0;
+  var hasUpdate = z2kCanApply(component);
+  var needsIntegration = z2kNeedsIntegration(component);
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = z2kMetaRows(component);
   var primaryActions = [];
   if (hasUpdate) {
-    primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core')));
+    primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else if (component.updateState === 'review-required') {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
