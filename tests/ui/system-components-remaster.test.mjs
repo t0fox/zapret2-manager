@@ -40,19 +40,17 @@ test('section headers are uppercase and dynamic, not hardcoded', () => {
   assert.match(SRC, /page\.health\.ready/, 'must derive counter from page.health');
 });
 
-// 4. Engine — больше не URL hack
-test('Engine management is local disclosure, not URL hack', () => {
+// 4. Engine — one Components-owned details presentation, not URL hack
+test('Engine management is a full-width Components details sibling, not a nested panel', () => {
   assert.doesNotMatch(SRC, /#\/components\?component=engine/, 'must not use URL hack');
   assert.doesNotMatch(SRC, /engineRouteIsOpen/, 'must not use engineRouteIsOpen');
   assert.doesNotMatch(SRC, /engineManagementAttrs\.open/, 'must not use detached engineManagementAttrs');
-  // Должен быть локальный state toggle
+  assert.match(SRC, /renderEngineDetails\s*\(/, 'must have a Components-owned details renderer');
+  assert.match(SRC, /z2m-component-details/, 'details must have a scoped presentation root');
+  assert.doesNotMatch(SRC, /EnginePanel\.render\(engineCtx/, 'Components must not embed the standalone EnginePanel');
   assert.match(SRC, /engineExpanded|engineOpen/, 'must have local disclosure state');
   assert.match(SRC, /Управление[\s\S]*▾|Управление[\s\S]*chevronDown/, 'must have Управление disclosure button');
-  // Управление должно быть внутри карточки, не отдельным details под сеткой
-  const renderBlock = SRC.match(/function renderComponents[\s\S]*?function renderEngine/);
-  assert.ok(renderBlock, 'renderComponents must exist');
-  // Внутри renderComponents не должно быть отдельного E(details, engineManagementAttrs)
-  assert.doesNotMatch(renderBlock[0], /E\('details',\s*engineManagementAttrs/, 'must not have detached engine management accordion');
+  assert.match(SRC, /state\.engineExpanded\s*\?\s*renderEngineDetails/, 'details must render below the mandatory grid');
 });
 
 // 5. Engine — contextual actions
@@ -64,14 +62,15 @@ test('Engine card has contextual actions based on state', () => {
   assert.match(SRC, /Обновить/, 'must have [Обновить] action when update available');
 });
 
-// 6. Z2K — first-class карточка с иконкой и разделением local/upstream
-test('Z2K is first-class card with icon and local/upstream separation', () => {
+// 6. Z2K — first-class карточка with one coherent details language
+test('Z2K is first-class card with facts, updates, and review callout', () => {
   assert.match(SRC, /Z2K Core|z2k-core/, 'must have Z2K Core card');
   // Иконка уже проверена выше, но дополнительно проверим что Z2K не безликая
   assert.match(SRC, /z2k|Z2K/i, 'must reference Z2K');
-  // Должно быть разделение локального и upstream
-  assert.match(SRC, /Локальная revision|Локально|Установлено/, 'must show local state');
-  assert.match(SRC, /Remote revision|Удалён|Trust mode|Последняя проверка/, 'must show upstream state separately');
+  assert.match(SRC, /renderZ2KDetails\s*\(/, 'must have a coherent Z2K details renderer');
+  assert.match(SRC, /renderFactGrid|renderUpdateSection/, 'must use semantic facts/update sections');
+  assert.match(SRC, /renderReviewCallout/, 'review reason must be a standalone callout');
+  assert.doesNotMatch(SRC, /Локально.*UPSTREAM|UPSTREAM.*Локально/, 'must not keep the old debug-column hierarchy');
   // Contextual actions
   assert.match(SRC, /Подробнее.*▾|Подробнее/, 'Z2K must have Подробнее disclosure');
 });
@@ -114,7 +113,8 @@ test('uses existing Z2M visual primitives, not generic dashboard', () => {
 
 // 11. Нет гигантских пустых областей, детальная инфа под Технические сведения
 test('detailed info is under Технические сведения, not in default view', () => {
-  assert.match(SRC, /Технические сведения/, 'must have Технические сведения disclosure');
+  assert.match(SRC, /Технические детали/, 'must have Технические детали disclosure');
+  assert.match(SRC, /z2m-component-technical/, 'technical details must be scoped to Components');
   // SHA, manifest seq, paths не в дефолте
   assert.doesNotMatch(SRC, /SHA-256.*default|manifest.*seq.*default/, 'detailed tech should be hidden by default');
 });

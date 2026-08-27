@@ -71,6 +71,9 @@ var state = {
   },
   engineExpanded: false,
   z2kExpanded: false,
+  engineOperation: null,
+  engineOperationTimer: null,
+  engineOperationPolling: false,
   showAllBackups: false
 };
 function isBusyFor(componentId) {
@@ -93,6 +96,9 @@ function operationMessage(op) {
   if (op.kind === 'check') return _('Проверяем доступные версии…');
   if (op.kind === 'update' && op.scope === 'z2k') return _('Применяем Z2K-обновление…');
   return _('Выполняется операция…');
+}
+function engineOperationTerminal(operation) {
+  return operation && ['completed', 'failed', 'rolled_back'].indexOf(operation.phase) >= 0;
 }
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -431,10 +437,12 @@ function updateZ2K(ctx) {
 }
 function toggleEngine(ctx) {
   state.engineExpanded = !state.engineExpanded;
+  if (state.engineExpanded) state.z2kExpanded = false;
   rerender(ctx);
 }
 function toggleZ2K(ctx) {
   state.z2kExpanded = !state.z2kExpanded;
+  if (state.z2kExpanded) state.engineExpanded = false;
   rerender(ctx);
 }
 function renderHero(ctx, page) {
@@ -476,32 +484,25 @@ function renderHero(ctx, page) {
 }
 function engineMetaRows(component, engineStatus) {
   var details = component.details || {};
-  var caps = component.counters && component.counters.capabilities ? component.counters.capabilities : null;
   var installed = component.installed || {};
   var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
   var rows = [];
   rows.push({ label: _('Установлено'), value: installed.version || _('Не установлен') });
-  if (component.artifactKind === 'legacy-compatibility-build') rows.push({ label: _('Тип артефакта'), value: _('Legacy compatibility build') });
-  else if (component.artifactKind) rows.push({ label: _('Тип артефакта'), value: component.artifactKind });
-  if (component.available && component.available.version) rows.push({ label: _('Доступная версия'), value: component.available.version });
-  if (caps) rows.push({ label: _('Возможности'), value: caps });
   rows.push({ label: _('Служба'), value: details.serviceState ? (details.serviceState === 'running' ? _('Работает') : details.serviceState) : null });
   rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : compatibility === 'review-required' ? _('Требуется проверка') : _('Не подтверждена') });
-  if (component.updateState === 'current') rows.push({ label: _('Актуальная версия'), value: _('✓ Актуальная версия') });
+  if (component.updateState === 'update-available' && component.available && component.available.version)
+    rows.push({ label: _('Доступная версия'), value: component.available.version });
   return rows.filter(function (r) { return r.value; });
 }
 function z2kMetaRows(component) {
-  var details = component.details || {};
-  var local = details.provenance || {};
-  var release = component.installedRelease || {};
   var rows = [];
   rows.push({ label: _('Установленный release'), value: z2kReleaseLabel(component) });
-  if (release.confidence && release.confidence !== 'unknown') rows.push({ label: _('Уверенность release'), value: release.confidence });
   if (component.counters && component.counters.lua) rows.push({ label: _('Lua'), value: component.counters.lua });
   rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
   var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
   rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : _('Не подтверждена') });
-  if (local.sourceCommit || local.commit) rows.push({ label: _('Commit источника'), value: local.sourceCommit || local.commit });
+  if (component.updateState === 'update-available' && component.availableRelease)
+    rows.push({ label: _('Доступный release'), value: component.availableRelease });
   return rows;
 }
 function z2kReleaseLabel(component) {
@@ -524,6 +525,235 @@ function z2kReviewReason(component) {
   if (!reasons.length && component.reviews && component.reviews.length)
     reasons.push(_('Изменения в upstream-файлах требуют ручной semantic review: ') + component.reviews.join(', '));
   return reasons.join(' ');
+}
+function componentCompatibilityLabel(component) {
+  var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
+  if (compatibility === 'compatible') return _('Подтверждена');
+  if (compatibility === 'incompatible') return _('Несовместим');
+  return _('Не подтверждена');
+}
+function engineServiceLabel(value) {
+  if (value === 'running') return _('Работает');
+  if (value === 'stopped') return _('Остановлен');
+  if (value === 'paused') return _('Приостановлен');
+  if (value === 'error') return _('Ошибка');
+  return componentDisplay(value);
+}
+function renderEngineOperation(ctx, operation) {
+  if (!operation) return null;
+  return renderInlineOperation(ctx, { id: 'engine' }, {
+    phase: operation.phase || _('Операция с движком…'),
+    progress: typeof operation.progress === 'number' ? operation.progress : null,
+    message: operation.message || ''
+  });
+}
+function componentDisplay(value) {
+  return value === null || value === undefined || value === '' ? '—' : String(value);
+}
+function renderFactGrid(items) {
+  return E('div', { 'class': 'z2m-component-fact-grid' }, items.filter(function (item) {
+    return item.value !== null && item.value !== undefined && item.value !== '';
+  }).map(function (item) {
+    return E('div', { 'class': 'z2m-component-fact' }, [
+      E('span', { 'class': 'z2m-dim' }, item.label),
+      E('strong', {}, componentDisplay(item.value))
+    ]);
+  }));
+}
+function renderInfoRows(items) {
+  return E('div', { 'class': 'z2m-component-info-rows' }, items.filter(function (item) {
+    return item.value !== null && item.value !== undefined && item.value !== '';
+  }).map(function (item) {
+    return E('div', { 'class': 'z2m-component-info-row' }, [
+      E('span', { 'class': 'z2m-dim' }, item.label),
+      E('strong', {}, componentDisplay(item.value))
+    ]);
+  }));
+}
+function renderDetailSection(title, body, className) {
+  return E('section', { 'class': 'z2m-component-detail-section ' + (className || '') }, [
+    E('h4', {}, title),
+    body
+  ]);
+}
+function renderUpdateSection(ctx, options) {
+  var shell = ctx.shell;
+  var actions = options.actions || [];
+  return renderDetailSection(options.title || _('Обновления'), E('div', {}, [
+    E('div', { 'class': 'z2m-component-update-state' }, [
+      E('span', { 'class': 'z2m-dim' }, _('Состояние')),
+      E('strong', {}, options.stateLabel)
+    ]),
+    renderInfoRows(options.rows || []),
+    actions.length ? E('div', { 'class': 'z2m-btnrow z2m-component-detail-actions' }, actions) : null
+  ]), 'z2m-component-updates');
+}
+function renderReviewCallout(component) {
+  if (component.updateState !== 'review-required' && !z2kReviewReason(component)) return null;
+  return E('aside', { 'class': 'z2m-component-review-callout', role: 'status' }, [
+    E('strong', {}, _('Требуется semantic review')),
+    E('p', {}, z2kReviewReason(component) || _('Изменения требуют ручной проверки перед обновлением.'))
+  ]);
+}
+function engineActionWithCheck(ctx, component, action, label) {
+  var version = component.available && component.available.version || component.installed && component.installed.version;
+  if (!version || !ctx.api.engine.check || !ctx.api.engine[action]) {
+    showError(ctx, { message: _('Действие движка недоступно: отсутствует проверенный release.') });
+    return;
+  }
+  if (state.componentOperation || state.busy) return;
+  state.componentOperation = { kind: 'engine-' + action, scope: 'engine' };
+  rerender(ctx);
+  checkedResult(ctx.api.engine.check({ version: version, forceRefresh: true }), _('Проверка движка')).then(function (answer) {
+    state.componentOperation = null;
+    rerender(ctx);
+    if (!answer.checkToken) throw { code: 'EINPUT', message: _('Проверка движка не вернула check token.') };
+    confirmAction(ctx, label + '?', _('Будет изменён только официальный embedded runtime zapret2. Конфигурация и Strategy сохраняются.'), label, function () {
+      mutation(ctx, 'engine-' + action, ctx.api.engine[action]({ version: version, checkToken: answer.checkToken })).then(function (result) {
+        if (result) return refresh(ctx);
+      });
+    });
+  }).catch(function (error) {
+    state.componentOperation = null;
+    rerender(ctx);
+    showError(ctx, error);
+  });
+}
+function renderEngineDetails(ctx, component, engineStatus) {
+  var shell = ctx.shell;
+  var status = object(engineStatus);
+  var details = component.details || {};
+  var isReady = (component.runtimeHealth || component.health) === 'ready';
+  var hasUpdate = component.updateState === 'update-available';
+  var installed = component.installed && component.installed.version || _('Не установлен');
+  var available = component.available && component.available.version || _('Не определена');
+  var updateLabel = component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
+  var source = details.source || status.upstream || 'bol-van/zapret2';
+  return E('section', { 'class': 'z2m-component-details z2m-component-details--engine', 'data-component-details': 'engine' }, [
+    E('div', { 'class': 'z2m-component-details-head' }, [
+      E('div', { 'class': 'z2m-component-details-heading' }, [
+        E('span', { 'class': 'z2m-component-details-kicker' }, _('УПРАВЛЕНИЕ ДВИЖКОМ')),
+        E('div', { 'class': 'z2m-component-details-title' }, [
+          E('h3', {}, component.label),
+          E('span', { 'class': 'z2m-chip ' + componentStateKind(component) }, componentStateLabel(component))
+        ]),
+        E('p', { 'class': 'z2m-dim' }, component.summary)
+      ]),
+      E('div', { 'class': 'z2m-component-details-source' }, [
+        E('span', { 'class': 'z2m-dim' }, _('Источник')),
+        E('strong', { translate: 'no' }, source)
+      ])
+    ]),
+    renderFactGrid([
+      { label: _('Статус'), value: componentStateLabel(component) },
+      { label: _('Установленный release'), value: installed },
+      { label: _('Служба'), value: engineServiceLabel(details.serviceState || status.serviceState) },
+      { label: _('Совместимость'), value: componentCompatibilityLabel(component) }
+    ]),
+    renderUpdateSection(ctx, {
+      stateLabel: updateLabel,
+      rows: [
+        { label: _('Установленная версия'), value: installed },
+        { label: _('Доступная версия'), value: available },
+        { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
+      ],
+      actions: [hasUpdate
+        ? shell.button(_('Обновить'), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', _('Обновить')), !!state.componentOperation)
+        : shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)]
+    }),
+    renderDetailSection(_('Управление службой'), E('div', {}, [
+      E('p', { 'class': 'z2m-dim' }, isReady ? _('Перезапуск применяет текущую конфигурацию без изменения release.') : _('Служба недоступна; сначала восстановите установленный release.')),
+      E('div', { 'class': 'z2m-btnrow z2m-component-detail-actions' }, [
+        shell.button(_('Перезапустить'), 'sm', function () { mutation(ctx, 'engine-restart', ctx.api.service.restart()).then(function (result) { if (result) return refresh(ctx); }); }, !!state.busy || !isReady),
+        component.installed && component.installed.version ? shell.button(_('Переустановить'), 'sm', engineActionWithCheck.bind(null, ctx, component, 'reinstall', _('Переустановить')), !!state.componentOperation) : null
+      ])
+    ]), 'z2m-component-service-management'),
+    E('details', { 'class': 'z2m-component-technical' }, [
+      E('summary', {}, _('Технические детали')),
+      renderInfoRows([
+        { label: _('Версия пакета'), value: status.packageVersion },
+        { label: _('Engine state release'), value: status.installedRelease },
+        { label: _('Сборка runtime'), value: status.runtimeBuild },
+        { label: _('Архитектура'), value: status.architecture },
+        { label: _('Автозапуск'), value: details.autostart === true ? _('Включён') : details.autostart === false ? _('Выключен') : null },
+        { label: _('Origin state'), value: status.installedOrigin },
+        { label: _('Capabilities'), value: component.counters && component.counters.capabilities }
+      ])
+    ]),
+    E('details', { 'class': 'z2m-component-danger-zone' }, [
+      E('summary', {}, _('Опасная зона')),
+      E('p', { 'class': 'z2m-dim' }, _('Удаление затрагивает только embedded runtime zapret2. Конфигурация и Strategy сохраняются.')),
+      shell.button(_('Удалить движок'), 'danger sm', function () {
+        confirmAction(ctx, _('Удалить движок?'), _('Будет удалён только движок, конфигурация сохранится.'), _('Удалить'), function () {
+          mutation(ctx, 'engine-uninstall', ctx.api.engine.uninstall({ confirm: 'REMOVE', preserveConfig: true })).then(function (result) { if (result) return refresh(ctx); });
+        });
+      }, !!state.busy)
+    ])
+  ]);
+}
+function renderZ2KDetails(ctx, component) {
+  var shell = ctx.shell;
+  var details = component.details || {};
+  var provenance = component.provenance || details.provenance || {};
+  var manifest = details.manifest || {};
+  var localRevision = provenance.sourceCommit || provenance.commit;
+  var isReady = (component.runtimeHealth || component.health) === 'ready';
+  var hasUpdate = component.updateState === 'update-available';
+  var updateLabel = component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
+  var reviewReason = z2kReviewReason(component);
+  var reviewDetails = details.reviewDetails || [];
+  var reviewPaths = reviewDetails.map(function (item) { return item && item.path; }).filter(Boolean).join(', ');
+  var manifestHash = manifest.sha256 || manifest.contentSha256 || manifest.hash;
+  var localHash = provenance.sha256 || provenance.contentSha256 || provenance.hash;
+  return E('section', { 'class': 'z2m-component-details z2m-component-details--z2k', 'data-component-details': 'z2k-core' }, [
+    E('div', { 'class': 'z2m-component-details-head' }, [
+      E('div', { 'class': 'z2m-component-details-heading' }, [
+        E('span', { 'class': 'z2m-component-details-kicker' }, _('УПРАВЛЕНИЕ РЕСУРСАМИ')),
+        E('div', { 'class': 'z2m-component-details-title' }, [
+          E('h3', {}, component.label),
+          E('span', { 'class': 'z2m-chip ' + componentStateKind(component) }, componentStateLabel(component))
+        ]),
+        E('p', { 'class': 'z2m-dim' }, component.summary)
+      ]),
+      E('div', { 'class': 'z2m-component-details-source' }, [
+        E('span', { 'class': 'z2m-dim' }, _('Источник')),
+        E('strong', { translate: 'no' }, provenance.source || 'necronicle/z2k')
+      ])
+    ]),
+    renderFactGrid([
+      { label: _('Lua assets'), value: component.counters && component.counters.lua },
+      { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') },
+      { label: _('Совместимость'), value: componentCompatibilityLabel(component) },
+      { label: _('Установленный release'), value: z2kReleaseLabel(component) }
+    ]),
+    renderUpdateSection(ctx, {
+      stateLabel: updateLabel,
+      rows: [
+        { label: _('Установленный release'), value: z2kReleaseLabel(component) },
+        { label: _('Доступный release'), value: component.availableRelease || _('Нет данных') },
+        { label: _('Локальная revision'), value: localRevision || _('Не определена') },
+        { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
+      ],
+      actions: [hasUpdate
+        ? shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core'))
+        : shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))]
+    }),
+    renderReviewCallout(component),
+    E('details', { 'class': 'z2m-component-technical' }, [
+      E('summary', {}, _('Технические детали')),
+      renderInfoRows([
+        { label: _('Provenance'), value: provenance.source },
+        { label: _('Source commit'), value: localRevision },
+        { label: _('Trust mode'), value: details.trustMode },
+        { label: _('Manifest revision'), value: manifest.current },
+        { label: _('Manifest hash'), value: manifestHash },
+        { label: _('Local asset hash'), value: localHash },
+        { label: _('Проверяемые пути'), value: reviewPaths },
+        { label: _('Причина проверки'), value: reviewReason },
+        { label: _('Rebase'), value: component.rebases && component.rebases.length ? component.rebases.join(', ') : null }
+      ])
+    ])
+  ]);
 }
 function renderInlineOperation(ctx, component, opts) {
   var shell = ctx.shell;
@@ -574,63 +804,21 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
   var shell = ctx.shell;
   var isReady = (component.runtimeHealth || component.health) === 'ready';
   var hasUpdate = component.updateState === 'update-available';
-  var isBroken = (component.runtimeHealth || component.health) === 'broken' || (component.runtimeHealth || component.health) === 'missing';
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = engineMetaRows(component, engineStatus);
-  var isExpanded = state.engineExpanded;
-  var toggleIcon = isExpanded ? 'chevronUp' : 'chevronDown';
   // Contextual actions
   var primaryActions = [];
-  if (isBroken) {
-    primaryActions.push(shell.button(_('Восстановить'), 'primary sm', function () { /* TODO: trigger repair flow */ }, false));
-  } else if (hasUpdate) {
-    primaryActions.push(shell.button(_('Обновить'), 'primary sm', function () { checkUpdates(ctx, 'engine'); }, isBusyFor('engine')));
-    primaryActions.push(shell.button(_('Что изменилось'), 'sm', function () { toggleEngine(ctx); }, false));
+  if (hasUpdate) {
+    primaryActions.push(shell.button(_('Обновить'), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', _('Обновить')), !!state.componentOperation));
   } else if (isReady) {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   } else {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   }
-  var manageBtn = E('button', { 'class': 'z2m-btn sm' + (isExpanded ? ' on' : ''), click: toggleEngine.bind(null, ctx) }, [
-    _('Управление'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(toggleIcon, { size: 12 }))
+  var manageBtn = E('button', { 'class': 'z2m-btn sm' + (state.engineExpanded ? ' on' : ''), click: toggleEngine.bind(null, ctx), 'aria-expanded': state.engineExpanded ? 'true' : 'false' }, [
+    _('Управление'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(state.engineExpanded ? 'chevronUp' : 'chevronDown', { size: 12 }))
   ]);
-  var expanded = isExpanded ? E('div', { 'class': 'z2m-component-expand' }, [
-    E('div', { 'class': 'z2m-component-expand-title' }, _('Управление движком')),
-    kvPanel(shell, [
-      { label: _('Состояние'), value: isReady ? _('Установлен') : _('Не установлен') },
-      { label: _('Автозапуск'), value: component.details.autostart === true ? _('Включён') : component.details.autostart === false ? _('Выключен') : null },
-      { label: _('Runtime'), value: component.details.serviceState || null },
-      { label: _('Capabilities'), value: component.counters && component.counters.capabilities || null },
-      { label: _('Источник'), value: component.details && component.details.source || null }
-    ]),
-    E('div', { 'class': 'z2m-btnrow z2m-component-expand-actions' }, [
-      shell.button(_('Перезапустить'), 'sm', function () { mutation(ctx, 'engine-restart', ctx.api.service.restart()); }, !!state.busy),
-      shell.button(_('Переустановить'), 'sm', function () { /* handled via EnginePanel */ }, !!state.busy),
-      E('span', { 'class': 'z2m-dim', style: 'margin-left:auto' }, ''),
-      shell.button(_('Удалить движок'), 'danger sm', function () {
-        confirmAction(ctx, _('Удалить движок?'), _('Будет удалён только движок, конфигурация сохранится.'), _('Удалить'), function () {
-          mutation(ctx, 'engine-uninstall', ctx.api.engine.uninstall({ confirm: 'REMOVE' })).then(function () { refresh(ctx); });
-        });
-      }, !!state.busy)
-    ]),
-    E('details', { 'class': 'z2m-acc' }, [
-      E('summary', {}, _('Технические сведения')),
-      kvPanel(shell, [
-        { label: _('Артефакт'), value: component.artifactKind || null },
-        { label: _('Архитектура'), value: engineStatus.architecture || null },
-        { label: _('Runtime build'), value: engineStatus.runtimeBuild || null },
-        { label: _('Engine state release'), value: engineStatus.installedRelease || null }
-      ])
-    ])
-  ]) : null;
-  // Also render the existing EnginePanel content inside disclosure if expanded and available
-  var enginePanel = null;
-  if (isExpanded && engineValue.length) {
-    var engineCtx = Object.assign({}, ctx);
-    enginePanel = EnginePanel.render(engineCtx, engineValue);
-    ctx.enginePanelContext = engineCtx;
-  }
   return E('article', { 'class': 'z2m-component-card z2m-component-card--engine ' + component.health, 'data-component': component.id }, [
     E('div', { 'class': 'z2m-component-card-head' }, [
       E('div', { 'class': 'z2m-component-card-icon' }, Icons.wrappedNode('cpu', { size: 20, wrapperClass: 'z2m-card-icon-wrap' })),
@@ -651,8 +839,7 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
       E('div', { 'class': 'z2m-btnrow' }, [manageBtn])
     ]),
     renderInlineOperation(ctx, component, isBusyFor(component.id) ? { phase: operationPhase(state.componentOperation), message: operationMessage(state.componentOperation) } : {}),
-    expanded,
-    enginePanel ? E('div', { 'class': 'z2m-component-engine-panel' }, [enginePanel]) : null,
+    renderEngineOperation(ctx, state.engineOperation),
     component.details && component.details.rebases && component.details.rebases.length ? E('p', { 'class': 'z2m-dim' }, _('Требуются rebase/review перед обновлением.')) : null
   ]);
 }
@@ -664,61 +851,20 @@ function renderZ2KCard(ctx, component) {
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = z2kMetaRows(component);
-  var isExpanded = state.z2kExpanded;
-  var toggleIcon = isExpanded ? 'chevronUp' : 'chevronDown';
   var primaryActions = [];
   if (hasUpdate) {
     primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core')));
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else if (component.updateState === 'review-required') {
-    primaryActions.push(shell.button(_('Требуется проверка'), 'sm', toggleZ2K.bind(null, ctx), isBusyFor('z2k-core')));
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else if (needsIntegration) {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   }
-  var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (isExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx) }, [
-    _('Подробнее'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(toggleIcon, { size: 12 }))
+  var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (state.z2kExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx), 'aria-expanded': state.z2kExpanded ? 'true' : 'false' }, [
+    _('Подробнее'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(state.z2kExpanded ? 'chevronUp' : 'chevronDown', { size: 12 }))
   ]);
-  var expanded = isExpanded ? E('div', { 'class': 'z2m-component-expand' }, [
-    E('div', { 'class': 'z2m-component-expand-grid' }, [
-      E('div', { 'class': 'z2m-component-expand-col' }, [
-        E('h4', {}, _('Локально')),
-        kvPanel(shell, [
-          { label: _('Источник'), value: component.details.provenance && component.details.provenance.source || 'necronicle/z2k' },
-          { label: _('Установленный release'), value: z2kReleaseLabel(component) },
-          { label: _('Локальная revision'), value: component.details.provenance && (component.details.provenance.sourceCommit || component.details.provenance.commit) || null },
-          { label: _('Lua assets'), value: component.counters && component.counters.lua || null },
-          { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') },
-          { label: _('Совместимость'), value: component.compatibility && component.compatibility.state === 'compatible' ? _('Подтверждена') : _('Не подтверждена') }
-        ])
-      ]),
-      E('div', { 'class': 'z2m-component-expand-col' }, [
-        E('h4', {}, _('Upstream / Обновления')),
-        kvPanel(shell, [
-          { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) },
-          { label: _('Remote revision'), value: component.details.manifest && component.details.manifest.current || null },
-          { label: _('Trust mode'), value: component.details.trustMode || null },
-          { label: _('Обновления'), value: UpdatePresentation.describe(component.updateState).label },
-          { label: _('Доступный release'), value: component.availableRelease || null },
-          { label: _('Rebase'), value: component.rebases && component.rebases.length ? component.rebases.join(', ') : null },
-          { label: _('Причина проверки'), value: component.updateState === 'review-required' ? z2kReviewReason(component) : null },
-          { label: _('Review'), value: component.reviews && component.reviews.length ? component.reviews.join(', ') : null }
-        ])
-      ])
-    ]),
-    E('details', { 'class': 'z2m-acc' }, [
-      E('summary', {}, _('Технические сведения')),
-      kvPanel(shell, [
-        { label: _('Установленный release'), value: z2kReleaseLabel(component) },
-        { label: _('Источник'), value: component.details.provenance && component.details.provenance.source || null },
-        { label: _('Lua'), value: component.counters && component.counters.lua || null },
-        { label: _('Trust mode'), value: component.details.trustMode || null },
-        { label: _('Manifest'), value: component.details.manifest && component.details.manifest.current || null }
-      ])
-    ])
-  ]) : null;
   return E('article', { 'class': 'z2m-component-card z2m-component-card--z2k ' + component.health, 'data-component': component.id }, [
     E('div', { 'class': 'z2m-component-card-head' }, [
       E('div', { 'class': 'z2m-component-card-icon' }, Icons.wrappedNode('workflow', { size: 20, wrapperClass: 'z2m-card-icon-wrap' })),
@@ -739,7 +885,6 @@ function renderZ2KCard(ctx, component) {
       E('div', { 'class': 'z2m-btnrow' }, [detailsBtn])
     ]),
     renderInlineOperation(ctx, component, isBusyFor(component.id) ? { phase: operationPhase(state.componentOperation), message: operationMessage(state.componentOperation) } : {}),
-    expanded
   ]);
 }
 function renderOptionalCard(ctx, opts) {
@@ -800,6 +945,7 @@ function renderComponents(ctx, data) {
       state.lastSuccessfulCheckAt
     )
   });
+  state.engineOperation = engineValue[2] && engineValue[2].operation || null;
   var engineComp = page.components.find(function (c) { return c.id === 'engine'; });
   var z2kComp = page.components.find(function (c) { return c.id === 'z2k-core'; });
   var hero = renderHero(ctx, page);
@@ -814,7 +960,9 @@ function renderComponents(ctx, data) {
       E('div', { 'class': 'z2m-components-grid' }, [
         renderEngineCard(ctx, engineComp, engineStatus, engineValue),
         renderZ2KCard(ctx, z2kComp)
-      ])
+      ]),
+      state.engineExpanded ? renderEngineDetails(ctx, engineComp, engineStatus)
+        : state.z2kExpanded ? renderZ2KDetails(ctx, z2kComp) : null
     ]),
     E('section', { 'class': 'z2m-components-section z2m-components-section--optional' }, [
       E('div', { 'class': 'z2m-components-section-head' }, [
@@ -1068,10 +1216,29 @@ function render(ctx) {
   ]);
 }
 function mount(ctx) {
-  if (activePane(ctx) === 'components' && ctx.enginePanelContext && ctx.enginePanelContext.engineState)
-    EnginePanel.mount(ctx.enginePanelContext);
+  if (activePane(ctx) !== 'components' || !ctx.api.engine || !ctx.api.engine.operationStatus) return;
+  if (state.engineOperationTimer) window.clearInterval(state.engineOperationTimer);
+  state.engineOperationTimer = window.setInterval(function () {
+    var operation = state.engineOperation;
+    if (!operation || engineOperationTerminal(operation) || state.engineOperationPolling) return;
+    state.engineOperationPolling = true;
+    ctx.api.engine.operationStatus({ id: operation.id }).then(function (answer) {
+      state.engineOperation = answer && answer.operation || null;
+      state.engineOperationPolling = false;
+      if (state.engineOperation && engineOperationTerminal(state.engineOperation)) {
+        state.skipEngineOperationStatus = true;
+        return refresh(ctx);
+      }
+      rerender(ctx);
+    }).catch(function () {
+      state.engineOperationPolling = false;
+    });
+  }, 1500);
 }
 function unmount(ctx) {
+  if (state.engineOperationTimer) window.clearInterval(state.engineOperationTimer);
+  state.engineOperationTimer = null;
+  state.engineOperationPolling = false;
   if (ctx && ctx.enginePanelContext && ctx.enginePanelContext.engineState)
     EnginePanel.unmount(ctx.enginePanelContext);
 }

@@ -56,5 +56,5 @@ test('primary navigation has reversible canonical routes and one hash listener',
 test('page teardown clears Dashboard and maintenance pollers', () => {
   assert.match(overview, /function unmount\(\)[\s\S]*clearTimeout\(runtime\.timer\)/);
   assert.match(enginePanel, /function unmount\(ctx\)[\s\S]*clearInterval\(ctx\.engineState\.timer\)/);
-  assert.match(maintenance, /function unmount\(ctx\)[\s\S]*ctx\.engineState[\s\S]*EnginePanel\.unmount/);
+  assert.match(maintenance, /function unmount\(ctx\)[\s\S]*state\.engineOperationTimer[\s\S]*clearInterval/);
 });

@@ -191,7 +191,7 @@ test('actually missing Z2K still renders Не установлен', () => {
   assert.match(text, /Установленный releaseНе установлен/);
 });
 
-test('review-required exposes an explicit review action and human-readable reason', () => {
+test('review-required exposes a standalone review explanation and safe re-check', () => {
   const internals = loadMaintenance();
   const review = z2kRaw({
     updateState: 'review-required',
@@ -208,8 +208,9 @@ test('review-required exposes an explicit review action and human-readable reaso
   const text = textOf(rendered);
   const buttons = buttonsOf(rendered);
 
-  assert.ok(buttons.includes('Требуется проверка'), 'review action must not look like a resolving update check');
+  assert.match(text, /Подробнее/, 'review state must keep the details disclosure available');
   assert.ok(buttons.includes('Проверить обновления'), 'explicit re-check must remain available');
+  assert.ok(!buttons.includes('Обновить'), 'review state must not invent an update action');
   assert.match(text, /Причина проверки/);
   assert.match(text, /Наблюдаемый upstream-файл изменился/);
 });
