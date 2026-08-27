@@ -54,9 +54,12 @@ test('UX hotfix source opens a loading modal before targeted strategies_get and 
 
 test('UX hotfix source has maximize, collapsible context, profile collapse and sticky workspace regions', () => {
   const page = read('z2m-strategies.js');
+  const owner = read('z2m-strategy-editor.js');
   const css = read('z2m-ui.css');
-  for (const marker of ['toggleWorkspaceMaximize', 'toggleEditorSidebar', 'toggleProfileCollapse', 'workspace-maximize', 'Скрыть подсказки'])
+  for (const marker of ['toggleWorkspaceMaximize', 'toggleEditorSidebar', 'workspace-maximize', 'Скрыть подсказки'])
     assert.match(page, new RegExp(marker));
+  for (const marker of ['strategy-editor-profile-tabs', 'add-profile', 'remove-profile', 'add-circular-step'])
+    assert.match(owner, new RegExp(marker), marker);
   for (const marker of ['strategy-modal.*display:flex', 'editor-footer.*position:sticky', 'strat-editor-main', 'strat-editor-side.*overflow', 'modal-content.*width:min\\(calc\\(100vw'])
     assert.match(css, new RegExp(marker));
 });

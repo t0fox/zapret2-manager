@@ -29,7 +29,7 @@ function create(options) {
 
   function completionSource(context) {
     var source = textOf(context && context.state);
-    var pos = context && context.pos == null ? source.length : context.pos;
+    var pos = context && context.pos != null ? context.pos : source.length;
     var ideContext = contextAt(source, pos);
     var items = Nfqws2Ide.suggestions(ideContext, assets) || [];
     return {

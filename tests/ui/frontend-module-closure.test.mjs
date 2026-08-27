@@ -42,10 +42,21 @@ test('all shipped LuCI require references resolve to case-sensitive files', () =
   assert.ok(result.references.get('app.js')?.some((module) => module.name === 'z2m-blockcheck-page'));
 });
 
-test('every shipped frontend JS module is reachable from the LuCI app entry', () => {
+test('CodeMirror vendor is shipped as a static asset outside the LuCI require closure', () => {
+  const vendor = path.join(ROOT, 'vendor/z2m-codemirror.js');
+  assert.ok(fs.existsSync(vendor), 'bundled CodeMirror asset must be present');
+  const source = fs.readFileSync(vendor, 'utf8');
+  assert.match(source, /globalThis\.Z2MCodeMirrorVendor/);
+  assert.doesNotMatch(source, /require\s+view\.zapret2-manager\./);
+});
+
+test('new editor modules are reachable from the LuCI app entry', () => {
   const result = reachableModules(ROOT);
   assert.deepEqual(result.missing, [], `missing dependencies:\n${JSON.stringify(result.missing, null, 2)}`);
-  assert.deepEqual(result.orphaned, [], `orphaned frontend modules:\n${JSON.stringify(result.orphaned, null, 2)}`);
+  for (const module of [
+    'z2m-code-editor.js', 'z2m-editor-lua.js', 'z2m-editor-nfqws2.js',
+    'z2m-nfqws2-ide.js', 'z2m-strategy-editor.js', 'z2m-assets.js'
+  ]) assert.ok(result.reachable.includes(module), `editor module must be reachable: ${module}`);
 });
 
 test('reachability test catches an orphan module', () => {

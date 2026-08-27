@@ -7,10 +7,6 @@
  * importing the donor's HTTP API, sidebar or page shell.
  */
 (function (root) {
-  function esc(value) {
-    return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
   /* This is the client-side admission vocabulary, not a compiler.  It is
    * deliberately broader than the structured controls: a flag which is not
    * here makes the profile raw-only, never silently disappears.  The server
@@ -296,94 +292,10 @@
     return source;
   }
   function diagnostics(value) { return parseProfile(value).diagnostics; }
-  var NfqwsSyntax = {
-    highlight: function (value) {
-      return String(value || '').split(/(\s+)/).map(function (token) {
-        if (/^\s+$/.test(token) || !token) return token;
-        var match = token.match(/^(--[\w-]+)(=)(.*)$/);
-        if (match) return '<span class="nfq-flag">' + esc(match[1]) + '</span><span class="nfq-eq">=</span><span class="nfq-value">' + esc(match[3]) + '</span>';
-        if (/^--[\w-]+$/.test(token)) return '<span class="nfq-flag">' + esc(token) + '</span>';
-        return esc(token);
-      }).join('');
-    },
-    highlightWithDiagnostics: function (value, diagnostics) {
-      var output = NfqwsSyntax.highlight(value);
-      if (diagnostics && diagnostics.length) output = '<span class="nfq-diagnostic-range">' + output + '</span>';
-      return output;
-    },
-    hasNfqwsArgs: function (value) { return /(^|\s)--[\w-]+/.test(String(value || '')); }
-  };
-  var Nfqws2Lint = {
-    analyze: function (value) {
-      var text = String(value || ''), diagnostics = [];
-      text.split(/\s+/).filter(Boolean).forEach(function (token) {
-        var flag = token.split('=')[0];
-        if (token.indexOf('--') === 0 && !known[flag]) diagnostics.push({ severity: 'warn', code: 'raw-only', message: 'Синтаксис сохранён в raw-only режиме: ' + flag });
-      });
-      if (/--lua-desync=/.test(text) && !/(--hostlist(?:=|-domains=|-auto=)|--ipset(?:=|-ip=))/.test(text)) diagnostics.push({ severity: 'warn', code: 'missing-target', message: 'Для desync не задан target scope' });
-      return diagnostics;
-    },
-    tokenHelp: function (value, cursor) { var help = tokenHelp(value, cursor); return help.text ? help.title + ': ' + help.text : 'Введите -- для списка флагов'; }
-  };
-  var attached = [];
-  var resources = [];
-  var popup = null, active = null;
-  function popupEnsure() {
-    if (popup || typeof document === 'undefined') return popup;
-    popup = document.createElement('div'); popup.className = 'nfq-ac-popup'; popup.setAttribute('role', 'listbox'); popup.style.display = 'none';
-    document.body.appendChild(popup);
-    popup.addEventListener('mousedown', function (event) { event.preventDefault(); var item = event.target.closest && event.target.closest('[data-nfq-ac-index]'); if (item && active) insert(active, Number(item.getAttribute('data-nfq-ac-index'))); });
-    return popup;
-  }
-  function renderPopup(instance) {
-    var host = popupEnsure(); if (!host) return;
-    host.innerHTML = instance.items.map(function (item, index) { return '<div class="nfq-ac-item' + (index === instance.index ? ' is-selected' : '') + '" role="option" data-nfq-ac-index="' + index + '"><span class="nfq-ac-kind" aria-hidden="true">' + escapeCategory(item.category) + '</span><span class="nfq-ac-main"><b>' + esc(item.text) + '</b><small>' + esc(item.description || item.source || '') + '</small></span></div>'; }).join('');
-    host.style.display = instance.items.length ? 'block' : 'none'; active = instance;
-  }
-  function escapeCategory(value) { return value === 'asset' || value === 'blob' || value === 'hostlist' || value === 'ipset' || value === 'lua' ? 'asset' : value === 'flag' ? 'flag' : value === 'function' ? 'fn' : value === 'subarg' ? 'arg' : 'val'; }
-  function hidePopup(instance) { if (active === instance) active = null; if (popup) popup.style.display = 'none'; if (instance) instance.visible = false; }
-  function openPopup(instance) { if (!instance.items.length) return hidePopup(instance); instance.visible = true; renderPopup(instance); if (popup && instance.textarea.getBoundingClientRect) { var rect = instance.textarea.getBoundingClientRect(); popup.style.left = Math.max(8, rect.left) + 'px'; popup.style.top = Math.min(window.innerHeight - 270, rect.bottom + 4) + 'px'; } }
-  function insert(instance, index) {
-    var item = instance.items[index]; if (!item) return;
-    var area = instance.textarea, ctx = contextFor(area.value, area.selectionStart); if (!ctx) return;
-    var insertText = item.insert, end = area.selectionStart, value = area.value, next = value.slice(0, ctx.tokenStart) + insertText + value.slice(end);
-    area.value = next; area.selectionStart = area.selectionEnd = ctx.tokenStart + insertText.length;
-    hidePopup(instance); area.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  var NfqwsAutocomplete = {
-    setResources: function (value) {
-      resources = resourceItems(value).slice(0, 256);
-    },
-    contextFor: contextFor,
-    suggestions: function (context) { return suggestions(context, resources); },
-    tokenHelp: tokenHelp,
-    attach: function (textarea) {
-      if (!textarea || textarea.dataset.nfqAutocomplete === '1') return;
-      textarea.dataset.nfqAutocomplete = '1';
-      var instance = { textarea: textarea, items: [], index: 0, visible: false };
-      var onInput = function () { var ctx = contextFor(textarea.value, textarea.selectionStart); instance.items = suggestions(ctx, resources); instance.index = 0; openPopup(instance); };
-      var handler = function (event) {
-        if ((event.ctrlKey || event.metaKey) && event.key === ' ') { event.preventDefault(); onInput(); return; }
-        if (!instance.visible) return;
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); instance.index = (instance.index + (event.key === 'ArrowDown' ? 1 : instance.items.length - 1)) % instance.items.length; renderPopup(instance); }
-        else if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); insert(instance, instance.index); }
-        else if (event.key === 'Escape') { event.preventDefault(); hidePopup(instance); }
-      };
-      var onBlur = function () { setTimeout(function () { hidePopup(instance); }, 120); };
-      textarea.addEventListener('input', onInput); textarea.addEventListener('keydown', handler); textarea.addEventListener('blur', onBlur);
-      attached.push({ textarea: textarea, handler: handler, onInput: onInput, onBlur: onBlur, instance: instance });
-    },
-    detach: function (textarea) { attached.slice().forEach(function (item) { if (item.textarea !== textarea) return; item.textarea.removeEventListener('input', item.onInput); item.textarea.removeEventListener('keydown', item.handler); item.textarea.removeEventListener('blur', item.onBlur); delete item.textarea.dataset.nfqAutocomplete; hidePopup(item.instance); attached.splice(attached.indexOf(item), 1); }); },
-    detachAll: function () { attached.slice().forEach(function (item) { NfqwsAutocomplete.detach(item.textarea); }); if (popup) popup.style.display = 'none'; }
-  };
-  root.NfqwsSyntax = NfqwsSyntax; root.Nfqws2Lint = Nfqws2Lint; root.NfqwsAutocomplete = NfqwsAutocomplete;
   root.NfqwsIde = { tokenize: tokenize, parseProfile: parseProfile, serializeProfile: serializeProfile, diagnostics: diagnostics, contextFor: contextFor, suggestions: suggestions, tokenHelp: tokenHelp, circularSteps: circularSteps, clampWorkspace: clampWorkspace, workspaceDefaults: workspaceDefaults, migrateWorkspaceGeometry: migrateWorkspaceGeometry, visualSummary: visualSummary };
 }(window));
 
 return baseclass.extend({
-  syntax: window.NfqwsSyntax,
-  lint: window.Nfqws2Lint,
-  autocomplete: window.NfqwsAutocomplete,
   tokenize: window.NfqwsIde.tokenize,
   parseProfile: window.NfqwsIde.parseProfile,
   serializeProfile: window.NfqwsIde.serializeProfile,

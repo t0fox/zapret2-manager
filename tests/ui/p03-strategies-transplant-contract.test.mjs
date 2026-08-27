@@ -12,16 +12,19 @@ const read = (name) => {
 
 test('P03 uses a frozen donor-derived Strategies surface instead of the old custom catalog', () => {
   const page = read('z2m-strategies.js');
+  const owner = read('z2m-strategy-editor.js');
   assert.ok(page, 'P03 donor-derived Strategies module must exist');
   for (const marker of [
     '38ed85ce487c6b3dbdf703a5be197795f7c0cad1',
     'strategy-card', 'strategy-card-header', 'strategy-card-profiles',
-    'strategy-card-actions', 'strat-editor-layout', 'profile-editor-item',
+    'strategy-card-actions', 'strat-editor-layout',
     'strategy-modal', 'preview-modal', 'strat-bulkbar',
     'ListUI', 'renderStrategyCard', 'renderEditorForm', 'catalog-summary',
     'Обновить стратегии', 'Каталог стратегий', 'Активная стратегия',
     'Рекомендуемые', 'Пользовательские'
   ]) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), `missing donor marker: ${marker}`);
+  for (const marker of ['strategy-editor-profile-tabs', 'strategy-editor-visual', 'circularBuilder', 'CodeEditor'])
+    assert.match(owner, new RegExp(marker), `missing platform owner marker: ${marker}`);
   assert.doesNotMatch(page, /['"]\/api\//);
   assert.doesNotMatch(page, /fetch\s*\(/);
 });

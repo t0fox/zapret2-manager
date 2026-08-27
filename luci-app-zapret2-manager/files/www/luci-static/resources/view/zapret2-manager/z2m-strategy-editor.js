@@ -118,15 +118,30 @@ return baseclass.extend({
       clear(host);
       var heading = element(document, 'div', 'strategy-editor-profiles-heading');
       heading.appendChild(element(document, 'strong', '', 'Профили стратегии'));
+      var add = element(document, 'button', 'btn btn-ghost btn-sm', 'Добавить профиль');
+      add.type = 'button';
+      add.dataset.editorAction = 'add-profile';
+      add.addEventListener('click', addProfile);
+      heading.appendChild(add);
       host.appendChild(heading);
       var tabs = element(document, 'div', 'strategy-editor-profile-tabs');
       array(strategy.profiles).forEach(function (profile, index) {
         var id = profileId(profile, index);
+        var tab = element(document, 'div', 'strategy-editor-profile-tab');
         var button = element(document, 'button', 'btn btn-ghost btn-sm' + (id === activeId ? ' is-active' : ''), profile.name || id);
         button.type = 'button';
         button.dataset.profileId = id;
         button.addEventListener('click', function () { switchProfile(id); });
-        tabs.appendChild(button);
+        tab.appendChild(button);
+        var remove = element(document, 'button', 'btn-icon-only', '×');
+        remove.type = 'button';
+        remove.title = 'Удалить профиль';
+        remove.dataset.editorAction = 'remove-profile';
+        remove.dataset.profileId = id;
+        remove.disabled = array(strategy.profiles).length <= 1;
+        remove.addEventListener('click', function () { removeProfile(id); });
+        tab.appendChild(remove);
+        tabs.appendChild(tab);
       });
       host.appendChild(tabs);
       var modes = element(document, 'div', 'strategy-editor-mode-tabs');
@@ -145,6 +160,107 @@ return baseclass.extend({
         modes.appendChild(button);
       });
       host.appendChild(modes);
+      if (current) {
+        var controls = element(document, 'div', 'strategy-editor-profile-controls');
+        var enabled = element(document, 'input', 'profile-toggle');
+        enabled.type = 'checkbox';
+        enabled.checked = current.enabled !== false;
+        enabled.dataset.profileEnabled = 'true';
+        enabled.addEventListener('change', function () { current.enabled = enabled.checked; markDirty(); });
+        var enabledLabel = element(document, 'label', 'strategy-editor-profile-enabled', 'Включён');
+        enabledLabel.insertBefore(enabled, enabledLabel.firstChild);
+        controls.appendChild(enabledLabel);
+        var name = element(document, 'input', 'form-input form-input-sm');
+        name.type = 'text';
+        name.value = text(current.name || 'Профиль ' + String(activeIndex() + 1));
+        name.dataset.profileName = 'true';
+        name.setAttribute('aria-label', 'Имя активного профиля');
+        name.addEventListener('input', function () { current.name = name.value; markDirty(); });
+        controls.appendChild(name);
+        host.appendChild(controls);
+      }
+    }
+    function syncProfileControls() {
+      var current = activeProfile();
+      if (!current || !hosts.profilesHost) return;
+      var enabled = hosts.profilesHost.querySelector('[data-profile-enabled="true"]');
+      var name = hosts.profilesHost.querySelector('[data-profile-name="true"]');
+      if (enabled) current.enabled = enabled.checked;
+      if (name) current.name = name.value;
+    }
+    function addProfile() {
+      if (destroyed) return;
+      syncProfileControls();
+      flush();
+      var index = array(strategy.profiles).length + 1;
+      var id = 'profile-' + String(index);
+      while (profileIndex(id) >= 0) { index++; id = 'profile-' + String(index); }
+      strategy.profiles.push({ id: id, name: 'Новый профиль', enabled: true, args: '' });
+      activeId = id;
+      editorState.viewByProfile = editorState.viewByProfile || {};
+      editorState.viewByProfile[index - 1] = 'code';
+      markDirty();
+      render();
+    }
+    function removeProfile(id) {
+      if (destroyed || array(strategy.profiles).length <= 1) return;
+      syncProfileControls();
+      flush();
+      var index = profileIndex(id);
+      if (index < 0) return;
+      strategy.profiles.splice(index, 1);
+      delete profileMemory[id];
+      activeId = profileId(strategy.profiles[Math.max(0, Math.min(index, strategy.profiles.length - 1))], Math.max(0, Math.min(index, strategy.profiles.length - 1)));
+      markDirty();
+      render();
+    }
+    function circularBuilder(profile, visual) {
+      if (!visual || !visual.circular) return null;
+      var builder = element(document, 'div', 'strategy-editor-circular');
+      builder.appendChild(element(document, 'div', 'strategy-editor-section-title', 'Circular: порядок шагов'));
+      var steps = element(document, 'div', 'strategy-editor-circular-steps');
+      array(visual.circularSteps).forEach(function (step, index) {
+        var row = element(document, 'div', 'strategy-editor-circular-step');
+        row.dataset.circularIndex = String(index);
+        var key = element(document, 'input', 'form-input form-input-sm');
+        key.value = text(step.key);
+        key.dataset.circularField = 'key';
+        key.setAttribute('aria-label', 'Параметр шага ' + String(index + 1));
+        var value = element(document, 'input', 'form-input form-input-sm');
+        value.value = step.value === true ? '' : text(step.value);
+        value.dataset.circularField = 'value';
+        value.setAttribute('aria-label', 'Значение шага ' + String(index + 1));
+        var remove = element(document, 'button', 'btn-icon-only', '×');
+        remove.type = 'button';
+        remove.dataset.editorAction = 'remove-circular-step';
+        remove.addEventListener('click', function () {
+          var next = collectCircularSteps().filter(function (_item, itemIndex) { return itemIndex !== index; });
+          applyVisualEdits(profile, { circularSteps: next });
+        });
+        [key, element(document, 'span', 'strategy-editor-circular-equals', '='), value, remove].forEach(function (item) { row.appendChild(item); });
+        [key, value].forEach(function (input) { input.addEventListener('change', function () { applyVisualEdits(profile, { circularSteps: collectCircularSteps() }); }); });
+        steps.appendChild(row);
+      });
+      builder.appendChild(steps);
+      function collectCircularSteps() {
+        return Array.prototype.map.call(builder.querySelectorAll('[data-circular-index]'), function (row) {
+          return {
+            key: row.querySelector('[data-circular-field="key"]').value.trim(),
+            value: row.querySelector('[data-circular-field="value"]').value.trim(),
+          };
+        }).filter(function (step) { return step.key; });
+      }
+      var add = element(document, 'button', 'btn btn-ghost btn-sm', 'Добавить шаг');
+      add.type = 'button';
+      add.dataset.editorAction = 'add-circular-step';
+      add.addEventListener('click', function () {
+        var next = collectCircularSteps();
+        next.push({ key: 'strategy', value: 'autocircular' });
+        applyVisualEdits(profile, { circularSteps: next });
+      });
+      builder.appendChild(add);
+      builder.appendChild(element(document, 'div', 'form-hint', 'Порядок сохраняется в profile.args; серверная validation остаётся обязательной.'));
+      return builder;
     }
     function renderVisual() {
       var profile = activeProfile(), host = hosts.fieldsHost;
@@ -181,6 +297,8 @@ return baseclass.extend({
         });
         visual.appendChild(field.label);
       });
+      var circular = circularBuilder(profile, values);
+      if (circular) visual.appendChild(circular);
       host.appendChild(visual);
     }
     function renderProblems() {
@@ -223,6 +341,7 @@ return baseclass.extend({
     function rememberProfile() {
       var profile = activeProfile();
       if (!profile || !handle) return;
+      syncProfileControls();
       profile.args = handle.getValue();
       profileMemory[activeId] = {
         selection: handle.getSelection(),
@@ -284,6 +403,7 @@ return baseclass.extend({
       return true;
     }
     function flush() {
+      syncProfileControls();
       if (handle && activeProfile()) activeProfile().args = handle.getValue();
       var id = hosts.fieldsHost && hosts.fieldsHost.querySelector('#edit-id');
       var name = hosts.fieldsHost && hosts.fieldsHost.querySelector('#edit-name');

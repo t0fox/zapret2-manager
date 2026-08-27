@@ -28,7 +28,8 @@ test('P03-DR Details is an inline multi-card state with accessible active contro
   assert.match(js, /toggle\.setAttribute\('aria-expanded', expanded \? 'true' : 'false'\)/);
   assert.match(js, /toggle\.classList\.toggle\('active', expanded\)/);
   assert.match(js, /strategy-card-toggle-label/);
-  assert.match(js, /highlightStrategyArgs/);
+  assert.match(js, /strategyArgsHtml/);
+  assert.match(js, /escapeHtml\(profile\.args\)/);
   assert.match(css, /strategy-card\.expanded \.strategy-card-toggle \.z2m-icon\{transform:rotate\(180deg\)\}/);
 });
 

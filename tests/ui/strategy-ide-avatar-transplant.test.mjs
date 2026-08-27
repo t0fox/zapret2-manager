@@ -5,24 +5,28 @@ import test from 'node:test';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const PAGE = fs.readFileSync(path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js'), 'utf8');
+const OWNER = fs.readFileSync(path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-editor.js'), 'utf8');
 const DONOR = {
   repository: 'avatarDD/zapret-gui',
   revision: '8c44df2bed98872d1348db053623ee6bf2902408',
   source: 'web/js/pages/strategies.js'
 };
 
-test('Strategy IDE hotfix stays on the current Avatar editor transplant boundary', () => {
+test('Strategy IDE hotfix keeps the Avatar surface while routing editor ownership to the platform', () => {
   assert.equal(DONOR.revision.length, 40);
   assert.equal(DONOR.source, 'web/js/pages/strategies.js');
 
-  // Donor editor lifecycle: open the same modal, render the form, then attach
-  // resize/autocomplete/asset behavior. Z2M replaces only the transport with
-  // canonical strategies RPCs and keeps the donor surface reachable.
+  // Donor editor lifecycle: open the same modal and render the same workspace.
+  // The platform owner supplies profiles, CodeMirror, inspector, and
+  // diagnostics while the page retains canonical Strategy RPC orchestration.
   for (const marker of [
-    'strategy-modal', 'renderEditorForm', 'bindWorkspaceResize', 'bindEditorIDE',
-    'profile-editor-item', 'profile-toggle', 'profile-name', 'profile-filter-picker',
-    'profile-args', 'editorPreviewRequest', 'strategyInput', 'strategyDiffHtml'
+    'strategy-modal', 'renderEditorForm', 'bindWorkspaceResize', 'editorLoadingId',
+    'editorPreviewRequest', 'strategyInput', 'strategyDiffHtml', 'StrategyEditor'
   ]) assert.match(PAGE, new RegExp(marker), marker);
+  for (const marker of [
+    'CodeEditor', 'Nfqws2Editor', 'strategy-editor-profile-tabs', 'profile-toggle',
+    'data-profile-name', 'editorAction', 'circularBuilder', 'setBackendDiagnostics'
+  ]) assert.match(OWNER, new RegExp(marker), marker);
 
   assert.match(PAGE, /state\.ctx\.api\.strategies\.(?:get|preview|validate|create|update)/);
   assert.doesNotMatch(PAGE, /fetch\s*\(\s*['"]\/api\//);
@@ -32,8 +36,10 @@ test('Strategy IDE hotfix stays on the current Avatar editor transplant boundary
 });
 
 test('donor editor capabilities remain additive to the canonical Z2M Strategy page', () => {
-  for (const marker of ['toggleWorkspaceMaximize', 'toggleEditorSidebar', 'toggleProfileCollapse', 'editorLoadingId'])
+  for (const marker of ['toggleWorkspaceMaximize', 'toggleEditorSidebar', 'editorLoadingId'])
     assert.match(PAGE, new RegExp(marker));
+  for (const marker of ['editorAction', 'add-profile', 'remove-profile', 'add-circular-step'])
+    assert.match(OWNER, new RegExp(marker));
   assert.match(PAGE, /strategies\.get/);
   assert.match(PAGE, /state\.editor\s*=\s*\{ mode: ['"]loading['"]/);
   assert.match(PAGE, /state\.editor\s*=\s*\{ mode: ['"]edit['"]/);
