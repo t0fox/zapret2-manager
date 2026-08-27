@@ -18,11 +18,37 @@
 
 'require baseclass';
 
+var LOAD_TIMEOUT_MS = 5000;
+function boundedLoad(promise, label, timeoutMs) {
+	timeoutMs = Number(timeoutMs) || LOAD_TIMEOUT_MS;
+	return new Promise(function (resolve, reject) {
+		var finished = false;
+		var timeout = window.setTimeout(function () {
+			if (finished) return;
+			finished = true;
+			reject({ code: 'frontend-timeout', message: _('Не удалось дождаться ответа: ') + label });
+		}, timeoutMs);
+		Promise.resolve(promise).then(function (value) {
+			if (finished) return;
+			finished = true;
+			window.clearTimeout(timeout);
+			resolve(value);
+		}, function (error) {
+			if (finished) return;
+			finished = true;
+			window.clearTimeout(timeout);
+			reject(error);
+		});
+	});
+}
+
 function createLoader(options) {
 	var runtime = options.runtime;
 	var timer = options.timer || function (fn) { window.setTimeout(fn, 0); };
 	var settled = options.settled;
 	var edit = options.edit || function (fn, value) { return fn(JSON.stringify(value || {})); };
+	var timeoutMs = Number(options.timeoutMs) || LOAD_TIMEOUT_MS;
+	function bound(promise, label) { return boundedLoad(promise, label, timeoutMs); }
 
 	function load(ctx) {
 		var token = ++runtime.loadToken;
@@ -43,8 +69,8 @@ function createLoader(options) {
 				if (token !== runtime.loadToken || !ctx.api.tg || !ctx.api.tg.product ||
 				    typeof ctx.api.tg.product.status !== 'function') return;
 				Promise.allSettled([
-					ctx.api.tg.product.status(),
-					edit(ctx.api.proxy.health, {})
+					bound(ctx.api.tg.product.status(), _('статуса Telegram Proxy')),
+					bound(edit(ctx.api.proxy.health, {}), _('состояния Telegram Proxy'))
 				]).then(function (results) {
 					if (token !== runtime.loadToken) return;
 					runtime.deferred.tgStatus = settled(results[0], ctx.api);
@@ -57,13 +83,13 @@ function createLoader(options) {
 		// PHASE 2 — secondary content; invoked only after phase 1 settles.
 		function loadSecondary() {
 			return Promise.allSettled([
-				ctx.api.strategy.preview(),
-				edit(ctx.api.monitor.eventsTail, { limit: 8 }),
-			typeof ctx.api.strategies.recommendations === 'function'
-				? ctx.api.strategies.recommendations()
-				: typeof options.recommendationsRpc === 'function'
-					? options.recommendationsRpc()
-					: Promise.resolve({})
+				bound(ctx.api.strategy.preview(), _('предпросмотра стратегии')),
+				bound(edit(ctx.api.monitor.eventsTail, { limit: 8 }), _('журнала событий')),
+					typeof ctx.api.strategies.recommendations === 'function'
+						? bound(ctx.api.strategies.recommendations(), _('рекомендаций'))
+						: typeof options.recommendationsRpc === 'function'
+							? bound(options.recommendationsRpc(), _('рекомендаций'))
+							: Promise.resolve({})
 			]).then(function (results) {
 				if (token !== runtime.loadToken) return;
 				runtime.deferred = {
@@ -125,7 +151,7 @@ function resolveCanonicalStrategy(ctx, statusEnvelope, edit) {
 	var id = strategyState.id || strategyState.strategyId || strategyState.name || null;
 	if (!id || !ctx.api.strategies || typeof ctx.api.strategies.get !== 'function')
 		return Promise.resolve(null);
-	return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
+	return boundedLoad(edit(ctx.api.strategies.get, { id: id }), _('активной стратегии')).then(function (answer) {
 		var value = answer && answer.value !== undefined ? answer.value : answer;
 		var strategy = value && (value.strategy || value.item);
 		return strategy || value;

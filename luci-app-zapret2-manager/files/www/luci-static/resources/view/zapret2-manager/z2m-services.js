@@ -361,9 +361,15 @@ function renderSources(ctx) {
       E('div', { 'class': 'z2m-source-meta' }, [source.revision, source.updatedAt, source.status].filter(Boolean).join(' · '))
     ]);
   });
+  function sourceReasonLabel(reason) {
+    reason = String(reason == null ? '' : reason).trim();
+    if (reason === 'no sanctioned source/schedule owner is registered')
+      return _('Backend-владелец источников не зарегистрирован.');
+    return reason || _('Backend-владелец источников не зарегистрирован.');
+  }
   return shell.panel(_('Источники и сборка'), E('div', {}, [
     rows.length ? E('div', { 'class': 'z2m-source-list' }, rows) : null,
-    !sources.writable ? E('details', { 'class': 'z2m-service-dns-technical' }, [E('summary', {}, _('Технические детали')), E('p', { 'class': 'z2m-dim' }, sources.reason || _('Backend-владелец источников не зарегистрирован.'))]) : null
+    !sources.writable ? E('details', { 'class': 'z2m-service-dns-technical' }, [E('summary', {}, _('Технические детали')), E('p', { 'class': 'z2m-dim' }, sourceReasonLabel(sources.reason))]) : null
   ]), sources.lastBuild ? String(sources.lastBuild) : null);
 }
 

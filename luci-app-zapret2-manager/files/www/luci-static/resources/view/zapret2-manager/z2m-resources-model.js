@@ -105,6 +105,17 @@ function humanStateLabel(state) {
 	return map[state] || map['unknown'];
 }
 
+function resourceCountText(count) {
+	var value = Number(count);
+	if (!isFinite(value)) value = 0;
+	var n = Math.abs(Math.trunc(value));
+	var mod10 = n % 10;
+	var mod100 = n % 100;
+	var word = mod10 === 1 && mod100 !== 11 ? 'ресурс' :
+		mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 'ресурса' : 'ресурсов';
+	return String(count) + ' ' + word;
+}
+
 function buildModel(resources, assets, opts) {
 	resources = object(resources);
 	assets = object(assets);
@@ -430,5 +441,6 @@ return baseclass.extend({
 	buildModel: buildModel,
 	shouldShowBadge: shouldShowBadge,
 	severityRank: severityRank,
-	humanStateLabel: humanStateLabel
+	humanStateLabel: humanStateLabel,
+	resourceCountText: resourceCountText
 });
