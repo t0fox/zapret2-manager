@@ -1,0 +1,95 @@
+{
+  "gate": "migration-steps-9-and-10",
+  "operation": {
+    "id": "eng-1787828575-3e266f2142c1",
+    "action": "update",
+    "phase": "completed",
+    "progress": 100,
+    "startedAt": 1787828576,
+    "finishedAt": 1787828575 + 9,
+    "durationSeconds": 10,
+    "transactional": true,
+    "evidenceFile": "/root/pre-v104-1787840000/operation-final.json"
+  },
+  "installed": {
+    "artifactKind": "vanilla-bol-van-release",
+    "producer": null,
+    "artifactVersion": "v1.0.4",
+    "upstreamRepository": "bol-van/zapret2",
+    "upstreamRelease": "v1.0.4",
+    "releaseId": "362914881",
+    "installedOriginRaw": "OFFICIAL",
+    "originEvidenceLive": "official-runtime-contract",
+    "legacyIdentityRetained": false,
+    "patchSeriesCommitted": [],
+    "r77Z2mAsInstalledRelease": false
+  },
+  "byteProof": {
+    "runtimeVersionLine": "github version v1.0.4 (2c21faa80e1acb71ddceb8b49176f266b7d33f05) lua_compat_ver 6",
+    "installedNfqws2Sha256": "b2827dcad28c2d3fc567cf7da34fd94832a551cbb492e8ce820ab944814a82c6",
+    "independentUpstreamSha256sumTxtMatch": true,
+    "engineCacheCurrentTarSha256": "2ac26fef23ec387fbbb34aab2e34290dec0012afccb9453fd8befdeb733ccde3",
+    "stateAssetSha256Match": true,
+    "z2kPatchedBinaryTokenHits": 0,
+    "noManagerBuiltArtifactExecuted": true
+  },
+  "luaChainRuntime": {
+    "initCount": 10,
+    "orderPinned": true,
+    "sidecarsLoaded": ["z2m-fake-rotate.lua", "z2m-hostkey-policy.lua"],
+    "stockSourceMarkersRemovedFromPayload": {
+      "zapret-auto.lua family_split": 0,
+      "zapret-antidpi.lua rotation-loop marker": 0
+    },
+    "sidecarOwnershipEstablished": "originals are stock; wrappers are sole behavior owners"
+  },
+  "healthPostCutover": {
+    "nfqws2Instances": 1,
+    "queue300Active": true,
+    "nftTableOk": true,
+    "statusUcOk": true,
+    "logErrorSweep": []
+  },
+  "stateTsv": {
+    "md5PreMigration": "a7f2a248e5b99f8b06b32ff95cd68620",
+    "md5PostCutoverAndProbes": "a7f2a248e5b99f8b06b32ff95cd68620",
+    "doubleFamilySuffixRows": 0,
+    "circular_1_1RowsIntact": 408,
+    "yt_quicSuffixedRowsIntact": 12
+  },
+  "egressAcceptance": [
+    { "url": "https://www.google.com/generate_204", "code": 204 },
+    { "url": "https://cloudflare.com/cdn-cgi/trace", "code": 200 },
+    { "url": "https://ya.ru", "code": 302 }
+  ],
+  "strategyCompatibility": {
+    "model": "requirement-based (unchanged post-cutover)",
+    "packagedStrategies": 128,
+    "unexplainedEngineNativeBlockers": 0,
+    "reference": ".superpowers/sdd/2026-08-27-components-truth-authority/decision-4-engine-compat-explainer.md"
+  },
+  "behavioralEvidenceBoundary": {
+    "provenLiveOnStockEngine": [
+      "stock zapret-auto/antidpi sources verified marker-free (no native behavior left)",
+      "both manager sidecars present in running cmdline chain in pinned order",
+      "state.tsv fully byte-preserved incl. 12 suffixed rows through the swap",
+      "zero double-suffix rows after live traffic probes",
+      "service one healthy instance, queue/nft/status green, log clean, egress 3/3"
+    ],
+    "provenByContractSuite_dd57df0_notLiveLua": [
+      "family_split=0 unsuffixed path (vector C)",
+      "per-attempt rotation counts / inner repeats=1 / fingerprints distinct (R1/F)",
+      "persistence-vs-rotator key parity and resolvability of existing |4 rows (E/F)"
+    ],
+    "rationale": "same --dry-run no-lua-exec limitation recorded at steps 7-8 persists on the stock binary; structural source-absence plus running-chain presence now make the manager sidecars the sole possible owners of both behaviors on this device."
+  },
+  "notDonePerGate": [
+    "t0fox z2m-compatible feed untouched/enabled",
+    "build-compatible-engine.sh + patches + manifest tooling + engine-build.yml intact",
+    "clean-install producer dependencies untouched",
+    "historical GitHub releases untouched",
+    "no claim of producer retirement"
+  ],
+  "rollbackAssets": "/root/pre-v104-1787840000 + worker-native old-tree backup captured during transaction",
+  "capturedBy": "live ssh evidence scripts /tmp/step10a.sh /tmp/step10e.sh"
+}
