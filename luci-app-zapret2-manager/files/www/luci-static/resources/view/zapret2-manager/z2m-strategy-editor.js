@@ -25,6 +25,11 @@ function labelWithInput(document, title, className, value, type) {
 function diagnosticSeverity(value) {
   return value === 'error' ? 'error' : value === 'warn' ? 'warning' : 'info';
 }
+function markHost(host, region) {
+  if (!host) return;
+  host.setAttribute('data-editor-owner', 'strategy');
+  host.setAttribute('data-editor-region', region);
+}
 
 return baseclass.extend({
   create: function (ctx, editorState, hosts) {
@@ -41,6 +46,14 @@ return baseclass.extend({
     var destroyed = false;
     var syncSource = null;
     var listeners = [];
+    markHost(hosts.fieldsHost, 'fields');
+    markHost(hosts.profilesHost, 'profiles');
+    markHost(hosts.editorHost, 'editor');
+    markHost(hosts.validationHost, 'validation');
+    markHost(hosts.previewHost, 'preview');
+    markHost(hosts.actionsHost, 'actions');
+    markHost(hosts.inspectorHost, 'inspector');
+    markHost(hosts.problemsHost, 'problems');
 
     function profileId(profile, index) {
       return text(profile && (profile.id || 'profile-' + String(index + 1)));
