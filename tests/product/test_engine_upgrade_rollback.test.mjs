@@ -19,12 +19,11 @@ test('Task 5: Engine package upgrade/rollback invariants and single-writer contr
   assert.match(makeContent, /PKG_NAME:=zapret2-manager/, 'Package name must be zapret2-manager');
   assert.match(makeContent, /z2m-core-helper/, 'Build must compile z2m-core-helper');
 
-  // Verify manifest invariants
+  // Verify manifest invariants (post-retirement authority: native-preflight.v3)
   const manifest = JSON.parse(fs.readFileSync(manifestJson, 'utf8'));
-  assert.equal(manifest.schema, 'zapret2-manager.native-preflight.v2');
-  assert.deepEqual(manifest.requiredCapabilities, [
-    'Z2K_TLS_MOD',
-    'ANTIDPI_REPEATS_LOOP',
-    'AUTO_FAMILY_SPLIT'
-  ]);
+  assert.equal(manifest.schema, 'zapret2-manager.native-preflight.v3');
+  assert.ok(Array.isArray(manifest.luaFiles) && manifest.luaFiles.length >= 5,
+    'manifest must pin the runtime Lua baseline');
+  assert.ok(!('requiredCapabilities' in manifest),
+    'retired native capability list must not re-enter package truth');
 });
