@@ -32,6 +32,17 @@ function selectionOf(view) {
   };
 }
 
+function diagnosticsForDocument(doc, diagnostics) {
+  var length = doc.length;
+  return (Array.isArray(diagnostics) ? diagnostics : []).filter(function (item) {
+    return item && Number.isFinite(item.from) && Number.isFinite(item.to);
+  }).map(function (item) {
+    var from = Math.max(0, Math.min(length, Math.floor(item.from)));
+    var to = Math.max(from, Math.min(length, Math.floor(item.to)));
+    return Object.assign({}, item, { from: from, to: to });
+  });
+}
+
 function fallbackEditor(host, options) {
   var document = host.ownerDocument || globalThis.document;
   clearHost(host);
@@ -178,53 +189,67 @@ var CodeEditor = baseclass.extend({
         options.onCursor(selectionOf(view), update);
       }
     }));
-    var state = vendor.EditorState.create({
-      doc: String(options.value == null ? '' : options.value),
-      extensions: extensions,
-    });
-    view = new vendor.EditorView({ state: state, parent: host });
-    host.addEventListener('keydown', onKeydown, true);
+    try {
+      var state = vendor.EditorState.create({
+        doc: String(options.value == null ? '' : options.value),
+        extensions: extensions,
+      });
+      view = new vendor.EditorView({ state: state, parent: host });
+      host.addEventListener('keydown', onKeydown, true);
 
-    handle = {
-      view: view,
-      getValue: function () { return view.state.doc.toString(); },
-      setValue: function (value, config) {
-        config = config || {};
-        var next = String(value == null ? '' : value);
-        if (next === view.state.doc.toString()) return;
-        var effects = [];
-        if (config.resetHistory) effects.push(historyCompartment.reconfigure(vendor.history()));
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: next },
-          effects: effects,
-        });
-      },
-      setReadOnly: function (readOnly) {
-        view.dispatch({
-          effects: readOnlyCompartment.reconfigure([
-            vendor.EditorState.readOnly.of(Boolean(readOnly)),
-            vendor.EditorView.editable.of(!readOnly),
-          ]),
-        });
-      },
-      setDiagnostics: function (diagnostics) {
-        view.dispatch(vendor.setDiagnostics(
-          view.state,
-          Array.isArray(diagnostics) ? diagnostics : [],
-        ));
-      },
-      focus: function () { view.focus(); },
-      getSelection: function () { return selectionOf(view); },
-      destroy: function () {
+      var destroyed = false;
+      handle = {
+        view: view,
+        getValue: function () { return view.state.doc.toString(); },
+        setValue: function (value, config) {
+          config = config || {};
+          var next = String(value == null ? '' : value);
+          if (next === view.state.doc.toString()) return;
+          var effects = [];
+          if (config.resetHistory) effects.push(historyCompartment.reconfigure(vendor.history()));
+          view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: next },
+            effects: effects,
+          });
+        },
+        setReadOnly: function (readOnly) {
+          view.dispatch({
+            effects: readOnlyCompartment.reconfigure([
+              vendor.EditorState.readOnly.of(Boolean(readOnly)),
+              vendor.EditorView.editable.of(!readOnly),
+            ]),
+          });
+        },
+        setDiagnostics: function (diagnostics) {
+          view.dispatch(vendor.setDiagnostics(
+            view.state,
+            diagnosticsForDocument(view.state.doc, diagnostics),
+          ));
+        },
+        focus: function () { view.focus(); },
+        getSelection: function () { return selectionOf(view); },
+        destroy: function () {
+          if (destroyed) return;
+          destroyed = true;
+          host.removeEventListener('keydown', onKeydown, true);
+          view.destroy();
+          clearHost(host);
+        },
+      };
+      if (Array.isArray(options.diagnostics) && options.diagnostics.length) {
+        handle.setDiagnostics(options.diagnostics);
+      }
+      return handle;
+    } catch (error) {
+      if (handle) {
+        try { handle.destroy(); } catch (_destroyError) { clearHost(host); }
+      } else {
         host.removeEventListener('keydown', onKeydown, true);
-        view.destroy();
+        if (view) view.destroy();
         clearHost(host);
-      },
-    };
-    if (Array.isArray(options.diagnostics) && options.diagnostics.length) {
-      handle.setDiagnostics(options.diagnostics);
+      }
+      throw error;
     }
-    return handle;
   },
 });
 

@@ -67,6 +67,48 @@ function catalogDigest(data) {
 }
 function catalogValue(data) { return unwrap(data && data.catalog); }
 function statusValue(data) { return data && data.status ? data.status.value || data.status : {}; }
+function strategyFromAnswer(answer) { return answer && answer.strategy ? answer.strategy : answer; }
+function isFullStrategy(strategy) {
+  if (!strategy || !Array.isArray(strategy.profiles) || strategy.profiles.length === 0) return false;
+  return strategy.profiles.every(function (profile) {
+    return profile && typeof profile.args === 'string' && profile.argsTruncated !== true;
+  });
+}
+function ensureFullStrategy(strategy, fetcher) {
+  if (isFullStrategy(strategy)) return Promise.resolve(strategy);
+  if (typeof fetcher !== 'function') return Promise.reject(new Error('Полная стратегия недоступна для этой операции'));
+  return Promise.resolve().then(function () { return fetcher(strategy); }).then(function (answer) {
+    var full = strategyFromAnswer(answer);
+    if (!isFullStrategy(full)) throw new Error('Сервис вернул неполную стратегию; операция остановлена');
+    return full;
+  });
+}
+function cloneStrategy(strategy) {
+  return JSON.parse(JSON.stringify(strategy || {}));
+}
+function freezeStrategySnapshot(strategy) {
+  if (!strategy || typeof strategy !== 'object' || Object.isFrozen(strategy)) return strategy;
+  Object.keys(strategy).forEach(function (key) {
+    var value = strategy[key];
+    if (value && typeof value === 'object') freezeStrategySnapshot(value);
+  });
+  return Object.freeze(strategy);
+}
+function normalizeStrategyAnswer(answer) {
+  var raw = strategyFromAnswer(answer);
+  var full = Model.normalize(raw, statusValue(state.data), state.selectedId);
+  full.metadata = object(raw && raw.metadata);
+  full.provenance = strategyProvenance(raw);
+  return full;
+}
+function fetchFullStrategy(source) {
+  if (!state.ctx || !state.ctx.api || !state.ctx.api.strategies || !state.ctx.api.strategies.get)
+    return Promise.reject(new Error('RPC strategies.get недоступен'));
+  return call(state.ctx.api.strategies.get, { id: source.id }).then(normalizeStrategyAnswer);
+}
+function loadFullStrategy(strategy) {
+  return ensureFullStrategy(strategy, fetchFullStrategy);
+}
 function discordRuntimeActive(data) {
   var status = statusValue(data), instances = array(object(status.runtime).instances);
   for (var i = 0; i < instances.length; i++) {
@@ -130,7 +172,6 @@ function previewOutput(ctx, answer) {
     return errorText(ctx, answer);
   }
   var command = answer && (answer.effectiveCommand || answer.fullCommand || answer.command || answer.output);
-  if (!command && answer && Array.isArray(answer.effectiveArgv)) command = answer.effectiveArgv.join(' ');
   return text(command) || 'Сервис не вернул команду';
 }
 function notify(kind, message) {
@@ -152,13 +193,12 @@ function strategyBadgesHtml(strategy) {
 function loadStrategyDetails(id, card) {
   var wrap = card && card.querySelector('.strategy-card-args-wrap');
   if (!wrap || wrap.dataset.detailsLoaded === 'true' || state.detailLoading[id]) return;
-  if (!state.ctx || !state.ctx.api || !state.ctx.api.strategies || !state.ctx.api.strategies.get) return;
+  var source = strategyById(id);
+  if (!source) return;
   state.detailLoading[id] = true;
   wrap.dataset.detailsLoading = 'true';
   wrap.innerHTML = '<div class="strategy-details-loading">Загрузка профилей…</div>';
-  call(state.ctx.api.strategies.get, { id: id }).then(function (answer) {
-    var raw = answer && answer.strategy ? answer.strategy : answer;
-    var full = Model.normalize(raw, statusValue(state.data), state.selectedId);
+  loadFullStrategy(source).then(function (full) {
     var args = strategyArgsHtml(full);
     wrap.innerHTML = args || '<div class="strategy-details-empty">У стратегии нет текстовых аргументов профиля.</div>';
     wrap.dataset.detailsLoaded = 'true';
@@ -188,8 +228,7 @@ function fallbackClipboardPaste() {
 }
 function copyStrategyToClipboard(id) {
   var strategy = strategyById(id); if (!strategy) return;
-  var loadFull = strategy.profiles.some(function (profile) { return profile.args; }) ? Promise.resolve(strategy) : call(state.ctx.api.strategies.get, { id: id }).then(function (answer) { return Model.normalize(answer && answer.strategy ? answer.strategy : answer, statusValue(state.data), state.selectedId); });
-  loadFull.then(function (full) {
+  loadFullStrategy(strategy).then(function (full) {
     var value = clipboardText(full); if (!value) return;
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function () { notify('ok', 'Команда скопирована в буфер'); }, fallbackClipboardPaste);
     else fallbackClipboardPaste();
@@ -470,11 +509,9 @@ function mergeSelected() {
   // full Strategies; never turn a bounded summary into an executable draft.
   state.pending = 'combine'; renderAll();
   Promise.all(sources.map(function (strategy) {
-    return strategy.profiles.some(function (profile) { return profile.args && !profile.argsTruncated; })
-      ? Promise.resolve(strategy)
-      : call(state.ctx.api.strategies.get, { id: strategy.id }).then(function (answer) {
-        return Model.normalize(answer && answer.strategy ? answer.strategy : answer, statusValue(state.data), state.selectedId);
-      });
+    return ensureFullStrategy(strategy, function (source) {
+      return call(state.ctx.api.strategies.get, { id: source.id }).then(normalizeStrategyAnswer);
+    });
   })).then(function (fullSources) {
     state.editor = { mode: 'create', strategy: Model.combineStrategies(fullSources) };
     renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
@@ -1506,6 +1543,31 @@ function clearEditorLoadingTimers() {
   if (state.editorLoadingSlowTimer) { window.clearTimeout(state.editorLoadingSlowTimer); state.editorLoadingSlowTimer = null; }
   state.editorLoadFrame = null;
 }
+function resetStrategyEditorRuntime() {
+  clearEditorLoadingTimers();
+  unbindWorkspaceResize();
+  if (state.strategyEditor) {
+    try { state.strategyEditor.destroy(); } catch (destroyError) { console.error('Strategy editor destroy failed', destroyError); }
+  }
+  state.strategyEditor = null;
+  state.editorLoadingId = null;
+  state.pending = null;
+  state.operationPending = null;
+  state.editor = null;
+  state.editorMaximized = false;
+  state.editorSidebarCollapsed = false;
+  var modal = state.root && state.root.querySelector('#strategy-modal');
+  if (modal) modal.style.display = 'none';
+  var body = state.root && state.root.querySelector('#modal-body');
+  if (body) body.innerHTML = '';
+}
+function recoverStrategyEditorFailure(error) {
+  console.error('Strategy editor runtime failure', error);
+  var message = errorText(state.ctx, error);
+  resetStrategyEditorRuntime();
+  notify('err', message);
+  if (state.root && state.loaded) renderAll();
+}
 function closeModal() { if (!editorCloseAllowed()) return; clearEditorLoadingTimers(); unbindWorkspaceResize(); if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; } var modal = state.root && state.root.querySelector('#strategy-modal'); if (modal) modal.style.display = 'none'; state.editor = null; state.editorLoadingId = null; state.editorMaximized = false; }
 function closePreview() { var modal = state.root && state.root.querySelector('#preview-modal'); if (modal) modal.style.display = 'none'; state.preview = null; }
 function closeConfirm() { var modal = state.root && state.root.querySelector('#strategy-confirm-modal'); if (modal) modal.style.display = 'none'; }
@@ -1595,8 +1657,12 @@ function renderEditorForm() {
   if (!state.editor) return;
   var body = state.root.querySelector('#modal-body'), modal = state.root.querySelector('#strategy-modal');
   if (state.strategyEditor) {
-    state.strategyEditor.update(state.editor);
-    applyEditorWorkspaceClasses();
+    try {
+      state.strategyEditor.update(state.editor);
+      applyEditorWorkspaceClasses();
+    } catch (error) {
+      recoverStrategyEditorFailure(error);
+    }
     return;
   }
   var strategy = state.editor.strategy, header = modal && modal.querySelector('.modal-header');
@@ -1612,20 +1678,24 @@ function renderEditorForm() {
     maximize.textContent = '⛶';
     header.insertBefore(maximize, header.querySelector('[data-action="closeModal"]'));
   }
-  body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-pane" data-editor-editor-host></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host style="display:none"></div><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть подсказки</button></div><div class="nfq-side-card token-help"><div class="editor-side-title">Inspector</div><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></div><div class="nfq-side-card" data-editor-problems-host></div></aside></div>';
-  state.editor.onSave = saveEditor;
-  state.strategyEditor = StrategyEditor.create(state.ctx, state.editor, {
-    fieldsHost: body.querySelector('[data-editor-fields-host]'),
-    profilesHost: body.querySelector('[data-editor-profiles-host]'),
-    editorHost: body.querySelector('[data-editor-editor-host]'),
-    validationHost: body.querySelector('[data-editor-validation-host]'),
-    previewHost: body.querySelector('[data-editor-preview-host]'),
-    actionsHost: body.querySelector('[data-editor-actions-host]'),
-    inspectorHost: body.querySelector('[data-editor-inspector-host]'),
-    problemsHost: body.querySelector('[data-editor-problems-host]'),
-  });
-  bindWorkspaceResize(strategy);
-  applyEditorWorkspaceClasses();
+  try {
+    body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-pane" data-editor-editor-host></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host style="display:none"></div><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть подсказки</button></div><div class="nfq-side-card token-help"><div class="editor-side-title">Inspector</div><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></div><div class="nfq-side-card" data-editor-problems-host></div></aside></div>';
+    state.editor.onSave = saveEditor;
+    state.strategyEditor = StrategyEditor.create(state.ctx, state.editor, {
+      fieldsHost: body.querySelector('[data-editor-fields-host]'),
+      profilesHost: body.querySelector('[data-editor-profiles-host]'),
+      editorHost: body.querySelector('[data-editor-editor-host]'),
+      validationHost: body.querySelector('[data-editor-validation-host]'),
+      previewHost: body.querySelector('[data-editor-preview-host]'),
+      actionsHost: body.querySelector('[data-editor-actions-host]'),
+      inspectorHost: body.querySelector('[data-editor-inspector-host]'),
+      problemsHost: body.querySelector('[data-editor-problems-host]'),
+    });
+    bindWorkspaceResize(strategy);
+    applyEditorWorkspaceClasses();
+  } catch (error) {
+    recoverStrategyEditorFailure(error);
+  }
 }
 function editorDraft() { collectEditor(); return strategyInput(state.editor.strategy); }
 function setEditorOperationBusy(operation, busy) {
@@ -1668,14 +1738,41 @@ function validateEditor() {
 function strategyDiffHtml(strategy) {
   var active = state.rows.find(function (item) { return item.current || item.applied; });
   if (!active) return '<div class="strategy-diff">Нет активной стратегии для сравнения.</div>';
+  if (!isFullStrategy(active)) return '<div class="strategy-diff">Diff from active: полная активная стратегия ещё не загружена.</div>';
   var left = clipboardText(active), right = clipboardText(strategy);
   return '<div class="strategy-diff" data-diff-from-active="true"><b>Diff from active:</b> ' + (left === right ? 'нет изменений' : 'draft отличается от ' + escapeHtml(active.name)) + '</div>';
 }
 function previewDetails(answer, strategy) {
-  var deps = answer && answer.dependencies ? '<div class="strategy-preview-assets"><b>Resolved assets/dependencies:</b> ' + escapeHtml(JSON.stringify(answer.dependencies)) + '</div>' : '<div class="strategy-preview-assets">Resolved assets/dependencies: сервер не вернул отдельный список.</div>';
-  var argv = answer && Array.isArray(answer.effectiveArgv) ? '<div><b>effective argv:</b> ' + escapeHtml(answer.effectiveArgv.join(' ')) + '</div>' : '';
-  var profiles = array(strategy && strategy.profiles).map(function (profile, index) { var parsed = ideProfile(profile); var visual = parsed.visual || {}; return '<div class="strategy-preview-profile"><b>' + escapeHtml(profile.name || 'Профиль ' + (index + 1)) + '</b><span>Протоколы: ' + escapeHtml((visual.protocols || []).join(', ') || 'авто') + ' · targets: ' + escapeHtml([].concat(visual.hostlists || [], visual.ipsets || []).join(', ') || 'не заданы') + '</span><pre>' + escapeHtml(profile.args || '') + '</pre></div>'; }).join('');
-  return '<div class="strategy-preview-effective"><b>Effective strategy</b>' + profiles + '</div>' + deps + argv + strategyDiffHtml(strategy);
+  var profiles = array(strategy && strategy.profiles).map(function (profile, index) {
+    var parsed = ideProfile(profile), visual = parsed.visual || {};
+    var protocols = array(visual.protocols).join(', ') || 'авто';
+    var targets = [].concat(array(visual.hostlists), array(visual.ipsets)).join(', ') || 'не заданы';
+    var enabled = profile.enabled !== false ? 'включён' : 'выключен';
+    return '<div class="strategy-preview-profile"><b>' + escapeHtml(profile.name || 'Профиль ' + (index + 1)) + '</b><span>Статус: ' + enabled + ' · Протоколы: ' + escapeHtml(protocols) + ' · targets: ' + escapeHtml(targets) + '</span><pre>' + escapeHtml(text(profile.args)) + '</pre></div>';
+  }).join('');
+  var dependencies = object(answer && answer.dependencies);
+  var dependencyItems = array(dependencies.items).map(function (item) {
+    item = object(item);
+    var name = text(item.kind || item.type || 'asset') + ': ' + text(item.id || item.name || item.reference || item.path || '—');
+    return '<li><span>' + escapeHtml(name) + '</span><span>' + (item.available === false ? 'недоступен' : 'доступен') + '</span></li>';
+  }).join('');
+  var missingItems = array(dependencies.missing).map(function (item) {
+    item = object(item);
+    var name = text(item.kind || item.type || 'asset') + ': ' + text(item.id || item.name || item.reference || item.path || '—');
+    return '<li><span>' + escapeHtml(name) + '</span><span>отсутствует</span></li>';
+  }).join('');
+  var native = object(dependencies.nativeValidation);
+  var dependencyStatus = dependencies.available === true ? 'доступны' : dependencies.available === false ? 'есть отсутствующие' : 'сервер не сообщил';
+  var dependencyHtml = '<section class="strategy-preview-dependencies"><h4>Dependencies</h4><div>Статус: ' + dependencyStatus + '</div>' + (dependencyItems ? '<ul>' + dependencyItems + '</ul>' : '') + (missingItems ? '<div class="strategy-preview-missing"><b>Отсутствуют:</b><ul>' + missingItems + '</ul></div>' : '') + (native.status ? '<div>Native validation: ' + escapeHtml(native.status) + '</div>' : '') + '</section>';
+  var validation = object(answer && answer.validation);
+  var validationHtml = '<section class="strategy-preview-validation"><h4>Validation</h4><div>' + escapeHtml(text(validation.status || 'не запускалась; доступна через Validate')) + '</div></section>';
+  var expected = array(strategy && strategy.profiles).filter(function (profile) { return profile && profile.enabled !== false; }).length;
+  var actualRaw = answer && answer.profilesCount != null ? answer.profilesCount : answer && answer.profiles_count;
+  var actual = Number(actualRaw);
+  var mismatch = actualRaw != null && Number.isFinite(actual) && actual !== expected
+    ? '<div class="strategy-preview-mismatch" role="alert">Preview profile count mismatch: expected ' + expected + ', actual ' + actual + '</div>' : '';
+  var technical = '<details class="strategy-preview-technical"><summary>Технические сведения</summary><pre>' + escapeHtml(JSON.stringify({ effectiveArgv: answer && answer.effectiveArgv || [], dependencies: dependencies }, null, 2)) + '</pre></details>';
+  return '<section class="strategy-preview-effective"><h4>Effective strategy</h4>' + profiles + '</section>' + mismatch + dependencyHtml + validationHtml + strategyDiffHtml(strategy) + technical;
 }
 function previewRequest(strategy, data, validate) { return { strategy_id: strategy.id, revision: Number(strategy.revision || 0), catalog_digest: catalogDigest(data), validate: validate === true }; }
 function editorPreviewRequest(strategy, data) {
@@ -1685,16 +1782,50 @@ function editorPreviewRequest(strategy, data) {
   if (!draft.id) draft.id = 'preview-draft';
   return { strategy_data: draft, catalog_digest: catalogDigest(data), validate: false };
 }
-function showPreview(id) { var strategy = strategyById(id); if (!strategy) return; state.preview = { strategy: strategy, validation: null, answer: null, output: 'Загрузка…', pending: true, operation: 'preview' }; renderPreviewModal(); state.root.querySelector('#preview-modal').style.display = 'flex'; call(state.ctx.api.strategies.preview, previewRequest(strategy, state.data, false)).then(function (answer) { state.preview.pending = false; state.preview.operation = null; state.preview.answer = answer; state.preview.output = previewOutput(state.ctx, answer); renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.operation = null; state.preview.output = errorText(state.ctx, error); renderPreviewModal(); }); }
-function validatePreview() { if (!state.preview || state.preview.pending) return; state.preview.pending = true; state.preview.operation = 'validate'; state.preview.validation = 'Проверка…'; renderPreviewModal(); call(state.ctx.api.strategies.validate, previewRequest(state.preview.strategy, state.data, true)).then(function (answer) { state.preview.pending = false; state.preview.operation = null; state.preview.validation = answer && answer.ok === true ? 'Стратегия прошла проверку' : 'Стратегия не прошла проверку'; renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.operation = null; state.preview.validation = errorText(state.ctx, error); renderPreviewModal(); }); }
-function renderPreviewModal() { if (!state.preview) return; var body = state.root.querySelector('#preview-body'); if (!body) return; var pendingLabel = state.preview.operation === 'preview' ? 'Готовим превью…' : 'Проверяем…'; body.innerHTML = '<pre id="preview-command" class="log-viewer nfq-resizable">' + escapeHtml(state.preview.output) + '</pre>' + (state.preview.answer ? previewDetails(state.preview.answer, state.preview.strategy) : '') + (state.preview.validation ? '<div class="strategy-validation-result">' + escapeHtml(state.preview.validation) + '</div>' : '') + '<div class="editor-footer"><button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled aria-busy="true"' : '') + '>' + (state.preview.pending ? '<span class="btn-spinner" aria-hidden="true"></span><span>' + pendingLabel + '</span>' : 'Проверить') + '</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button></div>'; }
+function showPreview(id) {
+  var source = strategyById(id); if (!source) return;
+  var preview = { strategy: null, validation: null, answer: null, output: 'Загрузка…', pending: true, operation: 'preview' };
+  state.preview = preview;
+  renderPreviewModal();
+  state.root.querySelector('#preview-modal').style.display = 'flex';
+  loadFullStrategy(source).then(function (full) {
+    if (state.preview !== preview) return null;
+    preview.strategy = freezeStrategySnapshot(cloneStrategy(full));
+    return call(state.ctx.api.strategies.preview, previewRequest(preview.strategy, state.data, false));
+  }).then(function (answer) {
+    if (state.preview !== preview || answer === null) return;
+    preview.pending = false; preview.operation = null; preview.answer = answer; preview.output = previewOutput(state.ctx, answer); renderPreviewModal();
+  }).catch(function (error) {
+    if (state.preview !== preview) return;
+    preview.pending = false; preview.operation = null; preview.output = errorText(state.ctx, error); renderPreviewModal();
+  });
+}
+function validatePreview() {
+  if (!state.preview || state.preview.pending || !state.preview.strategy) return;
+  var preview = state.preview;
+  preview.pending = true; preview.operation = 'validate'; preview.validation = 'Проверка…'; renderPreviewModal();
+  call(state.ctx.api.strategies.validate, previewRequest(preview.strategy, state.data, true)).then(function (answer) {
+    if (state.preview !== preview) return;
+    preview.pending = false; preview.operation = null; preview.validation = answer && answer.ok === true ? 'Стратегия прошла проверку' : 'Стратегия не прошла проверку'; renderPreviewModal();
+  }).catch(function (error) {
+    if (state.preview !== preview) return;
+    preview.pending = false; preview.operation = null; preview.validation = errorText(state.ctx, error); renderPreviewModal();
+  });
+}
+function renderPreviewModal() {
+  if (!state.preview) return;
+  var body = state.root.querySelector('#preview-body'); if (!body) return;
+  var pendingLabel = state.preview.operation === 'preview' ? 'Готовим превью…' : 'Проверяем…';
+  body.innerHTML = '<section class="strategy-preview-primary-command"><b>Effective command</b><pre id="preview-command" class="log-viewer nfq-resizable">' + escapeHtml(state.preview.output) + '</pre></section>' + (state.preview.answer && state.preview.strategy ? previewDetails(state.preview.answer, state.preview.strategy) : '') + (state.preview.validation ? '<div class="strategy-validation-result">' + escapeHtml(state.preview.validation) + '</div>' : '') + '<div class="editor-footer"><button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled aria-busy="true"' : '') + '>' + (state.preview.pending ? '<span class="btn-spinner" aria-hidden="true"></span><span>' + pendingLabel + '</span>' : 'Проверить') + '</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button></div>';
+}
 function previewEditor() {
   if (!state.editor || state.editor.operationPending) return;
   var editor = state.editor, output = state.root.querySelector('#editor-preview-output');
   collectEditor(); if (!output) return;
+  var snapshot = freezeStrategySnapshot(cloneStrategy(editor.strategy));
   editor.operationPending = 'preview'; setEditorOperationBusy('preview', true); output.style.display = 'block'; output.textContent = 'Готовим превью…';
-  call(state.ctx.api.strategies.preview, editorPreviewRequest(editor.strategy, state.data)).then(function (answer) {
-    if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.innerHTML = '<div>' + escapeHtml(previewOutput(state.ctx, answer)) + '</div>' + previewDetails(answer, editor.strategy);
+  call(state.ctx.api.strategies.preview, editorPreviewRequest(snapshot, state.data)).then(function (answer) {
+    if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.innerHTML = '<section class="strategy-preview-primary-command"><b>Effective command</b><pre>' + escapeHtml(previewOutput(state.ctx, answer)) + '</pre></section>' + previewDetails(answer, snapshot);
   }).catch(function (error) {
     if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.textContent = errorText(state.ctx, error);
   });
@@ -1872,4 +2003,17 @@ function unmount() {
 return baseclass.extend({
   id: 'strategy', title: _('Стратегии'), subtitle: _('Настройка способов обхода DPI'),
   load: load, render: render, mount: mount, unmount: unmount,
-  createAdapter: function (api) { return api && api.strategies ? { supported: true } : { supported: false }; }});
+  createAdapter: function (api) {
+    if (!api || !api.strategies) return { supported: false };
+    return {
+      supported: true,
+      isFullStrategy: isFullStrategy,
+      ensureFullStrategy: function (strategy) {
+        return ensureFullStrategy(strategy, function (source) {
+          if (typeof api.strategies.get !== 'function') return Promise.reject(new Error('strategies.get недоступен'));
+          return api.strategies.get(JSON.stringify({ id: source.id }));
+        });
+      },
+    };
+  },
+});

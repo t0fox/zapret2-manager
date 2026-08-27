@@ -120,3 +120,17 @@ test('CodeEditor mounts one real view and preserves lifecycle state', async () =
   assert.equal(host.querySelector('.cm-editor'), null);
   assert.equal(host.childElementCount, 0);
 });
+
+test('CodeEditor accepts diagnostics without a source range', () => {
+  const { editor, window } = loadEditor();
+  const host = window.document.createElement('div');
+  window.document.body.appendChild(host);
+  const handle = editor.mount(host, { value: '--lua-desync=circular' });
+
+  assert.doesNotThrow(() => handle.setDiagnostics([
+    { severity: 'warning', message: 'server-only warning' },
+  ]));
+
+  assert.equal(handle.getValue(), '--lua-desync=circular');
+  handle.destroy();
+});

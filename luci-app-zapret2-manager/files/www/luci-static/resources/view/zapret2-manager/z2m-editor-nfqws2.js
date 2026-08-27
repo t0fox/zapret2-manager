@@ -51,15 +51,15 @@ function create(options) {
 
   function lintSource(view) {
     var source = textOf(view && view.state);
-    return (Nfqws2Ide.diagnostics(source) || []).map(function (item) {
+    return (Nfqws2Ide.diagnostics(source) || []).filter(function (item) {
+      return item && Number.isFinite(item.start) && Number.isFinite(item.end);
+    }).map(function (item) {
       var diagnostic = {
         severity: severityOf(item.severity),
         message: item.message || 'Некорректный синтаксис nfqws2',
       };
-      if (Number.isFinite(item.start) && Number.isFinite(item.end)) {
-        diagnostic.from = item.start;
-        diagnostic.to = item.end;
-      }
+      diagnostic.from = item.start;
+      diagnostic.to = item.end;
       return diagnostic;
     });
   }
