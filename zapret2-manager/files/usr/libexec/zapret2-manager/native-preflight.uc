@@ -1,8 +1,10 @@
 'use strict';
 // native-preflight.uc — production fail-closed verification for a rendered
 // NFQWS2_OPT candidate. It never intercepts traffic and never mutates config.
-// Dual-layer verification requires proving BOTH upstream NFQWS2_COMPAT_VER
-// AND local patch capabilities (Z2K_TLS_MOD, ANTIDPI_REPEATS_LOOP, AUTO_FAMILY_SPLIT).
+// Verification proves the upstream NFQWS2_COMPAT_VER contract plus the
+// packaged Lua baseline pinned in native-preflight.v3 (luaFiles). Engine
+// behavior extensions live exclusively in manager-owned sidecars loaded via
+// the runtime-assets chain; no native capability gating remains.
 
 import { readfile, stat, popen } from 'fs';
 import { z2m_tokenize, z2m_parse, z2m_validate } from './profiles.uc';
@@ -57,7 +59,9 @@ function load_manifest() {
 	try { value = json(raw); } catch (e) { return { ok: false, reason: 'native preflight manifest is malformed' }; }
 	if (type(value) != 'object' || value == null)
 		return { ok: false, reason: 'native preflight manifest schema is unsupported' };
-	if (value.schema != 'zapret2-manager.native-preflight.v1' && value.schema != 'zapret2-manager.native-preflight.v2')
+	if (value.schema != 'zapret2-manager.native-preflight.v1'
+		&& value.schema != 'zapret2-manager.native-preflight.v2'
+		&& value.schema != 'zapret2-manager.native-preflight.v3')
 		return { ok: false, reason: 'native preflight manifest schema is unsupported' };
 	if (value.schema == 'zapret2-manager.native-preflight.v1') {
 		if (type(value.expectedNfqws2Sha256) != 'string' || length(value.expectedNfqws2Sha256) != 64)

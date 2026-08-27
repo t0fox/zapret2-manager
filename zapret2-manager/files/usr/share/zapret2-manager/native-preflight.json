@@ -1,52 +1,6 @@
 {
-  "schema": "zapret2-manager.native-preflight.v2",
-  "status": "configured",
-  "engineIntegrationIdentity": "/usr/share/zapret2-manager/upstreams/engine-integration.json",
+  "schema": "zapret2-manager.native-preflight.v3",
   "minNfqws2CompatVer": 1,
-  "engineSourceCommit": "a0be7cbb40a4230e4b60fc33b7ea06102eb8ec15",
-  "patchSeries": [
-    "001-z2k-tls-mod.patch",
-    "002-z2k-antidpi-repeats-loop.patch",
-    "003-z2k-auto-family-split.patch"
-  ],
-  "requiredCapabilities": [
-    "Z2K_TLS_MOD",
-    "ANTIDPI_REPEATS_LOOP",
-    "AUTO_FAMILY_SPLIT"
-  ],
-  "capabilities": {
-    "Z2K_TLS_MOD": {
-      "type": "c_engine_flag",
-      "flags": [
-        "grease",
-        "alpn_flood",
-        "psk",
-        "keyshare",
-        "earlydata",
-        "pha",
-        "sct",
-        "delegcred"
-      ],
-      "probeOption": "--dpi-desync-fooling=tls_mod_probe",
-      "description": "Anti-TSPU TLS ClientHello JA3 extension mutation flags"
-    },
-    "ANTIDPI_REPEATS_LOOP": {
-      "type": "lua_runtime_extension",
-      "file": "/opt/zapret2/lua/zapret-antidpi.lua",
-      "function": "fake",
-      "signature": "repeats > 1 and desync.reasm_data and desync.arg.tls_mod",
-      "description": "Per-attempt TLSMod randomization loop when repeats > 1"
-    },
-    "AUTO_FAMILY_SPLIT": {
-      "type": "lua_runtime_extension",
-      "file": "/opt/zapret2/lua/zapret-auto.lua",
-      "function": "standard_hostkey",
-      "signature": "family_split",
-      "description": "Dual-stack IPv4/IPv6 rotator isolation key suffix"
-    }
-  },
-  "expectedNfqws2Sha256": null,
-  "expectedLuaBundleSha256": null,
   "luaFiles": [
     "/opt/zapret2/lua/zapret-lib.lua",
     "/opt/zapret2/lua/zapret-antidpi.lua",
@@ -58,6 +12,5 @@
     "/opt/zapret2/lua/z2k-state-persist.lua",
     "/opt/zapret2/lua/z2k-alert.lua",
     "/opt/zapret2/lua/z2k-quic-silence.lua"
-  ],
-  "notes": "Native preflight requires proving BOTH upstream NFQWS2_COMPAT_VER AND the local patch capabilities manifest before candidate strategies are admitted."
+  ]
 }
