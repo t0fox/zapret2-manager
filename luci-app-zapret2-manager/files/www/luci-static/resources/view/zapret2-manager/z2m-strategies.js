@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-strategy-editor as StrategyEditor';
 'require view.zapret2-manager.z2m-nfqws2-ide as Nfqws2Ide';
 'require view.zapret2-manager.z2m-strategies-model as Model';
 'require view.zapret2-manager.z2m-healthcheck-model as HealthcheckModel';
@@ -27,7 +28,7 @@ var FILTER_PRESETS = {
 };
 var state = {
   ctx: null, root: null, data: {}, rows: [], selectedId: null,
-  pending: null, operationPending: null, editorLoadingId: null, editor: null, preview: null, selectedIds: {},
+  pending: null, operationPending: null, editorLoadingId: null, editor: null, strategyEditor: null, preview: null, selectedIds: {},
   catalogProgress: null,
   detailLoading: {},
   listUI: null, pollTimer: null, disposed: false, loaded: false,
@@ -1509,7 +1510,7 @@ function clearEditorLoadingTimers() {
   if (state.editorLoadingSlowTimer) { window.clearTimeout(state.editorLoadingSlowTimer); state.editorLoadingSlowTimer = null; }
   state.editorLoadFrame = null;
 }
-function closeModal() { if (!editorCloseAllowed()) return; clearEditorLoadingTimers(); unbindWorkspaceResize(); var modal = state.root && state.root.querySelector('#strategy-modal'); if (modal) modal.style.display = 'none'; state.editor = null; state.editorLoadingId = null; state.editorMaximized = false; }
+function closeModal() { if (!editorCloseAllowed()) return; clearEditorLoadingTimers(); unbindWorkspaceResize(); if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; } var modal = state.root && state.root.querySelector('#strategy-modal'); if (modal) modal.style.display = 'none'; state.editor = null; state.editorLoadingId = null; state.editorMaximized = false; }
 function closePreview() { var modal = state.root && state.root.querySelector('#preview-modal'); if (modal) modal.style.display = 'none'; state.preview = null; }
 function closeConfirm() { var modal = state.root && state.root.querySelector('#strategy-confirm-modal'); if (modal) modal.style.display = 'none'; }
 function renderEditorLoading() {
@@ -1522,6 +1523,7 @@ function renderEditorLoading() {
   if (modal) modal.style.display = 'flex';
 }
 function openCreate() {
+  if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; }
   state.editor = { mode: 'create', viewByProfile: { 0: 'visual' }, strategy: { id: '', name: '', description: '', origin: 'user', isBuiltin: false, profiles: [{ id: 'profile-1', name: 'TLS', enabled: true, args: FILTER_PRESETS.tls443 }] } };
   renderEditorForm();
   state.root.querySelector('#strategy-modal').style.display = 'flex';
@@ -1547,6 +1549,7 @@ function consumeScannerHandoff() {
 }
 function openEdit(id) {
   var source = strategyById(id); if (!source || state.editorLoadingId || state.pending) return;
+  if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; }
   clearEditorLoadingTimers();
   state.editorLoadingId = id;
   state.editor = { mode: 'loading', strategy: source, dirty: false };
@@ -1588,6 +1591,10 @@ function duplicateStrategy(id) {
 }
 function collectEditor() {
   if (!state.editor) return;
+  if (state.strategyEditor && state.strategyEditor.flush) {
+    state.strategyEditor.flush();
+    return;
+  }
   var root = state.root;
   state.editor.strategy.id = root.querySelector('#edit-id').value.trim();
   state.editor.strategy.name = root.querySelector('#edit-name').value.trim();
@@ -1648,7 +1655,7 @@ function renderProfileEditor(profile, index) {
     '<div class="ide-view-region" data-ide-view="visual" style="display:' + (view === 'visual' && parsed.mode === 'structured' ? 'block' : 'none') + '">' + visualProfileHtml(parsed, index) + '</div>' +
     '<div class="profile-args-wrap nfq-editor" data-ide-view="raw" style="display:' + (view === 'raw' || parsed.mode !== 'structured' ? 'block' : 'none') + '"><pre class="nfq-editor-overlay" aria-hidden="true">' + escapeHtml(args) + '</pre><textarea class="form-textarea profile-args nfq-editor-ta" rows="8" wrap="off" spellcheck="false">' + escapeHtml(args) + '</textarea><span class="profile-args-hint">Ctrl+Space · автодополнение · Raw сохраняется lossless</span></div><div class="profile-hint-msg' + (missing ? ' missing-target' : '') + '">' + (missing ? 'Для desync не задан target scope: добавьте hostlist или ipset.' : 'Неизвестные Z2K-флаги остаются Raw-only и не перезаписываются.') + '</div><div class="nfq-diagnostics" data-diagnostics-for="' + index + '"></div></div>';
 }
-function renderEditorForm() {
+function renderEditorFormLegacy() {
   if (!state.editor) return;
   var strategy = state.editor.strategy, root = state.root.querySelector('#modal-body'), modal = state.root.querySelector('#strategy-modal'), testAvailable = !!(state.ctx && state.ctx.api && state.ctx.api.strategies && state.ctx.api.strategies.test);
   state.editor.collapsedProfiles = state.editor.collapsedProfiles || {};
@@ -1668,6 +1675,42 @@ function renderEditorForm() {
     '<div class="editor-footer"><button class="btn btn-ghost" data-action="closeModal">Отмена</button><button class="btn btn-primary" data-action="saveEditor" data-operation="save"' + (state.pending ? ' disabled' : '') + '>' + (state.editor.mode === 'create' ? 'Создать' : 'Сохранить') + '</button></div></div>' +
     '<aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть подсказки</button></div><div class="nfq-side-card token-help"><div class="nfq-side-title">Справка по синтаксису</div><div class="nfq-side-note nfq-side-token-help">Поставьте курсор на флаг, значение или asset.</div><div class="nfq-side-note">Визуальный режим изменяет только распознанные поля. Raw-only сохраняется byte-for-byte.</div><div class="nfq-side-note">' + (testAvailable ? 'Временный runtime-тест доступен.' : 'Временный runtime-тест не предоставлен backend-контрактом; используйте Validate и Preview.') + '</div></div></aside></div>';
   bindEditorIDE(); bindWorkspaceResize(strategy); applyEditorWorkspaceClasses();
+}
+function renderEditorForm() {
+  if (!state.editor) return;
+  var body = state.root.querySelector('#modal-body'), modal = state.root.querySelector('#strategy-modal');
+  if (state.strategyEditor) {
+    state.strategyEditor.update(state.editor);
+    applyEditorWorkspaceClasses();
+    return;
+  }
+  var strategy = state.editor.strategy, header = modal && modal.querySelector('.modal-header');
+  var title = modal && modal.querySelector('.modal-title');
+  if (title) title.textContent = state.editor.mode === 'edit' ? 'Редактировать стратегию' : 'Стратегия';
+  if (header && !header.querySelector('[data-action="toggleWorkspaceMaximize"]')) {
+    var maximize = document.createElement('button');
+    maximize.type = 'button';
+    maximize.className = 'btn btn-ghost btn-sm workspace-maximize';
+    maximize.dataset.action = 'toggleWorkspaceMaximize';
+    maximize.title = 'Развернуть';
+    maximize.setAttribute('aria-label', 'Развернуть');
+    maximize.textContent = '⛶';
+    header.insertBefore(maximize, header.querySelector('[data-action="closeModal"]'));
+  }
+  body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-pane" data-editor-editor-host></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host style="display:none"></div><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть подсказки</button></div><div class="nfq-side-card token-help"><div class="editor-side-title">Inspector</div><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></div><div class="nfq-side-card" data-editor-problems-host></div></aside></div>';
+  state.editor.onSave = saveEditor;
+  state.strategyEditor = StrategyEditor.create(state.ctx, state.editor, {
+    fieldsHost: body.querySelector('[data-editor-fields-host]'),
+    profilesHost: body.querySelector('[data-editor-profiles-host]'),
+    editorHost: body.querySelector('[data-editor-editor-host]'),
+    validationHost: body.querySelector('[data-editor-validation-host]'),
+    previewHost: body.querySelector('[data-editor-preview-host]'),
+    actionsHost: body.querySelector('[data-editor-actions-host]'),
+    inspectorHost: body.querySelector('[data-editor-inspector-host]'),
+    problemsHost: body.querySelector('[data-editor-problems-host]'),
+  });
+  bindWorkspaceResize(strategy);
+  applyEditorWorkspaceClasses();
 }
 function bindEditorIDE() {
   if (!state.root || !state.editor) return;
