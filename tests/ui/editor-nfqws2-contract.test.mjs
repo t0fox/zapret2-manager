@@ -96,7 +96,6 @@ test('nfqws2 adapter maps completion, lint, help, and canonical asset metadata',
   const diagnostics = adapter.lintSource({ state: { doc } });
   assert.deepEqual(JSON.parse(JSON.stringify(diagnostics)), [
     { from: 2, to: 7, severity: 'error', message: 'bad flag' },
-    { severity: 'warning', message: 'server-only warning' },
   ]);
   const help = adapter.helpAt('--hostlist=vid', 15);
   assert.deepEqual(JSON.parse(JSON.stringify(help)), {

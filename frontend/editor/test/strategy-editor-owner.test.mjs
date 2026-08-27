@@ -130,3 +130,56 @@ test('Strategy owner keeps profile lifecycle and circular edits on canonical pro
   assert.ok(removeProfile, 'profile removal should remain available');
   strategyEditor.destroy();
 });
+
+test('StrategyEditor.update flushes the current strategy before binding the next one', () => {
+  const loaded = loadOwner();
+  const editorState = {
+    mode: 'edit',
+    viewByProfile: { 0: 'code' },
+    strategy: {
+      id: 'old', name: 'Old', description: '',
+      profiles: [{ id: 'p1', name: 'P1', args: '--filter-tcp=80' }],
+    },
+  };
+  const hosts = {};
+  for (const name of ['fieldsHost', 'profilesHost', 'editorHost', 'validationHost', 'previewHost', 'inspectorHost', 'problemsHost']) {
+    hosts[name] = loaded.window.document.createElement('div');
+    loaded.window.document.body.appendChild(hosts[name]);
+  }
+  const strategyEditor = loaded.owner.create(null, editorState, hosts);
+  const nextState = {
+    mode: 'edit',
+    viewByProfile: { 0: 'code' },
+    strategy: {
+      id: 'new', name: 'New', description: '',
+      profiles: [{ id: 'p1', name: 'P1', args: '--filter-tcp=443' }],
+    },
+  };
+
+  strategyEditor.update(nextState);
+
+  assert.equal(nextState.strategy.profiles[0].args, '--filter-tcp=443');
+  assert.equal(strategyEditor.getHandle().getValue(), '--filter-tcp=443');
+  strategyEditor.destroy();
+});
+
+test('StrategyEditor.create cleans mounted hosts when initial render throws', () => {
+  const loaded = loadOwner();
+  const originalDiagnostics = loaded.nfqws2Ide.diagnostics;
+  loaded.nfqws2Ide.diagnostics = () => { throw new Error('render diagnostics failed'); };
+  const state = {
+    mode: 'edit',
+    viewByProfile: { 0: 'code' },
+    strategy: { id: 'broken', name: 'Broken', description: '', profiles: [{ id: 'p1', name: 'P1', args: '--filter-tcp=443' }] },
+  };
+  const hosts = {};
+  for (const name of ['fieldsHost', 'profilesHost', 'editorHost', 'validationHost', 'previewHost', 'inspectorHost', 'problemsHost']) {
+    hosts[name] = loaded.window.document.createElement('div');
+    loaded.window.document.body.appendChild(hosts[name]);
+  }
+
+  assert.throws(() => loaded.owner.create(null, state, hosts), /render diagnostics failed/);
+  assert.equal(hosts.editorHost.querySelector('.cm-editor'), null);
+  for (const host of Object.values(hosts)) assert.equal(host.childElementCount, 0);
+  loaded.nfqws2Ide.diagnostics = originalDiagnostics;
+});

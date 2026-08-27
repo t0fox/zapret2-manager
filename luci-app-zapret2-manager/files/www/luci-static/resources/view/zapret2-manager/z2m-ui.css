@@ -3417,3 +3417,13 @@
   #z2m-view-strategy #strategy-modal [data-editor-region="problems"]{order:3}
   #z2m-view-assets .z2m-asset-editor-host{height:clamp(220px,50vh,420px);min-height:220px}
 }
+
+#z2m-view-strategy .strategy-preview-primary-command{margin-top:4px}
+#z2m-view-strategy .strategy-preview-primary-command>b{display:block;margin-bottom:5px}
+#z2m-view-strategy .strategy-preview-dependencies,#z2m-view-strategy .strategy-preview-validation,#z2m-view-strategy .strategy-preview-technical{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.02)}
+#z2m-view-strategy .strategy-preview-dependencies h4,#z2m-view-strategy .strategy-preview-validation h4{margin:0 0 6px}
+#z2m-view-strategy .strategy-preview-dependencies ul{margin:5px 0;padding-left:18px}
+#z2m-view-strategy .strategy-preview-dependencies li{display:flex;justify-content:space-between;gap:12px;color:var(--tx2);font-size:11px}
+#z2m-view-strategy .strategy-preview-mismatch{margin-top:10px;padding:8px;border:1px solid #b7791f;border-radius:6px;color:#ffd08a;background:rgba(183,121,31,.12)}
+#z2m-view-strategy .strategy-preview-technical summary{cursor:pointer;color:var(--tx2)}
+#z2m-view-strategy .strategy-preview-technical pre{margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}

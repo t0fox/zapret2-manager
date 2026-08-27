@@ -364,7 +364,7 @@ return baseclass.extend({
           value: text(profile.args),
           extensions: nfqws2.extensions,
           onChange: function (value) {
-            if (syncSource === 'visual') return;
+            if (syncSource) return;
             var current = activeProfile();
             if (!current) return;
             current.args = value;
@@ -382,7 +382,10 @@ return baseclass.extend({
           },
         });
       } else if (handle.getValue() !== text(profile.args)) {
-        handle.setValue(text(profile.args), { preserveHistory: true });
+        var previousSyncSource = syncSource;
+        syncSource = 'programmatic';
+        try { handle.setValue(text(profile.args), { preserveHistory: true }); }
+        finally { syncSource = previousSyncSource; }
       }
       if (handle.view) handle.setDiagnostics(nfqws2.lintSource(handle.view));
       restoreProfile();
@@ -482,14 +485,34 @@ return baseclass.extend({
       problem.to = problem.from + (Number.isFinite(length) && length >= 0 ? length : 0);
       return problem;
     }
-    render();
+    try {
+      render();
+    } catch (error) {
+      destroyed = true;
+      listeners.forEach(function (item) { item.node.removeEventListener(item.type, item.listener); });
+      listeners = [];
+      if (handle) {
+        try { handle.destroy(); } catch (_destroyError) { clear(hosts.editorHost); }
+      }
+      handle = null;
+      clear(hosts.fieldsHost);
+      clear(hosts.profilesHost);
+      clear(hosts.editorHost);
+      clear(hosts.validationHost);
+      clear(hosts.previewHost);
+      clear(hosts.actionsHost);
+      clear(hosts.inspectorHost);
+      clear(hosts.problemsHost);
+      throw error;
+    }
     return {
       update: function (nextState) {
         if (destroyed) return;
+        rememberProfile();
+        flush();
         editorState = nextState || editorState;
         strategy = editorState.strategy;
         if (!activeId || profileIndex(activeId) < 0) activeId = profileId(array(strategy.profiles)[0], 0);
-        flush();
         renderMetadata();
         renderProfileTabs();
         renderVisual();
@@ -506,6 +529,7 @@ return baseclass.extend({
       setPreview: function (value) { setText(hosts.previewHost, value); },
       getHandle: function () { return handle; },
       destroy: function () {
+        if (destroyed) return;
         destroyed = true;
         listeners.forEach(function (item) { item.node.removeEventListener(item.type, item.listener); });
         listeners = [];
