@@ -6,12 +6,12 @@ const page = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/res
 const api = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js', 'utf8');
 const css = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css', 'utf8');
 
-test('Resources page is a four-pane Update Center using the canonical segmented primitive', () => {
-  for (const label of ['Обновления', 'Установленные', 'Пользовательские', 'Источники']) assert.match(page, new RegExp(label));
-  assert.match(page, /shell\.subTabs/);
-  assert.match(page, /ctx\.api\.resources\.(status|check|update)/);
+test('Resources page keeps the canonical Asset Registry center and segmented filters', () => {
+  for (const label of ['Ресурсы', 'Все', 'Системные', 'Пользовательские', 'Открыть workspace']) assert.match(page, new RegExp(label));
+  assert.match(page, /shell\.segmented/);
+  assert.match(page, /ctx\.api\.resources\.(status|check)/);
   assert.match(page, /assetTypeForRoute/);
-  assert.match(page, /type === assetType/);
+  assert.match(page, /asset\.type === 'blob'/);
   assert.doesNotMatch(page, /<table/);
 });
 
@@ -42,6 +42,7 @@ test('Resource Center exposes one lazy route-aware workspace for first-class ass
 
 test('Package resources keep content available in a read-only editor', () => {
   assert.match(page, /Просмотр доступен/);
-  assert.match(page, /luaEditor\(state, readOnly\)/);
-  assert.match(page, /editor\.readOnly = readOnly/);
+  assert.match(page, /CodeEditor\.mount/);
+  assert.match(page, /readOnly: asset\.ownership === 'package'/);
+  assert.doesNotMatch(page, /z2m-lua-editor-overlay/);
 });

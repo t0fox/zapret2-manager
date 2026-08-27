@@ -1,5 +1,7 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-code-editor as CodeEditor';
+'require view.zapret2-manager.z2m-editor-lua as LuaEditor';
 'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 'require view.zapret2-manager.z2m-asset-tooling as Tooling';
 'require view.zapret2-manager.z2m-resources-model as ResourcesModel';
@@ -51,33 +53,46 @@ function importPanel(ctx, assets) { var rows = Array.isArray(assets) ? assets : 
 
 function hexRows(bytes, max) { return Tooling.boundedHexView(bytes, { maxBytes: max || 4096, columns: 16 }).rows.map(function (row) { return row.offset.toString(16).padStart(8, '0') + '  ' + row.hex.padEnd(47, ' ') + '  ' + row.ascii; }).join('\n'); }
 function errorList(errors) { return E('ul', { 'class': 'z2m-asset-errors' }, (errors || []).map(function (error) { return E('li', {}, [error.line ? _('строка ') + error.line + ': ' : '', text(error.message, _('Ошибка проверки'))]); })); }
-function luaEditor(state, readOnly) {
-  var editor = E('textarea', { 'class': 'z2m-lua-editor-input', spellcheck: false, wrap: 'off', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off' }), gutter = E('pre', { 'class': 'z2m-lua-editor-gutter', 'aria-hidden': 'true' }), wrap = E('div', { 'class': 'z2m-lua-editor' }, [gutter, editor]);
-  editor.style.width = '100%';
-  editor.style.maxWidth = 'none';
-  editor.style.height = '100%';
-  editor.style.minHeight = '310px';
-  editor.style.margin = '0';
-  editor.style.padding = '12px 14px';
-  editor.style.boxSizing = 'border-box';
-  editor.style.resize = 'none';
-  editor.style.overflow = 'auto';
-  editor.style.background = 'transparent';
-  editor.style.color = 'var(--tx)';
-  editor.style.caretColor = 'var(--tx)';
-  editor.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-  editor.style.fontSize = '12px';
-  editor.style.lineHeight = '1.55';
-  editor.style.tabSize = '4';
-  editor.style.whiteSpace = 'pre';
-  editor.value = state.content || '';
-  editor.readOnly = readOnly === true;
-  function sync() { var source = editor.value || ''; gutter.textContent = Array.from({ length: Math.max(1, source.split('\n').length) }, function (_, index) { return String(index + 1); }).join('\n') + '\n'; gutter.scrollTop = editor.scrollTop; }
-  if (!readOnly) editor.addEventListener('input', function () { state.dirty = true; state.content = editor.value; sync(); });
-  editor.addEventListener('scroll', function () { gutter.scrollTop = editor.scrollTop; }); sync(); return wrap;
-}
 function workspace(ctx, selected, close) {
-  var asset = selected, root = E('section', { 'class': 'z2m-asset-workspace' }), state = { mode: asset.type === 'blob' ? 'view' : 'edit', bytes: null, content: '', validation: null, dirty: false };
+  var asset = selected, textAsset = ['lua', 'hostlist', 'ipset', 'hosts'].indexOf(asset.type) >= 0;
+  var root = E('section', { 'class': 'z2m-asset-workspace' });
+  var state = { mode: asset.type === 'blob' ? 'view' : 'edit', bytes: null, content: '', validation: null, dirty: false, editor: null };
+  var headerHost = E('div', { 'class': 'z2m-asset-header-host', 'data-editor-host': 'headerHost' });
+  var tabsHost = E('div', { 'class': 'z2m-asset-tabs-host', 'data-editor-host': 'tabsHost' });
+  var paneHost = E('div', { 'class': 'z2m-asset-workspace-pane', 'data-editor-host': 'paneHost' });
+  var editorHost = E('div', { 'class': 'z2m-asset-editor-host', 'data-editor-host': 'editorHost' });
+  var validationHost = E('div', { 'class': 'z2m-asset-validation-host', 'data-editor-host': 'validationHost' });
+  var actionsHost = E('div', { 'class': 'z2m-asset-actions-host', 'data-editor-host': 'actionsHost' });
+  root.appendChild(headerHost); root.appendChild(tabsHost); root.appendChild(paneHost);
+  root.appendChild(editorHost); root.appendChild(validationHost); root.appendChild(actionsHost);
+  function currentContent() { return state.editor ? state.editor.getValue() : state.content; }
+  function setContent(value) {
+    state.content = text(value);
+    state.dirty = true;
+    if (state.editor && state.editor.getValue() !== state.content) state.editor.setValue(state.content, { preserveHistory: true });
+  }
+  function renderValidation() {
+    validationHost.replaceChildren();
+    if (!state.validation) return;
+    if (state.validation.status === 'unavailable') validationHost.appendChild(E('div', { 'class': 'warnbar' }, _('Синтаксическая проверка недоступна')));
+    else if (state.validation.errors && state.validation.errors.length) validationHost.appendChild(errorList(state.validation.errors));
+    else validationHost.appendChild(E('div', { 'class': 'okbar' }, _('Проверка пройдена')));
+  }
+  function ensureEditor() {
+    if (!textAsset || state.mode !== 'edit') { editorHost.style.display = 'none'; return; }
+    editorHost.style.display = '';
+    if (!state.editor) {
+      state.editor = CodeEditor.mount(editorHost, {
+        value: state.content,
+        readOnly: asset.ownership === 'package',
+        extensions: asset.type === 'lua' ? LuaEditor.extensions() : [],
+        onChange: function (value) { state.content = value; state.dirty = true; },
+        onSave: function () { save(); },
+      });
+    } else if (state.editor.getValue() !== state.content) {
+      state.editor.setValue(state.content, { preserveHistory: true });
+    }
+  }
   function tabs() {
     var host = E('div', { 'class': 'z2m-seg z2m-asset-tabs', role: 'tablist', 'aria-label': _('Режим workspace') });
     ['view', 'edit', 'generate', 'usage'].filter(function (mode) { return mode !== 'generate' || asset.type === 'blob'; }).forEach(function (mode) {
@@ -87,23 +102,48 @@ function workspace(ctx, selected, close) {
     });
     return host;
   }
-  function editPane() { var children = [], readOnly = asset.ownership === 'package'; if (readOnly) children.push(E('div', { 'class': 'warnbar' }, _('Пакетная база / immutable. Просмотр доступен; для изменений используйте Duplicate as user copy.'))); if (asset.type === 'lua') children.push(luaEditor(state, readOnly)); else { var editor = E('textarea', { 'class': 'z2m-asset-editor', spellcheck: false }); editor.value = asset.type === 'blob' ? Tooling.bytesToHex(state.bytes || []) : (state.content || ''); editor.readOnly = readOnly; if (!readOnly) editor.addEventListener('input', function () { state.dirty = true; state.content = editor.value; }); children.push(editor); } if (!readOnly && (asset.type === 'hostlist' || asset.type === 'ipset')) children.push(E('div', { 'class': 'z2m-inline-form' }, [ctx.shell.button(_('Сортировать / dedupe'), 'sm', function () { state.content = Tooling.normalizeEntries(asset.type, state.content).content; state.dirty = true; paint(); }), E('input', { id: 'z2m-quick-add', class: 'z2m-input', placeholder: _('Быстро добавить запись') }), ctx.shell.button(_('Добавить'), 'sm', function () { var input = root.querySelector('#z2m-quick-add'); if (input && input.value.trim()) { state.content = (state.content ? state.content + '\n' : '') + input.value.trim(); state.dirty = true; paint(); } })])); if (!readOnly && (asset.type === 'hostlist' || asset.type === 'ipset')) children.push(urlImport()); if (!readOnly && asset.type === 'ipset') children.push(asnImport());
-    if (state.validation) children.push(state.validation.status === 'unavailable' ? E('div', { 'class': 'warnbar' }, _('Синтаксическая проверка недоступна')) : state.validation.errors && state.validation.errors.length ? errorList(state.validation.errors) : E('div', { 'class': 'okbar' }, _('Проверка пройдена'))); return E('div', { 'class': 'z2m-asset-edit-pane' }, children); }
-  function urlImport() { var input = E('input', { class: 'z2m-input', placeholder: 'https://example.org/list.txt' }), button = ctx.shell.button(_('URL import · Preview'), 'sm', function () { button.disabled = true; ctx.api.assets.importUrl(json({ type: asset.type, id: asset.id, url: input.value.trim(), provenance: { kind: 'imported', source: input.value.trim() } })).then(function (answer) { if (!answer || answer.ok === false) throw answer; state.content = Tooling.bytesToText(Tooling.base64ToBytes(answer.contentBase64)); state.dirty = true; state.validation = { status: 'preview' }; paint(); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }).then(function () { button.disabled = false; }); }); return E('div', { 'class': 'z2m-inline-form z2m-asset-import' }, [input, button]); }
-  function asnImport() { var input = E('input', { class: 'z2m-input', placeholder: 'AS15169' }), button = ctx.shell.button(_('Получить подсети'), 'sm', function () { button.disabled = true; ctx.api.assets.asn(json({ asn: input.value.trim() })).then(function (answer) { if (!answer || answer.ok === false) throw answer; state.content = (state.content ? state.content + '\n' : '') + (answer.prefixes || []).join('\n'); state.dirty = true; state.validation = { status: 'preview', asn: answer.asn, counts: answer.counts }; paint(); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }).then(function () { button.disabled = false; }); }); return E('div', { 'class': 'z2m-inline-form z2m-asn-import' }, [input, button, E('span', { 'class': 'z2m-dim' }, _('RIPE · Preview, затем Save'))]); }
+  function editPane() {
+    var children = [], readOnly = asset.ownership === 'package';
+    if (readOnly) children.push(E('div', { 'class': 'warnbar' }, _('Пакетная база / immutable. Просмотр доступен; для изменений используйте Duplicate as user copy.')));
+    if (!textAsset && asset.type === 'blob') {
+      var editor = E('textarea', { 'class': 'z2m-asset-editor', spellcheck: false });
+      editor.value = Tooling.bytesToHex(state.bytes || []);
+      editor.readOnly = readOnly;
+      if (!readOnly) editor.addEventListener('input', function () { state.dirty = true; state.content = editor.value; });
+      children.push(editor);
+    }
+    if (!readOnly && (asset.type === 'hostlist' || asset.type === 'ipset')) children.push(E('div', { 'class': 'z2m-inline-form' }, [
+      ctx.shell.button(_('Сортировать / dedupe'), 'sm', function () { setContent(Tooling.normalizeEntries(asset.type, currentContent()).content); paint(); }),
+      E('input', { id: 'z2m-quick-add', class: 'z2m-input', placeholder: _('Быстро добавить запись') }),
+      ctx.shell.button(_('Добавить'), 'sm', function () { var input = root.querySelector('#z2m-quick-add'); if (input && input.value.trim()) { setContent((currentContent() ? currentContent() + '\n' : '') + input.value.trim()); paint(); } })
+    ]));
+    if (!readOnly && (asset.type === 'hostlist' || asset.type === 'ipset')) children.push(urlImport());
+    if (!readOnly && asset.type === 'ipset') children.push(asnImport());
+    return E('div', { 'class': 'z2m-asset-edit-pane' }, children);
+  }
+  function urlImport() { var input = E('input', { class: 'z2m-input', placeholder: 'https://example.org/list.txt' }), button = ctx.shell.button(_('URL import · Preview'), 'sm', function () { button.disabled = true; ctx.api.assets.importUrl(json({ type: asset.type, id: asset.id, url: input.value.trim(), provenance: { kind: 'imported', source: input.value.trim() } })).then(function (answer) { if (!answer || answer.ok === false) throw answer; setContent(Tooling.bytesToText(Tooling.base64ToBytes(answer.contentBase64))); state.validation = { status: 'preview' }; paint(); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }).then(function () { button.disabled = false; }); }); return E('div', { 'class': 'z2m-inline-form z2m-asset-import' }, [input, button]); }
+  function asnImport() { var input = E('input', { class: 'z2m-input', placeholder: 'AS15169' }), button = ctx.shell.button(_('Получить подсети'), 'sm', function () { button.disabled = true; ctx.api.assets.asn(json({ asn: input.value.trim() })).then(function (answer) { if (!answer || answer.ok === false) throw answer; setContent((currentContent() ? currentContent() + '\n' : '') + (answer.prefixes || []).join('\n')); state.validation = { status: 'preview', asn: answer.asn, counts: answer.counts }; paint(); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }).then(function () { button.disabled = false; }); }); return E('div', { 'class': 'z2m-inline-form z2m-asn-import' }, [input, button, E('span', { 'class': 'z2m-dim' }, _('RIPE · Preview, затем Save'))]); }
   function viewPane() { if (!state.bytes) return E('p', { 'class': 'z2m-dim' }, _('Загрузка содержимого…')); if (asset.type === 'blob') return E('pre', { 'class': 'z2m-hex-viewer', 'data-bounded': 'true' }, hexRows(state.bytes, 4096) + (state.bytes.length > 4096 ? '\n… ' + (state.bytes.length - 4096) + ' байт скрыто' : '')); return E('pre', { 'class': 'z2m-code-viewer' }, state.content); }
   function generatorPane() { var host = E('input', { class: 'z2m-input', value: 'example.com' }), path = E('input', { class: 'z2m-input', value: '/' }), method = E('select', { class: 'z2m-select' }, ['GET', 'POST', 'HEAD'].map(function (value) { return E('option', { value: value }, value); })), button = ctx.shell.button(_('Generate preview'), 'primary sm', function () { try { state.generator = method.value === 'GET' && path.value === '/' ? 'avatar-fake-tls' : 'avatar-fake-http'; state.bytes = state.generator === 'avatar-fake-tls' ? Tooling.generateTlsClientHello(host.value) : Tooling.generateHttpRequest(host.value, path.value, method.value); state.content = Tooling.bytesToHex(state.bytes); state.dirty = true; paint(); } catch (error) { state.validation = { status: 'failed', errors: [{ message: error.message }] }; paint(); } }); return E('div', { 'class': 'z2m-generator-pane' }, [E('p', {}, _('Donor-compatible TLS ClientHello / HTTP request. Generated bytes remain ordinary Asset Registry blob.')), E('div', { 'class': 'z2m-inline-form' }, [host, path, method, button]), state.bytes ? E('pre', { 'class': 'z2m-hex-viewer', 'data-bounded': 'true' }, hexRows(state.bytes, 4096)) : E('p', { 'class': 'z2m-dim' }, _('Preview появится после Generate.'))]); }
   function usagePane() { var items = refs(asset); return E('div', { 'class': 'z2m-asset-usage' }, [items.length ? E('p', {}, _('Используется в ') + items.length + _(' стратегиях')) : E('p', { 'class': 'z2m-dim' }, _('Ссылок нет. Ресурс можно удалить, если он пользовательский.')), items.length ? E('ul', {}, items.map(function (ref) { return E('li', {}, [text(ref.consumer), ctx.shell.button(_('Открыть стратегию'), 'link sm', function () { ctx.navigate('strategies'); })]); })) : null, asset.ownership !== 'package' && !items.length ? ctx.shell.button(_('Удалить ресурс'), 'sm', remove) : items.length ? E('div', { 'class': 'warnbar' }, _('Удаление запрещено backend: ресурс используется.')) : null]); }
   function pane() { return state.mode === 'view' ? viewPane() : state.mode === 'edit' ? editPane() : state.mode === 'generate' ? generatorPane() : usagePane(); }
-  function toolbar() { return E('div', { 'class': 'z2m-asset-workspace-head' }, [E('div', {}, [ctx.shell.button(_('← Ресурсный центр'), 'link', close), E('h2', {}, text(asset.name || asset.id)), E('span', { 'class': 'z2m-dim' }, routeLabel(asset.type))]), metadata(asset)]); }
+  function toolbar() { return E('div', { 'class': 'z2m-asset-workspace-head' }, [E('div', {}, [ctx.shell.button(_('← Ресурсный центр'), 'link', closeWorkspace), E('h2', {}, text(asset.name || asset.id)), E('span', { 'class': 'z2m-dim' }, routeLabel(asset.type))]), metadata(asset)]); }
   function actionBar() { var actions = []; if (!mutable(asset)) actions.push(ctx.shell.button(_('Дублировать как пользовательский ресурс'), 'primary sm', duplicate)); else { if (state.mode === 'edit') actions.push(ctx.shell.button(_('Обновить ресурс · Validate / Save'), 'primary sm', save)); actions.push(ctx.shell.button(_('Копировать ресурс'), 'link sm', duplicate)); } if (state.mode === 'generate' && state.bytes) actions.push(ctx.shell.button(_('Сохранить как пользовательский blob'), 'primary sm', saveGenerated)); return E('div', { 'class': 'z2m-page-actions' }, actions); }
-  function paint() { root.replaceChildren(toolbar(), tabs(), E('div', { 'class': 'z2m-asset-workspace-pane' }, [pane(), actionBar()])); }
+  function paint() {
+    headerHost.replaceChildren(toolbar());
+    tabsHost.replaceChildren(tabs());
+    paneHost.replaceChildren(pane());
+    actionsHost.replaceChildren(actionBar());
+    renderValidation();
+    ensureEditor();
+  }
   function loadContent() { ctx.api.assets.content(json({ id: asset.id })).then(function (answer) { if (!answer || answer.ok === false) throw answer; state.bytes = Tooling.base64ToBytes(answer.contentBase64); state.content = Tooling.bytesToText(state.bytes); asset._bytes = state.bytes; paint(); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }); }
-  function currentBytes() { return asset.type === 'blob' ? Tooling.hexToBytes(state.content) : Tooling.base64ToBytes(Tooling.textToBase64(state.content)); }
+  function currentBytes() { var content = currentContent(); return asset.type === 'blob' ? Tooling.hexToBytes(content) : Tooling.base64ToBytes(Tooling.textToBase64(content)); }
   function save() { var bytes; try { bytes = currentBytes(); } catch (error) { state.validation = { status: 'failed', errors: [{ message: error.message }] }; paint(); return; } var encoded = Tooling.bytesToBase64(bytes); ctx.api.assets.validateContent(json({ id: asset.id, contentBase64: encoded })).then(function (answer) { if (!answer || answer.ok === false) throw answer; state.validation = answer.validation || {}; if (state.validation.status === 'failed') { paint(); return; } return ctx.api.assets.update(json({ id: asset.id, expectedRevision: asset.revision, contentBase64: encoded })).then(function (updated) { if (!updated || updated.ok === false) throw updated; asset = updated.asset || asset; state.bytes = bytes; state.content = asset.type === 'blob' ? Tooling.bytesToHex(bytes) : Tooling.bytesToText(bytes); state.dirty = false; return ctx.refresh(ctx.route); }); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }); }
-  function duplicate() { var id = asset.type + ':' + text(asset.id).split(':').slice(1).join(':') + '-copy', encoded = Tooling.bytesToBase64(state.bytes || []); ctx.api.assets.import(json({ type: asset.type, id: id, contentBase64: encoded, provenance: { kind: 'user-created', sourceAssetId: asset.id } })).then(function (answer) { if (!answer || answer.ok === false) throw answer; ctx.refresh(ctx.route); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }); }
+  function duplicate() { var id = asset.type + ':' + text(asset.id).split(':').slice(1).join(':') + '-copy', encoded; try { encoded = Tooling.bytesToBase64(currentBytes()); } catch (error) { state.validation = { status: 'failed', errors: [{ message: error.message }] }; paint(); return; } ctx.api.assets.import(json({ type: asset.type, id: id, contentBase64: encoded, provenance: { kind: 'user-created', sourceAssetId: asset.id } })).then(function (answer) { if (!answer || answer.ok === false) throw answer; ctx.refresh(ctx.route); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }); }
   function saveGenerated() { var id = 'blob:generated-' + Date.now().toString(36), encoded = Tooling.bytesToBase64(state.bytes || []); ctx.api.assets.import(json({ type: 'blob', id: id, name: state.generator === 'avatar-fake-tls' ? 'Fake TLS ClientHello' : 'Fake HTTP request', contentBase64: encoded, provenance: { kind: 'generated', generator: state.generator, sourceAssetId: asset.id } })).then(function (answer) { if (!answer || answer.ok === false) throw answer; return ctx.refresh(ctx.route); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }); }
   function remove() { AvatarUi.confirm({ title: _('Удалить ресурс'), message: _('Backend проверит ссылки и ownership.'), okLabel: _('Удалить'), className: 'danger' }).then(function (confirmed) { if (!confirmed) return; return ctx.api.assets.delete(json({ id: asset.id })).then(function (answer) { if (!answer || answer.ok === false) throw answer; return ctx.refresh(ctx.route); }); }).catch(function (error) { state.validation = { status: 'failed', errors: [{ message: message(ctx, error) }] }; paint(); }); }
+  function closeWorkspace() { if (state.editor) { state.editor.destroy(); state.editor = null; } close(); }
   paint(); loadContent(); return root;
 }
 

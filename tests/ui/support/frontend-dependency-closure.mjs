@@ -1,8 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const REQUIRE_RE = /require\s+(view\.zapret2-manager|zapret2-manager)\.([A-Za-z0-9_-]+)/g;
+const REQUIRE_RE = /require\s+(view\.zapret2-manager|zapret2-manager)\.([A-Za-z0-9_.-]+)/g;
 const URL_RE = /url\(\s*["']?([^\s"')]+)["']?\s*\)/g;
+
+function existsCaseSensitive(root, relative) {
+  let current = root;
+  for (const part of relative.split('/')) {
+    if (!fs.existsSync(current) || !fs.readdirSync(current).includes(part)) return false;
+    current = path.join(current, part);
+  }
+  return fs.existsSync(current);
+}
 
 export function resolveLuCIRequireClosure(root) {
   const files = new Set(fs.readdirSync(root).filter((name) => name.endsWith('.js')));
@@ -18,8 +27,9 @@ export function resolveLuCIRequireClosure(root) {
   for (const [from, modules] of references) {
     for (const module of modules) {
       const expected = `${module.name}.js`;
+      const localPath = `${module.name.replaceAll('.', '/')}.js`;
       const available = module.namespace === 'view.zapret2-manager'
-        ? files.has(expected)
+        ? files.has(expected) || existsCaseSensitive(root, localPath)
         : fs.existsSync(path.resolve(root, '..', '..', 'zapret2-manager', expected));
       if (!available) missing.push({ from, namespace: module.namespace, module: module.name, expected });
     }
