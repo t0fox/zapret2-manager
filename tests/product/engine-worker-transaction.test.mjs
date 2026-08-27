@@ -82,7 +82,7 @@ test('worker script declares the staged transaction with z2k gates', () => {
   const order = [
     ['preflight artifactKind gate', 'EENGINE_INTEGRATION_REQUIRED'],
     ['architecture gate', "TARGET_ARCH\" = \"$ARCH"],
-    ['download allowlist incl. canonical feed', 't0fox/zapret2-manager/releases/download'],
+    ['official upstream allowlist', 'bol-van/zapret2/releases/download/v*'],
     ['artifact sha gate', 'ESHA256'],
     ['materialize phase', 'strategy-runtime-assets-sync.sh'],
     ['verify mode gate', '--verify'],

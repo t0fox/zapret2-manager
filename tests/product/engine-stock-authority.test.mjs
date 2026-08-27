@@ -123,23 +123,24 @@ test('merged_candidates prefers official upstream releases over legacy feed entr
 		'vanilla list must be pushed before the legacy z2m list');
 });
 
-test('load_checked_candidate accepts both canonical artifact kinds only', () => {
+test('load_checked_candidate admits only official stock releases', () => {
 	const src = fs.readFileSync(MODULE, 'utf8');
 	const fn = src.slice(src.indexOf('export const load_checked_candidate ='),
 		src.indexOf('export const save_engine_state ='));
 	assert.match(fn, /VANILLA_ARTIFACT/);
-	assert.match(fn, /Z2M_ENGINE_ARTIFACT/);
+	assert.doesNotMatch(fn, /Z2M_ENGINE_ARTIFACT/, 'legacy kind no longer admissible');
 	assert.match(fn, /compatible !== true/);
 });
 
 // -------------------------------------------------------------- worker pins
 
-test('worker preflight gate admits vanilla + legacy kinds, never others', () => {
+test('worker preflight gate admits only the official stock artifact kind', () => {
 	const src = fs.readFileSync(WORKER, 'utf8');
 	const idx = src.indexOf("ARTIFACT_SCHEMA\" = 'zapret2-manager.engine-artifact.v1'");
 	const block = src.slice(idx - 200, idx + 400);
-	assert.match(block, /'z2m-compatible-engine'/);
 	assert.match(block, /'vanilla-bol-van-release'/);
+	assert.doesNotMatch(block, /'z2m-compatible-engine'/,
+		'the legacy compatibility kind is retired from production admission');
 });
 
 test('worker proving phase derives required capabilities from the candidate', () => {
