@@ -127,7 +127,7 @@ function normalizeEngine(input) {
 		available: { version: availableVersion },
 		artifactKind: artifactKind,
 		upstreamRelease: upstreamRelease,
-		checkedAt: timestamp(check.checkedAt !== undefined ? check.checkedAt : status.checkedAt),
+		checkedAt: timestamp(check.checkedAt !== undefined ? check.checkedAt : status.checkedAt !== undefined ? status.checkedAt : catalog.fetchedAt),
 		summary: runtimeHealth === 'missing' ? 'Базовый движок обработки трафика отсутствует.' : 'Базовый движок обработки трафика.',
 		version: installedVersion,
 		actions: actions,

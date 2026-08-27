@@ -77,12 +77,12 @@ test('engine card binds scope engine; z2k card binds z2k; hero all', () => {
   assert.match(src, /checkUpdates\.bind\(null,\s*ctx,\s*'all'\)/);
 });
 
-test('scope drives backend calls: engine->status/gateStatus only, z2k->resources.check only', () => {
+test('scope drives backend calls: engine->fresh check/gateStatus, z2k->resources.check', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
   const fn = src.slice(src.indexOf('function checkUpdates'), src.indexOf('function updateZ2K'));
-  assert.match(fn, /scope === 'z2k'\)\s*promises\.push\(boundedLoad\(ctx\.api\.resources\.check/);
-  assert.match(fn, /scope === 'engine'\)\s*\{\s*promises\.push\(boundedLoad\(ctx\.api\.engine\.status/);
-  assert.match(fn, /if \(ctx\.api\.engine\.gateStatus\)\s*promises\.push\(boundedLoad\(ctx\.api\.engine\.gateStatus/);
+  assert.match(fn, /scope === 'z2k'\)\s*promises\.push\(checkedResult\(ctx\.api\.resources\.check/);
+  assert.match(fn, /scope === 'engine'\)\s*\{\s*promises\.push\(checkedResult\(ctx\.api\.engine\.check\(\{\s*forceRefresh:\s*true/);
+  assert.match(fn, /if \(ctx\.api\.engine\.gateStatus\)\s*promises\.push\(checkedResult\(ctx\.api\.engine\.gateStatus/);
   // bounded lifecycle guard present
   assert.match(fn, /Promise\.race\(\[Promise\.allSettled\(promises\)/);
 });

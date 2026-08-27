@@ -117,6 +117,13 @@ function boundedLoad(promise, label) {
     throw error;
   });
 }
+function checkedResult(promise, label) {
+  return boundedLoad(promise, label).then(function (answer) {
+    if (!answer || answer.ok === false || answer.error)
+      throw answer && answer.error || answer || { code: 'EEMPTY', message: label + ' не вернул результат.' };
+    return answer;
+  });
+}
 function activePane(ctx) {
   var route = ctx.route || '';
   if (route === 'backups') return 'backups';
@@ -338,19 +345,25 @@ function checkUpdates(ctx, scope) {
   state.componentOperation = { kind: 'check', scope: scope };
   rerender(ctx);
   var promises = [];
-  if (scope === 'all' || scope === 'z2k') promises.push(boundedLoad(ctx.api.resources.check(), 'Проверка Z2K'));
+  if (scope === 'all' || scope === 'z2k') promises.push(checkedResult(ctx.api.resources.check(), 'Проверка Z2K'));
   if (scope === 'all' || scope === 'engine') {
-    promises.push(boundedLoad(ctx.api.engine.status(), 'Проверка движка'));
-    if (ctx.api.engine.gateStatus) promises.push(boundedLoad(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
+    promises.push(checkedResult(ctx.api.engine.check({ forceRefresh: true }), 'Проверка движка'));
+    if (ctx.api.engine.gateStatus) promises.push(checkedResult(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
   }
   // Bounded lifecycle: even a hung rpc transport must never leave busy forever.
-  void CHECK_TIMEOUT_MS;
-  Promise.race([Promise.allSettled(promises), new Promise(function (r) { window.setTimeout(r, CHECK_TIMEOUT_MS); })]).then(function (results) {
+  Promise.race([Promise.allSettled(promises), new Promise(function (_, reject) {
+    window.setTimeout(function () {
+      reject({ code: 'frontend-timeout', message: _('Проверка обновлений превысила допустимое время.') });
+    }, CHECK_TIMEOUT_MS);
+  })]).then(function (results) {
     var failed = results && results.some ? results.some(function (r) { return r.status === 'rejected'; }) : false;
     if (failed) {
       var firstError = results.find(function (r) { return r.status === 'rejected'; });
       if (firstError) showError(ctx, firstError.reason);
+      return false;
     }
+    ctx.shell.showToast(_('Проверка обновлений завершена.'), 'ok');
+    return true;
   }).catch(function (error) {
     showError(ctx, error);
   }).then(function () {

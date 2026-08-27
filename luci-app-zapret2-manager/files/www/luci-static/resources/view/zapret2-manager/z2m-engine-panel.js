@@ -128,7 +128,7 @@ function checkRelease(ctx, state) {
   state.busy = true;
   state.check = null;
   state.redraw();
-  ctx.api.engine.check({ version: state.selectedVersion }).then(function (answer) {
+  ctx.api.engine.check({ version: state.selectedVersion, forceRefresh: true }).then(function (answer) {
     if (!answer || answer.ok === false) throw answer && answer.error || answer;
     state.check = answer;
     state.truth = ComponentsModel.normalizeEngine({ status: state.status, catalog: state.catalog, check: answer });
