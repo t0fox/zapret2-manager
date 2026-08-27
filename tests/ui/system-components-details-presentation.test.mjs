@@ -167,6 +167,7 @@ test('Engine details are a single Components-owned presentation without embedded
   assert.equal(dangerZones.length, 1, 'Engine delete must live in a dedicated Danger Zone');
   assert.ok(buttonsOf(dangerZones[0]).includes('Удалить движок'));
   assert.ok(buttonsOf(detailPanels[0]).includes('Обновить'));
+  assert.ok(buttonsOf(detailPanels[0]).includes('Проверить снова'));
 });
 
 test('Engine current state keeps re-check visible and does not duplicate management facts', () => {
@@ -218,6 +219,7 @@ test('Z2K available release gets an update action only when the model says it is
 
   assert.match(textOf(details), /r-80\.4/);
   assert.ok(buttonsOf(details).includes('Обновить'));
+  assert.ok(buttonsOf(details).includes('Проверить снова'));
 });
 
 test('Only one mandatory details panel is open at a time', () => {

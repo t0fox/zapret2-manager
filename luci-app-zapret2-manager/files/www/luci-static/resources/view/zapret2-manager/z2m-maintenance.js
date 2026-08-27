@@ -74,6 +74,7 @@ var state = {
   engineOperation: null,
   engineOperationTimer: null,
   engineOperationPolling: false,
+  engineOperationOverride: false,
   showAllBackups: false
 };
 function isBusyFor(componentId) {
@@ -657,9 +658,12 @@ function renderEngineDetails(ctx, component, engineStatus) {
         { label: _('Доступная версия'), value: available },
         { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
       ],
-      actions: [hasUpdate
-        ? shell.button(_('Обновить'), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', _('Обновить')), !!state.componentOperation)
-        : shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)]
+      actions: hasUpdate ? [
+        shell.button(_('Обновить'), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', _('Обновить')), !!state.componentOperation),
+        shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)
+      ] : [
+        shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)
+      ]
     }),
     renderDetailSection(_('Управление службой'), E('div', {}, [
       E('p', { 'class': 'z2m-dim' }, isReady ? _('Перезапуск применяет текущую конфигурацию без изменения release.') : _('Служба недоступна; сначала восстановите установленный release.')),
@@ -734,9 +738,12 @@ function renderZ2KDetails(ctx, component) {
         { label: _('Локальная revision'), value: localRevision || _('Не определена') },
         { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
       ],
-      actions: [hasUpdate
-        ? shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core'))
-        : shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))]
+      actions: hasUpdate ? [
+        shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core')),
+        shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
+      ] : [
+        shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
+      ]
     }),
     renderReviewCallout(component),
     E('details', { 'class': 'z2m-component-technical' }, [
@@ -945,7 +952,8 @@ function renderComponents(ctx, data) {
       state.lastSuccessfulCheckAt
     )
   });
-  state.engineOperation = engineValue[2] && engineValue[2].operation || null;
+  if (!state.engineOperationOverride)
+    state.engineOperation = engineValue[2] && engineValue[2].operation || null;
   var engineComp = page.components.find(function (c) { return c.id === 'engine'; });
   var z2kComp = page.components.find(function (c) { return c.id === 'z2k-core'; });
   var hero = renderHero(ctx, page);
@@ -1223,13 +1231,17 @@ function mount(ctx) {
     if (!operation || engineOperationTerminal(operation) || state.engineOperationPolling) return;
     state.engineOperationPolling = true;
     ctx.api.engine.operationStatus({ id: operation.id }).then(function (answer) {
-      state.engineOperation = answer && answer.operation || null;
+      var nextOperation = answer && answer.operation || null;
       state.engineOperationPolling = false;
-      if (state.engineOperation && engineOperationTerminal(state.engineOperation)) {
+      state.engineOperation = nextOperation;
+      if (nextOperation && engineOperationTerminal(nextOperation)) {
+        state.engineOperationOverride = false;
         state.skipEngineOperationStatus = true;
         return refresh(ctx);
       }
+      state.engineOperationOverride = true;
       rerender(ctx);
+      state.engineOperationOverride = false;
     }).catch(function () {
       state.engineOperationPolling = false;
     });
@@ -1239,6 +1251,7 @@ function unmount(ctx) {
   if (state.engineOperationTimer) window.clearInterval(state.engineOperationTimer);
   state.engineOperationTimer = null;
   state.engineOperationPolling = false;
+  state.engineOperationOverride = false;
   if (ctx && ctx.enginePanelContext && ctx.enginePanelContext.engineState)
     EnginePanel.unmount(ctx.enginePanelContext);
 }
