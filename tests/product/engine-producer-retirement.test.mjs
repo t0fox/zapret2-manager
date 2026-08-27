@@ -95,7 +95,7 @@ test('repo-wide reachability sweep: producer needles exist only in docs/evidence
 		'validate-engine-manifest.mjs',
 		'write-manifest.mjs',
 	];
-	const roots = ['zapret2-manager/files', 'luci-app-zapret2-manager/files', 'tests', '.github', 'lib', 'src', 'usr'];
+	const roots = ['zapret2-manager/files', 'luci-app-zapret2-manager/files', 'tests', '.github', 'scripts', 'tools', 'lib', 'src', 'usr'];
 	const SKIP_DIRS = new Set(['node_modules', '.git']);
 	const offenders = [];
 	for (const base of roots) {

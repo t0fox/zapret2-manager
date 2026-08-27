@@ -40,9 +40,9 @@ export const mark_completed = function (id, result) { let job = read_job(id); if
 export const commit_state = function (id) {
 	let job = read_job(id);
 	if (job == null || type(job.candidate) != 'object' || job.candidate == null) return fail('ENOENT', 'Candidate job не найден.');
-	// Runtime contract proven directly from the installed tree: the version
-	// string of a manager-built binary may differ from upstream's heuristic,
-	// so we verify the actual files instead of trusting the version line.
+	// Runtime contract proven directly from the installed tree: the installed
+	// payload's own version string may differ from upstream's heuristic, so we
+	// verify the actual files instead of trusting the version line.
 	let job2 = read_job(id);
 	if (job2 == null || type(job2.candidate) != 'object')
 		return fail('EVERIFY', 'Установленный official payload не подтверждён.');
@@ -54,10 +54,10 @@ export const commit_state = function (id) {
 	let verOut = run0('/opt/zapret2/nfq2/nfqws2 --version');
 	if (!binOk || !cfgOk || !initOk || verOut.rc != 0 || length(trim(verOut.out)) == 0)
 		return fail('EVERIFY', 'Установленный official payload не подтверждён.');
-	// Capability gate: the worker's install-proof verdict is load-bearing.
-	// A commit without proven 3/3 capability evidence would let a vanilla or
-	// broken engine masquerade as Z2M-compatible. The verdict lives inside
-	// the job workdir ($ROOT/$ID.work/capabilities.json).
+	// Capability gate (requirement-based): only capabilities declared by the
+	// checked candidate are load-bearing — canonical stock releases carry an
+	// empty list and pass purely on verified runtime health evidence in
+	// $ROOT/$ID.work/capabilities.json.
 	let caps = read_json(ROOT + '/' + id + '.work/capabilities.json', null);
 	if (caps == null || type(caps) != 'object') return fail('ECAPABILITY', 'Capability preflight не выполнялся; установка не может быть зафиксирована.');
 	if (caps.ok !== true) return fail('ECAPABILITY', 'Capability preflight не пройден.');

@@ -6,7 +6,7 @@
     "phase": "completed",
     "progress": 100,
     "startedAt": 1787828576,
-    "finishedAt": 1787828575 + 9,
+    "finishedAt": 1787828584,
     "durationSeconds": 10,
     "transactional": true,
     "evidenceFile": "/root/pre-v104-1787840000/operation-final.json"
