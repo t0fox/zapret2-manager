@@ -110,3 +110,26 @@ test('after the critical batch settles, the secondary batch starts; optional wai
   assert.equal(calls.tgStatus, 1, 'optional telegram starts only after secondary settles');
   assert.equal(calls.proxyHealth, 1);
 });
+
+test('secondary and optional dashboard reads settle into visible error states when an RPC hangs', async () => {
+  const { api, calls, gates } = makeApi();
+  const runtime = makeRuntime();
+  const loader = moduleInstance.createLoader({
+    runtime,
+    settled: settledValue,
+    timer: immediate,
+    timeoutMs: 10
+  });
+  const done = loader.load(makeCtx(api));
+  gates.critical.resolve({});
+  await done;
+  await new Promise(resolve => setTimeout(resolve, 35));
+
+  assert.equal(calls.preview, 1);
+  assert.equal(calls.events, 1);
+  assert.equal(calls.recommendations, 1);
+  assert.equal(calls.tgStatus, 1, 'optional reads must start after timed-out secondary reads');
+  assert.equal(calls.proxyHealth, 1);
+  assert.ok(runtime.deferred.events?.error, 'events must leave loading state after timeout');
+  assert.ok(runtime.deferred.tgStatus?.error, 'Telegram status must leave loading state after timeout');
+});

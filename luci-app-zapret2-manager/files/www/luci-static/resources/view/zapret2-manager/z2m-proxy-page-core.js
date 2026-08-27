@@ -69,6 +69,28 @@ function settled(result, api) {
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
+var LOAD_TIMEOUT_MS = 5000;
+function boundedLoad(promise, label) {
+  return new Promise(function (resolve, reject) {
+    var finished = false;
+    var timeout = window.setTimeout(function () {
+      if (finished) return;
+      finished = true;
+      reject({ code: 'frontend-timeout', message: _('Не удалось дождаться ответа: ') + label });
+    }, LOAD_TIMEOUT_MS);
+    Promise.resolve(promise).then(function (value) {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeout);
+      resolve(value);
+    }, function (error) {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
 var TELEGRAM_EVENT_IDENTITIES = ['proxy', 'telegram-proxy', 'telegram_proxy', 'tg-proxy', 'tg_proxy', 'telegram'];
 function normalizedEventIdentity(value) {
   return String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
@@ -87,15 +109,15 @@ function telegramEventRows(envelope) {
 }
 function load(ctx) {
   return Promise.allSettled([
-    ctx.api.proxy.capabilities(),
-    ctx.api.proxy.status(),
-    ctx.api.proxy.configGet(),
-    edit(ctx.api.proxy.health, {}),
-    edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 }),
-    ctx.api.tg.product.catalog(),
-    ctx.api.tg.product.status(),
-    ctx.api.tg.product.versions(),
-    ctx.api.tg.product.operationStatus({})
+    boundedLoad(ctx.api.proxy.capabilities(), _('возможностей proxy')),
+    boundedLoad(ctx.api.proxy.status(), _('статуса proxy')),
+    boundedLoad(ctx.api.proxy.configGet(), _('конфигурации proxy')),
+    boundedLoad(edit(ctx.api.proxy.health, {}), _('состояния proxy')),
+    boundedLoad(edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 }), _('журнала proxy')),
+    boundedLoad(ctx.api.tg.product.catalog(), _('каталога Telegram Proxy')),
+    boundedLoad(ctx.api.tg.product.status(), _('статуса Telegram Proxy')),
+    boundedLoad(ctx.api.tg.product.versions(), _('версий Telegram Proxy')),
+    boundedLoad(ctx.api.tg.product.operationStatus({}), _('операции Telegram Proxy'))
   ]).then(function (results) {
     var base = {
       capabilities: settled(results[0], ctx.api),
@@ -112,7 +134,7 @@ function load(ctx) {
     };
     var providers = ['rust', 'go'];
     return Promise.all(providers.map(function (id) {
-      return ctx.api.tg.product.checkUpdates({ provider: id }).then(function (answer) {
+      return boundedLoad(ctx.api.tg.product.checkUpdates({ provider: id }), _('проверки обновлений Telegram Proxy') + ' ' + id).then(function (answer) {
         return { id: id, answer: answer };
       }).catch(function (error) {
         return { id: id, answer: { ok: false, error: ctx.api.normalizeError(error) } };

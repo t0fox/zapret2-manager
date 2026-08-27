@@ -59,6 +59,17 @@ function makeInstalledForZ2k(count, typeCounts) {
 	return rows;
 }
 
+test('resource count text uses correct Russian plural forms for all visible totals', () => {
+	const model = loadModel();
+	assert.equal(model.resourceCountText(0), '0 ресурсов');
+	assert.equal(model.resourceCountText(1), '1 ресурс');
+	assert.equal(model.resourceCountText(2), '2 ресурса');
+	assert.equal(model.resourceCountText(4), '4 ресурса');
+	assert.equal(model.resourceCountText(5), '5 ресурсов');
+	assert.equal(model.resourceCountText(11), '11 ресурсов');
+	assert.equal(model.resourceCountText(22), '22 ресурса');
+});
+
 // 1. 43 catalog/upstream Z2K assets → one group Z2K Resources → 43 assets inside → not 43 top-level groups.
 test('1. 43 catalog/upstream Z2K assets -> one group Z2K Resources with 43 assets, not 43 groups', () => {
 	const model = loadModel();

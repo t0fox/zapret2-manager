@@ -20,6 +20,7 @@ test('typed asset routes use the canonical Asset Registry instead of placeholder
 test('WARP routes expose complete truthful disabled UI without backend calls', () => {
   const app = fs.readFileSync(`${ROOT}/app.js`, 'utf8');
   const warp = fs.readFileSync(`${ROOT}/z2m-warp-page.js`, 'utf8');
+  const css = fs.readFileSync(`${ROOT}/z2m-components.css`, 'utf8');
 
   for (const route of ['warp', 'warp-setup', 'warp-in-warp']) {
     assert.match(app, new RegExp(`(?:['"]${route}['"]|${route})\\s*:\\s*Warp`), `route ${route} is not wired`);
@@ -29,4 +30,5 @@ test('WARP routes expose complete truthful disabled UI without backend calls', (
   }
   assert.doesNotMatch(warp, /ctx\.api\./, 'disabled WARP UI must not invent RPC calls');
   assert.match(warp, /disabled/);
+  assert.match(css, /\.z2m-kv-grid/, 'WARP key/value rows must have an explicit layout');
 });

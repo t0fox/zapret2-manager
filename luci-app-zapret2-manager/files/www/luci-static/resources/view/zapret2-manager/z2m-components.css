@@ -38,6 +38,13 @@
 .z2m-dns-pane[hidden]{display:none}
 .z2m-service-dns-grid{display:grid;gap:8px}
 
+.z2m-kv-grid{display:grid;gap:8px}
+.z2m-kv-grid>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:12px;align-items:baseline;padding:8px 0;border-bottom:1px solid #292c30}
+.z2m-kv-grid>div:last-child{border-bottom:0}
+.z2m-kv-grid span{color:var(--tx3)}
+.z2m-kv-grid strong{overflow-wrap:anywhere;text-align:right}
+@media(max-width:560px){.z2m-kv-grid>div{grid-template-columns:1fr;gap:3px}.z2m-kv-grid strong{text-align:left}}
+
 .z2m-service-dns-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(180px,1fr);gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #292c30}
 .z2m-service-dns-row:last-child{border-bottom:0}
 

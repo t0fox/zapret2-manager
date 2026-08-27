@@ -177,6 +177,18 @@ function render(ctx) {
   var filter = 'all';
   var searchQuery = '';
   var expanded = {};
+  var assetType = assetTypeForRoute(ctx.route, ctx.routeParams);
+  var summaryForRoute = summary;
+  if (assetType) {
+    var routeTotal = 0;
+    var routeUser = 0;
+    allVisible.forEach(function (group) {
+      var count = group.assets.filter(function (asset) { return asset.type === assetType; }).length;
+      routeTotal += count;
+      if (group.id === 'user') routeUser += count;
+    });
+    summaryForRoute = Object.assign({}, summary, { total: routeTotal, user: routeUser });
+  }
 
   var root = E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' });
   var body = E('div', { 'class': 'z2m-resource-body' });
@@ -191,6 +203,14 @@ function render(ctx) {
     return (asset.id && asset.id.toLowerCase().indexOf(s) >= 0) || (asset.name && asset.name.toLowerCase().indexOf(s) >= 0) || (asset.type && asset.type.toLowerCase().indexOf(s) >= 0);
   }
 
+  function matchesRoute(asset) {
+    return !assetType || asset.type === assetType;
+  }
+
+  function routeAssets(group) {
+    return group.assets.filter(matchesRoute);
+  }
+
   function filteredGroups() {
     var q = searchQuery.trim().toLowerCase();
     var out = [];
@@ -200,10 +220,12 @@ function render(ctx) {
       if (filter === 'user' && g.id !== 'user') continue;
       // For user filter, even if group has 0 assets, show user group
       // Apply search: keep group if any asset matches or group label matches
+      var typedAssets = routeAssets(g);
+      if (assetType && !typedAssets.length && g.id !== 'user') continue;
       if (q) {
         var labelMatch = g.label && g.label.toLowerCase().indexOf(q) >= 0;
         var anyAssetMatch = false;
-        for (var ai = 0; ai < g.assets.length; ai++) if (matchesSearch(g.assets[ai], q)) { anyAssetMatch = true; break; }
+        for (var ai = 0; ai < typedAssets.length; ai++) if (matchesSearch(typedAssets[ai], q)) { anyAssetMatch = true; break; }
         if (!labelMatch && !anyAssetMatch) continue;
       }
       out.push(g);
@@ -239,8 +261,13 @@ function render(ctx) {
 
   function renderGroupCard(group) {
     var isExpanded = !!expanded[group.id];
-    var counts = countsText(group.counts);
-    var totalLine = group.total + ' ' + _('ресурса') + (group.total === 1 ? '' : group.total < 5 ? 'а' : 'ов') + (counts ? ' · ' + counts : '');
+    var assets = routeAssets(group);
+    var counts = countsText(assets.reduce(function (result, asset) {
+      var type = text(asset.type) || 'blob';
+      result[type] = (result[type] || 0) + 1;
+      return result;
+    }, {}));
+    var totalLine = ResourcesModel.resourceCountText(assets.length) + (counts ? ' · ' + counts : '');
     var metaLine = totalLine;
     if (group.consumer || group.repository) {
       var extra = [group.consumer, group.repository].filter(Boolean).join(' · ');
@@ -252,7 +279,7 @@ function render(ctx) {
       ? updateBadge(group.bundlePresentation)
       : stateBadge({ state: state, status: HUMAN_STATES[state] || group.stateLabel });
 
-    if (group.id === 'user' && group.total === 0) {
+    if (group.id === 'user' && assets.length === 0) {
       return E('section', { 'class': 'z2m-resource-group-row z2m-resource-group-empty', 'data-group-id': group.id }, [
         E('div', { 'class': 'z2m-resource-group-main' }, [
           E('div', { 'class': 'z2m-resource-group-left' }, [
@@ -273,7 +300,7 @@ function render(ctx) {
       E('div', { 'class': 'z2m-resource-group-meta' }, metaLine)
     ]);
     var rightChildren = [];
-    if (group.total > 0) {
+    if (assets.length > 0) {
       rightChildren.push(ctx.shell.button(isExpanded ? _('Свернуть') : _('Развернуть'), 'sm', function () {
         expanded[group.id] = !expanded[group.id];
         body.replaceChildren(renderBody());
@@ -295,11 +322,11 @@ function render(ctx) {
       if (adv.length) children.push(E('details', { 'class': 'z2m-resource-group-adv' }, [E('summary', {}, _('▸ Технические сведения')), E('div', {}, adv)]));
     }
 
-    if (isExpanded && group.assets.length) {
+    if (isExpanded && assets.length) {
       var filteredAssets = [];
       var q2 = searchQuery.trim().toLowerCase();
-      for (var ii = 0; ii < group.assets.length; ii++) {
-        var a = group.assets[ii];
+      for (var ii = 0; ii < assets.length; ii++) {
+        var a = assets[ii];
         if (q2 && !matchesSearch(a, q2) && !(group.label.toLowerCase().indexOf(q2) >= 0)) continue;
         filteredAssets.push(a);
       }
@@ -374,7 +401,7 @@ function render(ctx) {
   }
 
   var summaryLine = E('div', { 'class': 'z2m-resource-summary' }, [
-    E('span', {}, summary.total + ' ' + _('ресурса') + (summary.total === 1 ? '' : summary.total < 5 ? 'а' : 'ов') + ' · ' + summary.user + ' ' + _('пользовательских') + ' · ' + summary.stateLabel)
+    E('span', {}, ResourcesModel.resourceCountText(summaryForRoute.total) + ' · ' + summaryForRoute.user + ' ' + _('пользовательских') + ' · ' + summaryForRoute.stateLabel)
   ]);
 
   var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов...'), 'aria-label': _('Поиск ресурсов') });
