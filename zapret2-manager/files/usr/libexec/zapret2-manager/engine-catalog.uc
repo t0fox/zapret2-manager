@@ -43,7 +43,7 @@ function release_record(release, architecture_value) {
 	let name = 'zapret2-v' + version + '-openwrt-embedded.tar.gz';
 	let asset = exact_asset(release.assets, name), checksum = exact_asset(release.assets, 'sha256sum.txt');
 	if (!valid_asset(asset, name, version, 1024) || !valid_asset(checksum, 'sha256sum.txt', version, 64)) return null;
-	return { schema: ENGINE_ARTIFACT_SCHEMA, artifactKind: VANILLA_ARTIFACT, version: version, releaseTag: 'v' + version, installedRelease: 'v' + version, upstream: UPSTREAM, architecture: architecture_value, assetName: name, downloadUrl: asset.browser_download_url, sha256: sha256(asset.digest), size: +asset.size, releaseId: '' + release.id, publishedAt: release.published_at, releaseUrl: type(release.html_url) == 'string' ? release.html_url : 'https://github.com/' + UPSTREAM + '/releases/tag/v' + version, releaseNotes: type(release.body) == 'string' ? release.body : '', prerelease: false, container: 'tar.gz', checksumName: 'sha256sum.txt', checksumUrl: checksum.browser_download_url, checksumSha256: sha256(checksum.digest), compatible: false, compatibilityState: 'integration-required', compatibilityCode: 'EENGINE_INTEGRATION_REQUIRED', compatibilityMessage: 'Доступна новая версия базового движка. Требуется сборка совместимой версии Z2M.', requiredCapabilities: ['Z2K_TLS_MOD', 'ANTIDPI_REPEATS_LOOP', 'AUTO_FAMILY_SPLIT'] };
+	return { schema: ENGINE_ARTIFACT_SCHEMA, artifactKind: VANILLA_ARTIFACT, version: version, releaseTag: 'v' + version, installedRelease: 'v' + version, upstream: UPSTREAM, architecture: architecture_value, assetName: name, downloadUrl: asset.browser_download_url, sha256: sha256(asset.digest), size: +asset.size, releaseId: '' + release.id, publishedAt: release.published_at, releaseUrl: type(release.html_url) == 'string' ? release.html_url : 'https://github.com/' + UPSTREAM + '/releases/tag/v' + version, releaseNotes: type(release.body) == 'string' ? release.body : '', prerelease: false, container: 'tar.gz', checksumName: 'sha256sum.txt', checksumUrl: checksum.browser_download_url, checksumSha256: sha256(checksum.digest), compatible: true, compatibilityState: 'compatible', compatibilityCode: null, compatibilityMessage: '', requiredCapabilities: [], baseRepository: UPSTREAM };
 }
 function metadata_allowed(url) { return url == API_URL || url == Z2M_RELEASES_API; }
 function fetch_json_feed(url) {
@@ -315,12 +315,16 @@ function catalog(architecture_value, options) {
 		cacheHit: false, stale: false, fetchedAt: time() };
 }
 
+// Canonical ordering: official upstream (vanilla) records come first —
+// they are the production authority since requirement-based compatibility.
+// Legacy z2m-compatible entries trail behind for migration compatibility
+// until the producer is retired post-cutover.
 function merged_candidates(result) {
 	let combined = [];
-	for (let i = 0; i < length(result.z2mReleases || []); i++)
-		if (is_object(result.z2mReleases[i])) push(combined, result.z2mReleases[i]);
 	for (let i = 0; i < length(result.releases || []); i++)
 		if (is_object(result.releases[i])) push(combined, result.releases[i]);
+	for (let i = 0; i < length(result.z2mReleases || []); i++)
+		if (is_object(result.z2mReleases[i])) push(combined, result.z2mReleases[i]);
 	return combined;
 }
 
@@ -335,8 +339,56 @@ if (version == null) {
 	for (let i = 0; i < length(combined); i++)
 		if (combined[i].version == version) { candidate = combined[i]; break; }
 }
-for (let i = 0; i < length(combined); i++) push(public_releases, public_candidate(combined[i])); if (candidate == null) return fail('ENOASSET', 'Устанавливаемый совместимый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latest = combined[0]; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest != null ? latest.installedRelease : null, updateAvailable: installed.installedOrigin == 'OFFICIAL' && installed.installedRelease != null && latest != null && installed.installedRelease != latest.installedRelease, candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
-export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if (record.candidate.artifactKind != Z2M_ENGINE_ARTIFACT || record.candidate.schema != ENGINE_ARTIFACT_SCHEMA || record.candidate.compatible !== true) return fail('EENGINE_INTEGRATION_REQUIRED', 'Проверенная совместимая сборка Z2M отсутствует.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
+for (let i = 0; i < length(combined); i++) push(public_releases, public_candidate(combined[i])); if (candidate == null) return fail('ENOASSET', 'Устанавливаемый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(); let latestUpstream = null; for (let i = 0; i < length(combined); i++) if (combined[i].artifactKind == VANILLA_ARTIFACT) { latestUpstream = combined[i]; break; } if (latestUpstream == null) latestUpstream = combined[0]; let legacyState = legacy_compatibility_state(installed.savedState); return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latestUpstream.installedRelease, availableArtifactKind: latestUpstream.artifactKind, updateAvailable: update_required(installed.installedRelease, legacyState == null ? false : true, latestUpstream == null ? null : latestUpstream.version), candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage }; };
+// Legacy manager-built compatibility builds are identified by their
+// r*-z2m-* artifactVersion plus a non-empty patch series attached to the
+// historical engine-state.v2 record.
+function legacy_compatibility_state(state) {
+	if (!is_object(state) || state == null || state.schema != 'engine-state.v2') return null;
+	if (type(state.installedRelease) != 'string' || !match(state.installedRelease, /-z2m-[0-9]{8,}/)) return null;
+	if (type(state.patchSeries) != 'array' || length(state.patchSeries) == 0) return null;
+	return {
+		schema: 'engine-truth.v1',
+		artifactKind: 'legacy-compatibility-build',
+		producer: 'zapret2-manager',
+		artifactVersion: state.installedRelease,
+		upstreamRepository: type(state.upstreamRepository) == 'string' && state.upstreamRepository != '' ? state.upstreamRepository : UPSTREAM,
+		baseCommit: type(state.baseCommit) == 'string' ? state.baseCommit : null,
+		patchSeries: state.patchSeries,
+		upstreamRelease: null
+	};
+}
+// Truth projection for ANY persisted engine-state record — never lies about
+// a build id being an upstream release and never invents an upstream version
+// from remote metadata.
+export const normalize_state_record = function (state) {
+	if (!is_object(state) || state == null || state.schema != 'engine-state.v2') return null;
+	let legacy = legacy_compatibility_state(state);
+	if (legacy != null) return legacy;
+	let upstream = null;
+	if (type(state.artifactKind) == 'string' && state.artifactKind == VANILLA_ARTIFACT
+		&& type(state.installedRelease) == 'string' && match(state.installedRelease, /^v[0-9]/))
+		upstream = state.installedRelease;
+	return {
+		schema: 'engine-truth.v1',
+		artifactKind: upstream != null ? VANILLA_ARTIFACT : null,
+		producer: null,
+		artifactVersion: type(state.installedRelease) == 'string' ? state.installedRelease : null,
+		upstreamRepository: UPSTREAM,
+		baseCommit: type(state.baseCommit) == 'string' ? state.baseCommit : null,
+		patchSeries: [],
+		upstreamRelease: upstream
+	};
+};
+export const update_required = function (installedRelease, legacyBuild, availableVersion) {
+	if (availableVersion == null) return false;
+	if (legacyBuild === true) return true;
+	if (type(installedRelease) != 'string' || length(installedRelease) == 0) return true;
+	let expected = 'v' + availableVersion;
+	if (substr(expected, 0, 2) == 'vv') expected = substr(expected, 1);
+	return installedRelease != expected;
+};
+export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if ((record.candidate.artifactKind != VANILLA_ARTIFACT && record.candidate.artifactKind != Z2M_ENGINE_ARTIFACT) || record.candidate.schema != ENGINE_ARTIFACT_SCHEMA || record.candidate.compatible !== true) return fail('EENGINE_INTEGRATION_REQUIRED', 'Проверенный candidate не является каноническим источником Engine.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
 export const save_engine_state = function (value) { ensure_dir('/etc/zapret2-manager'); return atomic_json(STATE_FILE, value); };
 export const clear_engine_state = function () { try { unlink(STATE_FILE); } catch (e) {} return stat(STATE_FILE) == null; };
 

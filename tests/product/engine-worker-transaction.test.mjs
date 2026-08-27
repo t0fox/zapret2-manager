@@ -87,7 +87,10 @@ test('worker script declares the staged transaction with z2k gates', () => {
     ['materialize phase', 'strategy-runtime-assets-sync.sh'],
     ['verify mode gate', '--verify'],
     ['capability proof phase', 'preflight-cli.uc'],
-    ['three capabilities enforced', 'AUTO_FAMILY_SPLIT']
+    // Requirement-based proving (Task 6): the required set comes from the
+    // checked candidate — zero for canonical stock releases, candidate-declared
+    // for legacy-compatible artifacts.
+    ['candidate-required capabilities enforced', 'for capability in $REQUIRED_CAPS']
   ];
   let cursor = -1;
   for (const [label, needle] of order) {

@@ -229,11 +229,17 @@ export const native_preflight = function(candidate) {
 	return { status: complete ? 'verified' : 'partial', coverage: coverage, diagnostics: [], evidence: evidence };
 };
 
-// --install-proof: engine install transaction gate. Proves the three
-// mandatory Z2K capabilities with REAL runtime evidence on the installed
-// binary + materialized Lua, then runs a Lua-init smoke through the daemon's
-// own interpreter path. Output is a machine-readable verdict consumed by the
-// worker and by commit-state; any missing capability fails closed.
+// --install-proof: engine install transaction gate. Proves REQUIRED
+// capabilities with REAL runtime evidence on the installed binary +
+// materialized Lua, then runs a Lua-init smoke through the daemon's own
+// interpreter path. Output is a machine-readable verdict consumed by the
+// worker and by commit-state; any missing required capability fails closed.
+//
+// Requirement-based contract: the required capability list is supplied by
+// the checked candidate (env Z2M_REQUIRED_CAPABILITIES, space-separated).
+// Canonical stock bol-van releases carry an EMPTY requirement list — a
+// stock runtime is healthy without any Z2K native delta. Capability booleans
+// are still reported for evidence, but only *required* ones gate ok.
 export const install_proof = function() {
 	let caps = {
 		ok: false,
@@ -242,6 +248,7 @@ export const install_proof = function() {
 		AUTO_FAMILY_SPLIT: false,
 		luaSmoke: false,
 		nfqws2Sha256: null,
+		requiredCapabilities: [],
 		provenance: {
 			binaryTokens: ['z2k_grease', 'z2k_alpn_flood'],
 			repeatsMarker: 'repeats > 1 and desync.reasm_data and desync.arg.tls_mod',
@@ -249,6 +256,10 @@ export const install_proof = function() {
 			checkedAt: time()
 		}
 	};
+	let requiredArg = trim(getenv('Z2M_REQUIRED_CAPABILITIES') || '');
+	if (length(requiredArg) > 0) {
+		caps.requiredCapabilities = split(requiredArg, /[\s]+/);
+	}
 	if (!stat(NFQWS2_BIN)) return caps;
 	let digest = sha256_file(NFQWS2_BIN);
 	if (digest == null) return caps;
@@ -278,6 +289,14 @@ export const install_proof = function() {
 	caps.luaSmoke = smoke.rc == 0;
 	if (!caps.luaSmoke) caps.smokeStderr = substr(trim(smoke.out), 0, 400);
 
-	caps.ok = caps.Z2K_TLS_MOD && caps.ANTIDPI_REPEATS_LOOP && caps.AUTO_FAMILY_SPLIT && caps.luaSmoke;
+	// Runtime health gate: Lua smoke must pass, plus EVERY candidate-required
+	// capability must be proven true. A stock release with zero requirements
+	// passes here purely on luaSmoke + binary/runtime presence above.
+	caps.ok = caps.luaSmoke;
+	if (caps.ok && type(caps.requiredCapabilities) == 'array')
+		for (let i = 0; i < length(caps.requiredCapabilities); i++) {
+			let name = caps.requiredCapabilities[i];
+			if (caps[name] !== true) { caps.ok = false; break; }
+		}
 	return caps;
 };

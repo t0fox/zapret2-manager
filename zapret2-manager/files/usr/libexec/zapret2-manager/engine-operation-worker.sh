@@ -87,7 +87,7 @@ exec 9>"$LOCK"; flock -n 9 || fail EBUSY 'Другая engine-операция �
 ACTION="$(value '@.action')"; PRESERVE="$(value '@.preserveConfig')"; ARTIFACT_KIND="$(value '@.candidate.artifactKind')"; ARTIFACT_SCHEMA="$(value '@.candidate.schema')"; ARCH="$(value '@.candidate.architecture')"; URL="$(value '@.candidate.downloadUrl')"; EXPECTED_SHA="$(value '@.candidate.sha256')"; EXPECTED_SIZE="$(value '@.candidate.size')"; EXPECTED_VERSION="$(value '@.candidate.version')"; CONTAINER="$(value '@.candidate.container')"; CHECKSUM_URL="$(value '@.candidate.checksumUrl')"; CHECKSUM_SHA="$(value '@.candidate.checksumSha256')"; CHECKSUM_NAME="$(value '@.candidate.checksumName')"; NFQWS2_EXPECTED_SHA="$(value '@.candidate.nfqws2Sha256')"
 phase preflight 5 'Проверяется устройство и отсутствие конфликтов.'
 command -v apk >/dev/null 2>&1 || fail EPKGMGR 'Поддерживается только APK package manager.'
-if [ "$ACTION" != uninstall ]; then [ "$ARTIFACT_SCHEMA" = 'zapret2-manager.engine-artifact.v1' ] && [ "$ARTIFACT_KIND" = 'z2m-compatible-engine' ] || fail EENGINE_INTEGRATION_REQUIRED 'Доступна только предварительно собранная совместимая версия Z2M; vanilla bol-van release заблокирован.'; fi
+if [ "$ACTION" != uninstall ]; then [ "$ARTIFACT_SCHEMA" = 'zapret2-manager.engine-artifact.v1' ] && { [ "$ARTIFACT_KIND" = 'z2m-compatible-engine' ] || [ "$ARTIFACT_KIND" = 'vanilla-bol-van-release' ]; } || fail EENGINE_INTEGRATION_REQUIRED 'Доступны только канонические источники Engine: official bol-van release или заранее собранная совместимая версия Z2M.'; fi
 TARGET_ARCH="$(. /etc/openwrt_release 2>/dev/null; printf '%s' "${DISTRIB_ARCH:-}")"
 if [ "$ACTION" != uninstall ]; then [ "$CONTAINER" = tar.gz ] && [ -n "$ARCH" ] && [ "$TARGET_ARCH" = "$ARCH" ] || fail EARCH 'Архитектура target не совпадает с official embedded release.'; fi
 [ "$(df -Pk /overlay 2>/dev/null|awk 'NR==2{print $4}')" -ge 8192 ] 2>/dev/null \
@@ -170,12 +170,13 @@ SYNC=/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh
 /bin/sh "$SYNC" || fail EZ2K_ASSETS 'Материализация Z2K ассетов завершилась ошибкой.'
 sync_verdict="$(/bin/sh "$SYNC" --verify)" || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
 printf '%s\n' "$sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
-phase proving 82 'Доказываются обязательные возможности движка (3/3).'
+phase proving 82 'Доказываются обязательные возможности движка.'
 CAPABILITIES="$WORK/capabilities.json"
-/usr/bin/ucode /usr/libexec/zapret2-manager/preflight-cli.uc >"$CAPABILITIES" 2>/dev/null \
+REQUIRED_CAPS="$(jsonfilter -i "$JOB" -e '@.candidate.requiredCapabilities[*]' 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+Z2M_REQUIRED_CAPABILITIES="$REQUIRED_CAPS" /usr/bin/ucode /usr/libexec/zapret2-manager/preflight-cli.uc >"$CAPABILITIES" 2>/dev/null \
 	|| fail ECAPABILITY 'Preflight возможностей завершился ошибкой.'
 grep -q '"ok"[[:space:]]*:[[:space:]]*true' "$CAPABILITIES" || fail ECAPABILITY "Preflight не выдал вердикта: $(cat "$CAPABILITIES")"
-for capability in Z2K_TLS_MOD ANTIDPI_REPEATS_LOOP AUTO_FAMILY_SPLIT; do
+for capability in $REQUIRED_CAPS; do
 	grep -q "\"$capability\"[[:space:]]*:[[:space:]]*true" "$CAPABILITIES" \
 		|| fail ECAPABILITY "Обязательная возможность $capability не подтверждена на этом движке."
 done
