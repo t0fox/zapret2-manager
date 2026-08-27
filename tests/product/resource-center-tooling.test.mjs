@@ -8,7 +8,6 @@ import {
   boundedHexView,
   bytesToBase64,
   base64ToBytes,
-  highlightLua,
 } from '../../lib/asset-tooling.mjs';
 import fs from 'node:fs';
 
@@ -85,15 +84,6 @@ test('binary helpers preserve bytes and hex rendering is bounded by rows', () =>
   assert.equal(view.rows.length, 2);
   assert.equal(view.rows[0].offset, 0);
   assert.equal(view.rows[1].offset, 8);
-});
-
-test('Lua highlighting follows the Avatar token workflow without a third-party editor', () => {
-  const highlighted = highlightLua('-- note\nlocal value = print("ok")\nlocal result = foo(value)\nreturn result');
-  assert.match(highlighted, /lua-comment/);
-  assert.match(highlighted, /lua-kw/);
-  assert.match(highlighted, /lua-builtin/);
-  assert.match(highlighted, /lua-string/);
-  assert.match(highlighted, /lua-func/);
 });
 
 test('Asset Registry exposes lazy binary-safe content and preview-only validation', () => {

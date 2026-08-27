@@ -41,35 +41,4 @@ function boundedHexView(value, options) {
   for (var offset = 0; offset < shown.length; offset += columns) { var chunk = shown.slice(offset, offset + columns); rows.push({ offset: offset, hex: bytesToHex(chunk), ascii: Array.prototype.map.call(chunk, function (byte) { return byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : '.'; }).join('') }); }
   return { rows: rows, bytesShown: shown.length, totalBytes: input.length, truncated: input.length > shown.length };
 }
-function highlightLua(source) {
-  var keywords = new Set(['and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while']);
-  var builtins = new Set(['string', 'table', 'math', 'io', 'os', 'coroutine', 'package', 'debug', 'utf8', 'bit', 'bit32', 'print', 'ipairs', 'pairs', 'next', 'select', 'type', 'tostring', 'tonumber', 'error', 'assert', 'pcall', 'xpcall', 'rawget', 'rawset', 'rawequal', 'rawlen', 'setmetatable', 'getmetatable', 'require', 'dofile', 'loadfile', 'load', 'loadstring', 'unpack', 'collectgarbage', '_G', '_ENV', '_VERSION']);
-  function escape(value) { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function span(kind, value) { return '<span class="' + kind + '">' + escape(value) + '</span>'; }
-  var i = 0, output = '';
-  while (i < source.length) {
-    var two = source.substr(i, 2);
-    if (two === '--') {
-      var longComment = source.substr(i).match(/^--\[(=*)\[/), closeComment = longComment ? ']' + longComment[1] + ']' : null;
-      var commentEnd = closeComment ? source.indexOf(closeComment, i + longComment[0].length) : source.indexOf('\n', i);
-      if (commentEnd < 0) commentEnd = source.length;
-      var commentFinish = closeComment ? commentEnd + closeComment.length : commentEnd;
-      output += span('lua-comment', source.substring(i, commentFinish)); i = commentFinish; continue;
-    }
-    if (source[i] === '[') {
-      var longString = source.substr(i).match(/^\[(=*)\[/);
-      if (longString) { var closeString = ']' + longString[1] + ']', stringEnd = source.indexOf(closeString, i + longString[0].length); if (stringEnd < 0) stringEnd = source.length; else stringEnd += closeString.length; output += span('lua-string', source.substring(i, stringEnd)); i = stringEnd; continue; }
-    }
-    if (source[i] === '"' || source[i] === "'") { var quote = source[i], j = i + 1; while (j < source.length) { if (source[j] === '\\') j += 2; else if (source[j] === '\n') break; else if (source[j++] === quote) break; } output += span('lua-string', source.substring(i, j)); i = j; continue; }
-    var number = source.substr(i).match(/^(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|\.\d+(?:[eE][+\-]?\d+)?)/);
-    if (number && (/\d/.test(source[i]) || source[i] === '.' && /\d/.test(source[i + 1] || ''))) { output += span('lua-num', number[0]); i += number[0].length; continue; }
-    var word = source.substr(i).match(/^[A-Za-z_][A-Za-z_0-9]*/);
-    if (word) { var value = word[0], next = source.charAt(i + value.length); output += keywords.has(value) ? span('lua-kw', value) : builtins.has(value) ? span('lua-builtin', value) : ['(', '{', '"', "'"].indexOf(next) >= 0 ? span('lua-func', value) : escape(value); i += value.length; continue; }
-    var operator = source.substr(i, 2);
-    if (['==', '~=', '<=', '>=', '..', '::'].indexOf(operator) >= 0) { output += span('lua-op', operator); i += 2; continue; }
-    if ('+-*/%^#=~<>'.indexOf(source[i]) >= 0) { output += span('lua-op', source[i]); i++; continue; }
-    output += escape(source[i]); i++;
-  }
-  return output;
-}
-return baseclass.extend({ base64ToBytes: base64ToBytes, bytesToBase64: bytesToBase64, textToBase64: textToBase64, bytesToText: bytesToText, hexToBytes: hexToBytes, bytesToHex: bytesToHex, normalizeEntries: normalizeEntries, generateTlsClientHello: generateTlsClientHello, generateHttpRequest: generateHttpRequest, boundedHexView: boundedHexView, highlightLua: highlightLua });
+return baseclass.extend({ base64ToBytes: base64ToBytes, bytesToBase64: bytesToBase64, textToBase64: textToBase64, bytesToText: bytesToText, hexToBytes: hexToBytes, bytesToHex: bytesToHex, normalizeEntries: normalizeEntries, generateTlsClientHello: generateTlsClientHello, generateHttpRequest: generateHttpRequest, boundedHexView: boundedHexView });
