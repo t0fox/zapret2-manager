@@ -1,3 +1,4 @@
+'require baseclass';
 (() => {
   // node_modules/@marijn/find-cluster-break/src/index.js
   var rangeFrom = [];
@@ -22382,3 +22383,5 @@
   globalThis.Z2MCodeMirrorVendor = api;
   var vendor_entry_default = api;
 })();
+
+return baseclass.extend({});

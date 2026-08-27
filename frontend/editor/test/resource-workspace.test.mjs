@@ -67,7 +67,11 @@ function loadResources() {
   ]) if (window[name]) sandbox[name] = window[name];
 
   const context = vm.createContext(sandbox);
-  vm.runInContext(read('vendor/z2m-codemirror.js'), context);
+  const vendorFactory = vm.runInContext(
+    '(function (baseclass) { ' + read('vendor/z2m-codemirror.js') + '\n })',
+    context,
+  );
+  vendorFactory(sandbox.baseclass);
   const codeEditor = vm.runInContext(
     '(function () { ' + read('z2m-code-editor.js') + '\n })()',
     context,

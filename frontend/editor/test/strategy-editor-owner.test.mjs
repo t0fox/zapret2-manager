@@ -32,10 +32,14 @@ function loadOwner() {
     'Node', 'Range', 'ResizeObserver', 'Selection', 'Text', 'XMLSerializer',
   ]) if (window[name]) sandbox[name] = window[name];
   const context = vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(
-    path.join(viewRoot, 'vendor/z2m-codemirror.js'),
-    'utf8',
-  ), context);
+  const vendorFactory = vm.runInContext(
+    '(function (baseclass) { ' + fs.readFileSync(
+      path.join(viewRoot, 'vendor/z2m-codemirror.js'),
+      'utf8',
+    ) + '\n })',
+    context,
+  );
+  vendorFactory(sandbox.baseclass);
   const codeEditor = vm.runInContext(
     '(function () { ' + read('z2m-code-editor.js') + '\n })()',
     context,

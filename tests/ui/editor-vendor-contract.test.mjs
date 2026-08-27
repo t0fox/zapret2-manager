@@ -31,6 +31,23 @@ test('CodeMirror vendor build and package copy contract are present', () => {
   assert.match(makefile, /wildcard[^\n]*vendor/);
 });
 
+test('CodeMirror vendor is a LuCI-loadable baseclass module', () => {
+  const bundle = read(path.join(view, 'vendor/z2m-codemirror.js'));
+  let extended = false;
+  const moduleClass = Function('baseclass', bundle)({
+    extend: value => {
+      extended = true;
+      function VendorModule() {}
+      Object.assign(VendorModule.prototype, value);
+      return VendorModule;
+    },
+  });
+
+  assert.equal(extended, true);
+  assert.equal(typeof moduleClass, 'function');
+  assert.ok(globalThis.Z2MCodeMirrorVendor.EditorView);
+});
+
 test('vendor package contains only intended direct packages', () => {
   const pkg = JSON.parse(read(path.join(frontend, 'package.json')));
   assert.deepEqual(Object.keys(pkg.dependencies || {}).sort(), [

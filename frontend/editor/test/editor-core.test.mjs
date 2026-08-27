@@ -35,9 +35,13 @@ function loadEditor() {
     'Node', 'Range', 'ResizeObserver', 'Selection', 'Text', 'XMLSerializer',
   ]) if (window[name]) sandbox[name] = window[name];
   const context = vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(vendorPath, 'utf8'), context, {
-    filename: vendorPath,
-  });
+  const vendorSource = fs.readFileSync(vendorPath, 'utf8');
+  const vendorFactory = vm.runInContext(
+    '(function (baseclass) { ' + vendorSource + '\n })',
+    context,
+    { filename: vendorPath },
+  );
+  vendorFactory(sandbox.baseclass);
   const editor = vm.runInContext(
     '(function () { ' + fs.readFileSync(corePath, 'utf8') + '\n })()',
     context,

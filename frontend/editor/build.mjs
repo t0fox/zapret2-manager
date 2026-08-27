@@ -25,8 +25,12 @@ const result = await esbuild.build({
 const escapeProtocols = source => source
   .replaceAll('http://', 'http\\u003A//')
   .replaceAll('https://', 'https\\u003A//');
-const bundle = escapeProtocols(result.outputFiles[0].text)
+const iife = escapeProtocols(result.outputFiles[0].text)
   .replace(/[ \t]+(?=\r?\n)/g, '');
+// LuCI evaluates every required resource as a baseclass module factory. The
+// IIFE still owns the browser-global API, while the explicit module return
+// satisfies LuCI's constructor validation at the loader boundary.
+const bundle = `'require baseclass';\n${iife}\nreturn baseclass.extend({});\n`;
 const minified = await esbuild.transform(bundle, {
   minify: true,
   target: 'es2020',
