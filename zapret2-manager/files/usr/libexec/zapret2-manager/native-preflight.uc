@@ -1,8 +1,10 @@
 'use strict';
 // native-preflight.uc — production fail-closed verification for a rendered
 // NFQWS2_OPT candidate. It never intercepts traffic and never mutates config.
-// Dual-layer verification requires proving BOTH upstream NFQWS2_COMPAT_VER
-// AND local patch capabilities (Z2K_TLS_MOD, ANTIDPI_REPEATS_LOOP, AUTO_FAMILY_SPLIT).
+// Verification proves the upstream NFQWS2_COMPAT_VER contract plus the
+// packaged Lua baseline pinned in native-preflight.v3 (luaFiles). Engine
+// behavior extensions live exclusively in manager-owned sidecars loaded via
+// the runtime-assets chain; no native capability gating remains.
 
 import { readfile, stat, popen } from 'fs';
 import { z2m_tokenize, z2m_parse, z2m_validate } from './profiles.uc';
@@ -57,7 +59,9 @@ function load_manifest() {
 	try { value = json(raw); } catch (e) { return { ok: false, reason: 'native preflight manifest is malformed' }; }
 	if (type(value) != 'object' || value == null)
 		return { ok: false, reason: 'native preflight manifest schema is unsupported' };
-	if (value.schema != 'zapret2-manager.native-preflight.v1' && value.schema != 'zapret2-manager.native-preflight.v2')
+	if (value.schema != 'zapret2-manager.native-preflight.v1'
+		&& value.schema != 'zapret2-manager.native-preflight.v2'
+		&& value.schema != 'zapret2-manager.native-preflight.v3')
 		return { ok: false, reason: 'native preflight manifest schema is unsupported' };
 	if (value.schema == 'zapret2-manager.native-preflight.v1') {
 		if (type(value.expectedNfqws2Sha256) != 'string' || length(value.expectedNfqws2Sha256) != 64)
@@ -229,11 +233,17 @@ export const native_preflight = function(candidate) {
 	return { status: complete ? 'verified' : 'partial', coverage: coverage, diagnostics: [], evidence: evidence };
 };
 
-// --install-proof: engine install transaction gate. Proves the three
-// mandatory Z2K capabilities with REAL runtime evidence on the installed
-// binary + materialized Lua, then runs a Lua-init smoke through the daemon's
-// own interpreter path. Output is a machine-readable verdict consumed by the
-// worker and by commit-state; any missing capability fails closed.
+// --install-proof: engine install transaction gate. Proves REQUIRED
+// capabilities with REAL runtime evidence on the installed binary +
+// materialized Lua, then runs a Lua-init smoke through the daemon's own
+// interpreter path. Output is a machine-readable verdict consumed by the
+// worker and by commit-state; any missing required capability fails closed.
+//
+// Requirement-based contract: the required capability list is supplied by
+// the checked candidate (env Z2M_REQUIRED_CAPABILITIES, space-separated).
+// Canonical stock bol-van releases carry an EMPTY requirement list — a
+// stock runtime is healthy without any Z2K native delta. Capability booleans
+// are still reported for evidence, but only *required* ones gate ok.
 export const install_proof = function() {
 	let caps = {
 		ok: false,
@@ -242,6 +252,7 @@ export const install_proof = function() {
 		AUTO_FAMILY_SPLIT: false,
 		luaSmoke: false,
 		nfqws2Sha256: null,
+		requiredCapabilities: [],
 		provenance: {
 			binaryTokens: ['z2k_grease', 'z2k_alpn_flood'],
 			repeatsMarker: 'repeats > 1 and desync.reasm_data and desync.arg.tls_mod',
@@ -249,6 +260,10 @@ export const install_proof = function() {
 			checkedAt: time()
 		}
 	};
+	let requiredArg = trim(getenv('Z2M_REQUIRED_CAPABILITIES') || '');
+	if (length(requiredArg) > 0) {
+		caps.requiredCapabilities = split(requiredArg, /[\s]+/);
+	}
 	if (!stat(NFQWS2_BIN)) return caps;
 	let digest = sha256_file(NFQWS2_BIN);
 	if (digest == null) return caps;
@@ -278,6 +293,14 @@ export const install_proof = function() {
 	caps.luaSmoke = smoke.rc == 0;
 	if (!caps.luaSmoke) caps.smokeStderr = substr(trim(smoke.out), 0, 400);
 
-	caps.ok = caps.Z2K_TLS_MOD && caps.ANTIDPI_REPEATS_LOOP && caps.AUTO_FAMILY_SPLIT && caps.luaSmoke;
+	// Runtime health gate: Lua smoke must pass, plus EVERY candidate-required
+	// capability must be proven true. A stock release with zero requirements
+	// passes here purely on luaSmoke + binary/runtime presence above.
+	caps.ok = caps.luaSmoke;
+	if (caps.ok && type(caps.requiredCapabilities) == 'array')
+		for (let i = 0; i < length(caps.requiredCapabilities); i++) {
+			let name = caps.requiredCapabilities[i];
+			if (caps[name] !== true) { caps.ok = false; break; }
+		}
 	return caps;
 };

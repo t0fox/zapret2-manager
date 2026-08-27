@@ -110,7 +110,13 @@ align_luaopt() {
 	for INIT in "$BASE/init.d/openwrt/zapret2" /etc/init.d/zapret2; do
 		if [ -f "$INIT" ]; then
 			if grep -q '^LUAOPT=' "$INIT"; then
-				sed -i 's|^LUAOPT=.*|LUAOPT="--lua-init=@$ZAPRET_BASE/lua/zapret-lib.lua --lua-init=@$ZAPRET_BASE/lua/zapret-antidpi.lua --lua-init=@$ZAPRET_BASE/lua/zapret-auto.lua --lua-init=@$ZAPRET_BASE/lua/z2m-autocircular-policy.lua --lua-init=@$ZAPRET_BASE/lua/z2k-modern-core.lua --lua-init=@$ZAPRET_BASE/lua/z2k-detectors.lua --lua-init=@$ZAPRET_BASE/lua/z2k-fooling-ext.lua --lua-init=@$ZAPRET_BASE/lua/z2k-state-persist.lua"|' "$INIT"
+				# Canonical manager load order (Requirement B):
+				#   zapret-lib → zapret-antidpi → z2m-fake-rotate (fake wrapper)
+				#   → zapret-auto → z2m-hostkey-policy (standard_hostkey wrapper,
+				#   MUST precede z2k-state-persist) → z2m-autocircular-policy
+				#   → z2k-modern-core → z2k-detectors → z2k-fooling-ext
+				#   → z2k-state-persist (outermost persistence wrapper).
+				sed -i 's|^LUAOPT=.*|LUAOPT="--lua-init=@$ZAPRET_BASE/lua/zapret-lib.lua --lua-init=@$ZAPRET_BASE/lua/zapret-antidpi.lua --lua-init=@$ZAPRET_BASE/lua/z2m-fake-rotate.lua --lua-init=@$ZAPRET_BASE/lua/zapret-auto.lua --lua-init=@$ZAPRET_BASE/lua/z2m-hostkey-policy.lua --lua-init=@$ZAPRET_BASE/lua/z2m-autocircular-policy.lua --lua-init=@$ZAPRET_BASE/lua/z2k-modern-core.lua --lua-init=@$ZAPRET_BASE/lua/z2k-detectors.lua --lua-init=@$ZAPRET_BASE/lua/z2k-fooling-ext.lua --lua-init=@$ZAPRET_BASE/lua/z2k-state-persist.lua"|' "$INIT"
 			fi
 			# Ensure Z2M autocircular sidecar is loaded before state-persist (upstream wrapper must be outer)
 			if grep -q 'LUA_Z2K_STATE_PERSIST=' "$INIT" && ! grep -q 'LUA_Z2M_POLICY' "$INIT"; then

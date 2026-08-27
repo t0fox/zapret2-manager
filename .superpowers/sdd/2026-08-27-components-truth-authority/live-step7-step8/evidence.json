@@ -1,0 +1,92 @@
+{
+  "gate": "live-steps-7-and-8",
+  "capturedAtDeviceTs": 1787826988,
+  "deployedFiles": [
+    {
+      "path": "/opt/zapret2/lua/z2m-hostkey-policy.lua",
+      "sha256": "d22e2ceb8c4d592d36bfffaaf4542bc34ad6065e7dee1931a094b590a76ba72d",
+      "alsoStagedAt": "/usr/share/zapret2-manager/runtime-assets/lua/"
+    },
+    {
+      "path": "/opt/zapret2/lua/z2m-fake-rotate.lua",
+      "sha256": "6ea84b434b6ab191afdb5177949425652fc3d014884bfa11dc7d0973c5a58dd9",
+      "alsoStagedAt": "/usr/share/zapret2-manager/runtime-assets/lua/"
+    },
+    {
+      "path": "/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh",
+      "sha256": "e687909d9be47314018301bbd461744f1434e378dba4fd92db5638ed9a6126f5"
+    }
+  ],
+  "syncVerify": { "ok": true, "tool": "strategy-runtime-assets-sync.sh --verify", "verdict": "{\"ok\":true,...}" },
+  "runtimeChain": {
+    "luaInitCount": 10,
+    "orderVerified": [
+      "zapret-lib.lua",
+      "zapret-antidpi.lua",
+      "z2m-fake-rotate.lua",
+      "zapret-auto.lua",
+      "z2m-hostkey-policy.lua",
+      "z2m-autocircular-policy.lua",
+      "z2k-modern-core.lua",
+      "z2k-detectors.lua",
+      "z2k-fooling-ext.lua",
+      "z2k-state-persist.lua"
+    ],
+    "fakeRotateLoaded": true,
+    "hostkeyPolicyLoaded": true,
+    "pidCount": 1
+  },
+  "stateTsvPreservation": {
+    "bytesBefore": 22464,
+    "bytesAfter": 22464,
+    "md5Before": "a7f2a248e5b99f8b06b32ff95cd68620",
+    "md5AfterRestartAndProbes": "a7f2a248e5b99f8b06b32ff95cd68620",
+    "appendedRowsAfterDeployBaseline": 0,
+    "doubleFamilySuffixRows": 0,
+    "legacyNoHostModeRowsIntact": { "circular_1_1": 408, "discord_udp": 1 }
+  },
+  "health": {
+    "queue300Active": true,
+    "nftTableOk": true,
+    "serviceEnabledFlagForZapret2Init": false,
+    "note": "pre-existing topology: only zapret2-manager is rc.d-enabled (S99) and it starts the engine; no change vs before deploy",
+    "statusUcOk": true,
+    "statusJsonFreshBytes": 7913,
+    "logreadWindowErrors": []
+  },
+  "egressProbes": [
+    { "url": "https://www.google.com/generate_204", "httpCode": 204 },
+    { "url": "https://cloudflare.com/cdn-cgi/trace", "httpCode": 200 },
+    { "url": "https://ya.ru", "httpCode": 302 }
+  ],
+  "rollback": {
+    "backupDir": "/root/z2m-sidecar-backup-1787826988",
+    "procedure": [
+      "# restore the pre-deploy lua tree and init script",
+      "cp -a /root/z2m-sidecar-backup-1787826988/opt-lua/. /opt/zapret2/lua/",
+      "rm -f /opt/zapret2/lua/z2m-hostkey-policy.lua /opt/zapret2/lua/z2m-fake-rotate.lua",
+      "cp -a /root/z2m-sidecar-backup-1787826988/zapret2 /etc/init.d/zapret2",
+      "# note: backup was taken BEFORE the new sync script overwrote LUAOPT in init;",
+      "# restoring old init restores the old chain text. Repo copy of pre-change sync",
+      "# script can be rebuilt via git checkout dd57df0^ -- .../strategy-runtime-assets-sync.sh",
+      "/etc/init.d/zapret2 restart"
+    ]
+  },
+  "verificationCoverageNote": {
+    "provenLiveOnDevice": [
+      "no |4|4/|6|6 anywhere in persisted DB (0 matches)",
+      "state.tsv byte-for-byte preservation incl. after egress probes",
+      "unsuffixed hostkey modes (z2k_nohost_key circulars) intact: 408+1 rows unchanged",
+      "both sidecars present in the RUNNING process cmdline chain in required order",
+      "service/runtime/NFQUEUE/nft health green; status.uc OK; zero log errors",
+      "active live TCP strategy functional (3/3 egress probes healthy)"
+    ],
+    "provenByContractTestsRepoCommitdd57df0": [
+      "family_split=0 unsuffixed (vector C)",
+      "fresh per-repeat rotation counts/inner repeats=1 (vectors R1/R3/F)",
+      "no double rotation on legacy patched engine (R1 original-not-called + structural never-delegate pin)",
+      "persistence/circular key parity + existing |4 row resolvability (E/F vectors)"
+    ],
+    "environmentLimitation": "--dry-run does not execute Lua init on this build (verified: even broken lua yields rc=0), so vector-level execution could not be driven inside the live binary non-invasively; committed dual-layer suite (21 tests) plus unchanged-byte live evidence carry these claims until CI provides LUA_BIN."
+  }
+}

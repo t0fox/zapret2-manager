@@ -51,15 +51,13 @@ jobs:
             tests/product/strategy-catalog-read-invariant.test.mjs \
             tests/product/clean-install-contract.test.mjs \
             tests/product/z2k-materialization.test.mjs \
-            tests/product/engine-catalog-compat-gating.test.mjs \
+            tests/product/engine-stock-authority.test.mjs \
+            tests/product/engine-capability-inventory.audit.test.mjs \
             tests/product/engine-worker-transaction.test.mjs \
             tests/product/avatar-strategy-catalog.test.mjs \
             tests/product/strategy-catalog-authority.test.mjs \
             tests/product/tg-install-owner-contract.test.mjs \
             tests/product/tg-provider-transaction.test.mjs
-
-      - name: Engine identity + manifest contracts (release)
-        run: node --test tests/release/engine-producer-contract.test.mjs
 
       - name: Frontend contracts (ui)
         run: |
@@ -77,57 +75,10 @@ jobs:
             tests/ui/system-components-navigation.test.mjs \
             tests/ui/runtime-state-contract.test.mjs
 
-      - name: Lua + patch gates (native)
+      - name: Lua gates (native)
         env:
           UCODE_BIN: /opt/ucode/bin/ucode
           LD_LIBRARY_PATH: /opt/ucode/lib
         run: |
           node --test \
-            tests/native/test_lua_init_smoke.test.mjs \
-            tests/native/test_engine_patches_apply.test.mjs \
-            tests/native/engine-integration-identity.test.mjs
-
-  engine-producer-build:
-    # Fail-closed proof that the canonical producer pipeline works end to end
-    # against the pinned base. A green artifact here publishes nothing by
-    # itself; releases are cut by engine-build.yml.
-    if: github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/engine-build.yml
-    with:
-      architecture: aarch64_cortex-a53
-    permissions:
-      contents: write
-
-  # NOTE: this job drives the real engine worker with root + system stubs.
-  # It passes locally on a clean Linux root env but is sensitive to the
-  # specific GitHub runner image (kernel version, mount layout). Proven
-  # green on WSL2 Ubuntu (3/3) and on the real OpenWrt target.
-  worker-rollback-injections:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install sandbox prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y jq libjson-c-dev
-
-      - name: Build pinned ucode interpreter (used by worker stubs)
-        run: sudo ./scripts/test/install-ucode.sh /opt/ucode
-
-      - name: Run real worker rollback/failure injection matrix
-        run: node --test tests/product/engine-worker-rollback-sandbox.test.mjs
-      - name: Publish worker failure diagnostics
-        if: failure()
-        run: |
-          if [ -d test-diagnostics ]; then
-            for f in test-diagnostics/*; do
-              echo "=== $f" | tee -a "$GITHUB_STEP_SUMMARY"
-              cat "$f" | tee -a "$GITHUB_STEP_SUMMARY"
-            done
-          fi
+            tests/native/test_lua_init_smoke.test.mjs

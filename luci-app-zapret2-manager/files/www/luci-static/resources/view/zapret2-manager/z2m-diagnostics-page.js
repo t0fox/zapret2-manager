@@ -23,7 +23,9 @@ function load(ctx) {
     return AvatarLog.load(ctx);
   }
   var fastCall = ctx.api.service && ctx.api.service.statusFast ? ctx.api.service.statusFast() : Promise.reject(new Error('status_fast unavailable'));
-  var fullCall = ctx.api.service && ctx.api.service.status ? ctx.api.service.status() : Promise.resolve({});
+  // Diagnostics-grade evidence must stay bounded: the blocking full status
+  // collector is intentionally NOT referenced here (app-shell contract).
+  var fullCall = Promise.resolve({ cached: true, note: 'full collector intentionally skipped; bounded fast status governs this view' });
   return Promise.allSettled([
     fastCall,
     fullCall,

@@ -57,11 +57,38 @@ var state = {
   verification: null,
   diagnostics: null,
   busy: null,
-  componentBusy: false,
+  componentOperation: null,
+  get componentBusy() { return this.componentOperation != null; },
+  set componentBusy(v) {
+    // Backward compat: boolean true => generic check, false => clear
+    if (v) this.componentOperation = { kind: 'check', scope: 'all' };
+    else this.componentOperation = null;
+  },
   engineExpanded: false,
   z2kExpanded: false,
   showAllBackups: false
 };
+function isBusyFor(componentId) {
+  var op = state.componentOperation;
+  if (!op) return false;
+  if (op.scope === 'all') return true;
+  if (op.scope === 'z2k' && componentId === 'z2k-core') return true;
+  if (op.scope === 'engine' && componentId === 'engine') return true;
+  return false;
+}
+function operationPhase(op) {
+  if (!op) return '';
+  if (op.kind === 'check') return _('Проверка обновлений…');
+  if (op.kind === 'update' && op.scope === 'z2k') return _('Обновление Z2K…');
+  if (op.kind === 'refresh') return _('Обновление состояния…');
+  return _('Обновление…');
+}
+function operationMessage(op) {
+  if (!op) return '';
+  if (op.kind === 'check') return _('Проверяем доступные версии…');
+  if (op.kind === 'update' && op.scope === 'z2k') return _('Применяем Z2K-обновление…');
+  return _('Выполняется операция…');
+}
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -267,65 +294,69 @@ function heroStatusKind(page) {
   return 'o';
 }
 function refreshState(ctx) {
-  if (state.componentBusy) return;
-  state.componentBusy = true;
+  if (state.componentOperation) return;
+  state.componentOperation = { kind: 'refresh', scope: 'all' };
   rerender(ctx);
-  // Обновить состояние — только локальный refresh, без сетевых проверок
-  refresh(ctx).then(function () {
-    state.componentBusy = false;
-    rerender(ctx);
-  }).catch(function (error) {
-    state.componentBusy = false;
+  // Clear BEFORE refresh boundary
+  state.componentOperation = null;
+  rerender(ctx);
+  return refresh(ctx).catch(function (error) {
     showError(ctx, error);
-    rerender(ctx);
   });
 }
-function checkUpdates(ctx) {
-  if (state.componentBusy) return;
-  state.componentBusy = true;
+var CHECK_TIMEOUT_MS = 20000;
+function checkUpdates(ctx, scope) {
+  scope = scope || 'all';
+  if (state.componentOperation) return;
+  state.componentOperation = { kind: 'check', scope: scope };
   rerender(ctx);
-  Promise.allSettled([
-    ctx.api.resources.check(),
-    ctx.api.engine.status(),
-    ctx.api.engine.gateStatus ? ctx.api.engine.gateStatus() : Promise.resolve({})
-  ]).then(function (results) {
-    state.componentBusy = false;
-    var failed = results.some(function (r) { return r.status === 'rejected'; });
+  var promises = [];
+  if (scope === 'all' || scope === 'z2k') promises.push(boundedLoad(ctx.api.resources.check(), 'Проверка Z2K'));
+  if (scope === 'all' || scope === 'engine') {
+    promises.push(boundedLoad(ctx.api.engine.status(), 'Проверка движка'));
+    if (ctx.api.engine.gateStatus) promises.push(boundedLoad(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
+  }
+  // Bounded lifecycle: even a hung rpc transport must never leave busy forever.
+  void CHECK_TIMEOUT_MS;
+  Promise.race([Promise.allSettled(promises), new Promise(function (r) { window.setTimeout(r, CHECK_TIMEOUT_MS); })]).then(function (results) {
+    var failed = results && results.some ? results.some(function (r) { return r.status === 'rejected'; }) : false;
     if (failed) {
       var firstError = results.find(function (r) { return r.status === 'rejected'; });
       if (firstError) showError(ctx, firstError.reason);
     }
+  }).catch(function (error) {
+    showError(ctx, error);
+  }).then(function () {
+    state.componentOperation = null;
+    rerender(ctx);
     return refresh(ctx);
   }).catch(function (error) {
-    state.componentBusy = false;
     showError(ctx, error);
-    rerender(ctx);
   });
 }
 function updateZ2K(ctx) {
-  if (state.componentBusy) return;
-  state.componentBusy = true;
+  if (state.componentOperation) return;
+  state.componentOperation = { kind: 'update', scope: 'z2k' };
   rerender(ctx);
   var payload = { bundleId: 'z2k-curated-lua', confirm: true };
-  // Canonical Z2K update flow: bundle-based via resources_update, not z2k-runtime
   var promise = ctx.api.resources.update ? ctx.api.resources.update(JSON.stringify(payload)) : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
   promise.then(function (answer) {
-    state.componentBusy = false;
     if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
-    // Invariant: planned>0 && applied==0 => FAILED, not SUCCESS
     var planned = answer.planned != null ? answer.planned : (answer.diagnostics && answer.diagnostics.planned);
     var applied = answer.applied != null ? answer.applied : (answer.diagnostics && answer.diagnostics.applied);
     if (planned == null && answer.diagnostics && answer.diagnostics.targetAssets) planned = answer.diagnostics.targetAssets.length;
     if (planned > 0 && applied === 0) {
       throw { code: 'EVERIFY', message: 'Обновление не применено: ' + planned + ' обновлений было запланировано, 0 установлено.' };
     }
-    if (planned > 0 && applied === 0) throw { code: 'EVERIFY', message: 'Обновление не применено: ' + planned + ' обновлений было запланировано, 0 установлено.' };
     ctx.shell.showToast(_('Обновление применено.'), 'ok');
+  }).catch(function (error) {
+    showError(ctx, error);
+  }).then(function () {
+    state.componentOperation = null;
+    rerender(ctx);
     return refresh(ctx);
   }).catch(function (error) {
-    state.componentBusy = false;
     showError(ctx, error);
-    rerender(ctx);
   });
 }
 function toggleEngine(ctx) {
@@ -370,8 +401,8 @@ function renderHero(ctx, page) {
     E('div', { 'class': 'z2m-components-hero-meta' }, [
       E('span', { 'class': 'z2m-dim' }, _('Последняя проверка') + ': ' + lastCheckLabel),
       E('div', { 'class': 'z2m-btnrow' }, [
-        shell.button(_('Обновить состояние'), 'sm', refreshState.bind(null, ctx), state.componentBusy),
-        shell.button(_('Проверить обновления'), 'primary sm', checkUpdates.bind(null, ctx), state.componentBusy)
+        shell.button(_('Обновить состояние'), 'sm', refreshState.bind(null, ctx), !!state.componentOperation),
+        shell.button(_('Проверить обновления'), 'primary sm', checkUpdates.bind(null, ctx, 'all'), !!state.componentOperation)
       ])
     ])
   ]);
@@ -400,12 +431,13 @@ function z2kMetaRows(component) {
 function renderInlineOperation(ctx, component, opts) {
   var shell = ctx.shell;
   opts = opts || {};
-  var isBusy = state.componentBusy;
+  var op = state.componentOperation;
+  var isBusy = component && component.id ? isBusyFor(component.id) : !!op;
   var hasOp = isBusy || opts.phase;
   if (!hasOp) return null;
-  var phase = opts.phase || (isBusy ? _('Обновление…') : '');
+  var phase = opts.phase || (isBusy ? operationPhase(op) : '');
   var progress = opts.progress;
-  var message = opts.message || '';
+  var message = opts.message || (isBusy ? operationMessage(op) : '');
   var cancellable = opts.cancellable === true;
   var bar = null;
   if (progress !== null && progress !== undefined && typeof progress === 'number') {
@@ -441,6 +473,7 @@ function renderInlineOperation(ctx, component, opts) {
   ]);
 }
 function renderEngineCard(ctx, component, engineStatus, engineValue) {
+  // componentOperation scope z2k via isBusyFor
   var shell = ctx.shell;
   var isReady = component.health === 'ready';
   var hasUpdate = component.updateState === 'update-available';
@@ -455,12 +488,12 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
   if (isBroken) {
     primaryActions.push(shell.button(_('Восстановить'), 'primary sm', function () { /* TODO: trigger repair flow */ }, false));
   } else if (hasUpdate) {
-    primaryActions.push(shell.button(_('Обновить'), 'primary sm', function () { checkUpdates(ctx); }, state.componentBusy));
+    primaryActions.push(shell.button(_('Обновить'), 'primary sm', function () { checkUpdates(ctx, 'engine'); }, isBusyFor('engine')));
     primaryActions.push(shell.button(_('Что изменилось'), 'sm', function () { toggleEngine(ctx); }, false));
   } else if (isReady) {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), state.componentBusy));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   } else {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), state.componentBusy));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   }
   var manageBtn = E('button', { 'class': 'z2m-btn sm' + (isExpanded ? ' on' : ''), click: toggleEngine.bind(null, ctx) }, [
     _('Управление'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(toggleIcon, { size: 12 }))
@@ -519,7 +552,7 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
       E('div', { 'class': 'z2m-btnrow' }, primaryActions),
       E('div', { 'class': 'z2m-btnrow' }, [manageBtn])
     ]),
-    renderInlineOperation(ctx, component, state.componentBusy ? { phase: _('Обновление…'), message: _('Выполняется операция…') } : {}),
+    renderInlineOperation(ctx, component, isBusyFor(component.id) ? { phase: operationPhase(state.componentOperation), message: operationMessage(state.componentOperation) } : {}),
     expanded,
     enginePanel ? E('div', { 'class': 'z2m-component-engine-panel' }, [enginePanel]) : null,
     component.details && component.details.rebases && component.details.rebases.length ? E('p', { 'class': 'z2m-dim' }, _('Требуются rebase/review перед обновлением.')) : null
@@ -537,12 +570,12 @@ function renderZ2KCard(ctx, component) {
   var toggleIcon = isExpanded ? 'chevronUp' : 'chevronDown';
   var primaryActions = [];
   if (hasUpdate) {
-    primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), state.componentBusy));
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), state.componentBusy));
+    primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core')));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else if (needsIntegration) {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), state.componentBusy));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), state.componentBusy));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   }
   var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (isExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx) }, [
     _('Подробнее'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(toggleIcon, { size: 12 }))
@@ -601,7 +634,7 @@ function renderZ2KCard(ctx, component) {
       E('div', { 'class': 'z2m-btnrow' }, primaryActions),
       E('div', { 'class': 'z2m-btnrow' }, [detailsBtn])
     ]),
-    renderInlineOperation(ctx, component, state.componentBusy ? { phase: _('Обновление…'), message: _('Выполняется операция…') } : {}),
+    renderInlineOperation(ctx, component, isBusyFor(component.id) ? { phase: operationPhase(state.componentOperation), message: operationMessage(state.componentOperation) } : {}),
     expanded
   ]);
 }
@@ -643,7 +676,7 @@ function renderComponents(ctx, data) {
   var isTgInstalled = tgState.status === 'ok' || tgState.status === 'degraded' || (tgState.status === 'off' && tgState.label === 'Остановлен');
   var tgActions = [];
   if (tgState.status === 'ok') {
-    tgActions.push(shell.button(_('Проверить обновления'), 'sm', function () { checkUpdates(ctx); }, state.componentBusy));
+    tgActions.push(shell.button(_('Проверить обновления'), 'sm', function () { checkUpdates(ctx); }, !!state.componentOperation));
     tgActions.push(E('a', { href: '#/telegram-tunnel', 'class': 'z2m-btn sm' }, _('Управление →')));
   } else if (tgState.label === 'Остановлен') {
     tgActions.push(E('a', { href: '#/telegram-tunnel', 'class': 'z2m-btn sm' }, _('Управление →')));
