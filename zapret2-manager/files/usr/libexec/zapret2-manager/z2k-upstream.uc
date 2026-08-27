@@ -78,7 +78,10 @@ function plan(value) {
 			let needsUpdate = (installed == null) || (installed != digest);
 			if (needsUpdate) push(updates, path);
 		}
-		else if (item.class == 'watched' && item.basedOnSha256 != digest) push(reviews, path);
+		else if (item.class == 'watched' && item.basedOnSha256 != digest) {
+			push(reviews, path);
+			push(reviewDetails, { path: path, reason: 'watched-upstream-file-changed', message: 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически — требуется semantic review.' });
+		}
 		else if (item.class == 'ignored-platform' && false) { /* explicit no-op */ }
 	}
 	// Deterministic precedence: rebase > review > update > current

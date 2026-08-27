@@ -127,7 +127,7 @@ function normalizeEngine(input) {
 		available: { version: availableVersion },
 		artifactKind: artifactKind,
 		upstreamRelease: upstreamRelease,
-		checkedAt: timestamp(check.checkedAt !== undefined ? check.checkedAt : status.checkedAt !== undefined ? status.checkedAt : catalog.fetchedAt),
+		checkedAt: timestamp(check.checkedAt !== undefined ? check.checkedAt : status.checkedAt),
 		summary: runtimeHealth === 'missing' ? 'Базовый движок обработки трафика отсутствует.' : 'Базовый движок обработки трафика.',
 		version: installedVersion,
 		actions: actions,
@@ -210,9 +210,10 @@ function normalizeZ2k(input, engineReady) {
 	} else {
 		compatibilityStateValue = compatibilityRecord(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
 	}
-  var safeUpdate = object(value.safeUpdate || local.safeUpdate);
-  var rebases = array(value.rebases || value.adapted || object(value.plan).rebases || local.rebases);
-  var reviews = array(value.reviews || value.watched || object(value.plan).reviews || local.reviews);
+	var safeUpdate = object(value.safeUpdate || local.safeUpdate);
+	var rebases = array(value.rebases || value.adapted || object(value.plan).rebases || local.rebases);
+	var reviews = array(value.reviews || value.watched || object(value.plan).reviews || local.reviews);
+	var reviewDetails = array(value.reviewDetails || object(value.plan).reviewDetails || local.reviewDetails);
   var actions = {
     primary: engineReady !== true ? 'details'
       : healthState === 'missing' || healthState === 'broken' ? 'repair'
@@ -259,11 +260,13 @@ function normalizeZ2k(input, engineReady) {
       lua: luaSrc.ready !== undefined && luaSrc.total !== undefined ? String(luaSrc.ready) + ' / ' + String(luaSrc.total) : null,
       safeUpdate: safeUpdate.count !== undefined ? String(safeUpdate.count) : null
     },
-    details: {
-      engineDelta: first(value.engineDelta || local.engineDelta, null),
-      provenance: provenanceSrc,
-      rebases: rebases,
-      reviews: reviews,
+		details: {
+		engineDelta: first(value.engineDelta || local.engineDelta, null),
+		localInstalled: hasLocal && (local.installed === true || local.installed === false) ? local.installed : null,
+		provenance: provenanceSrc,
+		rebases: rebases,
+		reviews: reviews,
+		reviewDetails: reviewDetails,
       trustMode: first(value.trustMode || local.trustMode, null),
       manifest: object(value.manifest || local.manifest)
     }

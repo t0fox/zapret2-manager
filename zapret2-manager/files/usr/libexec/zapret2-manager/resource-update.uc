@@ -111,6 +111,7 @@ function z2k_projection(signed) {
 		updates: plan.updates || [],
 		rebases: plan.rebases || [],
 		reviews: plan.reviews || [],
+		reviewDetails: plan.reviewDetails || [],
 		trustMode: signed.trustMode || null,
 		verified: signed.ok === true && signed.trustMode != 'allow-untrusted',
 		source: signed.source || null,

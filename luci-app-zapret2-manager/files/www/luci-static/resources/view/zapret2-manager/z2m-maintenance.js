@@ -61,6 +61,7 @@ var state = {
   diagnostics: null,
   busy: null,
   componentOperation: null,
+  lastSuccessfulCheckAt: null,
   skipEngineOperationStatus: false,
   get componentBusy() { return this.componentOperation != null; },
   set componentBusy(v) {
@@ -242,7 +243,7 @@ function formatLastCheck(shell, value) {
   // shell.format.timestamp already handles relative, fallback to t
   return t;
 }
-function latestTimestamp() {
+function latestCanonicalTimestamp() {
   var latest = null;
   var latestOrder = -Infinity;
   for (var i = 0; i < arguments.length; i++) {
@@ -385,6 +386,11 @@ function checkUpdates(ctx, scope) {
       if (firstError) showError(ctx, firstError.reason);
       return false;
     }
+    results.forEach(function (result) {
+      var checkedAt = result && result.status === 'fulfilled' && result.value && result.value.checkedAt;
+      if (checkedAt !== null && checkedAt !== undefined && checkedAt !== '')
+        state.lastSuccessfulCheckAt = latestCanonicalTimestamp(state.lastSuccessfulCheckAt, checkedAt);
+    });
     ctx.shell.showToast(_('Проверка обновлений завершена.'), 'ok');
     return true;
   }).catch(function (error) {
@@ -489,7 +495,7 @@ function z2kMetaRows(component) {
   var local = details.provenance || {};
   var release = component.installedRelease || {};
   var rows = [];
-  rows.push({ label: _('Установленный release'), value: release.value || _('Не установлен') });
+  rows.push({ label: _('Установленный release'), value: z2kReleaseLabel(component) });
   if (release.confidence && release.confidence !== 'unknown') rows.push({ label: _('Уверенность release'), value: release.confidence });
   if (component.counters && component.counters.lua) rows.push({ label: _('Lua'), value: component.counters.lua });
   rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
@@ -497,6 +503,27 @@ function z2kMetaRows(component) {
   rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : _('Не подтверждена') });
   if (local.sourceCommit || local.commit) rows.push({ label: _('Commit источника'), value: local.sourceCommit || local.commit });
   return rows;
+}
+function z2kReleaseLabel(component) {
+  var release = component.installedRelease || {};
+  if (release.value) return release.value;
+  return component.details && component.details.localInstalled === false ? _('Не установлен') : _('Не определён');
+}
+function z2kReviewReason(component) {
+  var details = component.details || {};
+  var reviewDetails = details.reviewDetails || [];
+  var reasons = [];
+  reviewDetails.forEach(function (item) {
+    if (!item || typeof item !== 'object') return;
+    var reason = item.message || item.reason || '';
+    var path = item.path || '';
+    if (reason && path) reasons.push(reason + ' (' + path + ')');
+    else if (reason) reasons.push(reason);
+    else if (path) reasons.push(path);
+  });
+  if (!reasons.length && component.reviews && component.reviews.length)
+    reasons.push(_('Изменения в upstream-файлах требуют ручной semantic review: ') + component.reviews.join(', '));
+  return reasons.join(' ');
 }
 function renderInlineOperation(ctx, component, opts) {
   var shell = ctx.shell;
@@ -643,6 +670,9 @@ function renderZ2KCard(ctx, component) {
   if (hasUpdate) {
     primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core')));
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
+  } else if (component.updateState === 'review-required') {
+    primaryActions.push(shell.button(_('Требуется проверка'), 'sm', toggleZ2K.bind(null, ctx), isBusyFor('z2k-core')));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else if (needsIntegration) {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else {
@@ -657,7 +687,7 @@ function renderZ2KCard(ctx, component) {
         E('h4', {}, _('Локально')),
         kvPanel(shell, [
           { label: _('Источник'), value: component.details.provenance && component.details.provenance.source || 'necronicle/z2k' },
-          { label: _('Установленный release'), value: component.installedRelease && component.installedRelease.value || null },
+          { label: _('Установленный release'), value: z2kReleaseLabel(component) },
           { label: _('Локальная revision'), value: component.details.provenance && (component.details.provenance.sourceCommit || component.details.provenance.commit) || null },
           { label: _('Lua assets'), value: component.counters && component.counters.lua || null },
           { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') },
@@ -673,6 +703,7 @@ function renderZ2KCard(ctx, component) {
           { label: _('Обновления'), value: UpdatePresentation.describe(component.updateState).label },
           { label: _('Доступный release'), value: component.availableRelease || null },
           { label: _('Rebase'), value: component.rebases && component.rebases.length ? component.rebases.join(', ') : null },
+          { label: _('Причина проверки'), value: component.updateState === 'review-required' ? z2kReviewReason(component) : null },
           { label: _('Review'), value: component.reviews && component.reviews.length ? component.reviews.join(', ') : null }
         ])
       ])
@@ -680,7 +711,7 @@ function renderZ2KCard(ctx, component) {
     E('details', { 'class': 'z2m-acc' }, [
       E('summary', {}, _('Технические сведения')),
       kvPanel(shell, [
-        { label: _('Установленный release'), value: component.installedRelease && component.installedRelease.value || null },
+        { label: _('Установленный release'), value: z2kReleaseLabel(component) },
         { label: _('Источник'), value: component.details.provenance && component.details.provenance.source || null },
         { label: _('Lua'), value: component.counters && component.counters.lua || null },
         { label: _('Trust mode'), value: component.details.trustMode || null },
@@ -764,11 +795,9 @@ function renderComponents(ctx, data) {
     versions: payload.versions && payload.versions.value || {},
     engine: { status: engineStatus, catalog: engineValue[0] || {} },
     z2k: payload.resources && payload.resources.value && payload.resources.value.z2k || {},
-    checkedAt: latestTimestamp(
+    checkedAt: latestCanonicalTimestamp(
       payload.resources && payload.resources.value && payload.resources.value.checkedAt,
-      engineValue[0] && engineValue[0].checkedAt,
-      engineValue[0] && engineValue[0].fetchedAt,
-      engineStatus && engineStatus.checkedAt
+      state.lastSuccessfulCheckAt
     )
   });
   var engineComp = page.components.find(function (c) { return c.id === 'engine'; });
