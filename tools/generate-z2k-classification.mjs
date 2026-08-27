@@ -23,6 +23,13 @@ function classify(sourcePath) {
   if (/^files\/z2k-(config-validator|update-lists|geosite)\.sh$/.test(sourcePath)) return 'watched';
   return 'ignored-platform';
 }
+function reviewPolicy(sourcePath) {
+  // These shell helpers are observed for upstream drift but are not consumed by
+  // the Z2M runtime. Trust roots remain blocking because they change authority.
+  if (sourcePath === 'files/etc/z2k-update-pub.pem' || sourcePath === 'files/etc/z2k-roots.pem') return 'blocking';
+  if (/^files\/z2k-(config-validator|update-lists|geosite)\.sh$/.test(sourcePath)) return 'advisory';
+  return 'blocking';
+}
 function entry(sourcePath, digest) {
   const klass = classify(sourcePath), local = localPath(sourcePath);
   const base = { sourcePath, class: klass, type: path.extname(sourcePath).replace('.', '') || 'file', basedOnSha256: digest };
@@ -40,6 +47,7 @@ function entry(sourcePath, digest) {
   } else if (klass === 'watched') {
     base.localName = local ? path.relative(localRoot, local).replaceAll(path.sep, '/') : null;
     base.consumer = sourcePath.includes('update-pub') ? 'pinned trust root audit' : 'upstream semantic review only';
+    base.reviewPolicy = reviewPolicy(sourcePath);
   } else {
     base.consumer = 'not installed by Z2M; provenance only';
   }

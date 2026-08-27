@@ -9,7 +9,9 @@ test('Resource Center exposes a bounded Z2K classification projection', () => {
   assert.match(source, /z2k_projection\(/);
   assert.match(source, /answer\.z2k/);
   assert.match(source, /let status = signed\.status/);
-  assert.match(source, /updateState:\s*status/);
+  assert.match(source, /updateState:\s*(signed\.updateState|plan\.updateState|updateState)/);
+  assert.match(source, /attentionState:/);
+  assert.match(source, /canApply:/);
   assert.match(source, /updates:\s*plan\.updates/);
   assert.match(source, /rebases:\s*plan\.rebases/);
   assert.match(source, /reviews:\s*plan\.reviews/);

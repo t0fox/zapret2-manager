@@ -69,6 +69,11 @@ function z2k_installed_release(manifest, listed, want, installedCount, hasMissin
 	return { value: null, confidence: 'unknown', authority: null };
 }
 function state_label(state) { return ({ current: 'Актуально', update: 'Доступно обновление', missing: 'Не установлено', checking: 'Проверяем', unavailable: 'Источник недоступен', stale: 'Проверка устарела', error: 'Ошибка проверки', attention: 'Требуется внимание', unknown: 'Не проверено' })[state] || 'Требуется внимание'; }
+function plan_token(checkedAt, manifest) {
+	if (type(checkedAt) != 'int' || !object(manifest) || type(manifest.seq) != 'int' || !string(manifest.current)) return null;
+	let token = 'z2k-plan-v1:' + checkedAt + ':' + manifest.seq + ':' + manifest.current;
+	return length(token) <= 256 ? token : null;
+}
 function current_asset(item, assets) {
 	let registered = registry_asset(assets, item.id);
 	if (registered != null) return regular(registered.path) ? { record: registered, path: registered.path, sha256: sha256(registered.path), byteSize: stat(registered.path).size, ownership: registered.ownership } : { record: registered, path: registered.path, sha256: null, byteSize: 0, ownership: registered.ownership };
@@ -102,21 +107,29 @@ function source_rows(manifest, rows) {
 	return result;
 }
 function z2k_projection(signed) {
-	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', updates: [], rebases: [], reviews: [], trustMode: 'allow-untrusted', verified: false, source: null, manifest: null, availableRelease: null };
+	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, manifest: null, availableRelease: null };
 	let plan = object(signed.plan) ? signed.plan : {}, manifest = object(signed.manifest) ? signed.manifest : {};
 	let status = signed.status || 'unknown';
+	let updateState = signed.updateState || plan.updateState || (length(plan.updates || []) ? 'update-available' : status == 'unknown' ? 'unknown' : 'current');
+	let attentionState = signed.attentionState || plan.attentionState || (status == 'rebase-required' ? 'rebase-required' : status == 'review-required' ? 'review-required' : 'none');
 	return {
 		status: status,
-		updateState: status,
+		updateState: updateState,
+		attentionState: attentionState,
+		canApply: signed.canApply === true || plan.canApply === true,
 		updates: plan.updates || [],
 		rebases: plan.rebases || [],
 		reviews: plan.reviews || [],
+		advisoryReviews: plan.advisoryReviews || [],
+		blockingReviews: plan.blockingReviews || [],
+		blockingReasons: plan.blockingReasons || [],
 		reviewDetails: plan.reviewDetails || [],
+		planToken: signed.planToken || null,
 		trustMode: signed.trustMode || null,
 		verified: signed.ok === true && signed.trustMode != 'allow-untrusted',
 		source: signed.source || null,
 		manifest: { seq: manifest.seq, current: manifest.current },
-		availableRelease: known_release(signed.release || manifest.release || manifest.version)
+		availableRelease: known_release(manifest.current)
 	};
 }
 function z2k_local_projection(manifest) {
@@ -201,8 +214,10 @@ function load_check_state() {
 	if (!object(value) || value.schema != 1 || type(value.checkedAt) != 'int' || !object(value.signed)) return null;
 	return value;
 }
-function save_check_state(signed, checkedAt, signedSources) {
-	let payload = { schema: 1, checkedAt: checkedAt, signed: signed, signedSources: signedSources };
+function save_check_state(signed, checkedAt, signedSources, token) {
+	let planToken = token || (signed && signed.ok === true ? plan_token(checkedAt, signed.manifest) : null);
+	if (signed && signed.ok === true && planToken != null) signed.planToken = planToken;
+	let payload = { schema: 1, checkedAt: checkedAt, planToken: planToken, signed: signed, signedSources: signedSources };
 	let content = sprintf('%J', payload) + '\n';
 	let tmp = CHECK_STATE + '.tmp.' + time();
 	try { writefile(tmp, content); } catch (e) { return; }
@@ -245,6 +260,7 @@ export const resource_center_status = function () {
 	let remote = persisted ? z2k_projection(persisted.signed) : z2k_projection(null);
 	remote.local = local;
 	remote.checkedAt = persisted ? persisted.checkedAt : null;
+	remote.planToken = persisted ? (persisted.planToken || remote.planToken) : null;
 	answer.z2k = remote;
 	if (persisted) {
 		answer.checkedAt = persisted.checkedAt;
@@ -271,12 +287,17 @@ export const resource_center_status = function () {
 	return answer;
 };
 export const resource_center_check = function () {
-	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, time()); if (!answer.ok) return answer;
+	let loaded = load_manifest(); if (!loaded.ok) return loaded;
 	let signed = z2k_upstream_check();
+	let checkedAt = signed.ok === true ? time() : null;
+	let answer = build_status(loaded.manifest, checkedAt); if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
 	let remote = z2k_projection(signed);
 	remote.local = local;
-	remote.checkedAt = answer.checkedAt;
+	remote.checkedAt = checkedAt;
+	remote.planToken = signed.ok === true ? plan_token(checkedAt, signed.manifest) : null;
+	if (signed.ok === true && remote.planToken != null) signed.planToken = remote.planToken;
+	answer.planToken = remote.planToken;
 	answer.z2k = remote;
 	answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? (signed.trustMode == 'allow-untrusted' ? 'Источник разрешён без проверки подписи' : signed.status) : 'Ошибка проверки источника', checkMode: signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest', trustMode: signed.trustMode || null, verified: signed.ok === true && signed.trustMode != 'allow-untrusted', evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, trustMode: signed.trustMode || null, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'Z2K source check failed' } } };
 	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') {
@@ -290,7 +311,7 @@ export const resource_center_check = function () {
 			else if (signed.status === 'unknown') { answer.sources[i].state = 'unknown'; answer.sources[i].status = state_label('unknown'); }
 		}
 	}
-	save_check_state(signed, answer.checkedAt, answer.signedSources.z2k);
+	if (signed.ok === true) save_check_state(signed, checkedAt, answer.signedSources.z2k, remote.planToken);
 	return answer;
 };
 export const resource_center_update = function (request) {
@@ -326,23 +347,27 @@ export const resource_center_update = function (request) {
 	// Update pathUsed now that selected is known
 	if (selected.sourceId == 'z2k-resources') diagPathUsed = 'z2k-resources:bundle:' + selected.id;
 	else diagPathUsed = 'bundle:' + selected.id;
-	let signedForZ2k = null;
+	let signedForZ2k = null, checkSnapshotAt = null;
 	if (selected.sourceId == 'z2k-resources') {
-		signedForZ2k = z2k_upstream_check(); if (!signedForZ2k.ok) {
-			let d = { pathUsed: diagPathUsed, remoteRevision: null, planned: 0, downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-			return fail('EVERIFY', 'signed Z2K manifest verification failed; update is blocked', { cause: signedForZ2k.error, diagnostics: d });
+		// APPLY is bound to the last explicit CHECK_STATE snapshot. Never perform
+		// a second network check here: that could make the plan and downloaded
+		// bytes disagree with what the user confirmed.
+		let persisted = load_check_state(), snapshot = persisted && persisted.signed;
+		let expectedToken = persisted && snapshot ? plan_token(persisted.checkedAt, snapshot.manifest) : null;
+		if (!persisted || !object(snapshot) || snapshot.ok !== true || !persisted.planToken || expectedToken == null || request.planToken != persisted.planToken || request.planToken != expectedToken || snapshot.planToken != request.planToken || !object(snapshot.plan) || !object(snapshot.manifest)) {
+			return fail('ECHECK_STALE', 'Z2K update requires a matching successful check snapshot; run Проверить обновления again.');
 		}
-		if (signedForZ2k.status == 'rebase-required') {
-			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest && signedForZ2k.manifest.current || null, planned: length(signedForZ2k.plan.rebases || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: signedForZ2k.plan.rebases || [], targetAssets: [] };
-			return fail('EZ2K_REBASE_REQUIRED', 'signed Z2K manifest requires adapted-file rebase', { rebases: signedForZ2k.plan.rebases, diagnostics: d });
+		signedForZ2k = snapshot;
+		checkSnapshotAt = persisted.checkedAt;
+		let canonical = signedForZ2k.plan;
+		if (canonical.attentionState == 'rebase-required' || length(canonical.rebases || [])) {
+			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest.current || null, planned: length(canonical.rebases || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: canonical.rebases || [], targetAssets: [] };
+			return fail('EZ2K_REBASE_REQUIRED', 'signed Z2K manifest requires adapted-file rebase', { rebases: canonical.rebases, diagnostics: d });
 		}
-		if (signedForZ2k.status == 'review-required') {
-			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest && signedForZ2k.manifest.current || null, planned: length(signedForZ2k.plan.reviews || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: signedForZ2k.plan.reviews || [], targetAssets: [] };
-			return fail('EZ2K_REVIEW_REQUIRED', 'signed Z2K manifest requires semantic review', { reviews: signedForZ2k.plan.reviews, diagnostics: d });
-		}
-		if (!signedForZ2k.plan || !signedForZ2k.manifest) {
-			let d = { pathUsed: diagPathUsed, remoteRevision: null, planned: 0, downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-			return fail('EVERIFY', 'signed Z2K manifest is incomplete', { diagnostics: d });
+		if (canonical.canApply !== true || length(canonical.updates || []) == 0) {
+			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest.current || null, planned: length(canonical.updates || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: canonical.blockingReviews || [], targetAssets: [] };
+			if (length(canonical.blockingReviews || [])) return fail('EZ2K_REVIEW_REQUIRED', 'signed Z2K manifest requires semantic review', { reviews: canonical.blockingReviews, blockingReasons: canonical.blockingReasons || [], diagnostics: d });
+			return fail('EUPDATE_NOT_AVAILABLE', 'Z2K check snapshot contains no applicable exact-managed updates.', { diagnostics: d });
 		}
 	}
 	let root = make_stage_root(); if (root == null) return fail('ETARGET', 'resource staging directory is unavailable'); let paths = [], staged = [];
@@ -352,7 +377,7 @@ export const resource_center_update = function (request) {
 		let planUpdates = signedForZ2k.plan.updates || [];
 		let remoteFiles = signedForZ2k.manifest.files_sha256 || {};
 		let remoteCommit = signedForZ2k.manifest.current || selected.sourceCommit;
-		let remoteVersion = signedForZ2k.release || selected.version;
+		let remoteVersion = signedForZ2k.manifest.current;
 		let diagnostics = { pathUsed: diagPathUsed, remoteRevision: remoteCommit, planned: length(planUpdates), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
 		// Pre-fill targetAssets with before SHAs (correct slug derivation for all types)
 		for (let i = 0; i < length(planUpdates); i++) {
@@ -522,9 +547,10 @@ export const resource_center_update = function (request) {
 				}
 				// Persist post-apply truth without network (resources_status remains network-free)
 				try {
-					let newSigned = { ok: true, status: newPlan ? newPlan.status : 'current', source: signedForZ2k.source, trustMode: signedForZ2k.trustMode, manifest: signedForZ2k.manifest, plan: newPlan || { updates: [], rebases: [], reviews: [] } };
+					let persistedPlan = newPlan || { ok: true, status: 'current', updateState: 'current', attentionState: 'none', canApply: false, updates: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], manifest: signedForZ2k.manifest };
+					let newSigned = { ok: true, status: persistedPlan.status, updateState: persistedPlan.updateState, attentionState: persistedPlan.attentionState, canApply: persistedPlan.canApply, source: signedForZ2k.source, trustMode: signedForZ2k.trustMode, manifest: signedForZ2k.manifest, plan: persistedPlan, planToken: signedForZ2k.planToken };
 					let newSignedSources = { state: newPlan && newPlan.status == 'current' ? 'current' : (newPlan && newPlan.status == 'update-available' ? 'attention' : 'attention'), status: newPlan ? newPlan.status : 'current', checkMode: 'allow-untrusted', trustMode: newSigned.trustMode || 'allow-untrusted', verified: false, evidence: { repository: newSigned.source.repository, branch: newSigned.source.branch, trustMode: newSigned.trustMode || null, manifestSeq: newSigned.manifest.seq, manifestCurrent: newSigned.manifest.current } };
-					save_check_state(newSigned, time(), newSignedSources);
+					save_check_state(newSigned, checkSnapshotAt, newSignedSources, signedForZ2k.planToken);
 				} catch (e) {}
 			}
 		} else {

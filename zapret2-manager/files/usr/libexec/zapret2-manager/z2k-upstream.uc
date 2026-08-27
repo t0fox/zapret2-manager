@@ -59,35 +59,66 @@ function sha256_file(path) {
 	let out = trim(p.read('all') || ''), rc = p.close();
 	return rc == 0 && match(out, /^[a-f0-9]{64}$/) ? lc(out) : null;
 }
+function review_policy(item) {
+	return item && item.reviewPolicy == 'advisory' ? 'advisory' : 'blocking';
+}
+function plan_result(manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons) {
+	let updateState = length(updates) ? 'update-available' : 'current';
+	let attentionState = length(rebases) ? 'rebase-required' : length(blockingReviews) ? 'review-required' : length(advisoryReviews) ? 'review-advisory' : 'none';
+	let status = length(rebases) ? 'rebase-required' : length(blockingReviews) ? 'review-required' : length(updates) ? 'update-available' : 'current';
+	return {
+		ok: true,
+		status: status,
+		updateState: updateState,
+		attentionState: attentionState,
+		canApply: length(updates) > 0 && length(rebases) == 0 && length(blockingReviews) == 0,
+		updates: updates,
+		rebases: rebases,
+		reviews: reviews,
+		advisoryReviews: advisoryReviews,
+		blockingReviews: blockingReviews,
+		blockingReasons: blockingReasons,
+		reviewDetails: reviewDetails,
+		manifest: manifest
+	};
+}
 function plan(value) {
 	// PURE: deterministic from manifest + classification + registry. No network.
 	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
-	let updates = [], rebases = [], reviews = [], reviewDetails = [];
+	let updates = [], rebases = [], reviews = [], advisoryReviews = [], blockingReviews = [], reviewDetails = [], blockingReasons = [];
 	for (let path in keys(checked.manifest.files_sha256)) {
 		let digest = checked.manifest.files_sha256[path], item = class_for(map, path);
 		if (item == null) {
-			// Unknown future upstream file — safe degradation to review-required, not hard crash.
+			// Unknown future upstream file — fail closed into a blocking review.
+			let detail = { path: path, reason: 'unclassified-upstream-file', policy: 'blocking', message: 'Новый upstream-файл не имеет явной политики интеграции; требуется проверка.' };
 			push(reviews, path);
-			push(reviewDetails, { path: path, reason: 'unclassified-upstream-file' });
+			push(blockingReviews, path);
+			push(reviewDetails, detail);
+			push(blockingReasons, detail);
 			continue;
 		}
-		if (item.class == 'adapted' && item.basedOnSha256 != digest) push(rebases, path);
+		if (item.class == 'adapted' && item.basedOnSha256 != digest) {
+			let detail = { path: path, reason: 'adapted-upstream-file-changed', policy: 'blocking', message: 'Адаптированный upstream-файл изменился; требуется rebase.' };
+			push(rebases, path);
+			push(reviewDetails, detail);
+			push(blockingReasons, detail);
+		}
 		else if (item.class == 'exact-managed') {
 			let installed = installedShaFor(path);
 			let needsUpdate = (installed == null) || (installed != digest);
 			if (needsUpdate) push(updates, path);
 		}
 		else if (item.class == 'watched' && item.basedOnSha256 != digest) {
+			let policy = review_policy(item), detail = { path: path, reason: 'watched-upstream-file-changed', policy: policy, message: policy == 'advisory' ? 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; изменение отмечено как advisory review.' : 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; требуется semantic review.' };
 			push(reviews, path);
-			push(reviewDetails, { path: path, reason: 'watched-upstream-file-changed', message: 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически — требуется semantic review.' });
+			push(reviewDetails, detail);
+			if (policy == 'advisory') push(advisoryReviews, path);
+			else { push(blockingReviews, path); push(blockingReasons, detail); }
 		}
 		else if (item.class == 'ignored-platform' && false) { /* explicit no-op */ }
 	}
-	// Deterministic precedence: rebase > review > update > current
-	if (length(rebases)) return { ok: true, status: 'rebase-required', updates: updates, rebases: rebases, reviews: reviews, reviewDetails: reviewDetails, manifest: checked.manifest };
-	if (length(reviews)) return { ok: true, status: 'review-required', updates: updates, rebases: rebases, reviews: reviews, reviewDetails: reviewDetails, manifest: checked.manifest };
-	return { ok: true, status: length(updates) ? 'update-available' : 'current', updates: updates, rebases: [], reviews: [], reviewDetails: reviewDetails, manifest: checked.manifest };
+	return plan_result(checked.manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons);
 }
 function fetch_untrusted_manifest_once() {
 	let mf = temp_file(); if (mf == null) return fail('EIO', 'Не удалось создать private Z2K staging file.');
@@ -126,19 +157,18 @@ export const z2k_upstream_check = function() {
 			let gate = z2k_candidate_gate('files/lua/z2k-state-persist.lua', cand, expected);
 			cleanup([cand]);
 			if (!gate.ok) {
-				// Move from updates to reviews, recalc status
+				// Move the gated candidate into a blocking review and recompute all canonical fields.
 				let newUpdates = []; for (let i = 0; i < length(checked.updates); i++) if (checked.updates[i] != 'files/lua/z2k-state-persist.lua') push(newUpdates, checked.updates[i]);
 				let newReviews = []; for (let i = 0; i < length(checked.reviews); i++) push(newReviews, checked.reviews[i]); push(newReviews, 'files/lua/z2k-state-persist.lua');
-				checked.updates = newUpdates;
-				checked.reviews = newReviews;
-				if (length(checked.rebases)) checked.status = 'rebase-required';
-				else if (length(checked.reviews)) checked.status = 'review-required';
-				else if (length(checked.updates)) checked.status = 'update-available';
-				else checked.status = 'current';
+				let newAdvisory = []; for (let i = 0; i < length(checked.advisoryReviews || []); i++) push(newAdvisory, checked.advisoryReviews[i]);
+				let newBlocking = []; for (let i = 0; i < length(checked.blockingReviews || []); i++) push(newBlocking, checked.blockingReviews[i]); push(newBlocking, 'files/lua/z2k-state-persist.lua');
+				let detail = { path: 'files/lua/z2k-state-persist.lua', reason: gate.error && gate.error.code || 'candidate-gate-failed', policy: 'blocking', message: 'Кандидат z2k-state-persist не прошёл проверку совместимости; требуется review.' };
+				let newDetails = []; for (let i = 0; i < length(checked.reviewDetails || []); i++) push(newDetails, checked.reviewDetails[i]); push(newDetails, detail);
+				let newReasons = []; for (let i = 0; i < length(checked.blockingReasons || []); i++) push(newReasons, checked.blockingReasons[i]); push(newReasons, detail);
+				checked = plan_result(checked.manifest, newUpdates, checked.rebases || [], newReviews, newAdvisory, newBlocking, newDetails, newReasons);
 			}
 		}
-		let map = classification(), release = map && map.source && map.source.release ? map.source.release : null;
-		return { ok: true, status: checked.status, release: release, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };
+		return { ok: true, status: checked.status, updateState: checked.updateState, attentionState: checked.attentionState, canApply: checked.canApply, updates: checked.updates, rebases: checked.rebases, reviews: checked.reviews, advisoryReviews: checked.advisoryReviews, blockingReviews: checked.blockingReviews, blockingReasons: checked.blockingReasons, release: checked.manifest.current, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };
 	}
 	return lastErr || fail('ESTALE', 'Z2K manifest/candidate race — retry limit exceeded');
 };

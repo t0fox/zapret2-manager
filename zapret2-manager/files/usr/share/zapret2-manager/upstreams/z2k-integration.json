@@ -30,7 +30,8 @@
       "type": "pem",
       "basedOnSha256": "a6cf5a695274d4f36b401cc62183895af11e68b02417638a070465c77f4caf00",
       "localName": null,
-      "consumer": "upstream semantic review only"
+      "consumer": "upstream semantic review only",
+      "reviewPolicy": "blocking"
     },
     {
       "sourcePath": "files/etc/z2k-update-pub.pem",
@@ -38,7 +39,8 @@
       "type": "pem",
       "basedOnSha256": "1041720fa0dff53e2babbf547a705c2f43c30bca2c6ca2ddf7144cfe3b470a01",
       "localName": null,
-      "consumer": "pinned trust root audit"
+      "consumer": "pinned trust root audit",
+      "reviewPolicy": "blocking"
     },
     {
       "sourcePath": "files/fake/active_discord_udp.bin",
@@ -582,7 +584,8 @@
       "type": "sh",
       "basedOnSha256": "a8d01d7f7eb2268dd3487e1b560700ad7eb2c5b87a8428c61df25c9570fdf09a",
       "localName": null,
-      "consumer": "upstream semantic review only"
+      "consumer": "upstream semantic review only",
+      "reviewPolicy": "advisory"
     },
     {
       "sourcePath": "files/z2k-detect-watchdog.sh",
@@ -618,7 +621,8 @@
       "type": "sh",
       "basedOnSha256": "3167cff1eb6dd894f633cbf9d38dc102ce7b7c7e48ee68334fb57ca19c10f8ff",
       "localName": null,
-      "consumer": "upstream semantic review only"
+      "consumer": "upstream semantic review only",
+      "reviewPolicy": "advisory"
     },
     {
       "sourcePath": "files/z2k-insta-ip-refresh.sh",
@@ -675,7 +679,8 @@
       "type": "sh",
       "basedOnSha256": "a32df510bef2e739b427a6f70e5a6db13a53e8fbe9e31dcb1022707795549dd5",
       "localName": null,
-      "consumer": "upstream semantic review only"
+      "consumer": "upstream semantic review only",
+      "reviewPolicy": "advisory"
     },
     {
       "sourcePath": "files/z2k-warp.sh",
