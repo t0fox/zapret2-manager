@@ -37,6 +37,7 @@ return baseclass.extend({
       onHelp: renderInspector,
     });
     var backendProblems = [];
+    var profileMemory = {};
     var destroyed = false;
     var syncSource = null;
     var listeners = [];
@@ -59,7 +60,9 @@ return baseclass.extend({
     }
     function viewFor(profile, index) {
       var byProfile = editorState.viewByProfile || {};
-      return byProfile[index] === 'visual' ? 'visual' : 'code';
+      if (byProfile[index] !== 'visual') return 'code';
+      var parsed = Nfqws2Ide.parseProfile(text(profile && profile.args));
+      return parsed && parsed.mode === 'structured' && parsed.lossless === true ? 'visual' : 'code';
     }
     function markDirty() { editorState.dirty = true; }
     function setText(host, value) {
@@ -113,6 +116,22 @@ return baseclass.extend({
         tabs.appendChild(button);
       });
       host.appendChild(tabs);
+      var modes = element(document, 'div', 'strategy-editor-mode-tabs');
+      var current = activeProfile(), parsed = current ? Nfqws2Ide.parseProfile(text(current.args)) : null;
+      ['visual', 'code'].forEach(function (mode) {
+        var button = element(document, 'button', 'btn btn-ghost btn-sm' + (current && viewFor(current, activeIndex()) === mode ? ' is-active' : ''), mode === 'visual' ? 'Визуально' : 'Code');
+        button.type = 'button';
+        button.disabled = mode === 'visual' && (!parsed || parsed.mode !== 'structured' || parsed.lossless !== true);
+        button.addEventListener('click', function () {
+          editorState.viewByProfile = editorState.viewByProfile || {};
+          editorState.viewByProfile[activeIndex()] = mode;
+          renderProfileTabs();
+          renderVisual();
+          renderCodeMode();
+        });
+        modes.appendChild(button);
+      });
+      host.appendChild(modes);
     }
     function renderVisual() {
       var profile = activeProfile(), host = hosts.fieldsHost;
@@ -122,6 +141,7 @@ return baseclass.extend({
       var parsed = Nfqws2Ide.parseProfile(text(profile.args));
       var visual = element(document, 'div', 'strategy-editor-visual');
       visual.dataset.mode = parsed.mode;
+      visual.style.display = viewFor(profile, activeIndex()) === 'visual' ? '' : 'none';
       visual.appendChild(element(document, 'div', 'strategy-editor-section-title', 'Visual'));
       if (parsed.mode !== 'structured' || parsed.lossless !== true) {
         visual.appendChild(element(document, 'p', 'strategy-editor-raw-only', 'Raw-only: неизвестный синтаксис сохранён без изменений; Visual отключён.'));
@@ -172,10 +192,35 @@ return baseclass.extend({
       problems.forEach(function (problem) {
         var row = element(document, 'div', 'strategy-editor-problem ' + problem.severity);
         row.dataset.source = problem.source || 'IDE';
+        if (problem.profileIndex !== undefined) row.dataset.profileIndex = String(problem.profileIndex);
         row.appendChild(element(document, 'b', '', problem.source || 'IDE'));
         row.appendChild(element(document, 'span', '', ': ' + text(problem.message)));
+        if (Number.isFinite(problem.from) && Number.isFinite(problem.to) && handle) {
+          row.addEventListener('click', function () {
+            if (problem.profileIndex !== undefined && problem.profileIndex !== activeIndex()) switchProfile(profileId(strategy.profiles[problem.profileIndex], problem.profileIndex));
+            if (handle && handle.view) {
+              handle.view.dispatch({ selection: { anchor: problem.from, head: problem.to }, scrollIntoView: true });
+              handle.focus();
+            }
+          });
+        }
         hosts.problemsHost.appendChild(row);
       });
+    }
+    function rememberProfile() {
+      var profile = activeProfile();
+      if (!profile || !handle) return;
+      profile.args = handle.getValue();
+      profileMemory[activeId] = {
+        selection: handle.getSelection(),
+        scrollTop: handle.view && handle.view.scrollDOM ? handle.view.scrollDOM.scrollTop : 0,
+      };
+    }
+    function restoreProfile() {
+      var memory = profileMemory[activeId];
+      if (!memory || !handle || !handle.view) return;
+      if (memory.selection) handle.view.dispatch({ selection: memory.selection });
+      if (handle.view.scrollDOM) handle.view.scrollDOM.scrollTop = memory.scrollTop || 0;
     }
     function renderCodeMode() {
       var profile = activeProfile();
@@ -188,14 +233,17 @@ return baseclass.extend({
           extensions: nfqws2.extensions,
           onChange: function (value) {
             if (syncSource === 'visual') return;
-            profile.args = value;
+            var current = activeProfile();
+            if (!current) return;
+            current.args = value;
             markDirty();
             if (handle && handle.view) handle.setDiagnostics(nfqws2.lintSource(handle.view));
             renderVisual();
             renderProblems();
           },
           onCursor: function (selection) {
-            nfqws2.helpAt(text(profile.args), selection.head);
+            var current = activeProfile();
+            if (current) nfqws2.helpAt(text(current.args), selection.head);
           },
           onSave: function () {
             if (typeof editorState.onSave === 'function') editorState.onSave();
@@ -205,6 +253,7 @@ return baseclass.extend({
         handle.setValue(text(profile.args), { preserveHistory: true });
       }
       if (handle.view) handle.setDiagnostics(nfqws2.lintSource(handle.view));
+      restoreProfile();
     }
     function applyVisualEdits(profile, edits) {
       var parsed = Nfqws2Ide.parseProfile(text(profile.args));
@@ -233,6 +282,7 @@ return baseclass.extend({
     }
     function switchProfile(id) {
       if (destroyed || id === activeId) return;
+      rememberProfile();
       flush();
       activeId = id;
       renderProfileTabs();
@@ -250,6 +300,14 @@ return baseclass.extend({
         if (item[0] === 'editorValidate' || item[0] === 'editorPreview' || item[0] === 'saveEditor') button.dataset.operation = item[0] === 'editorValidate' ? 'validate' : item[0] === 'editorPreview' ? 'preview' : 'save';
         hosts.actionsHost.appendChild(button);
       });
+      if (ctx && ctx.api && ctx.api.strategies && ctx.api.strategies.test) {
+        var testButton = element(document, 'button', 'btn btn-ghost btn-sm', 'Test');
+        testButton.type = 'button';
+        testButton.dataset.action = 'editorTest';
+        hosts.actionsHost.insertBefore(testButton, hosts.actionsHost.lastChild);
+      } else {
+        hosts.actionsHost.appendChild(element(document, 'span', 'ide-capability-note', 'Временный runtime-тест не предоставлен backend; сначала используйте Validate и Preview.'));
+      }
     }
     function render() {
       strategy = editorState.strategy;
@@ -260,6 +318,36 @@ return baseclass.extend({
       renderVisual();
       renderCodeMode();
       renderProblems();
+    }
+    function backendProblem(item) {
+      item = item || {};
+      var problem = {
+        source: 'Backend',
+        severity: diagnosticSeverity(item.severity),
+        message: text(item.message || item.code || 'Backend diagnostic'),
+      };
+      var profileValue = item.profileIndex !== undefined ? item.profileIndex : item.profile_index;
+      if (Number.isInteger(Number(profileValue))) problem.profileIndex = Number(profileValue);
+      if (item.path !== undefined && item.path !== null) problem.path = text(item.path);
+      var offset = Number(item.offset);
+      var length = Number(item.length);
+      if (Number.isFinite(offset) && offset >= 0) {
+        problem.from = offset;
+        problem.to = Number.isFinite(length) && length >= 0 ? offset + length : offset;
+        return problem;
+      }
+      var profile = problem.profileIndex !== undefined ? strategy.profiles[problem.profileIndex] : activeProfile();
+      var line = Number(item.line);
+      if (!profile || !Number.isInteger(line) || line < 1) return problem;
+      var lines = text(profile.args).replace(/\r/g, '').split('\n');
+      if (line > lines.length) return problem;
+      var lineStart = 0;
+      for (var index = 0; index < line - 1; index++) lineStart += lines[index].length + 1;
+      var column = Number(item.column);
+      var columnOffset = Number.isFinite(column) && column > 0 ? Math.min(lines[line - 1].length, column - 1) : 0;
+      problem.from = lineStart + columnOffset;
+      problem.to = problem.from + (Number.isFinite(length) && length >= 0 ? length : 0);
+      return problem;
     }
     render();
     return {
@@ -278,11 +366,7 @@ return baseclass.extend({
       flush: flush,
       applyVisualEdits: applyVisualEdits,
       setBackendDiagnostics: function (items) {
-        backendProblems = array(items).map(function (item) {
-          var problem = { source: 'Backend', severity: diagnosticSeverity(item.severity), message: text(item.message || item.code || 'Backend diagnostic') };
-          if (Number.isFinite(item.from) && Number.isFinite(item.to)) { problem.from = item.from; problem.to = item.to; }
-          return problem;
-        });
+        backendProblems = array(items).map(backendProblem);
         renderProblems();
       },
       setValidation: function (value) { setText(hosts.validationHost, value); },
