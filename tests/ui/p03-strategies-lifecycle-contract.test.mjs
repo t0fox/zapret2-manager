@@ -8,8 +8,9 @@ const read = (name) => fs.existsSync(`${root}/${name}`) ? fs.readFileSync(`${roo
 test('P03 Strategies has one bounded poller and complete page cleanup', () => {
   const page = read('z2m-strategies.js');
   for (const marker of ['setTimeout', 'clearTimeout', 'boundedRead', 'ETIMEDOUT', 'function unmount', 'removeEventListener',
-    'detachAll', 'selectedIds.clear', 'modalResize']) assert.match(page, new RegExp(marker));
-  assert.doesNotMatch(page, /setInterval\([^)]*\)/);
+    'strategyEditor.destroy', 'selectedIds.clear', 'modalResize', 'catalogProgressTimer',
+    'clearInterval']) assert.match(page, new RegExp(marker));
+  assert.match(page, /state\.pollTimer\s*=\s*window\.setTimeout/);
 });
 
 test('P03 Strategies keeps pending mutation controls disabled and refreshes after confirmation', () => {

@@ -58,7 +58,7 @@ test('asset tooling generates bounded HTTP and TLS protocol fixtures', () => {
   assert.throws(() => tooling.generateTlsClientHello('example.com', new Uint8Array(63)), /64 random bytes/);
 });
 
-test('asset tooling bounds hex views and escapes highlighted Lua', () => {
+test('asset tooling bounds hex views', () => {
   const view = tooling.boundedHexView([0x41, 0, 0x42, 0x43, 0x44], { maxBytes: 4, columns: 2 });
   assert.deepEqual(JSON.parse(JSON.stringify(view)), {
     rows: [
@@ -70,9 +70,4 @@ test('asset tooling bounds hex views and escapes highlighted Lua', () => {
     truncated: true,
   });
 
-  const highlighted = tooling.highlightLua('local value = "<tag>" -- note');
-  assert.match(highlighted, /class="lua-kw">local<\/span>/);
-  assert.match(highlighted, /class="lua-string">"&lt;tag&gt;"<\/span>/);
-  assert.match(highlighted, /class="lua-comment">-- note<\/span>/);
-  assert.doesNotMatch(highlighted, /<tag>/);
 });

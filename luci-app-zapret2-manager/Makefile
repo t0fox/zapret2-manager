@@ -31,6 +31,8 @@ define Package/luci-app-zapret2-manager/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/zapret2-manager
 	$(foreach js,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.js),$(INSTALL_DATA) $(js) $(1)/www/luci-static/resources/view/zapret2-manager/;)
 	$(foreach css,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.css),$(INSTALL_DATA) $(css) $(1)/www/luci-static/resources/view/zapret2-manager/;)
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/zapret2-manager/vendor
+	$(foreach vendor,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/vendor/*.js),$(INSTALL_DATA) $(vendor) $(1)/www/luci-static/resources/view/zapret2-manager/vendor/;)
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/zapret2-manager/icons
 	$(foreach icon,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/icons/*.svg),$(INSTALL_DATA) $(icon) $(1)/www/luci-static/resources/view/zapret2-manager/icons/;)
 endef

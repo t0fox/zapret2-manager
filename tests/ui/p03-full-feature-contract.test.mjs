@@ -27,13 +27,22 @@ test('P03-FULL cards expose donor metadata, circular/recommended filters, select
   ]) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), marker);
 });
 
-test('P03-FULL editor is a multi-profile nfqws2 IDE with diagnostics and target hints', () => {
+test('P03-FULL editor delegates multi-profile nfqws2 IDE ownership to the CodeMirror platform', () => {
   const page = read('z2m-strategies.js');
+  const owner = read('z2m-strategy-editor.js');
+  const adapter = read('z2m-editor-nfqws2.js');
+  const domain = read('z2m-nfqws2-ide.js');
   for (const marker of [
-    'nfq-editor-overlay', 'NfqwsSyntax', 'Nfqws2Lint', 'NfqwsAutocomplete',
-    'diagnostic', 'autocomplete', 'missing-target', 'hostlist', 'token-help',
-    'profile-editor-item', 'editorPreview'
+    'diagnostic', 'editorPreview', 'StrategyEditor', 'strategyEditor'
   ]) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), marker);
+  for (const marker of ['CodeEditor', 'Nfqws2Editor', 'profilesHost', 'editorHost', 'inspectorHost', 'problemsHost', 'circularSteps'])
+    assert.match(owner, new RegExp(marker), marker);
+  for (const marker of ['Nfqws2Ide.contextFor', 'Nfqws2Ide.suggestions', 'Nfqws2Ide.diagnostics', 'Nfqws2Ide.tokenHelp'])
+    assert.match(adapter, new RegExp(marker.replace('.', '\\.'), 'g'), marker);
+  for (const marker of ['missing-target', 'hostlist']) assert.match(domain, new RegExp(marker), marker);
+  for (const legacy of ['nfq-editor-overlay', 'NfqwsSyntax', 'Nfqws2Lint', 'NfqwsAutocomplete', 'nfq-ac-popup', 'textarea\\.profile-args']) {
+    assert.doesNotMatch(page + owner + adapter, new RegExp(legacy), legacy);
+  }
 });
 
 test('P03-FULL operational cards use canonical RPCs and async bounded refreshes', () => {
@@ -50,7 +59,8 @@ test('P03-FULL operational cards use canonical RPCs and async bounded refreshes'
     'healthcheckConfig', 'strategiesState', 'strategiesStateClear',
     'strategiesDebugGet', 'strategiesDebugSet'
   ]) assert.match(api, new RegExp(marker), marker);
-  assert.doesNotMatch(page, /setInterval\s*\(/);
+  assert.match(page, /catalogProgressTimer/);
+  assert.match(page, /clearInterval\(state\.catalogProgressTimer\)/);
 });
 
 test('P03-FULL initial load is lazy and does not issue a duplicate strategy detail read', () => {
