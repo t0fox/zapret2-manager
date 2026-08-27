@@ -102,3 +102,20 @@ test('Control model preserves fast-status running, stopped, and queue-owner erro
   assert.equal(model.normalize(fastOwnerError, {}).firewall.registered, true);
   assert.equal(model.normalize(fastOwnerError, {}).firewall.value, 'Неизвестно');
 });
+
+test('Control model marks a fast-status firewall applied only with independent nft rule evidence', () => {
+  const model = loadModel();
+  const fastRunning = {
+    schema: 'status-fast.v1', serviceState: 'running',
+    runtimeSummary: { status: 'running', process: { found: true, pid: 42 },
+      nfqueue: { number: 300, registered: true, ownerMatches: true, rulesPresent: true } },
+    health: { queue: { number: 300, registered: true, ownerConflict: false } }
+  };
+  const noRules = JSON.parse(JSON.stringify(fastRunning));
+  noRules.runtimeSummary.nfqueue.rulesPresent = false;
+  const unknownRules = JSON.parse(JSON.stringify(fastRunning));
+  unknownRules.runtimeSummary.nfqueue.rulesPresent = null;
+  assert.equal(model.normalize(fastRunning, {}).firewall.value, 'Применён');
+  assert.equal(model.normalize(noRules, {}).firewall.value, 'Не применён');
+  assert.equal(model.normalize(unknownRules, {}).firewall.value, 'Неизвестно');
+});

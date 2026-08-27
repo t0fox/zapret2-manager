@@ -6,11 +6,12 @@
 import { readfile, writefile, stat, readlink, mkdir, lsdir, popen } from 'fs';
 import {
 	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, CACHE_TTL_SEC,
-	DAEMON, NFT_TABLE, PATHS
+	DAEMON, PATHS
 } from '../constants.uc';
 import { parse_queue } from '../qlen.uc';
 import { read_var } from '../apply.uc';
 import { derive_runtime_observation, derive_strategy_observation, resolve_native_status } from './status-observations.uc';
+import { nft_rules_present } from './nft-rule-observation.uc';
 import { state_read, state_initialize } from './state-store.uc';
 import { legacy_status_v3, with_strategy_status } from './status-compat.uc';
 import { collect_strategy_status } from '../strategy-status.uc';
@@ -132,7 +133,7 @@ function runtime_level(rules) {
 		count: length(pids),
 		psSummary: ps_summary,
 		strategies: strategies,
-		rulesPresent: !!rules
+		rulesPresent: rules === true ? true : rules === false ? false : null
 	};
 }
 
@@ -192,19 +193,7 @@ function health_block() {
 	return { qlenHealth: qlenHealth, checks: checks, queue: queue };
 }
 
-function rules_present() {
-	try {
-		let raw = sh('nft list table inet ' + NFT_TABLE);
-		// nftables renders the queue target as either `queue num 300` (older
-		// versions) or `queue ... to 300` (current nft syntax). Both are an
-		// actual production rule targeting our queue.
-		let legacy = index(raw, 'queue num ' + NFQUEUE) >= 0;
-		let current = index(raw, 'queue ') >= 0 && index(raw, ' to ' + NFQUEUE) >= 0;
-		return length(raw) && index(raw, 'chain ') >= 0 && (legacy || current);
-	} catch (e) {
-		return false;
-	}
-}
+function rules_present() { return nft_rules_present(); }
 
 function sha256_file(path) {
 	if (!stat(path)) return null;

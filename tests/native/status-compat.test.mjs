@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 const ROOT = process.cwd();
 const STATUS = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/status.uc');
 const COLLECTOR = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc');
+const NFT_RULE_OBSERVATION = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/nft-rule-observation.uc');
 const OBSERVATIONS = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-observations.uc');
 const COMPAT = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
 const RPC = 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc';
@@ -199,11 +200,13 @@ test('status CLI remains directly executable and delegates to the importable col
 
 test('observation collector preserves legacy runtime, drift, system, and upstream evidence', () => {
   const source = fs.readFileSync(COLLECTOR, 'utf8');
+  const nftSource = fs.readFileSync(NFT_RULE_OBSERVATION, 'utf8');
   for (const evidence of [
-    /VmRSS:/, /ps w/, /list_table/, /uci show zapret2/, /nft list table inet/,
+    /VmRSS:/, /ps w/, /list_table/, /uci show zapret2/,
     /sha256sum/, /normalizedRuntime/, /reconcile_queue_owner/, /apk version -c/,
     /nfqws2_version\(\)/, /autohostlist_vars\(\)/, /date -u -r/,
   ]) assert.match(source, evidence);
+  assert.match(nftSource, /nft list table inet/);
 });
 
 test('degraded native state remains schema 3 without healthy generation-zero fabrication', () => {
