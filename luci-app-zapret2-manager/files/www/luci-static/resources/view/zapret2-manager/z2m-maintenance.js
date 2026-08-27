@@ -297,24 +297,29 @@ function refreshState(ctx) {
   if (state.componentOperation) return;
   state.componentOperation = { kind: 'refresh', scope: 'all' };
   rerender(ctx);
-  refresh(ctx).then(function () {
-  }).catch(function (error) {
+  // Clear BEFORE refresh boundary
+  state.componentOperation = null;
+  rerender(ctx);
+  return refresh(ctx).catch(function (error) {
     showError(ctx, error);
-  }).finally(function () {
-    state.componentOperation = null;
-    rerender(ctx);
   });
 }
-function checkUpdates(ctx) {
+var CHECK_TIMEOUT_MS = 20000;
+function checkUpdates(ctx, scope) {
+  scope = scope || 'all';
   if (state.componentOperation) return;
-  state.componentOperation = { kind: 'check', scope: 'all' };
+  state.componentOperation = { kind: 'check', scope: scope };
   rerender(ctx);
-  Promise.allSettled([
-    ctx.api.resources.check(),
-    ctx.api.engine.status(),
-    ctx.api.engine.gateStatus ? ctx.api.engine.gateStatus() : Promise.resolve({})
-  ]).then(function (results) {
-    var failed = results.some(function (r) { return r.status === 'rejected'; });
+  var promises = [];
+  if (scope === 'all' || scope === 'z2k') promises.push(boundedLoad(ctx.api.resources.check(), 'Проверка Z2K'));
+  if (scope === 'all' || scope === 'engine') {
+    promises.push(boundedLoad(ctx.api.engine.status(), 'Проверка движка'));
+    if (ctx.api.engine.gateStatus) promises.push(boundedLoad(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
+  }
+  // Bounded lifecycle: even a hung rpc transport must never leave busy forever.
+  void CHECK_TIMEOUT_MS;
+  Promise.race([Promise.allSettled(promises), new Promise(function (r) { window.setTimeout(r, CHECK_TIMEOUT_MS); })]).then(function (results) {
+    var failed = results && results.some ? results.some(function (r) { return r.status === 'rejected'; }) : false;
     if (failed) {
       var firstError = results.find(function (r) { return r.status === 'rejected'; });
       if (firstError) showError(ctx, firstError.reason);
@@ -322,12 +327,11 @@ function checkUpdates(ctx) {
   }).catch(function (error) {
     showError(ctx, error);
   }).then(function () {
+    state.componentOperation = null;
+    rerender(ctx);
     return refresh(ctx);
   }).catch(function (error) {
     showError(ctx, error);
-  }).finally(function () {
-    state.componentOperation = null;
-    rerender(ctx);
   });
 }
 function updateZ2K(ctx) {
@@ -345,12 +349,14 @@ function updateZ2K(ctx) {
       throw { code: 'EVERIFY', message: 'Обновление не применено: ' + planned + ' обновлений было запланировано, 0 установлено.' };
     }
     ctx.shell.showToast(_('Обновление применено.'), 'ok');
+  }).catch(function (error) {
+    showError(ctx, error);
+  }).then(function () {
+    state.componentOperation = null;
+    rerender(ctx);
     return refresh(ctx);
   }).catch(function (error) {
     showError(ctx, error);
-  }).finally(function () {
-    state.componentOperation = null;
-    rerender(ctx);
   });
 }
 function toggleEngine(ctx) {
@@ -396,7 +402,7 @@ function renderHero(ctx, page) {
       E('span', { 'class': 'z2m-dim' }, _('Последняя проверка') + ': ' + lastCheckLabel),
       E('div', { 'class': 'z2m-btnrow' }, [
         shell.button(_('Обновить состояние'), 'sm', refreshState.bind(null, ctx), !!state.componentOperation),
-        shell.button(_('Проверить обновления'), 'primary sm', checkUpdates.bind(null, ctx), isBusyFor('engine'))
+        shell.button(_('Проверить обновления'), 'primary sm', checkUpdates.bind(null, ctx, 'all'), !!state.componentOperation)
       ])
     ])
   ]);
@@ -482,12 +488,12 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
   if (isBroken) {
     primaryActions.push(shell.button(_('Восстановить'), 'primary sm', function () { /* TODO: trigger repair flow */ }, false));
   } else if (hasUpdate) {
-    primaryActions.push(shell.button(_('Обновить'), 'primary sm', function () { checkUpdates(ctx); }, isBusyFor('engine')));
+    primaryActions.push(shell.button(_('Обновить'), 'primary sm', function () { checkUpdates(ctx, 'engine'); }, isBusyFor('engine')));
     primaryActions.push(shell.button(_('Что изменилось'), 'sm', function () { toggleEngine(ctx); }, false));
   } else if (isReady) {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), isBusyFor('engine')));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   } else {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), isBusyFor('engine')));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   }
   var manageBtn = E('button', { 'class': 'z2m-btn sm' + (isExpanded ? ' on' : ''), click: toggleEngine.bind(null, ctx) }, [
     _('Управление'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(toggleIcon, { size: 12 }))
@@ -565,11 +571,11 @@ function renderZ2KCard(ctx, component) {
   var primaryActions = [];
   if (hasUpdate) {
     primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx), isBusyFor('z2k-core')));
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), isBusyFor('engine')));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else if (needsIntegration) {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), isBusyFor('engine')));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx), isBusyFor('engine')));
+    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   }
   var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (isExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx) }, [
     _('Подробнее'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(toggleIcon, { size: 12 }))

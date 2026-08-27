@@ -16,8 +16,12 @@ test('maintenance must use scoped componentOperation, not single componentBusy b
 test('checkUpdates must set kind check scope all and clear via finally', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
   assert.match(src, /checkUpdates[\s\S]*componentOperation\s*=\s*\{\s*kind:\s*["']check["']/);
-  assert.match(src, /checkUpdates[\s\S]*scope:\s*["']all["']/);
-  assert.match(src, /checkUpdates[\s\S]*\.finally|checkUpdates[\s\S]*\.then[\s\S]*\.catch[\s\S]*componentOperation\s*=\s*null/, 'must clear operation in finally/then+catch');
+  assert.match(src, /checkUpdates[\s\S]*scope\s*(\|\||:|,)(\s*['"]all['"]|\s*scope)/);
+  // Must clear before refresh boundary, not in finally after
+  const checkBody = src.slice(src.indexOf('function checkUpdates'), src.indexOf('function checkUpdates') + 3500);
+  const clearIdx = checkBody.indexOf('componentOperation = null');
+  const refreshIdx = checkBody.indexOf('return refresh(ctx)');
+  assert.ok(clearIdx >= 0 && refreshIdx >= 0 && clearIdx < refreshIdx, 'must clear operation BEFORE refresh');
 });
 
 test('updateZ2K must set kind update scope z2k and not affect Engine', () => {
@@ -53,4 +57,32 @@ test('every operation must clear via finally or both then/catch', () => {
   for (const [name, fn] of [['checkUpdates', checkFn], ['updateZ2K', updateFn], ['refreshState', refreshFn]]) {
     assert.match(fn, /componentOperation\s*=\s*null/, `${name} must clear operation`);
   }
+});
+
+// --- Per-card scope contract (regression: bare bind passed event as scope) ---
+test('per-card scope: no bare checkUpdates.bind(null, ctx) anywhere', () => {
+  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
+  assert.doesNotMatch(src, /checkUpdates\.bind\(null,\s*ctx\s*\)/,
+    'bare bind makes event object the scope arg -> promises=0 instant no-op');
+});
+
+test('engine card binds scope engine; z2k card binds z2k; hero all', () => {
+  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
+  const eng = src.slice(src.indexOf('function renderEngineCard'), src.indexOf('function renderZ2KCard'));
+  assert.ok(/checkUpdates\.bind\(null,\s*ctx,\s*'engine'\)/.test(eng), 'engine card must pass explicit engine scope');
+  assert.ok(!/checkUpdates\.bind\(null,\s*ctx,\s*'z2k'\)/.test(eng), 'engine card must not use z2k scope');
+  const z2k = src.slice(src.indexOf('function renderZ2KCard'), src.indexOf('function renderOptionalCard'));
+  assert.ok(/checkUpdates\.bind\(null,\s*ctx,\s*'z2k'\)/.test(z2k), 'z2k card must pass explicit z2k scope');
+  assert.ok(!/checkUpdates\.bind\(null,\s*ctx,\s*'engine'\)/.test(z2k), 'z2k card must not use engine scope');
+  assert.match(src, /checkUpdates\.bind\(null,\s*ctx,\s*'all'\)/);
+});
+
+test('scope drives backend calls: engine->status/gateStatus only, z2k->resources.check only', () => {
+  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
+  const fn = src.slice(src.indexOf('function checkUpdates'), src.indexOf('function updateZ2K'));
+  assert.match(fn, /scope === 'z2k'\)\s*promises\.push\(boundedLoad\(ctx\.api\.resources\.check/);
+  assert.match(fn, /scope === 'engine'\)\s*\{\s*promises\.push\(boundedLoad\(ctx\.api\.engine\.status/);
+  assert.match(fn, /if \(ctx\.api\.engine\.gateStatus\)\s*promises\.push\(boundedLoad\(ctx\.api\.engine\.gateStatus/);
+  // bounded lifecycle guard present
+  assert.match(fn, /Promise\.race\(\[Promise\.allSettled\(promises\)/);
 });
