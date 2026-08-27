@@ -1,7 +1,7 @@
 'use strict';
 // Strictly staged dashboard loading orchestration.
 //
-//   PHASE 1 (critical) : status_fast | engine status | maintenance status | versions
+//   PHASE 1 (critical) : status_fast | engine status | maintenance status | versions | resources status
 //   PHASE 2 (secondary): discord strategy preview, events tail, recommendations
 //   PHASE 3 (optional) : telegram product status, proxy health
 //
@@ -82,13 +82,15 @@ function createLoader(options) {
 			(ctx.api.service.statusFast || ctx.api.service.status)(),
 			ctx.api.engine.status(),
 			ctx.api.maintenance.status(),
-			ctx.api.maintenance.versions()
+			ctx.api.maintenance.versions(),
+			ctx.api.resources && typeof ctx.api.resources.status === 'function' ? ctx.api.resources.status() : Promise.resolve({})
 		]).then(function (results) {
 			var data = {
 				status: settled(results[0], ctx.api),
 				engineStatus: settled(results[1], ctx.api),
 				systemStatus: settled(results[2], ctx.api),
-				versionStatus: settled(results[3], ctx.api)
+				versionStatus: settled(results[3], ctx.api),
+				resourcesStatus: settled(results[4], ctx.api)
 			};
 			return resolveCanonicalStrategy(ctx, data.status, edit).then(function (strategy) {
 				if (strategy) data.strategy = { value: strategy };

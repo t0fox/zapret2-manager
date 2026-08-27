@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-update-presentation as UpdatePresentation';
 
 function object(value) {
 	return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -59,10 +60,23 @@ function maxSeverityState(states) {
 }
 
 function z2kBadgeState(z2kStatus) {
-	if (z2kStatus === 'current') return 'current';
-	if (z2kStatus === 'update-available') return 'update';
-	if (z2kStatus === 'unknown') return 'unknown';
-	return 'attention'; // rebase-required, review-required, error
+	var canonical = UpdatePresentation.normalize(z2kStatus);
+	if (canonical === 'current') return 'current';
+	if (canonical === 'update-available') return 'update';
+	if (canonical === 'unknown') return 'unknown';
+	return canonical === 'broken' || canonical === 'failed' ? 'error' : 'attention';
+}
+
+function z2kUpdateState(value) {
+	value = object(value);
+	return UpdatePresentation.normalize(value.updateState || value.status || value.state);
+}
+
+function releaseValue(value) {
+	if (value && typeof value === 'object' && !Array.isArray(value)) {
+		return text(value.value || value.version || value.release);
+	}
+	return text(value);
 }
 
 function deriveGroupState(group, z2k) {
@@ -75,7 +89,7 @@ function deriveGroupState(group, z2k) {
 	var base = assetStates.length ? maxSeverityState(assetStates) : 'current';
 	// Special policy for z2k-resources: product truth from resources.z2k overrides but does not mask broken
 	if (group.id === 'z2k-resources' && z2k) {
-		var z2kState = z2kBadgeState(text(z2k.status) || 'unknown');
+		var z2kState = z2kBadgeState(z2kUpdateState(z2k));
 		var z2kRank = severityRank(z2kState);
 		var baseRank = severityRank(base);
 		// If asset severity is higher (broken/attention), keep it
@@ -136,7 +150,9 @@ function buildModel(resources, assets, opts) {
 			total: 0,
 			hiddenBasic: isPackage,
 			isTechnical: isPackage,
-			state: 'current'
+			state: 'current',
+			bundleUpdateState: null,
+			bundlePresentation: null
 		};
 		groupsById[src.id] = group;
 		groups.push(group);
@@ -311,6 +327,10 @@ function buildModel(resources, assets, opts) {
 		grp.total = grp.assets.length;
 		grp.state = deriveGroupState(grp, z2k);
 		grp.stateLabel = humanStateLabel(grp.state);
+		if (grp.id === 'z2k-resources') {
+			grp.bundleUpdateState = z2kUpdateState(z2k);
+			grp.bundlePresentation = UpdatePresentation.describe(grp.bundleUpdateState);
+		}
 		// Human name for consumer
 		if (grp.id === 'z2k-resources') grp.consumer = 'Z2K Core';
 		else if (grp.id === 'avatar-strategy-catalog') grp.consumer = null;
@@ -360,22 +380,22 @@ function buildModel(resources, assets, opts) {
 
 	// Global update callout (only for z2k product)
 	var updateCallout = null;
-	var z2kStatus = text(z2k.status) || 'unknown';
-	if (z2kStatus === 'update-available' || z2kStatus === 'rebase-required' || z2kStatus === 'review-required') {
+	var z2kStatus = z2kUpdateState(z2k);
+	if (['update-available', 'rebase-required', 'review-required', 'integration-required'].indexOf(z2kStatus) >= 0) {
 		var localCommit = null;
 		var localProv = object(object(z2k.local).provenance);
 		localCommit = text(object(z2k.local).commit) || text(localProv.commit) || null;
 		var remoteCurrent = text(object(z2k.manifest).current) || null;
-		// Fallback to z2k source commit if manifest not present
-		if (!remoteCurrent) {
-			var sZ2k = byId['z2k-resources'];
-			if (sZ2k) remoteCurrent = sZ2k.commit;
-		}
+		var installedRelease = releaseValue(object(z2k.local).installedRelease || z2k.installedRelease);
+		var availableRelease = releaseValue(z2k.availableRelease || z2k.available);
 		updateCallout = {
 			sourceId: 'z2k-resources',
 			status: z2kStatus,
-			from: localCommit,
-			to: remoteCurrent,
+			presentation: UpdatePresentation.describe(z2kStatus),
+			from: installedRelease,
+			to: availableRelease,
+			technicalFrom: localCommit,
+			technicalTo: remoteCurrent,
 			label: 'Z2K Core',
 			targetRoute: 'components'
 		};

@@ -134,7 +134,8 @@ export const z2k_upstream_check = function() {
 				else checked.status = 'current';
 			}
 		}
-		return { ok: true, status: checked.status, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };
+		let map = classification(), release = map && map.source && map.source.release ? map.source.release : null;
+		return { ok: true, status: checked.status, release: release, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };
 	}
 	return lastErr || fail('ESTALE', 'Z2K manifest/candidate race — retry limit exceeded');
 };

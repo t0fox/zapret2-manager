@@ -24,9 +24,31 @@ function conflict() { if (active_job() != null) return 'engine-operation'; if (s
 function start(action, candidate, preserve) { setup(); let busy = conflict(); if (busy != null) return fail('EBUSY', 'Конфликтующая операция уже выполняется.', { conflict: busy }); let id = new_id(); if (id == null) return fail('EINTERNAL', 'Не удалось создать operation id.'); let old = installed_engine(), job = { schema: 'engine-operation.v2', id: id, action: action, phase: 'queued', progress: 0, createdAt: time(), updatedAt: time(), startedAt: null, finishedAt: null, cancellable: true, cancelRequested: false, preserveConfig: preserve !== false, candidate: candidate, previous: old, result: null, error: null, rollback: null, log: [{ at: time(), phase: 'queued', message: 'Операция поставлена в очередь.' }] }; if (!atomic(job_path(id), job) || !writefile(ACTIVE, id + '\n')) return fail('ESTATE', 'Не удалось сохранить engine job.'); run("chmod 600 '" + ACTIVE + "' '" + job_path(id) + "'"); if (run("setsid '" + WORKER + "' '" + id + "' >/dev/null 2>&1 &").rc != 0) return fail('EWORKER', 'Не удалось запустить worker.'); return { ok: true, operation: public_job(job) }; }
 function checked(input) { if (type(input) != 'object' || input == null || type(input.checkToken) != 'string') return fail('EINPUT', 'Передайте version и checkToken.'); let record = load_checked_candidate(input.checkToken); return record.ok ? record.record.candidate : record; }
 
-export const engine_releases_read = function () { return engine_releases(); };
+function canonical_engine_releases() {
+	let answer = engine_releases();
+	if (!answer || answer.ok !== true) return answer;
+	let installed = installed_engine(), truth = normalize_state_record(installed.savedState), latest = null;
+	for (let i = 0; i < length(answer.releases || []); i++) if (answer.releases[i].artifactKind == 'vanilla-bol-van-release') { latest = answer.releases[i]; break; }
+	if (latest == null && length(answer.releases || [])) latest = answer.releases[0];
+	let needsUpdate = latest != null && (truth && truth.artifactKind == 'legacy-compatibility-build' || installed.installedRelease == null || installed.installedRelease != latest.installedRelease);
+	answer.installed = { version: installed.installedRelease || null, artifactKind: truth && truth.artifactKind || null };
+	answer.available = { version: latest && latest.installedRelease || null, artifactKind: latest && latest.artifactKind || null };
+	answer.updateState = latest == null ? 'unknown' : needsUpdate ? 'update-available' : 'current';
+	return answer;
+}
+export const engine_releases_read = function () { return canonical_engine_releases(); };
 export const engine_status = function () { let installed = installed_engine(), operation = active_job(), running = installed.installed && length(trim(run('pidof nfqws2').out)) > 0, state = installed.savedState || {}; let truth = normalize_state_record(state); return { ok: true, state: operation != null ? 'operation' : (installed.installed ? 'installed' : 'engine_missing'), installed: installed.installed, installedOrigin: installed.installedOrigin, originConfidence: installed.originConfidence, originEvidence: installed.originEvidence, artifactKind: truth != null ? truth.artifactKind : null, truth: truth, packageName: installed.packageName, packageVersion: null, packageDescription: installed.packageDescription, installedRelease: installed.installedRelease || null, runtimeBuild: installed.runtimeBuild || null, upstream: 'bol-van/zapret2', architecture: installed.architecture, serviceState: installed.installed ? (running ? 'running' : 'stopped') : 'engine_missing', runtimeRunning: running, compatible: !installed.installed || installed.runtimeContract === true, compatibilityMessage: !installed.installed ? 'Установите совместимый официальный release.' : (installed.runtimeContract ? 'Runtime-контракт движка доступен.' : 'Установленный payload не соответствует runtime-контракту manager.'), operation: public_job(operation), stateRecord: state }; };
-export const engine_check_release = function (input) { return engine_check(input || {}); };
+function canonical_engine_check(input) {
+	let answer = engine_check(input || {});
+	if (!answer || answer.ok !== true) return answer;
+	let installed = installed_engine(), truth = normalize_state_record(installed.savedState), availableVersion = answer.latestRelease || null;
+	answer.updateState = answer.updateAvailable === true ? 'update-available' : 'current';
+	answer.installed = { version: installed.installedRelease || null, artifactKind: truth && truth.artifactKind || null };
+	answer.available = { version: availableVersion, artifactKind: answer.availableArtifactKind || null };
+	answer.compatibility = { state: answer.compatible === true ? 'compatible' : 'incompatible', reason: answer.compatibilityMessage || null };
+	return answer;
+}
+export const engine_check_release = function (input) { return canonical_engine_check(input); };
 export const engine_install = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('install', candidate, true); };
 export const engine_update = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('update', candidate, true); };
 export const engine_downgrade = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('downgrade', candidate, true); };

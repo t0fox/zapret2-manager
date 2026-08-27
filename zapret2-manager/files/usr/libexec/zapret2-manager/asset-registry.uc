@@ -12,6 +12,7 @@ const ROLLBACK_STATE = '/etc/zapret2-manager/asset-registry.previous.json';
 const MAX_STATE_BYTES = 1024 * 1024;
 const MAX_BUNDLE_ASSETS = 64;
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
+const MAX_ACTIVATION_RECEIPTS = 16;
 const MAX_IMPORT_BYTES = 16 * 1024 * 1024;
 const RESOURCE_MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const MAX_REMOTE_URL_BYTES = 2048;
@@ -222,7 +223,7 @@ function validate_request(request) {
 	return { ok: true };
 }
 
-export const asset_registry_list = function(kind) { let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); let assets = []; for (let i = 0; i < length(state.assets); i++) if (kind == null || state.assets[i].type == kind) { let a = copy(state.assets[i]); a.references = references_copy(a); push(assets, a); } return { ok: true, schema: 1, revision: state.revision, assets: assets }; };
+export const asset_registry_list = function(kind) { let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); let assets = []; for (let i = 0; i < length(state.assets); i++) if (kind == null || state.assets[i].type == kind) { let a = copy(state.assets[i]); a.references = references_copy(a); push(assets, a); } return { ok: true, schema: 1, revision: state.revision, assets: assets, activationReceipts: copy_array(state.activationReceipts) }; };
 export const asset_registry_get = function(id) { let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); let asset = find_asset(state, id); return asset == null ? fail('EDEPENDENCY', 'asset dependency is missing') : ok(copy(asset)); };
 export const asset_registry_import = function(request) {
 	let checked = validate_request(request); if (!checked.ok) return checked; let provenance = request.provenance || { kind: 'imported' }; let content = base64_decode(request.contentBase64); if (content == null) return fail('EINPUT', 'contentBase64 is invalid');
@@ -407,7 +408,18 @@ export const asset_registry_apply_bundle = function(request) {
 			old.provenance = copy(entry.provenance); old.contentSha256 = item.sha256; old.byteSize = item.byteSize; old.revision++; old.lastChecked = time(); old.lastUpdated = time(); if (item.name) old.name = item.name;
 		}
 	}
-	if (result == null) { state.revision++; if (!state_save(state)) result = fail('EWRITE', 'resource registry metadata write failed'); }
+	if (result == null) {
+		let receiptAssets = [], receipts = copy_array(state.activationReceipts);
+		for (let i = 0; i < length(prepared); i++) {
+			let item = prepared[i].item;
+			push(receiptAssets, { id: item.id, type: item.type, sha256: item.sha256, byteSize: item.byteSize });
+		}
+		push(receipts, { schema: 'asset-activation-receipt.v1', bundleId: request.bundleId, version: request.version, source: request.source, sourceCommit: request.sourceCommit, activatedAt: time(), assets: receiptAssets });
+		while (length(receipts) > MAX_ACTIVATION_RECEIPTS) { let bounded = []; for (let i = 1; i < length(receipts); i++) push(bounded, receipts[i]); receipts = bounded; }
+		state.activationReceipts = receipts;
+		state.revision++;
+		if (!state_save(state)) result = fail('EWRITE', 'resource registry metadata write failed');
+	}
 	if (result != null) {
 		for (let i = length(changed) - 1; i >= 0; i--) { let item = changed[i]; if (item.previous == null) { try { unlink(item.path); } catch (e) {} } else atomic_write(item.path, item.previous); if (item.oldPrevious == null) { try { unlink(item.previousPath); } catch (e) {} } else atomic_write(item.previousPath, item.oldPrevious); }
 		if (oldStateRaw == null) { try { unlink(STATE); } catch (e) {} } else atomic_write(STATE, oldStateRaw);

@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-update-presentation as UpdatePresentation';
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -30,11 +31,22 @@ function managerMeta(value) {
   };
 }
 
-function compatibility(value, fallback) {
-  var raw = String(value || '').toLowerCase();
-  if (raw === 'compatible' || raw === 'confirmed' || raw === 'ok') return 'compatible';
-  if (raw === 'incompatible' || raw === 'failed' || raw === 'broken') return 'incompatible';
-  return fallback || 'unverified';
+function compatibilityState(value, fallback) {
+	var raw = String(value || '').toLowerCase();
+	if (raw === 'compatible' || raw === 'confirmed' || raw === 'ok') return 'compatible';
+	if (raw === 'incompatible' || raw === 'failed' || raw === 'broken') return 'incompatible';
+	if (['review-required', 'rebase-required', 'integration-required', 'inconsistent'].indexOf(raw) >= 0) return raw;
+	return fallback || 'unverified';
+}
+
+function compatibilityRecord(value, fallback) {
+	if (value && typeof value === 'object' && !Array.isArray(value)) {
+		return {
+			state: compatibilityState(value.state || value.status, fallback),
+			reason: first(value.reason || value.message, null)
+		};
+	}
+	return { state: compatibilityState(value, fallback), reason: null };
 }
 
 function health(value, fallback) {
@@ -48,7 +60,7 @@ function engineHealth(status) {
   // Runtime evidence gates first; a backend-supplied health field may only
   // DOWNGRADE the verdict, never fabricate readiness past these checks.
   var computed;
-  if (status.serviceState === 'error' || status.compatible === false) computed = 'broken';
+	if (status.serviceState === 'error') computed = 'broken';
   else if (status.serviceState !== 'running' || status.runtimeRunning === false) computed = 'degraded';
   else computed = 'ready';
   if (status.health) {
@@ -60,47 +72,72 @@ function engineHealth(status) {
 }
 
 function engineUpdate(input, status) {
-  var check = object(input.check || input.update || status.update);
-  if (check.integrationRequired === true) return 'integration-required';
-  if (check.updateAvailable === true || check.state === 'update-available') return 'update-available';
-  if (check.updateAvailable === false || check.state === 'current') return 'current';
-  return 'unknown';
+	var check = object(input.check || input.update || status.update);
+	var catalog = object(input.catalog);
+	var raw = check.updateState || check.state || status.updateState || status.update || catalog.updateState;
+	if (raw === undefined && check.updateAvailable === true) raw = 'update-available';
+	if (raw === undefined && check.updateAvailable === false) raw = 'current';
+	return UpdatePresentation.normalize(raw);
+}
+
+function timestamp(value) {
+	return value === null || value === undefined || value === '' ? null : value;
+}
+
+function versionFrom(value) {
+	value = object(value);
+	return first(value.version || value.release || value.installedRelease || value.latestVersion, null);
 }
 
 function normalizeEngine(input) {
   input = object(input);
-  var status = object(input.status || input.engine || input);
-  var gate = object(input.gate || input.compatibilityGate);
-  var installed = status.installed === true;
-  var healthState = engineHealth(status);
-  var compatible = status.compatible === false || gate.compatible === false
-    ? 'incompatible'
-    : (status.compatible === true || gate.compatible === true ? 'compatible' : 'unverified');
-  // TRUTH MODEL: an Engine whose compatibility/provenance is unproven is not
-  // ready — unknown never upgrades to ready.
-  if (healthState === 'ready' && compatible !== 'compatible') healthState = 'degraded';
-  var capabilities = object(status.capabilities);
+	var status = object(input.status || input.engine || input);
+	var gate = object(input.gate || input.compatibilityGate);
+	var installed = status.installed === true;
+	var runtimeHealth = engineHealth(status);
+	var check = object(input.check || input.update || status.update);
+	var catalog = object(input.catalog);
+	var compatibilityValue = check.compatibility || status.compatibility || gate.compatibility;
+	var compatibilityStateValue = compatibilityValue || (status.compatible === false || gate.compatible === false
+	    ? 'incompatible' : (status.compatible === true || gate.compatible === true ? 'compatible' : null));
+	var compatibility = compatibilityRecord(compatibilityValue || compatibilityStateValue);
+	var installedVersion = first(status.installedRelease || status.packageVersion, null);
+	var artifactKind = first(status.artifactKind || status.artifact || (status.patchSeries && status.patchSeries.length ? 'legacy-compatibility-build' : null), null);
+	var availableVersion = versionFrom(check.available) || first(check.availableRelease || check.latestRelease || check.latestVersion, null);
+	if (availableVersion === null) availableVersion = versionFrom(status.available) || versionFrom(catalog.available);
+	var installedIdentity = { version: installedVersion, artifactKind: artifactKind };
+	var updateState = engineUpdate(input, status);
+	var upstreamRelease = artifactKind === 'legacy-compatibility-build' ? null
+		: first(status.upstreamRelease || (artifactKind === 'vanilla-bol-van-release' ? installedVersion : null), null);
+	var capabilities = object(status.capabilities);
   var capabilityReady = capabilities.ready !== undefined ? capabilities.ready : capabilities.available;
   var capabilityTotal = capabilities.total !== undefined ? capabilities.total : capabilities.required;
   var actions = {
-    primary: healthState === 'missing' ? 'install' : healthState === 'broken' ? 'repair' : 'manage'
-  };
-  return {
-    id: 'engine',
-    label: 'Zapret2 Engine',
-    health: healthState,
-    updateState: engineUpdate(input, status),
-    compatibility: compatible,
-    summary: healthState === 'missing' ? 'Базовый движок обработки трафика отсутствует.' : 'Базовый движок обработки трафика.',
-    version: first(status.installedRelease || status.packageVersion, null),
-    actions: actions,
+		primary: runtimeHealth === 'missing' ? 'install' : runtimeHealth === 'broken' ? 'repair' : 'manage'
+	};
+	return {
+		id: 'engine',
+		label: 'Zapret2 Engine',
+		runtimeHealth: runtimeHealth,
+		health: runtimeHealth,
+		updateState: updateState,
+		updatePresentation: UpdatePresentation.describe(updateState),
+		compatibility: compatibility,
+		installed: installedIdentity,
+		available: { version: availableVersion },
+		artifactKind: artifactKind,
+		upstreamRelease: upstreamRelease,
+		checkedAt: timestamp(check.checkedAt !== undefined ? check.checkedAt : status.checkedAt),
+		summary: runtimeHealth === 'missing' ? 'Базовый движок обработки трафика отсутствует.' : 'Базовый движок обработки трафика.',
+		version: installedVersion,
+		actions: actions,
     counters: {
       capabilities: capabilityReady !== undefined && capabilityTotal !== undefined ? String(capabilityReady) + ' / ' + String(capabilityTotal) : null
     },
     details: {
       source: first(status.upstream, 'bol-van/zapret2'),
       serviceState: first(status.serviceState, null),
-      autostart: status.autostart === true,
+			autostart: typeof status.autostart === 'boolean' ? status.autostart : null,
       runtimeRunning: status.runtimeRunning === true,
       installed: installed,
       technical: object(status.technical)
@@ -109,10 +146,7 @@ function normalizeEngine(input) {
 }
 
 function z2kUpdateState(status) {
-  if (status === 'rebase-required' || status === 'review-required' || status === 'integration-required') return 'integration-required';
-  if (status === 'update-available' || status === 'update') return 'update-available';
-  if (status === 'current') return 'current';
-  return 'unknown';
+	return UpdatePresentation.normalize(status);
 }
 
 function z2kLuaEvidence(value) {
@@ -123,11 +157,11 @@ function z2kLuaEvidence(value) {
 
 function normalizeZ2k(input, engineReady) {
   input = object(input);
-  var value = object(input.z2k || input.component || input);
-  var remoteStatus = first(value.status || value.state, 'unknown');
-  var updateState = z2kUpdateState(remoteStatus);
-  var local = object(value.local);
-  var hasLocal = local && (local.installed !== undefined || local.lua !== undefined || local.integrity !== undefined || local.integrityOk !== undefined || local.commit !== undefined);
+	var value = object(input.z2k || input.component || input);
+	var remoteStatus = first(value.updateState || value.status || value.state, 'unknown');
+	var updateState = z2kUpdateState(remoteStatus);
+	var local = object(value.local);
+	var hasLocal = local && (local.installed !== undefined || local.lua !== undefined || local.integrity !== undefined || local.integrityOk !== undefined || local.commit !== undefined || local.installedRelease !== undefined);
   var explicitHealth = value.health || value.integrity || local.health;
   if (local.integrity === 'broken' && !explicitHealth) explicitHealth = 'broken';
   // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
@@ -168,14 +202,14 @@ function normalizeZ2k(input, engineReady) {
       ? 'Autocircular, detectors и расширения Zapret2.'
       : 'Z2K Core требует проверки целостности ресурсов.';
   }
-  var compatibilityState;
-  if (hasLocal) {
-    var compatRaw = value.compatibility || value.compatibilityState || (local.integrityOk === true ? 'compatible' : null);
-    compatibilityState = compatibility(compatRaw, value.compatible === true ? 'compatible' : null);
-    if (compatibilityState === 'unverified' && local.integrityOk === true) compatibilityState = 'compatible';
-  } else {
-    compatibilityState = compatibility(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
-  }
+	var compatibilityStateValue;
+	if (hasLocal) {
+		var compatRaw = value.compatibility || value.compatibilityState || (local.integrityOk === true ? 'compatible' : null);
+		compatibilityStateValue = compatibilityRecord(compatRaw, value.compatible === true ? 'compatible' : null);
+		if (compatibilityStateValue.state === 'unverified' && local.integrityOk === true) compatibilityStateValue.state = 'compatible';
+	} else {
+		compatibilityStateValue = compatibilityRecord(value.compatibility || value.compatibilityState, value.compatible === true ? 'compatible' : null);
+	}
   var safeUpdate = object(value.safeUpdate || local.safeUpdate);
   var rebases = array(value.rebases || value.adapted || object(value.plan).rebases || local.rebases);
   var reviews = array(value.reviews || value.watched || object(value.plan).reviews || local.reviews);
@@ -183,18 +217,41 @@ function normalizeZ2k(input, engineReady) {
     primary: engineReady !== true ? 'details'
       : healthState === 'missing' || healthState === 'broken' ? 'repair'
       : updateState === 'update-available' ? 'update'
-      : updateState === 'integration-required' ? 'details' : 'check'
-  };
-  var luaSrc = hasLocal ? object(local.lua) : object(value.lua);
-  var provenanceSrc = hasLocal && local.provenance ? object(local.provenance) : object(value.provenance);
-  var versionRaw = first(local.commit || (local.provenance && local.provenance.commit) || value.runtime || value.runtimeVersion, null);
-  if (versionRaw && /^[a-f0-9]{7,40}$/.test(versionRaw)) versionRaw = versionRaw.slice(0, 7);
-  return {
+		: ['integration-required', 'review-required', 'rebase-required'].indexOf(updateState) >= 0 ? 'details' : 'check'
+	};
+	var luaSrc = hasLocal ? object(local.lua) : object(value.lua);
+	var provenanceSrc = hasLocal && local.provenance ? object(local.provenance) : object(value.provenance);
+	var releaseRaw = local.installedRelease !== undefined ? local.installedRelease : value.installedRelease;
+	var installedRelease;
+	if (releaseRaw && typeof releaseRaw === 'object' && !Array.isArray(releaseRaw)) {
+		installedRelease = {
+			value: first(releaseRaw.value || releaseRaw.version || releaseRaw.release, null),
+			confidence: first(releaseRaw.confidence, 'unknown'),
+			authority: first(releaseRaw.authority, null)
+		};
+	} else if (releaseRaw !== null && releaseRaw !== undefined && releaseRaw !== '') {
+		installedRelease = { value: String(releaseRaw), confidence: 'inferred', authority: 'legacy-field' };
+	} else {
+		installedRelease = { value: null, confidence: 'unknown', authority: null };
+	}
+	var availableReleaseRaw = value.availableRelease || value.available;
+	var availableRelease = availableReleaseRaw && typeof availableReleaseRaw === 'object'
+		? versionFrom(availableReleaseRaw) : first(availableReleaseRaw, null);
+	var versionRaw = installedRelease.value;
+	return {
     id: 'z2k-core',
     label: 'Z2K Core',
-    health: healthState,
-    updateState: updateState,
-    compatibility: compatibilityState,
+		runtimeHealth: healthState,
+		health: healthState,
+		updateState: updateState,
+		updatePresentation: UpdatePresentation.describe(updateState),
+		compatibility: compatibilityStateValue,
+		installedRelease: installedRelease,
+		availableRelease: availableRelease,
+		checkedAt: timestamp(value.checkedAt),
+		provenance: provenanceSrc,
+		reviews: reviews,
+		rebases: rebases,
     summary: summary,
     version: versionRaw,
     actions: actions,
@@ -215,10 +272,10 @@ function normalizeZ2k(input, engineReady) {
 
 function aggregateHealth(components) {
   components = array(components);
-  var ready = components.filter(function (item) { return item.health === 'ready'; }).length;
-  var broken = components.some(function (item) { return item.health === 'broken'; });
-  var missing = components.some(function (item) { return item.health === 'missing'; });
-  var checking = components.some(function (item) { return item.health === 'checking'; });
+	var ready = components.filter(function (item) { return (item.runtimeHealth || item.health) === 'ready'; }).length;
+	var broken = components.some(function (item) { return (item.runtimeHealth || item.health) === 'broken'; });
+	var missing = components.some(function (item) { return (item.runtimeHealth || item.health) === 'missing'; });
+	var checking = components.some(function (item) { return (item.runtimeHealth || item.health) === 'checking'; });
   // A pending poll must never mask a hard failure.
   var state = ready === components.length ? 'ready' : broken ? 'broken' : missing ? 'missing' : checking ? 'checking' : 'degraded';
   var message = state === 'ready' ? 'Система готова к работе'
@@ -231,12 +288,12 @@ function aggregateHealth(components) {
 function normalizePage(input) {
   input = object(input);
   var engine = normalizeEngine(input.engine || {});
-  var z2k = normalizeZ2k(input.z2k || input.resources || {}, engine.health === 'ready');
+	var z2k = normalizeZ2k(input.z2k || input.resources || {}, engine.runtimeHealth === 'ready');
   var components = [engine, z2k];
   return {
     manager: managerMeta(input.versions || input.manager || {}),
     health: aggregateHealth(components),
-    checkedAt: input.checkedAt || null,
+		checkedAt: timestamp(input.checkedAt),
     components: components,
     notices: array(input.notices)
   };

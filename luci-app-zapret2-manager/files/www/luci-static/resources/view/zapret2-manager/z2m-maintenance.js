@@ -4,6 +4,7 @@
 'require view.zapret2-manager.z2m-maintenance-model as MaintenanceModel';
 'require view.zapret2-manager.z2m-engine-panel as EnginePanel';
 'require view.zapret2-manager.z2m-components-model as ComponentsModel';
+'require view.zapret2-manager.z2m-update-presentation as UpdatePresentation';
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var LOAD_TIMEOUT_MS = 30000;
@@ -31,6 +32,8 @@ var SEMANTIC_KIND = {
   'Доступно обновление': 'o',
   'Требует внимания': 'o',
   'Требует проверки': 'o',
+  'Требуется проверка': 'o',
+  'Требуется адаптация': 'o',
   'Проверяется': 'o',
   'Требуется интеграция': 'o',
   'Ошибка': 'r',
@@ -208,7 +211,9 @@ function confirmAction(ctx, title, message, confirmLabel, handler) {
   ]);
 }
 function kvPanel(shell, rows) {
-  return E('div', { 'class': 'z2m-proxy-kv' }, rows.map(function (row) {
+  return E('div', { 'class': 'z2m-proxy-kv' }, rows.filter(function (row) {
+    return row.value !== null && row.value !== undefined && row.value !== '';
+  }).map(function (row) {
     return E('div', {}, [E('span', {}, row.label), E('strong', {}, row.value)]);
   }));
 }
@@ -223,45 +228,52 @@ function formatLastCheck(shell, value) {
   return t;
 }
 function componentStateLabel(component) {
-  // Unified per-component labels — Engine: Работает, Z2K: Актуален — with canonical severity precedence
-  // Priority: broken/error/incompatible > integration/review/update/degraded > healthy/current > unknown/off
+  var runtimeHealth = component.runtimeHealth || component.health;
+  var compatibility = component.compatibility && typeof component.compatibility === 'object'
+    ? component.compatibility.state : component.compatibility;
   if (component.id === 'engine') {
-    if (component.health === 'missing') return _('Не установлен');
-    if (component.health === 'broken') return _('Ошибка');
-    if (component.compatibility === 'incompatible') return _('Несовместим');
-    if (component.health === 'checking') return _('Проверяется');
+    if (runtimeHealth === 'missing') return _('Не установлен');
+    if (runtimeHealth === 'broken') return _('Ошибка');
+    if (compatibility === 'incompatible') return _('Несовместим');
+    if (runtimeHealth === 'checking') return _('Проверяется');
     var svc = component.details && component.details.serviceState;
     if (svc === 'paused') return _('Приостановлен');
     if (svc === 'stopped') return _('Остановлен');
-    if (component.health === 'degraded') return _('Требует внимания');
-    if (component.updateState === 'integration-required') return _('Требует внимания');
+    if (runtimeHealth === 'degraded') return _('Требует внимания');
     if (component.updateState === 'update-available') return _('Доступно обновление');
+    if (component.updateState === 'review-required') return _('Требуется проверка');
+    if (component.updateState === 'rebase-required') return _('Требуется адаптация');
+    if (component.updateState === 'integration-required') return _('Требуется интеграция');
     // Healthy installed+running+compatible => Работает (green)
     return _('Работает');
   }
   if (component.id === 'z2k-core') {
-    if (component.health === 'missing') {
+    if (runtimeHealth === 'missing') {
       return component.summary && String(component.summary).indexOf('Engine') >=0 ? _('Требуется Zapret2 Engine') : _('Не установлен');
     }
-    if (component.health === 'broken') return _('Ошибка');
-    if (component.compatibility === 'incompatible') return _('Несовместим');
-    if (component.health === 'checking') return _('Проверяется');
-    if (component.updateState === 'integration-required') return _('Требует внимания');
+    if (runtimeHealth === 'broken') return _('Ошибка');
+    if (compatibility === 'incompatible') return _('Несовместим');
+    if (runtimeHealth === 'checking') return _('Проверяется');
     if (component.updateState === 'update-available') return _('Доступно обновление');
-    if (component.health === 'ready' && component.updateState === 'current' && component.compatibility === 'compatible') return _('Актуален');
-    if (component.health === 'ready') {
+    if (component.updateState === 'review-required') return _('Требуется проверка');
+    if (component.updateState === 'rebase-required') return _('Требуется адаптация');
+    if (component.updateState === 'integration-required') return _('Требуется интеграция');
+    if (runtimeHealth === 'ready' && component.updateState === 'current' && compatibility === 'compatible') return _('Актуален');
+    if (runtimeHealth === 'ready') {
       if (component.updateState === 'unknown') return _('Работает');
       return _('Актуален');
     }
     return _('Требует внимания');
   }
-  var health = component.health;
+  var health = runtimeHealth;
   if (health === 'missing') return _('Не установлен');
   if (health === 'broken') return _('Ошибка');
   if (health === 'checking') return _('Проверяется');
-  if (component.updateState === 'integration-required') return _('Требует внимания');
   if (component.updateState === 'update-available') return _('Доступно обновление');
-  if (component.compatibility === 'incompatible') return _('Несовместим');
+  if (component.updateState === 'review-required') return _('Требуется проверка');
+  if (component.updateState === 'rebase-required') return _('Требуется адаптация');
+  if (component.updateState === 'integration-required') return _('Требуется интеграция');
+  if (compatibility === 'incompatible') return _('Несовместим');
   return _('Актуален');
 }
 function componentStateKind(component) {
@@ -272,7 +284,9 @@ function mandatorySummary(page) {
   var ready = page.health.ready;
   var total = page.health.total;
   var updates = page.components.filter(function (c) { return c.updateState === 'update-available'; }).length;
-  var attention = page.components.filter(function (c) { return c.health === 'broken' || c.health === 'degraded' || c.compatibility === 'incompatible'; }).length;
+  var reviews = page.components.filter(function (c) { return c.updateState === 'review-required'; }).length;
+  var rebases = page.components.filter(function (c) { return c.updateState === 'rebase-required'; }).length;
+  var integrations = page.components.filter(function (c) { return c.updateState === 'integration-required'; }).length;
   // Build dynamic counter like "2 работают · 1 обновление"
   var parts = [];
   if (ready === total && total > 0) parts.push(ready + ' ' + (ready === 1 ? _('работает') : _('работают')));
@@ -280,7 +294,20 @@ function mandatorySummary(page) {
   else if (ready > 0) parts.push(ready + ' ' + _('работают') + ' · ' + (total - ready) + ' ' + _('требует внимания'));
   else parts.push(_('требуют внимания'));
   if (updates > 0) parts.push(updates === 1 ? _('1 обновление') : updates + ' ' + _('обновления'));
+  if (reviews > 0) parts.push(reviews === 1 ? _('1 требует проверки') : reviews + ' ' + _('требуют проверки'));
+  if (rebases > 0) parts.push(rebases === 1 ? _('1 требует адаптации') : rebases + ' ' + _('требуют адаптации'));
+  if (integrations > 0) parts.push(integrations === 1 ? _('1 требует интеграции') : integrations + ' ' + _('требуют интеграции'));
   return parts.join(' · ');
+}
+function updateSummary(page) {
+  var counts = { 'update-available': 0, 'review-required': 0, 'rebase-required': 0, 'integration-required': 0 };
+  page.components.forEach(function (component) {
+    if (counts[component.updateState] !== undefined) counts[component.updateState]++;
+  });
+  return Object.keys(counts).filter(function (key) { return counts[key] > 0; }).map(function (key) {
+    var count = counts[key];
+    return count + ' × ' + UpdatePresentation.describe(key).label;
+  }).join(' · ') || _('Обновления не требуются');
 }
 function heroStatusLabel(page) {
   if (page.health.state === 'ready') return _('Система готова');
@@ -369,11 +396,7 @@ function toggleZ2K(ctx) {
 }
 function renderHero(ctx, page) {
   var shell = ctx.shell;
-  var lastCheck = page.checkedAt || (page.components[1] && page.components[1].details && page.components[1].details.checkedAt);
-  if (!lastCheck && page.components[1] && page.components[1].details && page.components[1].details.provenance) {
-    lastCheck = page.components[1].details.provenance.checkedAt || null;
-  }
-  var lastCheckLabel = formatLastCheck(shell, page.checkedAt || lastCheck);
+  var lastCheckLabel = formatLastCheck(shell, page.checkedAt);
   var heroKind = heroStatusKind(page);
   var heroLabel = heroStatusLabel(page);
   var isReady = page.health.state === 'ready';
@@ -387,7 +410,8 @@ function renderHero(ctx, page) {
         ]),
         E('div', { 'class': 'z2m-components-hero-stats' }, [
           E('span', { 'class': 'z2m-components-hero-ready' }, page.health.ready + ' / ' + page.health.total + ' ' + _('обязательных компонента работают')),
-          E('span', { 'class': 'z2m-dim' }, page.health.message)
+          E('span', { 'class': 'z2m-dim' }, page.health.message),
+          E('span', { 'class': 'z2m-components-hero-updates' }, updateSummary(page))
         ]),
         E('div', { 'class': 'z2m-components-hero-dots' }, page.components.map(function (c) {
           var kind = componentStateKind(c);
@@ -410,22 +434,31 @@ function renderHero(ctx, page) {
 function engineMetaRows(component, engineStatus) {
   var details = component.details || {};
   var caps = component.counters && component.counters.capabilities ? component.counters.capabilities : null;
+  var installed = component.installed || {};
+  var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
   var rows = [];
-  rows.push({ label: _('Установлено'), value: component.version || _('Не установлен') });
+  rows.push({ label: _('Установлено'), value: installed.version || _('Не установлен') });
+  if (component.artifactKind === 'legacy-compatibility-build') rows.push({ label: _('Тип артефакта'), value: _('Legacy compatibility build') });
+  else if (component.artifactKind) rows.push({ label: _('Тип артефакта'), value: component.artifactKind });
+  if (component.available && component.available.version) rows.push({ label: _('Доступная версия'), value: component.available.version });
   if (caps) rows.push({ label: _('Возможности'), value: caps });
-  rows.push({ label: _('Служба'), value: details.serviceState ? (details.serviceState === 'running' ? _('Работает') : details.serviceState) : (engineStatus.serviceState === 'running' ? _('Работает') : _('—')) });
-  rows.push({ label: _('Совместимость'), value: component.compatibility === 'compatible' ? _('✓ Подтверждена') : component.compatibility === 'incompatible' ? _('Несовместим') : _('Не подтверждена') });
+  rows.push({ label: _('Служба'), value: details.serviceState ? (details.serviceState === 'running' ? _('Работает') : details.serviceState) : null });
+  rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : compatibility === 'review-required' ? _('Требуется проверка') : _('Не подтверждена') });
   if (component.updateState === 'current') rows.push({ label: _('Актуальная версия'), value: _('✓ Актуальная версия') });
   return rows.filter(function (r) { return r.value; });
 }
 function z2kMetaRows(component) {
   var details = component.details || {};
   var local = details.provenance || {};
+  var release = component.installedRelease || {};
   var rows = [];
-  rows.push({ label: _('Установлено'), value: component.version || local.commit && local.commit.slice(0,7) || _('Не установлен') });
+  rows.push({ label: _('Установленный release'), value: release.value || _('Не установлен') });
+  if (release.confidence && release.confidence !== 'unknown') rows.push({ label: _('Уверенность release'), value: release.confidence });
   if (component.counters && component.counters.lua) rows.push({ label: _('Lua'), value: component.counters.lua });
-  rows.push({ label: _('Целостность'), value: component.health === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
-  rows.push({ label: _('Совместимость'), value: component.compatibility === 'compatible' ? _('✓ Подтверждена') : _('Не подтверждена') });
+  rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
+  var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
+  rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : _('Не подтверждена') });
+  if (local.sourceCommit || local.commit) rows.push({ label: _('Commit источника'), value: local.sourceCommit || local.commit });
   return rows;
 }
 function renderInlineOperation(ctx, component, opts) {
@@ -475,9 +508,9 @@ function renderInlineOperation(ctx, component, opts) {
 function renderEngineCard(ctx, component, engineStatus, engineValue) {
   // componentOperation scope z2k via isBusyFor
   var shell = ctx.shell;
-  var isReady = component.health === 'ready';
+  var isReady = (component.runtimeHealth || component.health) === 'ready';
   var hasUpdate = component.updateState === 'update-available';
-  var isBroken = component.health === 'broken' || component.health === 'missing';
+  var isBroken = (component.runtimeHealth || component.health) === 'broken' || (component.runtimeHealth || component.health) === 'missing';
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = engineMetaRows(component, engineStatus);
@@ -501,11 +534,11 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
   var expanded = isExpanded ? E('div', { 'class': 'z2m-component-expand' }, [
     E('div', { 'class': 'z2m-component-expand-title' }, _('Управление движком')),
     kvPanel(shell, [
-      { label: _('Состояние'), value: component.health === 'ready' ? _('Установлен') : _('Не установлен') },
-      { label: _('Автозапуск'), value: engineStatus.autostart ? _('Включён') : _('Выключен') },
-      { label: _('Runtime'), value: engineStatus.serviceState || _('—') },
-      { label: _('Capabilities'), value: component.counters && component.counters.capabilities || _('—') },
-      { label: _('Источник'), value: component.details && component.details.source || 'bol-van/zapret2' }
+      { label: _('Состояние'), value: isReady ? _('Установлен') : _('Не установлен') },
+      { label: _('Автозапуск'), value: component.details.autostart === true ? _('Включён') : component.details.autostart === false ? _('Выключен') : null },
+      { label: _('Runtime'), value: component.details.serviceState || null },
+      { label: _('Capabilities'), value: component.counters && component.counters.capabilities || null },
+      { label: _('Источник'), value: component.details && component.details.source || null }
     ]),
     E('div', { 'class': 'z2m-btnrow z2m-component-expand-actions' }, [
       shell.button(_('Перезапустить'), 'sm', function () { mutation(ctx, 'engine-restart', ctx.api.service.restart()); }, !!state.busy),
@@ -520,9 +553,10 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
     E('details', { 'class': 'z2m-acc' }, [
       E('summary', {}, _('Технические сведения')),
       kvPanel(shell, [
-        { label: _('Установленная версия'), value: engineStatus.installedRelease || engineStatus.packageVersion || '—' },
-        { label: _('Архитектура'), value: engineStatus.architecture || '—' },
-        { label: _('Runtime build'), value: engineStatus.runtimeBuild || '—' }
+        { label: _('Артефакт'), value: component.artifactKind || null },
+        { label: _('Архитектура'), value: engineStatus.architecture || null },
+        { label: _('Runtime build'), value: engineStatus.runtimeBuild || null },
+        { label: _('Engine state release'), value: engineStatus.installedRelease || null }
       ])
     ])
   ]) : null;
@@ -560,9 +594,9 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
 }
 function renderZ2KCard(ctx, component) {
   var shell = ctx.shell;
-  var isReady = component.health === 'ready';
+  var isReady = (component.runtimeHealth || component.health) === 'ready';
   var hasUpdate = component.updateState === 'update-available';
-  var needsIntegration = component.updateState === 'integration-required';
+  var needsIntegration = ['integration-required', 'review-required', 'rebase-required'].indexOf(component.updateState) >= 0;
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = z2kMetaRows(component);
@@ -586,32 +620,34 @@ function renderZ2KCard(ctx, component) {
         E('h4', {}, _('Локально')),
         kvPanel(shell, [
           { label: _('Источник'), value: component.details.provenance && component.details.provenance.source || 'necronicle/z2k' },
-          { label: _('Локальная revision'), value: component.version || '—' },
-          { label: _('Lua assets'), value: component.counters && component.counters.lua || '—' },
+          { label: _('Установленный release'), value: component.installedRelease && component.installedRelease.value || null },
+          { label: _('Локальная revision'), value: component.details.provenance && (component.details.provenance.sourceCommit || component.details.provenance.commit) || null },
+          { label: _('Lua assets'), value: component.counters && component.counters.lua || null },
           { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') },
-          { label: _('Совместимость'), value: component.compatibility === 'compatible' ? _('Подтверждена') : _('Не подтверждена') }
+          { label: _('Совместимость'), value: component.compatibility && component.compatibility.state === 'compatible' ? _('Подтверждена') : _('Не подтверждена') }
         ])
       ]),
       E('div', { 'class': 'z2m-component-expand-col' }, [
         E('h4', {}, _('Upstream / Обновления')),
         kvPanel(shell, [
-          { label: _('Последняя проверка'), value: formatLastCheck(shell, component.details.checkedAt || null) },
-          { label: _('Remote revision'), value: component.details.manifest && component.details.manifest.current || '—' },
-          { label: _('Trust mode'), value: component.details.trustMode || 'allow-untrusted' },
-          { label: _('Обновления'), value: hasUpdate ? _('Доступно обновление') : _('Актуально') },
-          { label: _('Rebase'), value: component.details.rebases && component.details.rebases.length ? component.details.rebases.join(', ') : _('не требуется') },
-          { label: _('Review'), value: component.details.reviews && component.details.reviews.length ? component.details.reviews.join(', ') : _('не требуется') }
+          { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) },
+          { label: _('Remote revision'), value: component.details.manifest && component.details.manifest.current || null },
+          { label: _('Trust mode'), value: component.details.trustMode || null },
+          { label: _('Обновления'), value: UpdatePresentation.describe(component.updateState).label },
+          { label: _('Доступный release'), value: component.availableRelease || null },
+          { label: _('Rebase'), value: component.rebases && component.rebases.length ? component.rebases.join(', ') : null },
+          { label: _('Review'), value: component.reviews && component.reviews.length ? component.reviews.join(', ') : null }
         ])
       ])
     ]),
     E('details', { 'class': 'z2m-acc' }, [
       E('summary', {}, _('Технические сведения')),
       kvPanel(shell, [
-        { label: _('Версия'), value: component.version || '—' },
-        { label: _('Источник'), value: component.details.provenance && component.details.provenance.source || '—' },
-        { label: _('Lua'), value: component.counters && component.counters.lua || '—' },
-        { label: _('Trust mode'), value: component.details.trustMode || '—' },
-        { label: _('Manifest'), value: component.details.manifest && component.details.manifest.current || '—' }
+        { label: _('Установленный release'), value: component.installedRelease && component.installedRelease.value || null },
+        { label: _('Источник'), value: component.details.provenance && component.details.provenance.source || null },
+        { label: _('Lua'), value: component.counters && component.counters.lua || null },
+        { label: _('Trust mode'), value: component.details.trustMode || null },
+        { label: _('Manifest'), value: component.details.manifest && component.details.manifest.current || null }
       ])
     ])
   ]) : null;
@@ -689,7 +725,7 @@ function renderComponents(ctx, data) {
   }
   var page = ComponentsModel.normalizePage({
     versions: payload.versions && payload.versions.value || {},
-    engine: { status: engineStatus },
+    engine: { status: engineStatus, catalog: engineValue[0] || {} },
     z2k: payload.resources && payload.resources.value && payload.resources.value.z2k || {},
     checkedAt: payload.resources && payload.resources.value && payload.resources.value.checkedAt
   });

@@ -42,8 +42,8 @@ describe('Component status semantics — unified GREEN/AMBER/RED/MUTED', () => {
     expect(js).toContain("return _('Актуален')");
     // Must handle update-available as Доступно обновление amber
     expect(js).toContain("if (component.updateState === 'update-available') return _('Доступно обновление')");
-    // Must handle integration-required as Требует внимания
-    expect(js).toContain("if (component.updateState === 'integration-required') return _('Требует внимания')");
+    // Must preserve integration-required as its own amber label
+    expect(js).toContain("if (component.updateState === 'integration-required') return _('Требуется интеграция')");
     // Broken must be Ошибка red
     const z2kSection = js.slice(js.indexOf("if (component.id === 'z2k-core')"), js.indexOf("var health = component.health;"));
     expect(z2kSection).toContain("return _('Ошибка')");

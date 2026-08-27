@@ -26,6 +26,48 @@ function load_manifest() { let raw = readfile(MANIFEST); if (raw == null || leng
 function source(manifest, id) { for (let i = 0; i < length(manifest.sources); i++) if (manifest.sources[i].id == id) return manifest.sources[i]; return null; }
 function bundle(manifest, id) { for (let i = 0; i < length(manifest.bundles); i++) if (manifest.bundles[i].id == id) return manifest.bundles[i]; return null; }
 function registry_asset(assets, id) { for (let i = 0; i < length(assets); i++) if (assets[i].id == id) return assets[i]; return null; }
+function known_release(value) {
+	if (!string(value) || !length(value) || substr(value, 0, 2) == 'p-' || match(value, /^[a-f0-9]{7,40}$/i)) return null;
+	return value;
+}
+function z2k_receipt_release(listed, want) {
+	let receipts = listed.activationReceipts || [];
+	for (let i = length(receipts) - 1; i >= 0; i--) {
+		let receipt = receipts[i];
+		if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != 'z2k-curated-lua' || !known_release(receipt.version) || type(receipt.assets) != 'array' || !length(receipt.assets)) continue;
+		let valid = true;
+		for (let j = 0; j < length(receipt.assets); j++) {
+			let item = receipt.assets[j], current = object(item) ? registry_asset(listed.assets, item.id) : null;
+			if (!object(item) || !want[item.id] || current == null || current.contentSha256 != item.sha256 || current.byteSize != item.byteSize || !object(current.provenance) || current.provenance.bundleId != receipt.bundleId) { valid = false; break; }
+		}
+		if (valid) return { value: receipt.version, confidence: 'confirmed', authority: 'activation-receipt' };
+	}
+	return null;
+}
+function z2k_known_release(manifest, listed, want) {
+	let candidates = [];
+	for (let i = 0; i < length(manifest.bundles); i++) {
+		let candidate = manifest.bundles[i];
+		if (candidate.sourceId != 'z2k-resources') continue;
+		let release = known_release(candidate.release || candidate.version), items = candidate.assets || [], valid = release != null && length(items) > 0;
+		for (let j = 0; valid && j < length(items); j++) {
+			let item = items[j], current = registry_asset(listed.assets, item.id);
+			if (!object(current) || current.contentSha256 != item.sha256 || current.byteSize != item.byteSize) valid = false;
+		}
+		if (valid) push(candidates, release);
+	}
+	if (length(candidates) == 1) return { value: candidates[0], confidence: 'inferred', authority: 'known-manifest' };
+	if (length(candidates) > 1) return { value: null, confidence: 'ambiguous', authority: 'known-manifest' };
+	return null;
+}
+function z2k_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention) {
+	let receipt = z2k_receipt_release(listed, want);
+	if (receipt != null) return receipt;
+	let inferred = z2k_known_release(manifest, listed, want);
+	if (inferred != null) return inferred;
+	if (hasAttention || (installedCount > 0 && hasMissing)) return { value: null, confidence: 'inconsistent', authority: 'known-manifest' };
+	return { value: null, confidence: 'unknown', authority: null };
+}
 function state_label(state) { return ({ current: 'Актуально', update: 'Доступно обновление', missing: 'Не установлено', checking: 'Проверяем', unavailable: 'Источник недоступен', stale: 'Проверка устарела', error: 'Ошибка проверки', attention: 'Требуется внимание', unknown: 'Не проверено' })[state] || 'Требуется внимание'; }
 function current_asset(item, assets) {
 	let registered = registry_asset(assets, item.id);
@@ -60,22 +102,25 @@ function source_rows(manifest, rows) {
 	return result;
 }
 function z2k_projection(signed) {
-	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updates: [], rebases: [], reviews: [], trustMode: 'allow-untrusted', verified: false, source: null, manifest: null };
+	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', updates: [], rebases: [], reviews: [], trustMode: 'allow-untrusted', verified: false, source: null, manifest: null, availableRelease: null };
 	let plan = object(signed.plan) ? signed.plan : {}, manifest = object(signed.manifest) ? signed.manifest : {};
+	let status = signed.status || 'unknown';
 	return {
-		status: signed.status || 'unknown',
+		status: status,
+		updateState: status,
 		updates: plan.updates || [],
 		rebases: plan.rebases || [],
 		reviews: plan.reviews || [],
 		trustMode: signed.trustMode || null,
 		verified: signed.ok === true && signed.trustMode != 'allow-untrusted',
 		source: signed.source || null,
-		manifest: { seq: manifest.seq, current: manifest.current }
+		manifest: { seq: manifest.seq, current: manifest.current },
+		availableRelease: known_release(signed.release || manifest.release || manifest.version)
 	};
 }
 function z2k_local_projection(manifest) {
 	let listed = asset_registry_list(null);
-	if (!listed.ok) return { installed: false, integrity: 'broken', integrityOk: false, lua: { ready: 0, total: 0 }, baselineMatched: 0, revision: 0, commit: null, provenance: null, checkedAt: null };
+	if (!listed.ok) return { installed: false, integrity: 'broken', integrityOk: false, lua: { ready: 0, total: 0 }, baselineMatched: 0, revision: 0, commit: null, provenance: null, checkedAt: null, installedRelease: { value: null, confidence: 'unknown', authority: null } };
 	let want = {};
 	for (let i = 0; i < length(manifest.bundles); i++) if (manifest.bundles[i].sourceId == 'z2k-resources') {
 		let items = manifest.bundles[i].assets || [];
@@ -144,7 +189,8 @@ function z2k_local_projection(manifest) {
 	let integrity = hasAttention ? 'broken' : hasMissing ? 'broken' : baselineMatched === total ? 'verified' : 'diverged';
 	let integrityOk = !hasMissing && !hasAttention;
 	let installed = !hasMissing && installedCount > 0 && total > 0;
-	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked };
+	let installedRelease = z2k_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
+	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease };
 }
 function load_check_state() {
 	let raw = readfile(CHECK_STATE);
@@ -197,6 +243,7 @@ export const resource_center_status = function () {
 	let persisted = load_check_state();
 	let remote = persisted ? z2k_projection(persisted.signed) : z2k_projection(null);
 	remote.local = local;
+	remote.checkedAt = persisted ? persisted.checkedAt : null;
 	answer.z2k = remote;
 	if (persisted) {
 		answer.checkedAt = persisted.checkedAt;
@@ -228,6 +275,7 @@ export const resource_center_check = function () {
 	let local = z2k_local_projection(loaded.manifest);
 	let remote = z2k_projection(signed);
 	remote.local = local;
+	remote.checkedAt = answer.checkedAt;
 	answer.z2k = remote;
 	answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? (signed.trustMode == 'allow-untrusted' ? 'Источник разрешён без проверки подписи' : signed.status) : 'Ошибка проверки источника', checkMode: signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest', trustMode: signed.trustMode || null, verified: signed.ok === true && signed.trustMode != 'allow-untrusted', evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, trustMode: signed.trustMode || null, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'Z2K source check failed' } } };
 	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') {
@@ -303,7 +351,7 @@ export const resource_center_update = function (request) {
 		let planUpdates = signedForZ2k.plan.updates || [];
 		let remoteFiles = signedForZ2k.manifest.files_sha256 || {};
 		let remoteCommit = signedForZ2k.manifest.current || selected.sourceCommit;
-		let remoteVersion = signedForZ2k.manifest.current || selected.version;
+		let remoteVersion = signedForZ2k.release || selected.version;
 		let diagnostics = { pathUsed: diagPathUsed, remoteRevision: remoteCommit, planned: length(planUpdates), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
 		// Pre-fill targetAssets with before SHAs (correct slug derivation for all types)
 		for (let i = 0; i < length(planUpdates); i++) {

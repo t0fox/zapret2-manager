@@ -1,0 +1,152 @@
+[
+  {
+    "id": "stock-current",
+    "engine": {
+      "status": {
+        "installed": true,
+        "installedRelease": "v1.0.4",
+        "artifactKind": "vanilla-bol-van-release",
+        "serviceState": "running",
+        "runtimeRunning": true,
+        "compatible": true
+      },
+      "check": {
+        "checkedAt": 1787829000,
+        "updateState": "current",
+        "available": { "version": "v1.0.4" }
+      }
+    },
+    "z2k": {
+      "updateState": "current",
+      "local": {
+        "installed": true,
+        "integrityOk": true,
+        "lua": { "ready": 7, "total": 7 },
+        "installedRelease": { "value": "r-77.5", "confidence": "confirmed" }
+      },
+      "provenance": { "repository": "necronicle/z2k", "sourceCommit": "54b6765f" }
+    }
+  },
+  {
+    "id": "stock-update-available",
+    "engine": {
+      "status": {
+        "installed": true,
+        "installedRelease": "v1.0.4",
+        "artifactKind": "vanilla-bol-van-release",
+        "serviceState": "running",
+        "runtimeRunning": true,
+        "compatible": true
+      },
+      "check": {
+        "checkedAt": 1787829001,
+        "updateState": "update-available",
+        "available": { "version": "v1.0.5" }
+      }
+    },
+    "z2k": { "updateState": "current", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
+  },
+  {
+    "id": "legacy-compatibility-engine",
+    "engine": {
+      "status": {
+        "installed": true,
+        "installedRelease": "r77-z2m-202608232258",
+        "artifactKind": "legacy-compatibility-build",
+        "serviceState": "running",
+        "runtimeRunning": true,
+        "compatible": true,
+        "baseCommit": "a0be7cbb40a4230e4b60fc33b7ea06102eb8ec15"
+      },
+      "check": { "checkedAt": 1787829002, "updateState": "update-available", "available": { "version": "v1.0.4" } }
+    },
+    "z2k": { "updateState": "current", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
+  },
+  {
+    "id": "healthy-runtime-compatibility-attention",
+    "engine": {
+      "status": {
+        "installed": true,
+        "installedRelease": "v1.0.4",
+        "artifactKind": "vanilla-bol-van-release",
+        "serviceState": "running",
+        "runtimeRunning": true,
+        "compatible": true
+      },
+      "check": {
+        "checkedAt": 1787829003,
+        "updateState": "review-required",
+        "available": { "version": "v1.0.5" },
+        "compatibility": { "state": "review-required", "reason": "candidate metadata needs review" }
+      }
+    },
+    "z2k": { "updateState": "current", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
+  },
+  {
+    "id": "z2k-current-confirmed-receipt",
+    "engine": { "status": { "installed": true, "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": {
+      "updateState": "current",
+      "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed", "authority": "activation-receipt" } },
+      "availableRelease": "r-77.5"
+    }
+  },
+  {
+    "id": "z2k-inferred-release",
+    "engine": { "status": { "installed": true, "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": {
+      "updateState": "current",
+      "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.4", "confidence": "inferred", "authority": "known-manifest" } },
+      "availableRelease": "r-77.5"
+    }
+  },
+  {
+    "id": "z2k-ambiguous-release",
+    "engine": { "status": { "installed": true, "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": {
+      "updateState": "unknown",
+      "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": null, "confidence": "ambiguous", "authority": "known-manifest" } },
+      "availableRelease": null
+    }
+  },
+  {
+    "id": "z2k-inconsistent-state",
+    "engine": { "status": { "installed": true, "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": {
+      "updateState": "unknown",
+      "local": { "installed": true, "integrityOk": false, "integrity": "broken", "lua": { "ready": 6, "total": 7 }, "installedRelease": { "value": null, "confidence": "inconsistent", "authority": "known-manifest" } }
+    }
+  },
+  {
+    "id": "z2k-review-required",
+    "engine": { "status": { "installed": true, "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": {
+      "updateState": "review-required",
+      "reviews": ["files/lua/z2k-alert.lua"],
+      "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } }
+    }
+  },
+  {
+    "id": "z2k-rebase-required",
+    "engine": { "status": { "installed": true, "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": {
+      "updateState": "rebase-required",
+      "rebases": ["files/lua/z2k-state-persist.lua"],
+      "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } }
+    }
+  },
+  {
+    "id": "mixed-provenance",
+    "engine": { "status": { "installed": true, "installedRelease": "v1.0.4", "artifactKind": "vanilla-bol-van-release", "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": {
+      "updateState": "current",
+      "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" }, "provenance": { "sourceCommit": "p-79.18", "kind": "catalog/upstream" } },
+      "provenance": { "repository": "necronicle/z2k", "sourceCommit": "p-79.18", "kind": "catalog/upstream" }
+    }
+  },
+  {
+    "id": "no-check-yet",
+    "engine": { "status": { "installed": true, "installedRelease": "v1.0.4", "artifactKind": "vanilla-bol-van-release", "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "z2k": { "updateState": "unknown", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
+  }
+]

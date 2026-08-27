@@ -5,10 +5,16 @@ import path from 'node:path';
 import vm from 'node:vm';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
+const presentationSource = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-update-presentation.js'), 'utf8');
 const source = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js'), 'utf8');
+const presentation = vm.runInNewContext(`(function () { ${presentationSource}\n })()`, {
+  baseclass: { extend: value => value },
+  _: value => value,
+});
 const model = vm.runInNewContext(`(function () { ${source}\n })()`, {
   baseclass: { extend: value => value },
   _ : value => value,
+  UpdatePresentation: presentation,
 });
 
 const engine = (overrides = {}) => ({
@@ -46,7 +52,7 @@ test('normalizes a ready Engine and Z2K Core into two mandatory components', () 
   assert.deepEqual(JSON.parse(JSON.stringify(page.health)), { ready: 2, total: 2, state: 'ready', message: 'Система готова к работе' });
   assert.deepEqual(JSON.parse(JSON.stringify(page.components.map(component => component.id))), ['engine', 'z2k-core']);
   assert.equal(page.components[0].health, 'ready');
-  assert.equal(page.components[0].compatibility, 'compatible');
+  assert.equal(page.components[0].compatibility.state, 'compatible');
   assert.equal(page.components[0].counters.capabilities, '3 / 3');
   assert.equal(page.components[1].health, 'ready');
   assert.equal(page.components[1].counters.lua, '7 / 7');
@@ -82,16 +88,17 @@ test('clean install truth model: engine not installed, Z2K requires a compatible
   assert.equal(page.components[1].actions.primary, 'details');
 });
 
-test('unknown Z2K state is never presented as ready while the engine is unproven', () => {
-  // Engine claims running but compatibility is unverified -> engine cannot be
-  // ready, and Z2K inherits the requires-engine gate.
+test('unknown compatibility does not poison independently proven runtime health', () => {
+  // Runtime readiness and compatibility are separate facts. Running evidence
+  // remains ready even before the compatibility check has been confirmed.
   const page = model.normalizePage({
     engine: { status: engine({ compatible: undefined }) },
     z2k: z2k({ status: 'unknown' }),
   });
 
-  assert.equal(page.components[0].health, 'degraded');
-  assert.equal(page.components[1].health, 'missing');
+  assert.equal(page.components[0].health, 'ready');
+  assert.equal(page.components[0].compatibility.state, 'unverified');
+  assert.equal(page.components[1].health, 'ready');
 
   const page2 = model.normalizePage({
     engine: { status: engine() },
@@ -99,7 +106,7 @@ test('unknown Z2K state is never presented as ready while the engine is unproven
   });
   assert.equal(page2.components[0].health, 'ready');
   assert.equal(page2.components[1].health, 'degraded',
-    'unknown Z2K state with a ready engine is bounded-degraded, never ready');
+    'unknown Z2K state without local evidence is bounded-degraded, never ready');
   assert.equal(page2.health.ready, 1);
 });
 
@@ -141,7 +148,7 @@ test('integration-required is distinct from a safe update and blocks automatic u
   // update channel reports integration-required.
   assert.equal(page.health.state, 'ready');
   assert.equal(page.components[1].health, 'ready');
-  assert.equal(page.components[1].updateState, 'integration-required');
+  assert.equal(page.components[1].updateState, 'rebase-required');
   assert.equal(page.components[1].actions.primary, 'details');
   assert.deepEqual(JSON.parse(JSON.stringify(page.components[1].details.rebases)), ['z2k-state-persist.lua']);
 });

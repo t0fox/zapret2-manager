@@ -5,6 +5,7 @@
 'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 'require view.zapret2-manager.z2m-asset-tooling as Tooling';
 'require view.zapret2-manager.z2m-resources-model as ResourcesModel';
+'require view.zapret2-manager.z2m-update-presentation as UpdatePresentation';
 
 var HUMAN_STATES = { current: _('Актуально'), update: _('Доступно обновление'), missing: _('Не установлено'), checking: _('Проверяем'), unavailable: _('Источник недоступен'), stale: _('Проверка устарела'), attention: _('Требуется внимание'), error: _('Ошибка проверки'), unknown: _('Неизвестно') };
 function text(value, fallback) { return value == null || value === '' ? (fallback || '') : String(value); }
@@ -16,6 +17,7 @@ function assetTypeForRoute(route, params) { return params && params.type || ({ i
 function refs(asset) { return Array.isArray(asset && asset.references) ? asset.references : []; }
 function mutable(asset) { return asset && asset.mutable === true; }
 function stateBadge(row) { var state = row.state || 'unknown'; return AvatarUi.statusBadge(state, { label: text(row.status, HUMAN_STATES[state] || HUMAN_STATES.unknown), kind: state === 'current' ? 'good' : state === 'update' ? 'warn' : state === 'error' || state === 'attention' ? 'danger' : 'muted' }); }
+function updateBadge(presentation) { return AvatarUi.statusBadge(presentation.state, { label: presentation.label, kind: presentation.kind === 'g' ? 'good' : presentation.kind === 'r' ? 'danger' : presentation.kind === 'o' ? 'warn' : 'muted' }); }
 function message(ctx, value) { return ctx.api.normalizeError(value).message; }
 function resourceErrorBody(ctx, error) {
   var normalized = ctx.api.normalizeError(error);
@@ -216,9 +218,8 @@ function render(ctx) {
     var detail = null;
     if (callout.status === 'update-available') {
       label = _('Доступно обновление ') + callout.label;
-      var from = text(callout.from) || '—';
-      var to = text(callout.to) || '—';
-      detail = E('span', { 'class': 'z2m-dim' }, from + ' → ' + to);
+      var versions = [text(callout.from), text(callout.to)].filter(Boolean);
+      detail = versions.length ? E('span', { 'class': 'z2m-dim' }, versions.join(' → ')) : null;
     } else if (callout.status === 'rebase-required') {
       label = _('Требуется адаптация ') + callout.label;
     } else if (callout.status === 'review-required') {
@@ -247,7 +248,9 @@ function render(ctx) {
     }
     // For user group with 0, metaLine is empty, show special
     var state = group.state || 'unknown';
-    var badge = stateBadge({ state: state, status: HUMAN_STATES[state] || group.stateLabel });
+    var badge = group.id === 'z2k-resources' && group.bundlePresentation && group.bundleUpdateState !== 'current' && group.bundleUpdateState !== 'unknown'
+      ? updateBadge(group.bundlePresentation)
+      : stateBadge({ state: state, status: HUMAN_STATES[state] || group.stateLabel });
 
     if (group.id === 'user' && group.total === 0) {
       return E('section', { 'class': 'z2m-resource-group-row z2m-resource-group-empty', 'data-group-id': group.id }, [

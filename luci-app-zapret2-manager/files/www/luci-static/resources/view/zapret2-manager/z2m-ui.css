@@ -184,6 +184,10 @@
 .z2m-view#z2m-view-overview #card-telegram .status-card-meta-value{font-size:12px;overflow:visible;text-overflow:clip}
 .z2m-view#z2m-view-overview #card-zapret-ver .status-card-value{font-size:15px;font-weight:500;color:var(--tx2)}
 .z2m-view#z2m-view-overview #card-zapret-ver .status-card-detail{color:var(--tx3)}
+.z2m-view#z2m-view-overview .z2m-overview-update-summary{display:grid;gap:5px;padding-bottom:14px}
+.z2m-view#z2m-view-overview .z2m-overview-update-summary .status-card-value{padding:0 18px}
+.z2m-view#z2m-view-overview .z2m-overview-update-summary .status-card-detail{padding:0 18px}
+.z2m-view#z2m-view-overview .z2m-overview-update-summary>a{padding:0 18px;font-size:12px}
 .z2m-view#z2m-view-overview .dashboard-recommendations{margin-bottom:20px}
 .z2m-view#z2m-view-overview .dashboard-recommendations-title{justify-content:space-between}
 .z2m-view#z2m-view-overview .dashboard-recommendations-heading,.z2m-view#z2m-view-overview .dashboard-recommendations-link{display:inline-flex;align-items:center;gap:6px}
@@ -3285,6 +3289,7 @@
 .z2m-components-summary strong{font-size:21px;font-variant-numeric:tabular-nums}
 .z2m-components-summary span:not(.z2m-chip){color:var(--tx2);font-size:12px}
 .z2m-components-summary .z2m-btn{margin-left:auto}
+.z2m-components-hero-updates{display:block;color:var(--tx2);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
 .z2m-components-section{display:grid;gap:10px}
 .z2m-components-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .z2m-components-section-head h2{margin:0;color:var(--tx2);font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}

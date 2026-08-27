@@ -4,7 +4,7 @@ title: "Ресурсы"
 type: product-guide
 status: current
 authority: current-ui
-updated: 2026-08-22
+updated: 2026-08-27
 publish: true
 tags: [ui, resources, assets]
 ---
@@ -12,17 +12,29 @@ tags: [ui, resources, assets]
 # Ресурсы
 
 Resource Center хранит **данные и runtime-assets**, а не системные компоненты.
-В интерфейсе используются четыре смысловых вкладки:
+Asset Registry — единственный владелец managed asset metadata и bytes; Z2K Core
+не получает второго writer или отдельного product owner.
 
-- **Обновления** — доступные обновления данных;
+В интерфейсе остаются четыре смысловых представления:
+
+- **Обновления** — доступные изменения с переходом в «Компоненты» для
+  обязательного Z2K update/review/rebase/integration-действия;
 - **Установленные** — активы, которыми владеет Asset Registry;
 - **Пользовательские** — добавленные пользователем assets;
-- **Источники** — provenance и источники каталога.
+- **Источники** — provenance и проверка источника.
 
-Avatar Catalog — источник данных каталога. Z2K Core — системный компонент на
-странице Компоненты. Lua, blob и list-файлы могут отображаться в
-«Установленных», потому что их отслеживает Asset Registry; это не превращает
-«Z2K Resources» во второй устанавливаемый продукт.
+«Z2K Resources» — системная группа assets, а не второй устанавливаемый продукт.
+Её update state проецируется теми же каноническими состояниями, что и карточка
+Z2K Core: «Актуально», «Доступно обновление», «Требуется проверка», «Требуется
+адаптация», «Требуется интеграция», «Ошибка» и «Не проверено». Package baseline,
+technical commit и manifest identity показываются только как техническая
+evidence, а не как installed release.
 
-Не импортируйте ресурс как Strategy вслепую: сначала проверьте provenance,
-протокол и ссылки на файлы, затем используйте Preview/Validate в Strategy IDE.
+После успешной активации Asset Registry сохраняет bounded activation receipt.
+Локальная release identity использует его как confirmed authority, затем может
+использовать только однозначное совпадение с известным manifest как inferred;
+при ambiguity/inconsistency версия не выдумывается.
+
+Avatar Catalog остаётся источником данных каталога. Не импортируйте ресурс как
+Strategy вслепую: сначала проверьте provenance, протокол и ссылки на файлы,
+затем используйте Preview/Validate в Strategy IDE.

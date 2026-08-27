@@ -9,12 +9,15 @@ function loadModel() {
 	if (!fs.existsSync(p)) p = path.join(path.resolve(''), 'zapret2-manager/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js');
 	if (!fs.existsSync(p)) p = 'C:/Users/Kirill/zapret2-manager/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js';
 	const raw = fs.readFileSync(p, 'utf8');
+	const presentationPath = path.join(path.dirname(p), 'z2m-update-presentation.js');
+	const presentationRaw = fs.readFileSync(presentationPath, 'utf8');
 	// The file does: return baseclass.extend({ buildModel, ... })
 	// Replace return to capture
 	const code = raw.replace(/return\s+baseclass\.extend/, 'this.__model = baseclass.extend');
 	let captured = null;
 	const baseclass = { extend: (obj) => { captured = obj; return obj; } };
-	const ctx = { require: (name) => { if (name === 'baseclass') return baseclass; throw new Error(name); }, _: (s) => s, baseclass, __model: null };
+	const presentation = vm.runInNewContext(`(function () { ${presentationRaw}\n })()`, { baseclass, _: (s) => s });
+	const ctx = { require: (name) => { if (name === 'baseclass') return baseclass; throw new Error(name); }, _: (s) => s, baseclass, UpdatePresentation: presentation, __model: null };
 	vm.createContext(ctx);
 	vm.runInContext(code, ctx);
 	return captured || ctx.__model;
@@ -164,8 +167,10 @@ test('7. canonical Z2K update available -> updateCallout with Components target'
 	assert.ok(out.updateCallout, 'updateCallout must exist');
 	assert.equal(out.updateCallout.status, 'update-available');
 	assert.equal(out.updateCallout.targetRoute, 'components');
-	assert.equal(out.updateCallout.from, 'p-79.18');
-	assert.equal(out.updateCallout.to, 'p-79.19');
+	assert.equal(out.updateCallout.from, null, 'technical commits are not presented as releases');
+	assert.equal(out.updateCallout.to, null, 'technical manifest revisions are not presented as releases');
+	assert.equal(out.updateCallout.technicalFrom, 'p-79.18');
+	assert.equal(out.updateCallout.technicalTo, 'p-79.19');
 	// Group state should be update
 	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
 	assert.equal(z2kGroup.state, 'update');
@@ -182,6 +187,18 @@ test('8. update absent -> no updateCallout', () => {
 	const out = model.buildModel(resources, { assets: [] }, { advanced: false });
 	assert.equal(out.updateCallout, null);
 	assert.equal(out.summary.updateCallout, null);
+});
+
+test('canonical updateState drives the Z2K group when legacy status is absent', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const installed = makeInstalledForZ2k(2, { lua: 1, blob: 1 });
+	const resources = { sources, installed, z2k: { updateState: 'review-required', local: { installed: true, integrityOk: true } } };
+	const out = model.buildModel(resources, { assets: [] }, { advanced: false });
+	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
+	assert.equal(z2kGroup.bundleUpdateState, 'review-required');
+	assert.equal(z2kGroup.state, 'attention');
+	assert.equal(out.updateCallout.status, 'review-required');
 });
 
 // 9. sources metadata inside corresponding group, no separate Sources tab data exposure as top-level

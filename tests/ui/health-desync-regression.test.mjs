@@ -17,13 +17,22 @@ function loadMonitorModel() {
 }
 
 function loadComponentsModel() {
+  const presentationSource = fs.readFileSync(
+    path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-update-presentation.js'),
+    'utf8'
+  );
   const source = fs.readFileSync(
     path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js'),
     'utf8'
   );
+  const presentation = vm.runInNewContext(`(function () { ${presentationSource}\n })()`, {
+    baseclass: { extend: (v) => v },
+    _: (v) => v,
+  });
   return vm.runInNewContext(`(function () { ${source}\n })()`, {
     baseclass: { extend: (v) => v },
     _: (v) => v,
+    UpdatePresentation: presentation,
   });
 }
 

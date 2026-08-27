@@ -2,6 +2,7 @@
 'require baseclass';
 'require view';
 'require view.zapret2-manager.z2m-engine-model as Model';
+'require view.zapret2-manager.z2m-components-model as ComponentsModel';
 
 var POLL_MS = 1500;
 
@@ -81,6 +82,11 @@ function accept(state, data) {
   state.operation = (data[2] && data[2].operation) || state.status.operation || null;
   state.releases = array(state.catalog.releases);
   state.selectedVersion = latest(state).version || null;
+  state.truth = ComponentsModel.normalizeEngine({
+    status: data[1],
+    catalog: state.catalog,
+    check: state.check || {}
+  });
 }
 
 function load() {
@@ -125,6 +131,7 @@ function checkRelease(ctx, state) {
   ctx.api.engine.check({ version: state.selectedVersion }).then(function (answer) {
     if (!answer || answer.ok === false) throw answer && answer.error || answer;
     state.check = answer;
+    state.truth = ComponentsModel.normalizeEngine({ status: state.status, catalog: state.catalog, check: answer });
     state.busy = false;
     ctx.shell.showToast(_('Официальный release проверен.'), 'ok');
     state.redraw();
@@ -172,16 +179,17 @@ function operationPanel(ctx, state) {
 
 function build(ctx, state) {
   var status = Model.normalizeStatus(state.status);
+  var truth = state.truth || ComponentsModel.normalizeEngine({ status: state.status, catalog: state.catalog, check: state.check || {} });
   var latestRelease = latest(state);
   var latestVersion = latestRelease.installedRelease || latestRelease.version;
   var busy = state.busy || !!(state.operation && !terminal(state.operation.phase));
   var check = object(state.check);
   var candidate = object(check.candidate);
-  var direction = status.installedRelease && latestVersion
-    ? compareVersion(latestVersion, status.installedRelease) : 0;
+  var direction = truth.installed.version && latestVersion
+    ? compareVersion(latestVersion, truth.installed.version) : 0;
   var actions = Model.actions({
     installed: status.installed,
-    installedRelease: status.installedRelease,
+    installedRelease: truth.installed.version,
     selectedRelease: latestVersion,
     direction: direction >= 0 ? 'up' : 'down',
     busy: busy,
@@ -217,6 +225,7 @@ function build(ctx, state) {
     E('summary', {}, _('Технические детали')),
     rows([
       { label: _('Версия пакета'), value: status.packageVersion },
+      { label: _('Engine state release'), value: status.installedRelease },
       { label: _('Сборка runtime'), value: status.runtimeBuild },
       { label: _('Архитектура'), value: status.architecture },
       { label: _('Origin state'), value: status.installedOrigin }
@@ -226,14 +235,15 @@ function build(ctx, state) {
   var statePanel = ctx.shell.panel(_('Состояние движка'), [
     rows([
       { label: _('Статус'), value: Model.stateLabel(status.state) },
-      { label: _('Установленная версия'), value: status.installedRelease },
-      { label: _('Последний официальный release'), value: latestVersion },
-      { label: _('Источник'), value: 'bol-van/zapret2 · ' + _('Официальный') },
+      { label: _('Установленный release'), value: truth.installed.version },
+      { label: _('Доступная версия'), value: truth.available.version },
+      { label: _('Тип артефакта'), value: truth.artifactKind === 'legacy-compatibility-build' ? _('Legacy compatibility build') : truth.artifactKind },
+      { label: _('Источник'), value: truth.artifactKind === 'legacy-compatibility-build' ? 'bol-van/zapret2 · ' + _('совместимая сборка manager') : 'bol-van/zapret2 · ' + _('Официальный release') },
       { label: _('Служба'), value: Model.serviceLabel(status.serviceState) },
-      { label: _('Совместимость'), value: Model.compatibilityLabel(status) }
+      { label: _('Совместимость'), value: truth.compatibility.state === 'compatible' ? _('Подтверждена') : truth.compatibility.state === 'incompatible' ? _('Несовместим') : _('Не подтверждена') }
     ]),
     technical
-  ], status.installed ? _('Официальный движок zapret2 установлен.') : _('Официальный движок zapret2 не установлен.'));
+  ], status.installed ? (truth.artifactKind === 'legacy-compatibility-build' ? _('Legacy compatibility build установлена; доступен официальный stock release.') : _('Официальный release bol-van/zapret2 установлен.')) : _('Официальный release bol-van/zapret2 не установлен.'));
 
   var checkPanel;
   if (state.check && state.check.ok === false) {
@@ -274,6 +284,7 @@ function render(ctx, data) {
     releases: [],
     selectedVersion: null,
     check: null,
+    truth: null,
     busy: false,
     redraw: function () {
       if (state.root) state.root.replaceChildren(build(ctx, state));

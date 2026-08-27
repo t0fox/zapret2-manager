@@ -2,6 +2,8 @@
 'require baseclass';
 'require rpc';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
+'require view.zapret2-manager.z2m-components-model as ComponentsModel';
+'require view.zapret2-manager.z2m-update-presentation as UpdatePresentation';
 'require view.zapret2-manager.z2m-overview-loading as OverviewLoading';
 'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
@@ -99,6 +101,7 @@ function render(ctx) {
   var engineStatus = payload(data.engineStatus);
   var systemStatus = payload(data.systemStatus);
   var versionStatus = payload(data.versionStatus);
+  var resourcesStatus = payload(data.resourcesStatus);
   var preview = payload(data.preview);
   var recommendations = payload(data.recommendations);
   var tgStatus = payload(data.tgStatus);
@@ -413,17 +416,18 @@ function render(ctx) {
   function zapretCardValue() {
     var unavailable = structuredCardState();
     if (unavailable) return unavailable;
-    var engine = object(status.engine);
-    if (engine.installed !== true && engineStatus.installed === true)
-      engine = engineStatus;
+    var engine = Object.assign({}, object(status.engine), engineStatus);
     if (engine.installed !== true) {
       var release = runtimeRelease(status);
       if (release) engine = { installed: true, installedRelease: release };
     }
     if (engine.installed === true) {
-      var snapshot = RuntimeState.snapshot(status);
-      if (!snapshot.installedRelease) snapshot.installedRelease = engine.installedRelease || null;
-      var installedRelease = format.text(snapshot.installedRelease);
+      var truth = ComponentsModel.normalizeEngine({ status: engine });
+      var installedRelease = format.text(truth.installed.version);
+      if (truth.artifactKind === 'legacy-compatibility-build') return {
+        value: installedRelease || _('Legacy compatibility build'), kind: '',
+        detail: _('Legacy compatibility build · доступен официальный stock release')
+      };
       return {
         value: installedRelease || _('Установлен'), kind: '',
         detail: _('Официальный release bol-van/zapret2')
@@ -431,6 +435,21 @@ function render(ctx) {
     }
     if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Сервер подтвердил отсутствие пакета') };
     return unavailableCard(_('Сервер не сообщил состояние zapret2'));
+  }
+  function componentUpdateSummary() {
+    var z2k = object(resourcesStatus.z2k);
+    if (!Object.keys(z2k).length) return null;
+    var presentation = UpdatePresentation.describe(z2k.updateState || z2k.status);
+    var details = [];
+    if (z2k.updates && z2k.updates.length) details.push(z2k.updates.length + ' ' + _('обновлений'));
+    if (z2k.rebases && z2k.rebases.length) details.push(z2k.rebases.length + ' ' + _('требуют адаптации'));
+    if (z2k.reviews && z2k.reviews.length) details.push(z2k.reviews.length + ' ' + _('требуют проверки'));
+    return E('section', { id: 'component-update-summary', 'class': 'card z2m-overview-update-summary', 'data-update-state': presentation.state }, [
+      E('div', { 'class': 'card-title' }, [Icons.wrappedNode('package', { size: 18, wrapperClass: 'status-card-icon' }), _('Компоненты')]),
+      E('div', { 'class': 'status-card-value ' + presentation.kind }, presentation.label),
+      E('div', { 'class': 'status-card-detail' }, details.length ? details.join(' · ') : _('Проверка обновлений выполняется в разделе Компоненты')),
+      E('a', { href: '#/components', 'class': 'text-muted' }, _('Открыть Компоненты →'))
+    ]);
   }
   function telegramCardValue() {
     if (!data.tgStatus) return { value: _('Загрузка…'), kind: '', detail: null };
@@ -630,7 +649,7 @@ function render(ctx) {
     quickActions: renderQuickActions(),
     recommendations: renderRecommendations(),
     recentEvents: renderEvents(),
-    extension: null
+    extension: componentUpdateSummary()
   });
 }
 
