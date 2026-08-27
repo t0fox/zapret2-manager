@@ -61,6 +61,7 @@ var state = {
   diagnostics: null,
   busy: null,
   componentOperation: null,
+  skipEngineOperationStatus: false,
   get componentBusy() { return this.componentOperation != null; },
   set componentBusy(v) {
     // Backward compat: boolean true => generic check, false => clear
@@ -161,9 +162,15 @@ function telegramCardState(tg) {
 function load(ctx) {
   var pane = activePane(ctx);
   var promise;
-  if (pane === 'components') promise = Promise.allSettled([
+  if (pane === 'components') {
+    var skipEngineOperationStatus = state.skipEngineOperationStatus;
+    var engineLoad = skipEngineOperationStatus
+      ? EnginePanel.load(Object.assign({}, ctx, { skipEngineOperationStatus: true }))
+      : EnginePanel.load(ctx);
+    state.skipEngineOperationStatus = false;
+    promise = Promise.allSettled([
     boundedLoad(ctx.api.maintenance.versions(), 'manager versions'),
-    boundedLoad(EnginePanel.load(ctx), 'engine status'),
+    boundedLoad(engineLoad, 'engine status'),
     boundedLoad(ctx.api.resources.status(), 'Z2K status'),
     boundedLoad(ctx.api.tg && ctx.api.tg.product && ctx.api.tg.product.status ? ctx.api.tg.product.status() : Promise.resolve({}), 'TG status')
   ]).then(function (values) {
@@ -176,6 +183,7 @@ function load(ctx) {
       }
     };
   });
+  }
   else if (pane === 'backups') promise = boundedLoad(ctx.api.maintenance.backupList(), 'backup list').then(function (value) { return { backups: { value: value || {} } }; });
   else if (pane === 'settings') promise = Promise.resolve({ settings: { value: { ui: ctx.store.get().ui || {} } } });
   return promise.catch(function (error) {
@@ -233,6 +241,21 @@ function formatLastCheck(shell, value) {
   if (!t) return _('только что');
   // shell.format.timestamp already handles relative, fallback to t
   return t;
+}
+function latestTimestamp() {
+  var latest = null;
+  var latestOrder = -Infinity;
+  for (var i = 0; i < arguments.length; i++) {
+    var value = arguments[i];
+    if (value === null || value === undefined || value === '') continue;
+    var numeric = Number(value);
+    var order = Number.isFinite(numeric) ? numeric : Date.parse(String(value)) / 1000;
+    if (Number.isFinite(order) && order > latestOrder) {
+      latest = value;
+      latestOrder = order;
+    }
+  }
+  return latest;
 }
 function componentStateLabel(component) {
   var runtimeHealth = component.runtimeHealth || component.health;
@@ -367,6 +390,7 @@ function checkUpdates(ctx, scope) {
   }).catch(function (error) {
     showError(ctx, error);
   }).then(function () {
+    state.skipEngineOperationStatus = true;
     state.componentOperation = null;
     rerender(ctx);
     return refresh(ctx);
@@ -740,7 +764,12 @@ function renderComponents(ctx, data) {
     versions: payload.versions && payload.versions.value || {},
     engine: { status: engineStatus, catalog: engineValue[0] || {} },
     z2k: payload.resources && payload.resources.value && payload.resources.value.z2k || {},
-    checkedAt: payload.resources && payload.resources.value && payload.resources.value.checkedAt
+    checkedAt: latestTimestamp(
+      payload.resources && payload.resources.value && payload.resources.value.checkedAt,
+      engineValue[0] && engineValue[0].checkedAt,
+      engineValue[0] && engineValue[0].fetchedAt,
+      engineStatus && engineStatus.checkedAt
+    )
   });
   var engineComp = page.components.find(function (c) { return c.id === 'engine'; });
   var z2kComp = page.components.find(function (c) { return c.id === 'z2k-core'; });

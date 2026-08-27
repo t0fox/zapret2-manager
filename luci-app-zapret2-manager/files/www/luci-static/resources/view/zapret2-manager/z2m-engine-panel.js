@@ -91,10 +91,13 @@ function accept(state, data) {
 
 function load() {
   return function (ctx) {
+    var operation = ctx.skipEngineOperationStatus
+      ? Promise.resolve({ ok: true, operation: null })
+      : ctx.api.engine.operationStatus({});
     return Promise.all([
       ctx.api.engine.releases(),
       ctx.api.engine.status(),
-      ctx.api.engine.operationStatus({})
+      operation
     ]);
   };
 }
