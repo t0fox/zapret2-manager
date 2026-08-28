@@ -37,7 +37,7 @@ function fetch_text(url, limit, prefix) {
 function fetch_json(url, limit) { let raw = fetch_text(url, limit, 'z2m-z2k-version'); if (raw == null) return null; try { return json(raw); } catch (e) { return null; } }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function parse_release(value) {
-	if (!string(value) || !match(value, /^r-[0-9]+(?:\.[0-9]+)?$/)) return null;
+	if (!string(value) || !match(value, /^r-[0-9]+(\.[0-9]+)?$/)) return null;
 	let body = substr(value, 2), dot = index(body, '.');
 	return { version: value, major: + (dot < 0 ? body : substr(body, 0, dot)), minor: dot < 0 ? 0 : +substr(body, dot + 1) };
 }
