@@ -20,16 +20,19 @@ test('release details use the upstream human release body and deterministic fall
 
 test('lazy detail diff is derived from exact-managed membership only', () => {
   assert.match(source, /function changes_between\s*\(/);
-  assert.match(source, /managedPaths:\s*changeSet\.managedPaths/);
+  assert.match(source, /managedPaths:\s*(?:releaseChangeSet|installChangeSet)\.managedPaths/);
   assert.match(source, /sourcePath:\s*path/);
   assert.doesNotMatch(source, /z2k-config-validator\.sh.*managedPaths/);
 });
 
-test('release detail install diff compares the selected manifest with the confirmed installed manifest', () => {
+test('release and install diffs are explicit and compare against different baselines', () => {
   assert.match(source, /let installedRow = target_release\(installedVersion, catalog\.versions\)/);
   assert.match(source, /let installedManifest = null/);
-  assert.match(source, /let baselineManifest = installedManifest \|\| previousManifest/);
-  assert.match(source, /changes_between\(checked\.manifest, baselineManifest, map\)/);
+  assert.match(source, /let releaseChangeSet = changes_between\(checked\.manifest, previousManifest, map\)/);
+  assert.match(source, /installChangeSet = changes_between\(checked\.manifest, installedManifest \|\| previousManifest, map\)/);
+  assert.match(source, /body = human_body\(metadata && metadata\.message\) \|\| fallback_body\(releaseChangeSet\)/);
+  assert.match(source, /releaseChanges:/);
+  assert.match(source, /installChanges:/);
 });
 
 test('release details expose immutable compare identity without leaking raw internals as copy', () => {

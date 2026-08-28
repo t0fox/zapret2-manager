@@ -171,7 +171,19 @@ function normalizeZ2kCatalog(value) {
 
 function normalizeZ2kDetails(value) {
   value = object(value);
-  var changes = object(value.changes);
+  function normalizeChanges(input) {
+    input = object(input);
+    return {
+      modified: typeof input.modified === 'number' ? input.modified : 0,
+      added: typeof input.added === 'number' ? input.added : 0,
+      removed: typeof input.removed === 'number' ? input.removed : 0,
+      managedPaths: array(input.managedPaths),
+      unknown: array(input.unknown)
+    };
+  }
+  var legacyChanges = value.changes || {};
+  var releaseChanges = normalizeChanges(value.releaseChanges || legacyChanges);
+  var installChanges = normalizeChanges(value.installChanges || legacyChanges || value.releaseChanges);
   return {
     version: first(value.version, null),
     releaseName: first(value.releaseName || value.version, null),
@@ -184,11 +196,9 @@ function normalizeZ2kDetails(value) {
     latest: value.latest === true,
     installed: value.installed === true,
     operation: first(value.operation, null),
-    changes: {
-      modified: typeof changes.modified === 'number' ? changes.modified : 0,
-      added: typeof changes.added === 'number' ? changes.added : 0,
-      removed: typeof changes.removed === 'number' ? changes.removed : 0
-    },
+    releaseChanges: releaseChanges,
+    installChanges: installChanges,
+    changes: installChanges,
     compareUrl: first(value.compareUrl, null)
   };
 }

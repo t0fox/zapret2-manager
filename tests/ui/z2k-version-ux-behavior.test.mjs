@@ -89,7 +89,9 @@ function z2kRaw(overrides = {}) {
     installable: true,
     operation: installed === null ? 'install' : selected === installed ? 'reinstall' : selected === 'r-80.3' ? 'upgrade' : 'downgrade',
     installedVersion: installed,
-    changes: overrides.changes || { modified: 2, added: 1, removed: 0 },
+    releaseChanges: overrides.releaseChanges || { modified: 1, added: 1, removed: 0 },
+    installChanges: overrides.installChanges || overrides.changes || { modified: 2, added: 1, removed: 0 },
+    changes: overrides.changes || overrides.installChanges || { modified: 2, added: 1, removed: 0 },
     compareUrl: 'https://github.com/necronicle/z2k/compare/r-80.2...r-80.3',
   };
   return {
@@ -247,6 +249,47 @@ test('incompatible selected release does not change current component health', (
   assert.ok(buttonsOf(z2kDetails(rendered)).includes('Установка недоступна'));
 });
 
+test('incompatible catalog release remains selectable and disables only its action', async () => {
+  const internals = loadMaintenance();
+  const z2k = z2kRaw({
+    selectedVersion: 'r-80.3',
+    catalog: [
+      { version: 'r-80.3', latest: true, installed: true, installable: true },
+      { version: 'r-80.1', installed: false, installable: false, unavailableReason: 'incompatible-manager' },
+    ],
+  });
+  const ctx = makeContext(z2k);
+  ctx.api.resources = {
+    versionDetails: () => Promise.resolve({
+      version: 'r-80.1',
+      releaseName: 'Z2K r-80.1',
+      installable: false,
+      unavailableReason: 'incompatible-manager',
+    }),
+  };
+  internals.state.componentOperation = null;
+  internals.state.z2kExpanded = true;
+  internals.state.z2kDetails = z2k.selectedDetails;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const select = findAll(rendered, node => node.tag === 'select')[0];
+  const incompatibleOption = findAll(select, node => node.tag === 'option' && node.attrs.value === 'r-80.1')[0];
+
+  assert.equal(incompatibleOption.attrs.disabled, undefined);
+  select.attrs.change({ target: { value: 'r-80.1' } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(internals.state.z2kSelectedVersion, 'r-80.1');
+  assert.equal(internals.state.z2kDetails.installable, false);
+  const after = internals.renderComponents(ctx, ctx.data);
+  assert.doesNotMatch(textOf(z2kCard(after)), /Несовместим|Ошибка/);
+  const action = findAll(z2kDetails(after), node => node.tag === 'button' && textOf(node) === 'Установка недоступна')[0];
+  assert.ok(action);
+  assert.equal(action.attrs.disabled, true);
+});
+
 test('advisory metadata is not a warning and zero diff uses user-facing copy', () => {
   const internals = loadMaintenance();
   const rendered = renderState(internals, z2kRaw({
@@ -263,6 +306,31 @@ test('advisory metadata is not a warning and zero diff uses user-facing copy', (
   assert.doesNotMatch(primary, /Требует внимания|замечание|z2k-config-validator\.sh/);
   assert.match(text, /Изменений относительно установленной версии нет/);
   assert.doesNotMatch(text, /exact-managed/);
+});
+
+test('selected current release keeps a non-empty changelog body', () => {
+  const internals = loadMaintenance();
+  const body = 'Текущий release содержит исправления проверки.';
+  const z2k = z2kRaw({
+    installedVersion: 'r-80.3',
+    selectedVersion: 'r-80.3',
+    selectedDetails: { version: 'r-80.3', releaseName: 'Z2K r-80.3', installable: true, operation: 'reinstall', releaseBody: body, installChanges: { modified: 0, added: 0, removed: 0 } },
+  });
+  const rendered = renderState(internals, z2k);
+  internals.state.z2kDetailsExpanded = true;
+  const expanded = internals.renderComponents(makeContext(z2k), makeContext(z2k).data);
+  assert.equal(textOf(z2kDetails(expanded)).split(body).length - 1, 1);
+});
+
+test('unknown installed Z2K identity does not claim a ready whole-page hero or no updates', () => {
+  const internals = loadMaintenance();
+  const rendered = renderState(internals, z2kRaw({ installedVersion: null, selectedVersion: 'r-80.3' }));
+  const text = textOf(rendered);
+
+  assert.match(text, /2 \/ 2 обязательных компонента работают/);
+  assert.match(text, /Система работает|Версия Z2K требует уточнения/);
+  assert.doesNotMatch(text, /Система готова/);
+  assert.doesNotMatch(text, /Обновления не требуются/);
 });
 
 test('changing the selector refreshes only the release panel and keeps the page mounted', async () => {
@@ -284,6 +352,32 @@ test('changing the selector refreshes only the release panel and keeps the page 
   assert.equal(panelRefreshes, 2);
   assert.equal(internals.state.z2kSelectedVersion, 'r-80.1');
   assert.equal(internals.state.z2kDetails.operation, 'downgrade');
+});
+
+test('rapid release selection cannot let a stale A response overwrite the latest B response', async () => {
+  const internals = loadMaintenance();
+  const pending = {};
+  const ctx = {
+    api: {
+      resources: {
+        versionDetails: ({ version }) => new Promise(resolve => { pending[version] = resolve; }),
+      },
+    },
+    shell: { normalizeError: value => value },
+  };
+  internals.state.componentOperation = null;
+  internals.state.z2kReleaseRefresh = () => {};
+
+  internals.selectZ2KVersion(ctx, 'r-80.3');
+  internals.selectZ2KVersion(ctx, 'r-80.2');
+  pending['r-80.2']({ version: 'r-80.2', installable: true, operation: 'reinstall', releaseBody: 'B' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  pending['r-80.3']({ version: 'r-80.3', installable: true, operation: 'upgrade', releaseBody: 'A' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(internals.state.z2kSelectedVersion, 'r-80.2');
+  assert.equal(internals.state.z2kDetails.version, 'r-80.2');
+  assert.equal(internals.state.z2kDetails.releaseBody, 'B');
 });
 
 test('expanded Z2K view has one primary operation action', () => {
