@@ -212,6 +212,27 @@ function valid_removal_descriptor(value, expectedId) {
 		&& valid_digest(value.expectedContentSha256) && type(value.expectedByteSize) == 'int' && value.expectedByteSize > 0
 		&& value.bundleId == 'z2k-curated-lua' && string(value.version) && string(value.sourceCommit) && match(lc(value.sourceCommit), /^[a-f0-9]{40}$/);
 }
+function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
+function digest_text(value, prefix) {
+	let made = command('umask 077; mktemp /tmp/' + (prefix || 'z2m-digest') + '.XXXXXX'), path = trim(made.out);
+	if (made.rc != 0 || !match(path, /^\/tmp\/[A-Za-z0-9._-]+$/)) return null;
+	try { writefile(path, value == null ? '' : value); } catch (e) { cleanup(null, [path]); return null; }
+	let digest = sha256(path); cleanup(null, [path]); return digest;
+}
+function z2k_target_token(target, preparedAt) {
+	let removeIds = [], canonical;
+	for (let i = 0; i < length(target.removeIds || []); i++) push(removeIds, target.removeIds[i]);
+	sort(removeIds);
+	let removalIdentity = [];
+	for (let i = 0; i < length(target.removeTargets || []); i++) {
+		let item = target.removeTargets[i];
+		push(removalIdentity, item.id + '|' + item.type + '|' + item.sourcePath + '|' + item.runtimeTarget + '|' + item.expectedRevision + '|' + item.expectedContentSha256 + '|' + item.expectedByteSize + '|' + item.bundleId + '|' + item.version + '|' + item.sourceCommit);
+	}
+	sort(removalIdentity);
+	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.classificationSha256 + '|' + target.operation + '|' + join(',', removeIds) + '|' + join(',', removalIdentity) + '|' + preparedAt;
+	let digest = digest_text(canonical, 'z2m-z2k-token');
+	return digest == null ? null : 'z2k-target-v2:' + digest;
+}
 function valid_prepared_target(value) {
 	if (!object(value) || value.schema != 2 || !string(value.targetVersion) || z2k_compare_versions(value.targetVersion, value.targetVersion) == null
 		|| !string(value.targetCommitSha) || !match(lc(value.targetCommitSha), /^[a-f0-9]{40}$/)
@@ -234,6 +255,7 @@ function valid_prepared_target(value) {
 	}
 	return z2k_target_token(value, value.preparedAt) == value.planToken;
 }
+function z2k_target_from_state(state) { return state && state.preparedTarget && valid_prepared_target(state.preparedTarget) ? state.preparedTarget : null; }
 function normalize_check_state(value) {
 	if (!object(value)) return null;
 	if (value.schema == 2) {
@@ -280,13 +302,6 @@ function build_status(manifest, checkedAt) {
 	return { ok: true, schema: 1, checkedAt: checkedAt || null, manifest: { bundleId: manifest.bundleId, version: manifest.version, generatedAt: manifest.generatedAt }, sources: source_rows(manifest, rows), installed: installed, updates: updates, summary: { installed: length(installed), updates: length(updates), byType: byType, consumers: consumers }, autoCheck: { enabled: false, autoInstall: false, mode: 'manifest-only' } };
 }
 function make_stage_root() { try { mkdir(STAGE_PARENT); } catch (e) {} let value = command('mktemp -d ' + shell_quote(STAGE_PARENT + '/stage.XXXXXX')); let root = trim(value.out); return value.rc == 0 && index(root, STAGE_PARENT + '/') == 0 ? root : null; }
-function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
-function digest_text(value, prefix) {
-	let made = command('umask 077; mktemp /tmp/' + (prefix || 'z2m-digest') + '.XXXXXX'), path = trim(made.out);
-	if (made.rc != 0 || !match(path, /^\/tmp\/[A-Za-z0-9._-]+$/)) return null;
-	try { writefile(path, value == null ? '' : value); } catch (e) { cleanup(null, [path]); return null; }
-	let digest = sha256(path); cleanup(null, [path]); return digest;
-}
 function z2k_local_fingerprint(targetAssets, listed, removeIds) {
 	let rows = [];
 	for (let i = 0; i < length(targetAssets || []); i++) {
@@ -297,7 +312,7 @@ function z2k_local_fingerprint(targetAssets, listed, removeIds) {
 		let current = registry_asset(listed.assets, removeIds[i]), path = current && current.path || '', regularPath = path && regular(path), actual = regularPath ? sha256(path) : 'missing', size = regularPath ? stat(path).size : 0, provenance = current && current.provenance || {};
 		push(rows, 'remove|' + removeIds[i] + '|' + actual + '|' + size + '|' + (current && current.revision || 0) + '|' + (provenance.bundleId || '') + '|' + (provenance.version || '') + '|' + (provenance.sourceCommit || '') + '|' + (provenance.sourcePath || ''));
 	}
-	sort(rows); return digest_text(join(rows, '\n'), 'z2m-z2k-fingerprint');
+	sort(rows); return digest_text(join('\n', rows), 'z2m-z2k-fingerprint');
 }
 function z2k_target_operation(targetVersion, installedVersion) {
 	if (!installedVersion) return 'install';
@@ -397,7 +412,7 @@ function z2k_runtime_spec(target, listed, classification, root) {
 	}
 	if (!length(lines)) return fail('EINPUT', 'Z2K target has no runtime assets to activate.');
 	let spec = root + '/runtime-activation.tsv';
-	try { writefile(spec, join(lines, '\n') + '\n'); } catch (e) { return fail('EWRITE', 'Runtime activation spec could not be written.'); }
+	try { writefile(spec, join('\n', lines) + '\n'); } catch (e) { return fail('EWRITE', 'Runtime activation spec could not be written.'); }
 	return { ok: true, path: spec, assets: length(target.assets || []), removed: length(target.removeIds || []) };
 }
 function z2k_runtime_restart() {
@@ -493,20 +508,6 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 	let registryRollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.revision });
 	return { ok: runtimeRollback.ok && registryRollback.ok, runtime: runtimeRollback, registry: registryRollback };
 }
-function z2k_target_token(target, preparedAt) {
-	let removeIds = [], canonical;
-	for (let i = 0; i < length(target.removeIds || []); i++) push(removeIds, target.removeIds[i]);
-	sort(removeIds);
-	let removalIdentity = [];
-	for (let i = 0; i < length(target.removeTargets || []); i++) {
-		let item = target.removeTargets[i];
-		push(removalIdentity, item.id + '|' + item.type + '|' + item.sourcePath + '|' + item.runtimeTarget + '|' + item.expectedRevision + '|' + item.expectedContentSha256 + '|' + item.expectedByteSize + '|' + item.bundleId + '|' + item.version + '|' + item.sourceCommit);
-	}
-	sort(removalIdentity);
-	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.classificationSha256 + '|' + target.operation + '|' + join(removeIds, ',') + '|' + join(removalIdentity, ',') + '|' + preparedAt;
-	let digest = digest_text(canonical, 'z2m-z2k-token');
-	return digest == null ? null : 'z2k-target-v2:' + digest;
-}
 function z2k_target_summary(target) {
 	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), preparedAt: target.preparedAt };
 }
@@ -517,17 +518,24 @@ function save_prepared_target(target) {
 function consume_prepared_target(expectedState, expectedTarget) {
 	let locked = command('mkdir ' + shell_quote(LIFECYCLE_LOCK));
 	if (locked.rc != 0) return fail('EBUSY', 'Другая Z2K lifecycle-операция уже потребляет подготовленный target.');
-	let current = load_check_state(), target = z2k_target_from_state(current);
-	if (!target || target.planToken != expectedTarget.planToken) {
+	try {
+		let current = load_check_state(), target = z2k_target_from_state(current);
+		if (!target || target.planToken != expectedTarget.planToken) {
+			command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+			return fail('ECHECK_STALE', 'Z2K prepared operation was already consumed; prepare the release again.');
+		}
+		let consumed = persist_check_state({ schema: 2, latestCheck: current && current.latestCheck || expectedState && expectedState.latestCheck || null, preparedTarget: null });
+		if (!consumed) {
+			command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+			return fail('EWRITE', 'Z2K prepared operation could not be consumed; no mutation was performed.');
+		}
 		command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
-		return fail('ECHECK_STALE', 'Z2K prepared operation was already consumed; prepare the release again.');
+		return { ok: true };
+	} catch (e) {
+		command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+		return fail('EINTERNAL', 'Z2K prepared operation could not be consumed; no mutation was performed.', { detail: text(e) });
 	}
-	let consumed = persist_check_state({ schema: 2, latestCheck: current && current.latestCheck || expectedState && expectedState.latestCheck || null, preparedTarget: null });
-	command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
-	if (!consumed) return fail('EWRITE', 'Z2K prepared operation could not be consumed; no mutation was performed.');
-	return { ok: true };
 }
-function z2k_target_from_state(state) { return state && state.preparedTarget && valid_prepared_target(state.preparedTarget) ? state.preparedTarget : null; }
 function base64_decode(value) { if (!string(value) || length(value) > MAX_REQUEST_BYTES || !match(value, /^[A-Za-z0-9+\/=%]*$/)) return null; let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', buffer = 0, bits = 0; for (let i = 0; i < length(value); i++) { let c = substr(value, i, 1); if (c == '=') break; let n = index(alphabet, c); if (n < 0) return null; buffer = buffer * 64 + n; bits += 6; if (bits >= 8) { bits -= 8; out += chr((buffer >> bits) & 255); buffer = buffer & ((1 << bits) - 1); } } return out; }
 function inline_bundle(request) {
 	let bundle = request.controlledBundle; if (!request.controlledTest || !object(bundle) || !string(bundle.bundleId) || substr(bundle.bundleId, 0, 11) != 'controlled-' || type(bundle.assets) != 'array' || !length(bundle.assets)) return null;

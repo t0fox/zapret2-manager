@@ -45,6 +45,17 @@ test('4. the existing sync bridge accepts an authoritative registry target spec'
   assert.match(sync, /sha256/);
 });
 
+test('4a. UCode builds lifecycle text with separator-first join arguments', () => {
+  assert.match(ru, /join\('\\n', lines\)/);
+  assert.match(ru, /join\('\\n', rows\)/);
+  assert.match(ru, /join\(',', removeIds\)/);
+  assert.match(ru, /join\(',', removalIdentity\)/);
+  assert.doesNotMatch(ru, /join\(lines, '\\n'\)/);
+  assert.doesNotMatch(ru, /join\(rows, '\\n'\)/);
+  assert.doesNotMatch(ru, /join\(removeIds, ','\)/);
+  assert.doesNotMatch(ru, /join\(removalIdentity, ','\)/);
+});
+
 test('5. registry activation sandbox copies selected bytes to live roots', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-'));
   const manager = path.join(dir, 'manager-assets');
