@@ -69,7 +69,10 @@ function settled(result, api) {
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
-var LOAD_TIMEOUT_MS = 5000;
+// LuCI can receive the ubus HTTP response quickly but settle its RPC promise
+// at the five-second client deadline. Keep a margin so successful responses
+// are not rendered as session failures by this page-local guard.
+var LOAD_TIMEOUT_MS = 15000;
 function boundedLoad(promise, label) {
   return new Promise(function (resolve, reject) {
     var finished = false;
