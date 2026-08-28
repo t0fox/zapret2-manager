@@ -9,6 +9,7 @@ zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc|/usr/libexec
 zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc|/usr/libexec/zapret2-manager/resource-update-cli.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc|/usr/libexec/zapret2-manager/resource-update.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/z2k-component.uc|/usr/libexec/zapret2-manager/z2k-component.uc|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc|/usr/libexec/zapret2-manager/z2k-installed-release.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc|/usr/libexec/zapret2-manager/z2k-versions.uc|0644
 zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json|/usr/share/zapret2-manager/upstreams/z2k-integration.json|0644
 zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc|/usr/share/rpcd/ucode/zapret2-manager.uc|0644

@@ -446,8 +446,8 @@ export const asset_registry_apply_bundle = function(request) {
 	if (result == null) {
 		let receiptAssets = [], receipts = copy_array(state.activationReceipts);
 		for (let i = 0; i < length(prepared); i++) {
-			let item = prepared[i].item;
-			push(receiptAssets, { id: item.id, type: item.type, sha256: item.sha256, byteSize: item.byteSize });
+			let item = prepared[i].item, provenance = prepared[i].provenance;
+			push(receiptAssets, { id: item.id, type: item.type, sha256: item.sha256, byteSize: item.byteSize, sourceCommit: provenance.sourceCommit, sourcePath: provenance.sourcePath, bundleId: provenance.bundleId, version: provenance.version });
 		}
 		push(receipts, { schema: 'asset-activation-receipt.v1', bundleId: request.bundleId, version: request.version, source: request.source, sourceCommit: request.sourceCommit, activatedAt: time(), assets: receiptAssets });
 		while (length(receipts) > MAX_ACTIVATION_RECEIPTS) { let bounded = []; for (let i = 1; i < length(receipts); i++) push(bounded, receipts[i]); receipts = bounded; }

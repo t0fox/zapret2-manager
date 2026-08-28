@@ -198,7 +198,8 @@ test('1G successful target apply clears the prepared snapshot and rolls back fai
   assert.match(ru, /asset_registry_rollback_bundle/);
   assert.match(ru, /save_check_state/);
   assert.match(ru, /preparedTarget:\s*null/);
-  assert.doesNotMatch(ru, /POST-APPLY REPLAN|z2k_upstream_plan/);
+  assert.match(ru, /z2k_upstream_plan/);
+  assert.doesNotMatch(ru, /POST-APPLY REPLAN/);
 });
 
 // ---------------------------------------------------------------------------

@@ -173,10 +173,13 @@ function normalizeZ2kDetails(value) {
   value = object(value);
   function normalizeChanges(input) {
     input = object(input);
+    var hasNumericCounts = typeof input.modified === 'number' || typeof input.added === 'number' || typeof input.removed === 'number';
+    var known = input.known === true || (input.known === undefined && hasNumericCounts);
     return {
-      modified: typeof input.modified === 'number' ? input.modified : 0,
-      added: typeof input.added === 'number' ? input.added : 0,
-      removed: typeof input.removed === 'number' ? input.removed : 0,
+      known: known,
+      modified: known && typeof input.modified === 'number' ? input.modified : null,
+      added: known && typeof input.added === 'number' ? input.added : null,
+      removed: known && typeof input.removed === 'number' ? input.removed : null,
       managedPaths: array(input.managedPaths),
       unknown: array(input.unknown)
     };
@@ -196,6 +199,10 @@ function normalizeZ2kDetails(value) {
     latest: value.latest === true,
     installed: value.installed === true,
     operation: first(value.operation, null),
+    targetCanApply: value.targetCanApply !== undefined ? value.targetCanApply === true : null,
+    targetAttentionState: first(value.targetAttentionState, null),
+    targetBlockingReasons: array(value.targetBlockingReasons),
+    targetReviewDetails: array(value.targetReviewDetails),
     releaseChanges: releaseChanges,
     installChanges: installChanges,
     changes: installChanges,

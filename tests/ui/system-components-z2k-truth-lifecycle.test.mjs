@@ -176,7 +176,7 @@ test('healthy materialized Z2K with unknown release renders neutral identity wor
   const text = textOf(internals.renderComponents(ctx, ctx.data));
 
   assert.match(text, /УстановленоВерсия не определена/);
-  assert.match(text, /Z2K CoreRuntime-assets и расширения Zapret2РаботаетУстановленоВерсия не определена/);
+  assert.match(text, /Z2K CoreРесурсы Z2K для обхода блокировокРаботаетУстановленоВерсия не определена/);
 });
 
 test('actually missing Z2K still renders Не установлен', () => {

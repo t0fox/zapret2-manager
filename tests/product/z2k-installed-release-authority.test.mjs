@@ -6,6 +6,7 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..', '..');
 const registry = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc'), 'utf8');
 const coordinator = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc'), 'utf8');
+const authority = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc'), 'utf8');
 const engine = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc'), 'utf8');
 
 test('Asset Registry exposes bounded activation receipts as the installed-release authority', () => {
@@ -17,12 +18,12 @@ test('Asset Registry exposes bounded activation receipts as the installed-releas
 });
 
 test('Z2K local projection prefers a receipt, then reports bounded inference confidence', () => {
-  assert.match(coordinator, /activation-receipt/);
+  assert.match(coordinator, /z2k_registry_installed_release/);
+  assert.match(authority, /activation-receipt/);
   assert.match(coordinator, /known-manifest/);
-  assert.match(coordinator, /ambiguous/);
   assert.match(coordinator, /inconsistent/);
   assert.match(coordinator, /installedRelease\s*:/);
-  assert.match(coordinator, /confidence/);
+  assert.match(authority, /confidence/);
 });
 
 test('technical source commits remain separate from installed release identity', () => {

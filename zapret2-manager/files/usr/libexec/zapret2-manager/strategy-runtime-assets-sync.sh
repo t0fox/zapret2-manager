@@ -23,6 +23,145 @@ BASE=${Z2M_RUNTIME_BASE:-/opt/zapret2}
 STATE_ROOT=${Z2M_MANAGER_STATE_ROOT:-/etc/zapret2-manager/state}
 STATE_DIR="$STATE_ROOT/autocircular"
 ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
+ASSET_ROOT=${Z2M_MANAGER_ASSET_ROOT:-/etc/zapret2-manager/assets}
+ACTIVATION_SNAPSHOT=${Z2M_RUNTIME_ACTIVATION_SNAPSHOT:-/etc/zapret2-manager/runtime-assets.snapshot}
+
+# Registry activation is the bridge between the Asset Registry (the canonical
+# selected-release store) and the paths consumed by nfqws2.  It deliberately
+# lives in this existing runtime sync helper: this is materialization and
+# verification, not a second updater.  The coordinator supplies a bounded TSV
+# spec with already validated registry paths and runtimeTarget values.
+runtime_target_rel() {
+	_target="$1"
+	case "$_target" in
+		/runtime-assets/bin/*) _rel="files/fake/${_target#/runtime-assets/bin/}" ;;
+		/runtime-assets/lua/*) _rel="lua/${_target#/runtime-assets/lua/}" ;;
+		/runtime-assets/lists/*) _rel="lists/${_target#/runtime-assets/lists/}" ;;
+		/runtime-assets/ipset/*) _rel="ipset/${_target#/runtime-assets/ipset/}" ;;
+		*) return 1 ;;
+	esac
+	case "$_rel" in
+		''|/*|*..*|*\\*) return 1 ;;
+	esac
+	RUNTIME_TARGET_REL=$_rel
+	return 0
+}
+
+activation_restore() {
+	_records="$1"
+	_backup_dir="$2"
+	[ -f "$_records" ] || return 1
+	while IFS='|' read -r _dest _backup _had; do
+		[ -n "$_dest" ] || continue
+		if [ "$_had" = 1 ]; then
+			mkdir -p "$(dirname "$_dest")"
+			cp "$_backup" "$_dest" || return 1
+		else
+			rm -f "$_dest"
+		fi
+	done < "$_records"
+	return 0
+}
+
+activation_rollback() {
+	_records="$ACTIVATION_SNAPSHOT"
+	_backup_dir="${ACTIVATION_SNAPSHOT}.files"
+	if activation_restore "$_records" "$_backup_dir"; then
+		printf '{"ok":true,"rolledBack":true}\n'
+		return 0
+	fi
+	printf '{"ok":false,"rolledBack":false}\n'
+	return 1
+}
+
+activation() {
+	_spec="$1"
+	[ -f "$_spec" ] || { printf '{"ok":false,"error":"activation spec is missing"}\n' >&2; return 1; }
+	_tmp="$(mktemp -d /tmp/z2m-z2k-activate.XXXXXX 2>/dev/null)" || return 1
+	_stage="$_tmp/stage"
+	_backup_dir="${ACTIVATION_SNAPSHOT}.files"
+	_records="${ACTIVATION_SNAPSHOT}.new"
+	mkdir -p "$_stage" "$_backup_dir" || { rm -rf "$_tmp"; return 1; }
+	: > "$_records"
+	_index=0
+	while IFS='|' read -r _kind _id _type _source _target _sha _size; do
+		case "$_kind" in ''|'#') continue ;; esac
+		runtime_target_rel "$_target" || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+		_dest="$BASE/$RUNTIME_TARGET_REL"
+		if [ "$_kind" = ASSET ]; then
+			case "$_source" in
+				"$ASSET_ROOT"/*) : ;;
+				*) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;;
+			esac
+			case "$_sha" in ''|*[!A-Fa-f0-9]*) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
+			[ "${#_sha}" -eq 64 ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			[ -f "$_source" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			_actual="$(sha256sum "$_source" | awk '{print $1}')"
+			_actual_size="$(wc -c < "$_source" | tr -d ' ')"
+			[ "$_actual" = "$_sha" ] && [ "$_actual_size" = "$_size" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			_stage_file="$_stage/$_index"
+			mkdir -p "$(dirname "$_stage_file")" && cp "$_source" "$_stage_file" || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			printf '%s|%s|%s|%s\n' ASSET "$_dest" "$_stage_file" "$_index" >> "$_tmp/plan"
+		else
+			[ "$_kind" = REMOVE ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			printf '%s|%s|%s|%s\n' REMOVE "$_dest" "$_dest" "$_index" >> "$_tmp/plan"
+		fi
+		_index=$((_index + 1))
+	done < "$_spec"
+	[ "$_index" -gt 0 ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+
+	# Replace the previous runtime snapshot only after every source byte has
+	# passed its SHA and size check.  This snapshot is also the rollback bridge
+	# used when service postflight fails after materialization.
+	rm -rf "$_backup_dir"
+	mkdir -p "$_backup_dir" || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+	while IFS='|' read -r _op _dest _payload _n; do
+		[ -n "$_dest" ] || continue
+		case "$_dest" in "$BASE"/*) : ;; *) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
+		if [ -f "$_dest" ]; then
+			_backup="$_backup_dir/$_n"
+			cp "$_dest" "$_backup" || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			printf '%s|%s|1\n' "$_dest" "$_backup" >> "$_records"
+		else
+			printf '%s||0\n' "$_dest" >> "$_records"
+		fi
+	done < "$_tmp/plan"
+
+	# Publish each prepared file with rename semantics.  Fault injection is a
+	# test-only hook; the EXIT trap restores the snapshot on any failed commit.
+	committed=0
+	trap 'rc=$?; if [ "$rc" -ne 0 ]; then activation_restore "${ACTIVATION_SNAPSHOT}.new" "${ACTIVATION_SNAPSHOT}.files" || true; fi; rm -rf "$_tmp"; rm -f "${ACTIVATION_SNAPSHOT}.new"; exit "$rc"' EXIT HUP INT TERM
+	while IFS='|' read -r _op _dest _payload _n; do
+		if [ "${Z2M_TEST_FAIL_AFTER:--1}" -ge 0 ] && [ "$_n" -ge "${Z2M_TEST_FAIL_AFTER:--1}" ]; then
+			return 1
+		fi
+		if [ "$_op" = REMOVE ]; then
+			rm -f "$_dest"
+		else
+			mkdir -p "$(dirname "$_dest")"
+			_tmp_dest="$_dest.z2m-activate"
+			cp "$_payload" "$_tmp_dest"
+			chmod 0644 "$_tmp_dest"
+			mv -f "$_tmp_dest" "$_dest"
+		fi
+		committed=$((_n + 1))
+	done < "$_tmp/plan"
+	mv -f "$_records" "$ACTIVATION_SNAPSHOT"
+	trap - EXIT HUP INT TERM
+	rm -rf "$_tmp"
+	printf '{"ok":true,"activated":%s,"snapshot":"%s"}\n' "$committed" "$ACTIVATION_SNAPSHOT"
+}
+
+case "${1:-}" in
+	--activate-registry)
+		activation "${2:-}"
+		exit $?
+		;;
+	--rollback-registry)
+		activation_rollback
+		exit $?
+		;;
+esac
 
 [ -d "$SRC" ] || { printf '{"ok":false,"missing":["SRC:%s"],"mismatched":[],"count":0}\n' "$SRC"; exit 1; }
 # The runtime base itself is owned by the engine payload/installer; only its

@@ -423,12 +423,14 @@ test('Z2K update prepares the selected release and sends its target token to res
   };
   ctx.api.resources.prepareVersion = value => {
     prepareCalls.push(value);
-    return Promise.resolve({ ok: true, target: { targetVersion: 'r-80.3', operation: 'reinstall' }, planToken: 'z2k-target-v2:test' });
+    return Promise.resolve({ ok: true, target: { targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-80.2', targetCanApply: true, targetAttentionState: 'none', targetBlockingReasons: [], targetReviewDetails: [] }, planToken: 'z2k-target-v2:test' });
   };
 
   internals.checkUpdates(ctx, 'z2k');
   await new Promise(resolve => setTimeout(resolve, 0));
   internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, selectedVersion: 'r-80.3', selectedDetails: { version: 'r-80.3', installable: true, operation: 'reinstall' } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
   assert.ok(modal, 'update must wait for explicit confirmation');
   modal.actions[1].attrs.click();
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -436,7 +438,7 @@ test('Z2K update prepares the selected release and sends its target token to res
   assert.equal(internals.state.z2kCheck.checkedAt, 200);
   assert.equal(internals.state.z2kCheck.manifest.current, 'r-80.3');
   assert.deepEqual(JSON.parse(JSON.stringify(prepareCalls)), [{ version: 'r-80.3' }]);
-  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.3', planToken: 'z2k-target-v2:test' }]);
+  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-80.2', planToken: 'z2k-target-v2:test' }]);
 });
 
 test('Z2K update confirms target release before prepare and mutation', async () => {
@@ -454,7 +456,7 @@ test('Z2K update confirms target release before prepare and mutation', async () 
   };
   ctx.api.resources.prepareVersion = value => {
     prepareCalls.push(value);
-    return Promise.resolve({ ok: true, target: { targetVersion: 'r-80.4', operation: 'upgrade' }, planToken: 'z2k-target-v2:test' });
+    return Promise.resolve({ ok: true, target: { targetVersion: 'r-80.4', operation: 'upgrade', installedVersion: 'r-80.3', targetCanApply: true, targetAttentionState: 'none', targetBlockingReasons: [], targetReviewDetails: [] }, planToken: 'z2k-target-v2:test' });
   };
 
   internals.updateZ2K(ctx, {
@@ -468,6 +470,8 @@ test('Z2K update confirms target release before prepare and mutation', async () 
   });
 
   assert.equal(calls.length, 0, 'resources_update must wait for explicit confirmation');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
   assert.ok(modal, 'update must open a confirmation modal');
   assert.match(modal.title, /r-80\.4/);
   assert.match(textOf(modal.message), /r-80\.4/);
@@ -478,11 +482,11 @@ test('Z2K update confirms target release before prepare and mutation', async () 
   await new Promise(resolve => setTimeout(resolve, 0));
 
   assert.deepEqual(JSON.parse(JSON.stringify(prepareCalls)), [{ version: 'r-80.4' }]);
-  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.4', planToken: 'z2k-target-v2:test' }]);
+  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.4', operation: 'upgrade', installedVersion: 'r-80.3', planToken: 'z2k-target-v2:test' }]);
   assert.deepEqual(toasts, [{ message: 'Z2K Core: Обновить до r-80.4.', kind: 'ok' }]);
 });
 
-test('Z2K stale target stops before resources_update after confirmation', async () => {
+test('Z2K stale target stops before confirmation and resources_update', async () => {
   const { internals } = loadMaintenance();
   const ctx = makeContext(engineStatus(), z2kRaw());
   const calls = [];
@@ -494,12 +498,10 @@ test('Z2K stale target stops before resources_update after confirmation', async 
   ctx.api.resources.update = edit => { calls.push(JSON.parse(edit)); return Promise.resolve({ ok: true }); };
 
   internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, selectedVersion: 'r-80.4', selectedDetails: { version: 'r-80.4', installable: true, operation: 'upgrade' } });
-  assert.equal(calls.length, 0, 'stale state must not mutate');
-  assert.ok(modal, 'the selected target must still be confirmed before prepare');
-  modal.actions[1].attrs.click();
   await new Promise(resolve => setTimeout(resolve, 0));
   await new Promise(resolve => setTimeout(resolve, 0));
 
+  assert.equal(modal, null, 'stale prepare must fail closed before confirmation');
   assert.deepEqual(calls, []);
   assert.deepEqual(toasts.at(-1), { message: 'Z2K target snapshot is stale.', kind: 'err' });
 });
