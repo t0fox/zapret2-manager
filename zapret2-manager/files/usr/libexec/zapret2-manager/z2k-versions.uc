@@ -50,7 +50,14 @@ function resolve_tag_commit(version, tagSha, objectType) {
 	if (target != null && target.type == 'commit' && valid_sha(target.sha)) return { commitSha: lc(target.sha), publishedAt: object(tag.tagger) && tag.tagger.date || null, tagSha: lc(tagSha) };
 	return null;
 }
-function read_classification() { try { let value = json(readfile(CLASSIFICATION)); return object(value) && value.schema == 'zapret2-manager.z2k-integration.v1' && type(value.files) == 'array' ? value : null; } catch (e) { return null; } }
+function read_classification() {
+	try {
+		let value = json(readfile(CLASSIFICATION));
+		if (!object(value) || value.schema != 'zapret2-manager.z2k-integration.v1' || type(value.files) != 'array') return null;
+		for (let i = 0; type(value.historicalFiles) == 'array' && i < length(value.historicalFiles); i++) push(value.files, value.historicalFiles[i]);
+		return value;
+	} catch (e) { return null; }
+}
 function class_for(map, path) { for (let i = 0; i < length(map.files); i++) if (map.files[i] && map.files[i].sourcePath == path) return map.files[i]; return null; }
 function relevant_path(path) { return string(path) && (substr(path, 0, 10) == 'files/lua/' || substr(path, 0, 11) == 'files/fake/' || substr(path, 0, 12) == 'files/lists/'); }
 function safe_path(path) { return string(path) && length(path) > 0 && length(path) <= MAX_PATH && substr(path, 0, 1) != '/' && index(path, '\\') < 0 && index(path, '..') < 0 && match(path, /^[A-Za-z0-9._\/-]+$/); }
