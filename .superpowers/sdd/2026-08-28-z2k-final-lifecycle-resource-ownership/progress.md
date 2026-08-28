@@ -41,11 +41,11 @@ No preflight ruling required.
 
 - Task 1: complete — baseline ownership map and RED reproducer recorded in `task-1-report.md`.
 - Tasks 2-10: complete — implementation and focused contract coverage are in the working tree.
-- Task 11: unverified — no deployed browser session was used in this run; static UI and backend negative gates passed.
-- Tasks 12-13: unverified — no live upgrade/downgrade/reinstall or runtime strategy/autocircular cycle was executed.
+- Task 11: complete — direct source-only deployment, cache-disabled browser Resources acceptance, and backend negative ownership proof passed.
+- Tasks 12-13: pending action-time confirmation — Components UI is prepared, but no live upgrade/downgrade/reinstall mutation has been executed.
 - Task 14: focused matrix passed; broad filtered matrix remains non-green on unrelated/pre-existing tests and is not claimed as a product GREEN gate.
 - Task 15: complete — adversarial review recorded below and in `task-final-report.md`.
-- Tasks 16-17: complete — final report committed, branch pushed without force, and local/remote identities match.
+- Tasks 16-17: pending after live lifecycle decision — report and machine-readable live evidence were updated locally; final commit/push still follows the acceptance outcome.
 
 ## Final evidence summary
 
@@ -56,6 +56,9 @@ No preflight ruling required.
 - Router exact selected resolver: `r-80.3` resolved to commit `8f3787aa999dd00ffe76871c5f343a1c049973b1`; diagnostics were `requestCount=3`, `restRequestCount=2`, `resolution=selected-tag`, with 39 managed assets.
 - Router Registry projection: 43 assets, all 43 `owner=z2k-core/mode=lifecycle`, 0 editable.
 - Router generic mutation negative gate: update and delete of `lua:z2k-modern-core` both returned `EPOLICY` with `managedBy=z2k-core` and `bundleId=z2k-curated-lua`; no mutation was performed.
+- Direct deployment: five candidate source files were backed up, staged, installed with `root:root 0644`, and verified by router and HTTP SHA; no APK/package installation was used.
+- Browser Resources acceptance: after cache-disabled hard reload, 43 resources / 0 user resources were shown; lifecycle workspace had no `Редактор` tab or textbox and showed `Управляется Z2K Core` / `Lifecycle: только через Компоненты`.
+- Runtime post-deploy: `nfqws2` PID 7943, queue 300 owner match, applied config and strategy identity remained stable; autocircular state remained present and changed only as live mutable state.
 - Strategy/autocircular check: `strategy-rpc-regression` passed; `learned-autocircular-contract` had one existing layout assertion failure (`learned-table-9`) in an unchanged file, so the regression gate is not claimed green.
 
 ## Adversarial review
@@ -66,4 +69,4 @@ No preflight ruling required.
 - Selected-tag prepare resolves an exact immutable ref and annotated tag without constructing the full catalog; raw manifest fetch is counted separately from bounded REST calls.
 - Removal/reference conflicts are returned before prepared-target persistence; apply rechecks the snapshot fingerprint and runtime postflight bytes.
 - User edits outside the selected managed target do not stale the target; managed target state changes do.
-- Browser acceptance, package deployment, and destructive live lifecycle operations are intentionally unverified in this run.
+- Package deployment is intentionally out of scope (`НИКАКИХ APK`). Destructive live lifecycle operations remain unverified pending action-time confirmation; the UI path is ready and CLI apply is prohibited as a substitute.

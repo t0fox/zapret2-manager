@@ -1,0 +1,465 @@
+{
+  "schema": 1,
+  "capturedAt": "2026-08-28",
+  "candidate": {
+    "branch": "codex/z2k-version-lifecycle",
+    "sha": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
+    "remoteSha": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
+    "worktreeClean": true
+  },
+  "baseline": {
+    "router": "192.168.1.1",
+    "installedAuthority": {
+      "value": "r-79.7",
+      "confidence": "confirmed",
+      "authority": "activation-receipt"
+    },
+    "registry": {
+      "revision": 7,
+      "lifecycleAssetCount": 43,
+      "lifecycleAssets": [
+        {
+          "id": "lua:z2k-modern-core",
+          "sha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7",
+          "byteSize": 24878,
+          "revision": 5
+        },
+        {
+          "id": "lua:z2k-state-persist",
+          "sha256": "df4d6c1429a727deaf182762807f23841e6f7df1243264158c6d420188953576",
+          "byteSize": 41832,
+          "revision": 6
+        },
+        {
+          "id": "lua:z2k-alert",
+          "sha256": "bc8fd3b2d1fdac3fb5658a3b47a39b3ea35e7091a24c007438fb0c7d3451ed51",
+          "byteSize": 33305,
+          "revision": 7
+        },
+        {
+          "id": "lua:z2k-quic-silence",
+          "sha256": "3080b592cee163c99eb60ebc1a074fd66f5d04d822821d066a358c455e50dde3",
+          "byteSize": 8786,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_1",
+          "sha256": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_4",
+          "sha256": "0e53683f2408bab1f52bc3db10c11b3a2bf238f68db64f4d0ea8aff37e07a61d",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_5",
+          "sha256": "a7ea947b0efe4690b91f6180ff16c0f750443901f0f6310d94dca9f0b8606dac",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_6",
+          "sha256": "97f544d62aaa0d85db91dbb611a3e1782647dda243777417d57096ed7e668a1c",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_initial_dbankcloud_ru",
+          "sha256": "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df",
+          "byteSize": 1357,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_initial_rutracker_org",
+          "sha256": "d5d77f90ff45489d246bd447c3e9f28e98891e206dc17c79d4de1da6bd0f18e8",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_initial_www_google_com",
+          "sha256": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:stun",
+          "sha256": "9cd5469309780ca56c0bd97266524a48c7ee529d02c3179cfecb20b260a59641",
+          "byteSize": 100,
+          "revision": 5
+        },
+        {
+          "id": "blob:syn_packet",
+          "sha256": "92b092ff4f9c18263ba17c108bf224f99ab6c8ede28353893504937a28dc161a",
+          "byteSize": 32,
+          "revision": 5
+        },
+        {
+          "id": "blob:t2",
+          "sha256": "d4a111b9a9497f185283d1ff480a92db08372c2c2a3af8bd868ff798e64c2da7",
+          "byteSize": 192,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_14",
+          "sha256": "72c0bbc8d02077e28f8b41574a0673ebbdcfb4a86274c3468160b11a320e17d1",
+          "byteSize": 228,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_4pda_to",
+          "sha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+          "byteSize": 284,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_activated",
+          "sha256": "f2162ff9d4ac745729f4c32c2182a84988b553ca511fb2a620fd2981fe25be6e",
+          "byteSize": 655,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_gosuslugi_ru",
+          "sha256": "ec581c9877ebc4b69e6cdab48f46e0f7b0eeb67c5fefe849f21525faa1ff4f74",
+          "byteSize": 517,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_max_ru",
+          "sha256": "741bf7660081fe572f93582735d2c36ffbb93a0e59ff8bd7a6bced05ca8ade49",
+          "byteSize": 193,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_vk_com",
+          "sha256": "d6d63c53bc0e1d97e913a43fc4db34f6558bb807228bf6100e3b6863f0720404",
+          "byteSize": 517,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_www_google_com",
+          "sha256": "936c2bee4cfb80aa3c426b2dcbcc834b3fbcd1adb17172959dc569c73a14275c",
+          "byteSize": 681,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_www_onetrust_com",
+          "sha256": "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624",
+          "byteSize": 664,
+          "revision": 5
+        },
+        {
+          "id": "blob:cf_extra_check_ips",
+          "sha256": "79ffc4803151f5ded1de96d7dc1ecaba37ec2e4b2bb7985cecf8c7ff8da68975",
+          "byteSize": 14,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra-domains",
+          "sha256": "744c86618b146e9f709235a58560285eb5f7e455eab842cce55d1d191e96f6f5",
+          "byteSize": 2049,
+          "revision": 5
+        },
+        {
+          "id": "blob:discord",
+          "sha256": "a56b277a06466c6a6152d7a48c17010629ae6f50c038a55b9d3889202bc9a7f1",
+          "byteSize": 387,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_tcp_rkn_list",
+          "sha256": "e8c04588571fc5fbd798c255c5d39ac34af9855d86802f2dfbca97e5f3f251b2",
+          "byteSize": 1893432,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_tcp_yt_list",
+          "sha256": "e9d2e1e18d2d7a73485b506306721171e0c264feed3546b6d964cc213eef191c",
+          "byteSize": 2728,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_tcp_yt_gv_list",
+          "sha256": "1ef28791f0404ee91a98fbe531c765b3909f36fd66991602fedbb99e46c04df1",
+          "byteSize": 33,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_udp_yt_list",
+          "sha256": "4f7afee22e947ca0b28465f55ee58b746acb68187407740b0de380ba549fd26e",
+          "byteSize": 295,
+          "revision": 5
+        },
+        {
+          "id": "blob:ipset-exclude",
+          "sha256": "5570916896d740f962e7fd10e23c0784bbb78b7ce701497386fa8ccd092b27ae",
+          "byteSize": 130,
+          "revision": 5
+        },
+        {
+          "id": "blob:meta-ranges",
+          "sha256": "b81609ca7944494664880f4fb68c2d56ae82ddc0358fe93709042837ee307a0e",
+          "byteSize": 815,
+          "revision": 5
+        },
+        {
+          "id": "blob:rkn-false-positive",
+          "sha256": "39d67b97698763e023c31c31ed1fa28856911518e07f2aebb728438695e568ee",
+          "byteSize": 1615,
+          "revision": 5
+        },
+        {
+          "id": "blob:telegram_ips",
+          "sha256": "e6a64d3224dc507f6b9faf50dadf7f1594f056de5a1d5b2f02fd8f5d880851b8",
+          "byteSize": 335,
+          "revision": 5
+        },
+        {
+          "id": "blob:youtube_ips",
+          "sha256": "e3118339de975d0a13c17c0cbb99e4f968a217dd579f30f94f71bd37cd2180e7",
+          "byteSize": 8779,
+          "revision": 5
+        },
+        {
+          "id": "blob:youtube_ips6",
+          "sha256": "d51f5e44b989b503729ae35b79cf80adf7e47ac96fde42d785e0ba6e501c28cb",
+          "byteSize": 15877,
+          "revision": 5
+        },
+        {
+          "id": "lua:z2k-fooling-ext",
+          "sha256": "4b5efb6672f54dbe4d04440066f06e84d92e43c8534cdfb88d136028e6d8231f",
+          "byteSize": 2714,
+          "revision": 5
+        },
+        {
+          "id": "lua:z2k-range-rand",
+          "sha256": "073c24d9133484b9f2282f1e398b5963eb577b483c1cab8c29cfd6e7bf8acd9a",
+          "byteSize": 5040,
+          "revision": 5
+        },
+        {
+          "id": "blob:4pda",
+          "sha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+          "byteSize": 284,
+          "revision": 2
+        },
+        {
+          "id": "blob:http_iana_org",
+          "sha256": "f77d1cdaff02b6311d4276eeb8479830ab777d8fce4a4b116135c7768f3a284a",
+          "byteSize": 418,
+          "revision": 2
+        },
+        {
+          "id": "blob:quic_initial_ozon_ru",
+          "sha256": "7458d074a6a860ee3762a0979c0aed87e1c10c40180498c5fa9c41693fcace1c",
+          "byteSize": 1200,
+          "revision": 2
+        },
+        {
+          "id": "blob:quic_test_00",
+          "sha256": "96032bf86c2cd113f793285516822702cab4f89cbd2b7356f9682843fbb5420e",
+          "byteSize": 144,
+          "revision": 2
+        },
+        {
+          "id": "blob:zero_256",
+          "sha256": "5341e6b2646979a70e57653007a1f310169421ec9bdd9f1a5648f75ade005af1",
+          "byteSize": 256,
+          "revision": 2
+        },
+        {
+          "id": "lua:z2k-detectors",
+          "sha256": "c7702b2f1adb007176fe25ebe25cfedfd24827891e7883477340479fadf3eac4",
+          "byteSize": 92129,
+          "revision": 2
+        }
+      ],
+      "activationReceipts": [
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-79.7",
+          "sourceCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+          "assetCount": 43,
+          "activatedAt": 1787915429
+        },
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-80.3",
+          "sourceCommit": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+          "assetCount": 39,
+          "activatedAt": 1787921230
+        },
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-79.7",
+          "sourceCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+          "assetCount": 43,
+          "activatedAt": 1787921578
+        },
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-79.7",
+          "sourceCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+          "assetCount": 43,
+          "activatedAt": 1787921679
+        }
+      ]
+    },
+    "service": {
+      "state": "running",
+      "pid": 7943,
+      "queue": 300,
+      "queueRegistered": true,
+      "ownerMatches": true,
+      "appliedMatch": true,
+      "argvSha256": "5bdd9e3db797cf0f4715be1a7a981c3c427b058a35f102965bd81130b96d8f31",
+      "strategyId": "z2k_all_in_one",
+      "strategyConfigSha256": "26c96c5a9655a3fe1949b157f5d6b8a976d0621d5e04db45f066543c04ed5cfa",
+      "strategyMatch": true,
+      "autocircularState": {
+        "path": "/tmp/z2k-autocircular-state.tsv",
+        "sha256": "333bae264f275466214239ab8fea124e9e89877e4cf19e99b22b7bc4adf3262b",
+        "lines": 1907
+      }
+    }
+  },
+  "postDeploy": {
+    "sourceFiles": [
+      {
+        "path": "/usr/libexec/zapret2-manager/asset-registry.uc",
+        "sha256": "8731ba58f5b438701bd3d64731399731bbc95975c94a9ac5d63fb584d7cd583d"
+      },
+      {
+        "path": "/usr/libexec/zapret2-manager/resource-update.uc",
+        "sha256": "fbdc4a601c22a309998cdfb5b131413073c7d33b14ad60920448e0f41855a3aa"
+      },
+      {
+        "path": "/usr/libexec/zapret2-manager/z2k-versions.uc",
+        "sha256": "3090dc21a6ad7309937fc265b51f5e56d3fe033934bfe2f65daae2fb41a1d3bc"
+      },
+      {
+        "path": "/www/luci-static/resources/view/zapret2-manager/z2m-assets.js",
+        "sha256": "40aac1a63bdb06c8de1d3de4690bd19d7d48030c620995533c99574db78d6d80"
+      },
+      {
+        "path": "/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js",
+        "sha256": "2324243f2b61b53fc4257be3cdbcb3f7976de7216f76db2db1a986e0830c044d"
+      }
+    ],
+    "mode": "root:root 0644",
+    "httpFrontendHashesMatch": true,
+    "backendImports": true,
+    "negativeBackendProof": {
+      "id": "lua:z2k-modern-core",
+      "before": {
+        "revision": 5,
+        "sha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7",
+        "management": {
+          "owner": "z2k-core",
+          "mode": "lifecycle",
+          "editable": false,
+          "deletable": false
+        }
+      },
+      "update": {
+        "code": "EPOLICY"
+      },
+      "delete": {
+        "code": "EPOLICY"
+      },
+      "after": {
+        "revision": 5,
+        "sha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7"
+      }
+    },
+    "service": {
+      "state": "running",
+      "pid": 7943,
+      "queue": 300,
+      "queueRegistered": true,
+      "ownerMatches": true,
+      "appliedMatch": true,
+      "argvSha256": "5bdd9e3db797cf0f4715be1a7a981c3c427b058a35f102965bd81130b96d8f31",
+      "strategyId": "z2k_all_in_one",
+      "strategyConfigSha256": "26c96c5a9655a3fe1949b157f5d6b8a976d0621d5e04db45f066543c04ed5cfa",
+      "strategyMatch": true,
+      "runtimeHashes": {
+        "/opt/zapret2/lua/z2k-modern-core.lua": "3ca245e836570ebe618300f77e73b52a2b0cb91b677902991805e92f20676e91",
+        "/opt/zapret2/lua/z2k-detectors.lua": "48f1faa21c5470a119d57a2b3461ce92e0359767d59b9e19f82f1552a203110d",
+        "/opt/zapret2/lua/z2k-state-persist.lua": "51c01887fc5ca3ac53b9db105d08d03eb156d75914705f316b7751fe4c79f3d9",
+        "/opt/zapret2/files/fake/quic_1.bin": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a"
+      },
+      "autocircularState": {
+        "path": "/tmp/z2k-autocircular-state.tsv",
+        "sha256": "2885e74f8498218ac38cf75cb3f51a696c7abee5a287d6f1449d628d66f27b59",
+        "lines": 1918,
+        "note": "runtime state is mutable under live traffic"
+      }
+    }
+  },
+  "browser": {
+    "resourcesSummary": "43 ресурса · 0 пользовательских · Доступно обновление",
+    "lifecycleWorkspace": {
+      "owner": "Управляется Z2K Core",
+      "management": "Lifecycle: только через Компоненты",
+      "editorTabPresent": false,
+      "textboxPresent": false,
+      "viewerLoaded": true
+    },
+    "components": {
+      "installed": "r-79.7",
+      "latest": "r-80.3",
+      "compatibility": "Подтверждена",
+      "integrity": "Подтверждена"
+    },
+    "cacheDisabledReload": true,
+    "loadedModelSha256": "2324243f2b61b53fc4257be3cdbcb3f7976de7216f76db2db1a986e0830c044d"
+  },
+  "broadComparison": {
+    "command": "node --test --test-reporter=tap tests/product tests/ui filtered by z2k|resources|system-components",
+    "baseline": {
+      "commit": "f0e04b0f4bb64680b8c5bb2767d825b7e18d7508",
+      "tests": 213,
+      "pass": 200,
+      "fail": 11,
+      "skipped": 2,
+      "exit": 1
+    },
+    "candidate": {
+      "commit": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
+      "tests": 223,
+      "pass": 210,
+      "fail": 11,
+      "skipped": 2,
+      "exit": 1
+    },
+    "failingTestNameSetEqual": true,
+    "candidateOnlyFailures": 0
+  },
+  "lifecycleOperations": {
+    "upgrade": {
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "status": "not-run",
+      "reason": "awaiting action-time browser confirmation"
+    },
+    "downgrade": {
+      "from": "r-80.3",
+      "to": "r-79.7",
+      "status": "not-run",
+      "reason": "upgrade not run"
+    },
+    "reinstall": {
+      "version": "r-79.7",
+      "status": "not-run",
+      "reason": "awaiting action-time browser confirmation"
+    }
+  },
+  "apk": {
+    "status": "not-built",
+    "reason": "explicitly forbidden by user; temporary build was stopped and removed"
+  }
+}

@@ -45,9 +45,52 @@ Additional evidence:
 - Router Registry listed 43 assets: 43 lifecycle-managed, 0 editable.
 - Router generic update/delete for `lua:z2k-modern-core` both returned `EPOLICY`; no write occurred.
 
+## Live acceptance evidence
+
+Candidate and delivery:
+
+- Candidate branch: `codex/z2k-version-lifecycle`.
+- Candidate SHA and remote SHA: `a32364e7fac448958fcad684ad7ac2f297eee4bb`.
+- Worktree was clean before acceptance.
+- Direct source-only deployment to `192.168.1.1` installed exactly five changed files: `asset-registry.uc`, `resource-update.uc`, `z2k-versions.uc`, `z2m-assets.js`, and `z2m-resources-model.js`.
+- Remote backup was created before replacement; installed files are `root:root`, mode `0644`.
+- Installed backend hashes and HTTP-served frontend hashes match the candidate hashes. `rpcd` was reloaded; `zapret2` was not restarted.
+- No APK was built or installed. The temporary build attempt was stopped and removed after the explicit user instruction: `НИКАКИХ APK`.
+
+Baseline and post-deploy runtime:
+
+- Registry revision remained `7`, with `43` lifecycle assets and activation-receipt authority confirming installed `r-79.7`.
+- Before and after source deployment: service `running`, `nfqws2` PID `7943`, nft queue `300`, owner match, `appliedMatch=true`, strategy `z2k_all_in_one`, and applied config SHA `26c96c5a9655a3fe1949b157f5d6b8a976d0621d5e04db45f066543c04ed5cfa`.
+- Runtime hashes for `z2k-modern-core.lua`, `z2k-detectors.lua`, `z2k-state-persist.lua`, and the used `quic_1.bin` remained unchanged.
+- Autocircular state remained present; its hash/line count changed during live traffic, so it is treated as mutable runtime state rather than as a source artifact.
+
+Resources UI and ownership gate:
+
+- With cache-disabled hard reload, Resources showed `43 ресурса · 0 пользовательских · Доступно обновление`.
+- Lifecycle workspace for `Z2K modern core` showed `Управляется Z2K Core` and `Lifecycle: только через Компоненты`; `Редактор` and textbox were absent, and the viewer loaded the content.
+- Direct backend negative proof returned `EPOLICY` for both update and delete; the asset revision stayed `5` and SHA stayed `5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7`.
+
+Broad parity comparison used the same filtered command on baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508` and candidate `a32364e7fac448958fcad684ad7ac2f297eee4bb`:
+
+- Baseline: `213` tests, `200` pass, `11` fail, `2` skipped, exit `1`.
+- Candidate: `223` tests, `210` pass, `11` fail, `2` skipped, exit `1`.
+- The failing test-name set was identical; candidate-only failures: `0`. This is parity evidence, not a broad GREEN claim.
+
+Machine-readable evidence: `live-acceptance-evidence.json` in this SDD directory.
+
 ## Boundaries
 
-The following are not claimed as verified: deployed browser/DOM acceptance, package deployment, and destructive live upgrade/downgrade/reinstall with runtime Strategy/autocircular checks. The focused `strategy-rpc-regression` test passed. The combined learned/autocircular check was not green because an unchanged existing UI contract test expects missing `learned-table-9`; this is reported rather than attributed to the lifecycle changes.
+The following are not claimed as verified: package deployment, and destructive live upgrade/downgrade/reinstall with runtime Strategy/autocircular checks. Browser/DOM read-only Resources acceptance is verified after cache-disabled reload. The focused `strategy-rpc-regression` test passed. The combined learned/autocircular check was not green because an unchanged existing UI contract test expects missing `learned-table-9`; this is reported rather than attributed to the lifecycle changes.
+
+## Lifecycle operation table
+
+| Operation | Result | Evidence boundary |
+|---|---|---|
+| Upgrade `r-79.7 → r-80.3` | NOT RUN | Prepared in Components UI; mutation awaits action-time confirmation. |
+| Downgrade `r-80.3 → r-79.7` | NOT RUN | Depends on the UI upgrade completing first. |
+| Reinstall `r-79.7` | NOT RUN | Prepared in Components UI; mutation awaits action-time confirmation. |
+
+Current acceptance verdict: `NOT READY` until all three operations are executed through the actual Components UI and each postflight proves receipt/Registry identity, runtime file/hash state, service/nft queue health, strategy identity, and autocircular state preservation. CLI `resources_update` is intentionally not used as a substitute.
 
 ## Delivery
 
