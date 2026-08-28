@@ -11,6 +11,20 @@ function array(value) {
 function text(value) {
 	return value === null || value === undefined || value === '' ? null : String(value);
 }
+function decorateAsset(asset) {
+	var out = Object.assign({}, object(asset));
+	var policy = object(out.management);
+	out.management = {
+		owner: text(policy.owner),
+		mode: text(policy.mode),
+		editable: policy.editable === true,
+		deletable: policy.deletable === true
+	};
+	// Missing backend policy fails closed; the model never infers ownership from
+	// mutable/provenance fields and only exposes the server decision.
+	out.readOnly = out.management.editable !== true;
+	return out;
+}
 
 var USER_KINDS = { 'imported': true, 'user-created': true };
 // System kinds are everything else except we treat generated separately (not auto-user)
@@ -123,10 +137,16 @@ function buildModel(resources, assets, opts) {
 	var advanced = opts.advanced === true;
 
 	var sourcesRaw = array(resources.sources);
-	var installedRaw = array(resources.installed);
-	var registryRaw = array(assets.assets || assets.list || []);
+	var registryRaw = array(assets.assets || assets.list || []).map(decorateAsset);
+	var registryById = {};
+	for (var ri = 0; ri < registryRaw.length; ri++) if (text(registryRaw[ri].id)) registryById[text(registryRaw[ri].id)] = registryRaw[ri];
+	var installedRaw = array(resources.installed).map(function (asset) {
+		var row = object(asset);
+		var registered = registryById[text(row.id)];
+		return decorateAsset(registered ? Object.assign({}, row, registered) : row);
+	});
 	// Also support assets.assets already
-	if (!registryRaw.length && Array.isArray(assets)) registryRaw = assets;
+	if (!registryRaw.length && Array.isArray(assets)) registryRaw = assets.map(decorateAsset);
 
 	var z2k = object(resources.z2k);
 	// Normalize sources and build indexes
@@ -189,6 +209,7 @@ function buildModel(resources, assets, opts) {
 	var totalVisibleAssets = 0;
 
 	function assignAsset(asset, sourceIdHint, provenance) {
+		asset = decorateAsset(asset);
 		var id = text(asset.id);
 		if (!id) return false;
 		if (seen[id]) return false;

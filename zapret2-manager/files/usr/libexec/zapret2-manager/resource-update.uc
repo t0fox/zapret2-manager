@@ -334,6 +334,15 @@ function z2k_target_removals(listed, targetAssets, classification) {
 	sort(targets, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
 	return { ok: true, ids: removeIds, targets: targets };
 }
+function z2k_resource_conflicts(listed, removeIds) {
+	let conflictingAssets = [];
+	for (let i = 0; i < length(removeIds || []); i++) {
+		let current = registry_asset(listed && listed.assets, removeIds[i]), references = current && current.references;
+		if (current != null && type(references) == 'array' && length(references)) push(conflictingAssets, { id: current.id, references: references });
+	}
+	if (length(conflictingAssets)) return fail('EZ2K_RESOURCE_CONFLICT', 'Эта версия Z2K не может быть применена: удаляемые ресурсы используются другими компонентами.', { conflictingAssets: conflictingAssets });
+	return { ok: true };
+}
 function same_id_set(left, right) {
 	if (length(left || []) != length(right || [])) return false;
 	let seen = {};
@@ -439,12 +448,13 @@ export const resource_center_prepare_version = function(request) {
 	let membership = z2k_target_membership_compatible(listed, resolved.assets, classification); if (!membership.ok) return membership;
 	let targetGate = z2k_target_gate(resolved.manifest); if (!targetGate.ok) return targetGate;
 	let removals = z2k_target_removals(listed, resolved.assets, classification); if (!removals.ok) return removals;
+	let conflicts = z2k_resource_conflicts(listed, removals.ids); if (!conflicts.ok) return conflicts;
 	let authority = z2k_registry_installed_release(listed), installed = authority && authority.value || null, operation = z2k_target_operation(version, installed), localFingerprint = z2k_local_fingerprint(resolved.assets, listed, removals.ids);
 	if (operation == null || localFingerprint == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
 	let preparedAt = time(), target = { schema: 2, targetVersion: resolved.version, targetCommitSha: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, operation: operation, previousVersion: installed, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: resolved.assets };
 	target.planToken = z2k_target_token(target, preparedAt);
 	if (target.planToken == null || !save_prepared_target(target)) return fail('EIO', 'Не удалось сохранить Z2K target snapshot.');
-	return { ok: true, target: z2k_target_summary(target), planToken: target.planToken };
+	return { ok: true, target: z2k_target_summary(target), planToken: target.planToken, diagnostics: resolved.diagnostics || null };
 };
 function z2k_target_policy(listed, item) {
 	let registered = registry_asset(listed.assets, item.id);

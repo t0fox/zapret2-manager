@@ -20,7 +20,7 @@ const MAX_TAGS = 256;
 const MAX_MANIFEST = 512 * 1024;
 const MAX_API_RESPONSE = 512 * 1024;
 const MAX_PATH = 256;
-let REQUEST_COUNT = 0;
+let REQUEST_COUNT = 0, REST_REQUEST_COUNT = 0;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -31,14 +31,16 @@ function command(value) { let p = popen(value + ' 2>/dev/null', 'r'); if (!p) re
 function regular(path) { try { let value = stat(path); return object(value) && value.type == 'file' && type(value.size) == 'int'; } catch (e) { return false; } }
 function temp_file(prefix) { let safe = prefix || 'z2m-z2k'; let p = popen('umask 077; mktemp /tmp/' + safe + '.XXXXXX 2>/dev/null', 'r'); if (!p) return null; let value = trim(p.read('all') || ''), rc = p.close(); return rc == 0 && match(value, /^\/tmp\/[A-Za-z0-9._-]+$/) ? value : null; }
 function cleanup(path) { if (path != null) try { unlink(path); } catch (e) {} }
-function fetch_text(url, limit, prefix) {
+function fetch_text(url, limit, prefix, rest) {
 	REQUEST_COUNT++;
+	if (rest !== false) REST_REQUEST_COUNT++;
 	let qurl = quote(url), path = temp_file(prefix); if (qurl == null || path == null) { cleanup(path); return null; }
 	let result = command('uclient-fetch -q -T 20 -O ' + quote(path) + ' ' + qurl);
 	let size = stat(path), raw = result.rc == 0 && size != null && size.size <= (limit || MAX_API_RESPONSE) ? readfile(path) : null;
 	cleanup(path); return raw == null || length(raw) > (limit || MAX_API_RESPONSE) ? null : raw;
 }
-function fetch_json(url, limit) { let raw = fetch_text(url, limit, 'z2m-z2k-version'); if (raw == null) return null; try { return json(raw); } catch (e) { return null; } }
+function fetch_json(url, limit) { let raw = fetch_text(url, limit, 'z2m-z2k-version', true); if (raw == null) return null; try { return json(raw); } catch (e) { return null; } }
+function network_diagnostics(resolution) { return { requestCount: REQUEST_COUNT, restRequestCount: REST_REQUEST_COUNT, resolution: resolution || 'catalog' }; }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function parse_release(value) {
 	if (!string(value) || !match(value, /^r-[0-9]+(\.[0-9]+)?$/)) return null;
@@ -80,7 +82,7 @@ function validate_manifest(value, rawSize, requested) {
 }
 function fetch_manifest(version, commitSha) {
 	if (parse_release(version) == null || !valid_sha(commitSha)) return fail('EINPUT', 'Z2K target identity is invalid.');
-	let url = RAW_ROOT + '/' + commitSha + '/UPDATES.json', raw = fetch_text(url, MAX_MANIFEST, 'z2m-z2k-manifest');
+	let url = RAW_ROOT + '/' + commitSha + '/UPDATES.json', raw = fetch_text(url, MAX_MANIFEST, 'z2m-z2k-manifest', false);
 	if (raw == null) return fail('EUNAVAILABLE', 'Не удалось получить UPDATES.json выбранного release.');
 	let value = null; try { value = json(raw); } catch (e) { return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json не является JSON.'); }
 	let checked = validate_manifest(value, length(raw), version); if (!checked.ok) return checked;
@@ -120,7 +122,7 @@ function cached_result(cached, installed) {
 		let row = {}; for (let key in source[i]) row[key] = source[i][key];
 		row.latest = i == 0; row.installed = row.version == installed; push(rows, row);
 	}
-	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time(), stale: false, diagnostics: { requestCount: REQUEST_COUNT, cache: 'warm' } };
+	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time(), stale: false, diagnostics: { requestCount: REQUEST_COUNT, cache: 'warm', restRequestCount: REST_REQUEST_COUNT } };
 }
 function cached_catalog_row(cached, version, tagSha) {
 	for (let i = 0; cached && type(cached.versions) == 'array' && i < length(cached.versions); i++) {
@@ -133,11 +135,11 @@ function save_cache(value) { let tmp = CACHE_FILE + '.tmp.' + time(); try { valu
 
 export const z2k_versions = function(options) {
 	let fresh = object(options) && options.fresh === true;
-	REQUEST_COUNT = 0;
+	REQUEST_COUNT = 0; REST_REQUEST_COUNT = 0;
 	let installed = installed_release(), cached = read_cache();
 	if (!fresh && cached != null) return cached_result(cached, installed);
 	let refs = fetch_refs(), stale = false;
-	if (!refs.ok) { if (!fresh && cached != null) return { ok: true, repository: REPOSITORY, versions: cached.versions, stale: true, diagnostics: { requestCount: REQUEST_COUNT, cache: 'stale' } }; return refs; }
+	if (!refs.ok) { if (!fresh && cached != null) return { ok: true, repository: REPOSITORY, versions: cached.versions, stale: true, diagnostics: { requestCount: REQUEST_COUNT, cache: 'stale', restRequestCount: REST_REQUEST_COUNT } }; return refs; }
 	let rows = [], limit = MAX_VERSIONS;
 	for (let i = 0; i < length(refs.refs) && i < limit; i++) {
 		let candidate = refs.refs[i], old = cached_catalog_row(cached, candidate.version, candidate.tagSha), row = catalog_row(candidate, installed, old || null);
@@ -150,7 +152,7 @@ export const z2k_versions = function(options) {
 	if (installed != null) { let present = false; for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) present = true; if (!present) for (let i = limit; i < length(refs.refs); i++) if (refs.refs[i].version == installed) { let candidate = refs.refs[i], old = cached_catalog_row(cached, candidate.version, candidate.tagSha), row = catalog_row(candidate, installed, old || null); if (row.commitSha == null) { stale = true; if (old != null) { row.commitSha = old.commitSha; row.publishedAt = old.publishedAt || 0; row.installable = true; row.unavailableReason = null; } } push(rows, row); break; } }
 	if (length(rows)) rows[0].latest = true;
 	if (fresh && stale) return fail('ESTALE', 'Каталог release устарел; повторите подготовку после свежей проверки.');
-	let result = { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time(), stale: stale, diagnostics: { requestCount: REQUEST_COUNT, cache: cached != null ? 'warm' : 'cold' } };
+	let result = { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time(), stale: stale, diagnostics: { requestCount: REQUEST_COUNT, cache: cached != null ? 'warm' : 'cold', restRequestCount: REST_REQUEST_COUNT } };
 	if (!stale) save_cache(result);
 	return result;
 };
@@ -196,11 +198,20 @@ export const z2k_version_details = function(version) {
 	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, releaseChanges: releaseChanges, installChanges: installChanges, changes: installChanges, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
 };
 
+function z2k_resolve_tag_fresh(version) {
+	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.', { diagnostics: network_diagnostics('selected-tag') });
+	let ref = fetch_json(API_ROOT + '/git/ref/tags/' + version, MAX_API_RESPONSE), target = object(ref) && object(ref.object) ? ref.object : null;
+	if (!object(ref) || ref.ref != 'refs/tags/' + version || target == null || !valid_sha(target.sha)
+		|| (target.type != 'commit' && target.type != 'tag')) return fail('EUNAVAILABLE', 'Не удалось получить immutable tag выбранного release.', { diagnostics: network_diagnostics('selected-tag') });
+	let resolved = resolve_tag_commit(version, target.sha, target.type);
+	if (resolved == null) return fail('EUNAVAILABLE', 'Immutable tag выбранного release не указывает на commit.', { diagnostics: network_diagnostics('selected-tag') });
+	return { ok: true, version: version, tagSha: resolved.tagSha, commitSha: resolved.commitSha, publishedAt: resolved.publishedAt, diagnostics: network_diagnostics('selected-tag') };
+}
+
 export const z2k_resolve_version = function(version) {
-	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
-	let catalog = z2k_versions({ fresh: true }); if (!catalog.ok) return catalog; let row = target_release(version, catalog.versions); if (row == null || !valid_sha(row.commitSha)) return fail('ENOENT', 'Выбранный release не найден или не разрешён.');
-	let checked = release_manifest(row); if (!checked.ok) return checked; let map = read_classification(), membership = managed_membership(checked.manifest, map); if (length(membership.unknown)) return fail('EZ2K_INCOMPATIBLE', 'Эта версия несовместима с текущей версией Zapret2 Manager.', { version: version, unknownRelevantPaths: membership.unknown });
-	return { ok: true, version: version, commitSha: row.commitSha, manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets, latest: row.latest, installed: row.installed };
+	let resolved = z2k_resolve_tag_fresh(version); if (!resolved.ok) return resolved;
+	let checked = fetch_manifest(version, resolved.commitSha); if (!checked.ok) { checked.diagnostics = network_diagnostics('selected-tag'); return checked; } let map = read_classification(), membership = managed_membership(checked.manifest, map); if (length(membership.unknown)) return fail('EZ2K_INCOMPATIBLE', 'Эта версия несовместима с текущей версией Zapret2 Manager.', { version: version, unknownRelevantPaths: membership.unknown, diagnostics: network_diagnostics('selected-tag') });
+	return { ok: true, version: version, tagSha: resolved.tagSha, commitSha: resolved.commitSha, manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets, latest: false, installed: installed_release(), diagnostics: network_diagnostics('selected-tag') };
 };
 
 export const z2k_compare_versions = function(left, right) {

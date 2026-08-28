@@ -62,6 +62,6 @@ test('transient tag resolution cannot poison a usable immutable catalog cache', 
 test('non-fresh catalog browse consumes warm volatile cache before network', () => {
   assert.match(source, /function cached_result\s*\(/);
   assert.match(source, /if \(!fresh && cached != null\) return cached_result\(cached, installed\)/);
-  assert.match(source, /diagnostics: \{ requestCount: REQUEST_COUNT, cache: 'warm' \}/);
-  assert.match(source, /z2k_versions\(\{\s*fresh:\s*true\s*\}/);
+  assert.match(source, /diagnostics: \{ requestCount: REQUEST_COUNT, cache: 'warm'/);
+  assert.match(source, /z2k_resolve_tag_fresh\s*\(/);
 });

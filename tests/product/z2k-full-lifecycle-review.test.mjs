@@ -84,6 +84,15 @@ test('6. activation fault injection is atomic and leaves previous runtime bytes 
   assert.equal(fs.readFileSync(target, 'utf8'), '-- old\n');
 });
 
+test('6a. runtime postflight rejects registry target bytes that do not materialize exactly', () => {
+  const start = ru.indexOf('function z2k_runtime_postflight');
+  const end = ru.indexOf('function z2k_runtime_activate', start);
+  const body = ru.slice(start, end);
+  assert.match(body, /value != item\.sha256/);
+  assert.match(body, /expectedSha256/);
+  assert.match(body, /EVERIFY/);
+});
+
 test('7. receipt records and validates sourceCommit and sourcePath identity', () => {
   assert.match(registry, /sourceCommit/);
   assert.match(registry, /sourcePath/);
@@ -138,7 +147,7 @@ test('14. catalog cache stays in volatile storage and has a TTL', () => {
 });
 
 test('15. prepare resolves a fresh immutable tag mapping instead of stale browse cache', () => {
-  assert.match(versions, /z2k_versions\s*\(\s*\{\s*fresh\s*:\s*true/);
+  assert.match(versions, /z2k_resolve_tag_fresh\s*\(/);
   assert.match(versions, /fresh/);
   assert.match(ru, /z2k_resolve_version\(version\)/);
 });
