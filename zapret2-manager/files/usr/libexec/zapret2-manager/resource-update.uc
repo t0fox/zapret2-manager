@@ -8,6 +8,7 @@ import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
 import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release } from './z2k-installed-release.uc';
+import { read_var } from './apply.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -18,6 +19,8 @@ const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const CHECK_STATE = '/etc/zapret2-manager/resource-source-check.json';
 const MAX_CHECK_STATE_BYTES = 512 * 1024;
 const LIFECYCLE_LOCK = '/tmp/z2m-z2k-lifecycle.lock';
+const Z2K_RUNTIME_READY_TIMEOUT_MS = 12000;
+const Z2K_RUNTIME_READY_POLL_MS = 1000;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -27,6 +30,123 @@ function shell_quote(value) { let out = "'", raw = text(value); for (let i = 0; 
 function command(value) { let p = popen(value + ' 2>&1', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
 function regular(path) { try { let value = stat(path); return object(value) && value.type == 'file' && type(value.size) == 'int'; } catch (e) { return false; } }
 function sha256(path) { if (!regular(path)) return null; let value = command("sha256sum " + shell_quote(path) + " | awk '{print $1}'"); let digest = trim(value.out); return value.rc == 0 && match(digest, /^[a-f0-9]{64}$/) ? digest : null; }
+function z2k_runtime_monotonic_ms() { let now = clock(true); return now[0] * 1000 + int(now[1] / 1000000); }
+function z2k_runtime_tokens(raw) {
+	let out = [], current = '';
+	for (let i = 0; i < length(raw || ''); i++) {
+		let c = substr(raw, i, 1);
+		if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+			if (length(current)) { push(out, current); current = ''; }
+		} else current += c;
+	}
+	if (length(current)) push(out, current);
+	return out;
+}
+function z2k_runtime_pids(raw) {
+	let pids = [], tokens = z2k_runtime_tokens(raw);
+	for (let i = 0; i < length(tokens); i++) if (match(tokens[i], /^[0-9]+$/)) push(pids, +tokens[i]);
+	return pids;
+}
+function z2k_runtime_queue(raw, rc) {
+	if (rc != 0 || !length(raw || '')) return { registered: false, peerPid: null, row: null, reason: 'nfnetlink_queue unavailable' };
+	let lines = split(raw, '\n');
+	for (let i = 0; i < length(lines); i++) {
+		let row = trim(lines[i]), fields = z2k_runtime_tokens(row);
+		if (length(fields) >= 2 && fields[0] == '300' && match(fields[1], /^[0-9]+$/))
+			return { registered: true, peerPid: +fields[1], row: row };
+	}
+	return { registered: false, peerPid: null, row: null, reason: 'queue 300 not registered in kernel' };
+}
+function z2k_runtime_observe() {
+	let pid = command('pidof nfqws2');
+	let queue = command('cat /proc/net/netfilter/nfnetlink_queue');
+	let nft = command('nft list table inet zapret2');
+	let nftOutput = trim(nft.out), nftRuleReady = false, nftLines = split(nftOutput, '\n');
+	for (let i = 0; i < length(nftLines); i++) if (index(nftLines[i], 'queue') >= 0 && match(nftLines[i], /300/)) { nftRuleReady = true; break; }
+	return {
+		pids: z2k_runtime_pids(pid.out), pidRc: pid.rc, pidOutput: trim(pid.out),
+		queue: z2k_runtime_queue(queue.out, queue.rc),
+		nft: { ready: nft.rc == 0 && nftRuleReady, tableReady: nft.rc == 0,
+			ruleReady: nftRuleReady, rc: nft.rc, output: nftOutput }
+	};
+}
+function z2k_runtime_status_postflight() {
+	let status = command('/usr/bin/ucode /usr/libexec/zapret2-manager/status.uc --no-print');
+	return { ok: status.rc == 0 && regular('/tmp/zapret2-manager/status.json'), rc: status.rc,
+		fileReady: regular('/tmp/zapret2-manager/status.json'), output: trim(status.out) };
+}
+function z2k_runtime_has_pid(pids, wanted) {
+	for (let i = 0; i < length(pids || []); i++) if (pids[i] == wanted) return true;
+	return false;
+}
+function z2k_runtime_readiness_reason(observation, expectedEnabled) {
+	let value = object(observation) ? observation : {}, pids = type(value.pids) == 'array' ? value.pids : [];
+	let queue = object(value.queue) ? value.queue : {}, nft = object(value.nft) ? value.nft : {};
+	if (!expectedEnabled) return length(pids) ? 'daemon-still-running' : (!nft.ready ? (nft.tableReady === false ? 'nft-table-missing' : 'nft-queue-rule-missing') : null);
+	if (!length(pids)) return 'daemon-not-spawned';
+	if (length(pids) > 16) return 'daemon-count-invalid';
+	if (queue.registered !== true) return 'queue-300-listener-missing';
+	if (queue.peerPid == null || !z2k_runtime_has_pid(pids, queue.peerPid)) return 'queue-300-owner-mismatch';
+	if (nft.ready !== true) return nft.tableReady === false ? 'nft-table-missing' : 'nft-queue-rule-missing';
+	return null;
+}
+function z2k_runtime_readiness_message(reason, stage) {
+	if (reason == 'daemon-not-spawned') return 'nfqws2 is not running after Z2K ' + stage + '.';
+	if (reason == 'daemon-spawned-then-exited') return 'nfqws2 spawned but exited before Z2K ' + stage + ' readiness.';
+	if (reason == 'queue-300-listener-missing') return 'Zapret2 NFQUEUE postflight is missing queue 300 listener after Z2K ' + stage + '.';
+	if (reason == 'queue-300-owner-mismatch') return 'Zapret2 NFQUEUE queue 300 is owned by a different process after Z2K ' + stage + '.';
+	if (reason == 'daemon-count-invalid') return 'nfqws2 process count is outside the supported range after Z2K ' + stage + '.';
+	if (reason == 'daemon-still-running') return 'nfqws2 is still running while Z2K runtime is disabled after Z2K ' + stage + '.';
+	if (reason == 'nft-queue-rule-missing') return 'Zapret2 nft queue rule is not ready after Z2K ' + stage + '.';
+	if (reason == 'nft-table-missing') return 'Zapret2 nft table is not ready after Z2K ' + stage + '.';
+	return 'Z2K runtime readiness was not verified after Z2K ' + stage + '.';
+}
+function z2k_runtime_readiness_diagnostics(stage, expectedEnabled, configValue, attempts, started, now, observation, reason, history) {
+	let elapsed = now - started;
+	if (elapsed < 0) elapsed = 0;
+	return {
+		stage: stage, expectedEnabled: expectedEnabled, configValue: configValue == null ? null : configValue,
+		attempts: attempts, elapsedMs: elapsed,
+		reason: reason, pids: observation && type(observation.pids) == 'array' ? observation.pids : [],
+		queue: observation && observation.queue ? observation.queue : null,
+		nft: observation && observation.nft ? observation.nft : null,
+		observation: observation || null, history: history || []
+	};
+}
+export const z2k_runtime_readiness = function(seams) {
+	let input = object(seams) ? seams : {}, stage = string(input.stage) && length(input.stage) ? input.stage : 'activation';
+	let expectedEnabled = input.expectedEnabled !== false;
+	let configValue = input.configValue == null ? null : text(input.configValue);
+	let timeoutMs = type(input.timeoutMs) == 'int' && input.timeoutMs >= 0 ? input.timeoutMs : Z2K_RUNTIME_READY_TIMEOUT_MS;
+	let pollMs = type(input.pollIntervalMs) == 'int' && input.pollIntervalMs > 0 ? input.pollIntervalMs : Z2K_RUNTIME_READY_POLL_MS;
+	let attemptsLimit = int((timeoutMs + pollMs - 1) / pollMs) + 1;
+	if (attemptsLimit < 1) attemptsLimit = 1;
+	let nowFn = type(input.now) == 'function' ? input.now : function() { return z2k_runtime_monotonic_ms(); };
+	let waitFn = type(input.wait) == 'function' ? input.wait : function() { command('sleep 1'); };
+	let observeFn = type(input.observe) == 'function' ? input.observe : z2k_runtime_observe;
+	let started = nowFn(), last = null, reason = null, history = [];
+	for (let attempt = 1; attempt <= attemptsLimit; attempt++) {
+		last = observeFn();
+		reason = z2k_runtime_readiness_reason(last, expectedEnabled);
+		let now = nowFn();
+		push(history, { attempt: attempt, elapsedMs: now - started, reason: reason,
+			pids: last && type(last.pids) == 'array' ? last.pids : [],
+			queue: last && last.queue ? last.queue : null, nft: last && last.nft ? last.nft : null });
+		let diagnostics = z2k_runtime_readiness_diagnostics(stage, expectedEnabled, configValue, attempt, started, now, last, reason, history);
+		if (reason == null) {
+			let pids = type(last.pids) == 'array' ? last.pids : [], queue = last.queue || {};
+			return { ok: true, stage: stage, attempts: attempt, elapsedMs: diagnostics.elapsedMs,
+				expectedEnabled: expectedEnabled, pid: join(pids, ' '), pids: pids,
+				queue: queue.row || null, readiness: diagnostics };
+		}
+		if (attempt < attemptsLimit) waitFn(pollMs);
+	}
+	let observedPid = false;
+	for (let i = 0; i < length(history); i++) if (length(history[i].pids || [])) { observedPid = true; break; }
+	if (reason == 'daemon-not-spawned' && observedPid) reason = 'daemon-spawned-then-exited';
+	let elapsedNow = nowFn(), diagnostics = z2k_runtime_readiness_diagnostics(stage, expectedEnabled, configValue, attemptsLimit, started, elapsedNow, last, reason, history);
+	return { ok: false, error: { code: 'ERUNTIME', message: z2k_runtime_readiness_message(reason, stage), reason: reason, stage: stage, readiness: diagnostics } };
+};
 function load_manifest() { let raw = readfile(MANIFEST); if (raw == null || length(raw) > MAX_MANIFEST_BYTES) return fail('EINPUT', 'resource manifest is unavailable or too large'); let value = null; try { value = json(raw); } catch (e) { return fail('EINPUT', 'resource manifest is malformed'); } if (!object(value) || value.schema != 'zapret2-manager.resource-manifest.v1' || type(value.sources) != 'array' || type(value.bundles) != 'array') return fail('EINPUT', 'resource manifest schema is invalid'); return { ok: true, manifest: value }; }
 function source(manifest, id) { for (let i = 0; i < length(manifest.sources); i++) if (manifest.sources[i].id == id) return manifest.sources[i]; return null; }
 function bundle(manifest, id) { for (let i = 0; i < length(manifest.bundles); i++) if (manifest.bundles[i].id == id) return manifest.bundles[i]; return null; }
@@ -466,13 +586,32 @@ function z2k_runtime_spec(target, listed, classification, root) {
 	try { writefile(spec, join('\n', lines) + '\n'); } catch (e) { return fail('EWRITE', 'Runtime activation spec could not be written.'); }
 	return { ok: true, path: spec, assets: length(target.assets || []), removed: length(target.removeIds || []) };
 }
-function z2k_runtime_restart() {
+function z2k_runtime_restart(stage) {
+	let operationStage = string(stage) && length(stage) ? stage : 'activation';
 	let restarted = command('/etc/init.d/zapret2 restart');
-	if (restarted.rc != 0) return fail('ERUNTIME', 'Zapret2 service restart failed.', { output: restarted.out });
-	let pid = command('pidof nfqws2'), queue = command("nft list table inet zapret2 | grep queue");
-	if (pid.rc != 0 || !match(trim(pid.out), /^[0-9]+([ \t]+[0-9]+)*$/)) return fail('ERUNTIME', 'nfqws2 is not running after Z2K activation.', { pid: trim(pid.out), output: pid.out });
-	if (queue.rc != 0 || index(queue.out, '300') < 0) return fail('ERUNTIME', 'Zapret2 NFQUEUE postflight is missing queue 300.', { pid: trim(pid.out), output: queue.out });
-	return { ok: true, pid: trim(pid.out), queue: trim(queue.out) };
+	if (restarted.rc != 0) return fail('ERUNTIME', 'Zapret2 service restart failed.', { stage: operationStage, output: restarted.out });
+	let configured = read_var('NFQWS2_ENABLE');
+	let readiness = z2k_runtime_readiness({
+		stage: operationStage,
+		expectedEnabled: configured != '0',
+		configValue: configured,
+		now: z2k_runtime_monotonic_ms,
+		wait: function() { command('sleep 1'); },
+		observe: z2k_runtime_observe
+	});
+	readiness.restart = { rc: restarted.rc, output: trim(restarted.out) };
+	if (!readiness.ok) {
+		readiness.error.restart = readiness.restart;
+		return readiness;
+	}
+	let status = z2k_runtime_status_postflight();
+	readiness.status = status;
+	if (!status.ok) return fail('ERUNTIME', 'Zapret2 status postflight failed after Z2K ' + operationStage + '.', {
+		stage: operationStage, reason: 'status-postflight-failed', restart: readiness.restart,
+		readiness: readiness.readiness, status: status
+	});
+	readiness.configValue = configured;
+	return readiness;
 }
 function z2k_runtime_postflight(target, diagnostics) {
 	let matched = 0;
@@ -494,7 +633,7 @@ function z2k_runtime_activate(target, listed, classification, root, diagnostics)
 	if (!spec.ok) return spec;
 	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-registry ' + shell_quote(spec.path));
 	if (activated.rc != 0) return fail('ERUNTIME', 'Registry target could not be materialized into the active runtime.', { output: activated.out, spec: spec.path, activated: false });
-	let restarted = z2k_runtime_restart();
+	let restarted = z2k_runtime_restart('activation');
 	if (!restarted.ok) return { ok: false, error: restarted.error, activated: true, restart: restarted, postflight: { verified: false, reason: 'restart-failed' } };
 	let postflight = z2k_runtime_postflight(target, diagnostics);
 	if (!postflight.ok) return { ok: false, error: postflight.error, activated: true, restart: restarted, postflight: postflight };
@@ -503,7 +642,7 @@ function z2k_runtime_activate(target, listed, classification, root, diagnostics)
 function z2k_runtime_rollback() {
 	let restored = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --rollback-registry');
 	if (restored.rc != 0) return fail('EROLLBACK', 'Active runtime rollback failed.', { output: restored.out });
-	let restarted = z2k_runtime_restart();
+	let restarted = z2k_runtime_restart('rollback');
 	if (!restarted.ok) return restarted;
 	return { ok: true, restored: true, restart: restarted };
 }
