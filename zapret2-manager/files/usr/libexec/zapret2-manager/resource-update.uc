@@ -19,6 +19,7 @@ const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const CHECK_STATE = '/etc/zapret2-manager/resource-source-check.json';
 const MAX_CHECK_STATE_BYTES = 512 * 1024;
 const LIFECYCLE_LOCK = '/tmp/z2m-z2k-lifecycle.lock';
+const Z2K_PAUSE_FILE = '/tmp/zapret2-manager/paused';
 const Z2K_RUNTIME_READY_TIMEOUT_MS = 12000;
 const Z2K_RUNTIME_READY_POLL_MS = 1000;
 
@@ -331,6 +332,60 @@ function valid_removal_descriptor(value, expectedId) {
 		&& runtime_target_path(value.runtimeTarget) != null && type(value.expectedRevision) == 'int' && value.expectedRevision > 0
 		&& valid_digest(value.expectedContentSha256) && type(value.expectedByteSize) == 'int' && value.expectedByteSize > 0
 		&& value.bundleId == 'z2k-curated-lua' && string(value.version) && string(value.sourceCommit) && match(lc(value.sourceCommit), /^[a-f0-9]{40}$/);
+}
+function z2k_runtime_guard_acquire() {
+	let preexisting = false, owned = false;
+	try {
+		preexisting = stat(Z2K_PAUSE_FILE) != null;
+		if (preexisting) return { ok: true, owned: !preexisting, preexisting: preexisting };
+		writefile(Z2K_PAUSE_FILE, '');
+		owned = true;
+		if (stat(Z2K_PAUSE_FILE) == null) {
+			try { unlink(Z2K_PAUSE_FILE); } catch (cleanupError) { }
+			return fail('ERUNTIME', 'Z2K lifecycle could not pause the watchdog.', { reason: 'pause-acquire-failed' });
+		}
+		return { ok: true, owned: owned, preexisting: preexisting };
+	} catch (e) {
+		if (owned) { try { unlink(Z2K_PAUSE_FILE); } catch (cleanupError) { } }
+		return fail('ERUNTIME', 'Z2K lifecycle could not pause the watchdog.', { reason: 'pause-acquire-failed', detail: text(e) });
+	}
+}
+function z2k_runtime_guard_release(guard) {
+	if (!guard || guard.owned !== true) return { ok: true, skipped: true, preserved: guard && guard.preexisting === true };
+	try { unlink(Z2K_PAUSE_FILE); } catch (e) { }
+	try {
+		if (stat(Z2K_PAUSE_FILE) != null) {
+			let fallback = command('rm -f ' + shell_quote(Z2K_PAUSE_FILE));
+			if (fallback.rc != 0 || stat(Z2K_PAUSE_FILE) != null)
+				return fail('ERUNTIME', 'Z2K lifecycle could not release the watchdog pause.', { reason: 'pause-release-failed', output: fallback.out });
+		}
+	} catch (e) {
+		return fail('ERUNTIME', 'Z2K lifecycle could not release the watchdog pause.', { reason: 'pause-release-failed', detail: text(e) });
+	}
+	return { ok: true, released: true };
+}
+function z2k_lifecycle_lock_release() {
+	try {
+		let released = command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+		if (released.rc != 0 && stat(LIFECYCLE_LOCK) != null)
+			return fail('EBUSY', 'Z2K lifecycle lock could not be released.', { reason: 'lifecycle-lock-release-failed', output: released.out });
+		return { ok: true };
+	} catch (e) {
+		return fail('EBUSY', 'Z2K lifecycle lock could not be released.', { reason: 'lifecycle-lock-release-failed', detail: text(e) });
+	}
+}
+function z2k_runtime_guard_finish(guard, root, paths, result) {
+	cleanup(root, paths);
+	let pause = z2k_runtime_guard_release(guard), lock = z2k_lifecycle_lock_release();
+	let answer = object(result) ? result : fail('EINTERNAL', 'Z2K lifecycle returned an invalid result.');
+	answer.lifecycleCleanup = { pause: pause, lock: lock };
+	if (!pause.ok || !lock.ok) {
+		if (answer.ok === true) return fail('ERUNTIME', 'Z2K lifecycle cleanup could not release an owned resource.', { result: answer, lifecycleCleanup: answer.lifecycleCleanup });
+		answer.error = answer.error || { code: 'ERUNTIME', message: 'Z2K lifecycle cleanup failed.' };
+		answer.error.lifecycleCleanup = answer.lifecycleCleanup;
+		answer.ok = false;
+	}
+	return answer;
 }
 function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
 function digest_text(value, prefix) {
@@ -719,8 +774,7 @@ function consume_prepared_target(expectedState, expectedTarget) {
 			command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
 			return fail('EWRITE', 'Z2K prepared operation could not be consumed; no mutation was performed.');
 		}
-		command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
-		return { ok: true };
+		return { ok: true, lockHeld: true };
 	} catch (e) {
 		command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
 		return fail('EINTERNAL', 'Z2K prepared operation could not be consumed; no mutation was performed.', { detail: text(e) });
@@ -787,43 +841,49 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	if (!removals.ok || !same_id_set(removals.ids, target.removeIds) || !same_removal_descriptors(removals.targets, target.removeTargets)) return fail('ECHECK_STALE', 'Z2K managed membership or removal mapping changed after preparation; prepare the release again.');
 	let consumed = consume_prepared_target(state, target);
 	if (!consumed.ok) return consumed;
-	let root = make_stage_root(); if (root == null) return fail('ETARGET', 'resource staging directory is unavailable');
-	let paths = [], staged = [], diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), removePlanned: length(target.removeIds || []), downloaded: 0, verified: 0, staged: 0, applied: 0, removed: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
+	let root = null, paths = [], guard = null, staged = [], diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), removePlanned: length(target.removeIds || []), downloaded: 0, verified: 0, staged: 0, applied: 0, removed: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
+	try {
+		guard = z2k_runtime_guard_acquire();
+		if (!guard.ok) return z2k_runtime_guard_finish(guard, root, paths, guard);
+		root = make_stage_root();
+		if (root == null) return z2k_runtime_guard_finish(guard, root, paths, fail('ETARGET', 'resource staging directory is unavailable'));
 	for (let i = 0; i < length(target.assets); i++) {
 		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
 		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
-		if (!z2k_target_asset_valid(item)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'invalid-target'; return fail('EVERIFY', 'prepared Z2K target asset is invalid.', { sourcePath: item && item.sourcePath, diagnostics: diagnostics }); }
-		if (!policy.ok) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'protected'; policy.diagnostics = diagnostics; return policy; }
+		if (!z2k_target_asset_valid(item)) { diagnostics.targetAssets[i].result = 'invalid-target'; return z2k_runtime_guard_finish(guard, root, paths, fail('EVERIFY', 'prepared Z2K target asset is invalid.', { sourcePath: item && item.sourcePath, diagnostics: diagnostics })); }
+		if (!policy.ok) { diagnostics.targetAssets[i].result = 'protected'; policy.diagnostics = diagnostics; return z2k_runtime_guard_finish(guard, root, paths, policy); }
 		let path = root + '/' + i + '.asset', url = 'https://raw.githubusercontent.com/necronicle/z2k/' + target.targetCommitSha + '/' + item.sourcePath, fetched = command('uclient-fetch -q -O ' + shell_quote(path) + ' ' + shell_quote(url));
-		if (fetched.rc != 0 || !regular(path)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'fetch-failed'; return fail('EUNAVAILABLE', 'resource source is unavailable.', { sourcePath: item.sourcePath, diagnostics: diagnostics }); }
+		if (fetched.rc != 0 || !regular(path)) { diagnostics.targetAssets[i].result = 'fetch-failed'; return z2k_runtime_guard_finish(guard, root, paths, fail('EUNAVAILABLE', 'resource source is unavailable.', { sourcePath: item.sourcePath, diagnostics: diagnostics })); }
 		diagnostics.downloaded++; let actual = sha256(path);
-		if (actual != lc(item.sha256)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'sha-mismatch'; return fail('EVERIFY', 'fetched bytes SHA does not match prepared target.', { sourcePath: item.sourcePath, expectedSha256: item.sha256, actualSha256: actual, diagnostics: diagnostics }); }
+		if (actual != lc(item.sha256)) { diagnostics.targetAssets[i].result = 'sha-mismatch'; return z2k_runtime_guard_finish(guard, root, paths, fail('EVERIFY', 'fetched bytes SHA does not match prepared target.', { sourcePath: item.sourcePath, expectedSha256: item.sha256, actualSha256: actual, diagnostics: diagnostics })); }
 		diagnostics.verified++; let gate = z2k_candidate_gate(item.sourcePath, path, item.sha256);
-		if (!gate.ok) { cleanup(root, paths); diagnostics.targetAssets[i].result = gate.error && gate.error.code == 'ESTALE' ? 'stale' : 'incompatible'; return fail(gate.error && gate.error.code || 'EZ2K_REVIEW_REQUIRED', 'staged Z2K candidate requires review.', { sourcePath: item.sourcePath, diagnostics: diagnostics }); }
+		if (!gate.ok) { diagnostics.targetAssets[i].result = gate.error && gate.error.code == 'ESTALE' ? 'stale' : 'incompatible'; return z2k_runtime_guard_finish(guard, root, paths, fail(gate.error && gate.error.code || 'EZ2K_REVIEW_REQUIRED', 'staged Z2K candidate requires review.', { sourcePath: item.sourcePath, diagnostics: diagnostics })); }
 		push(paths, path); push(staged, { type: item.type, id: item.id, name: item.name, stagedPath: path, sha256: item.sha256, byteSize: stat(path).size, expectedRevision: before && before.revision || null, dependencies: item.dependencies || [], provenance: { kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: target.targetCommitSha, sourcePath: item.sourcePath, bundleId: selected.id, version: target.targetVersion } });
 		diagnostics.targetAssets[i].result = 'staged';
 	}
 	diagnostics.staged = length(staged);
 	let applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
-	if (!applied.ok) { cleanup(root, paths); return applied; }
+	if (!applied.ok) return z2k_runtime_guard_finish(guard, root, paths, applied);
 	diagnostics.applied = applied.updated || length(staged);
 	diagnostics.removed = applied.removed || 0;
 	let after = asset_registry_list(null), registryPostflight = z2k_target_postflight(after, target, diagnostics);
 	diagnostics.registryPostflight = registryPostflight;
 	if (!registryPostflight.ok) {
-		let rollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.revision }); cleanup(root, paths);
-		return fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K Registry activation was rolled back after postflight verification failed.' : 'Z2K Registry activation failed and rollback could not be completed.', { postflight: registryPostflight.error, rollback: rollback, diagnostics: diagnostics });
+		let rollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.revision });
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K Registry activation was rolled back after postflight verification failed.' : 'Z2K Registry activation failed and rollback could not be completed.', { postflight: registryPostflight.error, rollback: rollback, diagnostics: diagnostics }));
 	}
 	let runtimeSpecPath = root + '/runtime-activation.tsv';
 	push(paths, runtimeSpecPath);
 	let runtime = z2k_runtime_activate(target, after, classification, root, diagnostics);
 	diagnostics.runtimePostflight = runtime.postflight || { verified: false, reason: runtime.error && runtime.error.code || 'runtime-activation-failed' };
 	if (!runtime.ok) {
-		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtime.activated === true); cleanup(root, paths);
-		return fail(rollback.ok ? 'ERUNTIME' : 'EROLLBACK', rollback.ok ? 'Z2K runtime activation was rolled back; Registry state was restored.' : 'Z2K runtime activation failed and rollback could not be completed.', { runtime: runtime.error || null, rollback: rollback, diagnostics: diagnostics });
+		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtime.activated === true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ERUNTIME' : 'EROLLBACK', rollback.ok ? 'Z2K runtime activation was rolled back; Registry state was restored.' : 'Z2K runtime activation failed and rollback could not be completed.', { runtime: runtime.error || null, rollback: rollback, diagnostics: diagnostics }));
 	}
-	cleanup(root, paths);
-	return { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: applied.revision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null };
+	return z2k_runtime_guard_finish(guard, root, paths, { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: applied.revision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null });
+	} catch (e) {
+		return z2k_runtime_guard_finish(guard, root, paths, fail('EINTERNAL', 'Z2K lifecycle failed while the intentional runtime guard was active.', { detail: text(e), diagnostics: diagnostics }));
+	}
 }
 export const resource_center_status = function () {
 	// STALE-PROJECTION REGRESSION GUARD (see tests/product/z2k-candidate-compatibility.test.mjs):
