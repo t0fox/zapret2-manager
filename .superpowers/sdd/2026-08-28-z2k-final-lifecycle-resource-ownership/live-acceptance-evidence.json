@@ -443,19 +443,69 @@
     "upgrade": {
       "from": "r-79.7",
       "to": "r-80.3",
-      "status": "not-run",
-      "reason": "awaiting action-time browser confirmation"
+      "status": "failed-rolled-back",
+      "path": "Components UI",
+      "confirmation": "confirmed in browser dialog",
+      "prepare": {
+        "targetVersion": "r-80.3",
+        "operation": "upgrade",
+        "assetCount": 39,
+        "removedCount": 6,
+        "targetCanApply": true,
+        "attentionState": "review-advisory",
+        "planToken": "z2k-target-v2:6a12ec324e5ba58f2882327e98d35f8f1cd1d38e32675d2db97acf6221c5252a",
+        "resolution": "selected-tag"
+      },
+      "apply": {
+        "errorCode": "ERUNTIME",
+        "message": "Z2K runtime activation was rolled back; Registry state was restored.",
+        "runtimeErrorCode": "EVERIFY",
+        "runtimeMessage": "Registry removal target has no safe runtime mapping.",
+        "blockingAssetId": "blob:4pda",
+        "planned": 39,
+        "downloaded": 39,
+        "verified": 39,
+        "staged": 39,
+        "applied": 39,
+        "removed": 6,
+        "postflightMatched": 39,
+        "registryPostflight": true,
+        "runtimePostflightVerified": false,
+        "rollbackOk": true,
+        "runtimeRollback": "skipped",
+        "registryRestoredAuthority": "r-79.7",
+        "rollbackAvailable": false
+      },
+      "postRollback": {
+        "installedAuthority": "r-79.7",
+        "registryRevision": 7,
+        "lifecycleAssetCount": 43,
+        "serviceState": "running",
+        "pid": 7943,
+        "queue": 300,
+        "queueRegistered": true,
+        "ownerConflict": false,
+        "strategyId": "z2k_all_in_one",
+        "configSha256": "26c96c5a9655a3fe1949b157f5d6b8a976d0621d5e04db45f066543c04ed5cfa",
+        "runtimeHashesUnchanged": true,
+        "preparedTargetRetained": {
+          "targetVersion": "r-80.3",
+          "operation": "upgrade",
+          "preparedAt": 1787938569
+        }
+      },
+      "blocker": "The selected r-80.3 removal set contains blob:4pda without a safe runtime mapping; no speculative fix was applied."
     },
     "downgrade": {
       "from": "r-80.3",
       "to": "r-79.7",
       "status": "not-run",
-      "reason": "upgrade not run"
+      "reason": "stopped after the UI upgrade failed and rolled back"
     },
     "reinstall": {
       "version": "r-79.7",
       "status": "not-run",
-      "reason": "awaiting action-time browser confirmation"
+      "reason": "stopped after the UI upgrade failed and rolled back"
     }
   },
   "apk": {

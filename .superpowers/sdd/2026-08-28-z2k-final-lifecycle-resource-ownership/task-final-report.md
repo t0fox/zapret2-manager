@@ -80,17 +80,19 @@ Machine-readable evidence: `live-acceptance-evidence.json` in this SDD directory
 
 ## Boundaries
 
-The following are not claimed as verified: package deployment, and destructive live upgrade/downgrade/reinstall with runtime Strategy/autocircular checks. Browser/DOM read-only Resources acceptance is verified after cache-disabled reload. The focused `strategy-rpc-regression` test passed. The combined learned/autocircular check was not green because an unchanged existing UI contract test expects missing `learned-table-9`; this is reported rather than attributed to the lifecycle changes.
+Package deployment is not in scope (`НИКАКИХ APK`). Browser/DOM read-only Resources acceptance is verified after cache-disabled reload. The focused `strategy-rpc-regression` test passed. The combined learned/autocircular check was not green because an unchanged existing UI contract test expects missing `learned-table-9`; this is reported rather than attributed to the lifecycle changes. The live upgrade was executed through Components UI and safely rolled back; downgrade and reinstall were intentionally stopped after the exact blocker was reproduced.
 
 ## Lifecycle operation table
 
 | Operation | Result | Evidence boundary |
 |---|---|---|
-| Upgrade `r-79.7 → r-80.3` | NOT RUN | Prepared in Components UI; mutation awaits action-time confirmation. |
-| Downgrade `r-80.3 → r-79.7` | NOT RUN | Depends on the UI upgrade completing first. |
-| Reinstall `r-79.7` | NOT RUN | Prepared in Components UI; mutation awaits action-time confirmation. |
+| Upgrade `r-79.7 → r-80.3` | FAILED → ROLLED BACK | Actual Components UI confirmation/apply. `ERUNTIME` wrapping `EVERIFY`: `Registry removal target has no safe runtime mapping`, `id=blob:4pda`. Registry rollback `ok=true`; current authority restored to `r-79.7`. |
+| Downgrade `r-80.3 → r-79.7` | NOT RUN | Stopped after the upgrade blocker; precondition was not met. |
+| Reinstall `r-79.7` | NOT RUN | Stopped after the upgrade blocker; no speculative live mutation was attempted. |
 
-Current acceptance verdict: `NOT READY` until all three operations are executed through the actual Components UI and each postflight proves receipt/Registry identity, runtime file/hash state, service/nft queue health, strategy identity, and autocircular state preservation. CLI `resources_update` is intentionally not used as a substitute.
+Current acceptance verdict: `NOT READY` — the actual UI upgrade reproducibly blocks on the removal mapping for `blob:4pda`; downgrade and reinstall are not claimed. The failure path restored Registry state and left the running service healthy. CLI `resources_update` was not used as a substitute, and no APK was built or installed.
+
+After rollback, read-only `resources_status` still exposed the prepared `r-80.3` upgrade snapshot (`preparedAt=1787938569`) while the installed authority was `r-79.7`; no replay or manual cleanup was performed.
 
 ## Delivery
 

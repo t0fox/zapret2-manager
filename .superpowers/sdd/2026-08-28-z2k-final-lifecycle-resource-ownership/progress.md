@@ -42,10 +42,10 @@ No preflight ruling required.
 - Task 1: complete — baseline ownership map and RED reproducer recorded in `task-1-report.md`.
 - Tasks 2-10: complete — implementation and focused contract coverage are in the working tree.
 - Task 11: complete — direct source-only deployment, cache-disabled browser Resources acceptance, and backend negative ownership proof passed.
-- Tasks 12-13: pending action-time confirmation — Components UI is prepared, but no live upgrade/downgrade/reinstall mutation has been executed.
+- Tasks 12-13: live upgrade attempted through Components UI; apply failed at runtime mapping validation for removed `blob:4pda` and automatic Registry rollback succeeded. Downgrade and reinstall were stopped per the plan.
 - Task 14: focused matrix passed; broad filtered matrix remains non-green on unrelated/pre-existing tests and is not claimed as a product GREEN gate.
 - Task 15: complete — adversarial review recorded below and in `task-final-report.md`.
-- Tasks 16-17: pending after live lifecycle decision — report and machine-readable live evidence were updated locally; final commit/push still follows the acceptance outcome.
+- Tasks 16-17: complete after recording the exact live blocker, post-rollback health, final report, and machine-readable evidence; final commit/push follows the acceptance outcome.
 
 ## Final evidence summary
 
@@ -69,4 +69,4 @@ No preflight ruling required.
 - Selected-tag prepare resolves an exact immutable ref and annotated tag without constructing the full catalog; raw manifest fetch is counted separately from bounded REST calls.
 - Removal/reference conflicts are returned before prepared-target persistence; apply rechecks the snapshot fingerprint and runtime postflight bytes.
 - User edits outside the selected managed target do not stale the target; managed target state changes do.
-- Package deployment is intentionally out of scope (`НИКАКИХ APK`). Destructive live lifecycle operations remain unverified pending action-time confirmation; the UI path is ready and CLI apply is prohibited as a substitute.
+- Package deployment is intentionally out of scope (`НИКАКИХ APK`). The UI upgrade was action-time confirmed but failed with `ERUNTIME`/`EVERIFY` because removal target `blob:4pda` has no safe runtime mapping; Registry rollback succeeded. Downgrade and reinstall remain not run, and CLI apply is prohibited as a substitute.
