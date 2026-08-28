@@ -18,3 +18,4 @@ tags: [adr, decisions]
 - [Граница выполнения BlockCheck](./adr-002-blockcheck-execution-boundary.md)
 - [Два движка глубокого поиска](./adr-003-deep-search-dual-engine.md)
 - [Полномочия постоянного применения стратегий](./adr-005-strategy-apply-authority.md)
+- [Жизненный цикл провайдеров Telegram Proxy через GitHub Releases](./2026-08-24-tg-proxy-feed-lifecycle.md)

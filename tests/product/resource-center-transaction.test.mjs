@@ -74,6 +74,6 @@ test('Legacy resource update requests fail closed instead of entering the old Z2
 test('Strategy catalog updates require a complete verified snapshot and retain last known good', () => {
   for (const fragment of ['completeSnapshot', 'dependenciesVerified', 'stagedRoot', 'strategy_catalog_load', 'lastKnownGoodRetained', 'MANAGED_ROOT'])
     assert.match(strategyUpdate, new RegExp(fragment.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), fragment);
-  assert.match(strategyUpdate, /partial remote files are rejected/);
+  assert.match(strategyUpdate, /rejected-incomplete-source|complete verified catalog snapshot is required/);
   assert.match(strategyUpdate, /usersPreserved: true/);
 });
