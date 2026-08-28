@@ -303,7 +303,7 @@ function resource_version_arg(req) {
 	let version = null;
 	try { if (req && req.args && req.args.version != null) version = req.args.version; } catch (e) { }
 	if (version == null) { try { if (req && req.version != null) version = req.version; } catch (e) { } }
-	return type(version) == 'string' && match(version, /^r-[0-9]+(?:\.[0-9]+)?$/) ? version : null;
+	return type(version) == 'string' && match(version, /^r-[0-9]+(\.[0-9]+)?$/) ? version : null;
 }
 function z2k_versions_method(req) { return resource_cli_action('versions'); }
 function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version); }
