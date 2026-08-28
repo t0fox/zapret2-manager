@@ -17,9 +17,9 @@ The approved Z2K version UX was implemented on an isolated branch based on
 the locally completed Components baseline.
 
 - Base SHA: `d44341d0f7acff7a6e181a9776bc50ab6b2e4dc8`
-- Final SHA: `d80eb27f7fe3187cf4dc49671f4fc38b9946ea14`
+- Final implementation SHA: `d80eb27f7fe3187cf4dc49671f4fc38b9946ea14`
 - Branch: `codex/z2k-version-lifecycle`
-- GitHub proof: `HEAD == origin/codex/z2k-version-lifecycle == d80eb27f7fe3187cf4dc49671f4fc38b9946ea14`
+- GitHub proof: implementation SHA `d80eb27f7fe3187cf4dc49671f4fc38b9946ea14` is present on `origin/codex/z2k-version-lifecycle`; the branch tip also contains this evidence report.
 - Router deployment: final SHA, reviewed closure, backup at
   `/tmp/z2m-deploy-z2k-version-lifecycle-23/backup`
 
