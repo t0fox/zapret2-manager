@@ -343,7 +343,10 @@ export const asset_registry_apply_bundle = function(request) {
 		let item = request.assets[i];
 		if (!object(item) || !valid_type(item.type) || !valid_id(item.type, item.id) || seen[item.id]
 			|| !staged_path_safe(item.stagedPath) || !valid_sha(item.sha256) || type(item.byteSize) != 'int'
-			|| item.byteSize < 1 || item.byteSize > LIMITS[item.type]) return fail('EINPUT', 'resource bundle asset declaration is invalid');
+			|| item.byteSize < 1 || item.byteSize > LIMITS[item.type]) return fail('EINPUT', 'resource bundle asset declaration is invalid', {
+				id: item && item.id || null, type: item && item.type || null, byteSize: item && item.byteSize || null,
+				stagedPath: item && item.stagedPath || null
+			});
 		seen[item.id] = true;
 		let actualSize = content_size(item.stagedPath), actualSha = sha256_file(item.stagedPath);
 		if (actualSize != item.byteSize || actualSha == null || actualSha != item.sha256) return fail('EVERIFY', 'resource bundle asset hash or size mismatch', { id: item.id });
