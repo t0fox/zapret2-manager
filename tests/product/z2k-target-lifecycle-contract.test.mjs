@@ -23,6 +23,13 @@ test('Z2K target planning has one immutable identity and a v2 prepared snapshot'
   assert.match(coordinator, /hybrid asset set/);
 });
 
+test('Z2K target planning records exact-managed removals for release transitions', () => {
+  assert.match(coordinator, /removeIds/);
+  assert.match(coordinator, /z2k_target_removals/);
+  assert.match(coordinator, /localFingerprint[\s\S]*removeIds/);
+  assert.match(coordinator, /asset_registry_apply_bundle\(\{[\s\S]*removeIds/);
+});
+
 test('target operation is explicit: install, upgrade, reinstall, or downgrade', () => {
   for (const operation of ['install', 'upgrade', 'reinstall', 'downgrade'])
     assert.match(coordinator, new RegExp("['\\\"]" + operation + "['\\\"]"));

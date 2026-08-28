@@ -24,6 +24,14 @@ test('Asset Registry exposes a staged, hash-verified, all-or-nothing bundle tran
   assert.match(registry, /item.expectedRevision == null/);
 });
 
+test('Asset Registry removes only declared upstream assets inside the same transaction', () => {
+  assert.match(registry, /removeIds/);
+  assert.match(registry, /EREFERENCED/);
+  assert.match(registry, /old\.provenance\.kind != 'catalog\/upstream'/);
+  assert.match(registry, /state\.assets[\s\S]*removeIds/);
+  assert.match(registry, /removed:/);
+});
+
 test('Resource coordinator keeps generic bundles transactional and routes Z2K through prepared targets', () => {
   for (const fragment of ['manifest-only', 'uclient-fetch', 'safeToUpdate', 'contentUrl', 'controlledTest', 'confirm !== true'])
     assert.match(coordinator, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), fragment);

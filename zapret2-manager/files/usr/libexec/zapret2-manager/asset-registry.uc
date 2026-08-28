@@ -335,7 +335,9 @@ export const asset_registry_apply_bundle = function(request) {
 		|| !string(request.sourceCommit)
 		|| type(request.assets) != 'array' || !length(request.assets) || length(request.assets) > MAX_BUNDLE_ASSETS)
 		return fail('EINPUT', 'resource bundle manifest is incomplete');
-	let state = state_load(), oldStateRaw = readfile(STATE), total = 0, seen = {}, prepared = [];
+	let removeIds = request.removeIds == null ? [] : request.removeIds;
+	if (type(removeIds) != 'array' || length(removeIds) > MAX_BUNDLE_ASSETS) return fail('EINPUT', 'resource bundle removal list is invalid');
+	let state = state_load(), oldStateRaw = readfile(STATE), total = 0, seen = {}, prepared = [], removals = [];
 	if (state == null) return fail('ESTATE', 'asset registry metadata is invalid');
 	for (let i = 0; i < length(request.assets); i++) {
 		let item = request.assets[i];
@@ -364,6 +366,15 @@ export const asset_registry_apply_bundle = function(request) {
 			|| !string(provenance.sourcePath) || !string(provenance.bundleId) || !string(provenance.version)) return fail('EINPUT', 'upstream provenance is incomplete', { id: item.id });
 		push(prepared, { item: item, old: old, content: content, provenance: provenance });
 	}
+	for (let i = 0; i < length(removeIds); i++) {
+		let id = removeIds[i], separator = string(id) ? index(id, ':') : -1, kind = separator > 0 ? substr(id, 0, separator) : null, old = separator > 0 ? find_asset(state, id) : null;
+		if (!string(id) || separator <= 0 || !valid_type(kind) || !valid_id(kind, id) || seen[id]) return fail('EINPUT', 'resource bundle removal declaration is invalid', { id: id });
+		seen[id] = true;
+		if (old == null) return fail('EDEPENDENCY', 'resource removal target is missing', { id: id });
+		if (old.mutable != true || !old.provenance || old.provenance.kind != 'catalog/upstream') return fail('EPOLICY', 'package or user resource cannot be removed by upstream', { id: id });
+		if (length(old.references || [])) return fail('EREFERENCED', 'resource removal target is referenced', { id: id, references: references_copy(old) });
+		push(removals, { id: id, old: old });
+	}
 	for (let i = 0; i < length(prepared); i++) {
 		let item = prepared[i].item;
 		for (let j = 0; j < length(item.dependencies || []); j++) {
@@ -391,6 +402,15 @@ export const asset_registry_apply_bundle = function(request) {
 		push(changed, { path: path, previous: previous, previousPath: previousPath, oldPrevious: oldPrevious });
 		push(rollbackRecords, { path: path, previousPath: previousPath, hadPrevious: previous != null });
 	}
+	for (let i = 0; result == null && i < length(removals); i++) {
+		let entry = removals[i], path = entry.old.path;
+		if (!mutable_asset_path_safe(entry.old) || !regular(path)) { result = fail('ESAFETY', 'resource removal target path is not manager-owned', { id: entry.id }); break; }
+		let previous = readfile(path), previousPath = rollback_path(path), oldPrevious = null;
+		if (previous == null) { result = fail('ESAFETY', 'resource removal target content could not be read', { id: entry.id }); break; }
+		if (stat(previousPath) != null) { if (!regular(previousPath)) { result = fail('ESAFETY', 'resource rollback path is not a regular file', { id: entry.id }); break; } oldPrevious = readfile(previousPath); }
+		push(changed, { path: path, previous: previous, previousPath: previousPath, oldPrevious: oldPrevious });
+		push(rollbackRecords, { path: path, previousPath: previousPath, hadPrevious: true });
+	}
 	if (result == null && !rollback_save({ schema: 1, bundleId: request.bundleId, version: request.version, sourceCommit: request.sourceCommit, oldStateRaw: oldStateRaw, records: rollbackRecords })) result = fail('EWRITE', 'resource rollback snapshot could not be saved');
 	if (result == null) for (let i = 0; i < length(changed); i++) {
 		let backup = changed[i];
@@ -407,6 +427,18 @@ export const asset_registry_apply_bundle = function(request) {
 		} else {
 			old.provenance = copy(entry.provenance); old.contentSha256 = item.sha256; old.byteSize = item.byteSize; old.revision++; old.lastChecked = time(); old.lastUpdated = time(); if (item.name) old.name = item.name;
 		}
+	}
+	if (result == null) for (let i = 0; i < length(removals); i++) {
+		let entry = removals[i];
+		try { unlink(entry.old.path); } catch (e) { result = fail('EWRITE', 'resource removal failed', { id: entry.id }); break; }
+		if (stat(entry.old.path) != null) { result = fail('EWRITE', 'resource removal did not clear the target path', { id: entry.id }); break; }
+	}
+	if (result == null && length(removals)) {
+		let removeSet = {};
+		for (let i = 0; i < length(removals); i++) removeSet[removals[i].id] = true;
+		let kept = [];
+		for (let i = 0; i < length(state.assets); i++) if (!removeSet[state.assets[i].id]) push(kept, state.assets[i]);
+		state.assets = kept;
 	}
 	if (result == null) {
 		let receiptAssets = [], receipts = copy_array(state.activationReceipts);
@@ -426,7 +458,7 @@ export const asset_registry_apply_bundle = function(request) {
 		if (oldRollbackRaw == null) { try { unlink(ROLLBACK_STATE); } catch (e) {} } else atomic_write(ROLLBACK_STATE, oldRollbackRaw);
 		return result;
 	}
-	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), revision: state.revision, rollbackAvailable: true, postflight: { verified: true, assets: length(prepared) } };
+	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), removed: length(removals), revision: state.revision, rollbackAvailable: true, postflight: { verified: true, assets: length(prepared), removed: length(removals) } };
 };
 export const asset_registry_rollback_bundle = function(request) {
 	if (!object(request) || !string(request.bundleId)) return fail('EINPUT', 'rollback bundle identity is required');
