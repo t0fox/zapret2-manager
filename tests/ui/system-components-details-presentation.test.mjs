@@ -242,8 +242,9 @@ test('Z2K available release gets an update action only when the model says it is
   const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
 
   assert.match(textOf(details), /r-80\.4/);
-  assert.ok(buttonsOf(details).includes('Обновить'));
+  assert.ok(buttonsOf(details).includes('Обновить до r-80.4'));
   assert.ok(buttonsOf(details).includes('Проверить снова'));
+  assert.ok(buttonsOf(findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0]).includes('Обновить до r-80.4'));
 });
 
 test('Z2K blocking review suppresses update even when a remote update is present', () => {
@@ -283,7 +284,7 @@ test('Z2K advisory review keeps an applicable update action and explains the att
   const updateState = findAll(details, node => classHas(node, 'z2m-component-update-state'))[0];
   const chip = findAll(card, node => classHas(node, 'z2m-chip'))[0];
 
-  assert.ok(buttonsOf(details).includes('Обновить'));
+  assert.ok(buttonsOf(details).includes('Обновить до r-80.4'));
   assert.equal(textOf(chip), 'Доступно обновление');
   assert.equal(textOf(updateState), 'СостояниеДоступно обновление');
   assert.doesNotMatch(textOf(updateState), /Требует внимания/);
@@ -346,6 +347,8 @@ test('Z2K update sends the exact successful check plan token to resources_update
   const { internals } = loadMaintenance();
   const ctx = makeContext(engineStatus(), z2kRaw());
   const calls = [];
+  let modal = null;
+  ctx.shell.openModal = (title, message, actions) => { modal = { title, message, actions }; };
   ctx.api.resources.check = () => Promise.resolve({
     ok: true,
     checkedAt: 200,
@@ -362,11 +365,79 @@ test('Z2K update sends the exact successful check plan token to resources_update
   internals.checkUpdates(ctx, 'z2k');
   await new Promise(resolve => setTimeout(resolve, 0));
   internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, updates: ['files/lua/x.lua'] });
+  assert.ok(modal, 'update must wait for explicit confirmation');
+  modal.actions[1].attrs.click();
   await new Promise(resolve => setTimeout(resolve, 0));
 
   assert.equal(internals.state.z2kCheck.checkedAt, 200);
   assert.equal(internals.state.z2kCheck.manifest.current, 'r-80.3');
   assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, planToken: 'z2k-plan-v1:200:48:r-80.3' }]);
+});
+
+test('Z2K update confirms target release and advisory warning before mutation', async () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw());
+  const calls = [];
+  const toasts = [];
+  let modal = null;
+  ctx.shell.openModal = (title, message, actions) => { modal = { title, message, actions }; };
+  ctx.shell.showToast = (message, kind) => { toasts.push({ message, kind }); };
+  ctx.api.resources.update = edit => {
+    calls.push(JSON.parse(edit));
+    return Promise.resolve({ ok: true, planned: 1, applied: 1 });
+  };
+
+  internals.updateZ2K(ctx, {
+    updateState: 'update-available',
+    attentionState: 'review-advisory',
+    canApply: true,
+    availableRelease: 'r-80.4',
+    planToken: 'z2k-plan-v1:200:48:r-80.4',
+    advisoryReviews: ['files/z2k-config-validator.sh'],
+  });
+
+  assert.equal(calls.length, 0, 'resources_update must wait for explicit confirmation');
+  assert.ok(modal, 'update must open a confirmation modal');
+  assert.match(modal.title, /r-80\.4/);
+  assert.match(textOf(modal.message), /r-80\.4/);
+  assert.match(textOf(modal.message), /advisory|внимани/i);
+  assert.equal(modal.actions[1].attrs.label, 'Обновить до r-80.4');
+
+  modal.actions[1].attrs.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, planToken: 'z2k-plan-v1:200:48:r-80.4' }]);
+  assert.deepEqual(toasts, [{ message: 'Обновление применено.', kind: 'ok' }]);
+});
+
+test('Z2K stale update refuses modal and mutation, while backend errors keep their copy', async () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw());
+  const calls = [];
+  const toasts = [];
+  let modal = null;
+  ctx.shell.openModal = (title, message, actions) => { modal = { title, message, actions }; };
+  ctx.shell.showToast = (message, kind) => { toasts.push({ message, kind }); };
+  ctx.api.resources.update = edit => {
+    calls.push(JSON.parse(edit));
+    return Promise.reject({ code: 'ECHECK_STALE', message: 'Z2K update requires a matching successful check snapshot.' });
+  };
+
+  internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, availableRelease: 'r-80.4' });
+  assert.equal(calls.length, 0, 'stale state must not mutate');
+  assert.equal(modal, null, 'stale state must not open a misleading confirmation');
+  assert.deepEqual(toasts, [{ message: 'Сначала выполните успешную проверку обновлений Z2K.', kind: 'err' }]);
+
+  internals.state.z2kCheck = { planToken: 'z2k-plan-v1:200:48:r-80.4', checkedAt: 200, manifest: { current: 'r-80.4' } };
+  internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, availableRelease: 'r-80.4' });
+  assert.ok(modal, 'a current snapshot should allow the confirmation step');
+  modal.actions[1].attrs.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, planToken: 'z2k-plan-v1:200:48:r-80.4' }]);
+  assert.deepEqual(toasts.at(-1), { message: 'Z2K update requires a matching successful check snapshot.', kind: 'err' });
 });
 
 test('Only one mandatory details panel is open at a time', () => {

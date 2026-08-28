@@ -52,7 +52,7 @@ test('Z2K update must show only Z2K busy, not Engine', () => {
 test('every operation must clear via finally or both then/catch', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
   const checkFn = src.slice(src.indexOf('function checkUpdates'), src.indexOf('function checkUpdates') + 3500);
-  const updateFn = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function updateZ2K') + 2000);
+  const updateFn = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function updateZ2K') + 3500);
   const refreshFn = src.slice(src.indexOf('function refreshState'), src.indexOf('function refreshState') + 1500);
   for (const [name, fn] of [['checkUpdates', checkFn], ['updateZ2K', updateFn], ['refreshState', refreshFn]]) {
     assert.match(fn, /componentOperation\s*=\s*null/, `${name} must clear operation`);

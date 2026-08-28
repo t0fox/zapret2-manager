@@ -443,27 +443,36 @@ function updateZ2K(ctx, component) {
     showError(ctx, { code: 'ECHECK_STALE', message: _('Сначала выполните успешную проверку обновлений Z2K.') });
     return;
   }
-  state.componentOperation = { kind: 'update', scope: 'z2k' };
-  rerender(ctx);
-  var payload = { bundleId: 'z2k-curated-lua', confirm: true, planToken: planToken };
-  var promise = ctx.api.resources.update ? ctx.api.resources.update(JSON.stringify(payload)) : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
-  promise.then(function (answer) {
-    if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
-    var planned = answer.planned != null ? answer.planned : (answer.diagnostics && answer.diagnostics.planned);
-    var applied = answer.applied != null ? answer.applied : (answer.diagnostics && answer.diagnostics.applied);
-    if (planned == null && answer.diagnostics && answer.diagnostics.targetAssets) planned = answer.diagnostics.targetAssets.length;
-    if (planned > 0 && applied === 0) {
-      throw { code: 'EVERIFY', message: 'Обновление не применено: ' + planned + ' обновлений было запланировано, 0 установлено.' };
-    }
-    ctx.shell.showToast(_('Обновление применено.'), 'ok');
-  }).catch(function (error) {
-    showError(ctx, error);
-  }).then(function () {
-    state.componentOperation = null;
+  var targetRelease = z2kTargetRelease(component) || object(snapshot.manifest).current;
+  var advisoryReviews = component && Array.isArray(component.advisoryReviews) ? component.advisoryReviews : [];
+  var message = _('Будет установлен Z2K release ') + (targetRelease || _('из проверенного снимка')) + '.';
+  if (component && (component.attentionState === 'review-advisory' || advisoryReviews.length)) {
+    message += ' ' + _('Внимание: advisory-наблюдение остаётся отдельным предупреждением и не устанавливается автоматически.');
+    if (advisoryReviews.length) message += ' ' + advisoryReviews.join(', ');
+  }
+  confirmAction(ctx, _('Обновить Z2K до ') + (targetRelease || _('проверенного release')) + '?', message, z2kUpdateActionLabel(component), function () {
+    state.componentOperation = { kind: 'update', scope: 'z2k' };
     rerender(ctx);
-    return refresh(ctx);
-  }).catch(function (error) {
-    showError(ctx, error);
+    var payload = { bundleId: 'z2k-curated-lua', confirm: true, planToken: planToken };
+    var promise = ctx.api.resources.update ? ctx.api.resources.update(JSON.stringify(payload)) : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
+    promise.then(function (answer) {
+      if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
+      var planned = answer.planned != null ? answer.planned : (answer.diagnostics && answer.diagnostics.planned);
+      var applied = answer.applied != null ? answer.applied : (answer.diagnostics && answer.diagnostics.applied);
+      if (planned == null && answer.diagnostics && answer.diagnostics.targetAssets) planned = answer.diagnostics.targetAssets.length;
+      if (planned > 0 && applied === 0) {
+        throw { code: 'EVERIFY', message: 'Обновление не применено: ' + planned + ' обновлений было запланировано, 0 установлено.' };
+      }
+      ctx.shell.showToast(_('Обновление применено.'), 'ok');
+    }).catch(function (error) {
+      showError(ctx, error);
+    }).then(function () {
+      state.componentOperation = null;
+      rerender(ctx);
+      return refresh(ctx);
+    }).catch(function (error) {
+      showError(ctx, error);
+    });
   });
 }
 function toggleEngine(ctx) {
@@ -541,11 +550,21 @@ function z2kReleaseLabel(component) {
   if (release.value) return release.value;
   return component.details && component.details.localInstalled === false ? _('Не установлен') : _('Не определён');
 }
+function z2kTargetRelease(component) {
+  var details = component && component.details || {};
+  var manifest = details.manifest || {};
+  return component && (component.availableRelease || manifest.current) || state.z2kCheck && state.z2kCheck.manifest && state.z2kCheck.manifest.current || null;
+}
+function z2kUpdateActionLabel(component) {
+  var targetRelease = z2kTargetRelease(component);
+  return targetRelease ? _('Обновить до ') + targetRelease : _('Обновить');
+}
 function z2kCanApply(component) {
   var attentionState = component && component.attentionState;
   var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
   return !!component && component.updateState === 'update-available'
     && component.canApply === true
+    && !!z2kTargetRelease(component)
     && ['review-required', 'rebase-required', 'integration-required'].indexOf(attentionState) < 0
     && blockingReviews.length === 0;
 }
@@ -805,7 +824,7 @@ function renderZ2KDetails(ctx, component) {
         { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
       ],
       actions: hasUpdate ? [
-        shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')),
+        shell.button(z2kUpdateActionLabel(component), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')),
         shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
       ] : [
         shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
@@ -926,7 +945,7 @@ function renderZ2KCard(ctx, component) {
   var metaRows = z2kMetaRows(component);
   var primaryActions = [];
   if (hasUpdate) {
-    primaryActions.push(shell.button(_('Обновить'), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
+    primaryActions.push(shell.button(z2kUpdateActionLabel(component), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
   } else if (component.updateState === 'review-required') {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
