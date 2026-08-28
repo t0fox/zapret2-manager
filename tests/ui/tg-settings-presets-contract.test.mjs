@@ -1,11 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 
 const CORE = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js';
 const PROXYCFG = 'zapret2-manager/files/usr/libexec/zapret2-manager/proxycfg.uc';
 const PROVIDER = 'zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc';
 const CSS = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css';
+
+function loadProfilePresets() {
+  const start = CORE_SOURCE.indexOf('function object(value)');
+  const end = CORE_SOURCE.indexOf('// The canonical Recommended DC set');
+  return vm.runInNewContext(`(function () {\n${CORE_SOURCE.slice(start, end)}\nreturn profilePresets;\n})()`);
+}
+
+const CORE_SOURCE = fs.readFileSync(CORE, 'utf8');
 
 test('Backend defines upstream-faithful recommended/direct presets and exposes them', () => {
   const cfg = fs.readFileSync(PROXYCFG, 'utf8');
@@ -78,6 +87,12 @@ test('Settings hydrate canonical state and never invent dirty drafts', () => {
   assert.match(ui, /Несохранённые изменения/);
   assert.match(ui, /Сохранить изменения/);
   assert.doesNotMatch(ui, /координатор/i);
+});
+
+test('Settings keeps fallback profiles when config RPC has no value', () => {
+  const presets = loadProfilePresets()({ config: { error: { code: 'frontend-timeout' } } });
+  assert.equal(presets.recommended.port, 1443);
+  assert.equal(presets.direct.defaultDomains, false);
 });
 
 test('LAN access is a first-class toggle with an advertised address line', () => {

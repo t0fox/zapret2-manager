@@ -1282,8 +1282,8 @@ var CONNECTION_FACT_KEYS = ['enabled', 'autostart', 'host', 'linkIp'];
 
 function profilePresets(data) {
   var block = object(object(data.config && data.config.value).presets);
-  var recommended = object(block.recommended).settings;
-  var direct = object(block.direct).settings;
+  var recommended = object(object(block.recommended).settings);
+  var direct = object(object(block.direct).settings);
   return {
     recommended: Object.keys(recommended).length ? recommended : PROFILE_TEMPLATES.recommended,
     direct: Object.keys(direct).length ? direct : PROFILE_TEMPLATES.direct,
