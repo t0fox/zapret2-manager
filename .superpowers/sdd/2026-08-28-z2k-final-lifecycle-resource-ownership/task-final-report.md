@@ -121,3 +121,13 @@ The correct final verdict is `NOT READY`. The bounded browser retry did not prov
 ## Delivery
 
 Commit and remote branch identity are recorded in the final task response after the final clean-worktree check.
+
+## Frontend transport timeout fix — 2026-08-29
+
+The fresh instrumented Components UI attempt reached confirmation and sent the exact `resources_update` JSON-RPC request, but the browser canceled it at `20.009981s` with `net::ERR_ABORTED` after receiving HTTP 200 headers. The response body was not available after the browser cancellation, so no backend error is invented here. Router state remained at confirmed `r-79.7`, Registry revision `7`, with no prepared target after cleanup.
+
+The exact transport boundary was verified from the router-served LuCI `rpc.js`: request timeout is `(L.env.rpctimeout ?? 20) * 1000`; `rpc.declare({ timeout: 60 })` options are ignored by that transport. The page's generic `LOAD_TIMEOUT_MS=30000` was therefore not the first abort boundary. The fix in commit `29c3dab1` keeps ordinary page loads at `30000ms`, gives confirmed Z2K mutations an independent `180000ms` bounded lifetime, and routes `resources.update` through a direct authenticated non-batched LuCI request with an explicit `180000ms` transport timeout. Successful backend result objects and structured backend error objects remain handled by the existing checked-result path.
+
+TDD evidence: `tests/product/z2k-frontend-timeout-contract.test.mjs` failed `2/2` before the production change and passed `2/2` after it. The complete focused matrix then passed `63/63` with native OpenWrt UCode. The exact broad command was run against both clean baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508` and candidate: baseline `101/105` passed, candidate `129/133` passed, with the same four failures and zero candidate-only failures. The broad result is parity evidence, not a product GREEN claim.
+
+No APK/package build or installation was performed. Source-only router deployment and a fresh live Components UI upgrade are the next acceptance gates; downgrade/reinstall remain prohibited until the fresh upgrade succeeds.

@@ -629,5 +629,113 @@
     "blockers": [
       "Fresh Components UI upgrade retry did not produce a successful mutation; Registry remained r-79.7. Downgrade and reinstall were not run."
     ]
+  },
+  "frontendTimeoutFix": {
+    "date": "2026-08-29",
+    "rootCause": {
+      "class": "CASE_A",
+      "layer": "LuCI RPC transport",
+      "evidence": [
+        "Components UI sent resources_update after the user confirmed the prepared target",
+        "Network.loadingFailed reported canceled=true and net::ERR_ABORTED at 20.009981 seconds",
+        "Router-served rpc.js sets timeout to (L.env.rpctimeout ?? 20) * 1000",
+        "rpc.declare timeout options are ignored by the served rpc.js transport",
+        "Router staging existed after the browser abort while Registry remained revision 7"
+      ],
+      "frontendLoadTimeoutHypothesis": "Partially true at the transport layer; the actual boundary was the 20 second LuCI rpctimeout before the maintenance LOAD_TIMEOUT_MS=30000 boundary.",
+      "backendErrorBody": "not-captured-after-browser-cancel",
+      "registryApplied": false
+    },
+    "fix": {
+      "commit": "29c3dab1",
+      "files": [
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js",
+        "tests/product/z2k-frontend-timeout-contract.test.mjs"
+      ],
+      "mutationTimeoutMs": 180000,
+      "pageLoadTimeoutMs": 30000,
+      "transportTimeoutMs": 180000,
+      "oneShotPreparedTargetPreserved": true,
+      "structuredBackendErrorPreserved": true
+    },
+    "tdd": {
+      "red": "2 tests failed before the frontend fix",
+      "green": "2 tests passed after the frontend fix"
+    },
+    "focusedGate": {
+      "tests": 63,
+      "pass": 63,
+      "fail": 0,
+      "skipped": 0,
+      "nativeUcode": true
+    },
+    "broadParity": {
+      "command": "timeout 240s node --test tests/product/z2k-*.test.mjs tests/ui/z2k-*.test.mjs",
+      "baseline": {
+        "tests": 105,
+        "pass": 101,
+        "fail": 4,
+        "skipped": 0,
+        "exitCode": 1
+      },
+      "candidate": {
+        "tests": 133,
+        "pass": 129,
+        "fail": 4,
+        "skipped": 0,
+        "exitCode": 1
+      },
+      "candidateOnlyFailures": 0,
+      "sameFailureSet": true,
+      "note": "Four known failures remain: stale candidate compatibility assertion, signed-update fixture assertion, upstream-classification expectation, and missing vitest dependency."
+    },
+    "liveAttempt": {
+      "provider": "Codex in-app Browser",
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "prepare": {
+        "status": "success",
+        "preparedAt": 1787954353,
+        "planTokenPrefix": "z2k-target-v2:7bf8c5d1",
+        "targetCommitSha": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+        "assetCount": 39,
+        "removedCount": 6,
+        "requestCount": 3,
+        "restRequestCount": 2,
+        "resolution": "selected-tag"
+      },
+      "confirm": {
+        "status": "confirmed",
+        "requestId": "25148.973",
+        "sentAt": 1787954472.98572
+      },
+      "rpc": {
+        "method": "resources_update",
+        "transportStatus": 200,
+        "browserAbortAfterMs": 20010,
+        "networkError": "net::ERR_ABORTED",
+        "responseBody": "not-captured"
+      },
+      "routerAfter": {
+        "authority": "r-79.7",
+        "registryRevision": 7,
+        "preparedTarget": null,
+        "receiptVersions": [
+          "r-79.7",
+          "r-80.3",
+          "r-79.7",
+          "r-79.7"
+        ],
+        "stagingObservedAfterAbort": true,
+        "stagingEventuallyCleaned": true,
+        "nfqws2": "running",
+        "queue": 300
+      },
+      "durationMs": 20010,
+      "result": "transport-timeout-before-observable-backend-result"
+    },
+    "verdict": "not-ready",
+    "blocker": "The fresh Components UI upgrade still did not produce a successful lifecycle result; no downgrade or reinstall was run."
   }
 }
