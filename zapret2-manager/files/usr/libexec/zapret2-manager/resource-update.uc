@@ -208,6 +208,11 @@ function z2k_local_projection(manifest) {
 	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease };
 }
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function z2k_target_asset_valid(item) {
+	return object(item) && string(item.sourcePath) && match(item.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
+		&& string(item.id) && (substr(item.id, 0, 4) == 'lua:' || substr(item.id, 0, 5) == 'blob:')
+		&& (item.type == 'lua' || item.type == 'blob') && valid_digest(item.sha256);
+}
 function valid_target_operation(value) { return value == 'install' || value == 'upgrade' || value == 'reinstall' || value == 'downgrade'; }
 function valid_latest_check(value) { return object(value) && type(value.checkedAt) == 'int' && value.checkedAt >= 0 && object(value.signed); }
 function valid_prepared_target(value) {
@@ -280,11 +285,6 @@ function digest_text(value, prefix) {
 	if (made.rc != 0 || !match(path, /^\/tmp\/[A-Za-z0-9._-]+$/)) return null;
 	try { writefile(path, value == null ? '' : value); } catch (e) { cleanup(null, [path]); return null; }
 	let digest = sha256(path); cleanup(null, [path]); return digest;
-}
-function z2k_target_asset_valid(item) {
-	return object(item) && string(item.sourcePath) && match(item.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
-		&& string(item.id) && (substr(item.id, 0, 4) == 'lua:' || substr(item.id, 0, 5) == 'blob:')
-		&& (item.type == 'lua' || item.type == 'blob') && valid_digest(item.sha256);
 }
 function z2k_local_fingerprint(targetAssets, listed, removeIds) {
 	let rows = [];
