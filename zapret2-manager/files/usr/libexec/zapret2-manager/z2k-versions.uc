@@ -60,13 +60,13 @@ function asset_id(item, path) {
 	if (slug == 'list' && index(path, 'extra_strats') >= 0) { let dir = substr(path, 0, rindex(path, '/')), after = substr(dir, length('files/lists/')), flat = ''; for (let i = 0; i < length(after); i++) flat += substr(after, i, 1) == '/' ? '_' : lc(substr(after, i, 1)); slug = flat + '_list'; }
 	let typeName = item && item.type == 'lua' ? 'lua' : (item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null); return typeName == null ? null : typeName + ':' + slug;
 }
+function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function validate_manifest(value, rawSize, requested) {
 	if (!object(value) || rawSize == null || rawSize < 2 || rawSize > MAX_MANIFEST || value.schema != 1 || value.branch != BRANCH || type(value.seq) != 'int' || value.seq < 0 || !string(value.current) || parse_release(value.current) == null || (requested != null && value.current != requested) || !object(value.files_sha256)) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json schema or release identity is invalid.');
 	let names = keys(value.files_sha256); if (!length(names) || length(names) > MAX_TAGS) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json file count is invalid.');
 	for (let i = 0; i < length(names); i++) { let path = names[i], digest = value.files_sha256[path]; if (!safe_path(path) || !valid_digest(digest)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path or invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
 	return { ok: true, manifest: value };
 }
-function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function fetch_manifest(version, commitSha) {
 	if (parse_release(version) == null || !valid_sha(commitSha)) return fail('EINPUT', 'Z2K target identity is invalid.');
 	let url = RAW_ROOT + '/' + commitSha + '/UPDATES.json', raw = fetch_text(url, MAX_MANIFEST, 'z2m-z2k-manifest');
