@@ -117,6 +117,10 @@ Passed:
 - New full lifecycle review suite: **33/33**.
 - Existing Z2K version/UI lifecycle focused suite after updating stale
   expectations to the prepare-before-confirm contract: **59/59**.
+- Legacy receipt and cache-fanout regression assertions: **2/2** on this
+  Windows checkout; the two native ucode behavioral tests are explicitly
+  skipped locally because `/opt/ucode/bin/ucode` is absent and were run
+  against the deployed router separately below.
 - Shell syntax check for
   `strategy-runtime-assets-sync.sh`: passed.
 - JavaScript syntax checks for `z2m-maintenance.js` and
@@ -133,6 +137,9 @@ endpoint, volatile cache, fresh resolve, prepare/apply TOCTOU protection,
 target-specific gating, accessible Details behavior, and primary confirmation
 semantics.
 
+The combined focused command is **90 total, 88 pass, 0 fail, 2 skipped**;
+the skips are only the native ucode receipt cases unavailable on Windows.
+
 ## Broad baseline comparison
 
 The exact broad command was run in both worktrees:
@@ -142,14 +149,66 @@ The exact broad command was run in both worktrees:
 - Isolated baseline at `2db63158f73a5569e8103934215c20dcb367b900`:
   **78 total, 69 pass, 9 fail**.
 - Current worktree after the review tests and repairs:
-  **101 total, 92 pass, 9 fail**.
+  **105 total, 94 pass, 9 fail, 2 skipped**.
 
 The nine baseline classes remain: one stale refresh-state assertion, five
 native shell materialization checks that cannot launch `/bin/sh` on Windows,
 one stale signed-fixture assertion, one pre-existing classification
 expectation, and one UI contract file that cannot start because this checkout
-has no `vitest` dependency. The current branch adds 22 behavioral checks and
-does not add a broad failure class.
+has no `vitest` dependency. The current branch adds 27 checks (including two
+native-only skips) and does not add a broad failure class.
+
+## Root cause: GitHub request result and catalog fanout
+
+The exact router reproduction was run without `-q`:
+
+`uclient-fetch -v -T 20 -O /tmp/z2k-refs.json "https://api.github.com/repos/necronicle/z2k/git/refs/tags?per_page=100"`
+
+It returned `rc=8`, no response body, and this complete stderr:
+
+```text
+Downloading 'https://api.github.com/repos/necronicle/z2k/git/refs/tags?per_page=100'
+Connecting to 140.82.121.6:443
+HTTP error 403
+```
+
+This is not evidence of a transport/TLS/DNS failure: the router resolved
+`api.github.com` and established HTTPS, and the separate `/rate_limit` request
+returned `rc=0` with a JSON body. Its relevant values were `rate.limit=60`,
+`rate.remaining=0`, `core.remaining=0`, `core.used=60`, and
+`core.reset=1787930573` (`2026-08-28 15:22:53Z`). There was no `429` or
+`secondary-rate-limit` message, so the classification is **A: primary GitHub
+rate limit**. No retry loop and no GitHub PAT/token requirement were added.
+
+Before this repair, every non-fresh `z2k_versions()` call fetched the refs
+endpoint even when a usable `/tmp` cache existed; on a cold cache, annotated
+tags could add up to ten `/git/tags/<sha>` requests for the visible window.
+Non-fresh browse now returns a warm cache first with router evidence
+`requestCount=0`, `cache=warm`, `stale=false`; `fresh:true` still bypasses the
+cache and remains fail-closed for prepare.
+
+## Backward compatibility: legacy activation receipt
+
+The deployed router's current receipt was read without mutation. Its exact
+shape is `receiptKeys=[schema,bundleId,version,source,sourceCommit,activatedAt,assets]`
+and `assetKeys=[id,type,sha256,byteSize]`, matching the pre-migration receipt.
+The new validator accepts that legacy form only when each current Registry
+asset and its `catalog/upstream` provenance prove the top-level bundle,
+version, commit, and source path; extra active assets from the same bundle
+invalidate it. New receipts still require the full per-asset identity.
+
+Router behavioral proof after deploying the validator:
+
+- real existing receipt: `{value:"r-79.7", confidence:"confirmed", authority:"activation-receipt"}`;
+- read-only `details r-79.7`: `installed=true`, `installedVersion=r-79.7`,
+  `operation=reinstall`;
+- isolated negative copies: hash mismatch, wrong provenance version, wrong
+  provenance sourceCommit, and extra same-bundle asset all returned
+  `{value:null, confidence:"unknown", authority:null}`.
+
+The operation helper used by `versionDetails` is also covered by the native
+behavioral regression (`r-79.7` against `r-79.7` → `reinstall`). No Registry,
+runtime, service, or receipt metadata was rewritten.
 
 ## Router evidence and current boundary
 
@@ -158,7 +217,7 @@ staging/backup procedure. Local-to-installed SHA checks passed for the changed
 frontend, Asset Registry, Resource Center, runtime bridge,
 `z2k-installed-release.uc`, and `z2k-versions.uc`; the router shell syntax
 check passed. The final `z2k-versions.uc` installed SHA was
-`4c3665357d5e33a7b4f0587a3d2af9fc105e8a6053f840580f883d5236a35f6b`.
+`597045e375f52902c432796752187861b758d25e602671c61b7e41ca9edc8698`.
 
 Read-only live details after that deployment prove the data contract:
 
@@ -214,15 +273,16 @@ The authenticated browser now verifies:
   mutation action is enabled, with advisory-only review state and no blocking
   reason.
 
-The first browser click on `Установить r-79.7` invoked
-`z2k_prepare_version`. The live RPC returned
-`EUNAVAILABLE: Не удалось получить каталог Z2K releases.`. A direct bounded
-router `uclient-fetch` probe for the same GitHub refs endpoint returned
-`rc=8` and produced no response file. The normal catalog endpoint is therefore
-serving stale cache data, while fresh prepare correctly fails closed. No
-Registry/runtime mutation occurred after this failure.
+The earlier browser click on `Установить r-79.7` invoked `z2k_prepare_version`.
+The live RPC returned `EUNAVAILABLE: Не удалось получить каталог Z2K releases.`
+because fresh resolve correctly bypasses the stale browse cache. The exact
+verbose router reproduction and `/rate_limit` classification above identify
+the cause as primary GitHub rate limiting. No Registry/runtime mutation
+occurred after this failure, and the current instruction explicitly keeps all
+install/upgrade/downgrade/reinstall cases unlaunched.
 
-The required current-code browser mutation cases therefore remain unverified:
+The required current-code browser mutation cases therefore remain intentionally
+unverified until fresh resolve is available and mutation is authorized:
 
 - install r79.7 to establish a new-format receipt;
 - exact r79.7 installed / r80.3 selected case after establishing the new

@@ -102,6 +102,7 @@ function target_operation(version, installed) {
 	let comparison = release_compare({ version: version }, { version: installed });
 	return comparison == null ? null : (comparison < 0 ? 'upgrade' : (comparison > 0 ? 'downgrade' : 'reinstall'));
 }
+export const z2k_target_operation = function(version, installed) { return target_operation(version, installed); };
 function fetch_refs() {
 	let refs = fetch_json(TAGS_URL, MAX_API_RESPONSE); if (type(refs) != 'array' || length(refs) > MAX_TAGS) return fail('EUNAVAILABLE', 'Не удалось получить каталог Z2K releases.');
 	let seen = {}, candidates = [];
@@ -113,6 +114,14 @@ function catalog_row(candidate, installed, resolved) {
 	return { version: candidate.version, latest: false, installed: candidate.version == installed, commitSha: resolved && resolved.commitSha || null, publishedAt: resolved && resolved.publishedAt || 0, installable: resolved != null, unavailableReason: resolved == null ? 'release-unavailable' : null, tagSha: candidate.tagSha };
 }
 function read_cache() { try { let raw = readfile(CACHE_FILE); if (raw == null || length(raw) > MAX_API_RESPONSE) return null; let value = json(raw); return object(value) && type(value.versions) == 'array' && type(value.cachedAt) == 'int' && time() - value.cachedAt <= CACHE_TTL ? value : null; } catch (e) { return null; } }
+function cached_result(cached, installed) {
+	let rows = [], source = cached && cached.versions || [];
+	for (let i = 0; i < length(source); i++) if (object(source[i])) {
+		let row = {}; for (let key in source[i]) row[key] = source[i][key];
+		row.latest = i == 0; row.installed = row.version == installed; push(rows, row);
+	}
+	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time(), stale: false, diagnostics: { requestCount: REQUEST_COUNT, cache: 'warm' } };
+}
 function cached_catalog_row(cached, version, tagSha) {
 	for (let i = 0; cached && type(cached.versions) == 'array' && i < length(cached.versions); i++) {
 		let row = cached.versions[i];
@@ -125,7 +134,9 @@ function save_cache(value) { let tmp = CACHE_FILE + '.tmp.' + time(); try { valu
 export const z2k_versions = function(options) {
 	let fresh = object(options) && options.fresh === true;
 	REQUEST_COUNT = 0;
-	let installed = installed_release(), refs = fetch_refs(), cached = read_cache(), stale = false;
+	let installed = installed_release(), cached = read_cache();
+	if (!fresh && cached != null) return cached_result(cached, installed);
+	let refs = fetch_refs(), stale = false;
 	if (!refs.ok) { if (!fresh && cached != null) return { ok: true, repository: REPOSITORY, versions: cached.versions, stale: true, diagnostics: { requestCount: REQUEST_COUNT, cache: 'stale' } }; return refs; }
 	let rows = [], limit = MAX_VERSIONS;
 	for (let i = 0; i < length(refs.refs) && i < limit; i++) {
