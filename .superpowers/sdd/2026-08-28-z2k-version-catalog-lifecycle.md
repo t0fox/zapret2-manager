@@ -11,6 +11,8 @@ tags: [z2k, catalog, rollback, ui, resources]
 
 # Z2K version catalog and rollback lifecycle evidence
 
+> Superseded by [2026-08-28-z2k-version-ux-live-acceptance.md](2026-08-28-z2k-version-ux-live-acceptance.md), which records final SHA, router deployment, Browser acceptance, and current blockers.
+
 ## Scope
 
 The approved Z2K catalog/changelog/rollback plan was implemented on an
