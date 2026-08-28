@@ -337,7 +337,7 @@ function z2k_target_removals(listed, targetAssets, classification) {
 		if (historical == null || historical.class != 'exact-managed') return fail('EZ2K_INCOMPATIBLE', 'Z2K target removal is not classified as exact-managed.', { id: current.id, sourcePath: provenance.sourcePath });
 		push(removeIds, current.id);
 	}
-	removeIds.sort();
+	sort(removeIds);
 	return { ok: true, ids: removeIds };
 }
 function same_id_set(left, right) {
@@ -350,7 +350,7 @@ function same_id_set(left, right) {
 function z2k_target_token(target, preparedAt) {
 	let removeIds = [], canonical;
 	for (let i = 0; i < length(target.removeIds || []); i++) push(removeIds, target.removeIds[i]);
-	removeIds.sort();
+	sort(removeIds);
 	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.operation + '|' + join(removeIds, ',') + '|' + preparedAt;
 	let digest = digest_text(canonical, 'z2m-z2k-token');
 	return digest == null ? null : 'z2k-target-v2:' + digest;

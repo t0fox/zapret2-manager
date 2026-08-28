@@ -28,6 +28,8 @@ test('Z2K target planning records exact-managed removals for release transitions
   assert.match(coordinator, /z2k_target_removals/);
   assert.match(coordinator, /localFingerprint[\s\S]*removeIds/);
   assert.match(coordinator, /asset_registry_apply_bundle\(\{[\s\S]*removeIds/);
+  assert.match(coordinator, /sort\(removeIds\)/);
+  assert.doesNotMatch(coordinator, /removeIds\.sort\(\)/);
 });
 
 test('target operation is explicit: install, upgrade, reinstall, or downgrade', () => {
