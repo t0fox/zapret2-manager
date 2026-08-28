@@ -131,3 +131,23 @@ The exact transport boundary was verified from the router-served LuCI `rpc.js`: 
 TDD evidence: `tests/product/z2k-frontend-timeout-contract.test.mjs` failed `2/2` before the production change and passed `2/2` after it. The complete focused matrix then passed `63/63` with native OpenWrt UCode. The exact broad command was run against both clean baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508` and candidate: baseline `101/105` passed, candidate `129/133` passed, with the same four failures and zero candidate-only failures. The broad result is parity evidence, not a product GREEN claim.
 
 No APK/package build or installation was performed. Source-only router deployment and a fresh live Components UI upgrade are the next acceptance gates; downgrade/reinstall remain prohibited until the fresh upgrade succeeds.
+
+## Final live gate after transport fix — 2026-08-29
+
+The source-only deployment installed exactly the two changed frontend files from `29c3dab1`; router and HTTP-served SHA-256 values matched the source, ownership/mode were `root:root 0644`, and `rpcd reload` completed. WSL's NAT route could not reach `192.168.1.1` (`Network is unreachable`), so the deployment transport was Windows OpenSSH; all test execution remained in WSL Ubuntu. No APK/package operation occurred.
+
+After cache-disabled hard reload, the Components UI prepared `r-79.7 → r-80.3` successfully using the selected immutable tag (`8f3787aa999dd00ffe76871c5f343a1c049973b1`), with `39` target assets and `6` removals. The confirmation was sent once. The new direct request stayed alive beyond 20 seconds and completed after about `27.15s`; `Network.loadingFinished` proved the transport fix.
+
+The completed backend response is the exact blocker:
+
+```text
+EROLLBACK: Z2K runtime activation failed and rollback could not be completed.
+runtime: ERUNTIME: nfqws2 is not running after Z2K activation.
+rollback.registry.ok: true
+rollbackAvailable: false
+diagnostics: planned=39 downloaded=39 verified=39 staged=39 applied=39 removed=6 postflightMatched=39
+```
+
+Read-only router postflight is non-hybrid and operational at the prior release: authority `r-79.7` confirmed, Registry revision `7`, integrity verified, Lua `7/7`, Engine running, `nfqws2` running with queue `300`. Eight stale temporary stage directories remain under `/tmp/z2m-resource-update`; they are recorded as residue, not silently removed. No CLI lifecycle mutation was used as a substitute.
+
+The approved sequence stops after this failed fresh upgrade. Downgrade and reinstall are `NOT RUN`. Final verdict: `NOT READY` — backend runtime activation cannot keep `nfqws2` running after target activation, and rollback reports failure. This is no longer a frontend transport-timeout blocker.

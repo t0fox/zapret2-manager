@@ -737,5 +737,94 @@
     },
     "verdict": "not-ready",
     "blocker": "The fresh Components UI upgrade still did not produce a successful lifecycle result; no downgrade or reinstall was run."
+  },
+  "freshAttemptAfterFix": {
+    "date": "2026-08-29",
+    "sourceOnlyDeployment": {
+      "commit": "29c3dab1",
+      "files": [
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js"
+      ],
+      "routerSha256": {
+        "z2m-api.js": "7fd01be31f1b7dfbd67aa3023825b17e8957c989f167ba0b020ced12df49aa44",
+        "z2m-maintenance.js": "ac65b80fe0e4b50aa9cf9617e5876b521ea4386111925d360a7741906df1c9ae"
+      },
+      "httpSha256MatchesSource": true,
+      "ownershipMode": "root:root 0644",
+      "rpcdReloaded": true,
+      "wslRouterNetwork": "unreachable; Windows OpenSSH used for router transport",
+      "apk": "not-built"
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "cacheDisabledHardReload": true,
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "prepare": {
+        "status": "success",
+        "preparedAt": 1787956028,
+        "planTokenPrefix": "z2k-target-v2:88fb4057",
+        "targetCommitSha": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+        "assetCount": 39,
+        "removedCount": 6,
+        "resolution": "selected-tag"
+      },
+      "confirm": {
+        "status": "confirmed",
+        "sentAt": 1787956058177,
+        "requestId": "25148.1060",
+        "rpcId": 100001
+      },
+      "transport": {
+        "status": "loadingFinished",
+        "durationMs": 27153,
+        "networkAbort": false,
+        "responseBodyCaptured": true
+      },
+      "result": "backend-error-after-transport-fix"
+    },
+    "backend": {
+      "errorCode": "EROLLBACK",
+      "message": "Z2K runtime activation failed and rollback could not be completed.",
+      "runtime": {
+        "code": "ERUNTIME",
+        "message": "nfqws2 is not running after Z2K activation.",
+        "pid": "",
+        "output": ""
+      },
+      "rollback": {
+        "ok": false,
+        "registryRestored": true,
+        "rollbackAvailable": false
+      },
+      "diagnostics": {
+        "planned": 39,
+        "downloaded": 39,
+        "verified": 39,
+        "staged": 39,
+        "applied": 39,
+        "removed": 6,
+        "postflightMatched": 39
+      }
+    },
+    "routerAfter": {
+      "installedAuthority": "r-79.7",
+      "authorityConfidence": "confirmed",
+      "registryRevision": 7,
+      "preparedTarget": null,
+      "integrity": "verified",
+      "luaReady": 7,
+      "luaTotal": 7,
+      "engine": "running",
+      "nfqws2": "running",
+      "queue": 300,
+      "stagingDirectoryCount": 8,
+      "nonHybrid": true
+    },
+    "downgrade": "not-run",
+    "reinstall": "not-run",
+    "verdict": "not-ready",
+    "blocker": "Backend runtime activation cannot keep nfqws2 running after target activation, and rollback reports failure."
   }
 }
