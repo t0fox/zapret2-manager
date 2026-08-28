@@ -50,7 +50,7 @@ Additional evidence:
 Candidate and delivery:
 
 - Candidate branch: `codex/z2k-version-lifecycle`.
-- Candidate SHA and remote SHA: `a32364e7fac448958fcad684ad7ac2f297eee4bb`.
+- Candidate source SHA: `a32364e7fac448958fcad684ad7ac2f297eee4bb`; docs-only acceptance commits are recorded separately in the delivery history.
 - Worktree was clean before acceptance.
 - Direct source-only deployment to `192.168.1.1` installed exactly five changed files: `asset-registry.uc`, `resource-update.uc`, `z2k-versions.uc`, `z2m-assets.js`, and `z2m-resources-model.js`.
 - Remote backup was created before replacement; installed files are `root:root`, mode `0644`.

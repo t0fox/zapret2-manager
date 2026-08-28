@@ -4,7 +4,7 @@
   "candidate": {
     "branch": "codex/z2k-version-lifecycle",
     "sha": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
-    "remoteSha": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
+    "sourceSha": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
     "worktreeClean": true
   },
   "baseline": {
