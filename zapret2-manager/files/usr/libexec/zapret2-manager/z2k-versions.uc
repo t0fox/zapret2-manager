@@ -83,7 +83,7 @@ function managed_membership(manifest, map) {
 	if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
 	let assets = [], unknown = [], names = keys(manifest.files_sha256);
 	for (let i = 0; i < length(names); i++) { let path = names[i], item = class_for(map, path); if (item == null) { if (relevant_path(path)) push(unknown, path); continue; } if (item.class == 'exact-managed') { let id = asset_id(item, path); if (id == null) { push(unknown, path); continue; } push(assets, { sourcePath: path, sha256: manifest.files_sha256[path], id: id, type: substr(id, 0, index(id, ':')), name: item.localName || id, packagePath: item.packageBaselinePath || null, runtimeTarget: item.runtimeTarget || null, dependencies: item.dependencies || [] }); } }
-	assets.sort(function(a, b) { return a.sourcePath == b.sourcePath ? 0 : (a.sourcePath < b.sourcePath ? -1 : 1); }); unknown.sort(); return { assets: assets, unknown: unknown };
+	sort(assets, function(a, b) { return a.sourcePath == b.sourcePath ? 0 : (a.sourcePath < b.sourcePath ? -1 : 1); }); sort(unknown); return { assets: assets, unknown: unknown };
 }
 function installed_release() {
 	try { let listed = asset_registry_list(null); if (!listed || !listed.ok || type(listed.activationReceipts) != 'array') return null; for (let i = length(listed.activationReceipts) - 1; i >= 0; i--) { let receipt = listed.activationReceipts[i]; if (object(receipt) && receipt.bundleId == 'z2k-curated-lua' && parse_release(receipt.version) != null && type(receipt.assets) == 'array' && length(receipt.assets)) return receipt.version; } } catch (e) {} return null;
@@ -92,7 +92,7 @@ function fetch_refs() {
 	let refs = fetch_json(TAGS_URL, MAX_API_RESPONSE); if (type(refs) != 'array' || length(refs) > MAX_TAGS) return fail('EUNAVAILABLE', 'Не удалось получить каталог Z2K releases.');
 	let seen = {}, candidates = [];
 	for (let i = 0; i < length(refs); i++) { let version = tag_name(refs[i]); if (version == null || seen[version]) continue; let sha = refs[i].object && refs[i].object.sha, objectType = refs[i].object && refs[i].object.type; if (!valid_sha(sha) || (objectType != 'commit' && objectType != 'tag')) continue; seen[version] = true; push(candidates, { version: version, tagSha: lc(sha), objectType: objectType }); }
-	candidates.sort(release_compare); return { ok: true, refs: candidates };
+	sort(candidates, function(a, b) { return release_compare(a, b); }); return { ok: true, refs: candidates };
 }
 function catalog_row(candidate, installed) {
 	let resolved = resolve_tag_commit(candidate.version, candidate.tagSha, candidate.objectType);
@@ -128,7 +128,7 @@ function changes_between(current, previous, map) {
 	for (let i = 0; i < length(old.assets); i++) previousBy[old.assets[i].sourcePath] = old.assets[i].sha256;
 	for (let path in currentBy) { if (previousBy[path] == null) { added++; push(paths, path); } else if (previousBy[path] != currentBy[path]) { modified++; push(paths, path); } }
 	for (let path in previousBy) if (currentBy[path] == null) { removed++; push(paths, path); }
-	paths.sort(); return { modified: modified, added: added, removed: removed, managedPaths: paths, unknown: now.unknown };
+	sort(paths); return { modified: modified, added: added, removed: removed, managedPaths: paths, unknown: now.unknown };
 }
 
 export const z2k_version_details = function(version) {
