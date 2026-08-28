@@ -175,8 +175,8 @@ test('healthy materialized Z2K with unknown release renders neutral identity wor
   const ctx = makeContext(internals, z2kRaw());
   const text = textOf(internals.renderComponents(ctx, ctx.data));
 
-  assert.match(text, /Установленный releaseНе определён/);
-  assert.doesNotMatch(text, /Установленный releaseНе установлен/);
+  assert.match(text, /УстановленоВерсия не определена/);
+  assert.match(text, /Z2K CoreRuntime-assets и расширения Zapret2РаботаетУстановленоВерсия не определена/);
 });
 
 test('actually missing Z2K still renders Не установлен', () => {
@@ -188,7 +188,7 @@ test('actually missing Z2K still renders Не установлен', () => {
   const ctx = makeContext(internals, missing);
   const text = textOf(internals.renderComponents(ctx, ctx.data));
 
-  assert.match(text, /Установленный releaseНе установлен/);
+  assert.match(text, /УстановленоНе установлен/);
 });
 
 test('review-required exposes a standalone review explanation and safe re-check', () => {
@@ -291,6 +291,6 @@ test('review clears only when the refreshed canonical backend state is current',
   const currentText = textOf(internals.renderComponents(ctx, { ...dataFor(current), components: { ...dataFor(current).components, resources: { value: { checkedAt: 200, z2k: current } } } }));
 
   assert.match(reviewText, /Требуется проверка/);
-  assert.match(currentText, /Актуален/);
+  assert.match(currentText, /Работает/);
   assert.doesNotMatch(currentText, /Причина проверки/);
 });

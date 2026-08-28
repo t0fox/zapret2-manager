@@ -165,7 +165,11 @@ export const z2k_version_details = function(version) {
 	let map = read_classification(), membership = managed_membership(checked.manifest, map); if (length(membership.unknown)) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, changes: { modified: 0, added: 0, removed: 0, managedPaths: [] }, technical: { unknownRelevantPaths: membership.unknown } };
 	let metadata = commit_metadata(row.commitSha), previous = null, previousVersion = null, installedVersion = installed_release(), operation = target_operation(version, installedVersion); for (let i = 0; i < length(catalog.versions); i++) if (catalog.versions[i].version == version && i + 1 < length(catalog.versions)) { previous = catalog.versions[i + 1]; previousVersion = previous.version; break; }
 	let previousManifest = null; if (previous != null && previous.installable === true) { let old = release_manifest(previous); if (old.ok) previousManifest = old.manifest; }
-	let changeSet = changes_between(checked.manifest, previousManifest, map), body = human_body(metadata && metadata.message) || fallback_body(changeSet);
+	let installedRow = target_release(installedVersion, catalog.versions);
+	let installedManifest = null;
+	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
+	let baselineManifest = installedManifest || previousManifest;
+	let changeSet = changes_between(checked.manifest, baselineManifest, map), body = human_body(metadata && metadata.message) || fallback_body(changeSet);
 	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, changes: { modified: changeSet.modified, added: changeSet.added, removed: changeSet.removed, managedPaths: changeSet.managedPaths }, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
 };
 

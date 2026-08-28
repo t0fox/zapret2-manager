@@ -25,6 +25,13 @@ test('lazy detail diff is derived from exact-managed membership only', () => {
   assert.doesNotMatch(source, /z2k-config-validator\.sh.*managedPaths/);
 });
 
+test('release detail install diff compares the selected manifest with the confirmed installed manifest', () => {
+  assert.match(source, /let installedRow = target_release\(installedVersion, catalog\.versions\)/);
+  assert.match(source, /let installedManifest = null/);
+  assert.match(source, /let baselineManifest = installedManifest \|\| previousManifest/);
+  assert.match(source, /changes_between\(checked\.manifest, baselineManifest, map\)/);
+});
+
 test('release details expose immutable compare identity without leaking raw internals as copy', () => {
   assert.match(source, /compareUrl:\s*previousVersion\s*\?/);
   assert.match(source, /manifestSha256:\s*checked\.manifestSha256/);

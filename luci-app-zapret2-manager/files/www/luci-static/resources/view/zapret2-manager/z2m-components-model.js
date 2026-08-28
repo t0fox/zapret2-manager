@@ -163,7 +163,8 @@ function normalizeZ2kCatalog(value) {
       latest: item.latest === true,
       installed: item.installed === true,
       installable: item.installable === true,
-      unavailableReason: first(item.unavailableReason, null)
+      unavailableReason: first(item.unavailableReason, null),
+      publishedAt: first(item.publishedAt, null)
     };
   }).filter(function (item) { return item.version !== null; });
 }
@@ -175,6 +176,9 @@ function normalizeZ2kDetails(value) {
     version: first(value.version, null),
     releaseName: first(value.releaseName || value.version, null),
     releaseBody: first(value.releaseBody, null),
+    publishedAt: first(value.publishedAt, null),
+    previousVersion: first(value.previousVersion, null),
+    installedVersion: first(value.installedVersion, null),
     installable: value.installable === true,
     unavailableReason: first(value.unavailableReason, null),
     latest: value.latest === true,
@@ -297,9 +301,11 @@ function normalizeZ2k(input, engineReady) {
 		installedRelease = { value: null, confidence: 'unknown', authority: null };
 	}
 	var availableReleaseRaw = value.availableRelease || value.available;
+	var catalogLatest = catalog.filter(function (item) { return item.latest === true; })[0];
 	var availableRelease = availableReleaseRaw && typeof availableReleaseRaw === 'object'
 		? versionFrom(availableReleaseRaw) : first(availableReleaseRaw, null);
-	if (selectedVersion === null) selectedVersion = availableRelease || installedRelease.value || (catalog[0] && catalog[0].version) || null;
+	var latestRelease = availableRelease || catalogLatest && catalogLatest.version || (catalog[0] && catalog[0].version) || null;
+	if (selectedVersion === null) selectedVersion = installedRelease.value || latestRelease || null;
 	var preparedTarget = object(value.preparedTarget);
 	var operation = first(preparedTarget.operation || selectedDetails.operation, null);
 	var versionRaw = installedRelease.value;
@@ -316,6 +322,7 @@ function normalizeZ2k(input, engineReady) {
 		compatibility: compatibilityStateValue,
 		installedRelease: installedRelease,
 		availableRelease: availableRelease,
+		latestRelease: latestRelease,
 		catalog: catalog,
 		selectedVersion: selectedVersion,
 		selectedDetails: selectedDetails.version ? selectedDetails : null,
