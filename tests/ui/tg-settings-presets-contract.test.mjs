@@ -95,6 +95,13 @@ test('Settings keeps fallback profiles when config RPC has no value', () => {
   assert.equal(presets.direct.defaultDomains, false);
 });
 
+test('Proxy load timeout leaves margin for LuCI RPC completion', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  const match = ui.match(/var LOAD_TIMEOUT_MS = (\d+);/);
+  assert.ok(match, 'proxy load timeout must be explicit');
+  assert.ok(Number(match[1]) >= 10000, 'timeout must exceed LuCI RPC completion deadline');
+});
+
 test('LAN access is a first-class toggle with an advertised address line', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   assert.match(ui, /Доступ из локальной сети/);
