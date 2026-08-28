@@ -106,17 +106,32 @@ function catalog_row(candidate, installed) {
 	return { version: candidate.version, latest: false, installed: candidate.version == installed, commitSha: resolved && resolved.commitSha || null, publishedAt: resolved && resolved.publishedAt || 0, installable: resolved != null, unavailableReason: resolved == null ? 'release-unavailable' : null, tagSha: candidate.tagSha };
 }
 function read_cache() { try { let raw = readfile(CACHE_FILE); if (raw == null || length(raw) > MAX_API_RESPONSE) return null; let value = json(raw); return object(value) && type(value.versions) == 'array' ? value : null; } catch (e) { return null; } }
+function cached_catalog_row(cached, version, tagSha) {
+	for (let i = 0; cached && type(cached.versions) == 'array' && i < length(cached.versions); i++) {
+		let row = cached.versions[i];
+		if (object(row) && row.version == version && (!string(row.tagSha) || row.tagSha == tagSha) && valid_sha(row.commitSha)) return row;
+	}
+	return null;
+}
 function save_cache(value) { let tmp = CACHE_FILE + '.tmp.' + time(); try { writefile(tmp, sprintf('%J', value) + '\n'); let moved = command('mv -f ' + quote(tmp) + ' ' + quote(CACHE_FILE)); if (moved.rc != 0) cleanup(tmp); } catch (e) { cleanup(tmp); } }
 
 export const z2k_versions = function() {
-	let installed = installed_release(), refs = fetch_refs();
+	let installed = installed_release(), refs = fetch_refs(), cached = read_cache(), stale = false;
 	if (!refs.ok) { let cached = read_cache(); if (cached != null) return { ok: true, repository: REPOSITORY, versions: cached.versions, stale: true }; return refs; }
 	let rows = [], limit = MAX_VERSIONS;
-	for (let i = 0; i < length(refs.refs) && i < limit; i++) push(rows, catalog_row(refs.refs[i], installed));
-	if (installed != null) { let present = false; for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) present = true; if (!present) for (let i = limit; i < length(refs.refs); i++) if (refs.refs[i].version == installed) { push(rows, catalog_row(refs.refs[i], installed)); break; } }
+	for (let i = 0; i < length(refs.refs) && i < limit; i++) {
+		let candidate = refs.refs[i], row = catalog_row(candidate, installed), old = cached_catalog_row(cached, candidate.version, candidate.tagSha);
+		if (row.commitSha == null) {
+			stale = true;
+			if (old != null) { row.commitSha = old.commitSha; row.publishedAt = old.publishedAt || 0; row.installable = true; row.unavailableReason = null; }
+		}
+		push(rows, row);
+	}
+	if (installed != null) { let present = false; for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) present = true; if (!present) for (let i = limit; i < length(refs.refs); i++) if (refs.refs[i].version == installed) { let candidate = refs.refs[i], row = catalog_row(candidate, installed), old = cached_catalog_row(cached, candidate.version, candidate.tagSha); if (row.commitSha == null) { stale = true; if (old != null) { row.commitSha = old.commitSha; row.publishedAt = old.publishedAt || 0; row.installable = true; row.unavailableReason = null; } } push(rows, row); break; } }
 	if (length(rows)) rows[0].latest = true;
-	let result = { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time() };
-	save_cache(result); return result;
+	let result = { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time(), stale: stale };
+	if (!stale) save_cache(result);
+	return result;
 };
 
 function commit_metadata(commitSha) { let value = fetch_json(API_ROOT + '/commits/' + commitSha, MAX_API_RESPONSE); if (!object(value) || !object(value.commit)) return null; return { message: value.commit.message || '', date: value.commit.author && value.commit.author.date || null }; }

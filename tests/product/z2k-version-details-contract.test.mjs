@@ -31,3 +31,10 @@ test('release details expose immutable compare identity without leaking raw inte
   assert.match(source, /commitSha:\s*row\.commitSha/);
   assert.doesNotMatch(source, /releaseBody:\s*.*planToken/);
 });
+
+test('transient tag resolution cannot poison a usable immutable catalog cache', () => {
+  assert.match(source, /read_cache\(\)/);
+  assert.match(source, /cached.*commitSha|commitSha.*cached/);
+  assert.match(source, /stale/);
+  assert.doesNotMatch(source, /save_cache\(result\); return result;/);
+});
