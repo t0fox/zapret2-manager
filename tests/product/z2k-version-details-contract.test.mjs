@@ -34,6 +34,7 @@ test('release details expose immutable compare identity without leaking raw inte
 
 test('release details expose the operation relative to the confirmed installed release', () => {
   assert.match(source, /function target_operation\s*\(/);
+  assert.match(source, /release_compare\(\{ version: version \}, \{ version: installed \}\)/);
   assert.match(source, /operation:\s*operation/);
   assert.match(source, /installedVersion:\s*installedVersion/);
 });

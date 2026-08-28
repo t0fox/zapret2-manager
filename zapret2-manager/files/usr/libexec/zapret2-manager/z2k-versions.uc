@@ -97,7 +97,7 @@ function installed_release() {
 }
 function target_operation(version, installed) {
 	if (!installed) return 'install';
-	let comparison = release_compare(version, installed);
+	let comparison = release_compare({ version: version }, { version: installed });
 	return comparison == null ? null : (comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall'));
 }
 function fetch_refs() {
