@@ -111,7 +111,11 @@ test('legacy receipt history has a canonical, ambiguity-checked runtime identity
   assert.doesNotMatch(target, /z2k_classification_for\(classification, recorded\.sourcePath\)/);
 });
 
-const historicalClassification = [{
+const currentClassification = {
+  sourcePath: 'files/lua/z2k-modern-core.lua', class: 'exact-managed', type: 'lua',
+  localName: 'runtime-assets/lua/z2k-modern-core.lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua'
+};
+const historicalClassification = [currentClassification, {
   sourcePath: 'files/fake/4pda.bin', class: 'exact-managed', type: 'bin',
   localName: 'runtime-assets/bin/4pda.bin', runtimeTarget: '/runtime-assets/bin/4pda.bin'
 }];

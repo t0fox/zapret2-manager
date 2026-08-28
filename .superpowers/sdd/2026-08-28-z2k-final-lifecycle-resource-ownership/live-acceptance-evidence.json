@@ -554,5 +554,80 @@
   "apk": {
     "status": "not-built",
     "reason": "explicitly forbidden by user; temporary build was stopped and removed"
+  },
+  "finalUpdate": {
+    "date": "2026-08-29",
+    "implementationCommits": [
+      "eaa00fbb2001e662a28c3f3ee7ebd3b8acc9ea89",
+      "a9bb6240457c733a91138e6ed42bd4ed89fd455c"
+    ],
+    "executionEnvironment": "WSL Ubuntu with native OpenWrt UCode",
+    "focusedGate": {
+      "command": "timeout 180s node --test tests/product/z2k-materialization.test.mjs tests/product/z2k-full-lifecycle-review.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs tests/product/z2k-installed-release-authority.test.mjs",
+      "tests": 61,
+      "pass": 61,
+      "fail": 0,
+      "skipped": 0,
+      "nativeUcode": true
+    },
+    "nativeResolverCases": {
+      "A": "pass",
+      "B": "pass",
+      "C": "pass",
+      "D": "pass",
+      "E": "pass"
+    },
+    "broadGate": {
+      "command": "timeout 240s node --test tests/product/z2k-*.test.mjs tests/ui/z2k-*.test.mjs",
+      "tests": 131,
+      "pass": 127,
+      "fail": 4,
+      "skipped": 0,
+      "candidateOnlyFailures": "not established against a same-command baseline; failures are known baseline or environment gates"
+    },
+    "router": {
+      "sourceOnlyDeployment": true,
+      "hashes": {
+        "resource-update.uc": "ca5814331cfd7a9a8202d1d36ba8634ad283a77526e3ccc2e93c61c96d007390",
+        "z2k-versions.uc": "3653538761fc883e555724d321a518a73035e1969706c0832495913cc25b9978",
+        "strategy-runtime-assets-sync.sh": "7457c235d5d36c9ed5a0ad60541403a575fa35620686b13af99a472a5ffee213"
+      },
+      "installedAuthority": "r-79.7",
+      "registryRevision": 7,
+      "receipts": 4,
+      "preparedTarget": null,
+      "integrity": "verified",
+      "luaReady": 7,
+      "luaTotal": 7,
+      "nfqws2": "running",
+      "queue": 300,
+      "runtimeModeFixVerified": "0755",
+      "recoveryRollback": true
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "loginRecovered": true,
+      "upgradeRetry": {
+        "from": "r-79.7",
+        "to": "r-80.3",
+        "status": "confirmed-but-no-success",
+        "registryChanged": false,
+        "installedAfter": "r-79.7",
+        "preparedTargetAfter": null
+      },
+      "downgrade": {
+        "status": "not-run"
+      },
+      "reinstall": {
+        "status": "not-run"
+      }
+    },
+    "apk": {
+      "status": "not-built"
+    },
+    "verdict": "not-ready",
+    "blockers": [
+      "Fresh Components UI upgrade retry did not produce a successful mutation; Registry remained r-79.7. Downgrade and reinstall were not run."
+    ]
   }
 }

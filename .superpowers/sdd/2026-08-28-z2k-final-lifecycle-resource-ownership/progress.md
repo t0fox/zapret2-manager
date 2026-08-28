@@ -78,3 +78,11 @@ No preflight ruling required.
 - The final focused matrix is `67/67` passed. The new `4a` regression test prevents reversed separator/list `join()` arguments from returning a `null` activation spec.
 - Read-only router health after deployment remains safe: installed authority `r-79.7`, Registry revision `7`, `preparedTarget=null`, `integrity=verified`, Lua `7/7`, and `resources_status.ok=true`.
 - In the Codex in-app Browser, the session was recovered by clicking `Log in…` and `Log in` without entering a password. The selected `r-80.3` prepare then returned `EUNAVAILABLE` before the confirmation dialog because `api.github.com` returned `403`; `/rate_limit` reported core `remaining=0`, `limit=60`, reset `2026-08-28 22:54:39 MSK`. No mutation was attempted after this blocker.
+
+## Final update 2026-08-29
+
+- Work continued in WSL Ubuntu; native OpenWrt UCode was available and the focused lifecycle/ownership matrix passed `61/61` (`0` failed, `0` skipped), including legacy receipt cases A–E, sidecar refresh precedence, and daemon-readable runtime modes.
+- The first real Components UI upgrade had already exposed and safely rolled back the `0700` restored-runtime-mode defect. Commit `a9bb6240` fixes restoration modes (`0755` for executable Lua/Shell runtime assets, `0644` for other assets), and the router was redeployed source-only; selected Z2K Lua files are now `0755`.
+- A bounded retry through the Codex in-app Browser reached the confirmation dialog for `r-79.7 → r-80.3` and was confirmed. It produced no success result and did not change the Registry: authority remained `r-79.7`, revision `7`, `preparedTarget=null`. No CLI mutation was used as a substitute.
+- Final router read-only state is healthy: `resources_status` integrity `verified`, Lua `7/7`, `nfqws2` running with queue `300`, Strategy identity preserved, and no APK/package operation performed.
+- The exact final verdict remains `NOT READY`: the fresh UI upgrade retry did not complete, and downgrade/reinstall were not run. Broad WSL parity was `131` tests / `127` pass / `4` fail / `0` skipped; failures are baseline or environment-related and are not claimed green.

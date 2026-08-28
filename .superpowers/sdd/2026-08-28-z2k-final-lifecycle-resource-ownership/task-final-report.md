@@ -102,6 +102,22 @@ After the first rollback, the historical evidence retained a prepared `r-80.3` s
 - Current router health is safe and unchanged by the blocked follow-up: `resources_status.ok=true`, authority `r-79.7` (`activation-receipt`), Registry revision `7`, `preparedTarget=null`, Lua `7/7`, integrity `verified`.
 - In the Codex in-app Browser, LuCI authorization was restored by clicking `Log in…` and `Log in` without entering a password. The selected `r-80.3` prepare then failed before its confirmation dialog with `EUNAVAILABLE`; direct router probe confirmed GitHub `/git/ref/tags/r-80.3` returns HTTP `403`, and `/rate_limit` reported core remaining `0` of `60` until `22:54:39 MSK`.
 
+## Final update 2026-08-29
+
+The implementation was continued in WSL Ubuntu with native UCode. The current focused command was:
+
+```text
+timeout 180s node --test tests/product/z2k-materialization.test.mjs tests/product/z2k-full-lifecycle-review.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs tests/product/z2k-installed-release-authority.test.mjs
+```
+
+Result: `61` tests passed, `0` failed, `0` skipped. This includes receipt resolver cases A–E, manager-sidecar refresh, lifecycle selection preservation, and runtime-mode restoration.
+
+Commit `a9bb6240` corrected the production rollback mode bug found during the first browser upgrade attempt. Source-only router deployment now restores executable Lua/Shell assets as `0755`; the deployed closure hashes are `resource-update.uc=ca5814331cfd7a9a8202d1d36ba8634ad283a77526e3ccc2e93c61c96d007390`, `z2k-versions.uc=3653538761fc883e555724d321a518a73035e1969706c0832495913cc25b9978`, and `strategy-runtime-assets-sync.sh=7457c235d5d36c9ed5a0ad60541403a575fa35620686b13af99a472a5ffee213`.
+
+The fresh retry was performed through the Codex in-app Browser: the `r-79.7 → r-80.3` operation reached and passed the confirmation dialog, but produced no success result. The router remained unchanged at confirmed `r-79.7`, Registry revision `7`, `preparedTarget=null`, integrity `verified`, Lua `7/7`; `nfqws2` remained running with queue `300`, and Strategy/autocircular state remained preserved. Downgrade and reinstall were not run. No APK was built or installed.
+
+The correct final verdict is `NOT READY`. The bounded browser retry did not prove a successful lifecycle mutation, so no claim is made for upgrade success, downgrade, or reinstall. The broad WSL filtered matrix was `131` tests / `127` pass / `4` fail / `0` skipped; its failures are the known stale candidate contract, signed-update fixture, upstream-classification expectation, and missing `vitest` environment dependency, so it is not a product GREEN gate.
+
 ## Delivery
 
 Commit and remote branch identity are recorded in the final task response after the final clean-worktree check.
