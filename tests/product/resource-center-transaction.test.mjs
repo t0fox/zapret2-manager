@@ -25,11 +25,15 @@ test('Asset Registry exposes a staged, hash-verified, all-or-nothing bundle tran
 });
 
 test('Asset Registry removes only declared upstream assets inside the same transaction', () => {
-  assert.match(registry, /removeIds/);
-  assert.match(registry, /EREFERENCED/);
-  assert.match(registry, /old\.provenance\.kind != 'catalog\/upstream'/);
-  assert.match(registry, /state\.assets[\s\S]*removeIds/);
-  assert.match(registry, /removed:/);
+	assert.match(registry, /removeIds/);
+	assert.match(registry, /EREFERENCED/);
+	assert.match(registry, /old\.provenance\.kind != 'catalog\/upstream'/);
+	assert.match(registry, /state\.assets[\s\S]*removeIds/);
+	assert.match(registry, /removed:/);
+});
+
+test('Asset Registry accepts canonical upstream IDs whose slugs begin with a digit', () => {
+	assert.match(registry, /match\(value, \/\^\[a-z0-9\]\[a-z0-9._-\]\*\$\//);
 });
 
 test('Resource coordinator keeps generic bundles transactional and routes Z2K through prepared targets', () => {

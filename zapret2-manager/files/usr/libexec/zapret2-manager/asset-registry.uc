@@ -31,7 +31,7 @@ function string(value) { return type(value) == 'string'; }
 function ok(value) { return { ok: true, asset: value }; }
 function fail(code, message, extra) { let out = { ok: false, error: { code: code, message: message } }; for (let k in extra || {}) out.error[k] = extra[k]; return out; }
 function valid_type(value) { for (let i = 0; i < length(TYPES); i++) if (TYPES[i] == value) return true; return false; }
-function valid_slug(value) { return string(value) && length(value) > 0 && length(value) <= 96 && match(value, /^[a-z][a-z0-9._-]*$/); }
+function valid_slug(value) { return string(value) && length(value) > 0 && length(value) <= 96 && match(value, /^[a-z0-9][a-z0-9._-]*$/); }
 function valid_id(kind, value) { return string(value) && substr(value, 0, length(kind) + 1) == kind + ':' && valid_slug(substr(value, length(kind) + 1)); }
 function copy(value) { let out = {}; for (let k in value || {}) out[k] = value[k]; return out; }
 function copy_array(value) { let out = []; for (let i = 0; type(value) == 'array' && i < length(value); i++) push(out, value[i]); return out; }
