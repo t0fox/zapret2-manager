@@ -226,6 +226,31 @@ test('6g. combined Registry/runtime rollback restores the old snapshot after run
   assert.equal(JSON.parse(fs.readFileSync(registryPath, 'utf8')).authority, 'r-79.7');
 });
 
+test('6h. runtime rollback restores daemon-readable asset modes', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-mode-rollback-'));
+  const manager = path.join(dir, 'manager-assets', 'lua');
+  const runtime = path.join(dir, 'opt', 'zapret2');
+  const target = path.join(runtime, 'lua', 'selected.lua');
+  fs.mkdirSync(manager, { recursive: true });
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(path.join(manager, 'selected.lua'), '-- new\n');
+  fs.writeFileSync(target, '-- old\n');
+  fs.chmodSync(target, 0o700);
+  const source = path.join(manager, 'selected.lua');
+  const bytes = fs.readFileSync(source);
+  const sha = crypto.createHash('sha256').update(bytes).digest('hex');
+  const { result } = runRuntimeActivation(dir,
+    `ASSET|lua:selected|lua|${shellPath(source)}|/runtime-assets/lua/selected.lua|${sha}|${bytes.length}\n`,
+    { Z2M_TEST_FAIL_AFTER: '0' });
+  assert.notEqual(result.status, 0, 'fault injection must fail');
+  assert.equal(fs.readFileSync(target, 'utf8'), '-- old\n');
+  assert.match(sync, /runtime_asset_mode/);
+  assert.match(sync, /chmod "\$\(runtime_asset_mode "\$_dest"\)" "\$_dest"/);
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(target).mode & 0o777, 0o755, 'restored Lua must remain readable by daemon UID');
+  }
+});
+
 test('6f. normal package materialization cannot clobber selected lifecycle bytes', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-precedence-'));
   const source = path.join(dir, 'package-assets', 'lua');

@@ -26,6 +26,13 @@ ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
 ASSET_ROOT=${Z2M_MANAGER_ASSET_ROOT:-/etc/zapret2-manager/assets}
 ACTIVATION_SNAPSHOT=${Z2M_RUNTIME_ACTIVATION_SNAPSHOT:-/etc/zapret2-manager/runtime-assets.snapshot}
 
+runtime_asset_mode() {
+	case "$1" in
+		*.lua|*.sh) printf '0755' ;;
+		*) printf '0644' ;;
+	esac
+}
+
 # Registry activation is the bridge between the Asset Registry (the canonical
 # selected-release store) and the paths consumed by nfqws2.  It deliberately
 # lives in this existing runtime sync helper: this is materialization and
@@ -56,6 +63,7 @@ activation_restore() {
 		if [ "$_had" = 1 ]; then
 			mkdir -p "$(dirname "$_dest")"
 			cp "$_backup" "$_dest" || return 1
+			chmod "$(runtime_asset_mode "$_dest")" "$_dest" || return 1
 		else
 			rm -f "$_dest"
 		fi
