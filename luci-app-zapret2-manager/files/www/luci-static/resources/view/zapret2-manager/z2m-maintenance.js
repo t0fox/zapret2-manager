@@ -345,14 +345,36 @@ function mandatorySummary(page) {
   return parts.join(' · ');
 }
 function updateSummary(page) {
-  var counts = { 'update-available': 0, 'review-required': 0, 'rebase-required': 0, 'integration-required': 0 };
+  var counts = { 'update-available': 0, 'review-required': 0, 'rebase-required': 0, 'integration-required': 0, advisory: 0 };
   page.components.forEach(function (component) {
-    if (counts[component.updateState] !== undefined) counts[component.updateState]++;
+    var attentionState = component.attentionState;
+    var blocking = attentionState === 'review-required' || attentionState === 'rebase-required'
+      || attentionState === 'integration-required'
+      || (component.blockingReviews && component.blockingReviews.length)
+      || (component.rebases && component.rebases.length);
+    if (blocking) {
+      if (counts[attentionState] !== undefined) counts[attentionState]++;
+      else if (component.blockingReviews && component.blockingReviews.length) counts['review-required']++;
+      else if (component.rebases && component.rebases.length) counts['rebase-required']++;
+      return;
+    }
+    if (component.updateState === 'update-available' && (component.id !== 'z2k-core' || component.canApply !== false))
+      counts['update-available']++;
+    if (attentionState === 'review-advisory' || (component.advisoryReviews && component.advisoryReviews.length))
+      counts.advisory++;
   });
-  return Object.keys(counts).filter(function (key) { return counts[key] > 0; }).map(function (key) {
-    var count = counts[key];
-    return count + ' × ' + UpdatePresentation.describe(key).label;
-  }).join(' · ') || _('Обновления не требуются');
+  var parts = [];
+  if (counts['update-available'] > 0)
+    parts.push(_('Доступно ') + counts['update-available'] + ' ' + (counts['update-available'] === 1 ? _('обновление') : _('обновления')));
+  if (counts['review-required'] > 0)
+    parts.push(counts['review-required'] + ' ' + (counts['review-required'] === 1 ? _('компонент требует проверки') : _('компонента требуют проверки')));
+  if (counts['rebase-required'] > 0)
+    parts.push(counts['rebase-required'] + ' ' + (counts['rebase-required'] === 1 ? _('компонент требует адаптации') : _('компонента требуют адаптации')));
+  if (counts['integration-required'] > 0)
+    parts.push(counts['integration-required'] + ' ' + (counts['integration-required'] === 1 ? _('компонент требует интеграции') : _('компонента требуют интеграции')));
+  if (counts.advisory > 0)
+    parts.push(counts.advisory + ' ' + (counts.advisory === 1 ? _('замечание') : _('замечания')));
+  return parts.join(' · ') || _('Обновления не требуются');
 }
 function heroStatusLabel(page) {
   if (page.health.state === 'ready') return _('Система готова');
@@ -541,7 +563,7 @@ function z2kMetaRows(component) {
   rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
   var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
   rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : _('Не подтверждена') });
-  if (component.updateState === 'update-available' && component.availableRelease)
+  if (component.availableRelease)
     rows.push({ label: _('Доступный release'), value: component.availableRelease });
   return rows;
 }
@@ -705,6 +727,10 @@ function engineActionWithCheck(ctx, component, action, label) {
     showError(ctx, error);
   });
 }
+function engineUpdateActionLabel(component) {
+  var target = component && component.available && component.available.version;
+  return target ? _('Обновить до ') + target : _('Обновить');
+}
 function renderEngineDetails(ctx, component, engineStatus) {
   var shell = ctx.shell;
   var status = object(engineStatus);
@@ -744,7 +770,7 @@ function renderEngineDetails(ctx, component, engineStatus) {
         { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
       ],
       actions: hasUpdate ? [
-        shell.button(_('Обновить'), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', _('Обновить')), !!state.componentOperation),
+        shell.button(engineUpdateActionLabel(component), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', engineUpdateActionLabel(component)), !!state.componentOperation),
         shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)
       ] : [
         shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)
@@ -902,7 +928,7 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
   // Contextual actions
   var primaryActions = [];
   if (hasUpdate) {
-    primaryActions.push(shell.button(_('Обновить'), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', _('Обновить')), !!state.componentOperation));
+    primaryActions.push(shell.button(engineUpdateActionLabel(component), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', engineUpdateActionLabel(component)), !!state.componentOperation));
   } else if (isReady) {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   } else {
@@ -972,6 +998,7 @@ function renderZ2KCard(ctx, component) {
         E('strong', {}, row.value)
       ]);
     })),
+    renderReviewCallout(component),
     E('div', { 'class': 'z2m-component-card-actions' }, [
       E('div', { 'class': 'z2m-btnrow' }, primaryActions),
       E('div', { 'class': 'z2m-btnrow' }, [detailsBtn])

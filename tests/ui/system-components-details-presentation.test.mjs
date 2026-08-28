@@ -190,7 +190,7 @@ test('Engine details are a single Components-owned presentation without embedded
   assert.equal(updateSections.length, 1, 'Engine updates must be an explicit section');
   assert.equal(dangerZones.length, 1, 'Engine delete must live in a dedicated Danger Zone');
   assert.ok(buttonsOf(dangerZones[0]).includes('Удалить движок'));
-  assert.ok(buttonsOf(detailPanels[0]).includes('Обновить'));
+  assert.ok(buttonsOf(detailPanels[0]).includes('Обновить до v1.0.5'));
   assert.ok(buttonsOf(detailPanels[0]).includes('Проверить снова'));
 });
 
@@ -314,6 +314,59 @@ test('Z2K advisory current keeps the Актуален primary badge and separate
   assert.equal(textOf(updateState), 'СостояниеАктуально');
   assert.match(textOf(details), /Требует внимания/);
   assert.match(textOf(details), /Наблюдаемый upstream-файл изменился/);
+});
+
+test('Z2K collapsed card answers update and attention questions without opening details', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    updateState: 'update-available',
+    attentionState: 'review-advisory',
+    canApply: true,
+    availableRelease: 'r-80.4',
+    advisoryReviews: ['files/z2k-config-validator.sh'],
+    reviewDetails: [{ path: 'files/z2k-config-validator.sh', message: 'Наблюдаемый upstream-файл изменился.' }],
+  }));
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
+
+  assert.match(textOf(card), /r-80\.4/);
+  assert.match(textOf(card), /Требует внимания/);
+  assert.ok(buttonsOf(card).includes('Обновить до r-80.4'));
+  assert.equal(findAll(card, node => classHas(node, 'z2m-component-review-callout')).length, 1);
+  assert.equal(findAll(rendered, node => classHas(node, 'z2m-component-details')).length, 0);
+});
+
+test('Z2K advisory current remains Актуален in collapsed card with secondary attention', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    updateState: 'current',
+    attentionState: 'review-advisory',
+    advisoryReviews: ['files/z2k-config-validator.sh'],
+  }));
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
+
+  assert.equal(textOf(findAll(card, node => classHas(node, 'z2m-chip'))[0]), 'Актуален');
+  assert.match(textOf(card), /Требует внимания/);
+  assert.equal(findAll(card, node => classHas(node, 'z2m-component-review-callout--advisory')).length, 1);
+});
+
+test('hero reports an available update instead of saying no updates are required', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    updateState: 'update-available',
+    attentionState: 'none',
+    canApply: true,
+    availableRelease: 'r-80.4',
+  }));
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const hero = findAll(rendered, node => classHas(node, 'z2m-components-hero'))[0];
+
+  assert.match(textOf(hero), /Доступно 1 обновление/);
+  assert.doesNotMatch(textOf(hero), /Обновления не требуются/);
 });
 
 test('Z2K collapsed integration attention follows canonical attention, blocking and rebase fields', () => {
