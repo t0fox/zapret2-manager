@@ -54,7 +54,7 @@ function loadModel() {
 function loadMaintenance() {
   const marker = '\nreturn baseclass.extend({';
   const end = maintenanceSource.lastIndexOf(marker);
-  return vm.runInNewContext(`(function () {\n${maintenanceSource.slice(0, end)}\nreturn { renderComponents, selectZ2KVersion, state };\n})()`, {
+  return vm.runInNewContext(`(function () {\n${maintenanceSource.slice(0, end)}\nreturn { renderComponents, selectZ2KVersion, toggleZ2K, state };\n})()`, {
     baseclass: { extend: value => value },
     _: value => value,
     E: vnode,
@@ -163,6 +163,27 @@ function z2kCard(rendered) {
 function z2kDetails(rendered) {
   return findAll(rendered, node => classHas(node, 'z2m-component-details--z2k'))[0];
 }
+
+test('opening Z2K details loads the selected release before showing the operation', async () => {
+  const internals = loadMaintenance();
+  const calls = [];
+  const ctx = makeContext(z2kRaw({ selectedDetails: null }));
+  ctx.api.resources = {
+    versionDetails: value => {
+      calls.push(value);
+      return Promise.resolve({ version: 'r-80.3', installable: true, operation: 'upgrade', releaseBody: 'Новое описание.' });
+    }
+  };
+  internals.state.z2kSelectedVersion = 'r-80.3';
+
+  internals.toggleZ2K(ctx);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].version, 'r-80.3');
+  assert.equal(internals.state.z2kDetails.version, 'r-80.3');
+});
 
 test('current selection is factual and exposes reinstall as the sole operation', () => {
   const internals = loadMaintenance();

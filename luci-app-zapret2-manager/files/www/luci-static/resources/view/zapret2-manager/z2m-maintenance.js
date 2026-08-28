@@ -552,14 +552,8 @@ function z2kChangeSummary(details) {
     ? _('Изменений относительно установленной версии нет.')
     : _('Новых изменений при установке нет.');
 }
-function selectZ2KVersion(ctx, version) {
-  if (!version || state.componentOperation) return;
-  state.z2kSelectedVersion = version;
-  state.z2kDetails = null;
-  state.z2kDetailsExpanded = false;
-  if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
-  else rerender(ctx);
-  if (!ctx.api.resources || !ctx.api.resources.versionDetails) return;
+function loadZ2KVersionDetails(ctx, version) {
+  if (!version || state.componentOperation || !ctx.api.resources || !ctx.api.resources.versionDetails) return;
   checkedResult(ctx.api.resources.versionDetails({ version: version }), _('Детали Z2K release')).then(function (answer) {
     if (state.z2kSelectedVersion !== version) return;
     state.z2kDetails = answer;
@@ -568,6 +562,15 @@ function selectZ2KVersion(ctx, version) {
   }).catch(function (error) {
     if (state.z2kSelectedVersion === version) showError(ctx, error);
   });
+}
+function selectZ2KVersion(ctx, version) {
+  if (!version || state.componentOperation) return;
+  state.z2kSelectedVersion = version;
+  state.z2kDetails = null;
+  state.z2kDetailsExpanded = false;
+  if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
+  else rerender(ctx);
+  loadZ2KVersionDetails(ctx, version);
 }
 function toggleEngine(ctx) {
   state.engineExpanded = !state.engineExpanded;
@@ -578,6 +581,11 @@ function toggleZ2K(ctx) {
   state.z2kExpanded = !state.z2kExpanded;
   if (state.z2kExpanded) state.engineExpanded = false;
   rerender(ctx);
+  if (state.z2kExpanded && !state.z2kDetails) {
+    var resources = ctx.data && ctx.data.components && ctx.data.components.resources && ctx.data.components.resources.value || {};
+    var current = resources.z2k && resources.z2k.selectedDetails;
+    if (!current) loadZ2KVersionDetails(ctx, state.z2kSelectedVersion);
+  }
 }
 function renderHero(ctx, page) {
   var shell = ctx.shell;
