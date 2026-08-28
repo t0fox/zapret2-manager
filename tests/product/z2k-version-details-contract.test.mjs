@@ -10,6 +10,8 @@ const source = fs.readFileSync(
 );
 
 test('release details use the upstream human release body and deterministic fallback counts', () => {
+  assert.match(source, /function manifest_body\s*\(/);
+  assert.match(source, /manifest && manifest\.history/);
   assert.match(source, /function human_body\s*\(/);
   assert.match(source, /function fallback_body\s*\(/);
   assert.match(source, /Изменено/);
@@ -30,7 +32,7 @@ test('release and install diffs are explicit and compare against different basel
   assert.match(source, /let installedManifest = null/);
   assert.match(source, /let releaseChangeSet = release_changes_between\(checked\.manifest, previousManifest\)/);
   assert.match(source, /installChangeSet = changes_between\(checked\.manifest, installedManifest, map\)/);
-  assert.match(source, /body = human_body\(metadata && metadata\.message\) \|\| \(releaseChangeSet\.known \? fallback_body\(releaseChangeSet\) : null\)/);
+  assert.match(source, /body = manifest_body\(checked\.manifest, version\) \|\| human_body\(metadata && metadata\.message\) \|\| \(releaseChangeSet\.known \? fallback_body\(releaseChangeSet\) : null\)/);
   assert.match(source, /releaseChanges:/);
   assert.match(source, /installChanges:/);
 });

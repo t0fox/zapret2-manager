@@ -19,10 +19,11 @@ Resource Center flow, Asset Registry, runtime-assets bridge, catalog/details
 RPCs, Components UI, and lifecycle tests. No parallel updater, catalog,
 registry, route, or CHECK_STATE owner was introduced.
 
-**Verdict: NOT READY.** The source and focused gates are repaired, but the
-required live browser confirmation and current-code router lifecycle have not
-been completed because the Codex in-app Browser currently shows the router's
-`Authorization Required` form and there is no available authenticated tab.
+**Verdict: NOT READY.** The source and focused gates are repaired, and the
+authenticated Codex in-app Browser now verifies the release details UI. The
+required mutation lifecycle is currently stopped by the router's unavailable
+fresh catalog network path; the fail-closed prepare contract correctly
+performed no mutation.
 
 ## Initial repository state
 
@@ -97,8 +98,9 @@ files.
 
 Catalog cache is volatile (`/tmp`) with a bounded TTL. Browse-only stale
 data may be shown as stale; fresh prepare resolution fails closed. Human
-changelog metadata uses the compact `/git/commits/<sha>` endpoint and the
-selected release body is kept separate from technical details.
+changelog uses immutable `history[].desc` first and the compact
+`/git/commits/<sha>` endpoint as fallback; the selected release body is kept
+separate from technical details.
 
 The UI changes use the four requested design reviews: Emil Design Engineering,
 Design Consultation, Design Review, and Web Interface Guidelines. The result
@@ -112,7 +114,7 @@ Components ownership and responsive layout.
 
 Passed:
 
-- New full lifecycle review suite: **32/32**.
+- New full lifecycle review suite: **33/33**.
 - Existing Z2K version/UI lifecycle focused suite after updating stale
   expectations to the prepare-before-confirm contract: **59/59**.
 - Shell syntax check for
@@ -124,7 +126,7 @@ Passed:
 - Local activation sandbox: selected bytes copied into live roots.
 - Local activation fault injection: previous runtime bytes remained intact.
 
-The new 32 checks include Registry-to-runtime activation, PID/nft reapply
+The new 33 checks include Registry-to-runtime activation, PID/nft reapply
 contracts, coordinated rollback, strict receipt identity, extra-asset
 rejection, unknown install history, full upstream release diff, compact Git
 endpoint, volatile cache, fresh resolve, prepare/apply TOCTOU protection,
@@ -140,7 +142,7 @@ The exact broad command was run in both worktrees:
 - Isolated baseline at `2db63158f73a5569e8103934215c20dcb367b900`:
   **78 total, 69 pass, 9 fail**.
 - Current worktree after the review tests and repairs:
-  **100 total, 91 pass, 9 fail**.
+  **101 total, 92 pass, 9 fail**.
 
 The nine baseline classes remain: one stale refresh-state assertion, five
 native shell materialization checks that cannot launch `/bin/sh` on Windows,
@@ -156,7 +158,7 @@ staging/backup procedure. Local-to-installed SHA checks passed for the changed
 frontend, Asset Registry, Resource Center, runtime bridge,
 `z2k-installed-release.uc`, and `z2k-versions.uc`; the router shell syntax
 check passed. The final `z2k-versions.uc` installed SHA was
-`c0058e4c49b583a5e21f804f953f7cc1613b845cf78efc6f840ae80c5c28d63c`.
+`4c3665357d5e33a7b4f0587a3d2af9fc105e8a6053f840580f883d5236a35f6b`.
 
 Read-only live details after that deployment prove the data contract:
 
@@ -185,31 +187,46 @@ These are separate gates in the implementation and must not be conflated:
 
 - Registry postflight is implemented and locally contract-tested, but has not
   been produced by a current-code router lifecycle in this review because the
-  browser could not authenticate.
+  fresh catalog request is unavailable.
 - Runtime postflight is implemented and locally sandbox-tested, but has not
   been produced by a current-code router lifecycle in this review. The P0
   mismatch above is the pre-fix evidence that made this gate necessary.
 
-## Browser acceptance blocker
+## Browser acceptance and current blocker
 
 The required Codex in-app Browser URL is:
 
 `http://192.168.1.1/cgi-bin/luci/admin/services/zapret2-manager#/components`
 
-A fresh in-app tab was opened and shows:
+A fresh in-app tab initially showed `Authorization Required`. Clicking
+`Log in` with the empty password field succeeded; the router explicitly shows
+`No password set!`. No password or stored credential was inspected or guessed.
 
-- `Authorization Required`
-- Username
-- Password
-- Log in
+The authenticated browser now verifies:
 
-`openTabs()` returned no existing authenticated user tab. No password or
-stored credential was inspected or guessed. The required current-code browser
-cases therefore remain unverified:
+- r80.3 has a clean human changelog body beginning `WARP больше не меняет
+  настройки обхода...`, with no replacement-character prefix;
+- `releaseChanges` exposes `Изменено 33`, `Добавлено 0`, `Удалено 0`;
+- the `Подробнее` control expands a real DOM region
+  `#z2m-z2k-release-details` with `role=region`, `aria-labelledby`, and
+  `aria-expanded/aria-controls` linkage;
+- selecting r79.7 displays `targetCanApply=true` behavior in the UI: the
+  mutation action is enabled, with advisory-only review state and no blocking
+  reason.
+
+The first browser click on `Установить r-79.7` invoked
+`z2k_prepare_version`. The live RPC returned
+`EUNAVAILABLE: Не удалось получить каталог Z2K releases.`. A direct bounded
+router `uclient-fetch` probe for the same GitHub refs endpoint returned
+`rc=8` and produced no response file. The normal catalog endpoint is therefore
+serving stale cache data, while fresh prepare correctly fails closed. No
+Registry/runtime mutation occurred after this failure.
+
+The required current-code browser mutation cases therefore remain unverified:
 
 - install r79.7 to establish a new-format receipt;
-- exact r79.7 installed / r80.3 selected case with the real human changelog,
-  33 release changes, and a real accessible «Подробнее» region;
+- exact r79.7 installed / r80.3 selected case after establishing the new
+  receipt;
 - upgrade r79.7 → r80.3;
 - downgrade r80.3 → r79.7;
 - reinstall r79.7;
@@ -218,10 +235,10 @@ cases therefore remain unverified:
 
 ## Final verdict
 
-**NOT READY.** The root-cause fixes and focused tests are in place, and live
-read-only RPC data now exposes the intended immutable release/change contract.
-The release cannot be called ready until an authenticated in-app Browser
-session runs the requested upgrade/downgrade/reinstall flow on the router and
-the resulting Registry postflight and runtime postflight evidence are
-captured separately. Once the user logs into the open router tab, the exact
-browser gate can continue without changing the implementation scope.
+**NOT READY.** The root-cause fixes and focused tests are in place, and the
+authenticated browser now verifies the real r80.3 human changelog and
+accessible Details region. The release cannot be called ready until the
+router's fresh catalog network path is available and the authenticated browser
+runs the requested install/upgrade/downgrade/reinstall flow. The resulting
+Registry postflight and runtime postflight evidence must still be captured
+separately.

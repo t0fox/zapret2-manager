@@ -12,7 +12,7 @@ const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.jso
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function fail(code, message, details) { let out = { ok: false, error: { code: code, message: message } }; if (details != null) out.error.details = details; return out; }
-function classification() { try { let value = json(readfile(CLASSIFICATION)); return object(value) && value.schema == 'zapret2-manager.z2k-integration.v1' && object(value.source) && type(value.files) == 'array' ? value : null; } catch (e) { return null; } }
+function classification() { try { let value = json(readfile(CLASSIFICATION)); if (!object(value) || value.schema != 'zapret2-manager.z2k-integration.v1' || !object(value.source) || type(value.files) != 'array') return null; for (let i = 0; type(value.historicalFiles) == 'array' && i < length(value.historicalFiles); i++) push(value.files, value.historicalFiles[i]); return value; } catch (e) { return null; } }
 function class_for(map, sourcePath) { for (let i = 0; i < length(map.files); i++) if (map.files[i].sourcePath == sourcePath) return map.files[i]; return null; }
 function asset_type(item) { return item.type == 'bin' ? 'blob' : (item.type == 'lua' ? 'lua' : null); }
 export const z2k_component_plan = function(remoteManifest) {

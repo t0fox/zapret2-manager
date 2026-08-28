@@ -126,6 +126,7 @@ test('12. release diff compares the actual previous upstream release', () => {
 });
 
 test('13. human changelog uses the compact Git commit endpoint', () => {
+  assert.match(versions, /manifest_body\(checked\.manifest, version\)/);
   assert.match(versions, /\/git\/commits\//);
   assert.doesNotMatch(versions, /API_ROOT\s*\+\s*['"]\/commits\//);
 });
@@ -161,6 +162,7 @@ test('18. selected target gate is independent from latest release attention', ()
   assert.match(model, /targetCanApply/);
   assert.match(model, /targetAttentionState/);
   assert.match(maintenance, /selected\.targetCanApply|selected\.targetAttentionState/);
+  assert.match(read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc'), /historicalFiles/);
 });
 
 test('19. Z2K operation prepares before opening confirmation', () => {
@@ -194,4 +196,8 @@ test('22. normal Z2K lifecycle confirmation is primary and toast follows prepare
   assert.match(body, /preparedTarget\.operation|prepared\.target\.operation/);
   assert.match(body, /z2kOperationLabel\(preparedOperation/);
   assert.match(maintenance, /!state\.z2kExpanded[\s\S]{0,220}z2kCanApply|z2kCanApply[\s\S]{0,220}!state\.z2kExpanded/);
+});
+
+test('23. ucode prepare path resolves runtime helpers before target validation', () => {
+  assert.ok(ru.indexOf('function runtime_target_path') < ru.indexOf('function z2k_target_asset_valid'));
 });

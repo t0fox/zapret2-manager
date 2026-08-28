@@ -185,6 +185,17 @@ function z2k_local_projection(manifest) {
 	let installedRelease = z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
 	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease };
 }
+function runtime_target_path(runtimeTarget) {
+	if (!string(runtimeTarget)) return null;
+	let prefix = '/runtime-assets/', relative = substr(runtimeTarget, length(prefix));
+	if (substr(runtimeTarget, 0, length(prefix)) != prefix || !length(relative) || index(relative, '..') >= 0 || index(relative, '\\') >= 0 || !match(relative, /^[A-Za-z0-9._\/-]+$/)) return null;
+	if (substr(runtimeTarget, 0, length('/runtime-assets/bin/')) == '/runtime-assets/bin/') return RUNTIME_BASE + '/files/fake/' + substr(runtimeTarget, length('/runtime-assets/bin/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/lua/')) == '/runtime-assets/lua/') return RUNTIME_BASE + '/lua/' + substr(runtimeTarget, length('/runtime-assets/lua/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/lists/')) == '/runtime-assets/lists/') return RUNTIME_BASE + '/lists/' + substr(runtimeTarget, length('/runtime-assets/lists/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/ipset/')) == '/runtime-assets/ipset/') return RUNTIME_BASE + '/ipset/' + substr(runtimeTarget, length('/runtime-assets/ipset/'));
+	return null;
+}
+function runtime_source_safe(path) { return string(path) && substr(path, 0, length('/etc/zapret2-manager/assets/')) == '/etc/zapret2-manager/assets/' && index(path, '..') < 0 && index(path, '\\') < 0; }
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function z2k_target_asset_valid(item) {
 	return object(item) && string(item.sourcePath) && match(item.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
@@ -330,17 +341,6 @@ function same_id_set(left, right) {
 	for (let i = 0; i < length(right || []); i++) if (!seen[right[i]]) return false;
 	return true;
 }
-function runtime_target_path(runtimeTarget) {
-	if (!string(runtimeTarget)) return null;
-	let prefix = '/runtime-assets/', relative = substr(runtimeTarget, length(prefix));
-	if (substr(runtimeTarget, 0, length(prefix)) != prefix || !length(relative) || index(relative, '..') >= 0 || index(relative, '\\') >= 0 || !match(relative, /^[A-Za-z0-9._\/-]+$/)) return null;
-	if (substr(runtimeTarget, 0, length('/runtime-assets/bin/')) == '/runtime-assets/bin/') return RUNTIME_BASE + '/files/fake/' + substr(runtimeTarget, length('/runtime-assets/bin/'));
-	if (substr(runtimeTarget, 0, length('/runtime-assets/lua/')) == '/runtime-assets/lua/') return RUNTIME_BASE + '/lua/' + substr(runtimeTarget, length('/runtime-assets/lua/'));
-	if (substr(runtimeTarget, 0, length('/runtime-assets/lists/')) == '/runtime-assets/lists/') return RUNTIME_BASE + '/lists/' + substr(runtimeTarget, length('/runtime-assets/lists/'));
-	if (substr(runtimeTarget, 0, length('/runtime-assets/ipset/')) == '/runtime-assets/ipset/') return RUNTIME_BASE + '/ipset/' + substr(runtimeTarget, length('/runtime-assets/ipset/'));
-	return null;
-}
-function runtime_source_safe(path) { return string(path) && substr(path, 0, length('/etc/zapret2-manager/assets/')) == '/etc/zapret2-manager/assets/' && index(path, '..') < 0 && index(path, '\\') < 0; }
 function z2k_runtime_spec(target, listed, classification, root) {
 	let lines = [], targetById = {};
 	for (let i = 0; i < length(target.assets || []); i++) {
