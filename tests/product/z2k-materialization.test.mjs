@@ -99,6 +99,31 @@ test('is idempotent and never downgrades existing upstream core Lua', () => {
     'upstream core Lua was overwritten');
 });
 
+test('refreshes an existing Manager-owned Lua sidecar from the package baseline', () => {
+  const sb = sandbox();
+  const source = path.join(sb.dir, 'package-assets', 'lua');
+  const target = path.join(sb.base, 'lua');
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, 'z2m-hostkey-policy.lua'), '-- package NEW\n');
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'z2m-hostkey-policy.lua'), '-- runtime OLD\n');
+
+  const result = spawnSync(SHELL, [bashPath(SYNC)], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      Z2M_RUNTIME_ASSETS_SRC: bashPath(path.join(sb.dir, 'package-assets')),
+      Z2M_RUNTIME_BASE: bashPath(sb.base),
+      Z2M_MANAGER_STATE_ROOT: bashPath(sb.stateRoot),
+      Z2M_MANAGER_ETC_ROOT: bashPath(sb.etcRoot),
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
+    },
+    encoding: 'utf8', timeout: 240_000
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.readFileSync(path.join(target, 'z2m-hostkey-policy.lua'), 'utf8'), '-- package NEW\n');
+});
+
 test('--verify reports ok when installed copies match the baseline', () => {
   const sb = sandbox();
   assert.equal(runSync(sb).status, 0);

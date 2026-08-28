@@ -6,7 +6,7 @@ import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
 import { asset_registry_list, asset_registry_apply_bundle, asset_registry_rollback_bundle } from './asset-registry.uc';
 import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
-import { z2k_resolve_version, z2k_compare_versions } from './z2k-versions.uc';
+import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release } from './z2k-installed-release.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
@@ -323,6 +323,57 @@ function z2k_classification_for(map, path) {
 	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) if (map.files[i] && map.files[i].sourcePath == path) return map.files[i];
 	return null;
 }
+function z2k_classification_asset_for(map, id, typeName) {
+	let found = null;
+	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) {
+		let item = map.files[i], mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
+		if (!object(item) || item.class != 'exact-managed' || mappedType != typeName || !string(item.sourcePath) || !runtime_target_path(item.runtimeTarget)
+			|| z2k_asset_id_from_classification(item, item.sourcePath) != id) continue;
+		if (found != null) return { ambiguous: true };
+		found = item;
+	}
+	return found;
+}
+function z2k_receipt_header_valid(receipt) {
+	return object(receipt) && receipt.schema == 'asset-activation-receipt.v1' && receipt.bundleId == 'z2k-curated-lua'
+		&& string(receipt.version) && z2k_compare_versions(receipt.version, receipt.version) != null
+		&& string(receipt.sourceCommit) && match(lc(receipt.sourceCommit), /^[a-f0-9]{40}$/)
+		&& type(receipt.assets) == 'array' && length(receipt.assets) > 0;
+}
+function z2k_receipt_runtime_descriptor(id, typeName, receipts, classification) {
+	let complete = null, legacy = false;
+	for (let i = length(receipts || []) - 1; i >= 0; i--) {
+		let receipt = receipts[i];
+		if (!z2k_receipt_header_valid(receipt)) continue;
+		for (let j = 0; j < length(receipt.assets); j++) {
+			let recorded = receipt.assets[j];
+			if (!object(recorded) || recorded.id != id) continue;
+			let hasMetadata = recorded.sourceCommit != null || recorded.sourcePath != null || recorded.bundleId != null || recorded.version != null;
+			if (hasMetadata) {
+				if (!(string(recorded.sourceCommit) && string(recorded.sourcePath) && string(recorded.bundleId) && string(recorded.version))
+					|| recorded.sourceCommit != receipt.sourceCommit || recorded.sourcePath == '' || recorded.bundleId != receipt.bundleId || recorded.version != receipt.version
+					|| recorded.type != typeName || !valid_digest(recorded.sha256) || type(recorded.byteSize) != 'int' || recorded.byteSize < 1)
+					return fail('EVERIFY', 'Complete historical Z2K receipt metadata is inconsistent.', { id: id });
+				let item = z2k_classification_for(classification, recorded.sourcePath), mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
+				if (item == null || item.class != 'exact-managed' || mappedType != typeName || !runtime_target_path(item.runtimeTarget)
+					|| z2k_asset_id_from_classification(item, recorded.sourcePath) != id)
+					return fail('EVERIFY', 'Complete historical Z2K receipt asset has no canonical runtime identity.', { id: id, sourcePath: recorded.sourcePath });
+				if (complete != null && (complete.sourcePath != recorded.sourcePath || complete.type != recorded.type || complete.runtimeTarget != item.runtimeTarget))
+					return fail('EVERIFY', 'Complete historical Z2K receipt metadata is contradictory.', { id: id });
+				if (complete == null) complete = { id: id, type: typeName, sourcePath: recorded.sourcePath, runtimeTarget: item.runtimeTarget };
+			} else {
+				if (recorded.type != typeName || !valid_digest(recorded.sha256) || type(recorded.byteSize) != 'int' || recorded.byteSize < 1)
+					return fail('EVERIFY', 'Legacy historical Z2K receipt asset is invalid.', { id: id });
+				legacy = true;
+			}
+		}
+	}
+	if (complete != null) return { ok: true, descriptor: complete };
+	if (!legacy) return fail('EVERIFY', 'Historical Z2K asset has no trustworthy receipt metadata.', { id: id });
+	let item = z2k_classification_asset_for(classification, id, typeName);
+	if (item == null || item.ambiguous === true) return fail('EVERIFY', 'Legacy historical Z2K asset has no unique canonical runtime mapping.', { id: id });
+	return { ok: true, descriptor: { id: id, type: typeName, sourcePath: item.sourcePath, runtimeTarget: item.runtimeTarget } };
+}
 function z2k_read_classification_snapshot() {
 	try {
 		let raw = readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json'), value = raw == null ? null : json(raw);
@@ -456,7 +507,7 @@ function z2k_runtime_rollback() {
 	if (!restarted.ok) return restarted;
 	return { ok: true, restored: true, restart: restarted };
 }
-function z2k_runtime_confirmed_target(listed, classification, authority) {
+export const z2k_runtime_confirmed_target = function(listed, classification, authority) {
 	let active = [], activeById = {}, historical = {}, receipts = listed.activationReceipts || [];
 	for (let i = 0; i < length(listed.assets || []); i++) {
 		let asset = listed.assets[i], provenance = asset && asset.provenance;
@@ -468,7 +519,7 @@ function z2k_runtime_confirmed_target(listed, classification, authority) {
 	}
 	for (let i = 0; i < length(receipts); i++) {
 		let receipt = receipts[i];
-		if (!object(receipt) || receipt.bundleId != 'z2k-curated-lua' || type(receipt.assets) != 'array') continue;
+		if (!z2k_receipt_header_valid(receipt)) continue;
 		for (let j = 0; j < length(receipt.assets); j++) {
 			let recorded = receipt.assets[j];
 			if (object(recorded) && string(recorded.id) && !historical[recorded.id]) historical[recorded.id] = recorded;
@@ -477,14 +528,14 @@ function z2k_runtime_confirmed_target(listed, classification, authority) {
 	let removeTargets = [];
 	for (let id in historical) {
 		if (activeById[id]) continue;
-		let recorded = historical[id], item = z2k_classification_for(classification, recorded.sourcePath);
-		if (item == null || item.class != 'exact-managed' || !runtime_target_path(item.runtimeTarget) || (recorded.type != 'lua' && recorded.type != 'blob')) return fail('EVERIFY', 'Confirmed historical Z2K asset has no safe runtime mapping.', { id: id });
-		push(removeTargets, { id: id, type: recorded.type, sourcePath: recorded.sourcePath, runtimeTarget: item.runtimeTarget });
+		let recorded = historical[id], descriptor = z2k_receipt_runtime_descriptor(id, recorded.type, receipts, classification);
+		if (!descriptor.ok) return descriptor;
+		push(removeTargets, descriptor.descriptor);
 	}
 	sort(active, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
 	sort(removeTargets, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
 	return { ok: true, target: { targetVersion: authority.value, operation: 'materialize', assets: active, removeIds: [], removeTargets: removeTargets } };
-}
+};
 export const z2k_runtime_materialize_confirmed = function() {
 	let listed = asset_registry_list(null);
 	if (!listed.ok) return listed;

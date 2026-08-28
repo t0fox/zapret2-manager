@@ -73,6 +73,10 @@ function asset_id(item, path) {
 	if (slug == 'list' && index(path, 'extra_strats') >= 0) { let dir = substr(path, 0, rindex(path, '/')), after = substr(dir, length('files/lists/')), flat = ''; for (let i = 0; i < length(after); i++) flat += substr(after, i, 1) == '/' ? '_' : lc(substr(after, i, 1)); slug = flat + '_list'; }
 	let typeName = item && item.type == 'lua' ? 'lua' : (item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null); return typeName == null ? null : typeName + ':' + slug;
 }
+// The classification-to-asset-ID rule is shared with lifecycle
+// rematerialization.  Callers must still validate the classification entry;
+// this export only prevents a second, subtly different ID mapper.
+export const z2k_asset_id_from_classification = function(item, path) { return asset_id(item, path); };
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function validate_manifest(value, rawSize, requested) {
 	if (!object(value) || rawSize == null || rawSize < 2 || rawSize > MAX_MANIFEST || value.schema != 1 || value.branch != BRANCH || type(value.seq) != 'int' || value.seq < 0 || !string(value.current) || parse_release(value.current) == null || (requested != null && value.current != requested) || !object(value.files_sha256)) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json schema or release identity is invalid.');

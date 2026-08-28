@@ -211,14 +211,46 @@ is_core_lua() {
 	return 1
 }
 
+# Z2K lifecycle Lua uses a reserved namespace in the package.  This is only a
+# local precedence guard; Registry -> runtime path mapping remains in the
+# canonical UCode bridge below the Engine worker.
+is_z2k_lifecycle_lua() {
+	case "$1" in
+		z2k-*.lua) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# A successful Registry activation records every selected target in this
+# rollback snapshot.  Reusing that evidence keeps already-selected runtime
+# bytes safe for package sync without duplicating the Registry classification.
+is_registry_selected_target() {
+	[ -f "$ACTIVATION_SNAPSHOT" ] || return 1
+	while IFS='|' read -r _dest _backup _had; do
+		[ "$_dest" = "$1" ] && return 0
+	done < "$ACTIVATION_SNAPSHOT"
+	return 1
+}
+
+preserve_existing_runtime() {
+	_dst="$1"
+	_name="${_dst##*/}"
+	case "$_dst" in
+		*/lua/*)
+			is_core_lua "$_name" || is_z2k_lifecycle_lua "$_name" || is_registry_selected_target "$_dst"
+			;;
+		*)
+			is_registry_selected_target "$_dst"
+			;;
+	esac
+}
+
 copy_if_missing_or_custom() {
 	_src="$1"
 	_dst="$2"
-	# Materialization is install-time only.  Never overwrite an existing
-	# runtime byte here: confirmed Z2K lifecycle bytes are overlaid by the
-	# canonical Registry bridge after package materialization, while existing
-	# Manager sidecars/custom assets remain user/runtime-owned.
-	if [ -e "$_dst" ]; then
+	# Engine core and selected Z2K bytes are protected. Manager-owned package
+	# sidecars are refreshable and therefore receive the new package byte.
+	if [ -e "$_dst" ] && preserve_existing_runtime "$_dst"; then
 		return 0
 	fi
 	cp "$_src" "$_dst"
@@ -300,7 +332,7 @@ verify() {
 		# Core upstream Lua files are engine-owned after a compatible install
 		# (their integrity is proven by the engine payload digest + capability
 		# proof, not by the manager baseline).
-		if is_core_lua "${_src##*/}" && [ -f "$BASE/lua/${_src##*/}" ]; then
+		if [ -f "$BASE/lua/${_src##*/}" ] && { is_core_lua "${_src##*/}" || { is_z2k_lifecycle_lua "${_src##*/}" && is_registry_selected_target "$BASE/lua/${_src##*/}"; }; }; then
 			continue
 		fi
 		add_verdict "$_src" "$BASE/lua/${_src##*/}"
