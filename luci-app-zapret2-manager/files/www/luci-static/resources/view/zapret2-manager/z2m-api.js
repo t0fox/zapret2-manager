@@ -70,7 +70,11 @@ function normalizeError(error){
  else raw=value==null?'':String(value);
  code=code||String(outer.code||'error');
  var hay=(code+' '+raw).toLowerCase(), kind='backend_error', message=_('Backend вернул ошибку.'), retryable=false;
- if (/not.?installed|component.?missing|package.?missing|enoent/.test(hay)) { kind='component_not_installed'; message=_('Компонент не установлен.'); retryable=false; }
+ if (code === 'ECHECK_STALE') { kind='check_stale'; message=_('Данные проверки устарели. Проверьте обновления ещё раз.'); retryable=true; }
+ else if (code === 'EUPDATE_NOT_AVAILABLE') { kind='update_not_available'; message=_('Обновление уже не требуется.'); retryable=false; }
+ else if (code === 'EZ2K_REVIEW_REQUIRED') { kind='update_blocked_review'; message=_('Обновление заблокировано до проверки upstream-изменений.'); retryable=false; }
+ else if (code === 'EZ2K_REBASE_REQUIRED') { kind='update_blocked_rebase'; message=_('Обновление заблокировано до адаптации upstream-изменений.'); retryable=false; }
+ else if (/not.?installed|component.?missing|package.?missing|enoent/.test(hay)) { kind='component_not_installed'; message=_('Компонент не установлен.'); retryable=false; }
  else if (/provider|backend provider/.test(hay) && /unavailable|missing|not found|object not found|disabled/.test(hay)) { kind='provider_unavailable'; message=_('Backend provider недоступен.'); retryable=true; }
  else if (/dependency|epref|eprobe|missing dependency|requires/.test(hay)) { kind='dependency_unavailable'; message=_('Зависимость недоступна.'); retryable=true; }
  else if (/object not found|method not found|no such object|no such method|classconstructor|\brpc\b|\bubus\b|eobject|-3200/.test(hay)) { kind='rpc_unavailable'; message=_('RPC-компонент недоступен.'); retryable=true; }

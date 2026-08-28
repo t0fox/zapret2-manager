@@ -2,9 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 
 const root = path.resolve(path.join(import.meta.dirname, '../..'));
 function read(rel) { return fs.readFileSync(path.join(root, rel), 'utf8'); }
+
+function loadNormalizeError() {
+  const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
+  const start = api.indexOf('function bounded');
+  const end = api.indexOf('\nfunction tgEdit', start);
+  assert.ok(start >= 0 && end > start, 'API error normalizer helpers must be present');
+  return vm.runInNewContext(`(function () { ${api.slice(start, end)}\nreturn normalizeError; })()`, {
+    _: value => value,
+    Object,
+    Array,
+    String,
+    JSON,
+    Error,
+  });
+}
 
 test('maintenance must use scoped componentOperation, not single componentBusy boolean', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
@@ -85,4 +101,17 @@ test('scope drives backend calls: engine->fresh check/gateStatus, z2k->resources
   assert.match(fn, /if \(ctx\.api\.engine\.gateStatus\)\s*addCheck\('engine-gate',\s*checkedResult\(ctx\.api\.engine\.gateStatus/);
   // bounded lifecycle guard present
   assert.match(fn, /Promise\.race\(\[Promise\.allSettled\(promises\)/);
+});
+
+test('Z2K update error codes have actionable user-facing messages', () => {
+  const normalizeError = loadNormalizeError();
+  const cases = [
+    ['ECHECK_STALE', 'Данные проверки устарели. Проверьте обновления ещё раз.'],
+    ['EUPDATE_NOT_AVAILABLE', 'Обновление уже не требуется.'],
+    ['EZ2K_REVIEW_REQUIRED', 'Обновление заблокировано до проверки upstream-изменений.'],
+    ['EZ2K_REBASE_REQUIRED', 'Обновление заблокировано до адаптации upstream-изменений.'],
+  ];
+  for (const [code, message] of cases) {
+    assert.equal(normalizeError({ code, message: 'backend technical copy' }).message, message, code);
+  }
 });
