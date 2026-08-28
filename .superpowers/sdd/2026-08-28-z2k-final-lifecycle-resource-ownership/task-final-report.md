@@ -86,13 +86,21 @@ Package deployment is not in scope (`НИКАКИХ APK`). Browser/DOM read-only
 
 | Operation | Result | Evidence boundary |
 |---|---|---|
-| Upgrade `r-79.7 → r-80.3` | FAILED → ROLLED BACK | Actual Components UI confirmation/apply. `ERUNTIME` wrapping `EVERIFY`: `Registry removal target has no safe runtime mapping`, `id=blob:4pda`. Registry rollback `ok=true`; current authority restored to `r-79.7`. |
+| Upgrade `r-79.7 → r-80.3` | FIRST ATTEMPT ROLLED BACK; FOLLOW-UP BLOCKED BEFORE CONFIRMATION | Actual Components UI confirmation/apply. The first `ERUNTIME` wrapping `EVERIFY` was traced to reversed UCode `join()` arguments producing a `null` activation spec; fixed in `71616247`. The follow-up fresh prepare returned `EUNAVAILABLE` because router `api.github.com` returned `403` rate limiting, so no second mutation occurred. |
 | Downgrade `r-80.3 → r-79.7` | NOT RUN | Stopped after the upgrade blocker; precondition was not met. |
 | Reinstall `r-79.7` | NOT RUN | Stopped after the upgrade blocker; no speculative live mutation was attempted. |
 
-Current acceptance verdict: `NOT READY` — the actual UI upgrade reproducibly blocks on the removal mapping for `blob:4pda`; downgrade and reinstall are not claimed. The failure path restored Registry state and left the running service healthy. CLI `resources_update` was not used as a substitute, and no APK was built or installed.
+Current acceptance verdict: `NOT READY` — the serializer/runtime activation defect is fixed and covered by the final `67/67` focused gate, but a fresh UI prepare is currently blocked by the router's exhausted GitHub API rate limit (`403`, core `0/60`, reset `2026-08-28 22:54:39 MSK`). Therefore upgrade success, downgrade, and reinstall are not claimed. The prior failure path restored Registry state and left the running service healthy. CLI `resources_update` was not used as a substitute, and no APK was built or installed.
 
-After rollback, read-only `resources_status` still exposed the prepared `r-80.3` upgrade snapshot (`preparedAt=1787938569`) while the installed authority was `r-79.7`; no replay or manual cleanup was performed.
+After the first rollback, the historical evidence retained a prepared `r-80.3` snapshot (`preparedAt=1787938569`); the subsequent prepare attempt consumed no target and the current read-only `resources_status` reports `preparedTarget=null` with installed authority `r-79.7`.
+
+## Follow-up after serializer fix
+
+- Commit `71616247bec3594b586011ad549d5e19fae2d706` is pushed to `origin/codex/z2k-version-lifecycle`; local `HEAD` equals the remote branch tip.
+- Source-only router deployment installed `resource-update.uc` with SHA `dc64c09cc1699577722c6f6fde16113218da26ec6a19313bfefb6384677af509`, matching the candidate source; the previous file was backed up, ownership is `root:root`, mode `0644`, and `rpcd` was reloaded.
+- Final focused verification: `67` tests passed, `0` failed. The added regression test asserts UCode's separator-first `join()` contract for token, fingerprint, and activation-spec serialization.
+- Current router health is safe and unchanged by the blocked follow-up: `resources_status.ok=true`, authority `r-79.7` (`activation-receipt`), Registry revision `7`, `preparedTarget=null`, Lua `7/7`, integrity `verified`.
+- In the Codex in-app Browser, LuCI authorization was restored by clicking `Log in…` and `Log in` without entering a password. The selected `r-80.3` prepare then failed before its confirmation dialog with `EUNAVAILABLE`; direct router probe confirmed GitHub `/git/ref/tags/r-80.3` returns HTTP `403`, and `/rate_limit` reported core remaining `0` of `60` until `22:54:39 MSK`.
 
 ## Delivery
 

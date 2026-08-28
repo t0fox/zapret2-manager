@@ -508,6 +508,49 @@
       "reason": "stopped after the UI upgrade failed and rolled back"
     }
   },
+  "followUp": {
+    "commit": "71616247bec3594b586011ad549d5e19fae2d706",
+    "sourceFile": "zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc",
+    "sourceSha256": "dc64c09cc1699577722c6f6fde16113218da26ec6a19313bfefb6384677af509",
+    "remoteBranchEqual": true,
+    "focusedGate": {
+      "tests": 67,
+      "pass": 67,
+      "fail": 0
+    },
+    "router": {
+      "sourceOnlyDeployment": true,
+      "rpcdReloaded": true,
+      "installedAuthority": "r-79.7",
+      "registryRevision": 7,
+      "preparedTarget": null,
+      "luaReady": 7,
+      "luaTotal": 7,
+      "integrity": "verified",
+      "statusOk": true
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "loginRecovered": true,
+      "passwordEntered": false,
+      "prepareStatus": "blocked-before-confirmation",
+      "errorCode": "EUNAVAILABLE",
+      "message": "Не удалось получить immutable tag выбранного release.",
+      "diagnostics": {
+        "requestCount": 1,
+        "restRequestCount": 1,
+        "resolution": "selected-tag"
+      }
+    },
+    "githubRateLimit": {
+      "httpStatus": 403,
+      "coreLimit": 60,
+      "coreRemaining": 0,
+      "resetAtMsk": "2026-08-28 22:54:39"
+    },
+    "previousRuntimeErrorRootCause": "UCode join arguments were reversed, producing a null activation spec; fixed by 71616247.",
+    "verdict": "not-ready"
+  },
   "apk": {
     "status": "not-built",
     "reason": "explicitly forbidden by user; temporary build was stopped and removed"

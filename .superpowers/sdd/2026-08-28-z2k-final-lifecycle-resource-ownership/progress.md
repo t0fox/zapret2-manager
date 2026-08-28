@@ -42,14 +42,14 @@ No preflight ruling required.
 - Task 1: complete — baseline ownership map and RED reproducer recorded in `task-1-report.md`.
 - Tasks 2-10: complete — implementation and focused contract coverage are in the working tree.
 - Task 11: complete — direct source-only deployment, cache-disabled browser Resources acceptance, and backend negative ownership proof passed.
-- Tasks 12-13: live upgrade attempted through Components UI; apply failed at runtime mapping validation for removed `blob:4pda` and automatic Registry rollback succeeded. Downgrade and reinstall were stopped per the plan.
-- Task 14: focused matrix passed; broad filtered matrix remains non-green on unrelated/pre-existing tests and is not claimed as a product GREEN gate.
+- Tasks 12-13: the first live upgrade attempt through Components UI reached apply and rolled back safely. Its apparent `blob:4pda` runtime-mapping failure was traced to a production UCode serializer bug: `join()` arguments were reversed, so the activation spec contained `null`; commit `71616247` fixes the serializer and adds a regression test. A follow-up UI attempt was then blocked before confirmation because the router's GitHub API rate limit was exhausted (`403`, `0/60`, reset `2026-08-28 22:54:39 MSK`); no second mutation occurred. Downgrade and reinstall remain unrun.
+- Task 14: final focused matrix passed `67/67`; broad filtered matrix remains non-green on unrelated/pre-existing tests and is not claimed as a product GREEN gate.
 - Task 15: complete — adversarial review recorded below and in `task-final-report.md`.
 - Tasks 16-17: complete after recording the exact live blocker, post-rollback health, final report, and machine-readable evidence; final commit/push follows the acceptance outcome.
 
 ## Final evidence summary
 
-- Focused lifecycle/resource matrix: 64/64 tests passed.
+- Initial focused lifecycle/resource matrix: 64/64 tests passed; final focused matrix after the production serializer fix and regression test: 67/67 tests passed.
 - JavaScript syntax checks: both changed frontend files passed `node --check`.
 - Knowledge validator: passed.
 - Router module import: changed `z2k-versions.uc`, `asset-registry.uc`, and `resource-update.uc` imported successfully on OpenWrt (`final-modules-loaded`).
@@ -69,4 +69,12 @@ No preflight ruling required.
 - Selected-tag prepare resolves an exact immutable ref and annotated tag without constructing the full catalog; raw manifest fetch is counted separately from bounded REST calls.
 - Removal/reference conflicts are returned before prepared-target persistence; apply rechecks the snapshot fingerprint and runtime postflight bytes.
 - User edits outside the selected managed target do not stale the target; managed target state changes do.
-- Package deployment is intentionally out of scope (`НИКАКИХ APK`). The UI upgrade was action-time confirmed but failed with `ERUNTIME`/`EVERIFY` because removal target `blob:4pda` has no safe runtime mapping; Registry rollback succeeded. Downgrade and reinstall remain not run, and CLI apply is prohibited as a substitute.
+- Package deployment is intentionally out of scope (`НИКАКИХ APK`). The first UI upgrade was action-time confirmed and safely rolled back; its `ERUNTIME`/`EVERIFY` report was caused by the reversed UCode `join()` serializer and is fixed in `71616247`. The follow-up UI attempt stopped before confirmation on fresh immutable-tag `EUNAVAILABLE` caused by GitHub API `403` rate limiting. Downgrade and reinstall remain not run, and CLI apply is prohibited as a substitute.
+
+## Follow-up after serializer fix
+
+- Commit `71616247bec3594b586011ad549d5e19fae2d706` is pushed to `origin/codex/z2k-version-lifecycle`; local `HEAD` equals the remote branch tip.
+- The production `resource-update.uc` SHA on the router is `dc64c09cc1699577722c6f6fde16113218da26ec6a19313bfefb6384677af509`, matching the candidate source. It was deployed source-only with a backup, `root:root`, mode `0644`, followed by `rpcd` reload.
+- The final focused matrix is `67/67` passed. The new `4a` regression test prevents reversed separator/list `join()` arguments from returning a `null` activation spec.
+- Read-only router health after deployment remains safe: installed authority `r-79.7`, Registry revision `7`, `preparedTarget=null`, `integrity=verified`, Lua `7/7`, and `resources_status.ok=true`.
+- In the Codex in-app Browser, the session was recovered by clicking `Log in…` and `Log in` without entering a password. The selected `r-80.3` prepare then returned `EUNAVAILABLE` before the confirmation dialog because `api.github.com` returned `403`; `/rate_limit` reported core `remaining=0`, `limit=60`, reset `2026-08-28 22:54:39 MSK`. No mutation was attempted after this blocker.
