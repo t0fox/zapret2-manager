@@ -95,6 +95,11 @@ function managed_membership(manifest, map) {
 function installed_release() {
 	try { let listed = asset_registry_list(null); if (!listed || !listed.ok || type(listed.activationReceipts) != 'array') return null; for (let i = length(listed.activationReceipts) - 1; i >= 0; i--) { let receipt = listed.activationReceipts[i]; if (object(receipt) && receipt.bundleId == 'z2k-curated-lua' && parse_release(receipt.version) != null && type(receipt.assets) == 'array' && length(receipt.assets)) return receipt.version; } } catch (e) {} return null;
 }
+function target_operation(version, installed) {
+	if (!installed) return 'install';
+	let comparison = z2k_compare_versions(version, installed);
+	return comparison == null ? null : (comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall'));
+}
 function fetch_refs() {
 	let refs = fetch_json(TAGS_URL, MAX_API_RESPONSE); if (type(refs) != 'array' || length(refs) > MAX_TAGS) return fail('EUNAVAILABLE', 'Не удалось получить каталог Z2K releases.');
 	let seen = {}, candidates = [];
@@ -158,10 +163,10 @@ export const z2k_version_details = function(version) {
 	let catalog = z2k_versions(); if (!catalog.ok) return catalog; let row = target_release(version, catalog.versions); if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.');
 	let checked = release_manifest(row); if (!checked.ok) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'invalid-manifest', releaseName: 'Z2K ' + version, releaseBody: null, changes: { modified: 0, added: 0, removed: 0, managedPaths: [] } };
 	let map = read_classification(), membership = managed_membership(checked.manifest, map); if (length(membership.unknown)) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, changes: { modified: 0, added: 0, removed: 0, managedPaths: [] }, technical: { unknownRelevantPaths: membership.unknown } };
-	let metadata = commit_metadata(row.commitSha), previous = null, previousVersion = null; for (let i = 0; i < length(catalog.versions); i++) if (catalog.versions[i].version == version && i + 1 < length(catalog.versions)) { previous = catalog.versions[i + 1]; previousVersion = previous.version; break; }
+	let metadata = commit_metadata(row.commitSha), previous = null, previousVersion = null, installedVersion = installed_release(), operation = target_operation(version, installedVersion); for (let i = 0; i < length(catalog.versions); i++) if (catalog.versions[i].version == version && i + 1 < length(catalog.versions)) { previous = catalog.versions[i + 1]; previousVersion = previous.version; break; }
 	let previousManifest = null; if (previous != null && previous.installable === true) { let old = release_manifest(previous); if (old.ok) previousManifest = old.manifest; }
 	let changeSet = changes_between(checked.manifest, previousManifest, map), body = human_body(metadata && metadata.message) || fallback_body(changeSet);
-	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, installable: true, unavailableReason: null, previousVersion: previousVersion, changes: { modified: changeSet.modified, added: changeSet.added, removed: changeSet.removed, managedPaths: changeSet.managedPaths }, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
+	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, changes: { modified: changeSet.modified, added: changeSet.added, removed: changeSet.removed, managedPaths: changeSet.managedPaths }, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
 };
 
 export const z2k_resolve_version = function(version) {

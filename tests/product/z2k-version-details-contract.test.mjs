@@ -32,6 +32,12 @@ test('release details expose immutable compare identity without leaking raw inte
   assert.doesNotMatch(source, /releaseBody:\s*.*planToken/);
 });
 
+test('release details expose the operation relative to the confirmed installed release', () => {
+  assert.match(source, /function target_operation\s*\(/);
+  assert.match(source, /operation:\s*operation/);
+  assert.match(source, /installedVersion:\s*installedVersion/);
+});
+
 test('transient tag resolution cannot poison a usable immutable catalog cache', () => {
   assert.match(source, /read_cache\(\)/);
   assert.match(source, /cached.*commitSha|commitSha.*cached/);
