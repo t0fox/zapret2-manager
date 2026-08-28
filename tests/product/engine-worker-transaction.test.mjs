@@ -104,3 +104,17 @@ test('worker script declares the staged transaction with z2k gates', () => {
   assert.ok(startAt > source.indexOf('phase materializing 78'));
   assert.ok(startAt > source.indexOf('phase proving 82'));
 });
+
+test('engine worker re-materializes the confirmed Registry lifecycle after package sync', () => {
+  const source = fs.readFileSync(WORKER, 'utf8');
+  assert.match(source, /REGISTRY_SYNC=.*asset-registry-runtime-sync\.uc/);
+  const packageSync = source.indexOf('/bin/sh "$SYNC" || fail');
+  const packageVerify = source.indexOf('sync_verdict=', packageSync);
+  const registrySync = source.indexOf('registry_sync_verdict=', packageVerify);
+  const proving = source.indexOf('phase proving 82');
+  assert.ok(packageSync >= 0, 'package materialization must remain in the transaction');
+  assert.ok(packageVerify > packageSync, 'package baseline must be verified before Registry overlay');
+  assert.ok(registrySync > packageVerify && registrySync < proving,
+    'confirmed Registry overlay must run before capability/postflight gates');
+  assert.match(source, /Подтверждённые Z2K lifecycle-ассеты не материализованы/);
+});

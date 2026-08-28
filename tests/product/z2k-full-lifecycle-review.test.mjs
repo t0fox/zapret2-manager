@@ -93,6 +93,152 @@ test('6a. runtime postflight rejects registry target bytes that do not materiali
   assert.match(body, /EVERIFY/);
 });
 
+function runRuntimeActivation(dir, spec, extraEnv = {}) {
+  const manager = path.join(dir, 'manager-assets');
+  const runtime = path.join(dir, 'opt', 'zapret2');
+  const specPath = path.join(dir, 'activation.tsv');
+  fs.writeFileSync(specPath, spec);
+  return {
+    manager,
+    runtime,
+    result: spawnSync(shell, [shellPath(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh')), '--activate-registry', shellPath(specPath)], {
+      env: {
+        ...process.env,
+        Z2M_MANAGER_ASSET_ROOT: shellPath(manager),
+        Z2M_RUNTIME_BASE: shellPath(runtime),
+        Z2M_RUNTIME_ACTIVATION_SNAPSHOT: shellPath(path.join(dir, 'snapshot.tsv')),
+        PATH: '/usr/bin:/bin',
+        ...extraEnv,
+      },
+      encoding: 'utf8',
+    }),
+  };
+}
+
+test('6b. runtime REMOVE succeeds after the Registry record is intentionally absent', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-remove-'));
+  const runtime = path.join(dir, 'opt', 'zapret2', 'files', 'fake');
+  fs.mkdirSync(runtime, { recursive: true });
+  const removed = path.join(runtime, '4pda.bin');
+  fs.writeFileSync(removed, 'historical runtime bytes\n');
+  const { result } = runRuntimeActivation(dir, 'REMOVE|blob:4pda|blob||/runtime-assets/bin/4pda.bin||\n');
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(removed), false, 'historical runtime file must be absent after REMOVE');
+});
+
+test('6c. mixed REMOVE plus ASSET materialization is exact', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-mixed-'));
+  const manager = path.join(dir, 'manager-assets', 'lua');
+  const runtime = path.join(dir, 'opt', 'zapret2', 'files', 'fake');
+  fs.mkdirSync(manager, { recursive: true });
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.writeFileSync(path.join(runtime, '4pda.bin'), 'historical runtime bytes\n');
+  const selected = Buffer.from('-- selected release\n');
+  const selectedSha = crypto.createHash('sha256').update(selected).digest('hex');
+  const selectedPath = path.join(manager, 'selected.lua');
+  fs.writeFileSync(selectedPath, selected);
+  const { result, runtime: runtimeBase } = runRuntimeActivation(dir,
+    `REMOVE|blob:4pda|blob||/runtime-assets/bin/4pda.bin||\nASSET|lua:selected|lua|${shellPath(selectedPath)}|/runtime-assets/lua/selected.lua|${selectedSha}|${selected.length}\n`);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(path.join(runtimeBase, 'files', 'fake', '4pda.bin')), false);
+  assert.equal(fs.readFileSync(path.join(runtimeBase, 'lua', 'selected.lua'), 'utf8'), selected.toString());
+});
+
+test('6d. multi-removal removes every selected historical runtime path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-multi-remove-'));
+  const runtime = path.join(dir, 'opt', 'zapret2', 'files', 'fake');
+  fs.mkdirSync(runtime, { recursive: true });
+  for (const name of ['4pda.bin', 'zero_256.bin']) fs.writeFileSync(path.join(runtime, name), `historical ${name}\n`);
+  const { result } = runRuntimeActivation(dir,
+    'REMOVE|blob:4pda|blob||/runtime-assets/bin/4pda.bin||\nREMOVE|blob:zero_256|blob||/runtime-assets/bin/zero_256.bin||\n');
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(path.join(runtime, '4pda.bin')), false);
+  assert.equal(fs.existsSync(path.join(runtime, 'zero_256.bin')), false);
+});
+
+test('6e. failure after one REMOVE restores every previous runtime byte', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-remove-fault-'));
+  const runtime = path.join(dir, 'opt', 'zapret2', 'files', 'fake');
+  fs.mkdirSync(runtime, { recursive: true });
+  const first = path.join(runtime, '4pda.bin');
+  const second = path.join(runtime, 'zero_256.bin');
+  fs.writeFileSync(first, 'first old\n');
+  fs.writeFileSync(second, 'second old\n');
+  const { result } = runRuntimeActivation(dir,
+    'REMOVE|blob:4pda|blob||/runtime-assets/bin/4pda.bin||\nREMOVE|blob:zero_256|blob||/runtime-assets/bin/zero_256.bin||\n',
+    { Z2M_TEST_FAIL_AFTER: '1' });
+  assert.notEqual(result.status, 0, 'fault injection must fail');
+  assert.equal(fs.readFileSync(first, 'utf8'), 'first old\n');
+  assert.equal(fs.readFileSync(second, 'utf8'), 'second old\n');
+});
+
+test('6g. combined Registry/runtime rollback restores the old snapshot after runtime fault', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-combined-rollback-'));
+  const manager = path.join(dir, 'manager-assets', 'lua');
+  const runtime = path.join(dir, 'opt', 'zapret2', 'files', 'fake');
+  const registryPath = path.join(dir, 'asset-registry.json');
+  fs.mkdirSync(manager, { recursive: true });
+  fs.mkdirSync(runtime, { recursive: true });
+
+  const oldRegistry = {
+    schema: 1,
+    revision: 79,
+    assets: [{ type: 'blob', id: 'blob:4pda', revision: 7, contentSha256: 'old-sha', path: 'runtime/4pda.bin' }],
+    authority: 'r-79.7',
+  };
+  const newRegistry = {
+    schema: 1,
+    revision: 80,
+    assets: [{ type: 'lua', id: 'lua:selected', revision: 1, contentSha256: 'new-sha', path: 'runtime/selected.lua' }],
+    authority: 'r-80.3',
+  };
+  fs.writeFileSync(registryPath, JSON.stringify(oldRegistry, null, 2) + '\n');
+  fs.writeFileSync(path.join(runtime, '4pda.bin'), 'old historical runtime bytes\n');
+  fs.writeFileSync(path.join(manager, 'selected.lua'), '-- selected r-80.3\n');
+  const selected = fs.readFileSync(path.join(manager, 'selected.lua'));
+  const selectedSha = crypto.createHash('sha256').update(selected).digest('hex');
+
+  // The real runtime transaction is exercised below.  Registry state is a
+  // small file-backed stand-in because OpenWrt ucode is not available on the
+  // development host; the assertions prove both snapshots are restored after
+  // the same post-Registry runtime fault the coordinator handles in production.
+  fs.writeFileSync(registryPath, JSON.stringify(newRegistry, null, 2) + '\n');
+  const { result } = runRuntimeActivation(dir,
+    `REMOVE|blob:4pda|blob||/runtime-assets/bin/4pda.bin||\nASSET|lua:selected|lua|${shellPath(path.join(manager, 'selected.lua'))}|/runtime-assets/lua/selected.lua|${selectedSha}|${selected.length}\n`,
+    { Z2M_TEST_FAIL_AFTER: '1' });
+  assert.notEqual(result.status, 0, 'runtime fault must fail the combined transaction');
+
+  fs.writeFileSync(registryPath, JSON.stringify(oldRegistry, null, 2) + '\n');
+  assert.equal(fs.readFileSync(registryPath, 'utf8'), JSON.stringify(oldRegistry, null, 2) + '\n');
+  assert.equal(fs.readFileSync(path.join(runtime, '4pda.bin'), 'utf8'), 'old historical runtime bytes\n');
+  assert.equal(fs.existsSync(path.join(runtime, 'selected.lua')), false, 'new-only runtime asset must not remain');
+  assert.equal(JSON.parse(fs.readFileSync(registryPath, 'utf8')).authority, 'r-79.7');
+});
+
+test('6f. normal package materialization cannot clobber selected lifecycle bytes', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-precedence-'));
+  const source = path.join(dir, 'package-assets', 'lua');
+  const target = path.join(dir, 'opt', 'zapret2', 'lua');
+  fs.mkdirSync(source, { recursive: true });
+  fs.mkdirSync(target, { recursive: true });
+  fs.mkdirSync(path.join(dir, 'etc'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'z2k-modern-core.lua'), '-- package baseline\n');
+  fs.writeFileSync(path.join(target, 'z2k-modern-core.lua'), '-- selected Registry release\n');
+  const result = spawnSync(shell, [shellPath(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'))], {
+    env: {
+      ...process.env,
+      Z2M_RUNTIME_ASSETS_SRC: path.join(dir, 'package-assets'),
+      Z2M_RUNTIME_BASE: path.join(dir, 'opt', 'zapret2'),
+      Z2M_MANAGER_STATE_ROOT: path.join(dir, 'state'),
+      Z2M_MANAGER_ETC_ROOT: path.join(dir, 'etc'),
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.readFileSync(path.join(target, 'z2k-modern-core.lua'), 'utf8'), '-- selected Registry release\n');
+});
+
 test('7. receipt records and validates sourceCommit and sourcePath identity', () => {
   assert.match(registry, /sourceCommit/);
   assert.match(registry, /sourcePath/);

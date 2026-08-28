@@ -343,8 +343,11 @@ export const asset_registry_apply_bundle = function(request) {
 		|| !string(request.sourceCommit)
 		|| type(request.assets) != 'array' || !length(request.assets) || length(request.assets) > MAX_BUNDLE_ASSETS)
 		return fail('EINPUT', 'resource bundle manifest is incomplete');
-	let removeIds = request.removeIds == null ? [] : request.removeIds;
+	let removeIds = request.removeIds == null ? [] : request.removeIds, removalExpectations = request.removals == null ? null : request.removals;
 	if (type(removeIds) != 'array' || length(removeIds) > MAX_BUNDLE_ASSETS) return fail('EINPUT', 'resource bundle removal list is invalid');
+	if (removalExpectations != null && (type(removalExpectations) != 'array' || length(removalExpectations) > MAX_BUNDLE_ASSETS)) return fail('EINPUT', 'resource bundle removal expectations are invalid');
+	if (request.bundleId == 'z2k-curated-lua' && length(removeIds) && removalExpectations == null) return fail('EINPUT', 'Z2K removals require snapshot-bound expectations');
+	if (removalExpectations != null && length(removalExpectations) != length(removeIds)) return fail('EINPUT', 'resource removal expectations do not match removal IDs');
 	let state = state_load(), oldStateRaw = readfile(STATE), total = 0, seen = {}, prepared = [], removals = [];
 	if (state == null) return fail('ESTATE', 'asset registry metadata is invalid');
 	for (let i = 0; i < length(request.assets); i++) {
@@ -378,13 +381,19 @@ export const asset_registry_apply_bundle = function(request) {
 		push(prepared, { item: item, old: old, content: content, provenance: provenance });
 	}
 	for (let i = 0; i < length(removeIds); i++) {
-		let id = removeIds[i], separator = string(id) ? index(id, ':') : -1, kind = separator > 0 ? substr(id, 0, separator) : null, old = separator > 0 ? find_asset(state, id) : null;
+		let id = removeIds[i], expectation = removalExpectations && removalExpectations[i], separator = string(id) ? index(id, ':') : -1, kind = separator > 0 ? substr(id, 0, separator) : null, old = separator > 0 ? find_asset(state, id) : null;
 		if (!string(id) || separator <= 0 || !valid_type(kind) || !valid_id(kind, id) || seen[id]) return fail('EINPUT', 'resource bundle removal declaration is invalid', { id: id });
 		seen[id] = true;
 		if (old == null) return fail('EDEPENDENCY', 'resource removal target is missing', { id: id });
-		if (old.mutable != true || !old.provenance || old.provenance.kind != 'catalog/upstream') return fail('EPOLICY', 'package or user resource cannot be removed by upstream', { id: id });
+		if (old.mutable != true || !old.provenance || old.provenance.kind != 'catalog/upstream' || old.provenance.bundleId != request.bundleId) return fail('EPOLICY', 'package, user, or cross-bundle resource cannot be removed by upstream', { id: id });
+		if (expectation == null || expectation.id != id || expectation.type != old.type || expectation.bundleId != request.bundleId
+			|| expectation.sourcePath != old.provenance.sourcePath || expectation.version != old.provenance.version || expectation.sourceCommit != old.provenance.sourceCommit
+			|| expectation.expectedRevision != old.revision || expectation.expectedContentSha256 != old.contentSha256 || expectation.expectedByteSize != old.byteSize)
+			return fail('ECONFLICT', 'resource removal snapshot is stale', { id: id });
+		let actualSha = sha256_file(old.path), actualSize = content_size(old.path);
+		if (actualSha == null || actualSha != old.contentSha256 || actualSize != old.byteSize) return fail('ECONFLICT', 'resource removal bytes changed after preparation', { id: id });
 		if (length(old.references || [])) return fail('EREFERENCED', 'resource removal target is referenced', { id: id, references: references_copy(old) });
-		push(removals, { id: id, old: old });
+		push(removals, { id: id, old: old, expectation: expectation });
 	}
 	for (let i = 0; i < length(prepared); i++) {
 		let item = prepared[i].item;

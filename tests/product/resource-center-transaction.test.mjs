@@ -37,8 +37,9 @@ test('Asset Registry accepts canonical upstream IDs whose slugs begin with a dig
 });
 
 test('Z2K activation receipts remain authoritative for the dynamic catalog asset set', () => {
-	assert.doesNotMatch(coordinator, /!want\[item\.id\]/);
-	assert.match(coordinator, /current\.provenance\.version != receipt\.version/);
+  assert.doesNotMatch(coordinator, /!want\[item\.id\]/);
+  assert.match(coordinator, /receipt\.assets/);
+  assert.match(coordinator, /activeById/);
 });
 
 test('Resource coordinator keeps generic bundles transactional and routes Z2K through prepared targets', () => {

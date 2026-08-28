@@ -23,6 +23,15 @@ const SYNC = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
   'zapret2-manager', 'strategy-runtime-assets-sync.sh');
 const SRC = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share',
   'zapret2-manager', 'runtime-assets');
+const SHELL = process.platform === 'win32'
+  ? (process.env.Z2M_TEST_BASH || 'C:\\Program Files\\Git\\bin\\bash.exe')
+  : '/bin/sh';
+
+function bashPath(value) {
+  if (process.platform !== 'win32') return value;
+  const normalized = value.replaceAll('\\', '/');
+  return normalized.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+}
 
 function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-z2k-sync-'));
@@ -41,14 +50,14 @@ function sandbox() {
 }
 
 function runSync(sb, args = []) {
-  const result = spawnSync('/bin/sh', [SYNC, ...args], {
+  const result = spawnSync(SHELL, [bashPath(SYNC), ...args], {
     cwd: ROOT,
     env: {
       ...process.env,
-      Z2M_RUNTIME_ASSETS_SRC: SRC,
-      Z2M_RUNTIME_BASE: sb.base,
-      Z2M_MANAGER_STATE_ROOT: sb.stateRoot,
-      Z2M_MANAGER_ETC_ROOT: sb.etcRoot,
+      Z2M_RUNTIME_ASSETS_SRC: bashPath(SRC),
+      Z2M_RUNTIME_BASE: bashPath(sb.base),
+      Z2M_MANAGER_STATE_ROOT: bashPath(sb.stateRoot),
+      Z2M_MANAGER_ETC_ROOT: bashPath(sb.etcRoot),
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
     },
     encoding: 'utf8', timeout: 240_000

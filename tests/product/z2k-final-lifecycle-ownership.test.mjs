@@ -85,6 +85,44 @@ test('prepared Z2K snapshots ignore unrelated user edits but detect managed stat
   assert.match(registry, /is_z2k_lifecycle_asset\(asset\).*EPOLICY/);
 });
 
+test('prepared removals bind immutable runtime mapping and classification identity', () => {
+  assert.match(coordinator, /classificationSha256/);
+  assert.match(coordinator, /expectedRevision/);
+  assert.match(coordinator, /expectedContentSha256/);
+  assert.match(coordinator, /expectedByteSize/);
+  assert.match(coordinator, /same_removal_descriptors/);
+  const runtimeSpec = coordinator.slice(coordinator.indexOf('function z2k_runtime_spec'), coordinator.indexOf('function z2k_runtime_restart'));
+  assert.doesNotMatch(runtimeSpec, /found = registry_asset\(listed\.assets, id\)/,
+    'removed runtime paths must come from the prepared descriptor, not post-apply Registry');
+  assert.match(runtimeSpec, /removal\.type/);
+  assert.match(runtimeSpec, /removal\.runtimeTarget/);
+});
+
+test('Z2K Registry removals are structured, bundle-bound, and byte-bound', () => {
+  const applyStart = registry.indexOf('export const asset_registry_apply_bundle');
+  const apply = registry.slice(applyStart);
+  assert.match(apply, /request\.removals/);
+  assert.match(apply, /request\.bundleId == 'z2k-curated-lua'.*removals/s);
+  assert.match(apply, /old\.provenance\.bundleId != request\.bundleId/);
+  assert.match(apply, /expectedRevision != old\.revision/);
+  assert.match(apply, /expectedContentSha256 != old\.contentSha256/);
+  assert.match(apply, /actualSha.*old\.contentSha256/);
+  assert.match(apply, /resource removal snapshot is stale/);
+});
+
+test('prepared lifecycle operation is consumed before downloads and cannot be replayed', () => {
+  const applyStart = coordinator.indexOf('function z2k_apply_prepared');
+  const applyEnd = coordinator.indexOf('export const resource_center_update', applyStart);
+  const apply = coordinator.slice(applyStart, applyEnd);
+  const consume = apply.indexOf('consume_prepared_target(state, target)');
+  const downloads = apply.indexOf('uclient-fetch');
+  assert.ok(consume >= 0 && downloads > consume, 'prepared target must be consumed before downloads');
+  assert.match(apply, /return consumed/);
+  assert.match(coordinator, /preparedTarget: null/);
+  assert.match(apply, /ECHECK_STALE/);
+  assert.match(coordinator, /z2k_target_token\(value, value\.preparedAt\)/);
+});
+
 test('selected fresh resolver reports bounded REST requests separately from raw manifest fetch', () => {
   assert.match(versions, /REST_REQUEST_COUNT/);
   assert.match(versions, /network_diagnostics\(['"]selected-tag['"]\)/);

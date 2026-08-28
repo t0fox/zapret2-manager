@@ -214,7 +214,11 @@ is_core_lua() {
 copy_if_missing_or_custom() {
 	_src="$1"
 	_dst="$2"
-	if is_core_lua "${_src##*/}" && [ -e "$_dst" ]; then
+	# Materialization is install-time only.  Never overwrite an existing
+	# runtime byte here: confirmed Z2K lifecycle bytes are overlaid by the
+	# canonical Registry bridge after package materialization, while existing
+	# Manager sidecars/custom assets remain user/runtime-owned.
+	if [ -e "$_dst" ]; then
 		return 0
 	fi
 	cp "$_src" "$_dst"
