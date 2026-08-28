@@ -95,11 +95,6 @@ function managed_membership(manifest, map) {
 function installed_release() {
 	try { let listed = asset_registry_list(null); if (!listed || !listed.ok || type(listed.activationReceipts) != 'array') return null; for (let i = length(listed.activationReceipts) - 1; i >= 0; i--) { let receipt = listed.activationReceipts[i]; if (object(receipt) && receipt.bundleId == 'z2k-curated-lua' && parse_release(receipt.version) != null && type(receipt.assets) == 'array' && length(receipt.assets)) return receipt.version; } } catch (e) {} return null;
 }
-function target_operation(version, installed) {
-	if (!installed) return 'install';
-	let comparison = z2k_compare_versions(version, installed);
-	return comparison == null ? null : (comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall'));
-}
 function fetch_refs() {
 	let refs = fetch_json(TAGS_URL, MAX_API_RESPONSE); if (type(refs) != 'array' || length(refs) > MAX_TAGS) return fail('EUNAVAILABLE', 'Не удалось получить каталог Z2K releases.');
 	let seen = {}, candidates = [];
@@ -182,4 +177,9 @@ export const z2k_compare_versions = function(left, right) {
 	if (a.minor != b.minor) return a.minor < b.minor ? -1 : 1;
 	return 0;
 };
+function target_operation(version, installed) {
+	if (!installed) return 'install';
+	let comparison = z2k_compare_versions(version, installed);
+	return comparison == null ? null : (comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall'));
+}
 export const z2k_installed_release = function() { return installed_release(); };
