@@ -36,6 +36,11 @@ test('Asset Registry accepts canonical upstream IDs whose slugs begin with a dig
 	assert.match(registry, /match\(value, \/\^\[a-z0-9\]\[a-z0-9._-\]\*\$\//);
 });
 
+test('Z2K activation receipts remain authoritative for the dynamic catalog asset set', () => {
+	assert.doesNotMatch(coordinator, /!want\[item\.id\]/);
+	assert.match(coordinator, /current\.provenance\.version != receipt\.version/);
+});
+
 test('Resource coordinator keeps generic bundles transactional and routes Z2K through prepared targets', () => {
   for (const fragment of ['manifest-only', 'uclient-fetch', 'safeToUpdate', 'contentUrl', 'controlledTest', 'confirm !== true'])
     assert.match(coordinator, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), fragment);

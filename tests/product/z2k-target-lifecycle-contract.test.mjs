@@ -24,14 +24,15 @@ test('Z2K target planning has one immutable identity and a v2 prepared snapshot'
 });
 
 test('Z2K target planning records exact-managed removals for release transitions', () => {
-  assert.match(coordinator, /removeIds/);
+	assert.match(coordinator, /removeIds/);
   assert.match(coordinator, /z2k_target_removals/);
   assert.match(coordinator, /localFingerprint[\s\S]*removeIds/);
   assert.match(coordinator, /asset_registry_apply_bundle\(\{[\s\S]*removeIds/);
   assert.match(coordinator, /sort\(removeIds\)/);
   assert.doesNotMatch(coordinator, /removeIds\.sort\(\)/);
-  assert.doesNotMatch(coordinator, /rows\.sort\(\)/);
-  assert.ok(coordinator.indexOf('function z2k_target_asset_valid') < coordinator.indexOf('function valid_prepared_target'));
+	assert.doesNotMatch(coordinator, /rows\.sort\(\)/);
+	assert.ok(coordinator.indexOf('function z2k_target_asset_valid') < coordinator.indexOf('function valid_prepared_target'));
+	assert.match(coordinator, /match\(id, \/\^\(lua\|blob\):\[a-z0-9\]\[a-z0-9._-\]\*\$\//);
 });
 
 test('target operation is explicit: install, upgrade, reinstall, or downgrade', () => {

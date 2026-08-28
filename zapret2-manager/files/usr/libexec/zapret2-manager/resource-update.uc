@@ -39,7 +39,9 @@ function z2k_receipt_release(listed, want) {
 		let valid = true;
 		for (let j = 0; j < length(receipt.assets); j++) {
 			let item = receipt.assets[j], current = object(item) ? registry_asset(listed.assets, item.id) : null;
-			if (!object(item) || !want[item.id] || current == null || current.contentSha256 != item.sha256 || current.byteSize != item.byteSize || !object(current.provenance) || current.provenance.bundleId != receipt.bundleId) { valid = false; break; }
+			if (!object(item) || current == null || current.contentSha256 != item.sha256 || current.byteSize != item.byteSize
+				|| !object(current.provenance) || current.provenance.kind != 'catalog/upstream'
+				|| current.provenance.bundleId != receipt.bundleId || current.provenance.version != receipt.version) { valid = false; break; }
 		}
 		if (valid) return { value: receipt.version, confidence: 'confirmed', authority: 'activation-receipt' };
 	}
@@ -228,7 +230,7 @@ function valid_prepared_target(value) {
 	for (let i = 0; i < length(value.assets); i++) seen[value.assets[i].id] = true;
 	for (let i = 0; i < length(value.removeIds); i++) {
 		let id = value.removeIds[i];
-		if (!string(id) || !match(id, /^(lua|blob):[a-z][a-z0-9._-]*$/) || seen[id]) return false;
+		if (!string(id) || !match(id, /^(lua|blob):[a-z0-9][a-z0-9._-]*$/) || seen[id]) return false;
 		seen[id] = true;
 	}
 	return true;
