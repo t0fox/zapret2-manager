@@ -98,7 +98,7 @@ function installed_release() {
 function target_operation(version, installed) {
 	if (!installed) return 'install';
 	let comparison = release_compare({ version: version }, { version: installed });
-	return comparison == null ? null : (comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall'));
+	return comparison == null ? null : (comparison < 0 ? 'upgrade' : (comparison > 0 ? 'downgrade' : 'reinstall'));
 }
 function fetch_refs() {
 	let refs = fetch_json(TAGS_URL, MAX_API_RESPONSE); if (type(refs) != 'array' || length(refs) > MAX_TAGS) return fail('EUNAVAILABLE', 'Не удалось получить каталог Z2K releases.');
