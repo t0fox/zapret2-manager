@@ -8,6 +8,7 @@
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var LOAD_TIMEOUT_MS = 30000;
+var Z2K_MUTATION_TIMEOUT_MS = 180000;
 var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
@@ -118,14 +119,15 @@ function settled(result, api) {
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
-function boundedLoad(promise, label) {
+function boundedLoad(promise, label, timeoutMs) {
+  timeoutMs = Number(timeoutMs) || LOAD_TIMEOUT_MS;
   var timer;
   return Promise.race([
     promise,
     new Promise(function (_, reject) {
       timer = window.setTimeout(function () {
         reject({ code: 'frontend-timeout', message: label + ' timeout' });
-      }, LOAD_TIMEOUT_MS);
+      }, timeoutMs);
     })
   ]).then(function (value) {
     window.clearTimeout(timer);
@@ -135,8 +137,8 @@ function boundedLoad(promise, label) {
     throw error;
   });
 }
-function checkedResult(promise, label) {
-  return boundedLoad(promise, label).then(function (answer) {
+function checkedResult(promise, label, timeoutMs) {
+  return boundedLoad(promise, label, timeoutMs).then(function (answer) {
     if (!answer || answer.ok === false || answer.error)
       throw answer && answer.error || answer || { code: 'EEMPTY', message: label + ' не вернул результат.' };
     return answer;
@@ -526,7 +528,7 @@ function updateZ2K(ctx, component) {
           planToken: prepared.planToken,
           confirm: true
         };
-        var update = ctx.api.resources.update ? checkedResult(ctx.api.resources.update(JSON.stringify(payload)), _('Применение Z2K'))
+        var update = ctx.api.resources.update ? checkedResult(ctx.api.resources.update(JSON.stringify(payload)), _('Применение Z2K'), Z2K_MUTATION_TIMEOUT_MS)
           : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
         update.then(function (answer) {
           if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
