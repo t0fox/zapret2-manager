@@ -296,7 +296,7 @@ function z2k_local_fingerprint(targetAssets, listed, removeIds) {
 		let current = registry_asset(listed.assets, removeIds[i]), path = current && current.path || '', regularPath = path && regular(path), actual = regularPath ? sha256(path) : 'missing', size = regularPath ? stat(path).size : 0, provenance = current && current.provenance || {};
 		push(rows, 'remove|' + removeIds[i] + '|' + actual + '|' + size + '|' + (current && current.revision || 0) + '|' + (provenance.bundleId || '') + '|' + (provenance.version || '') + '|' + (provenance.sourceCommit || '') + '|' + (provenance.sourcePath || ''));
 	}
-	rows.sort(); return digest_text(join(rows, '\n'), 'z2m-z2k-fingerprint');
+	sort(rows); return digest_text(join(rows, '\n'), 'z2m-z2k-fingerprint');
 }
 function z2k_target_operation(targetVersion, installedVersion) {
 	if (!installedVersion) return 'install';
