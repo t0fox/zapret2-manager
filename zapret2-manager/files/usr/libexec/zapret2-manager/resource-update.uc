@@ -3,9 +3,10 @@
 // Resource Center coordinator. It owns source/bundle policy and staging, while
 // Asset Registry remains the only writer of managed asset metadata and bytes.
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
-import { asset_registry_list, asset_registry_apply_bundle } from './asset-registry.uc';
-import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
+import { asset_registry_list, asset_registry_apply_bundle, asset_registry_rollback_bundle } from './asset-registry.uc';
+import { z2k_upstream_check } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
+import { z2k_resolve_version, z2k_compare_versions, z2k_installed_release as z2k_catalog_installed_release } from './z2k-versions.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -60,7 +61,7 @@ function z2k_known_release(manifest, listed, want) {
 	if (length(candidates) > 1) return { value: null, confidence: 'ambiguous', authority: 'known-manifest' };
 	return null;
 }
-function z2k_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention) {
+function z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention) {
 	let receipt = z2k_receipt_release(listed, want);
 	if (receipt != null) return receipt;
 	let inferred = z2k_known_release(manifest, listed, want);
@@ -203,27 +204,54 @@ function z2k_local_projection(manifest) {
 	let integrity = hasAttention ? 'broken' : hasMissing ? 'broken' : baselineMatched === total ? 'verified' : 'diverged';
 	let integrityOk = !hasMissing && !hasAttention;
 	let installed = !hasMissing && installedCount > 0 && total > 0;
-	let installedRelease = z2k_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
+	let installedRelease = z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
 	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease };
+}
+function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function valid_target_operation(value) { return value == 'install' || value == 'upgrade' || value == 'reinstall' || value == 'downgrade'; }
+function valid_latest_check(value) { return object(value) && type(value.checkedAt) == 'int' && value.checkedAt >= 0 && object(value.signed); }
+function valid_prepared_target(value) {
+	if (!object(value) || value.schema != 2 || !string(value.targetVersion) || z2k_compare_versions(value.targetVersion, value.targetVersion) == null
+		|| !string(value.targetCommitSha) || !match(lc(value.targetCommitSha), /^[a-f0-9]{40}$/)
+		|| !valid_digest(value.manifestSha256) || !valid_digest(value.localFingerprint)
+		|| !valid_target_operation(value.operation) || type(value.preparedAt) != 'int' || value.preparedAt < 0
+		|| !string(value.planToken) || substr(value.planToken, 0, length('z2k-target-v2:')) != 'z2k-target-v2:'
+		|| type(value.assets) != 'array' || length(value.assets) == 0 || length(value.assets) > 64) return false;
+	for (let i = 0; i < length(value.assets); i++) if (!z2k_target_asset_valid(value.assets[i])) return false;
+	return true;
+}
+function normalize_check_state(value) {
+	if (!object(value)) return null;
+	if (value.schema == 2) {
+		if ((value.latestCheck != null && !valid_latest_check(value.latestCheck)) || (value.preparedTarget != null && !valid_prepared_target(value.preparedTarget))) return null;
+		return { schema: 2, latestCheck: value.latestCheck || null, preparedTarget: value.preparedTarget || null };
+	}
+	// Migrate the old single-snapshot shape in memory. The first subsequent
+	// check/prepare write persists schema 2; a corrupt old snapshot fails closed.
+	if (value.schema == 1 && type(value.checkedAt) == 'int' && object(value.signed))
+		return { schema: 2, latestCheck: { checkedAt: value.checkedAt, planToken: value.planToken || null, signed: value.signed, signedSources: value.signedSources || null }, preparedTarget: null };
+	return null;
 }
 function load_check_state() {
 	let raw = readfile(CHECK_STATE);
 	if (raw == null || length(raw) > MAX_CHECK_STATE_BYTES) return null;
 	let value = null;
 	try { value = json(raw); } catch (e) { return null; }
-	if (!object(value) || value.schema != 1 || type(value.checkedAt) != 'int' || !object(value.signed)) return null;
-	return value;
+	return normalize_check_state(value);
+}
+function persist_check_state(payload) {
+	let content = sprintf('%J', payload) + '\n', tmp = CHECK_STATE + '.tmp.' + time();
+	try { writefile(tmp, content); } catch (e) { return false; }
+	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return false; }
+	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(CHECK_STATE));
+	if (moved.rc != 0) { try { unlink(tmp); } catch (e) {} return false; }
+	return regular(CHECK_STATE);
 }
 function save_check_state(signed, checkedAt, signedSources, token) {
 	let planToken = token || (signed && signed.ok === true ? plan_token(checkedAt, signed.manifest) : null);
 	if (signed && signed.ok === true && planToken != null) signed.planToken = planToken;
-	let payload = { schema: 1, checkedAt: checkedAt, planToken: planToken, signed: signed, signedSources: signedSources };
-	let content = sprintf('%J', payload) + '\n';
-	let tmp = CHECK_STATE + '.tmp.' + time();
-	try { writefile(tmp, content); } catch (e) { return; }
-	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return; }
-	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(CHECK_STATE));
-	if (moved.rc != 0) { try { unlink(tmp); } catch (e) {} }
+	let old = load_check_state(), payload = { schema: 2, latestCheck: { checkedAt: checkedAt, planToken: planToken, signed: signed, signedSources: signedSources }, preparedTarget: old && old.preparedTarget || null };
+	persist_check_state(payload);
 }
 function build_status(manifest, checkedAt) {
 	let listed = asset_registry_list(null); if (!listed.ok) return listed;
@@ -239,6 +267,52 @@ function build_status(manifest, checkedAt) {
 }
 function make_stage_root() { try { mkdir(STAGE_PARENT); } catch (e) {} let value = command('mktemp -d ' + shell_quote(STAGE_PARENT + '/stage.XXXXXX')); let root = trim(value.out); return value.rc == 0 && index(root, STAGE_PARENT + '/') == 0 ? root : null; }
 function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
+function digest_text(value, prefix) {
+	let made = command('umask 077; mktemp /tmp/' + (prefix || 'z2m-digest') + '.XXXXXX'), path = trim(made.out);
+	if (made.rc != 0 || !match(path, /^\/tmp\/[A-Za-z0-9._-]+$/)) return null;
+	try { writefile(path, value == null ? '' : value); } catch (e) { cleanup(null, [path]); return null; }
+	let digest = sha256(path); cleanup(null, [path]); return digest;
+}
+function z2k_target_asset_valid(item) {
+	return object(item) && string(item.sourcePath) && match(item.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
+		&& string(item.id) && (substr(item.id, 0, 4) == 'lua:' || substr(item.id, 0, 5) == 'blob:')
+		&& (item.type == 'lua' || item.type == 'blob') && valid_digest(item.sha256);
+}
+function z2k_local_fingerprint(targetAssets, listed) {
+	let rows = [];
+	for (let i = 0; i < length(targetAssets || []); i++) {
+		let item = targetAssets[i], current = registry_asset(listed.assets, item.id), path = current && current.path || item.packagePath || '', regularPath = path && regular(path), actual = regularPath ? sha256(path) : 'missing', size = regularPath ? stat(path).size : 0, provenance = current && current.provenance || {};
+		push(rows, item.id + '|' + actual + '|' + size + '|' + (current && current.revision || 0) + '|' + (current && current.ownership || 'none') + '|' + (provenance.bundleId || '') + '|' + (provenance.version || '') + '|' + (provenance.sourceCommit || '') + '|' + (provenance.sourcePath || ''));
+	}
+	rows.sort(); return digest_text(join(rows, '\n'), 'z2m-z2k-fingerprint');
+}
+function z2k_target_operation(targetVersion, installedVersion) {
+	if (!installedVersion) return 'install';
+	let comparison = z2k_compare_versions(targetVersion, installedVersion); if (comparison == null) return null;
+	return comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall');
+}
+function z2k_target_membership_compatible(listed, targetAssets) {
+	var targetById = {};
+	for (var i = 0; i < length(targetAssets || []); i++) targetById[targetAssets[i].id] = targetAssets[i].sourcePath;
+	for (var j = 0; j < length(listed && listed.assets || []); j++) {
+		var current = listed.assets[j], provenance = current && current.provenance;
+		if (provenance && provenance.kind == 'catalog/upstream' && provenance.bundleId == 'z2k-curated-lua' && provenance.sourcePath && targetById[current.id] != provenance.sourcePath)
+			return fail('EZ2K_INCOMPATIBLE', 'Z2K target membership would leave an unmanaged hybrid asset set.', { id: current.id, sourcePath: provenance.sourcePath });
+	}
+	return { ok: true };
+}
+function z2k_target_token(target, preparedAt) {
+	let canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.operation + '|' + preparedAt, digest = digest_text(canonical, 'z2m-z2k-token');
+	return digest == null ? null : 'z2k-target-v2:' + digest;
+}
+function z2k_target_summary(target) {
+	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, assetCount: length(target.assets || []), preparedAt: target.preparedAt };
+}
+function save_prepared_target(target) {
+	let state = load_check_state() || { schema: 2, latestCheck: null, preparedTarget: null };
+	state.schema = 2; state.preparedTarget = target; return persist_check_state(state);
+}
+function z2k_target_from_state(state) { return state && state.preparedTarget && valid_prepared_target(state.preparedTarget) ? state.preparedTarget : null; }
 function base64_decode(value) { if (!string(value) || length(value) > MAX_REQUEST_BYTES || !match(value, /^[A-Za-z0-9+\/=%]*$/)) return null; let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', buffer = 0, bits = 0; for (let i = 0; i < length(value); i++) { let c = substr(value, i, 1); if (c == '=') break; let n = index(alphabet, c); if (n < 0) return null; buffer = buffer * 64 + n; bits += 6; if (bits >= 8) { bits -= 8; out += chr((buffer >> bits) & 255); buffer = buffer & ((1 << bits) - 1); } } return out; }
 function inline_bundle(request) {
 	let bundle = request.controlledBundle; if (!request.controlledTest || !object(bundle) || !string(bundle.bundleId) || substr(bundle.bundleId, 0, 11) != 'controlled-' || type(bundle.assets) != 'array' || !length(bundle.assets)) return null;
@@ -246,29 +320,100 @@ function inline_bundle(request) {
 	for (let i = 0; i < length(bundle.assets); i++) { let item = bundle.assets[i], content = base64_decode(item.contentBase64); if (!object(item) || content == null || !string(item.id) || !string(item.type)) { cleanup(root, paths); return fail('EINPUT', 'controlled bundle asset is invalid'); } let path = root + '/' + i + '.asset'; try { writefile(path, content); } catch (e) { cleanup(root, paths); return fail('EWRITE', 'controlled bundle staging failed'); } push(paths, path); push(staged, { type: item.type, id: item.id, name: item.name, stagedPath: path, sha256: item.sha256, byteSize: item.byteSize, dependencies: item.dependencies || [], provenance: { kind: 'catalog/upstream', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', sourcePath: item.sourcePath || item.id, bundleId: bundle.bundleId, version: bundle.version || 'test' } }); }
 	let answer = asset_registry_apply_bundle({ bundleId: bundle.bundleId, version: bundle.version || 'test', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', assets: staged }); cleanup(root, paths); return answer;
 }
+export const resource_center_prepare_version = function(request) {
+	let version = object(request) ? request.version : request;
+	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
+	let resolved = z2k_resolve_version(version); if (!resolved.ok) return resolved;
+	if (type(resolved.assets) != 'array' || !length(resolved.assets) || length(resolved.assets) > 64) return fail('EZ2K_INCOMPATIBLE', 'Выбранный release не содержит полного exact-managed набора.');
+	for (let i = 0; i < length(resolved.assets); i++) if (!z2k_target_asset_valid(resolved.assets[i])) return fail('EZ2K_INCOMPATIBLE', 'Выбранный release содержит неподдерживаемый managed asset.', { sourcePath: resolved.assets[i] && resolved.assets[i].sourcePath });
+	let listed = asset_registry_list(null); if (!listed.ok) return listed;
+	let membership = z2k_target_membership_compatible(listed, resolved.assets); if (!membership.ok) return membership;
+	let installed = z2k_catalog_installed_release(), operation = z2k_target_operation(version, installed), localFingerprint = z2k_local_fingerprint(resolved.assets, listed);
+	if (operation == null || localFingerprint == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
+	let preparedAt = time(), target = { schema: 2, targetVersion: resolved.version, targetCommitSha: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, operation: operation, previousVersion: installed, preparedAt: preparedAt, assets: resolved.assets };
+	target.planToken = z2k_target_token(target, preparedAt);
+	if (target.planToken == null || !save_prepared_target(target)) return fail('EIO', 'Не удалось сохранить Z2K target snapshot.');
+	return { ok: true, target: z2k_target_summary(target), planToken: target.planToken };
+};
+function z2k_target_policy(listed, item) {
+	let registered = registry_asset(listed.assets, item.id);
+	if (registered == null) return { ok: true, registered: null };
+	let promotion = registered.ownership == 'package' && registered.provenance && registered.provenance.kind == 'builtin/package';
+	if (!promotion && (registered.ownership == 'package' || registered.ownership != 'manager' || !registered.provenance || registered.provenance.kind != 'catalog/upstream')) return fail('EPOLICY', 'package or user resource cannot be replaced by upstream', { id: item.id });
+	return { ok: true, registered: registered };
+}
+function z2k_target_postflight(listed, target, diagnostics) {
+	if (!listed.ok) return fail('ESTATE', 'asset registry metadata is unavailable after Z2K activation.');
+	for (let i = 0; i < length(target.assets); i++) {
+		let item = target.assets[i], found = registry_asset(listed.assets, item.id), actual = found && found.path && regular(found.path) ? sha256(found.path) : null;
+		if (found == null || actual != item.sha256 || found.contentSha256 != item.sha256 || !found.provenance || found.provenance.kind != 'catalog/upstream' || found.provenance.sourceCommit != target.targetCommitSha || found.provenance.version != target.targetVersion || found.provenance.sourcePath != item.sourcePath) return fail('EVERIFY', 'Z2K postflight verification failed.', { id: item.id, expectedSha256: item.sha256, actualSha256: actual });
+		diagnostics.targetAssets[i].result = 'applied'; diagnostics.postflightMatched++;
+	}
+	return { ok: true };
+}
+function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed) {
+	let state = load_check_state(), target = z2k_target_from_state(state), requestedVersion = request && request.targetVersion;
+	if (!target || !string(requestedVersion) || requestedVersion != target.targetVersion || request.planToken != target.planToken) return fail('ECHECK_STALE', 'Z2K update requires a matching prepared target; select and prepare the release again.');
+	let fingerprint = z2k_local_fingerprint(target.assets, listed);
+	if (fingerprint == null || fingerprint != target.localFingerprint) return fail('ECHECK_STALE', 'Z2K local resources changed after preparation; prepare the release again.');
+	let membership = z2k_target_membership_compatible(listed, target.assets);
+	if (!membership.ok) return membership;
+	let root = make_stage_root(); if (root == null) return fail('ETARGET', 'resource staging directory is unavailable');
+	let paths = [], staged = [], diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
+	for (let i = 0; i < length(target.assets); i++) {
+		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
+		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
+		if (!z2k_target_asset_valid(item)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'invalid-target'; return fail('EVERIFY', 'prepared Z2K target asset is invalid.', { sourcePath: item && item.sourcePath, diagnostics: diagnostics }); }
+		if (!policy.ok) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'protected'; policy.diagnostics = diagnostics; return policy; }
+		let path = root + '/' + i + '.asset', url = 'https://raw.githubusercontent.com/necronicle/z2k/' + target.targetCommitSha + '/' + item.sourcePath, fetched = command('uclient-fetch -q -O ' + shell_quote(path) + ' ' + shell_quote(url));
+		if (fetched.rc != 0 || !regular(path)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'fetch-failed'; return fail('EUNAVAILABLE', 'resource source is unavailable.', { sourcePath: item.sourcePath, diagnostics: diagnostics }); }
+		diagnostics.downloaded++; let actual = sha256(path);
+		if (actual != lc(item.sha256)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'sha-mismatch'; return fail('EVERIFY', 'fetched bytes SHA does not match prepared target.', { sourcePath: item.sourcePath, expectedSha256: item.sha256, actualSha256: actual, diagnostics: diagnostics }); }
+		diagnostics.verified++; let gate = z2k_candidate_gate(item.sourcePath, path, item.sha256);
+		if (!gate.ok) { cleanup(root, paths); diagnostics.targetAssets[i].result = gate.error && gate.error.code == 'ESTALE' ? 'stale' : 'incompatible'; return fail(gate.error && gate.error.code || 'EZ2K_REVIEW_REQUIRED', 'staged Z2K candidate requires review.', { sourcePath: item.sourcePath, diagnostics: diagnostics }); }
+		push(paths, path); push(staged, { type: item.type, id: item.id, name: item.name, stagedPath: path, sha256: item.sha256, byteSize: stat(path).size, expectedRevision: before && before.revision || null, dependencies: item.dependencies || [], provenance: { kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: target.targetCommitSha, sourcePath: item.sourcePath, bundleId: selected.id, version: target.targetVersion } });
+		diagnostics.targetAssets[i].result = 'staged';
+	}
+	diagnostics.staged = length(staged);
+	let applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha, assets: staged });
+	if (!applied.ok) { cleanup(root, paths); return applied; }
+	diagnostics.applied = applied.updated || length(staged);
+	let after = asset_registry_list(null), postflight = z2k_target_postflight(after, target, diagnostics);
+	if (!postflight.ok) {
+		let rollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.revision }); cleanup(root, paths);
+		return fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K activation was rolled back after postflight verification failed.' : 'Z2K activation failed and rollback could not be completed.', { postflight: postflight.error, rollback: rollback, diagnostics: diagnostics });
+	}
+	if (!persist_check_state({ schema: 2, latestCheck: state && state.latestCheck || null, preparedTarget: null })) {
+		let rollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.revision }); cleanup(root, paths);
+		return fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K activation was rolled back because prepared target state could not be cleared.' : 'Z2K activation succeeded but rollback after state failure was incomplete.', { rollback: rollback, diagnostics: diagnostics });
+	}
+	cleanup(root, paths);
+	return { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: applied.revision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null };
+}
 export const resource_center_status = function () {
 	// STALE-PROJECTION REGRESSION GUARD (see tests/product/z2k-candidate-compatibility.test.mjs):
 	// This returns the PERSISTED CHECK_STATE (/etc/zapret2-manager/resource-source-check.json),
 	// NOT a live fetch. After a sidecar migration or manifest change, it may still show
 	// the previous status (e.g., rebase-required) until an explicit resources_check
-	// (z2k_upstream_check) refreshes CHECK_STATE via save_check_state(). Do not make
+	// An explicit check refreshes CHECK_STATE via save_check_state(). Do not make
 	// this live — that would add network I/O to every status poll.
 	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, null);
 	if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
-	let persisted = load_check_state();
-	let remote = persisted ? z2k_projection(persisted.signed) : z2k_projection(null);
+	let persisted = load_check_state(), latestCheck = persisted && persisted.latestCheck;
+	let remote = latestCheck ? z2k_projection(latestCheck.signed) : z2k_projection(null);
 	remote.local = local;
-	remote.checkedAt = persisted ? persisted.checkedAt : null;
-	remote.planToken = persisted ? (persisted.planToken || remote.planToken) : null;
+	remote.checkedAt = latestCheck ? latestCheck.checkedAt : null;
+	remote.planToken = latestCheck ? (latestCheck.planToken || remote.planToken) : null;
+	remote.preparedTarget = persisted && persisted.preparedTarget ? { targetVersion: persisted.preparedTarget.targetVersion, operation: persisted.preparedTarget.operation, preparedAt: persisted.preparedTarget.preparedAt } : null;
 	answer.z2k = remote;
-	if (persisted) {
-		answer.checkedAt = persisted.checkedAt;
-		answer.signedSources = { z2k: persisted.signedSources };
+	if (latestCheck) {
+		answer.checkedAt = latestCheck.checkedAt;
+		answer.signedSources = { z2k: latestCheck.signedSources };
 		for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') {
-			answer.sources[i].checkMode = persisted.signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest';
-			answer.sources[i].verification = persisted.signedSources;
-			if (!persisted.signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); }
+			answer.sources[i].checkMode = latestCheck.signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest';
+			answer.sources[i].verification = latestCheck.signedSources;
+			if (!latestCheck.signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); }
 			else {
 				// Canonical product state must not contradict Resources: use z2k plan status, honest unknown
 				if (remote.status === 'current') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
@@ -318,27 +463,9 @@ export const resource_center_update = function (request) {
 	if (!object(request) || request.confirm !== true) return fail('EINPUT', 'explicit update confirmation is required');
 	// Branch detection for diagnostics: z2k-runtime vs bundle-based
 	let diagPathUsed = null;
-	if (request.component == 'z2k-runtime') diagPathUsed = 'z2k-runtime:z2k_component_apply';
+	if (request.component == 'z2k-runtime') return fail('ELEGACY_LIFECYCLE', 'The legacy Z2K component lifecycle is retired; prepare a release target first.');
 	else if (request.bundleId) diagPathUsed = 'bundle:' + text(request.bundleId);
 	else diagPathUsed = 'unknown';
-	if (request.component == 'z2k-runtime') {
-		let res = z2k_component_apply(request);
-		// Attach bounded diagnostics for component path
-		if (object(res)) {
-			res.pathUsed = diagPathUsed;
-			if (res.ok && res.transaction) {
-				res.diagnostics = { pathUsed: diagPathUsed, remoteRevision: null, planned: res.transaction.updated || 0, downloaded: 0, verified: 0, staged: 0, applied: res.transaction.updated || 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-			} else if (!res.ok) {
-				res.diagnostics = { pathUsed: diagPathUsed, remoteRevision: null, planned: 0, downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-			}
-			// Invariant: planned>0 && applied==0 => FAILED
-			let p = res.diagnostics ? res.diagnostics.planned : null, a = res.diagnostics ? res.diagnostics.applied : null;
-			if (p != null && a != null && p > 0 && a == 0 && res.ok) {
-				return { ok: false, error: { code: 'EVERIFY', message: 'Обновление не применено: ' + p + ' обновлений было запланировано, 0 установлено.', diagnostics: res.diagnostics }, diagnostics: res.diagnostics, pathUsed: diagPathUsed };
-			}
-		}
-		return res;
-	}
 	let controlled = inline_bundle(request); if (controlled != null) {
 		if (object(controlled)) { controlled.pathUsed = 'controlled-bundle'; controlled.diagnostics = { pathUsed: 'controlled-bundle', remoteRevision: null, planned: 0, downloaded: 0, verified: 0, staged: 0, applied: controlled.updated || 0, postflightMatched: 0, skipped: [], targetAssets: [] }; }
 		return controlled;
@@ -347,241 +474,8 @@ export const resource_center_update = function (request) {
 	// Update pathUsed now that selected is known
 	if (selected.sourceId == 'z2k-resources') diagPathUsed = 'z2k-resources:bundle:' + selected.id;
 	else diagPathUsed = 'bundle:' + selected.id;
-	let signedForZ2k = null, checkSnapshotAt = null;
-	if (selected.sourceId == 'z2k-resources') {
-		// APPLY is bound to the last explicit CHECK_STATE snapshot. Never perform
-		// a second network check here: that could make the plan and downloaded
-		// bytes disagree with what the user confirmed.
-		let persisted = load_check_state(), snapshot = persisted && persisted.signed;
-		let expectedToken = persisted && snapshot ? plan_token(persisted.checkedAt, snapshot.manifest) : null;
-		if (!persisted || !object(snapshot) || snapshot.ok !== true || !persisted.planToken || expectedToken == null || request.planToken != persisted.planToken || request.planToken != expectedToken || snapshot.planToken != request.planToken || !object(snapshot.plan) || !object(snapshot.manifest)) {
-			return fail('ECHECK_STALE', 'Z2K update requires a matching successful check snapshot; run Проверить обновления again.');
-		}
-		signedForZ2k = snapshot;
-		checkSnapshotAt = persisted.checkedAt;
-		let canonical = signedForZ2k.plan;
-		if (canonical.attentionState == 'rebase-required' || length(canonical.rebases || [])) {
-			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest.current || null, planned: length(canonical.rebases || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: canonical.rebases || [], targetAssets: [] };
-			return fail('EZ2K_REBASE_REQUIRED', 'signed Z2K manifest requires adapted-file rebase', { rebases: canonical.rebases, diagnostics: d });
-		}
-		if (canonical.canApply !== true || length(canonical.updates || []) == 0) {
-			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest.current || null, planned: length(canonical.updates || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: canonical.blockingReviews || [], targetAssets: [] };
-			if (length(canonical.blockingReviews || [])) return fail('EZ2K_REVIEW_REQUIRED', 'signed Z2K manifest requires semantic review', { reviews: canonical.blockingReviews, blockingReasons: canonical.blockingReasons || [], diagnostics: d });
-			return fail('EUPDATE_NOT_AVAILABLE', 'Z2K check snapshot contains no applicable exact-managed updates.', { diagnostics: d });
-		}
-	}
+	if (selected.sourceId == 'z2k-resources') return z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed);
 	let root = make_stage_root(); if (root == null) return fail('ETARGET', 'resource staging directory is unavailable'); let paths = [], staged = [];
-	if (selected.sourceId == 'z2k-resources' && signedForZ2k) {
-		// Use the fresh verified manifest as the update target, not the static packaged bundle.
-		// This is snapshot-consistent: CHECK and APPLY use the same signed.manifest.
-		let planUpdates = signedForZ2k.plan.updates || [];
-		let remoteFiles = signedForZ2k.manifest.files_sha256 || {};
-		let remoteCommit = signedForZ2k.manifest.current || selected.sourceCommit;
-		let remoteVersion = signedForZ2k.manifest.current;
-		let diagnostics = { pathUsed: diagPathUsed, remoteRevision: remoteCommit, planned: length(planUpdates), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-		// Pre-fill targetAssets with before SHAs (correct slug derivation for all types)
-		for (let i = 0; i < length(planUpdates); i++) {
-			let sp = planUpdates[i], tgt = remoteFiles[sp] ? lc(remoteFiles[sp]) : null;
-			let assetId = null, assetTypeTmp = null;
-			try {
-				let map = json(readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json'));
-				if (map && type(map.files) == 'array') for (let k = 0; k < length(map.files); k++) if (map.files[k].sourcePath == sp) {
-					let it = map.files[k];
-					let baseTmp = it.localName ? it.localName : sp;
-					let slashTmp = rindex(baseTmp, '/'); let basenameTmp = slashTmp >=0 ? substr(baseTmp, slashTmp+1) : baseTmp;
-					let dotTmp = rindex(basenameTmp, '.'); let slugTmp = dotTmp >=0 ? substr(basenameTmp, 0, dotTmp) : basenameTmp;
-					slugTmp = lc(slugTmp);
-					if (slugTmp == 'list' && index(sp, 'extra_strats') >=0) {
-						let dirPartTmp = substr(sp, 0, rindex(sp, '/'));
-						let afterListsTmp = substr(dirPartTmp, length('files/lists/') );
-						let flatTmp = ''; for (let _ci2 = 0; _ci2 < length(afterListsTmp); _ci2++) { let ch2 = substr(afterListsTmp, _ci2, 1); flatTmp += ch2 == '/' ? '_' : lc(ch2); }
-						slugTmp = flatTmp + '_list';
-					}
-					if (it.type == 'lua') assetTypeTmp = 'lua';
-					else if (it.type == 'bin') assetTypeTmp = 'blob';
-					else if (it.type == 'txt') assetTypeTmp = 'blob';
-					else assetTypeTmp = null;
-					if (assetTypeTmp) assetId = assetTypeTmp + ':' + slugTmp;
-					break;
-				}
-			} catch (e) {}
-			if (assetId == null) {
-				let slash2 = rindex(sp, '/'); let base2 = slash2 >=0 ? substr(sp, slash2+1) : sp;
-				let dot2 = rindex(base2, '.'); let slug2 = dot2 >=0 ? substr(base2, 0, dot2) : base2;
-				slug2 = lc(slug2);
-				if (slug2 == 'list' && index(sp, 'extra_strats') >=0) {
-					let dirPart2 = substr(sp, 0, rindex(sp, '/'));
-					let afterLists2 = substr(dirPart2, length('files/lists/') );
-					let flat2 = ''; for (let _ci3 = 0; _ci3 < length(afterLists2); _ci3++) { let ch3 = substr(afterLists2, _ci3, 1); flat2 += ch3 == '/' ? '_' : lc(ch3); }
-					slug2 = flat2 + '_list';
-					assetId = 'blob:' + slug2;
-				} else assetId = 'lua:' + slug2;
-			}
-			let beforeSha = null;
-			for (let r = 0; r < length(listed.assets); r++) if (listed.assets[r].id == assetId) { beforeSha = listed.assets[r].contentSha256; break; }
-			push(diagnostics.targetAssets, { sourcePath: sp, assetId: assetId, installedShaBefore: beforeSha, targetSha: tgt, result: 'pending' });
-		}
-		for (let i = 0; i < length(planUpdates); i++) {
-			let sourcePath = planUpdates[i];
-			let targetSha = remoteFiles[sourcePath];
-			if (!string(targetSha) || !match(lc(targetSha), /^[a-f0-9]{64}$/)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'invalid-target-sha'; let e = fail('EVERIFY', 'remote target SHA is invalid', { sourcePath: sourcePath, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			// Resolve classification for asset id/type
-			let map = null; try { map = json(readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json')); } catch (e) { map = null; }
-			let item = null;
-			if (map && type(map.files) == 'array') for (let k = 0; k < length(map.files); k++) if (map.files[k].sourcePath == sourcePath) { item = map.files[k]; break; }
-			if (item == null) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'unclassified'; let e = fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K file has no classification', { sourcePath: sourcePath, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			let baseAsset = item.localName ? item.localName : sourcePath;
-			let slashAsset = rindex(baseAsset, '/'); let basenameAsset = slashAsset >=0 ? substr(baseAsset, slashAsset+1) : baseAsset;
-			let dotAsset = rindex(basenameAsset, '.'); let slugAsset = dotAsset >=0 ? substr(basenameAsset, 0, dotAsset) : basenameAsset;
-			slugAsset = lc(slugAsset);
-			// Ensure unique slug for colliding basenames like List.txt in different dirs
-			if (slugAsset == 'list' && index(sourcePath, 'extra_strats') >=0) {
-				let dirPart = substr(sourcePath, 0, rindex(sourcePath, '/'));
-				// dirPart like files/lists/extra_strats/TCP/RKN -> take after files/lists/
-				let afterLists = substr(dirPart, length('files/lists/') );
-				// replace / with _ and lower
-				let flat = ''; for (let _ci = 0; _ci < length(afterLists); _ci++) { let ch = substr(afterLists, _ci, 1); flat += ch == '/' ? '_' : lc(ch); }
-				slugAsset = flat + '_list';
-			}
-			let assetType;
-			if (item.type == 'lua') assetType = 'lua';
-			else if (item.type == 'bin') assetType = 'blob';
-			else if (item.type == 'txt') {
-				// Use blob for txt to avoid hostlist/ipset canonical normalization mismatch; store as raw
-				assetType = 'blob';
-			} else assetType = null;
-			let assetId = assetType ? (assetType + ':' + slugAsset) : null;
-			if (assetId == null) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'unsupported-type'; let e = fail('EINPUT', 'unsupported Z2K asset type', { sourcePath: sourcePath, type: item.type, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			let registered = null;
-			for (let r = 0; r < length(listed.assets); r++) if (listed.assets[r].id == assetId) { registered = listed.assets[r]; break; }
-			if (registered != null) {
-				let isPromotion = registered.ownership == 'package' && registered.provenance && registered.provenance.kind == 'builtin/package';
-				if (!isPromotion && (registered.ownership == 'package' || !registered.provenance || registered.provenance.kind != 'catalog/upstream')) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'protected'; let e = fail('EPOLICY', 'user or package resource is protected', { id: assetId, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			}
-			// Snapshot-consistent URL: use the same branch that UPDATES.json was fetched from (z2k-enhanced) with the verified manifest's files
-			// The remote manifest is from z2k-enhanced branch head, so fetch via branch, not static commit, but verify SHA afterwards.
-			let contentUrl = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/' + sourcePath;
-			let path = root + '/' + i + '.asset', fetched = command('uclient-fetch -q -O ' + shell_quote(path) + ' ' + shell_quote(contentUrl));
-			if (fetched.rc != 0 || !regular(path)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'fetch-failed'; let e = fail('EUNAVAILABLE', 'resource source is unavailable', { id: assetId, source: sourceValue.repository, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			diagnostics.downloaded++;
-			let actualSha = sha256(path);
-			if (actualSha != lc(targetSha)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'sha-mismatch'; let e = fail('EVERIFY', 'fetched bytes SHA does not match remote target', { sourcePath: sourcePath, expected: lc(targetSha), actual: actualSha, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			diagnostics.verified++;
-			let byteSize = 0; try { byteSize = stat(path).size; } catch (e) { byteSize = 0; }
-			push(paths, path);
-			push(staged, { type: assetType, id: assetId, name: item.localName || assetId, stagedPath: path, sha256: lc(targetSha), byteSize: byteSize, expectedRevision: registered && registered.revision || null, dependencies: [], provenance: { kind: 'catalog/upstream', source: sourceValue.repository, sourceCommit: remoteCommit, sourcePath: sourcePath, bundleId: selected.id, version: remoteVersion } });
-			diagnostics.targetAssets[i].result = 'staged';
-		}
-		// AUTHORITATIVE STAGED GATE: verify staged bytes (identity + sidecar seam) BEFORE any apply.
-		// This is the load-bearing invariant: THE BYTES THAT PASS THE GATE ARE THE BYTES THAT ARE ACTIVATED.
-		for (let g = 0; g < length(staged); g++) {
-			let sp = staged[g].provenance.sourcePath;
-			let exp = staged[g].sha256;
-			let candPath = staged[g].stagedPath;
-			let gate = z2k_candidate_gate(sp, candPath, exp);
-			if (!gate.ok) {
-				cleanup(root, paths);
-				diagnostics.targetAssets[g].result = gate.error && gate.error.code == 'ESTALE' ? 'stale' : 'incompatible';
-				let code = gate.error && gate.error.code ? gate.error.code : 'EZ2K_REVIEW_REQUIRED';
-				let msg = code == 'ESTALE' ? 'staged candidate SHA does not match manifest (race)' : 'staged candidate incompatible — review required';
-				let e = fail(code, msg, { sourcePath: sp, expectedSha256: exp, actualSha256: gate.actualSha256, missing: gate.missing, diagnostics: diagnostics });
-				e.diagnostics = diagnostics;
-				e.pathUsed = diagPathUsed;
-				e.reviews = [sp];
-				e.status = 'review-required';
-				// Atomicity: no registry mutation, preserve runtime/state
-				return e;
-			}
-		}
-		diagnostics.staged = length(staged);
-		if (!length(staged)) {
-			cleanup(root, paths);
-			let ans = { ok: true, bundleId: selected.id, version: remoteVersion, updated: 0, state: 'current', status: state_label('current'), diagnostics: diagnostics, pathUsed: diagPathUsed, planned: diagnostics.planned, downloaded: diagnostics.downloaded, verified: diagnostics.verified, staged: diagnostics.staged, applied: 0, postflightMatched: 0, skipped: [], targetAssets: diagnostics.targetAssets, remoteRevision: remoteCommit };
-			// Invariant: planned>0 && applied==0 => FAILED
-			if (diagnostics.planned > 0 && ans.updated == 0) {
-				ans.ok = false;
-				ans.error = { code: 'EVERIFY', message: 'Обновление не применено: ' + diagnostics.planned + ' обновлений было запланировано, 0 установлено.', diagnostics: diagnostics };
-				ans.pathUsed = diagPathUsed;
-			}
-			return ans;
-		}
-		let answer = asset_registry_apply_bundle({ bundleId: selected.id, version: remoteVersion, source: sourceValue.repository, sourceCommit: remoteCommit, assets: staged });
-		diagnostics.applied = answer.ok ? (answer.updated || length(staged)) : 0;
-		// Postflight: verify that each planned update now has installed SHA == remote target and provenance
-		if (answer.ok) {
-			let listedAfter = asset_registry_list(null);
-			let postflightMatched = 0;
-			if (listedAfter.ok) {
-				for (let i = 0; i < length(planUpdates); i++) {
-					let sp = planUpdates[i], expSha = lc(remoteFiles[sp]);
-					let found = null;
-					for (let a = 0; a < length(listedAfter.assets); a++) {
-						let prov = listedAfter.assets[a].provenance;
-						if (prov && prov.sourcePath == sp) { found = listedAfter.assets[a]; break; }
-						let idFromPath = 'lua:' + substr(sp, length('files/lua/'), length(sp) - length('files/lua/') - 4);
-						if (listedAfter.assets[a].id == idFromPath) { found = listedAfter.assets[a]; break; }
-					}
-					if (found != null && found.contentSha256 == expSha) {
-						postflightMatched++;
-						diagnostics.targetAssets[i].result = 'applied';
-					} else {
-						diagnostics.targetAssets[i].result = 'postflight-mismatch';
-						cleanup(root, paths);
-						let e = fail('EVERIFY', 'postflight verification failed: installed SHA does not match remote target', { sourcePath: sp, expected: expSha, actual: found && found.contentSha256, diagnostics: diagnostics });
-						e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e;
-					}
-				}
-				diagnostics.postflightMatched = postflightMatched;
-				// POST-APPLY REPLAN against SAME manifest snapshot (no network) and persist CHECK_STATE.
-				// This makes resources_status immediately reflect post-apply truth (TASK 7).
-				let newPlan = null; try { newPlan = z2k_upstream_plan(signedForZ2k.manifest); } catch (e) { newPlan = null; }
-				if (newPlan && newPlan.ok && newPlan.status != 'current') {
-					let stillUpdates = newPlan.updates || [];
-					let overlap = false;
-					for (let u = 0; u < length(stillUpdates); u++) for (let p = 0; p < length(planUpdates); p++) if (stillUpdates[u] == planUpdates[p]) overlap = true;
-					if (overlap && length(stillUpdates) >= length(planUpdates)) {
-						cleanup(root, paths);
-						let e = fail('EVERIFY', 'postflight recheck still reports the same updates; update not fully applied', { stillUpdates: stillUpdates, diagnostics: diagnostics });
-						e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e;
-					}
-				}
-				// Persist post-apply truth without network (resources_status remains network-free)
-				try {
-					let persistedPlan = newPlan || { ok: true, status: 'current', updateState: 'current', attentionState: 'none', canApply: false, updates: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], manifest: signedForZ2k.manifest };
-					let newSigned = { ok: true, status: persistedPlan.status, updateState: persistedPlan.updateState, attentionState: persistedPlan.attentionState, canApply: persistedPlan.canApply, source: signedForZ2k.source, trustMode: signedForZ2k.trustMode, manifest: signedForZ2k.manifest, plan: persistedPlan, planToken: signedForZ2k.planToken };
-					let newSignedSources = { state: newPlan && newPlan.status == 'current' ? 'current' : (newPlan && newPlan.status == 'update-available' ? 'attention' : 'attention'), status: newPlan ? newPlan.status : 'current', checkMode: 'allow-untrusted', trustMode: newSigned.trustMode || 'allow-untrusted', verified: false, evidence: { repository: newSigned.source.repository, branch: newSigned.source.branch, trustMode: newSigned.trustMode || null, manifestSeq: newSigned.manifest.seq, manifestCurrent: newSigned.manifest.current } };
-					save_check_state(newSigned, checkSnapshotAt, newSignedSources, signedForZ2k.planToken);
-				} catch (e) {}
-			}
-		} else {
-			// Mark all as failed
-			for (let i = 0; i < length(diagnostics.targetAssets); i++) diagnostics.targetAssets[i].result = 'apply-failed';
-		}
-		// Invariant: planned>0 && applied==0 => FAILED
-		if (diagnostics.planned > 0 && diagnostics.applied == 0 && answer.ok) {
-			cleanup(root, paths);
-			let e = fail('EVERIFY', 'Обновление не применено: ' + diagnostics.planned + ' обновлений было запланировано, 0 установлено.', { diagnostics: diagnostics });
-			e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e;
-		}
-		cleanup(root, paths);
-		if (answer.ok) {
-			answer.diagnostics = diagnostics;
-			answer.pathUsed = diagPathUsed;
-			answer.planned = diagnostics.planned;
-			answer.downloaded = diagnostics.downloaded;
-			answer.verified = diagnostics.verified;
-			answer.staged = diagnostics.staged;
-			answer.applied = diagnostics.applied;
-			answer.postflightMatched = diagnostics.postflightMatched;
-			answer.skipped = diagnostics.skipped;
-			answer.targetAssets = diagnostics.targetAssets;
-			answer.remoteRevision = remoteCommit;
-		} else {
-			answer.diagnostics = diagnostics;
-			answer.pathUsed = diagPathUsed;
-		}
-		return answer;
-	}
 	for (let i = 0; i < length(selected.assets || []); i++) { let item = selected.assets[i], row = row_for({ ...item, sourceId: selected.sourceId, sourceCommit: selected.sourceCommit }, listed.assets); if (row.state == 'current') continue; let registered = registry_asset(listed.assets, item.id); if (registered != null) {
 		let isPromotion = registered.ownership == 'package' && registered.provenance && registered.provenance.kind == 'builtin/package';
 		if (!isPromotion && (registered.ownership == 'package' || !registered.provenance || registered.provenance.kind != 'catalog/upstream')) { cleanup(root, paths); return fail('EPOLICY', 'user or package resource is protected', { id: item.id }); }

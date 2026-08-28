@@ -4,10 +4,10 @@ title: "Ядро Z2K (Z2K Core)"
 type: product
 status: current
 authority: current-ui
-updated: 2026-08-22
+updated: 2026-08-28
 publish: true
 tags: [technology, z2k, assets]
-code: [zapret2-manager/files/usr/libexec/zapret2-manager/z2k-component.uc#z2k_component_apply]
+code: [zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc#z2k_resolve_version, zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc#resource_center_prepare_version]
 ---
 
 # Z2K Core
@@ -18,13 +18,18 @@ Strategy, Scanner и Resource Center используют его провере�
 
 ## Контракт компонента
 
-Перед активацией проверяются upstream manifest, классификация файлов и
-revision. Принимаются только `exact-managed` файлы с совпадающим SHA-256.
-Адаптированные и `review-required` изменения требуют явного rebase/review и
-не могут быть включены как будто это exact match.
+Каталог релизов строится по upstream tags, а выбранный tag разрешается в
+immutable commit SHA. Manifest и assets читаются только из этого commit.
+Перед активацией проверяются exact-managed membership, SHA-256 и локальный
+fingerprint. Адаптированные и `review-required` изменения не превращаются в
+обычный update.
 
 ## Безопасная публикация
 
-Assets сначала попадают в bounded staging path, затем Asset Registry выполняет
-transaction и postflight. Ошибка проверки возвращается как structured error;
-частичная публикация не должна становиться новым active state.
+Сначала сохраняется target snapshot v2 с операцией install/upgrade/reinstall/
+downgrade и opaque plan token. После явного подтверждения assets попадают в
+bounded staging path, затем Asset Registry выполняет одну transaction и
+postflight. Ошибка проверки возвращается как structured error; partial или
+hybrid publication не должна становиться новым active state. Старый
+`z2k_component_apply` оставлен только как retired compatibility boundary и
+возвращает `ELEGACY_LIFECYCLE`.

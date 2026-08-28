@@ -40,6 +40,8 @@ test('catalog listing is bounded metadata-only and does not fetch every release 
   assert.match(source, /MAX_VERSIONS\s*=\s*10/);
   assert.match(source, /refs\/tags|git\/refs\/tags/);
   assert.match(source, /resolve_tag_commit/);
+  assert.match(source, /objectType/);
+  assert.match(source, /objectType\s*==\s*['\"]commit['\"]/);
   assert.doesNotMatch(source.slice(source.indexOf('export const z2k_versions'), source.indexOf('export const z2k_version_details')), /UPDATES\.json/);
 });
 

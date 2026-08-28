@@ -155,10 +155,47 @@ function z2kLuaEvidence(value) {
     && lua.total > 0 && lua.ready === lua.total;
 }
 
+function normalizeZ2kCatalog(value) {
+  return array(value).map(function (item) {
+    item = object(item);
+    return {
+      version: first(item.version, null),
+      latest: item.latest === true,
+      installed: item.installed === true,
+      installable: item.installable === true,
+      unavailableReason: first(item.unavailableReason, null)
+    };
+  }).filter(function (item) { return item.version !== null; });
+}
+
+function normalizeZ2kDetails(value) {
+  value = object(value);
+  var changes = object(value.changes);
+  return {
+    version: first(value.version, null),
+    releaseName: first(value.releaseName || value.version, null),
+    releaseBody: first(value.releaseBody, null),
+    installable: value.installable === true,
+    unavailableReason: first(value.unavailableReason, null),
+    latest: value.latest === true,
+    installed: value.installed === true,
+    operation: first(value.operation, null),
+    changes: {
+      modified: typeof changes.modified === 'number' ? changes.modified : 0,
+      added: typeof changes.added === 'number' ? changes.added : 0,
+      removed: typeof changes.removed === 'number' ? changes.removed : 0
+    },
+    compareUrl: first(value.compareUrl, null)
+  };
+}
+
 function normalizeZ2k(input, engineReady) {
   input = object(input);
 	var value = object(input.z2k || input.component || input);
 	var plan = object(value.plan);
+	var catalog = normalizeZ2kCatalog(value.catalog || input.catalog);
+	var selectedDetails = normalizeZ2kDetails(value.selectedDetails || input.selectedDetails);
+	var selectedVersion = first(value.selectedVersion || selectedDetails.version, null);
 	var remoteStatus = first(value.updateState || value.status || value.state, 'unknown');
 	var updateState = z2kUpdateState(remoteStatus);
 	var local = object(value.local);
@@ -262,6 +299,9 @@ function normalizeZ2k(input, engineReady) {
 	var availableReleaseRaw = value.availableRelease || value.available;
 	var availableRelease = availableReleaseRaw && typeof availableReleaseRaw === 'object'
 		? versionFrom(availableReleaseRaw) : first(availableReleaseRaw, null);
+	if (selectedVersion === null) selectedVersion = availableRelease || installedRelease.value || (catalog[0] && catalog[0].version) || null;
+	var preparedTarget = object(value.preparedTarget);
+	var operation = first(preparedTarget.operation || selectedDetails.operation, null);
 	var versionRaw = installedRelease.value;
 	return {
     id: 'z2k-core',
@@ -276,6 +316,15 @@ function normalizeZ2k(input, engineReady) {
 		compatibility: compatibilityStateValue,
 		installedRelease: installedRelease,
 		availableRelease: availableRelease,
+		catalog: catalog,
+		selectedVersion: selectedVersion,
+		selectedDetails: selectedDetails.version ? selectedDetails : null,
+		preparedTarget: preparedTarget && preparedTarget.targetVersion ? {
+			targetVersion: first(preparedTarget.targetVersion, null),
+			operation: first(preparedTarget.operation, null),
+			preparedAt: preparedTarget.preparedAt !== undefined ? preparedTarget.preparedAt : null
+		} : null,
+		operation: operation,
 		checkedAt: timestamp(value.checkedAt),
 		planToken: planToken,
 		advisoryReviews: advisoryReviews,

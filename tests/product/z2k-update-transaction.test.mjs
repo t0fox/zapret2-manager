@@ -115,7 +115,7 @@ test('1C correct digest + incompatible must be review-required, not rebase, not 
 test('1D gate before apply: if C incompatible, planned=3 verified=3 staged=3 applied=0, registry unchanged', () => {
   const ru = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
   // The update transaction must call z2k_candidate_gate on STAGED files BEFORE any asset_registry_apply_bundle in the z2k block
-  const z2kBlockStart = ru.indexOf("if (selected.sourceId == 'z2k-resources'");
+  const z2kBlockStart = ru.indexOf('function z2k_apply_prepared');
   const gateIdx = ru.indexOf('z2k_candidate_gate', z2kBlockStart);
   const applyIdx = ru.indexOf('asset_registry_apply_bundle', z2kBlockStart);
   assert.ok(gateIdx >= 0, 'resource-update must call shared gate in z2k block');
@@ -123,9 +123,10 @@ test('1D gate before apply: if C incompatible, planned=3 verified=3 staged=3 app
   assert.ok(gateIdx < applyIdx, 'gate must be BEFORE apply (pre-flight before mutation)');
   // Must have atomicity: if any gate fails, applied 0 and no partial
   assert.match(ru, /applied.*0|apply.*ZERO|if.*FAIL.*applied.*0/, 'must enforce applied=0 on gate failure');
-  // Check that gate is after the download/verify loop and before apply
-  const loopEndIdx = ru.indexOf('push(staged,', z2kBlockStart);
-  assert.ok(loopEndIdx >= 0 && loopEndIdx < gateIdx, 'gate must be after staged building and before apply');
+  // Every target is fetched and gated before the single Asset Registry apply.
+  const stagedIdx = ru.indexOf('push(staged,', z2kBlockStart);
+  assert.ok(stagedIdx >= 0 && stagedIdx < applyIdx, 'target assets must be staged before apply');
+  assert.match(ru.slice(z2kBlockStart, applyIdx), /z2k_candidate_gate/);
 });
 
 // ---------------------------------------------------------------------------
@@ -191,19 +192,13 @@ test('1F known future release must auto-update: new SHA for known exact-managed 
 // ---------------------------------------------------------------------------
 // TEST 1G — post-apply persisted projection must be re-planned against same snapshot
 // ---------------------------------------------------------------------------
-test('1G post-apply CHECK_STATE must be re-planned against SAME manifest snapshot, not stale update-available', () => {
+test('1G successful target apply clears the prepared snapshot and rolls back failed postflight', () => {
   const ru = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
-  // After successful apply, must do pure re-plan against same manifest and persist
-  assert.match(ru, /POST-APPLY REPLAN.*SAME manifest snapshot/);
+  assert.match(ru, /z2k_target_postflight/);
+  assert.match(ru, /asset_registry_rollback_bundle/);
   assert.match(ru, /save_check_state/);
-  // Must not fetch new manifest after apply to update CHECK_STATE (would be network after success)
-  // The re-plan should be pure, not network fetch — check post-apply section only
-  const postApplyStart = ru.indexOf('// POST-APPLY REPLAN');
-  assert.ok(postApplyStart >= 0, 'must have POST-APPLY REPLAN section');
-  const postApplySection = ru.slice(postApplyStart, postApplyStart + 3000);
-  assert.doesNotMatch(postApplySection, /fetch_untrusted_manifest|uclient-fetch.*UPDATES/, 'post-apply re-plan must not fetch new manifest');
-  assert.match(postApplySection, /z2k_upstream_plan/);
-  assert.match(postApplySection, /save_check_state/);
+  assert.match(ru, /preparedTarget:\s*null/);
+  assert.doesNotMatch(ru, /POST-APPLY REPLAN|z2k_upstream_plan/);
 });
 
 // ---------------------------------------------------------------------------
