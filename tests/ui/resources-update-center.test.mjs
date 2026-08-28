@@ -46,3 +46,31 @@ test('Package resources keep content available in a read-only editor', () => {
   assert.match(page, /readOnly: asset\.ownership === 'package'/);
   assert.doesNotMatch(page, /z2m-lua-editor-overlay/);
 });
+
+test('Z2K lifecycle assets must not be treated as generic-editable when mutable is only lifecycle capability', () => {
+  assert.match(page, /function mutable\(asset\) \{ return asset && asset\.mutable === true; \}/);
+  assert.match(page, /readOnly: asset\.ownership === 'package'/);
+
+  const lifecycleAsset = {
+    id: 'lua:z2k-modern-core',
+    type: 'lua',
+    ownership: 'manager',
+    mutable: true,
+    provenance: {
+      kind: 'catalog/upstream',
+      source: 'necronicle/z2k',
+      bundleId: 'z2k-curated-lua',
+      version: 'r-79.7',
+    },
+  };
+
+  function currentWorkspaceEditabilityPredicate(asset) {
+    return asset.ownership !== 'package' && asset.mutable === true;
+  }
+
+  assert.equal(
+    currentWorkspaceEditabilityPredicate(lifecycleAsset),
+    false,
+    'lifecycle-owned Z2K assets must stay read-only in Resources even though apply_bundle needs mutable=true internally',
+  );
+});
