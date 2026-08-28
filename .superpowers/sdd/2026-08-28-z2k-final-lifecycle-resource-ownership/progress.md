@@ -45,7 +45,7 @@ No preflight ruling required.
 - Tasks 12-13: unverified — no live upgrade/downgrade/reinstall or runtime strategy/autocircular cycle was executed.
 - Task 14: focused matrix passed; broad filtered matrix remains non-green on unrelated/pre-existing tests and is not claimed as a product GREEN gate.
 - Task 15: complete — adversarial review recorded below and in `task-final-report.md`.
-- Tasks 16-17: pending — finalize report, commit, push, and prove remote branch identity.
+- Tasks 16-17: complete — final report committed, branch pushed without force, and local/remote identities match.
 
 ## Final evidence summary
 
