@@ -292,10 +292,10 @@ function z2k_target_operation(targetVersion, installedVersion) {
 	return comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall');
 }
 function z2k_target_membership_compatible(listed, targetAssets) {
-	var targetById = {};
-	for (var i = 0; i < length(targetAssets || []); i++) targetById[targetAssets[i].id] = targetAssets[i].sourcePath;
-	for (var j = 0; j < length(listed && listed.assets || []); j++) {
-		var current = listed.assets[j], provenance = current && current.provenance;
+	let targetById = {};
+	for (let i = 0; i < length(targetAssets || []); i++) targetById[targetAssets[i].id] = targetAssets[i].sourcePath;
+	for (let j = 0; j < length(listed && listed.assets || []); j++) {
+		let current = listed.assets[j], provenance = current && current.provenance;
 		if (provenance && provenance.kind == 'catalog/upstream' && provenance.bundleId == 'z2k-curated-lua' && provenance.sourcePath && targetById[current.id] != provenance.sourcePath)
 			return fail('EZ2K_INCOMPATIBLE', 'Z2K target membership would leave an unmanaged hybrid asset set.', { id: current.id, sourcePath: provenance.sourcePath });
 	}
