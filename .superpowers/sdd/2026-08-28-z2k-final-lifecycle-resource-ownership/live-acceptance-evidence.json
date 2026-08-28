@@ -826,5 +826,87 @@
     "reinstall": "not-run",
     "verdict": "not-ready",
     "blocker": "Backend runtime activation cannot keep nfqws2 running after target activation, and rollback reports failure."
+  },
+  "readinessAttemptAfterFix": {
+    "date": "2026-08-29",
+    "sourceOnlyDeployment": {
+      "implementationCommit": "25a03b45c8217243601c8cf7e138926b0df22cc0",
+      "cleanupFixCommit": "a90658fa85d72a56612528d4ac6ebfa5b27f7a44",
+      "file": "zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc",
+      "routerSha256": "ff51ecc906d54a5dae55adb915652b8bda5e7687da3beaf720daa8e3e35fb412",
+      "ownershipMode": "root:root 0644",
+      "rpcdReload": {
+        "outputIncludedSegmentationFault": true,
+        "retried": false,
+        "postflightProcessAlive": true,
+        "postflightResourcesStatusReadable": true
+      },
+      "wslRouterNetwork": "unreachable; Windows OpenSSH used for router transport",
+      "apk": "not-built"
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "path": "Components UI",
+      "cacheDisabledState": true,
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "confirmation": "confirmed once in visible browser dialog",
+      "targetCommitSha": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+      "targetAssetCount": 39,
+      "targetRemovalCount": 6,
+      "uiResult": "no-success-state; installed release remained r-79.7",
+      "structuredErrorBody": "not-captured-after-transient-toast-expired"
+    },
+    "routerDuringAttempt": {
+      "events": [
+        {
+          "ts": "2026-08-28T23:07:02Z",
+          "message": "nft table zapret2 missing or empty"
+        },
+        {
+          "ts": "2026-08-28T23:07:04Z",
+          "message": "nfqws2 process gone; recovery start rc=0"
+        }
+      ],
+      "exactObservedBlocker": "candidate runtime did not remain ready after activation"
+    },
+    "routerAfter": {
+      "nfqws2": "running",
+      "pid": 452,
+      "queue": 300,
+      "queueOwnerPid": 452,
+      "nftQueueRule": true,
+      "installedAuthority": "r-79.7",
+      "authorityConfidence": "confirmed",
+      "registryRevision": 7,
+      "integrity": "verified",
+      "luaReady": 7,
+      "luaTotal": 7,
+      "preparedTarget": null,
+      "nonHybrid": true,
+      "strategyPreserved": true
+    },
+    "staging": {
+      "directoryCountBefore": 8,
+      "directoryCountAfter": 9,
+      "newDirectory": "/tmp/z2m-resource-update/stage.mjiljL",
+      "leftoverFile": "runtime-activation.tsv",
+      "cleanupFix": "source-tested-and-deployed; not-live-revalidated-after-stop-gate"
+    },
+    "verification": {
+      "readinessTests": 6,
+      "focusedTests": 68,
+      "focusedPassed": 68,
+      "focusedFailed": 0,
+      "nativeOpenWrtUcode": true,
+      "broadCandidateOnlyFailures": 0
+    },
+    "downgrade": "not-run",
+    "reinstall": "not-run",
+    "verdict": "not-ready",
+    "blockers": [
+      "Fresh r-80.3 runtime activation did not remain ready; router evidence shows nft table loss and nfqws2 process exit during the attempt.",
+      "Downgrade and reinstall were not run because the approved sequence stops after a failed upgrade."
+    ]
   }
 }

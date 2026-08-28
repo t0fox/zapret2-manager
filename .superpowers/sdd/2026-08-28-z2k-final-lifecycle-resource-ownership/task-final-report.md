@@ -151,3 +151,32 @@ diagnostics: planned=39 downloaded=39 verified=39 staged=39 applied=39 removed=6
 Read-only router postflight is non-hybrid and operational at the prior release: authority `r-79.7` confirmed, Registry revision `7`, integrity verified, Lua `7/7`, Engine running, `nfqws2` running with queue `300`. Eight stale temporary stage directories remain under `/tmp/z2m-resource-update`; they are recorded as residue, not silently removed. No CLI lifecycle mutation was used as a substitute.
 
 The approved sequence stops after this failed fresh upgrade. Downgrade and reinstall are `NOT RUN`. Final verdict: `NOT READY` — backend runtime activation cannot keep `nfqws2` running after target activation, and rollback reports failure. This is no longer a frontend transport-timeout blocker.
+
+## Final readiness-gate attempt — 2026-08-29
+
+The bounded readiness implementation from `25a03b45c8217243601c8cf7e138926b0df22cc0` was deployed source-only to the router. The user then confirmed the visible Components UI action and one fresh `r-79.7 → r-80.3` upgrade was executed. The UI left its working state without a success state; the installed version remained `r-79.7`, so the approved sequence stopped. No downgrade or reinstall was run.
+
+The exact observed runtime blocker is recorded by router events during target activation: `nft table zapret2 missing or empty` at `23:07:02Z`, followed by `nfqws2 process gone; recovery start rc=0` at `23:07:04Z`. The candidate runtime did not remain ready. The final read-only state is safe and non-hybrid: `NFQWS2_ENABLE=1`, PID `452`, queue `300` owned by PID `452`, nft rules target queue `300`, Registry revision `7`, confirmed authority `r-79.7`, integrity `verified`, Lua `7/7`, `preparedTarget=null`, and Strategy identity preserved. The transient Browser toast had expired before capture; no structured backend body is claimed beyond these exact observations.
+
+The failed operation changed `/tmp/z2m-resource-update` from `8` to `9` directories and left `stage.mjiljL/runtime-activation.tsv`. A TDD RED/GREEN follow-up added `tests/product/z2k-staging-cleanup.test.mjs` and registered the activation spec in the existing cleanup path. Commit `a90658fa85d72a56612528d4ac6ebfa5b27f7a44` was deployed source-only; router/source SHA-256 is `ff51ecc906d54a5dae55adb915652b8bda5e7687da3beaf720daa8e3e35fb412`, mode `root:root 0644`. The cleanup fix is not live-revalidated because the lifecycle stop gate forbids another mutation after the failed upgrade.
+
+Post-fix focused verification passed `68/68` in WSL Ubuntu with native OpenWrt UCode. The source-only reload printed `rpcd` registration errors and `Segmentation fault`; it was not retried. A read-only follow-up confirmed a live rpcd process and readable `ubus resources_status`. No zapret2 restart and no APK/package build or install occurred.
+
+Final review:
+
+1. Yes, the original false-negative was caused by the premature PID check; the new bounded gate waits for complete runtime evidence. The fresh candidate subsequently failed to stay ready.
+2. Diagnostic restart→PID latency: `40–90 ms`.
+3. Diagnostic restart→queue-300 latency: `200–210 ms`.
+4. Yes, bounded to `12 s` with `1 s` polls.
+5. Yes, target activation uses it.
+6. Yes, rollback uses the same contract.
+7. Yes, a permanently crashing daemon reaches bounded `ERUNTIME` diagnostics.
+8. Yes, the kernel queue listener and peer PID are checked in addition to nft rules.
+9. No; the fresh upgrade did not pass.
+10. Not run; blocked by the required stop gate.
+11. Not run; blocked by the required stop gate.
+12. Not established for all three operations; current post-rollback Registry, receipt, and runtime agree on `r-79.7`.
+13. Preserved in the current post-rollback state; no all-three-cycle claim is made.
+14. No candidate-only broad regression: the exact broad matrix remained `135/139` passed with the same four baseline/environment failures.
+
+Final verdict: `Z2K VERSION LIFECYCLE NOT READY`. Blockers: the fresh `r-80.3` runtime activation did not remain ready, and downgrade/reinstall were therefore not run.
