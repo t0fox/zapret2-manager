@@ -462,7 +462,7 @@ function updateZ2K(ctx, component) {
   var snapshot = state.z2kCheck || {};
   var planToken = component && component.planToken || snapshot.planToken;
   if (!planToken) {
-    showError(ctx, { code: 'ECHECK_STALE', message: _('Сначала выполните успешную проверку обновлений Z2K.') });
+    showError(ctx, { code: 'ECHECK_STALE', message: _('Данные проверки устарели. Проверьте обновления ещё раз.') });
     return;
   }
   var targetRelease = z2kTargetRelease(component) || object(snapshot.manifest).current;
@@ -485,7 +485,7 @@ function updateZ2K(ctx, component) {
       if (planned > 0 && applied === 0) {
         throw { code: 'EVERIFY', message: 'Обновление не применено: ' + planned + ' обновлений было запланировано, 0 установлено.' };
       }
-      ctx.shell.showToast(_('Обновление применено.'), 'ok');
+      ctx.shell.showToast(_('Z2K Core обновлён до ') + (targetRelease || _('проверенного release')), 'ok');
     }).catch(function (error) {
       showError(ctx, error);
     }).then(function () {

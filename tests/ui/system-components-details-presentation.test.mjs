@@ -461,7 +461,7 @@ test('Z2K update confirms target release and advisory warning before mutation', 
   await new Promise(resolve => setTimeout(resolve, 0));
 
   assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, planToken: 'z2k-plan-v1:200:48:r-80.4' }]);
-  assert.deepEqual(toasts, [{ message: 'Обновление применено.', kind: 'ok' }]);
+  assert.deepEqual(toasts, [{ message: 'Z2K Core обновлён до r-80.4', kind: 'ok' }]);
 });
 
 test('Z2K stale update refuses modal and mutation, while backend errors keep their copy', async () => {
@@ -480,7 +480,7 @@ test('Z2K stale update refuses modal and mutation, while backend errors keep the
   internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, availableRelease: 'r-80.4' });
   assert.equal(calls.length, 0, 'stale state must not mutate');
   assert.equal(modal, null, 'stale state must not open a misleading confirmation');
-  assert.deepEqual(toasts, [{ message: 'Сначала выполните успешную проверку обновлений Z2K.', kind: 'err' }]);
+  assert.deepEqual(toasts, [{ message: 'Данные проверки устарели. Проверьте обновления ещё раз.', kind: 'err' }]);
 
   internals.state.z2kCheck = { planToken: 'z2k-plan-v1:200:48:r-80.4', checkedAt: 200, manifest: { current: 'r-80.4' } };
   internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, availableRelease: 'r-80.4' });
