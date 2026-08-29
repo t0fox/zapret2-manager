@@ -26,8 +26,17 @@ function checked(input) { if (type(input) != 'object' || input == null || type(i
 
 function canonical_engine_releases() {
 	let answer = engine_releases();
-	if (!answer || answer.ok !== true) return answer;
-	let installed = installed_engine(), truth = normalize_state_record(installed.savedState), latest = null;
+	let installed = installed_engine(), truth = normalize_state_record(installed.savedState);
+	if (!answer || answer.ok !== true) {
+		answer = answer || { ok: false, error: { code: 'EUNAVAILABLE', message: 'Каталог движка недоступен.' } };
+		answer.releases = [];
+		answer.remoteAvailable = false;
+		answer.remoteState = 'unavailable';
+		answer.installed = { version: installed.installedRelease || null, artifactKind: truth && truth.artifactKind || null };
+		answer.available = { version: null, artifactKind: null };
+		return answer;
+	}
+	let latest = null;
 	for (let i = 0; i < length(answer.releases || []); i++) if (answer.releases[i].artifactKind == 'vanilla-bol-van-release') { latest = answer.releases[i]; break; }
 	if (latest == null && length(answer.releases || [])) latest = answer.releases[0];
 	let needsUpdate = latest != null && (truth && truth.artifactKind == 'legacy-compatibility-build' || installed.installedRelease == null || installed.installedRelease != latest.installedRelease);

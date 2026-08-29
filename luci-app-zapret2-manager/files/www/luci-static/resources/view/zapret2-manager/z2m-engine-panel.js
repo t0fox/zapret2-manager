@@ -29,13 +29,15 @@ function errorMessage(ctx, error) {
 
 function catalogSourcePanel(ctx, state) {
   var source = object(state.catalog && state.catalog.source);
-  if (!source.stale && !source.error) return null;
+  var remoteState = state.catalog && state.catalog.remoteState;
+  if (!source.stale && !source.error && remoteState !== 'unavailable' && remoteState !== 'empty') return null;
   var limited = source.error && source.error.code === 'ERATELIMIT';
+  var empty = remoteState === 'empty';
   return ctx.shell.statePanel({
-    title: source.stale ? _('Каталог показан из последнего сохранённого состояния') : _('Каталог upstream недоступен'),
-    message: source.stale ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') :
+    title: source.stale ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
+    message: source.stale ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние движка не изменено.') :
       (limited ? _('GitHub временно ограничил запросы. Установленное состояние движка не изменено.') : _('Установленное состояние движка сохранено; повторите проверку позже.')),
-    kind: source.stale ? 'info' : 'error'
+    kind: source.stale || empty ? 'info' : 'error'
   });
 }
 
@@ -101,17 +103,34 @@ function accept(state, data) {
   });
 }
 
+function verified(answer) {
+  if (!answer || answer.ok === false) throw answer && answer.error || answer || { code: 'EEMPTY', message: 'Engine RPC did not return a result.' };
+  return answer;
+}
+
 function load() {
   return function (ctx) {
     var operation = ctx.skipEngineOperationStatus
       ? Promise.resolve({ ok: true, operation: null })
       : ctx.api.engine.operationStatus({});
+    // Status and the active operation are local bootstrap data. The release
+    // catalog is remote metadata and is deliberately hydrated after the first
+    // useful Components render.
     return Promise.all([
-      ctx.api.engine.releases(),
-      ctx.api.engine.status(),
-      operation
-    ]);
+      Promise.resolve(ctx.api.engine.status()).then(verified),
+      Promise.resolve(operation).then(verified)
+    ]).then(function (values) {
+      return [
+        { ok: true, releases: [], remoteAvailable: null, remoteState: 'not-loaded', source: null },
+        values[0],
+        values[1]
+      ];
+    });
   };
+}
+
+function loadCatalog(ctx) {
+  return Promise.resolve(ctx.api.engine.releases()).then(verified);
 }
 
 function refresh(ctx) {
@@ -338,4 +357,4 @@ function unmount(ctx) {
   if (ctx && ctx.engineState) ctx.engineState.root = null;
 }
 
-return baseclass.extend({ load: load(), render: render, mount: mount, unmount: unmount });
+return baseclass.extend({ load: load(), loadCatalog: loadCatalog, render: render, mount: mount, unmount: unmount });

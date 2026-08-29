@@ -86,7 +86,11 @@ var state = {
   z2kDetailsExpanded: false,
   z2kReleaseRefresh: null,
   z2kPrepared: null,
-  showAllBackups: false
+  showAllBackups: false,
+  componentLoadToken: 0,
+  componentHydrationToken: null,
+  componentHydrationTimer: null,
+  componentMetadata: {}
 };
 function isBusyFor(componentId) {
   var op = state.componentOperation;
@@ -118,9 +122,25 @@ function engineOperationTerminal(operation) {
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function settled(result, api) {
-  return result.status === 'fulfilled'
-    ? { value: result.value || {} }
-    : { error: api.normalizeError(result.reason) };
+  if (result.status !== 'fulfilled') return { error: api.normalizeError(result.reason) };
+  var value = result.value || {};
+  return value && value.ok === false
+    ? { error: api.normalizeError(value.error || value) }
+    : { value: value };
+}
+function catalogSourcePanel(ctx, state) {
+  state = object(state);
+  var source = object(state.source);
+  var remoteState = state.remoteState;
+  if (!source.stale && !source.error && remoteState !== 'unavailable' && remoteState !== 'empty') return null;
+  var limited = source.error && source.error.code === 'ERATELIMIT';
+  var empty = remoteState === 'empty';
+  return ctx.shell.statePanel({
+    title: source.stale || remoteState === 'stale' ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
+    message: source.stale || remoteState === 'stale' ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние не изменено.') :
+      (limited ? _('Upstream временно ограничил запросы. Установленное состояние не изменено.') : _('Установленное состояние сохранено; повторите проверку позже.')),
+    kind: source.stale || remoteState === 'stale' || empty ? 'info' : 'error'
+  });
 }
 function boundedLoad(promise, label, timeoutMs) {
   timeoutMs = Number(timeoutMs) || LOAD_TIMEOUT_MS;
@@ -185,6 +205,11 @@ function load(ctx) {
   var pane = activePane(ctx);
   var promise;
   if (pane === 'components') {
+    state.componentLoadToken++;
+    state.componentHydrationToken = null;
+    state.componentMetadata = {};
+    if (state.componentHydrationTimer) window.clearTimeout(state.componentHydrationTimer);
+    state.componentHydrationTimer = null;
     var skipEngineOperationStatus = state.skipEngineOperationStatus;
     var engineLoad = skipEngineOperationStatus
       ? EnginePanel.load(Object.assign({}, ctx, { skipEngineOperationStatus: true }))
@@ -194,7 +219,6 @@ function load(ctx) {
     boundedLoad(ctx.api.maintenance.versions(), 'manager versions'),
     boundedLoad(engineLoad, 'engine status'),
     boundedLoad(ctx.api.resources.status(), 'Z2K status'),
-    boundedLoad(ctx.api.resources.versions ? ctx.api.resources.versions() : Promise.resolve({ versions: [] }), 'Z2K release catalog'),
     boundedLoad(ctx.api.tg && ctx.api.tg.product && ctx.api.tg.product.status ? ctx.api.tg.product.status() : Promise.resolve({}), 'TG status')
   ]).then(function (values) {
     return {
@@ -202,8 +226,10 @@ function load(ctx) {
         versions: settled(values[0], ctx.api),
         engine: settled(values[1], ctx.api),
         resources: settled(values[2], ctx.api),
-        catalog: settled(values[3], ctx.api),
-        telegram: settled(values[4], ctx.api)
+        // The release catalog is remote metadata. Keep an explicit not-loaded
+        // envelope so the first render cannot mistake local status for latest.
+        catalog: { value: { versions: [], remoteAvailable: null, remoteState: 'not-loaded', source: null } },
+        telegram: settled(values[3], ctx.api)
       }
     };
   });
@@ -214,6 +240,61 @@ function load(ctx) {
     var key = pane === 'components' ? 'components' : pane === 'backups' ? 'backups' : 'settings';
     var result = {}; result[key] = { error: ctx.api.normalizeError(error) }; return result;
   });
+}
+
+function verifiedRemote(answer, label) {
+  if (!answer || answer.ok === false)
+    throw answer && answer.error || answer || { code: 'EEMPTY', message: label + ' не вернул результат.' };
+  return answer;
+}
+
+function scheduleComponentMetadata(ctx) {
+  if (!ctx || activePane(ctx) !== 'components') return;
+  var token = state.componentLoadToken;
+  if (state.componentHydrationToken === token) return;
+  state.componentHydrationToken = token;
+  var jobs = [];
+  if (ctx.api.engine && typeof ctx.api.engine.releases === 'function') jobs.push({
+    key: 'engine', label: _('каталога Zapret2 Engine'), run: function () {
+      return EnginePanel.loadCatalog ? EnginePanel.loadCatalog(ctx) : ctx.api.engine.releases();
+    }
+  });
+  if (ctx.api.resources && typeof ctx.api.resources.versions === 'function') jobs.push({
+    key: 'z2k', label: _('каталога Z2K'), run: function () { return ctx.api.resources.versions(); }
+  });
+  var next = 0, active = 0;
+  function repaint() {
+    if (token !== state.componentLoadToken || !ctx.root || typeof ctx.root.replaceChildren !== 'function') return;
+    window.setTimeout(function () {
+      if (token === state.componentLoadToken) rerender(ctx);
+    }, 0);
+  }
+  function publish(job, result) {
+    if (token !== state.componentLoadToken) return;
+    try {
+      state.componentMetadata[job.key] = { value: verifiedRemote(result, job.label) };
+    } catch (error) {
+      state.componentMetadata[job.key] = { error: ctx.api.normalizeError(error) };
+    }
+    repaint();
+  }
+  function pump() {
+    if (token !== state.componentLoadToken) return;
+    while (active < 2 && next < jobs.length) {
+      (function (job) {
+        active++;
+        Promise.resolve().then(function () { return boundedLoad(job.run(), job.label); })
+          .then(function (value) { publish(job, value); }, function (error) {
+            publish(job, { ok: false, error: error });
+          })
+          .then(function () { active--; pump(); });
+      })(jobs[next++]);
+    }
+  }
+  state.componentHydrationTimer = window.setTimeout(function () {
+    state.componentHydrationTimer = null;
+    pump();
+  }, 0);
 }
 function showError(ctx, error) {
   var normalized = ctx.api.normalizeError(error);
@@ -963,7 +1044,7 @@ function renderReviewCallout(component) {
 }
 function engineActionWithCheck(ctx, component, action, label) {
   var version = component.available && component.available.version || component.installed && component.installed.version;
-  if (!version || !ctx.api.engine.check || !ctx.api.engine[action]) {
+  if (component.canApply === false || !version || !ctx.api.engine.check || !ctx.api.engine[action]) {
     showError(ctx, { message: _('Действие движка недоступно: отсутствует проверенный release.') });
     return;
   }
@@ -994,7 +1075,7 @@ function renderEngineDetails(ctx, component, engineStatus) {
   var status = object(engineStatus);
   var details = component.details || {};
   var isReady = (component.runtimeHealth || component.health) === 'ready';
-  var hasUpdate = component.updateState === 'update-available';
+  var hasUpdate = component.updateState === 'update-available' && component.canApply !== false;
   var installed = component.installed && component.installed.version || _('Не установлен');
   var available = component.available && component.available.version || _('Не определена');
   var updateLabel = component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
@@ -1014,6 +1095,7 @@ function renderEngineDetails(ctx, component, engineStatus) {
         E('strong', { translate: 'no' }, source)
       ])
     ]),
+    catalogSourcePanel(ctx, component.catalog || { remoteState: component.remoteState }),
     renderFactGrid([
       { label: _('Статус'), value: componentStateLabel(component) },
       { label: _('Установленный release'), value: installed },
@@ -1176,6 +1258,13 @@ function renderZ2KDetails(ctx, component) {
   var catalog = z2kCatalogRows(component);
   var selectedVersion = component.selectedVersion || (catalog[0] && catalog[0].version) || null;
   var selected = z2kSelectedDetails(component);
+  var catalogMessage = component.remoteState === 'unavailable'
+    ? _('Удалённый каталог временно недоступен; установленное состояние сохранено.')
+    : component.remoteState === 'empty'
+      ? _('Upstream не опубликовал совместимых release для этого устройства.')
+      : component.remoteState === 'stale'
+        ? _('Показан последний сохранённый каталог. Перед изменением нужна свежая проверка.')
+        : _('Каталог release ещё загружается.');
   state.z2kReleaseRefresh = function () { z2kReleasePanelUpdate(ctx, component); };
   var selector = catalog.length ? E('div', { 'class': 'z2m-z2k-release-picker' }, [
     E('label', { 'for': 'z2m-z2k-release-select' }, _('Выбрать версию')),
@@ -1184,7 +1273,7 @@ function renderZ2KDetails(ctx, component) {
     } }, catalog.map(function (item) {
       return E('option', { value: item.version, selected: item.version === selectedVersion ? 'selected' : undefined }, z2kCatalogOptionLabel(item));
     }))
-  ]) : E('p', { 'class': 'z2m-dim' }, _('Каталог release пока недоступен.'));
+  ]) : E('p', { 'class': 'z2m-dim' }, catalogMessage);
   var reviewDetails = componentDetails.reviewDetails || [];
   var reviewPaths = reviewDetails.map(function (item) { return item && item.path; }).filter(Boolean).join(', ');
   return E('section', { 'class': 'z2m-component-details z2m-component-details--z2k', 'data-component-details': 'z2k-core' }, [
@@ -1280,7 +1369,7 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
   // componentOperation scope z2k via isBusyFor
   var shell = ctx.shell;
   var isReady = (component.runtimeHealth || component.health) === 'ready';
-  var hasUpdate = component.updateState === 'update-available';
+  var hasUpdate = component.updateState === 'update-available' && component.canApply !== false;
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = engineMetaRows(component, engineStatus);
@@ -1311,6 +1400,7 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
         E('strong', {}, row.value)
       ]);
     })),
+    catalogSourcePanel(ctx, component.catalog || { remoteState: component.remoteState }),
     E('div', { 'class': 'z2m-component-card-actions' }, [
       E('div', { 'class': 'z2m-btnrow' }, primaryActions),
       E('div', { 'class': 'z2m-btnrow' }, [manageBtn])
@@ -1385,6 +1475,10 @@ function renderComponents(ctx, data) {
   var shell = ctx.shell;
   var payload = data.components || {};
   var engineValue = payload.engine && payload.engine.value || [];
+  var engineEnvelope = state.componentMetadata.engine || null;
+  var engineCatalog = engineEnvelope && engineEnvelope.error
+    ? { releases: [], remoteAvailable: false, remoteState: 'unavailable', source: null, error: engineEnvelope.error }
+    : engineEnvelope && engineEnvelope.value !== undefined ? engineEnvelope.value : engineValue[0] || {};
   var engineStatus = engineValue[1] || {};
   var tgRaw = payload.telegram && payload.telegram.value || {};
   // Handle envelope error case: if telegram load failed, keep tgRaw as {error} for unknown state
@@ -1406,20 +1500,26 @@ function renderComponents(ctx, data) {
   }
   var resourceValue = payload.resources && payload.resources.value || {};
   var resourceZ2K = resourceValue.z2k || {};
-  var catalogValue = payload.catalog && payload.catalog.value || resourceValue.catalog || resourceZ2K.catalog || {};
+  var catalogEnvelope = state.componentMetadata.z2k || payload.catalog;
+  var catalogValue = catalogEnvelope && catalogEnvelope.error
+    ? { versions: [], remoteAvailable: false, remoteState: 'unavailable', source: null, error: catalogEnvelope.error }
+    : catalogEnvelope && catalogEnvelope.value !== undefined ? catalogEnvelope.value : resourceValue.catalog || resourceZ2K.catalog || {};
+  var catalogState = catalogValue.remoteState || (catalogEnvelope ? 'not-loaded' : null);
   var catalogRows = Array.isArray(catalogValue.versions) ? catalogValue.versions : Array.isArray(catalogValue) ? catalogValue : [];
-  if (catalogRows.length) {
+  if (catalogValue && catalogState !== 'not-loaded') {
     state.z2kCatalog = catalogValue;
-    if (!state.z2kSelectedVersion) {
+    if (catalogRows.length && !state.z2kSelectedVersion) {
       var selectedCatalog = catalogRows.find(function (item) { return item && item.installed; }) || catalogRows[0];
       state.z2kSelectedVersion = resourceZ2K.selectedVersion || selectedCatalog && selectedCatalog.version || null;
     }
   }
   var page = ComponentsModel.normalizePage({
     versions: payload.versions && payload.versions.value || {},
-    engine: { status: engineStatus, catalog: engineValue[0] || {} },
+    engine: { status: engineStatus, catalog: engineCatalog },
     z2k: Object.assign({}, resourceZ2K, {
       catalog: catalogRows,
+      remoteState: catalogState,
+      remoteAvailable: catalogValue.remoteAvailable,
       selectedVersion: state.z2kSelectedVersion || resourceZ2K.selectedVersion,
       selectedDetails: state.z2kDetails || resourceZ2K.selectedDetails,
       preparedTarget: state.z2kPrepared || resourceZ2K.preparedTarget
@@ -1701,7 +1801,9 @@ function render(ctx) {
   ]);
 }
 function mount(ctx) {
-  if (activePane(ctx) !== 'components' || !ctx.api.engine || !ctx.api.engine.operationStatus) return;
+  if (activePane(ctx) !== 'components') return;
+  scheduleComponentMetadata(ctx);
+  if (!ctx.api.engine || !ctx.api.engine.operationStatus) return;
   if (state.engineOperationTimer) window.clearInterval(state.engineOperationTimer);
   state.engineOperationTimer = window.setInterval(function () {
     var operation = state.engineOperation;
@@ -1729,6 +1831,11 @@ function unmount(ctx) {
   state.engineOperationTimer = null;
   state.engineOperationPolling = false;
   state.engineOperationOverride = false;
+  if (state.componentHydrationTimer) window.clearTimeout(state.componentHydrationTimer);
+  state.componentHydrationTimer = null;
+  state.componentHydrationToken = null;
+  state.componentLoadToken++;
+  state.componentMetadata = {};
   if (ctx && ctx.enginePanelContext && ctx.enginePanelContext.engineState)
     EnginePanel.unmount(ctx.enginePanelContext);
 }

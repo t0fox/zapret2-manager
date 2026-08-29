@@ -351,7 +351,14 @@ function target_operation(version, installed) {
 	return comparison == null ? null : (comparison < 0 ? 'upgrade' : (comparison > 0 ? 'downgrade' : 'reinstall'));
 }
 export const z2k_target_operation = function(version, installed) { return target_operation(version, installed); };
-function catalog_payload(value) { return type(value) == 'array' && length(value) <= MAX_TAGS; }
+function catalog_payload(value) {
+	if (type(value) != 'array' || length(value) > MAX_TAGS) return false;
+	for (let i = 0; i < length(value); i++) {
+		let ref = value[i];
+		if (!object(ref) || !string(ref.ref) || !object(ref.object)) return false;
+	}
+	return true;
+}
 function fetch_refs(mode) {
 	let request = source_request('z2k:' + REPOSITORY + ':catalog', 'github-rest', TAGS_URL, MAX_API_RESPONSE, catalog_payload);
 	let result = source_call(request, mode || 'browse'); record_source(result, 'github-rest');
@@ -363,21 +370,23 @@ function fetch_refs(mode) {
 function catalog_row(candidate, installed) {
 	return { version: candidate.version, latest: false, installed: candidate.version == installed, commitSha: candidate.objectType == 'commit' ? candidate.tagSha : null, publishedAt: 0, installable: true, unavailableReason: null, tagSha: candidate.tagSha, objectType: candidate.objectType };
 }
-function unavailable_catalog_row(installed, reason) {
-	return installed == null ? [] : [{ version: installed, latest: false, installed: true, commitSha: null, publishedAt: 0, installable: false, unavailableReason: reason || 'source-unavailable', tagSha: null, objectType: null }];
-}
-
 export const z2k_versions = function(options) {
 	let fresh = object(options) && options.fresh === true;
 	REQUEST_COUNT = 0; REST_REQUEST_COUNT = 0; COMPARE_REQUEST_COUNT = 0; COMPARE_CACHE_STATE = 'none';
 	let mode = fresh ? 'fresh' : (object(options) && options.refresh === true ? 'refresh' : 'browse'), installed = installed_release(), refs = fetch_refs(mode);
-	if (!refs.ok) return { ok: false, repository: REPOSITORY, versions: unavailable_catalog_row(installed, refs.error && refs.error.code), installedRelease: installed, stale: false, remoteUnavailable: true, error: refs.error, diagnostics: { requestCount: REQUEST_COUNT, restRequestCount: REST_REQUEST_COUNT, cache: 'miss', source: 'update-source' } };
+	if (!refs.ok) return { ok: false, repository: REPOSITORY, versions: [], installedRelease: installed,
+		localFallback: installed == null ? null : { version: installed, installed: true, sourceId: 'installed-runtime' },
+		remoteAvailable: false, remoteState: 'unavailable', stale: false, remoteUnavailable: true,
+		error: refs.error, diagnostics: { requestCount: REQUEST_COUNT, restRequestCount: REST_REQUEST_COUNT, cache: 'miss', source: 'update-source' } };
 	let rows = [], limit = MAX_VERSIONS;
 	for (let i = 0; i < length(refs.refs) && i < limit; i++) push(rows, catalog_row(refs.refs[i], installed));
 	if (installed != null) { let present = false; for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) present = true; if (!present) for (let i = limit; i < length(refs.refs); i++) if (refs.refs[i].version == installed) { push(rows, catalog_row(refs.refs[i], installed)); break; } }
 	if (length(rows)) rows[0].latest = true;
 	if (fresh && refs.stale) return fail('ESTALE', 'Каталог release устарел; повторите подготовку после свежей проверки.', { diagnostics: network_diagnostics('catalog') });
-	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed, generatedAt: time(), stale: refs.stale, diagnostics: { requestCount: REQUEST_COUNT, cache: refs.source && refs.source.cacheState || 'miss', stale: refs.stale, lastErrorClass: refs.source && refs.source.lastErrorClass || null, restRequestCount: REST_REQUEST_COUNT } };
+	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed,
+		localFallback: installed == null ? null : { version: installed, installed: true, sourceId: 'installed-runtime' },
+		remoteAvailable: true, remoteState: refs.stale ? 'stale' : rows.length ? 'fresh' : 'empty',
+		generatedAt: time(), stale: refs.stale, diagnostics: { requestCount: REQUEST_COUNT, cache: refs.source && refs.source.cacheState || 'miss', stale: refs.stale, lastErrorClass: refs.source && refs.source.lastErrorClass || null, restRequestCount: REST_REQUEST_COUNT } };
 };
 
 function manifest_body(manifest, version) { let history = manifest && manifest.history; for (let i = 0; type(history) == 'array' && i < length(history); i++) if (object(history[i]) && history[i].v == version && string(history[i].desc)) { let body = trim(history[i].desc); if (length(body)) return body; } return null; }

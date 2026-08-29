@@ -45,6 +45,7 @@ var state = {
   loadToken: 0,
   deferred: {},
   deferredTimer: null,
+  deferredStartedToken: null,
   fullHealthRequested: false,
   mountedLoadToken: null
 };
@@ -70,9 +71,11 @@ function clone(value) {
   return value;
 }
 function settled(result, api) {
-  return result.status === 'fulfilled'
-    ? { value: result.value || {} }
-    : { error: api.normalizeError(result.reason) };
+  if (result.status !== 'fulfilled') return { error: api.normalizeError(result.reason) };
+  var value = result.value || {};
+  return value && value.ok === false
+    ? { error: api.normalizeError(value.error || value) }
+    : { value: value };
 }
 // LuCI can receive the ubus HTTP response quickly but settle its RPC promise
 // at the five-second client deadline. Keep a margin so successful responses
@@ -128,13 +131,9 @@ function statusHealthEnvelope(statusEnvelope) {
   }
   return { value: object(value && value.health) };
 }
-function load(ctx) {
-  var token = ++state.loadToken;
-  state.deferred = {};
-  if (state.deferredTimer) clearTimeout(state.deferredTimer);
-  state.deferredTimer = null;
-  var requestHealth = state.fullHealthRequested === true;
-  state.fullHealthRequested = false;
+function scheduleDeferred(ctx, token, requestHealth) {
+  if (!ctx || state.deferredStartedToken === token) return;
+  state.deferredStartedToken = token;
   function rerender() {
     if (token !== state.loadToken || !ctx || typeof ctx.rerender !== 'function') return;
     window.setTimeout(function () {
@@ -148,41 +147,47 @@ function load(ctx) {
     else state.deferred[job.key] = value;
     rerender();
   }
-  function scheduleDeferred() {
-    var jobs = [];
-    if (requestHealth) jobs.push({ key: 'health', label: _('состояния Telegram Proxy'), run: function () {
-      return explicitHealthRead(ctx);
-    } });
-    jobs.push(
-      { key: 'status', label: _('статуса proxy'), run: function () { return ctx.api.proxy.status(); } },
-      { keys: ['providerCatalog', 'providerPreflight'], label: _('каталога Telegram Proxy'), run: function () {
-        return ctx.api.tg.product.catalog();
-      } },
-      { key: 'providerVersions', label: _('версий Telegram Proxy'), run: function () {
-        return ctx.api.tg.product.versions();
-      } },
-      { key: 'events', label: _('журнала proxy'), run: function () {
-        return edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 });
-      } }
-    );
-    var next = 0, active = 0;
-    function pump() {
-      if (token !== state.loadToken) return;
-      while (active < 2 && next < jobs.length) {
-        (function (job) {
-          active++;
-          Promise.resolve().then(function () { return boundedLoad(job.run(), job.label); })
-            .then(function (value) { publish(job, { status: 'fulfilled', value: value }); },
-              function (error) { publish(job, { status: 'rejected', reason: error }); })
-            .then(function () { active--; pump(); });
-        })(jobs[next++]);
-      }
+  var jobs = [];
+  if (requestHealth) jobs.push({ key: 'health', label: _('состояния Telegram Proxy'), run: function () {
+    return explicitHealthRead(ctx);
+  } });
+  jobs.push(
+    { key: 'status', label: _('статуса proxy'), run: function () { return ctx.api.proxy.status(); } },
+    { keys: ['providerCatalog', 'providerPreflight'], label: _('каталога Telegram Proxy'), run: function () {
+      return ctx.api.tg.product.catalog();
+    } },
+    { key: 'providerVersions', label: _('версий Telegram Proxy'), run: function () {
+      return ctx.api.tg.product.versions();
+    } },
+    { key: 'events', label: _('журнала proxy'), run: function () {
+      return edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 });
+    } }
+  );
+  var next = 0, active = 0;
+  function pump() {
+    if (token !== state.loadToken) return;
+    while (active < 2 && next < jobs.length) {
+      (function (job) {
+        active++;
+        Promise.resolve().then(function () { return boundedLoad(job.run(), job.label); })
+          .then(function (value) { publish(job, { status: 'fulfilled', value: value }); },
+            function (error) { publish(job, { status: 'rejected', reason: error }); })
+          .then(function () { active--; pump(); });
+      })(jobs[next++]);
     }
-    state.deferredTimer = window.setTimeout(function () {
-      state.deferredTimer = null;
-      pump();
-    }, 0);
   }
+  state.deferredTimer = window.setTimeout(function () {
+    state.deferredTimer = null;
+    pump();
+  }, 0);
+}
+function load(ctx) {
+  var token = ++state.loadToken;
+  state.deferred = {};
+  if (state.deferredTimer) clearTimeout(state.deferredTimer);
+  state.deferredTimer = null;
+  var requestHealth = state.fullHealthRequested === true;
+  state.fullHealthRequested = false;
   // tg_product_status is the canonical local aggregator. It already includes
   // proxy runtime/config health with upstream:false, so it is the sole source
   // for the initial provider status; the explicit health action is deferred.
@@ -202,7 +207,7 @@ function load(ctx) {
       providerOperation: settled(results[3], ctx.api),
       providerUpdates: { value: {} }
     };
-    scheduleDeferred();
+    scheduleDeferred(ctx, token, requestHealth);
     return base;
   });
 }
@@ -840,7 +845,9 @@ function renderReleaseMarkdown(body) {
 }
 
 function releaseSummary(item) {
-  if (!item || !item.releaseBody) return E('p', { 'class': 'z2m-proxy-release-empty' }, _('Описание изменений для этого релиза не опубликовано.'));
+  if (!item) return E('p', { 'class': 'z2m-proxy-release-empty' }, _('Данные релиза пока недоступны.'));
+  if (!String(item.releaseBody == null ? '' : item.releaseBody).trim())
+    return E('p', { 'class': 'z2m-proxy-release-empty' }, _('Описание изменений для этого релиза не опубликовано.'));
   var lines = safeMarkdownText(item.releaseBody).replace(/\r\n?/g, '\n').split('\n'), points = [];
   for (var i = 0; i < lines.length && points.length < 3; i++) {
     var line = lines[i].trim().replace(/^#{1,3}\s+/, '').replace(/^[-*+]\s+/, '').replace(/^\d+[.)]\s+/, '');
@@ -862,7 +869,7 @@ function releaseDateHuman(value) {
 // Collapsed: up to three bullet points. Expanded («Подробнее»): the full
 // sanitized Markdown body INSTEAD of the summary — never both at once.
 function selectedReleaseBlock(ctx, provider, item) {
-  if (!item || !item.version) return E('section', { 'class': 'z2m-panel z2m-proxy-selected-release' }, E('div', { 'class': 'bd' }, _('Выберите версию, чтобы увидеть описание релиза.')));
+  if (!item || !item.version) return E('section', { 'class': 'z2m-panel z2m-proxy-selected-release' }, E('div', { 'class': 'bd' }, _('Данные релиза пока недоступны: upstream не вернул совместимую версию.')));
   var shell = ctx.shell;
   var url = safeReleaseUrl(item.releaseUrl, provider && provider.id);
   var expanded = state.tgReleaseExpanded === true;
@@ -934,6 +941,8 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   var choices = choicesForProvider(data, provider.id);
   var versionRow = providerVersions(data).filter(function (item) { return item && item.id === provider.id; })[0] || {};
   var source = object(versionRow.source);
+  var versionsEnvelope = data.providerVersions || {};
+  var remoteState = versionRow.remoteState || (versionsEnvelope.error ? 'unavailable' : null);
   var selection = state.tgSelections[provider.id] || {};
   var first = choices[0] || {};
   var selected = candidateForVersion(choices, selection.version || first.version);
@@ -942,10 +951,11 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   var installedPackage = array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {};
   var installedVersion = installedPackage.version || (isActive ? status.activeVersion : null) || installedPackage.packageVersion;
   var packageVersion = installedPackage.packageVersion || (isActive ? status.activePackageVersion : null);
-  var latest = choices.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || first;
+  var latest = choices.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || (choices.length ? first : null);
+  var latestDisplay = latest ? (latest.displayVersion || latest.version || _('Нет данных')) : _('Нет данных');
   var selectedIdentity = selected.version;
   var installedIdentity = installedVersion;
-  var needsUpdate = isActive && installedVersion && releaseVersionCompare(latest.version, installedVersion) > 0;
+  var needsUpdate = !!(isActive && installedVersion && latest && latest.version && releaseVersionCompare(latest.version, installedVersion) > 0);
   var switching = providerInstalled(status.installed) && !isActive;
   var benefits = providerBenefits(provider.id);
   var diagnostics = selected.version ? E('details', { 'class': 'z2m-proxy-technical z2m-proxy-provider-diagnostics' }, [
@@ -965,11 +975,13 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   }
   // Success preflight is silent: a healthy device shows no compatibility
   // noise. Only a real failure becomes a provider-local alert.
-  var updateCheckFailed = choices.length === 0 && !providerInstalled(status.installed);
+  var updateCheckFailed = remoteState === 'unavailable';
   var unavailableReason = preflight.available === false ? (preflight.reason || _('Провайдер недоступен для этого устройства.')) :
     updateCheckFailed ? _('Не удалось проверить обновления. Повторите попытку позже — проверьте подключение роутера к сети.') :
     selected.version && selected.installable === false ? (selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна для устройства.')) : null;
-  var sourceNotice = source.stale ? E('div', { 'class': 'z2m-proxy-provider-alert' }, _('Показаны последние сохранённые данные upstream; обновите проверку, чтобы подтвердить свежую версию.')) :
+  var sourceNotice = remoteState === 'empty' ? E('div', { 'class': 'z2m-proxy-provider-alert' }, _('Upstream не опубликовал совместимых артефактов для этой архитектуры.')) :
+    remoteState === 'unavailable' ? E('div', { 'class': 'z2m-proxy-provider-alert' }, _('Удалённый каталог временно недоступен; установленная версия и локальное состояние сохранены.')) :
+    remoteState === 'stale' || source.stale ? E('div', { 'class': 'z2m-proxy-provider-alert' }, _('Показаны последние сохранённые данные upstream; перед изменением нужна свежая проверка.')) :
     source.error ? E('div', { 'class': 'z2m-proxy-provider-alert' }, source.error.code === 'ERATELIMIT' ? _('Upstream временно ограничил запросы; локальные данные и установленная версия сохранены.') : _('Удалённые версии временно недоступны; установленная версия и локальное состояние сохранены.')) : null;
   var versionSelect = choices.length > 1 ? E('select', { 'aria-label': _('Версия'), value: selected.version || '', change: function (event) {
     var next = candidateForVersion(choices, event.target.value);
@@ -982,8 +994,9 @@ function providerCard(ctx, data, provider, status, releasePanel) {
     if (diagnostics) diagnostics.replaceChildren(E('summary', {}, _('Подробнее')), compatibilityDetails(next));
   } }, choices.map(function (item) {
     return E('option', { value: item.version }, versionOptionLabel(item, first.version, isActive ? installedVersion : null));
-  })) : E('strong', { 'class': 'z2m-proxy-version-static' }, display(selected.version || latest.version));
+  })) : E('strong', { 'class': 'z2m-proxy-version-static' }, display(selected.version || latest && latest.version));
   function buildAction(candidate) {
+    if (!candidate || !candidate.version) return shell.button(_('Нет доступных версий'), 'sm', function () {}, true);
     var isInstalled = isActive && installedIdentity && candidate.version === installedIdentity;
     if (isInstalled) return E('span', { 'class': 'z2m-proxy-installed-state' }, '✓ ' + _('Установлена актуальная версия'));
     return shell.button(actionLabels[actionKindFor(candidate)], 'primary sm', function () {
@@ -1020,7 +1033,7 @@ function providerCard(ctx, data, provider, status, releasePanel) {
       E('p', { 'class': 'z2m-proxy-provider-sub' }, benefits.items[0]),
       E('div', { 'class': 'z2m-proxy-info-list z2m-proxy-provider-rows' }, [
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установлено')), E('strong', {}, installedVersionDisplay(installedVersion, packageVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя')), E('strong', {}, display(latest.displayVersion || latest.version))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя')), E('strong', {}, display(latestDisplay))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect])
       ]),
       sourceNotice,
@@ -1075,10 +1088,12 @@ function installPane(ctx, data) {
     if (current) releasePanel.update(current.provider, current.item);
   };
   var cards = providers.map(function (provider) { return providerCard(ctx, data, provider, status, releasePanel); });
-  var metadataNotice = !data.providerCatalog
-    ? shell.statePanel({ message: _('Каталог версий Telegram Proxy загружается…'), kind: 'info' })
-    : data.providerCatalog.error
-      ? shell.statePanel({ message: _('Каталог версий Telegram Proxy временно недоступен.'), kind: 'error' })
+  var catalogError = data.providerCatalog && data.providerCatalog.error;
+  var versionsError = data.providerVersions && data.providerVersions.error;
+  var metadataNotice = catalogError || versionsError
+    ? shell.statePanel({ message: _('Удалённый каталог версий Telegram Proxy временно недоступен; локальное состояние сохранено.'), kind: 'error' })
+    : !data.providerCatalog || !data.providerVersions
+      ? shell.statePanel({ message: _('Каталог версий Telegram Proxy загружается…'), kind: 'info' })
       : null;
   var initialProvider = providers.filter(function (provider) { return state.tgSelectedRelease && state.tgSelectedRelease.provider === provider.id; })[0] ||
     providers.filter(function (provider) { return choicesForProvider(data, provider.id).length > 0; })[0] || providers[0];
@@ -1813,7 +1828,10 @@ return baseclass.extend({
   subtitle: _('Опциональная установка последней версии Rust / Go'),
   load: load,
   render: render,
-  mount: function () { state.mountedLoadToken = state.loadToken; },
+  mount: function (ctx) {
+    state.mountedLoadToken = state.loadToken;
+    scheduleDeferred(ctx, state.loadToken, false);
+  },
   unmount: unmount,
   createAdapter: createAdapter
 });

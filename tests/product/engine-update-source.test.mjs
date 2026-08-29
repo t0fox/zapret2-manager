@@ -76,3 +76,12 @@ test('Engine incomplete release metadata keeps the previous LKG', () => {
   assert.equal(stale.releases.length, 1);
   assert.equal(requestCount(s), 2);
 });
+
+test('Engine valid empty release metadata is explicit remote-empty', () => {
+  const s = sandbox();
+  const empty = invoke(s, 'engine.engine_releases()', { Z2M_UPDATE_SOURCE_NOW: '1000', Z2M_FIXTURE_MODE: 'engine_no_releases' });
+  assert.equal(empty.ok, true, JSON.stringify(empty));
+  assert.equal(empty.remoteAvailable, true);
+  assert.equal(empty.remoteState, 'empty');
+  assert.deepEqual(empty.releases, []);
+});

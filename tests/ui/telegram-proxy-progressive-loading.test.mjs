@@ -114,3 +114,25 @@ test('Telegram Proxy ignores deferred results after unmount', async () => {
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(rerenders, 0, 'unmounted page must not repaint from late RPC results');
 });
+
+test('Telegram Proxy cached revisit rehydrates deferred metadata for the new page generation', async () => {
+  const module = makeModule();
+  const { api, calls, gates } = makeApi();
+  const first = module.load(ctxFor(api));
+  gates.tgStatus.resolve({ status: 'running' });
+  gates.capabilities.resolve({ supported: true });
+  gates.config.resolve({ applied: {}, appliedRevision: 1 });
+  gates.operation.resolve({});
+  await first;
+  await flush();
+
+  module.mount(ctxFor(api));
+  module.unmount();
+  module.mount(ctxFor(api));
+  await flush();
+
+  assert.equal(calls.status, 2, 'cached revisit must start a fresh deferred status read');
+  assert.equal(calls.catalog, 2, 'cached revisit must start a fresh deferred catalog read');
+  Object.values(gates).forEach(gate => gate.resolve({}));
+  await new Promise(resolve => setTimeout(resolve, 30));
+});

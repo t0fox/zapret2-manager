@@ -170,6 +170,10 @@ case "$url" in
       exit 7
     fi
     if [ "\${INCOMPLETE_UPSTREAM:-}" = "1" ]; then
+      printf '%s\n' '[{"tag_name":"v2.0.0"}]' > "$out"
+      exit 0
+    fi
+    if [ "\${EMPTY_UPSTREAM:-}" = "1" ]; then
       printf '%s\n' '[]' > "$out"
       exit 0
     fi
@@ -302,6 +306,8 @@ test('TG versions use shared browse cache and expose every compatible release', 
   assert.ok(rust.versions.some(row => row.version === '1.9.0'));
   assert.ok(go.versions.some(row => row.version === '0.9.3'));
   assert.ok(go.versions.some(row => row.version === '0.9.4'));
+  assert.equal(rust.versions.find(row => row.version === '2.0.0').sourceId, 'official-github-release');
+  assert.equal(go.versions.find(row => row.version === '0.9.3').sourceId, 'official-github-release');
   assert.equal(rust.source.origin, 'github-rest');
   assert.equal(go.source.origin, 'github-rest');
   for (let i = 0; i < 10; i++) callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
@@ -368,6 +374,22 @@ test('TG incomplete release metadata keeps the previous LKG', (t) => {
   assert.equal(rust.source.stale, true);
   assert.ok(rust.versions.some(row => row.version === '2.0.0'));
   assert.equal(fs.readFileSync(path.join(s.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length, 3);
+});
+
+test('TG valid empty release metadata is explicit remote-empty and never a mutation candidate', (t) => {
+  const s = sandbox(t);
+  s.env.EMPTY_UPSTREAM = '1';
+  const browse = callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  const checked = callJson(s.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'rust', intent: 'refresh' })`);
+  const rust = browse.providers.find(row => row.provider === 'rust');
+  assert.equal(browse.ok, true, JSON.stringify(browse));
+  assert.equal(rust.remoteAvailable, true);
+  assert.equal(rust.remoteState, 'empty');
+  assert.deepEqual(rust.versions, []);
+  assert.equal(checked.ok, false);
+  assert.equal(checked.error.code, 'ENOASSET');
+  assert.equal(checked.remoteAvailable, true);
+  assert.equal(checked.remoteState, 'empty');
 });
 
 // ------------------------------------------------------------------

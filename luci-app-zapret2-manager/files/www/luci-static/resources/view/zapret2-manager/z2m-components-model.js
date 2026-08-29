@@ -74,9 +74,12 @@ function engineHealth(status) {
 function engineUpdate(input, status) {
 	var check = object(input.check || input.update || status.update);
 	var catalog = object(input.catalog);
+	var remoteState = first(input.remoteState || catalog.remoteState || status.remoteState, null);
 	var raw = check.updateState || check.state || status.updateState || status.update || catalog.updateState;
 	if (raw === undefined && check.updateAvailable === true) raw = 'update-available';
 	if (raw === undefined && check.updateAvailable === false) raw = 'current';
+	var hasExplicitCheck = check.checkedAt !== undefined || check.latestRelease !== undefined || check.availableRelease !== undefined || check.checkToken !== undefined;
+	if (!hasExplicitCheck && ['unavailable', 'empty', 'not-loaded', 'stale'].indexOf(remoteState) >= 0) raw = 'unknown';
 	return UpdatePresentation.normalize(raw);
 }
 
@@ -97,6 +100,8 @@ function normalizeEngine(input) {
 	var runtimeHealth = engineHealth(status);
 	var check = object(input.check || input.update || status.update);
 	var catalog = object(input.catalog);
+	var remoteState = first(input.remoteState || catalog.remoteState || status.remoteState, null);
+	var remoteBlocked = ['unavailable', 'empty', 'not-loaded', 'stale'].indexOf(remoteState) >= 0;
 	var compatibilityValue = check.compatibility || status.compatibility || gate.compatibility;
 	var compatibilityStateValue = compatibilityValue || (status.compatible === false || gate.compatible === false
 	    ? 'incompatible' : (status.compatible === true || gate.compatible === true ? 'compatible' : null));
@@ -104,7 +109,7 @@ function normalizeEngine(input) {
 	var installedVersion = first(status.installedRelease || status.packageVersion, null);
 	var artifactKind = first(status.artifactKind || status.artifact || (status.patchSeries && status.patchSeries.length ? 'legacy-compatibility-build' : null), null);
 	var availableVersion = versionFrom(check.available) || first(check.availableRelease || check.latestRelease || check.latestVersion, null);
-	if (availableVersion === null) availableVersion = versionFrom(status.available) || versionFrom(catalog.available);
+	if (availableVersion === null && !remoteBlocked) availableVersion = versionFrom(status.available) || versionFrom(catalog.available);
 	var installedIdentity = { version: installedVersion, artifactKind: artifactKind };
 	var updateState = engineUpdate(input, status);
 	var upstreamRelease = artifactKind === 'legacy-compatibility-build' ? null
@@ -125,6 +130,10 @@ function normalizeEngine(input) {
 		compatibility: compatibility,
 		installed: installedIdentity,
 		available: { version: availableVersion },
+		remoteState: remoteState,
+		remoteAvailable: input.remoteAvailable !== undefined ? input.remoteAvailable === true : null,
+		canApply: !remoteBlocked,
+		catalog: { remoteState: remoteState, remoteAvailable: input.remoteAvailable !== undefined ? input.remoteAvailable === true : null, source: catalog.source || null },
 		artifactKind: artifactKind,
 		upstreamRelease: upstreamRelease,
 		checkedAt: timestamp(check.checkedAt !== undefined ? check.checkedAt : status.checkedAt),
@@ -281,7 +290,10 @@ function normalizeZ2k(input, engineReady) {
   input = object(input);
 	var value = object(input.z2k || input.component || input);
 	var plan = object(value.plan);
-	var catalog = normalizeZ2kCatalog(value.catalog || input.catalog);
+	var catalogSource = value.catalog !== undefined ? value.catalog : input.catalog;
+	var catalogMeta = object(catalogSource);
+	var catalog = normalizeZ2kCatalog(catalogSource);
+	var remoteState = first(value.remoteState || catalogMeta.remoteState || input.remoteState, null);
 	var selectedDetails = normalizeZ2kDetails(value.selectedDetails || input.selectedDetails);
 	var selectedVersion = first(value.selectedVersion || selectedDetails.version, null);
 	var remoteStatus = first(value.updateState || value.status || value.state, 'unknown');
@@ -359,6 +371,9 @@ function normalizeZ2k(input, engineReady) {
 			&& attentionState !== 'review-required' && attentionState !== 'integration-required'
 			&& blockingReviews.length === 0
 		: canApplyValue === true;
+	// A remote catalog is browseable while stale, but it is never a mutation
+	// authority. A missing/empty catalog also cannot unlock a local fallback.
+	if (['unavailable', 'empty', 'not-loaded', 'stale'].indexOf(remoteState) >= 0) canApply = false;
 	var manifest = object(value.manifest || plan.manifest || local.manifest);
 	var planToken = first(value.planToken || plan.planToken, null);
 	var actions = {
@@ -384,7 +399,8 @@ function normalizeZ2k(input, engineReady) {
 	} else {
 		installedRelease = { value: null, confidence: 'unknown', authority: null };
 	}
-	var availableReleaseRaw = value.availableRelease || value.available;
+	var catalogCanProvideRelease = ['unavailable', 'empty', 'not-loaded'].indexOf(remoteState) < 0;
+	var availableReleaseRaw = catalogCanProvideRelease ? value.availableRelease || value.available : null;
 	var catalogLatest = catalog.filter(function (item) { return item.latest === true; })[0];
 	var availableRelease = availableReleaseRaw && typeof availableReleaseRaw === 'object'
 		? versionFrom(availableReleaseRaw) : first(availableReleaseRaw, null);
@@ -407,6 +423,8 @@ function normalizeZ2k(input, engineReady) {
 		installedRelease: installedRelease,
 		availableRelease: availableRelease,
 		latestRelease: latestRelease,
+		remoteState: remoteState,
+		remoteAvailable: value.remoteAvailable !== undefined ? value.remoteAvailable === true : null,
 		catalog: catalog,
 		selectedVersion: selectedVersion,
 		selectedDetails: selectedDetails.version ? selectedDetails : null,

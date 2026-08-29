@@ -85,6 +85,15 @@ test('Z2K catalog without an LKG exposes remote unavailability without hiding lo
 	assert.equal(unavailable.diagnostics.requestCount, 1, JSON.stringify(unavailable));
 });
 
+test('Z2K valid empty release metadata is explicit remote-empty', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const empty = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_no_releases', Z2M_UPDATE_SOURCE_NOW: '1000' });
+	assert.equal(empty.ok, true, JSON.stringify(empty));
+	assert.equal(empty.remoteAvailable, true);
+	assert.equal(empty.remoteState, 'empty');
+	assert.deepEqual(empty.versions, []);
+});
+
 test('Z2K selected resolution uses one exact REST lookup plus one raw immutable manifest request', { skip: !hasUcode }, () => {
 	const s = sandbox();
 	const selected = invoke(s, 'mod.z2k_resolve_version("r-80.3")', { Z2M_FIXTURE_MODE: 'z2k_selected' });

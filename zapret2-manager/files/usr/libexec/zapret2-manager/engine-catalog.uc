@@ -51,15 +51,14 @@ function metadata_request(architecture_value) {
 		url: API_URL,
 		ttlSec: 600,
 		validate: function(value) {
-			if (type(value) != 'array' || length(value) == 0) return false;
+			// An empty but schema-valid upstream response is REMOTE_EMPTY; it is
+			// not a transport failure and must remain visible as such.
+			if (type(value) != 'array') return false;
 			for (let i = 0; i < length(value); i++) {
 				let release = value[i];
-				if (type(release) == 'object' && release != null && release.draft === false &&
-					release.prerelease === false && type(release.tag_name) == 'string' &&
-					type(release.assets) == 'array' && length(release.assets) > 0)
-					return true;
+				if (type(release) != 'object' || release == null || type(release.tag_name) != 'string' || type(release.assets) != 'array') return false;
 			}
-			return false;
+			return true;
 		}
 	};
 }
@@ -105,7 +104,9 @@ function catalog(architecture_value, options) {
 	if (!fetched.ok) return fetched;
 	let releases = [];
 	for (let i = 0; i < length(fetched.releases); i++) { let candidate = release_record(fetched.releases[i], architecture_value); if (candidate != null) push(releases, candidate); }
-	return { ok: true, releases: releases, z2mReleases: [], cacheHit: fetched.source.network !== true,
+	return { ok: true, releases: releases, z2mReleases: [], remoteAvailable: true,
+		remoteState: fetched.source.stale === true ? 'stale' : releases.length ? 'fresh' : 'empty',
+		cacheHit: fetched.source.network !== true,
 		stale: fetched.source.stale === true, fetchedAt: fetched.source.fetchedAt || null,
 		networkError: fetched.error || null, source: fetched.source };
 }
@@ -123,7 +124,7 @@ function merged_candidates(result) {
 	return combined;
 }
 
-export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'РђСЂС…РёС‚РµРєС‚СѓСЂР° СѓСЃС‚СЂРѕР№СЃС‚РІР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return result; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null, source: result.source || null }; };
+export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'РђСЂС…РёС‚РµРєС‚СѓСЂР° СѓСЃС‚СЂРѕР№СЃС‚РІР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return { ok: false, upstream: UPSTREAM, architecture: a, releases: [], remoteAvailable: false, remoteState: 'unavailable', stale: false, source: result.source || null, error: result.error || { code: 'EUNAVAILABLE', message: 'Каталог движка недоступен.' } }; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, remoteAvailable: true, remoteState: result.remoteState || (result.stale ? 'stale' : releases.length ? 'fresh' : 'empty'), cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null, source: result.source || null }; };
 export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null ? saved.installedRelease : null; return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
 // Legacy manager-built compatibility builds are identified by their
 // r*-z2m-* artifactVersion plus a non-empty patch series attached to the

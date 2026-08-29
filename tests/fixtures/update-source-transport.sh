@@ -37,11 +37,19 @@ case "$mode" in
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
 	engine_empty)
+		printf '%s' '[{"tag_name":"v1.0.5"}]' > "$output"
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
+	engine_no_releases)
 		printf '%s' '[]' > "$output"
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
 	z2k_catalog)
 		printf '%s' '[{"ref":"refs/tags/r-80.3","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}},{"ref":"refs/tags/r-79.7","object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"commit"}}]' > "$output"
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
+	z2k_no_releases)
+		printf '%s' '[]' > "$output"
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
 	z2k_selected)

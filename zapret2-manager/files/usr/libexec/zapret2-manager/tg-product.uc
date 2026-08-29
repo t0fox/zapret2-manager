@@ -107,8 +107,10 @@ export const tg_product_status = function () {
 export const tg_product_get = function () { return tg_product_status(); };
 export const tg_product_versions = function () {
 	let source = proxy_provider_versions(), rows = [];
+	let hasStale = false;
 	for (let i = 0; i < length(source.providers); i++) {
 		let row = source.providers[i], versions = [];
+		if (row.remoteState == 'stale') hasStale = true;
 		for (let j = 0; j < length(row.versions); j++) {
 			let item = row.versions[j];
 			push(versions, { provider: row.provider, version: item.version, packageVersion: item.packageVersion,
@@ -123,9 +125,13 @@ export const tg_product_versions = function () {
 				draft: item.draft === true, prerelease: item.prerelease === true });
 		}
 		push(rows, { id: row.id, provider: row.provider, versions: versions, latest: row.latest,
+			installed: row.installed || null, localFallback: row.localFallback || null,
+			remoteAvailable: row.remoteAvailable === true, remoteState: row.remoteState || 'unknown',
 			source: row.source, error: row.error });
 	}
-	return { ok: source.ok === true, optional: true, latestOnly: false, architecture: source.architecture, providers: rows };
+	return { ok: source.ok === true, optional: true, latestOnly: false, architecture: source.architecture,
+		providers: rows, remoteAvailable: source.ok === true,
+		remoteState: source.ok === true ? (hasStale ? 'stale' : 'fresh') : 'unavailable' };
 };
 export const tg_product_operation_status = function (input) {
 	let answer = proxy_provider_operation_status(type(input) == 'object' && input != null ? input : {});

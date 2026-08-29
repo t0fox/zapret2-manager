@@ -625,23 +625,23 @@
 .z2m-components-page .z2m-z2k-change-items{display:grid;gap:1px;border:1px solid var(--border);border-radius:4px;overflow:hidden}
 .z2m-components-page .z2m-z2k-change-item{display:grid;gap:2px;padding:8px 10px;background:var(--panel2);border-bottom:1px solid var(--border);min-width:0}
 .z2m-components-page .z2m-z2k-change-item:last-child{border-bottom:0}
-.z2m-components-page .z2m-z2k-change-item>span:first-child{font-size:13px;overflow-wrap:anywhere}
-.z2m-components-page .z2m-z2k-change-item>.z2m-dim{font-size:11px;overflow-wrap:anywhere}
-.z2m-components-page .z2m-z2k-change-summary{font-size:12px;line-height:1.45;color:var(--text-muted,#9ca3af);overflow-wrap:anywhere}
+.z2m-components-page .z2m-z2k-change-item>span:first-child{font-size:13px;overflow-wrap:break-word}
+.z2m-components-page .z2m-z2k-change-item>.z2m-dim{font-size:11px;overflow-wrap:break-word}
+.z2m-components-page .z2m-z2k-change-summary{font-size:12px;line-height:1.45;color:var(--text-muted,#9ca3af);overflow-wrap:break-word}
 .z2m-components-page .z2m-z2k-change-evidence-group{display:grid;gap:0;min-width:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--panel2)}
 .z2m-components-page .z2m-z2k-change-evidence{display:grid;gap:0;min-width:0;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--border)}
-.z2m-components-page .z2m-z2k-change-evidence-title{display:block;max-width:75ch;color:var(--tx);font-size:13px;line-height:1.4;overflow-wrap:anywhere;text-wrap:balance}
+.z2m-components-page .z2m-z2k-change-evidence-title{display:block;max-width:75ch;color:var(--tx);font-size:13px;line-height:1.4;overflow-wrap:break-word;text-wrap:balance}
 .z2m-components-page .z2m-z2k-change-evidence-excerpts{display:grid;gap:7px;margin-top:8px;max-width:75ch}
-.z2m-components-page .z2m-z2k-change-evidence-excerpts p{margin:0;color:var(--tx2);font-size:14px;line-height:1.55;overflow-wrap:anywhere;white-space:pre-wrap}
+.z2m-components-page .z2m-z2k-change-evidence-excerpts p{margin:0;color:var(--tx2);font-size:14px;line-height:1.55;overflow-wrap:break-word;white-space:pre-wrap}
 .z2m-components-page .z2m-z2k-change-evidence-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.055)}
 .z2m-components-page .z2m-z2k-change-evidence-context summary,.z2m-components-page .z2m-z2k-change-commit-link{display:inline-flex;align-items:center;min-height:40px;color:var(--blue);font-size:12px;line-height:1.4;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:rgba(75,159,213,.18)}
 .z2m-components-page .z2m-z2k-change-evidence-context summary:hover,.z2m-components-page .z2m-z2k-change-commit-link:hover{text-decoration:underline}
 .z2m-components-page .z2m-z2k-change-evidence-context summary:focus-visible,.z2m-components-page .z2m-z2k-change-commit-link:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .z2m-components-page .z2m-z2k-change-evidence-full{display:grid;gap:7px;max-width:75ch;margin-top:8px;padding:9px 11px;border-left:2px solid var(--border2);background:var(--panel2)}
-.z2m-components-page .z2m-z2k-change-evidence-full strong{font-size:12px;line-height:1.4;overflow-wrap:anywhere}
-.z2m-components-page .z2m-z2k-change-evidence-full p{margin:0;color:var(--tx2);font-size:13px;line-height:1.5;overflow-wrap:anywhere;white-space:pre-wrap}
+.z2m-components-page .z2m-z2k-change-evidence-full strong{font-size:12px;line-height:1.4;overflow-wrap:break-word}
+.z2m-components-page .z2m-z2k-change-evidence-full p{margin:0;color:var(--tx2);font-size:13px;line-height:1.5;overflow-wrap:break-word;white-space:pre-wrap}
 .z2m-components-page .z2m-z2k-change-evidence-group>.z2m-z2k-change-items{border:0;border-radius:0}
-.z2m-components-page .z2m-z2k-change-item-name,.z2m-components-page .z2m-z2k-change-item-source{overflow-wrap:anywhere}
+.z2m-components-page .z2m-z2k-change-item-name,.z2m-components-page .z2m-z2k-change-item-source{overflow-wrap:break-word}
 .z2m-components-page .z2m-z2k-release-actions{display:flex;justify-content:flex-end;min-width:0;padding-top:2px}
 .z2m-components-page .z2m-z2k-release-actions .z2m-btn{min-width:190px}
 .z2m-components-page .z2m-z2k-release-check{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:2px}

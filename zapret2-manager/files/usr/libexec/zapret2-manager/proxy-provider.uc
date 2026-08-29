@@ -229,14 +229,15 @@ function metadata_request(provider, arch) {
 		url: metadata_url(provider),
 		ttlSec: 600,
 		validate: function(value) {
-			if (type(value) != 'array' || length(value) == 0) return false;
+			// An empty, valid release list is a real remote-empty state. It must
+			// not be confused with transport/schema failure, otherwise the UI
+			// cannot distinguish "nothing published" from "upstream unavailable".
+			if (type(value) != 'array') return false;
 			for (let i = 0; i < length(value); i++) {
 				let release = value[i];
-				if (type(release) == 'object' && release != null && release.draft !== true &&
-					type(release.tag_name) == 'string' && type(release.assets) == 'array' && length(release.assets) > 0)
-					return true;
+				if (type(release) != 'object' || release == null || type(release.tag_name) != 'string' || type(release.assets) != 'array') return false;
 			}
-			return false;
+			return true;
 		}
 	};
 }
@@ -359,7 +360,7 @@ function list_candidates(providerId, arch, mode) {
 	if (!fetched.ok) return fetched;
 	let candidates = release_candidates(provider, arch, fetched.document);
 	if (length(candidates) == 0)
-		return { ok: false, error: { code: 'EMETADATA', message: 'Для архитектуры устройства нет подходящих официальных артефактов.' }, source: fetched.source };
+		return { ok: true, candidates: [], remoteState: 'empty', source: fetched.source, error: null };
 	for (let i = 0; i < length(candidates); i++) {
 		candidates[i].sourceId = 'official-github-release';
 		candidates[i].installable = true;
@@ -367,7 +368,8 @@ function list_candidates(providerId, arch, mode) {
 		candidates[i].releaseName = candidates[i].name;
 		candidates[i].releaseBody = candidates[i].body;
 	}
-	return { ok: true, candidates: candidates, source: fetched.source };
+	return { ok: true, candidates: candidates,
+		remoteState: fetched.source && fetched.source.stale === true ? 'stale' : 'fresh', source: fetched.source, error: null };
 }
 
 // Latest STABLE compatible candidate for the provider on this router.
@@ -407,6 +409,7 @@ function public_version_row(candidate, installedVersion) {
 		provider: candidate.provider,
 		version: candidate.version,
 		packageVersion: candidate_package_version(candidate.provider, candidate.version),
+		sourceId: 'official-github-release',
 		architecture: candidate.architecture || null,
 		tag: candidate.tag != null ? candidate.tag : null,
 		releaseId: candidate.releaseId != null ? candidate.releaseId : '',
@@ -725,18 +728,18 @@ export const proxy_provider_versions = function () {
 					if (latest == null && candidate.prerelease !== true) latest = candidate;
 					push(versions, public_version_row(candidate, installed != null ? installed.version : null));
 				}
-			} else if (installed == null) {
-				allOk = false;
-			}
+			} else allOk = false;
 		}
-		if (installed != null) {
-			let present = false;
-			for (let k = 0; k < length(versions); k++) if (versions[k].version == installed.version) present = true;
-			if (!present) push(versions, installed);
-		}
+		let remoteAvailable = resolved != null && resolved.ok === true;
+		let source = source_public(resolved && resolved.source, 'browse');
+		let remoteState = !remoteAvailable ? 'unavailable' : resolved.remoteState ||
+			(source && source.stale === true ? 'stale' : versions.length ? 'fresh' : 'empty');
 		push(rows, { id: provider.id, provider: provider.id, versions: versions, latest: latest,
-			architecture: arch, source: source_public(resolved && resolved.source, 'browse'),
-			error: latest == null && installed == null ? (resolved && resolved.error ? resolved.error.message : 'Версия недоступна.') : null });
+			// Local installed truth is deliberately outside the remote catalog.
+			installed: installed, localFallback: installed == null ? null : installed,
+			remoteAvailable: remoteAvailable, remoteState: remoteState,
+			architecture: arch, source: source,
+			error: !remoteAvailable ? (resolved && resolved.error ? resolved.error : { code: arch == null ? 'EARCH' : 'EUNAVAILABLE', message: 'Версия недоступна.' }) : null });
 	}
 	return { ok: status.ok === true && allOk, optional: true, latestOnly: false, architecture: arch, providers: rows };
 };
@@ -761,6 +764,9 @@ export const proxy_provider_check_updates = function (input) {
 	let resolved = list_candidates(input.provider, arch, mode);
 	if (!resolved.ok) return resolved;
 	let candidates = resolved.candidates;
+	if (length(candidates) == 0)
+		return { ok: false, error: { code: 'ENOASSET', message: 'Для архитектуры устройства нет подходящих официальных артефактов.' },
+			remoteAvailable: true, remoteState: 'empty', source: resolved.source };
 	let status = proxy_provider_status();
 	let installedVersion = status.installed && status.activeProvider == input.provider
 		? status.activeVersion : null;
