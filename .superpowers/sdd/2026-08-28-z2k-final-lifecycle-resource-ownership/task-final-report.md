@@ -226,3 +226,16 @@ Baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508`: `105 / 101 pass / 4 fail / 
 17. PASS. Commit `1926e8cddd74ccb243ae89bc5086ca5e9d013c31` is pushed; local `HEAD` equals `origin/codex/z2k-version-lifecycle`, and the final worktree is clean.
 
 Final acceptance verdict before delivery: `Z2K VERSION LIFECYCLE READY`.
+
+## Managed release details UI — 2026-08-29
+
+This bounded follow-up continued directly on `codex/z2k-version-lifecycle`, without creating an additional branch, agent, APK, or package operation. Base commit was `30e5b637fbe0026d7cba2d7b43d93758aad77689`; implementation commit is `7dda7d09f686d524fe79dce88a9795159f97db6f`.
+
+- Backend `installChanges` now compares the confirmed installed manifest to the selected release through exact-managed membership only. It exposes `modified/added/removed`, grouped path arrays, structured item arrays, and a deduplicated compatibility `managedPaths` union. Removed items retain the old membership identity (`id`, `name`, `sourcePath`, `type`). Upstream release history remains separate in `releaseChanges` and the compare link.
+- The Components model preserves the grouped contract. The expanded Z2K panel now uses `installChanges` for the prominent `Что изменится на устройстве` section and renders only managed item names/paths; the human `Что нового в r-X` body and `Сравнить upstream изменения ↗` remain intact. No prepare, confirm, mutation, rollback, runtime, receipt, ownership, or watchdog semantics changed.
+- TDD evidence: the managed-delta regression covers exact-managed noise filtering, modified/added/removed identity, count/array invariants, and deduplicated paths. The focused lifecycle/ownership/UI matrix passed `107/107`; both frontend files passed `node --check`; `git diff --check` passed. A browser-only VDOM defect (`[object HTMLDivElement]`) was found after the first deployment, reproduced as a focused RED assertion, fixed by flattening the region children, and the UI test returned `14/14`.
+- Source-only router deployment used Windows OpenSSH with `scp -O`, backups, staging, `root:root`, mode `0644`, and one `rpcd reload`. Final deployed hashes: `z2k-versions.uc=5db939dfe883491ad5903e64aa3a1720873063182289095e212336faf32b8565`, `z2m-components-model.js=38c5f22b949cc2131f499f14820e036f3131207bb04b428711d16ba9ab64fe0c`, `z2m-maintenance.js=65f04b1e9b16f3eae5e6db12787f40e920c0f6b865bdd39cd52e8f3faa5e49f8`, `z2m-components.css=116b50f6da1e942025381ea719fcb2204e5dabaade9eee1146b1ada276851920`.
+- Real-router read-only browser acceptance after cache-disabled reload selected `r-80.3` from installed `r-79.7` and showed `Обновится · 2`, `Добавится · 2`, `Удалится · 6`; managed names included `z2k-alert.lua`, `z2k-state-persist.lua`, `active_discord_udp.bin`, `warp-endpoints.txt`, and the six removed exact-managed resources. `S51z2k-warp`, `mtproxy-client`, `webpanel`, the old upstream heading, and `[object HTMLDivElement]` were absent. The compare link remained; no update button or confirmation was activated.
+- Router `zapret2-manager resources_status` remained readable and non-mutated: `resourcesStatus.ok=true`, installed authority `r-79.7` with confirmed confidence, Registry revision `10`, integrity `verified`, Lua `7/7`, and `preparedTarget=null`.
+
+Final verdict: `Z2K MANAGED RELEASE DETAILS READY`.

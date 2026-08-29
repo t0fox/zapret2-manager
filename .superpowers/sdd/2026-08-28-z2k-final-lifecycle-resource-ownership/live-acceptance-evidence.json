@@ -1024,6 +1024,70 @@
       "headEqualsRemote": true,
       "worktreeClean": true,
       "forcePush": false
+    },
+    "managedReleaseDetailsUi": {
+      "baseCommit": "30e5b637fbe0026d7cba2d7b43d93758aad77689",
+      "implementationCommit": "7dda7d09f686d524fe79dce88a9795159f97db6f",
+      "branch": "codex/z2k-version-lifecycle",
+      "extraBranch": false,
+      "agents": false,
+      "apk": false,
+      "changedFiles": [
+        "zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css",
+        "tests/product/z2k-managed-delta.test.mjs",
+        "tests/product/z2k-version-details-contract.test.mjs",
+        "tests/product/z2k-full-lifecycle-review.test.mjs",
+        "tests/ui/z2k-version-ux-behavior.test.mjs"
+      ],
+      "focused": {
+        "tests": 107,
+        "pass": 107,
+        "fail": 0,
+        "skipped": 0,
+        "nativeOpenWrtUcode": true,
+        "nodeCheck": true,
+        "diffCheck": true
+      },
+      "routerDeployment": {
+        "transport": "Windows OpenSSH scp -O",
+        "rpcdReload": true,
+        "ownership": "root:root",
+        "mode": "0644",
+        "hashes": {
+          "z2k-versions.uc": "5db939dfe883491ad5903e64aa3a1720873063182289095e212336faf32b8565",
+          "z2m-components-model.js": "38c5f22b949cc2131f499f14820e036f3131207bb04b428711d16ba9ab64fe0c",
+          "z2m-maintenance.js": "65f04b1e9b16f3eae5e6db12787f40e920c0f6b865bdd39cd52e8f3faa5e49f8",
+          "z2m-components.css": "116b50f6da1e942025381ea719fcb2204e5dabaade9eee1146b1ada276851920"
+        }
+      },
+      "browser": {
+        "surface": "Codex in-app Browser",
+        "installed": "r-79.7",
+        "selected": "r-80.3",
+        "expanded": true,
+        "modified": 2,
+        "added": 2,
+        "removed": 6,
+        "managedNamesVisible": true,
+        "compareLinkVisible": true,
+        "upstreamNoiseAbsent": true,
+        "objectDivAbsent": true,
+        "mutationTriggered": false
+      },
+      "router": {
+        "resourcesStatusOk": true,
+        "installedRelease": "r-79.7",
+        "authorityConfidence": "confirmed",
+        "registryRevision": 10,
+        "integrity": "verified",
+        "luaReady": 7,
+        "luaTotal": 7,
+        "preparedTarget": null
+      },
+      "verdict": "Z2K MANAGED RELEASE DETAILS READY"
     }
   }
 }

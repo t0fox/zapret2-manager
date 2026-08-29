@@ -145,3 +145,14 @@ Final verdict: `Z2K VERSION LIFECYCLE READY`.
 - Commit: `1926e8cddd74ccb243ae89bc5086ca5e9d013c31` (`fix: complete async z2k lifecycle transport`).
 - `git rev-parse HEAD` equals `git rev-parse origin/codex/z2k-version-lifecycle`.
 - Final worktree is clean.
+
+## Managed release details UI — 2026-08-29
+
+- Continued directly on `codex/z2k-version-lifecycle`; no extra branch, agents, APK, or package operation.
+- Commit `7dda7d09f686d524fe79dce88a9795159f97db6f` adds exact-managed grouped `installChanges` identities and changes the expanded Z2K panel to show only the device delta while preserving upstream changelog/compare presentation.
+- TDD focused matrix: `107/107` passed; UI regression `14/14`; native OpenWrt UCode exercised the managed-delta helper. `node --check` and `git diff --check` passed.
+- Source-only deployment via Windows `scp -O` and `rpcd reload` matched the final four router hashes; all deployed files are `root:root 0644`.
+- Read-only browser acceptance on the router: selected `r-80.3` from `r-79.7`, expanded details showed `2/2/6`, managed names, and compare link; upstream noise (`S51z2k-warp`, `mtproxy-client`, `webpanel`) and `[object HTMLDivElement]` were absent.
+- Read-only router state stayed safe: `resources_status.ok=true`, authority `r-79.7` confirmed, Registry revision `10`, integrity verified, Lua `7/7`, `preparedTarget=null`; no lifecycle action was run.
+
+Final verdict: `Z2K MANAGED RELEASE DETAILS READY`.
