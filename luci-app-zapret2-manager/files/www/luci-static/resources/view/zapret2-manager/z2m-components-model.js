@@ -173,6 +173,19 @@ function normalizeZ2kDetails(value) {
   value = object(value);
   function normalizeChanges(input) {
     input = object(input);
+    function normalizeItems(value) {
+      return array(value).map(function (item) {
+        item = object(item);
+        return {
+          id: first(item.id, null),
+          name: first(item.name || item.localName || item.id || item.sourcePath, null),
+          sourcePath: first(item.sourcePath, null),
+          type: first(item.type, null)
+        };
+      }).filter(function (item) {
+        return item.id !== null || item.name !== null || item.sourcePath !== null;
+      });
+    }
     var hasNumericCounts = typeof input.modified === 'number' || typeof input.added === 'number' || typeof input.removed === 'number';
     var known = input.known === true || (input.known === undefined && hasNumericCounts);
     return {
@@ -180,13 +193,19 @@ function normalizeZ2kDetails(value) {
       modified: known && typeof input.modified === 'number' ? input.modified : null,
       added: known && typeof input.added === 'number' ? input.added : null,
       removed: known && typeof input.removed === 'number' ? input.removed : null,
+      modifiedPaths: array(input.modifiedPaths),
+      addedPaths: array(input.addedPaths),
+      removedPaths: array(input.removedPaths),
+      modifiedItems: normalizeItems(input.modifiedItems),
+      addedItems: normalizeItems(input.addedItems),
+      removedItems: normalizeItems(input.removedItems),
       managedPaths: array(input.managedPaths),
       unknown: array(input.unknown)
     };
   }
   var legacyChanges = value.changes || {};
   var releaseChanges = normalizeChanges(value.releaseChanges || legacyChanges);
-  var installChanges = normalizeChanges(value.installChanges || legacyChanges || value.releaseChanges);
+  var installChanges = normalizeChanges(value.installChanges || value.changes || value.releaseChanges || {});
   return {
     version: first(value.version, null),
     releaseName: first(value.releaseName || value.version, null),

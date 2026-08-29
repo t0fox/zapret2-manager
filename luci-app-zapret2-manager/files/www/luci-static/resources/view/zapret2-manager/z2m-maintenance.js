@@ -615,6 +615,30 @@ function z2kChangeSummary(details) {
     ? _('Изменений относительно установленной версии нет.')
     : _('Новых изменений при установке нет.');
 }
+function z2kManagedChangeItems(changes, key) {
+  return changes && Array.isArray(changes[key]) ? changes[key] : [];
+}
+function z2kManagedChangeGroup(label, items) {
+  if (!items.length) return null;
+  return E('div', { 'class': 'z2m-z2k-change-group' }, [
+    E('strong', {}, label + ' · ' + items.length),
+    E('div', { 'class': 'z2m-z2k-change-items', role: 'list' }, items.map(function (item) {
+      item = item || {};
+      var name = item.name || item.id || item.sourcePath || _('Ресурс');
+      return E('div', { 'class': 'z2m-z2k-change-item', role: 'listitem' }, [
+        E('span', {}, name),
+        item.sourcePath && item.sourcePath !== name ? E('span', { 'class': 'z2m-dim' }, item.sourcePath) : null
+      ]);
+    }))
+  ]);
+}
+function renderZ2KManagedChangeDetails(changes) {
+  return [
+    z2kManagedChangeGroup(_('Обновится'), z2kManagedChangeItems(changes, 'modifiedItems')),
+    z2kManagedChangeGroup(_('Добавится'), z2kManagedChangeItems(changes, 'addedItems')),
+    z2kManagedChangeGroup(_('Удалится'), z2kManagedChangeItems(changes, 'removedItems'))
+  ].filter(Boolean);
+}
 function loadZ2KVersionDetails(ctx, version) {
   if (!version || state.componentOperation || !ctx.api.resources || !ctx.api.resources.versionDetails) return;
   checkedResult(ctx.api.resources.versionDetails({ version: version }), _('Детали Z2K release')).then(function (answer) {
@@ -1014,27 +1038,18 @@ function renderZ2KReleasePanel(ctx, component) {
   var transition = z2kTransition(component, selected, operation, targetRelease);
   var compare = selected.compareUrl ? E('a', { href: selected.compareUrl, target: '_blank', rel: 'noreferrer', 'class': 'z2m-z2k-release-compare' }, _('Сравнить upstream изменения ↗')) : null;
   var body = String(selected.releaseBody || '').trim();
-  var releaseChanges = selected.releaseChanges || {};
-  var releaseChangeCount = Number(releaseChanges.modified || 0) + Number(releaseChanges.added || 0) + Number(releaseChanges.removed || 0);
-  var hasReleaseDetails = !unavailable && releaseChanges.known === true && releaseChangeCount > 0;
+  var changes = selected.installChanges || selected.changes || {};
+  var changeCount = Number(changes.modified || 0) + Number(changes.added || 0) + Number(changes.removed || 0);
+  var hasDeviceDetails = !unavailable && changes.known === true && (changeCount > 0 || operation === 'reinstall');
   var releaseHeadingId = 'z2m-z2k-release-heading';
+  var deviceHeadingId = 'z2m-z2k-device-heading';
   var releaseDetailsId = 'z2m-z2k-release-details';
   var changelog = E('div', { 'class': 'z2m-z2k-release-changelog' }, [
     E('strong', { id: releaseHeadingId }, _('Что нового в ') + targetRelease),
-    body ? E('p', { 'class': 'z2m-z2k-release-body' }, body) : E('p', { 'class': 'z2m-z2k-release-body' }, _('Описание изменений для этого release не опубликовано.')),
-    hasReleaseDetails ? E('div', { id: releaseDetailsId, role: 'region', 'aria-labelledby': releaseHeadingId, 'class': 'z2m-z2k-release-details' + (expanded ? ' is-visible' : ''), hidden: expanded ? undefined : 'hidden' }, [
-      E('strong', {}, _('Изменения относительно предыдущего release')),
-      renderFactGrid([
-        { label: _('Изменено'), value: releaseChanges.modified },
-        { label: _('Добавлено'), value: releaseChanges.added },
-        { label: _('Удалено'), value: releaseChanges.removed }
-      ]),
-      releaseChanges.managedPaths && releaseChanges.managedPaths.length ? E('p', { 'class': 'z2m-dim z2m-z2k-release-paths' }, releaseChanges.managedPaths.join(', ')) : null
-    ]) : null
+    body ? E('p', { 'class': 'z2m-z2k-release-body' }, body) : E('p', { 'class': 'z2m-z2k-release-body' }, _('Описание изменений для этого release не опубликовано.'))
   ]);
-  var changes = selected.installChanges || selected.changes || {};
   var diff = unavailable ? null : E('div', { 'class': 'z2m-z2k-install-diff' }, [
-    E('strong', {}, _('Изменения при установке')),
+    E('strong', { id: deviceHeadingId }, _('Что изменится на устройстве')),
     changes.known === false
       ? E('p', { 'class': 'z2m-z2k-release-no-diff' }, z2kChangeSummary(selected))
       : operation === 'reinstall' && !changes.modified && !changes.added && !changes.removed
@@ -1043,7 +1058,10 @@ function renderZ2KReleasePanel(ctx, component) {
         { label: _('Обновится'), value: Number(changes.modified || 0) },
         { label: _('Добавится'), value: Number(changes.added || 0) },
         { label: _('Удалится'), value: Number(changes.removed || 0) }
-      ])
+      ]),
+    hasDeviceDetails ? E('div', { id: releaseDetailsId, role: 'region', 'aria-labelledby': deviceHeadingId, 'class': 'z2m-z2k-release-details' + (expanded ? ' is-visible' : ''), hidden: expanded ? undefined : 'hidden' }, [
+      E('strong', {}, _('Ресурсы, которые изменятся')),
+    ].concat(renderZ2KManagedChangeDetails(changes))) : null
   ]);
   var actionLabel = unavailable ? _('Установка недоступна') : z2kOperationLabel(operation, targetRelease);
   var actionEnabled = !unavailable && !!operation && z2kCanApply(component);
@@ -1064,7 +1082,7 @@ function renderZ2KReleasePanel(ctx, component) {
     ]),
     changelog,
     diff,
-    hasReleaseDetails ? shell.button(expanded ? _('Свернуть') : _('Подробнее'), 'sm', toggleZ2KDetails.bind(null, ctx), false, {
+    hasDeviceDetails ? shell.button(expanded ? _('Свернуть') : _('Подробнее'), 'sm', toggleZ2KDetails.bind(null, ctx), false, {
       'aria-controls': releaseDetailsId,
       'aria-expanded': expanded ? 'true' : 'false'
     }) : null,

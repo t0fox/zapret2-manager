@@ -175,20 +175,40 @@ function release_manifest(row) { return row == null || !valid_sha(row.commitSha)
 function release_changes_between(current, previous) {
 	let currentBy = current == null || !object(current.files_sha256) ? null : current.files_sha256, previousBy = previous == null || !object(previous.files_sha256) ? null : previous.files_sha256, added = 0, modified = 0, removed = 0, paths = [], known = currentBy != null && previousBy != null;
 	if (known) { for (let path in currentBy) { if (previousBy[path] == null) { added++; push(paths, path); } else if (previousBy[path] != currentBy[path]) { modified++; push(paths, path); } } for (let path in previousBy) if (currentBy[path] == null) { removed++; push(paths, path); } }
-	sort(paths); return { known: known, modified: known ? modified : null, added: known ? added : null, removed: known ? removed : null, managedPaths: paths, unknown: [] };
+	sort(paths); return { known: known, modified: known ? modified : null, added: known ? added : null, removed: known ? removed : null, changedPaths: paths, upstreamChangedPaths: paths, managedPaths: paths, unknown: [] };
+}
+function change_item(asset) { return { id: asset.id, name: asset.name || asset.id, sourcePath: asset.sourcePath, type: asset.type }; }
+function sort_change_items(items) { sort(items, function(a, b) { return a.sourcePath == b.sourcePath ? 0 : (a.sourcePath < b.sourcePath ? -1 : 1); }); return items; }
+function managed_change_set(known, modifiedItems, addedItems, removedItems, unknown) {
+	let modifiedPaths = [], addedPaths = [], removedPaths = [], managedPaths = [], seen = {};
+	for (let i = 0; i < length(modifiedItems); i++) push(modifiedPaths, modifiedItems[i].sourcePath);
+	for (let i = 0; i < length(addedItems); i++) push(addedPaths, addedItems[i].sourcePath);
+	for (let i = 0; i < length(removedItems); i++) push(removedPaths, removedItems[i].sourcePath);
+	for (let i = 0; i < length(modifiedPaths); i++) if (!seen[modifiedPaths[i]]) { seen[modifiedPaths[i]] = true; push(managedPaths, modifiedPaths[i]); }
+	for (let i = 0; i < length(addedPaths); i++) if (!seen[addedPaths[i]]) { seen[addedPaths[i]] = true; push(managedPaths, addedPaths[i]); }
+	for (let i = 0; i < length(removedPaths); i++) if (!seen[removedPaths[i]]) { seen[removedPaths[i]] = true; push(managedPaths, removedPaths[i]); }
+	sort(managedPaths);
+	return { known: known, modified: known ? length(modifiedItems) : null, added: known ? length(addedItems) : null, removed: known ? length(removedItems) : null, modifiedPaths: known ? modifiedPaths : [], addedPaths: known ? addedPaths : [], removedPaths: known ? removedPaths : [], modifiedItems: known ? modifiedItems : [], addedItems: known ? addedItems : [], removedItems: known ? removedItems : [], managedPaths: managedPaths, unknown: unknown || [] };
 }
 function changes_between(current, previous, map) {
-	let now = managed_membership(current, map), old = previous == null ? null : managed_membership(previous, map), currentBy = {}, previousBy = {}, added = 0, modified = 0, removed = 0, paths = [], known = previous != null && length(now.unknown) == 0 && length(old.unknown) == 0;
-	for (let i = 0; i < length(now.assets); i++) currentBy[now.assets[i].sourcePath] = now.assets[i].sha256;
-	for (let i = 0; known && i < length(old.assets); i++) previousBy[old.assets[i].sourcePath] = old.assets[i].sha256;
-	if (known) { for (let path in currentBy) { if (previousBy[path] == null) { added++; push(paths, path); } else if (previousBy[path] != currentBy[path]) { modified++; push(paths, path); } } for (let path in previousBy) if (currentBy[path] == null) { removed++; push(paths, path); } }
-	sort(paths); return { known: known, modified: known ? modified : null, added: known ? added : null, removed: known ? removed : null, managedPaths: paths, unknown: now.unknown };
+	let now = managed_membership(current, map), old = previous == null ? null : managed_membership(previous, map), currentBy = {}, previousBy = {}, modifiedItems = [], addedItems = [], removedItems = [], known = previous != null && length(now.unknown) == 0 && length(old.unknown) == 0;
+	for (let i = 0; i < length(now.assets); i++) currentBy[now.assets[i].sourcePath] = now.assets[i];
+	for (let i = 0; known && i < length(old.assets); i++) previousBy[old.assets[i].sourcePath] = old.assets[i];
+	if (known) {
+		for (let path in currentBy) {
+			if (previousBy[path] == null) push(addedItems, change_item(currentBy[path]));
+			else if (previousBy[path].sha256 != currentBy[path].sha256) push(modifiedItems, change_item(currentBy[path]));
+		}
+		for (let path in previousBy) if (currentBy[path] == null) push(removedItems, change_item(previousBy[path]));
+	}
+	return managed_change_set(known, sort_change_items(modifiedItems), sort_change_items(addedItems), sort_change_items(removedItems), now.unknown);
 }
+export const z2k_managed_delta = function(current, previous, map) { return changes_between(current, previous, map); };
 
 export const z2k_version_details = function(version) {
 	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
 	let catalog = z2k_versions(); if (!catalog.ok) return catalog; let row = target_release(version, catalog.versions); if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.');
-	let emptyChanges = { known: false, modified: null, added: null, removed: null, managedPaths: [], unknown: [] };
+	let emptyChanges = { known: false, modified: null, added: null, removed: null, changedPaths: [], upstreamChangedPaths: [], modifiedPaths: [], addedPaths: [], removedPaths: [], modifiedItems: [], addedItems: [], removedItems: [], managedPaths: [], unknown: [] };
 	let checked = release_manifest(row); if (!checked.ok) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'invalid-manifest', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'unknown', targetBlockingReasons: [] };
 	let map = read_classification(), membership = managed_membership(checked.manifest, map); if (length(membership.unknown)) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership.unknown } };
 	let metadata = commit_metadata(row.commitSha), previous = null, previousVersion = null, installedVersion = installed_release(), operation = target_operation(version, installedVersion); for (let i = 0; i < length(catalog.versions); i++) if (catalog.versions[i].version == version && i + 1 < length(catalog.versions)) { previous = catalog.versions[i + 1]; previousVersion = previous.version; break; }
@@ -198,7 +218,7 @@ export const z2k_version_details = function(version) {
 	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
 	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [];
 	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), body = manifest_body(checked.manifest, version) || human_body(metadata && metadata.message) || (releaseChangeSet.known ? fallback_body(releaseChangeSet) : null);
-	let releaseChanges = { known: releaseChangeSet.known, modified: releaseChangeSet.modified, added: releaseChangeSet.added, removed: releaseChangeSet.removed, managedPaths: releaseChangeSet.managedPaths, unknown: releaseChangeSet.unknown }, installChanges = { known: installChangeSet.known, modified: installChangeSet.modified, added: installChangeSet.added, removed: installChangeSet.removed, managedPaths: installChangeSet.managedPaths, unknown: installChangeSet.unknown };
+	let releaseChanges = { known: releaseChangeSet.known, modified: releaseChangeSet.modified, added: releaseChangeSet.added, removed: releaseChangeSet.removed, changedPaths: releaseChangeSet.changedPaths, upstreamChangedPaths: releaseChangeSet.upstreamChangedPaths, managedPaths: releaseChangeSet.managedPaths, unknown: releaseChangeSet.unknown }, installChanges = { known: installChangeSet.known, modified: installChangeSet.modified, added: installChangeSet.added, removed: installChangeSet.removed, modifiedPaths: installChangeSet.modifiedPaths, addedPaths: installChangeSet.addedPaths, removedPaths: installChangeSet.removedPaths, modifiedItems: installChangeSet.modifiedItems, addedItems: installChangeSet.addedItems, removedItems: installChangeSet.removedItems, managedPaths: installChangeSet.managedPaths, unknown: installChangeSet.unknown };
 	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, releaseChanges: releaseChanges, installChanges: installChanges, changes: installChanges, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
 };
 

@@ -207,7 +207,7 @@ test('newer selection uses canonical upgrade operation and installed-to-selected
 
   assert.match(text, /Доступно обновление/);
   assert.match(text, /r-80\.2 → r-80\.3/);
-  assert.match(text, /Изменения при установке/);
+  assert.match(text, /Что изменится на устройстве/);
   assert.ok(buttonsOf(z2kDetails(rendered)).includes('Обновить до r-80.3'));
 });
 
@@ -386,4 +386,62 @@ test('expanded Z2K view has one primary operation action', () => {
   const operationButtons = buttonsOf(details).filter(label => /^(Обновить|Переустановить|Откатить|Установить)/.test(label));
 
   assert.deepEqual(operationButtons, ['Обновить до r-80.3']);
+});
+
+test('expanded Z2K details show the managed device delta, not the upstream path dump', () => {
+  const internals = loadMaintenance();
+  const z2k = z2kRaw({
+    installedVersion: 'r-79.7',
+    selectedVersion: 'r-80.3',
+    releaseChanges: {
+      known: true,
+      modified: 33,
+      added: 0,
+      removed: 0,
+      managedPaths: ['files/init.d/S51z2k-warp', 'mtproxy-client/client.bin', 'webpanel/www/index.html'],
+    },
+    installChanges: {
+      known: true,
+      modified: 2,
+      added: 2,
+      removed: 6,
+      modifiedItems: [
+        { id: 'lua:z2k-modern-core', name: 'Z2K modern core', sourcePath: 'files/lua/z2k-modern-core.lua', type: 'lua' },
+        { id: 'lua:z2k-state-persist', name: 'z2k-state-persist.lua', sourcePath: 'files/lua/z2k-state-persist.lua', type: 'lua' },
+      ],
+      addedItems: [
+        { id: 'blob:active-discord-udp', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob' },
+        { id: 'blob:warp-endpoints', name: 'warp-endpoints.txt', sourcePath: 'files/lists/warp-endpoints.txt', type: 'blob' },
+      ],
+      removedItems: Array.from({ length: 6 }, (_, index) => ({
+        id: `blob:old-${index + 1}`,
+        name: `old-${index + 1}.bin`,
+        sourcePath: `files/fake/old-${index + 1}.bin`,
+        type: 'blob',
+      })),
+      modifiedPaths: ['files/lua/z2k-modern-core.lua', 'files/lua/z2k-state-persist.lua'],
+      addedPaths: ['files/fake/active_discord_udp.bin', 'files/lists/warp-endpoints.txt'],
+      removedPaths: Array.from({ length: 6 }, (_, index) => `files/fake/old-${index + 1}.bin`),
+      managedPaths: [],
+    },
+  });
+  const ctx = makeContext(z2k);
+  renderState(internals, z2k);
+  internals.state.z2kDetailsExpanded = true;
+  const expanded = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(expanded);
+  const region = findAll(expanded, node => node.attrs && node.attrs.id === 'z2m-z2k-release-details')[0];
+
+  assert.ok(region);
+  assert.equal(region.children.some(Array.isArray), false);
+  assert.match(text, /Что изменится на устройстве/);
+  assert.match(text, /Обновится.*2/);
+  assert.match(text, /Добавится.*2/);
+  assert.match(text, /Удалится.*6/);
+  assert.match(text, /Z2K modern core/);
+  assert.match(text, /active_discord_udp\.bin/);
+  assert.match(text, /old-1\.bin/);
+  assert.doesNotMatch(text, /S51z2k-warp|mtproxy-client|webpanel/);
+  assert.doesNotMatch(text, /\[object HTMLDivElement\]/);
+  assert.match(text, /Сравнить upstream изменения ↗/);
 });

@@ -619,6 +619,14 @@
 .z2m-components-page .z2m-z2k-install-diff .z2m-component-fact strong{font-size:15px}
 .z2m-components-page .z2m-z2k-release-expanded{display:grid;gap:7px;padding-top:4px;border-top:1px solid var(--border)}
 .z2m-components-page .z2m-z2k-release-expanded>strong{font-size:13px}
+.z2m-components-page .z2m-z2k-release-details{display:grid;gap:10px;padding-top:8px;border-top:1px solid var(--border)}
+.z2m-components-page .z2m-z2k-release-details>strong{font-size:13px}
+.z2m-components-page .z2m-z2k-change-group{display:grid;gap:6px;min-width:0}
+.z2m-components-page .z2m-z2k-change-items{display:grid;gap:1px;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.z2m-components-page .z2m-z2k-change-item{display:grid;gap:2px;padding:8px 10px;background:var(--panel2);border-bottom:1px solid var(--border);min-width:0}
+.z2m-components-page .z2m-z2k-change-item:last-child{border-bottom:0}
+.z2m-components-page .z2m-z2k-change-item>span:first-child{font-size:13px;overflow-wrap:anywhere}
+.z2m-components-page .z2m-z2k-change-item>.z2m-dim{font-size:11px;overflow-wrap:anywhere}
 .z2m-components-page .z2m-z2k-release-actions{display:flex;justify-content:flex-end;min-width:0;padding-top:2px}
 .z2m-components-page .z2m-z2k-release-actions .z2m-btn{min-width:190px}
 .z2m-components-page .z2m-z2k-release-check{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:2px}

@@ -369,12 +369,14 @@ test('20. Подробнее reveals an additional accessible release-details re
   assert.match(maintenance, /z2m-z2k-release-details/);
   assert.match(maintenance, /aria-expanded/);
   assert.match(maintenance, /aria-controls/);
-  assert.match(maintenance, /releaseChanges/);
+  assert.match(maintenance, /installChanges/);
+  assert.match(maintenance, /Что изменится на устройстве/);
+  assert.match(maintenance, /modifiedItems/);
 });
 
 test('21. zero/unknown release history avoids a fake Подробнее action', () => {
-  assert.match(maintenance, /hasReleaseDetails/);
-  assert.match(maintenance, /releaseChanges/);
+  assert.match(maintenance, /hasDeviceDetails/);
+  assert.match(maintenance, /installChanges/);
   assert.match(maintenance, /known/);
   assert.match(maintenance, /known.*false|!.*known/);
 });

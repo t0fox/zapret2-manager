@@ -52,6 +52,18 @@ test('release details expose the operation relative to the confirmed installed r
   assert.match(source, /installedVersion:\s*installedVersion/);
 });
 
+test('installChanges exposes grouped managed resource identities without replacing upstream release history', () => {
+  assert.match(source, /export const z2k_managed_delta\s*=\s*function/);
+  assert.match(source, /modifiedPaths:/);
+  assert.match(source, /addedPaths:/);
+  assert.match(source, /removedPaths:/);
+  assert.match(source, /modifiedItems:/);
+  assert.match(source, /addedItems:/);
+  assert.match(source, /removedItems:/);
+  assert.match(source, /releaseChangeSet\.changedPaths/);
+  assert.match(source, /installChangeSet\.modifiedItems/);
+});
+
 test('transient tag resolution cannot poison a usable immutable catalog cache', () => {
   assert.match(source, /read_cache\(\)/);
   assert.match(source, /cached.*commitSha|commitSha.*cached/);
