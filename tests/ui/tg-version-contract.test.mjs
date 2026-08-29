@@ -60,6 +60,22 @@ test('TG installation UI exposes provider and clean version choices, not transpo
   assert.match(backend, /releaseUrl/);
 });
 
+test('TG load is browse-only and explicit checks own refresh intent', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  const loadBody = ui.slice(ui.indexOf('function load(ctx)'), ui.indexOf('function appliedConfig'));
+  const checkBody = ui.slice(ui.indexOf('function checkUpdatesNow()'), ui.indexOf('var head =', ui.indexOf('function checkUpdatesNow()')));
+  assert.doesNotMatch(loadBody, /checkUpdates\s*\(/, 'page load must not refresh both upstreams');
+  assert.match(checkBody, /checkUpdates\s*\(\s*\{\s*provider:/, 'manual check must explicitly refresh providers');
+  assert.match(ui, /intent:\s*['"]mutation['"]/, 'install confirmation must use a fresh mutation check');
+});
+
+test('TG provider cards surface stale and unavailable remote metadata without hiding local truth', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  assert.match(ui, /source\.stale/);
+  assert.match(ui, /source\.error/);
+  assert.match(ui, /installedVersionDisplay\(installedVersion/);
+});
+
 test('Backend keeps the full GitHub release identity for EVERY version row', () => {
   const backend = fs.readFileSync(BACKEND, 'utf8');
   // parse_release captures display metadata for each release

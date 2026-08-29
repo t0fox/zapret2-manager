@@ -9,6 +9,7 @@
 // authority.
 
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
+import * as update_source from './update-source.uc';
 
 const STATE_FILE = getenv('Z2M_TGPROVIDER_STATE') || '/etc/zapret2-manager/proxy-provider.json';
 const LOCK_DIR = getenv('Z2M_TGPROVIDER_LOCK') || '/tmp/zapret2-manager-proxy-provider.lock';
@@ -19,7 +20,6 @@ const SECRET_PATH = CONFIG_DIR + '/secret.conf';
 const BINARY_PATH = getenv('Z2M_TGPROVIDER_BINARY') || '/usr/bin/tg-ws-proxy';
 const CHECK_DIR = getenv('Z2M_TGPROVIDER_CHECK') || '/tmp/zapret2-manager/proxy-provider-checks';
 const CHECK_TTL = 600;
-const MAX_METADATA = 4194304;
 // Manager-owned shared TG lifecycle surface (independent of any provider).
 // Keys must stay within proxycfg's CONF_KEY_MAP (LOGLEVEL is not one).
 //
@@ -222,21 +222,48 @@ function metadata_url(provider) {
 	return 'https://api.github.com/repos/' + provider.repository + '/releases?per_page=30';
 }
 
-function fetch_metadata(provider) {
-	let url = metadata_url(provider), quotedUrl = literal(url);
-	if (url == null || quotedUrl == null) return error('ESECURITY', 'Metadata URL не входит в allowlist.');
-	let file = '/tmp/zapret2-manager/proxy-provider-metadata.' + provider.id + '.' + time();
-	run('mkdir -p /tmp/zapret2-manager');
-	let quotedFile = literal(file);
-	let result = run('ulimit -f 8192; uclient-fetch -q -T 20 --user-agent zapret2-manager/proxy -O ' + quotedFile + ' ' + quotedUrl);
-	let info = stat(file);
-	if (result.rc != 0 || info == null) { try { unlink(file); } catch (e) { } return error('ENETWORK', 'Не удалось проверить обновления.'); }
-	if (info.size < 2 || info.size > MAX_METADATA) { try { unlink(file); } catch (e) { } return error('EMETADATA', 'Ответ upstream имеет недопустимый размер.'); }
-	let document = read_json(file, null);
-	try { unlink(file); } catch (e) { }
-	if (document == null || type(document) != 'array')
-		return error('EMETADATA', 'Ответ upstream повреждён.');
-	return { ok: true, document: document };
+function metadata_request(provider, arch) {
+	return {
+		sourceKey: 'telegram:' + provider.id + ':' + provider.repository + ':arch=' + arch + ':endpoint=releases',
+		origin: 'github-rest',
+		url: metadata_url(provider),
+		ttlSec: 600,
+		validate: function(value) {
+			if (type(value) != 'array' || length(value) == 0) return false;
+			for (let i = 0; i < length(value); i++) {
+				let release = value[i];
+				if (type(release) == 'object' && release != null && release.draft !== true &&
+					type(release.tag_name) == 'string' && type(release.assets) == 'array' && length(release.assets) > 0)
+					return true;
+			}
+			return false;
+		}
+	};
+}
+function source_public(value, mode) {
+	if (value == null) return null;
+	return {
+		mode: mode || value.mode || null,
+		sourceKey: value.sourceKey || null,
+		origin: value.origin || null,
+		cacheState: value.cacheState || 'miss',
+		stale: value.stale === true,
+		fetchedAt: value.fetchedAt || null,
+		validatedAt: value.validatedAt || null,
+		lastSuccessAt: value.lastSuccessAt || null,
+		lastAttemptAt: value.lastAttemptAt || null,
+		lastErrorClass: value.lastErrorClass || null,
+		requestCount: value.requestCount || 0,
+		network: value.network === true,
+		cooldown: value.cooldown || null,
+		error: value.error || null
+	};
+}
+function source_metadata(provider, arch, mode) {
+	let request = metadata_request(provider, arch), result = mode == 'fresh'
+		? update_source.update_source_fresh(request)
+		: mode == 'refresh' ? update_source.update_source_refresh(request) : update_source.update_source_browse(request);
+	return { ok: result.ok === true, document: result.payload, source: source_public(result, mode), error: result.error };
 }
 
 // Map a release to the provider-specific install artifact for this router.
@@ -323,16 +350,16 @@ function release_candidates(provider, arch, document) {
 }
 
 // Fetch and parse the full compatible release list for a provider.
-function list_candidates(providerId, arch) {
+function list_candidates(providerId, arch, mode) {
 	let provider = null;
 	for (let i = 0; i < length(PROVIDERS); i++)
 		if (PROVIDERS[i].id == providerId) { provider = PROVIDERS[i]; break; }
 	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
-	let fetched = fetch_metadata(provider);
+	let fetched = source_metadata(provider, arch, mode || 'browse');
 	if (!fetched.ok) return fetched;
 	let candidates = release_candidates(provider, arch, fetched.document);
 	if (length(candidates) == 0)
-		return error('EMETADATA', 'Для архитектуры устройства нет подходящих официальных артефактов.');
+		return { ok: false, error: { code: 'EMETADATA', message: 'Для архитектуры устройства нет подходящих официальных артефактов.' }, source: fetched.source };
 	for (let i = 0; i < length(candidates); i++) {
 		candidates[i].sourceId = 'official-github-release';
 		candidates[i].installable = true;
@@ -340,14 +367,14 @@ function list_candidates(providerId, arch) {
 		candidates[i].releaseName = candidates[i].name;
 		candidates[i].releaseBody = candidates[i].body;
 	}
-	return { ok: true, candidates: candidates };
+	return { ok: true, candidates: candidates, source: fetched.source };
 }
 
 // Latest STABLE compatible candidate for the provider on this router.
 // Lives above proxy_provider_versions: ucode resolves called functions
 // positionally — a forward reference compiles to an undeclared global.
-function latest_candidate(providerId, arch) {
-	let resolved = list_candidates(providerId, arch);
+function latest_candidate(providerId, arch, mode) {
+	let resolved = list_candidates(providerId, arch, mode || 'browse');
 	if (!resolved.ok) return resolved;
 	let latest = null;
 	for (let i = 0; i < length(resolved.candidates); i++) {
@@ -361,13 +388,26 @@ function latest_candidate(providerId, arch) {
 	return { ok: true, candidate: latest };
 }
 
+function candidate_package_version(providerId, version) {
+	if (!safe_package_version(version)) return null;
+	if (providerId == 'rust') return version + '-r1';
+	if (providerId == 'go') {
+		let found = match(version, /^(.+)-([0-9]+)$/);
+		return found ? found[1] + '-r' + found[2] : null;
+	}
+	return null;
+}
+
 function public_version_row(candidate, installedVersion) {
 	// Full release identity travels with EVERY version row: the browser maps
 	// each dropdown entry to its own releaseId/tag/name/publishedAt/body so
 	// switching the selection swaps the changelog together with the version.
 	// Metadata is never flattened into a single latest-only object here.
 	return {
+		provider: candidate.provider,
 		version: candidate.version,
+		packageVersion: candidate_package_version(candidate.provider, candidate.version),
+		architecture: candidate.architecture || null,
 		tag: candidate.tag != null ? candidate.tag : null,
 		releaseId: candidate.releaseId != null ? candidate.releaseId : '',
 		releaseName: candidate.name != null ? candidate.name : '',
@@ -377,7 +417,12 @@ function public_version_row(candidate, installedVersion) {
 		releaseBody: candidate.body != null ? candidate.body : '',
 		releaseUrl: candidate.releaseUrl != null ? candidate.releaseUrl : null,
 		artifactKind: candidate.artifactKind,
+		artifactAvailable: candidate.assetSha256 != null,
 		installable: candidate.installable === true && candidate.assetSha256 != null,
+		architectureCompatible: true,
+		assetName: candidate.artifactName,
+		assetSha256: candidate.assetSha256,
+		assetSize: candidate.assetSize,
 		reason: candidate.assetSha256 == null ? 'Upstream не предоставил digest для этого asset.' : null,
 		update: installedVersion != null && compare_versions(candidate.version, installedVersion) > 0
 	};
@@ -671,19 +716,27 @@ export const proxy_provider_status = function () {
 export const proxy_provider_versions = function () {
 	let status = proxy_provider_status(), arch = architecture(), rows = [], allOk = arch != null;
 	for (let i = 0; i < length(PROVIDERS); i++) {
-		let provider = PROVIDERS[i], versions = [], installed = installed_version_row(status, provider.id), latest = null;
+		let provider = PROVIDERS[i], versions = [], installed = installed_version_row(status, provider.id), latest = null, resolved = null;
 		if (arch != null) {
-			let resolved = latest_candidate(provider.id, arch);
+			resolved = list_candidates(provider.id, arch, 'browse');
 			if (resolved.ok) {
-				latest = resolved.candidate;
-				push(versions, latest);
+				for (let j = 0; j < length(resolved.candidates); j++) {
+					let candidate = resolved.candidates[j];
+					if (latest == null && candidate.prerelease !== true) latest = candidate;
+					push(versions, public_version_row(candidate, installed != null ? installed.version : null));
+				}
 			} else if (installed == null) {
 				allOk = false;
 			}
 		}
-		if (installed != null) push(versions, installed);
+		if (installed != null) {
+			let present = false;
+			for (let k = 0; k < length(versions); k++) if (versions[k].version == installed.version) present = true;
+			if (!present) push(versions, installed);
+		}
 		push(rows, { id: provider.id, provider: provider.id, versions: versions, latest: latest,
-			architecture: arch, error: latest == null && installed == null ? 'Версия недоступна.' : null });
+			architecture: arch, source: source_public(resolved && resolved.source, 'browse'),
+			error: latest == null && installed == null ? (resolved && resolved.error ? resolved.error.message : 'Версия недоступна.') : null });
 	}
 	return { ok: status.ok === true && allOk, optional: true, latestOnly: false, architecture: arch, providers: rows };
 };
@@ -691,19 +744,21 @@ export const proxy_provider_versions = function () {
 function check_input(value) {
 	if (type(value) != 'object' || value == null || type(value.provider) != 'string' || provider_by_id(value.provider) == null)
 		return false;
-	let ks = keys(value);
-	if (length(ks) == 1) return true;
-	if (length(ks) == 2 && type(value.version) == 'string' && safe_package_version(value.version)) return true;
-	return length(ks) == 3 && type(value.sourceId) == 'string' &&
-		(value.sourceId == 'z2m-provider-feed' || value.sourceId == 'official-github-release') &&
-		type(value.version) == 'string' && safe_package_version(value.version);
+	for (let key in value)
+		if (key != 'provider' && key != 'version' && key != 'sourceId' && key != 'intent') return false;
+	if (value.intent != null && value.intent != 'mutation' && value.intent != 'refresh') return false;
+	if (value.version != null && (type(value.version) != 'string' || !safe_package_version(value.version))) return false;
+	if (value.sourceId != null && (type(value.sourceId) != 'string' ||
+		(value.sourceId != 'z2m-provider-feed' && value.sourceId != 'official-github-release'))) return false;
+	return value.sourceId == null || value.version != null;
 }
 
 export const proxy_provider_check_updates = function (input) {
 	if (!check_input(input)) return error('EINPUT', 'Нужно выбрать Rust или Go.');
 	let arch = architecture();
 	if (arch == null) return error('EARCH', 'Архитектура устройства не распознана.');
-	let resolved = list_candidates(input.provider, arch);
+	let mode = input.intent == 'mutation' ? 'fresh' : 'refresh';
+	let resolved = list_candidates(input.provider, arch, mode);
 	if (!resolved.ok) return resolved;
 	let candidates = resolved.candidates;
 	let status = proxy_provider_status();
@@ -740,6 +795,7 @@ export const proxy_provider_check_updates = function (input) {
 		installedVersion: installedVersion,
 		latestVersion: latest != null ? latest.version : null,
 		availableVersions: versions,
+		source: resolved.source,
 		updateAvailable: installedVersion != null && latest != null &&
 			compare_versions(latest.version, installedVersion) > 0,
 		providerSwitch: status.installed && status.activeProvider != input.provider

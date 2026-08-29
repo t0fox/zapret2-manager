@@ -27,6 +27,18 @@ function errorMessage(ctx, error) {
   return normalized && normalized.message || _('Неизвестная ошибка');
 }
 
+function catalogSourcePanel(ctx, state) {
+  var source = object(state.catalog && state.catalog.source);
+  if (!source.stale && !source.error) return null;
+  var limited = source.error && source.error.code === 'ERATELIMIT';
+  return ctx.shell.statePanel({
+    title: source.stale ? _('Каталог показан из последнего сохранённого состояния') : _('Каталог upstream недоступен'),
+    message: source.stale ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') :
+      (limited ? _('GitHub временно ограничил запросы. Установленное состояние движка не изменено.') : _('Установленное состояние движка сохранено; повторите проверку позже.')),
+    kind: source.stale ? 'info' : 'error'
+  });
+}
+
 function versionKey(value) {
   return String(value || '').replace(/^v/, '').split('.').map(function (part) {
     var parsed = parseInt(part, 10);
@@ -270,6 +282,7 @@ function build(ctx, state) {
   }
 
   return E('div', { 'class': 'z2m-engine-pane' }, [
+    catalogSourcePanel(ctx, state),
     statePanel,
     ctx.shell.panel(_('Официальный движок zapret2'), [
       E('div', { 'class': 'z2m-btnrow z2m-engine-actions' }, buttons),

@@ -7,8 +7,10 @@ const source = fs.readFileSync(
   'utf8'
 );
 
-test('Engine release reads use a bounded cache while checks reject stale fallback', () => {
-  assert.match(source, /RELEASE_CACHE_TTL\s*=\s*600/);
+test('Engine release reads use the shared bounded cache while checks reject stale fallback', () => {
+  assert.match(source, /ttlSec:\s*600/);
+  assert.match(source, /update_source\.update_source_browse/);
+  assert.match(source, /update_source\.update_source_fresh/);
   assert.match(source, /cacheHit/);
   assert.match(source, /allowStale: true/);
   assert.match(source, /allowStale: false/);
