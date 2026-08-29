@@ -40,6 +40,31 @@ case "$mode" in
 		printf '%s' '[]' > "$output"
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
+	z2k_catalog)
+		printf '%s' '[{"ref":"refs/tags/r-80.3","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}},{"ref":"refs/tags/r-79.7","object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"commit"}}]' > "$output"
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
+	z2k_selected)
+		case "$url" in
+			*/git/refs/tags\?per_page=100)
+				printf '%s' '[{"ref":"refs/tags/r-80.3","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}},{"ref":"refs/tags/r-79.7","object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"commit"}}]' > "$output"
+				;;
+			*/git/ref/tags/r-80.3)
+				printf '%s' '{"ref":"refs/tags/r-80.3","object":{"sha":"cccccccccccccccccccccccccccccccccccccccc","type":"commit"}}' > "$output"
+				;;
+			*/UPDATES.json)
+				printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":1,"current":"r-80.3","files_sha256":{"files/lua/example.lua":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}' > "$output"
+				;;
+			*)
+				printf '%s' '{}' > "$output"
+				;;
+		esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
+	z2k_compare)
+		printf '%s' '{"total_commits":1,"commits":[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","commit":{"message":"update files/lua/z2k-alert.lua"}}],"files":[{"filename":"files/lua/z2k-alert.lua","status":"modified"}]}' > "$output"
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
 	rate)
 		: > "$output"
 		printf '%s' "{\"status\":403,\"headers\":{\"x-ratelimit-limit\":\"60\",\"x-ratelimit-remaining\":\"0\",\"x-ratelimit-reset\":\"${Z2M_FIXTURE_RESET_AT:-4102444800}\"}}" > "$meta"
@@ -48,6 +73,15 @@ case "$mode" in
 		: > "$output"
 		printf '%s\n' 'HTTP/1.1 403 Forbidden' >&2
 		exit 22
+		;;
+	forbidden)
+		: > "$output"
+		printf '%s' '{"status":403}' > "$meta"
+		;;
+	http_error_429)
+		: > "$output"
+		printf '%s\n' 'HTTP error 429' >&2
+		exit 8
 		;;
 	timeout)
 		: > "$output"

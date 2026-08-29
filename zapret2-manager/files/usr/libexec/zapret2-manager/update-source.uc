@@ -61,10 +61,12 @@ function safe_url(value) {
 	return type(value) == 'string' && length(value) <= 2048 && match(value, /^https:\/\/.+$/) &&
 		index(value, ' ') < 0 && index(value, '\t') < 0 && index(value, '\n') < 0 && index(value, '\r') < 0;
 }
+function valid_digest(value) { return value == null || (type(value) == 'string' && match(value, /^[a-f0-9]{64}$/)); }
 function valid_input(input) {
 	return object(input) && safe_source(input.sourceKey) && safe_origin(input.origin) && safe_url(input.url) &&
 		(type(input.validate) == 'function') &&
-		(input.ttlSec == null || (type(input.ttlSec) == 'int' && input.ttlSec >= 0 && input.ttlSec <= MAX_TTL));
+		(input.ttlSec == null || (type(input.ttlSec) == 'int' && input.ttlSec >= 0 && input.ttlSec <= MAX_TTL)) &&
+		(input.maxBytes == null || (type(input.maxBytes) == 'int' && input.maxBytes >= 2 && input.maxBytes <= MAX_METADATA));
 }
 function ttl(input) { return input.ttlSec == null ? DEFAULT_TTL : input.ttlSec; }
 function identity(input) { return input.sourceKey + '\n' + input.origin + '\n' + input.url; }
@@ -121,7 +123,7 @@ function cache_read(input) {
 	let path = cache_path(input), value = path == null ? null : read_json(path, null);
 	if (!object(value) || value.schemaVersion != SCHEMA_VERSION || value.sourceKey != input.sourceKey ||
 		value.origin != input.origin || value.url != input.url || type(value.fetchedAt) != 'int' ||
-		type(value.validatedAt) != 'int' || value.payload == null) return null;
+		type(value.validatedAt) != 'int' || value.payload == null || !valid_digest(value.contentSha256)) return null;
 	let checked = callback_validation(input, value.payload);
 	if (!checked.ok) return null;
 	value.payload = checked.payload;
@@ -165,6 +167,8 @@ function integer_header(meta, wanted) {
 function inferred_status(output) {
 	let found = match(output || '', /HTTP\/[0-9.]+[^0-9]+([0-9]{3})/);
 	if (found != null) return +found[1];
+	found = match(output || '', /HTTP error[^0-9]+([0-9]{3})/i);
+	if (found != null) return +found[1];
 	found = match(output || '', /(status|code)[^0-9]+([0-9]{3})/);
 	return found != null ? +found[2] : 0;
 }
@@ -179,19 +183,19 @@ function rate_active(origin, now) {
 function rate_update(input, response, now) {
 	let status = response.status, remaining = integer_header(response.meta, 'x-ratelimit-remaining');
 	let limit = integer_header(response.meta, 'x-ratelimit-limit'), reset = integer_header(response.meta, 'x-ratelimit-reset');
-	let limited = status == 403 || status == 429 || (remaining === 0 && reset != null && reset > now);
+	let limited = status == 429 || (status == 403 && remaining === 0) || (remaining === 0 && reset != null && reset > now);
 	let old = rate_read(input.origin), oldActive = old != null && old.limited === true && type(old.cooldownUntil) == 'int' && old.cooldownUntil > now;
 	let previousLimit = old && old.limit != null ? old.limit : null;
 	// A concurrent successful request must not clear a newer 403/429 cooldown
 	// for the same origin. The cooldown is shared across source keys.
 	if (!limited && oldActive) return old;
 	if (limit == null) limit = previousLimit;
-	if (limited && (reset == null || reset <= now)) reset = now + 60;
-	if (limited && oldActive && old.cooldownUntil > reset) reset = old.cooldownUntil;
+	let cooldownUntil = limited && reset != null && reset > now ? reset : (limited ? now + 60 : null);
+	if (limited && oldActive && old.cooldownUntil > cooldownUntil) cooldownUntil = old.cooldownUntil;
 	let value = {
 		schemaVersion: SCHEMA_VERSION, origin: input.origin, limited: limited,
 		limit: limit, remaining: remaining, resetAt: reset,
-		observedAt: now, cooldownUntil: limited ? reset : null,
+		observedAt: now, cooldownUntil: cooldownUntil,
 		reason: limited ? (status == 403 ? 'http-403-rate-limit' : 'http-429-rate-limit') : null
 	};
 	if (!ensure_dir(STATE_ROOT)) return value;
@@ -211,6 +215,7 @@ function cache_result(input, mode, entry, requestCount, lastAttemptAt, network) 
 		ok: true, mode: mode, sourceKey: input.sourceKey, origin: input.origin,
 		cacheState: state, stale: state == 'stale', network: network === true,
 		requestCount: requestCount, payload: entry ? entry.payload : null,
+		contentSha256: entry && entry.contentSha256 || null,
 		fetchedAt: entry ? entry.fetchedAt : null, validatedAt: entry ? entry.validatedAt : null,
 		lastSuccessAt: entry ? entry.validatedAt : status.lastSuccessAt || null,
 		lastAttemptAt: lastAttemptAt || status.lastAttemptAt || null,
@@ -224,6 +229,7 @@ function unavailable(input, mode, entry, requestCount, error, lastAttemptAt) {
 		ok: false, mode: mode, sourceKey: input.sourceKey, origin: input.origin,
 		cacheState: state, stale: state == 'stale', network: requestCount > 0,
 		requestCount: requestCount, payload: mode == 'fresh' ? null : (entry ? entry.payload : null),
+		contentSha256: mode == 'fresh' ? null : (entry && entry.contentSha256 || null),
 		fetchedAt: entry ? entry.fetchedAt : null, validatedAt: entry ? entry.validatedAt : null,
 		lastSuccessAt: entry ? entry.validatedAt : status.lastSuccessAt || null,
 		lastAttemptAt: lastAttemptAt || status.lastAttemptAt || null,
@@ -236,11 +242,11 @@ function transport(input, file, existing) {
 	if (transportPath != null && transportPath != '')
 		result = run('sh ' + quote(transportPath) + ' ' + quote(input.url) + ' ' + quote(file));
 	else {
-		command = 'ulimit -f 8192; uclient-fetch -q -T 20 --user-agent zapret2-manager/update-source';
+		command = 'ulimit -f 8192; uclient-fetch -T 20 --user-agent zapret2-manager/update-source';
 		if (existing != null && existing.etag != null)
-			command += ' -H ' + quote('If-None-Match: ' + existing.etag);
+			command += ' --header=' + quote('If-None-Match: ' + existing.etag);
 		if (existing != null && existing.lastModified != null)
-			command += ' -H ' + quote('If-Modified-Since: ' + existing.lastModified);
+			command += ' --header=' + quote('If-Modified-Since: ' + existing.lastModified);
 		command += ' -O ' + quote(file) + ' ' + quote(input.url);
 		result = run(command);
 	}
@@ -254,13 +260,15 @@ function fetch_validated(input, existing) {
 	if (file == null) return { ok: false, error: { code: 'EIO', message: 'Metadata staging is unavailable.' }, response: { status: 0, meta: null } };
 	let response = transport(input, file, existing), now = current_time();
 	rate_update(input, response, now);
-	let limited = response.status == 403 || response.status == 429 || rate_active(input.origin, now) != null;
+	let limited = rate_active(input.origin, now) != null;
 	if (response.status == 304) {
 		try { unlink(file); } catch (e) { }
-		if (existing != null) return { ok: true, payload: existing.payload, status: response.status, meta: response.meta };
+		if (existing != null) return { ok: true, payload: existing.payload, contentSha256: existing.contentSha256 || null, status: response.status, meta: response.meta };
 		return { ok: false, error: { code: 'EMETADATA', message: 'HTTP 304 arrived without a last-known-good payload.' }, response: response };
 	}
-	let info = stat(file), raw = info != null && info.size >= 2 && info.size <= MAX_METADATA ? readfile(file) : null;
+	let maxBytes = input.maxBytes == null ? MAX_METADATA : input.maxBytes;
+	let info = stat(file), raw = info != null && info.size >= 2 && info.size <= maxBytes ? readfile(file) : null;
+	let contentSha256 = raw == null ? null : digest(raw);
 	try { unlink(file); } catch (e) { }
 	if (limited) return { ok: false, error: { code: 'ERATELIMIT', message: 'Remote update metadata is rate-limited.' }, response: response };
 	if (response.rc != 0 || response.status < 200 || response.status >= 300 || raw == null)
@@ -269,13 +277,15 @@ function fetch_validated(input, existing) {
 	try { parsed = json(raw); } catch (e) { return { ok: false, error: { code: 'EMETADATA', message: 'Remote update metadata is malformed.' }, response: response }; }
 	let checked = callback_validation(input, parsed);
 	if (!checked.ok) return { ok: false, error: checked.error, response: response };
-	return { ok: true, payload: checked.payload, status: response.status, meta: response.meta };
+	return { ok: true, payload: checked.payload, contentSha256: contentSha256, status: response.status, meta: response.meta };
 }
 function save_lkg(input, payload, response, now, previous) {
 	let path = cache_path(input);
 	if (path == null || !ensure_dir(CACHE_ROOT)) return false;
 	let value = { schemaVersion: SCHEMA_VERSION, sourceKey: input.sourceKey, origin: input.origin,
 		url: input.url, fetchedAt: now, validatedAt: now, revision: nonce(), payload: payload };
+	if (response.contentSha256 != null) value.contentSha256 = response.contentSha256;
+	else if (previous != null && previous.contentSha256 != null) value.contentSha256 = previous.contentSha256;
 	let etag = header(response.meta, 'etag'), modified = header(response.meta, 'last-modified');
 	if (etag == null && previous != null && previous.etag != null) etag = previous.etag;
 	if (modified == null && previous != null && previous.lastModified != null) modified = previous.lastModified;
@@ -327,7 +337,7 @@ function network_once(input, mode, initial) {
 				status_write(input, { lastAttemptAt: attemptAt, lastErrorClass: saveError.code });
 				output = unavailable(input, mode, afterLock || existing, fetched, saveError, attemptAt);
 			} else {
-				let entry = cache_read(input);
+			let entry = cache_read(input);
 				status_write(input, { lastAttemptAt: attemptAt, lastSuccessAt: savedAt, lastErrorClass: null });
 				output = cache_result(input, mode, entry, fetched, attemptAt, true);
 			}
@@ -355,13 +365,13 @@ function fresh(input) {
 }
 function source_status(input) {
 	if (!valid_input(input)) return fail('EINPUT', 'Invalid update-source request.');
-	let entry = cache_read(input), now = current_time(), state = cache_state(input, entry, now), status = status_read(input), rate = rate_read(input);
+	let entry = cache_read(input), now = current_time(), state = cache_state(input, entry, now), status = status_read(input), activeRate = rate_active(input.origin, now);
 	return { ok: true, sourceKey: input.sourceKey, origin: input.origin, url: input.url,
 		cacheState: state, stale: state == 'stale', fetchedAt: entry ? entry.fetchedAt : null,
 		validatedAt: entry ? entry.validatedAt : null, lastSuccessAt: entry ? entry.validatedAt : status.lastSuccessAt || null,
 		lastAttemptAt: status.lastAttemptAt || null, lastErrorClass: status.lastErrorClass || null,
-		cooldown: rate_active(input.origin, now) != null ? { limited: true, cooldownUntil: rate.cooldownUntil,
-			limit: rate.limit, remaining: rate.remaining, resetAt: rate.resetAt, reason: rate.reason } : { limited: false },
+		cooldown: activeRate != null ? { limited: true, cooldownUntil: activeRate.cooldownUntil,
+			limit: activeRate.limit, remaining: activeRate.remaining, resetAt: activeRate.resetAt, reason: activeRate.reason } : { limited: false },
 		payloadAvailable: entry != null };
 }
 

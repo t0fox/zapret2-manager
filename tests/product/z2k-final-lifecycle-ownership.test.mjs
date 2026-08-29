@@ -126,7 +126,9 @@ test('prepared lifecycle operation is consumed before downloads and cannot be re
 test('selected fresh resolver reports bounded REST requests separately from raw manifest fetch', () => {
   assert.match(versions, /REST_REQUEST_COUNT/);
   assert.match(versions, /network_diagnostics\(['"]selected-tag['"]\)/);
-  assert.match(versions, /fetch_text\(url, MAX_MANIFEST, ['"]z2m-z2k-manifest['"], false\)/);
+  assert.match(versions, /source_request\('z2k:' \+ REPOSITORY \+ ':manifest:' \+ lc\(commitSha\), ['"]raw-content['"],[\s\S]{0,180}MAX_MANIFEST/);
+  assert.match(versions, /update_source\.update_source_fresh/);
+  assert.match(versions, /contentSha256/);
   assert.match(versions, /restRequestCount: REST_REQUEST_COUNT/);
   assert.match(coordinator, /diagnostics: resolved\.diagnostics/);
 });

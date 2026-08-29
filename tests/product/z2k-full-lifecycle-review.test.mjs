@@ -316,15 +316,17 @@ test('12. release diff compares the actual previous upstream release', () => {
   assert.match(versions, /releaseChanges/);
 });
 
-test('13. human changelog uses the compact Git commit endpoint', () => {
+test('13. human changelog uses immutable manifest history without a Git commit endpoint', () => {
   assert.match(versions, /manifest_body\(checked\.manifest, version\)/);
-  assert.match(versions, /\/git\/commits\//);
+  assert.match(versions, /function manifest_body\s*\([\s\S]{0,180}manifest\.history/);
+  assert.doesNotMatch(versions, /\/git\/commits\//);
   assert.doesNotMatch(versions, /API_ROOT\s*\+\s*['"]\/commits\//);
 });
 
-test('14. catalog cache stays in volatile storage and has a TTL', () => {
-  assert.match(versions, /CACHE_FILE\s*=\s*['"]\/tmp\//);
-  assert.match(versions, /CACHE_TTL|cache.*ttl|cachedAt/);
+test('14. catalog cache uses the shared volatile coordinator and has a TTL', () => {
+  assert.match(versions, /source_request\('z2k:' \+ REPOSITORY \+ ':catalog'/);
+  assert.match(versions, /ttlSec:\s*900/);
+  assert.match(versions, /update_source\.update_source_browse/);
   assert.doesNotMatch(versions, /CACHE_FILE\s*=\s*['"]\/etc\//);
 });
 

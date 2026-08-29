@@ -72,3 +72,10 @@ test('browse metadata has no flash-backed write path', () => {
   assert.match(ENGINE, /CACHE = '\/etc\/zapret2-manager\/engine-cache'/);
   assert.doesNotMatch(ENGINE, /RELEASE_CACHE|release-catalog\.json/);
 });
+
+test('production uclient transport uses its supported conditional-header flag', () => {
+  assert.match(COORDINATOR, /--header=/);
+  assert.doesNotMatch(COORDINATOR, /\s-H\s/);
+  assert.doesNotMatch(COORDINATOR, /uclient-fetch -q/);
+  assert.match(COORDINATOR, /HTTP error/);
+});

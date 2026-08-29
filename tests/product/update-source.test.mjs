@@ -104,6 +104,7 @@ test('browse fetches cold metadata once and warm browse performs zero network re
   const warm = call(s, 'update_source_browse', input, { Z2M_FIXTURE_MODE: 'error' });
   assert.equal(cold.ok, true, JSON.stringify(cold));
   assert.equal(cold.cacheState, 'fresh');
+  assert.match(cold.contentSha256, /^[a-f0-9]{64}$/);
   assert.equal(warm.ok, true, JSON.stringify(warm));
   assert.equal(warm.cacheState, 'fresh');
   assert.equal(warm.requestCount, 0);
@@ -170,6 +171,26 @@ test('rate-limited GitHub REST keeps LKG for browse and blocks refresh/fresh dur
   assert.equal(requestCount(s), 2);
 });
 
+test('source status projects the active origin cooldown without a network request', () => {
+  const s = sandbox();
+  const input = fixtureInput();
+  const limited = call(s, 'update_source_refresh', input, {
+    Z2M_UPDATE_SOURCE_NOW: '1000',
+    Z2M_FIXTURE_MODE: 'rate',
+    Z2M_FIXTURE_RESET_AT: '4102444800',
+  });
+  const beforeStatus = requestCount(s);
+  const status = call(s, 'update_source_status', input, { Z2M_UPDATE_SOURCE_NOW: '1000' });
+  assert.equal(limited.error.code, 'ERATELIMIT');
+  assert.equal(status.ok, true, JSON.stringify(status));
+  assert.equal(status.cooldown.limited, true, JSON.stringify(status));
+  assert.equal(status.cooldown.remaining, 0, JSON.stringify(status));
+  assert.equal(status.cooldown.resetAt, 4102444800, JSON.stringify(status));
+  assert.equal(status.cooldown.cooldownUntil, 4102444800, JSON.stringify(status));
+  assert.equal(status.cooldown.reason, 'http-403-rate-limit', JSON.stringify(status));
+  assert.equal(requestCount(s), beforeStatus);
+});
+
 test('stale browse may serve LKG but fresh never authorizes stale metadata', () => {
   const s = sandbox();
   const input = fixtureInput();
@@ -202,17 +223,53 @@ test('rate-limited source without LKG fails closed and does not retry during coo
   assert.equal(requestCount(s), 1);
 });
 
-test('rate-limit status inferred from transport diagnostics enters the origin cooldown', () => {
+test('generic 403 without explicit rate-limit evidence is not classified as cooldown', () => {
   const s = sandbox();
   const input = fixtureInput();
   const first = call(s, 'update_source_refresh', input, { Z2M_FIXTURE_MODE: 'rate_inferred' });
   const blocked = call(s, 'update_source_browse', input, { Z2M_FIXTURE_MODE: 'ok' });
   assert.equal(first.ok, false);
+  assert.equal(first.error.code, 'EHTTP');
+  assert.equal(blocked.ok, true, JSON.stringify(blocked));
+  assert.equal(blocked.payload.kind, 'fixture');
+  assert.equal(blocked.requestCount, 1);
+	assert.equal(requestCount(s), 2);
+});
+
+test('403 with remaining zero is explicit rate-limit evidence', () => {
+  const s = sandbox();
+  const input = fixtureInput();
+  const first = call(s, 'update_source_refresh', input, {
+    Z2M_UPDATE_SOURCE_NOW: '1000',
+    Z2M_FIXTURE_MODE: 'rate',
+    Z2M_FIXTURE_RESET_AT: '4102444800',
+  });
+  const status = call(s, 'update_source_status', input, { Z2M_UPDATE_SOURCE_NOW: '1000' });
   assert.equal(first.error.code, 'ERATELIMIT');
-  assert.equal(blocked.ok, false);
-  assert.equal(blocked.error.code, 'ERATELIMIT');
-  assert.equal(blocked.requestCount, 0);
-	assert.equal(requestCount(s), 1);
+  assert.equal(status.cooldown.limited, true, JSON.stringify(status));
+  assert.equal(status.cooldown.remaining, 0);
+});
+
+test('403 with no rate headers remains an ordinary HTTP failure', () => {
+  const s = sandbox();
+  const input = fixtureInput();
+  const first = call(s, 'update_source_refresh', input, { Z2M_FIXTURE_MODE: 'forbidden' });
+  const status = call(s, 'update_source_status', input);
+  assert.equal(first.ok, false);
+  assert.equal(first.error.code, 'EHTTP');
+  assert.equal(status.cooldown.limited, false, JSON.stringify(status));
+});
+
+test('explicit HTTP 429 diagnostic enters cooldown even without response headers', () => {
+  const s = sandbox();
+  const input = fixtureInput();
+  const first = call(s, 'update_source_refresh', input, { Z2M_FIXTURE_MODE: 'http_error_429' });
+  const status = call(s, 'update_source_status', input);
+  assert.equal(first.ok, false);
+  assert.equal(first.error.code, 'ERATELIMIT');
+  assert.equal(status.cooldown.limited, true, JSON.stringify(status));
+  assert.equal(status.cooldown.remaining, null);
+  assert.equal(status.cooldown.resetAt, null);
 });
 
 test('transport timeout is one bounded network attempt and fails closed without LKG', () => {

@@ -2,6 +2,7 @@
 import { readfile, stat, unlink, popen } from 'fs';
 import { asset_registry_list } from './asset-registry.uc';
 import { z2k_candidate_gate, z2k_state_persist_compat_raw } from './z2k-compat.uc';
+import * as update_source from './update-source.uc';
 
 const MANIFEST_URL = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json';
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
@@ -121,14 +122,11 @@ function plan(value) {
 	return plan_result(checked.manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons);
 }
 function fetch_untrusted_manifest_once() {
-	let mf = temp_file(); if (mf == null) return fail('EIO', 'Не удалось создать private Z2K staging file.');
-	let nonce = '' + time() + '-' + 0;
-	if (!fetch_file(source_url(MANIFEST_URL, nonce), mf)) { cleanup([mf]); return fail('EUNAVAILABLE', 'Не удалось получить UPDATES.json.'); }
-	let size = stat(mf), raw = readfile(mf), value = null;
-	try { value = json(raw); } catch (e) { cleanup([mf]); return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json не является JSON.'); }
-	let validated = validate_manifest(value, size && size.size); cleanup([mf]);
-	if (!validated.ok) return validated;
-	return { ok: true, manifest: validated.manifest, trustMode: 'allow-untrusted' };
+	let request = { sourceKey: 'z2k:necronicle/z2k:manifest:branch:z2k-enhanced', origin: 'raw-content', url: MANIFEST_URL, ttlSec: 900, maxBytes: MAX_MANIFEST,
+		validate: function(value) { return validate_manifest(value, length(sprintf('%J', value))); } };
+	let result = update_source.update_source_fresh(request);
+	if (result.ok !== true || result.payload == null) return fail(result.error && result.error.code || 'EUNAVAILABLE', 'Не удалось получить UPDATES.json.', { source: result.origin || 'raw-content' });
+	return { ok: true, manifest: result.payload, trustMode: 'allow-untrusted', contentSha256: result.contentSha256 || null };
 }
 function fetch_untrusted_manifest() {
 	// Kept for compat — single attempt. New check uses retry wrapper.

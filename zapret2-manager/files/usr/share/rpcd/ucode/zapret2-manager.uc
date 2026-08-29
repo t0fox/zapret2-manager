@@ -310,7 +310,7 @@ function resource_include_compare_arg(req) {
 	try { if (req && (req.includeCompare === true || req.includeCompare == 'compare')) return true; } catch (e) { }
 	return false;
 }
-function z2k_versions_method(req) { return resource_cli_action('versions'); }
+function z2k_versions_method(req) { let refresh = false; try { refresh = req && req.args && req.args.refresh === true; } catch (e) { } try { if (req && req.refresh === true) refresh = true; } catch (e) { } return resource_cli_action(refresh ? 'versions-refresh' : 'versions'); }
 function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version, resource_include_compare_arg(req) ? 'compare' : null); }
 function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare', version); }
 function resource_operation_arg(req) {
