@@ -1017,6 +1017,13 @@
       "candidateOnlyFailures": 0,
       "knownFailures": ["stale refresh-state assertion", "signed-manifest fixture", "upstream classification expectation", "missing WSL vitest dependency"]
     },
-    "verdict": "ready"
+    "verdict": "ready",
+    "delivery": {
+      "commit": "1926e8cddd74ccb243ae89bc5086ca5e9d013c31",
+      "branch": "codex/z2k-version-lifecycle",
+      "headEqualsRemote": true,
+      "worktreeClean": true,
+      "forcePush": false
+    }
   }
 }

@@ -223,6 +223,6 @@ Baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508`: `105 / 101 pass / 4 fail / 
 14. PASS. Fresh UI reinstall completed with `43` target assets and `0` removals.
 15. Yes. After each operation, the activation receipt, Registry membership, runtime bytes/postflight, and final Resources projection agree; final authority is `r-79.7`.
 16. Yes. Strategy identity, nfqws2 command line, rules, and autocircular state were preserved.
-17. Pending only until the final delivery command below; it must prove local `HEAD` equals `origin/codex/z2k-version-lifecycle`.
+17. PASS. Commit `1926e8cddd74ccb243ae89bc5086ca5e9d013c31` is pushed; local `HEAD` equals `origin/codex/z2k-version-lifecycle`, and the final worktree is clean.
 
 Final acceptance verdict before delivery: `Z2K VERSION LIFECYCLE READY`.

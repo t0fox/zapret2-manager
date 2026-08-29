@@ -139,3 +139,9 @@ Baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508`: `105` tests, `101` pass, `4
 Final adversarial answers Q1-Q17: Q1 no watchdog interference in the final transactions; Q2 yes, the pause contract was missing and is now explicit; Q3 no duplicate watchdog process; Q4 yes, pause spans intentional mutation, restart/readiness, rollback, and cleanup; Q5 yes, recovery remains enabled after the pause is released; Q6 no candidate crash remained once the guard and readiness path were fixed; Q7 the concrete defects were the bounded synchronous RPC transport, executable-mode invocation, Registry-vs-catalog byte-size postflight assumption, and txt-to-blob downgrade mapping, all covered by tests/fixes; Q8 rpcd is healthy and `resources_status` is readable; Q9 no reload is needed for the file-based coordinator worker path (one reload was used for RPC/ACL deployment and the process remained live); Q10 no staging leak remains; Q11 no candidate-only broad regression; Q12 upgrade PASS; Q13 downgrade PASS; Q14 reinstall PASS; Q15 receipt, Registry, runtime, and Resources agree after all three operations; Q16 Strategy/autocircular identity is preserved; Q17 delivery proof follows after commit/push.
 
 Final verdict: `Z2K VERSION LIFECYCLE READY`.
+
+## Delivery proof — 2026-08-29
+
+- Commit: `1926e8cddd74ccb243ae89bc5086ca5e9d013c31` (`fix: complete async z2k lifecycle transport`).
+- `git rev-parse HEAD` equals `git rev-parse origin/codex/z2k-version-lifecycle`.
+- Final worktree is clean.
