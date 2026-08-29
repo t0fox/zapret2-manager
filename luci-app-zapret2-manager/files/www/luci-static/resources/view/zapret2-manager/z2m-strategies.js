@@ -1516,6 +1516,8 @@ function bindWorkspaceResize(strategy) {
   var handle = modal.querySelector('.workspace-resize-handle'); if (!handle) { handle = document.createElement('button'); handle.type = 'button'; handle.className = 'workspace-resize-handle'; handle.title = 'Изменить размер рабочей области'; handle.setAttribute('aria-label', 'Изменить размер рабочей области'); handle.innerHTML = svgIcon('arrow-down', 12); modal.appendChild(handle); }
   var saved = null; try { saved = JSON.parse(localStorage.getItem(workspaceStorageKey(strategy)) || localStorage.getItem(legacyWorkspaceStorageKey(strategy)) || 'null'); } catch (_e) {}
   var geometry = Nfqws2Ide.migrateWorkspaceGeometry ? Nfqws2Ide.migrateWorkspaceGeometry(saved || {}, { width: window.innerWidth, height: window.innerHeight }) : Nfqws2Ide.clampWorkspace(saved || { width: modal.offsetWidth, height: modal.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
+  geometry.width = Math.min(geometry.width, Math.min(window.innerWidth - 32, 1280));
+  geometry.height = Math.min(geometry.height, Math.min(window.innerHeight - 32, 900));
   modal.style.width = geometry.width + 'px'; modal.style.height = geometry.height + 'px';
   var origin = null;
   function down(event) { event.preventDefault(); origin = { x: event.clientX, y: event.clientY, width: modal.offsetWidth, height: modal.offsetHeight }; document.addEventListener('mousemove', move); document.addEventListener('mouseup', up); }
