@@ -129,7 +129,9 @@ test('Z2K details render a bounded release selector and human changelog without 
 
   assert.equal(selects.length, 1);
   assert.equal(options.length, 3);
-  assert.ok(options.some(option => option.attrs.disabled), 'incompatible releases must be disabled');
+  const incompatible = options.find(option => option.attrs.value === 'r-79.7');
+  assert.ok(incompatible, 'incompatible release must remain selectable');
+  assert.equal(incompatible.attrs.disabled, undefined, 'only the action is disabled');
   assert.match(text, /Исправления списков и detector assets/);
   assert.doesNotMatch(text, /z2k-target-v2:|manifestSha256|targetCommitSha|planToken/);
 });
