@@ -32,7 +32,7 @@ test('release and install diffs are explicit and compare against different basel
   assert.match(source, /let installedManifest = null/);
   assert.match(source, /let releaseChangeSet = release_changes_between\(checked\.manifest, previousManifest\)/);
   assert.match(source, /installChangeSet = changes_between\(checked\.manifest, installedManifest, map\)/);
-  assert.match(source, /body = manifest_body\(checked\.manifest, version\) \|\| human_body\(metadata && metadata\.message\) \|\| \(releaseChangeSet\.known \? fallback_body\(releaseChangeSet\) : null\)/);
+  assert.match(source, /body = manifest_body\(checked\.manifest, version\) \|\| \(releaseChangeSet\.known \? fallback_body\(releaseChangeSet\) : null\)/);
   assert.match(source, /releaseChanges:/);
   assert.match(source, /installChanges:/);
 });
@@ -65,15 +65,16 @@ test('installChanges exposes grouped managed resource identities without replaci
 });
 
 test('transient tag resolution cannot poison a usable immutable catalog cache', () => {
-  assert.match(source, /read_cache\(\)/);
-  assert.match(source, /cached.*commitSha|commitSha.*cached/);
+  assert.match(source, /source_request\('z2k:' \+ REPOSITORY \+ ':catalog'/);
+  assert.match(source, /source_call\(request, mode/);
+  assert.match(source, /z2k_resolve_tag_fresh\s*\(/);
   assert.match(source, /stale/);
-  assert.doesNotMatch(source, /save_cache\(result\); return result;/);
+  assert.doesNotMatch(source, /function (?:read_cache|save_cache|cached_result)\s*\(/);
 });
 
 test('non-fresh catalog browse consumes warm volatile cache before network', () => {
-  assert.match(source, /function cached_result\s*\(/);
-  assert.match(source, /if \(!fresh && cached != null\) return cached_result\(cached, installed\)/);
-  assert.match(source, /diagnostics: \{ requestCount: REQUEST_COUNT, cache: 'warm'/);
+  assert.match(source, /mode = fresh \? 'fresh' : \(object\(options\) && options\.refresh === true \? 'refresh' : 'browse'\)/);
+  assert.match(source, /update_source\.update_source_browse/);
+  assert.match(source, /cache:\s*refs\.source && refs\.source\.cacheState/);
   assert.match(source, /z2k_resolve_tag_fresh\s*\(/);
 });

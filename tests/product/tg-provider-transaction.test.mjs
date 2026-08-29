@@ -164,6 +164,18 @@ for a in "$@"; do
 done
 # normalize out
 case "$url" in
+  *api.github.com*)
+    if [ "\${FAIL_UPSTREAM:-}" = "1" ]; then
+      printf '%s\n' 'HTTP/1.1 599 Upstream unavailable' >&2
+      exit 7
+    fi
+    if [ "\${INCOMPLETE_UPSTREAM:-}" = "1" ]; then
+      printf '%s\n' '[]' > "$out"
+      exit 0
+    fi
+    ;;
+esac
+case "$url" in
   *api.github.com*rust*|*api.github.com*valnesfjord*) cp "${feedDir}/releases-rust.json" "$out"; echo "${SHA_RS}" > "$out.sha" 2>/dev/null; exit 0 ;;
   *api.github.com*go*|*api.github.com*spatiumstas*) cp "${feedDir}/releases-go.json" "$out"; echo "${SHA_GO}" > "$out.sha" 2>/dev/null; exit 0 ;;
   *tg-ws-proxy-rs*|*aarch64-unknown-linux-musl.tar.gz*)
@@ -186,7 +198,7 @@ exit 0`);
   writeExecutable(path.join(bin, 'sha256sum'), `#!/bin/sh
 [ -f "$1" ] || exit 1
 if [ -f "$1.sha" ]; then cat "$1.sha" | tr -d '\\n'; printf "  %s\\n" "$1"; exit 0; fi
-echo "${SHA_RS}  $1"
+exec /usr/bin/sha256sum "$1"
 exit 0`);
 
   writeExecutable(path.join(bin, 'tar'), `#!/bin/sh
@@ -231,6 +243,10 @@ exit 0`);
     Z2M_TGPROVIDER_INIT: path.join(etcDir, 'init.d', 'tg-ws-proxy'),
     Z2M_TGPROVIDER_CONFIG: path.join(etcDir, 'tg-ws-proxy'),
     Z2M_TGPROVIDER_BINARY: path.join(dir, 'usr.bin.tg-ws-proxy'),
+    Z2M_UPDATE_SOURCE_CACHE_ROOT: path.join(tmpDir, 'update-cache'),
+    Z2M_UPDATE_SOURCE_STATE_ROOT: path.join(tmpDir, 'update-source'),
+    Z2M_UPDATE_SOURCE_LOCK_ROOT: path.join(tmpDir, 'update-locks'),
+    Z2M_UPDATE_SOURCE_TEST: '1',
     // The sandbox init stub stands in for the package-provided init; runtime
     // repair must not clobber it inside behavioral tests.
     Z2M_TGPROVIDER_NO_REPAIR: '1',
@@ -269,6 +285,90 @@ function callJson(env, fn, callExpr) {
     throw new Error('ucode failed:\n' + result.stderr + '\nstdout: ' + result.stdout);
   return JSON.parse(result.stdout);
 }
+
+test('TG versions use shared browse cache and expose every compatible release', (t) => {
+  const s = sandbox(t);
+  const first = callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  const afterFirst = fs.readFileSync(path.join(s.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length;
+  const second = callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  const afterSecond = fs.readFileSync(path.join(s.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length;
+  const rust = first.providers.find(row => row.provider === 'rust');
+  const go = first.providers.find(row => row.provider === 'go');
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(second.ok, true, JSON.stringify(second));
+  assert.equal(afterFirst, 2);
+  assert.equal(afterSecond, afterFirst);
+  assert.ok(rust.versions.some(row => row.version === '2.0.0'));
+  assert.ok(rust.versions.some(row => row.version === '1.9.0'));
+  assert.ok(go.versions.some(row => row.version === '0.9.3'));
+  assert.ok(go.versions.some(row => row.version === '0.9.4'));
+  assert.equal(rust.source.origin, 'github-rest');
+  assert.equal(go.source.origin, 'github-rest');
+  for (let i = 0; i < 10; i++) callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  const afterRepeatedWarm = fs.readFileSync(path.join(s.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length;
+  assert.equal(afterRepeatedWarm, 2);
+});
+
+test('TG mutation update check accepts an explicit mutation intent', (t) => {
+  const s = sandbox(t);
+  const answer = callJson(s.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'rust', version: '2.0.0', sourceId: 'official-github-release', intent: 'mutation' })`);
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.equal(answer.source.mode, 'fresh');
+});
+
+test('TG explicit refresh budgets one REST request per selected provider', (t) => {
+  const both = sandbox(t);
+  const rust = callJson(both.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'rust', intent: 'refresh' })`);
+  const go = callJson(both.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'go', intent: 'refresh' })`);
+  const bothRequests = fs.readFileSync(path.join(both.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length;
+  assert.equal(rust.ok, true, JSON.stringify(rust));
+  assert.equal(go.ok, true, JSON.stringify(go));
+  assert.equal(rust.source.mode, 'refresh');
+  assert.equal(go.source.mode, 'refresh');
+  assert.equal(bothRequests, 2);
+
+  const one = sandbox(t);
+  const selected = callJson(one.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'rust', intent: 'refresh' })`);
+  const oneRequest = fs.readFileSync(path.join(one.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length;
+  assert.equal(selected.ok, true, JSON.stringify(selected));
+  assert.equal(oneRequest, 1);
+});
+
+test('TG stale browse remains usable but mutation intent fails closed when fresh metadata is unavailable', (t) => {
+  const s = sandbox(t);
+  s.env.Z2M_UPDATE_SOURCE_NOW = '1000';
+  const initial = callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  s.env.Z2M_UPDATE_SOURCE_NOW = '1701';
+  s.env.FAIL_UPSTREAM = '1';
+  const mutation = callJson(s.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'rust', version: '2.0.0', sourceId: 'official-github-release', intent: 'mutation' })`);
+  const browse = callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  const rust = browse.providers.find(row => row.provider === 'rust');
+  assert.equal(initial.ok, true, JSON.stringify(initial));
+  assert.equal(mutation.ok, false);
+  assert.equal(mutation.error.code, 'EHTTP');
+  assert.equal(browse.ok, true, JSON.stringify(browse));
+  assert.equal(rust.source.stale, true);
+  assert.ok(rust.versions.some(row => row.version === '2.0.0'));
+  assert.equal(fs.readFileSync(path.join(s.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length, 3);
+});
+
+test('TG incomplete release metadata keeps the previous LKG', (t) => {
+  const s = sandbox(t);
+  s.env.Z2M_UPDATE_SOURCE_NOW = '1000';
+  const initial = callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  s.env.Z2M_UPDATE_SOURCE_NOW = '1701';
+  s.env.INCOMPLETE_UPSTREAM = '1';
+  const checked = callJson(s.env, 'proxy_provider_check_updates', `proxy_provider_check_updates({ provider: 'rust', intent: 'refresh' })`);
+  const browse = callJson(s.env, 'proxy_provider_versions', 'proxy_provider_versions()');
+  const rust = browse.providers.find(row => row.provider === 'rust');
+  assert.equal(initial.ok, true, JSON.stringify(initial));
+  assert.equal(checked.ok, false);
+  assert.equal(checked.error.code, 'EMETADATA');
+  assert.equal(browse.ok, true, JSON.stringify(browse));
+  assert.equal(rust.source.stale, true);
+  assert.ok(rust.versions.some(row => row.version === '2.0.0'));
+  assert.equal(fs.readFileSync(path.join(s.dir, 'fetch.log'), 'utf8').split('\n').filter(line => line.includes('api.github.com')).length, 3);
+});
 
 // ------------------------------------------------------------------
 // Clean Rust install

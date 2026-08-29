@@ -291,8 +291,9 @@ test('compare browse is optional and cannot affect lifecycle planning', () => {
 test('compare evidence uses one aggregate transport and no per-resource REST endpoint', () => {
   const compareFetcher = source.slice(source.indexOf('function fetch_compare_page'), source.indexOf('function fetch_manifest'));
   assert.ok(compareFetcher.length > 0);
-  assert.equal((compareFetcher.match(/fetch_text\(/g) || []).length, 1);
+  assert.equal((compareFetcher.match(/source_call\(request, ['"]browse['"]\)/g) || []).length, 1);
+  assert.match(compareFetcher, /source_request\('z2k:' \+ REPOSITORY \+ ':compare:'/);
   assert.doesNotMatch(compareFetcher, /\/commits\/|\/contents\/|\/git\/blobs/);
-  assert.match(source, /mkdir .*compare|compare_lock_file/);
-  assert.match(source, /for \(let i = 0; i < 5/);
+  assert.match(source, /mkdir -p .*COMPARE_CACHE_DIR/);
+  assert.match(source, /page <= 3/);
 });

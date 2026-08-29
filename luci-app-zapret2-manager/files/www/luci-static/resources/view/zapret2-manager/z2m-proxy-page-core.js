@@ -135,19 +135,7 @@ function load(ctx) {
       providerOperation: settled(results[8], ctx.api),
       providerUpdates: { value: {} }
     };
-    var providers = ['rust', 'go'];
-    return Promise.all(providers.map(function (id) {
-      return boundedLoad(ctx.api.tg.product.checkUpdates({ provider: id }), _('проверки обновлений Telegram Proxy') + ' ' + id).then(function (answer) {
-        return { id: id, answer: answer };
-      }).catch(function (error) {
-        return { id: id, answer: { ok: false, error: ctx.api.normalizeError(error) } };
-      });
-    })).then(function (updates) {
-      var map = {};
-      updates.forEach(function (item) { map[item.id] = item.answer; });
-      base.providerUpdates = { value: map };
-      return base;
-    });
+    return base;
   });
 }
 function appliedConfig(data) {
@@ -872,6 +860,8 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   var preflight = array(object(data.providerPreflight && data.providerPreflight.value).providers)
     .filter(function (item) { return item && item.provider === provider.id; })[0] || {};
   var choices = choicesForProvider(data, provider.id);
+  var versionRow = providerVersions(data).filter(function (item) { return item && item.id === provider.id; })[0] || {};
+  var source = object(versionRow.source);
   var selection = state.tgSelections[provider.id] || {};
   var first = choices[0] || {};
   var selected = candidateForVersion(choices, selection.version || first.version);
@@ -907,6 +897,8 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   var unavailableReason = preflight.available === false ? (preflight.reason || _('Провайдер недоступен для этого устройства.')) :
     updateCheckFailed ? _('Не удалось проверить обновления. Повторите попытку позже — проверьте подключение роутера к сети.') :
     selected.version && selected.installable === false ? (selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна для устройства.')) : null;
+  var sourceNotice = source.stale ? E('div', { 'class': 'z2m-proxy-provider-alert' }, _('Показаны последние сохранённые данные upstream; обновите проверку, чтобы подтвердить свежую версию.')) :
+    source.error ? E('div', { 'class': 'z2m-proxy-provider-alert' }, source.error.code === 'ERATELIMIT' ? _('Upstream временно ограничил запросы; локальные данные и установленная версия сохранены.') : _('Удалённые версии временно недоступны; установленная версия и локальное состояние сохранены.')) : null;
   var versionSelect = choices.length > 1 ? E('select', { 'aria-label': _('Версия'), value: selected.version || '', change: function (event) {
     var next = candidateForVersion(choices, event.target.value);
     state.tgSelections[provider.id] = { sourceId: next.sourceId, version: next.version };
@@ -927,7 +919,7 @@ function providerCard(ctx, data, provider, status, releasePanel) {
       var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
       function start() {
         state.busy = 'provider-install';
-        ctx.api.tg.product.checkUpdates(request).then(function (check) {
+        ctx.api.tg.product.checkUpdates({ provider: request.provider, sourceId: request.sourceId, version: request.version, intent: 'mutation' }).then(function (check) {
           if (!check || check.ok === false || !check.checkToken) throw check && check.error || new Error(_('Выбранная версия не прошла проверку.'));
           return ctx.api.tg.product.switch({ provider: provider.id, version: liveCandidate.version, checkToken: check.checkToken });
         }).then(function (answer) {
@@ -959,6 +951,7 @@ function providerCard(ctx, data, provider, status, releasePanel) {
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя')), E('strong', {}, display(latest.displayVersion || latest.version))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect])
       ]),
+      sourceNotice,
       unavailableReason ? E('div', { 'class': 'z2m-proxy-provider-alert' }, [
         E('div', {}, '⚠ ' + _('Эта версия недоступна для устройства')),
         E('div', { 'class': 'z2m-proxy-provider-alert-reason' }, unavailableReason)
@@ -1015,14 +1008,21 @@ function installPane(ctx, data) {
   var initialChoices = initialProvider ? choicesForProvider(data, initialProvider.id) : [];
   var initialVersion = state.tgSelectedRelease && state.tgSelectedRelease.provider === (initialProvider || {}).id ? state.tgSelectedRelease.version : (initialChoices[0] || {}).version;
   releasePanel.update(initialProvider || { id: '', title: _('Telegram Proxy') }, candidateForVersion(initialChoices, initialVersion));
-  // Manual fresh check on demand; the automatic check still runs on load.
+  // Manual refresh is explicit; ordinary page load remains browse-only.
   var checking = state.tgCheckingUpdates === true;
   var checkedJustNow = state.tgCheckedAt && (Date.now() - state.tgCheckedAt) < 5000;
   function checkUpdatesNow() {
     if (state.tgCheckingUpdates) return;
     state.tgCheckingUpdates = true;
     ctx.root.replaceChildren(render(ctx));
-    ctx.refresh('proxy').then(function () {
+    Promise.all(['rust', 'go'].map(function (id) {
+      return boundedLoad(ctx.api.tg.product.checkUpdates({ provider: id }), _('проверки обновлений Telegram Proxy') + ' ' + id).then(function (answer) {
+        if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Не удалось проверить обновления.'));
+        return answer;
+      });
+    })).then(function () {
+      return ctx.refresh('proxy');
+    }).then(function () {
       state.tgCheckingUpdates = false;
       state.tgCheckedAt = Date.now();
       ctx.root.replaceChildren(render(ctx));

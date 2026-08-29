@@ -119,9 +119,11 @@ export const tg_product_versions = function () {
 				trustMode: item.trustMode, releaseName: item.releaseName, releaseBody: item.releaseBody,
 				releaseUrl: item.releaseUrl, publishedAt: item.publishedAt, assetName: item.assetName,
 				assetSha256: item.assetSha256, assetSize: item.assetSize, installMode: item.installMode,
-				unavailableReason: item.unavailableReason });
+				unavailableReason: item.unavailableReason, tag: item.tag, releaseId: item.releaseId,
+				draft: item.draft === true, prerelease: item.prerelease === true });
 		}
-		push(rows, { id: row.id, provider: row.provider, versions: versions, latest: row.latest });
+		push(rows, { id: row.id, provider: row.provider, versions: versions, latest: row.latest,
+			source: row.source, error: row.error });
 	}
 	return { ok: source.ok === true, optional: true, latestOnly: false, architecture: source.architecture, providers: rows };
 };

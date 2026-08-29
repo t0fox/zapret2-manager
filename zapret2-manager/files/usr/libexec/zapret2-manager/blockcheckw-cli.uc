@@ -4,6 +4,7 @@ import { readfile, writefile, stat, unlink, popen, lsdir, readlink, open } from 
 import * as model from './blockcheckw-model.uc';
 import * as model_b2 from './blockcheck2-model.uc';
 import * as catalog from './strategy-catalog.uc';
+import * as update_source from './update-source.uc';
 
 const ROOT = '/tmp/zapret2-manager/jobs';
 const RUNNER = '/usr/libexec/zapret2-manager/blockcheckw-run.sh';
@@ -66,10 +67,43 @@ function pub(job) {
 function error(code, message) { return { ok: false, error: { code: code, message: message } }; }
 function request(input) { let value = object(input) ? input : {}; let copy = {}; for (let key in value) copy[key] = value[key]; if (copy.engine == 'status' && copy.domain_list == null) copy.domain_list = copy.domains; if (copy.engine == 'universal' && copy.domain_list == null) copy.domain_list = copy.domains; return model.blockcheckw_request_validate(copy); }
 function provider() { let pathValue = binary(), nfq = stat('/opt/zapret2/nfq2/nfqws2') || stat('/opt/zapret2/nfqws2') ? true : false; return { ok: true, provider: 'blockcheckw', installed: pathValue != null, installedVersion: pathValue ? version(pathValue) : null, latestVersion: null, latestCompatibleVersion: null, selectedVersion: pathValue ? version(pathValue) : null, compatibility: pathValue == null ? 'UNKNOWN' : (nfq ? 'VERIFIED' : 'INCOMPATIBLE'), dependency: { nfqws2: nfq, status: nfq ? 'present' : 'missing' }, binary: pathValue, candidates: CANDIDATES, updatePolicy: 'manual-only', upstream: { repository: 'rcd27/blockcheckw', revision: 'd6f96719a6d555304aa565cd820699ef1de9515f' } }; }
-function latest_release() { let raw = run('uclient-fetch -q -O - https://api.github.com/repos/rcd27/blockcheckw/releases/latest'), value = null; try { value = raw ? json(raw) : null; } catch (e) { value = null; } return object(value) && type(value.tag_name) == 'string' && match(value.tag_name, /^v[0-9]+\.[0-9]+\.[0-9]+$/) ? value.tag_name : null; }
-export const blockcheckw_provider_status = function() { return provider(); };
-export const blockcheckw_update_check = function() { let value = provider(), latest = latest_release(); value.latestVersion = latest; value.latestCompatibleVersion = latest; value.updateCheck = latest == null ? { state: 'UNKNOWN', source: 'github-releases-api' } : { state: 'VERIFIED', source: 'github-releases-api' }; return value; };
-export const blockcheckw_install = function(input) { let value = object(input) ? input : {}; if (type(value.version) != 'string' || !match(value.version, /^v[0-9]+\.[0-9]+\.[0-9]+$/)) return error('EINPUT', 'version must be an explicit upstream release tag'); if (!stat(INSTALLER)) return error('EDEPENDENCY', 'BlockCheckW installer is unavailable'); let out = run(quote(INSTALLER) + ' ' + quote(value.version)), result = null; try { result = out ? json(out) : null; } catch (e) { result = null; } return object(result) ? result : error('EIO', 'BlockCheckW installer returned malformed output'); };
+const BLOCKCHECKW_UPDATE_URL = 'https://api.github.com/repos/rcd27/blockcheckw/releases/latest';
+function metadata_request() {
+	return { sourceKey: 'blockcheckw:rcd27/blockcheckw:arch=all:endpoint=latest-release', origin: 'github-rest',
+		url: BLOCKCHECKW_UPDATE_URL, ttlSec: 600,
+		validate: function(value) { return object(value) && type(value.tag_name) == 'string' && match(value.tag_name, /^v[0-9]+\.[0-9]+\.[0-9]+$/) != null; } };
+}
+function source_public(value, mode) {
+	return value == null ? null : { mode: mode || value.mode || null, sourceKey: value.sourceKey || null,
+		origin: value.origin || null, cacheState: value.cacheState || 'miss', stale: value.stale === true,
+		fetchedAt: value.fetchedAt || null, validatedAt: value.validatedAt || null,
+		lastSuccessAt: value.lastSuccessAt || null, lastAttemptAt: value.lastAttemptAt || null,
+		lastErrorClass: value.lastErrorClass || null,
+		requestCount: value.requestCount || 0, network: value.network === true,
+		cooldown: value.cooldown || null, error: value.error || null };
+}
+function latest_release(mode) {
+	let request = metadata_request(), result = mode == 'fresh' ? update_source.update_source_fresh(request)
+		: mode == 'refresh' ? update_source.update_source_refresh(request) : update_source.update_source_browse(request);
+	return { ok: result.ok === true, version: result.ok === true ? result.payload.tag_name : null,
+		source: source_public(result, mode), error: result.error };
+}
+function with_latest(value, mode) {
+	let latest = latest_release(mode);
+	value.latestVersion = latest.ok ? latest.version : null;
+	value.latestCompatibleVersion = latest.ok ? latest.version : null;
+	value.updateCheck = latest.ok ? {
+		state: latest.source.stale ? 'STALE' : 'VERIFIED', source: 'update-source', mode: mode,
+		stale: latest.source.stale === true, lastSuccessAt: latest.source.lastSuccessAt || null,
+		sourceKey: latest.source.sourceKey
+	} : { state: 'UNKNOWN', source: 'update-source', mode: mode, stale: false, error: latest.error || null, sourceKey: latest.source ? latest.source.sourceKey : null };
+	value.updateSource = latest.source;
+	if (mode != 'browse') value.ok = latest.ok === true;
+	return value;
+}
+export const blockcheckw_provider_status = function() { return with_latest(provider(), 'browse'); };
+export const blockcheckw_update_check = function() { return with_latest(provider(), 'refresh'); };
+export const blockcheckw_install = function(input) { let value = object(input) ? input : {}; if (type(value.version) != 'string' || !match(value.version, /^v[0-9]+\.[0-9]+\.[0-9]+$/)) return error('EINPUT', 'version must be an explicit upstream release tag'); if (!stat(INSTALLER)) return error('EDEPENDENCY', 'BlockCheckW installer is unavailable'); let checked = latest_release('fresh'); if (!checked.ok) return checked; if (checked.version != value.version) return error('EVERSION', 'Selected BlockCheckW release is not the current verified release'); let out = run(quote(INSTALLER) + ' ' + quote(value.version)), result = null; try { result = out ? json(out) : null; } catch (e) { result = null; } return object(result) ? result : error('EIO', 'BlockCheckW installer returned malformed output'); };
 export const blockcheckw_script = function() { let value = provider(); value.commands = ['status', 'scan', 'universal', 'check', 'benchmark']; return value; };
 export const blockcheckw_start = function(input) {
 	if (active()) return error('ECONFLICT', 'BlockCheckW is already running');

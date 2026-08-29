@@ -9,6 +9,7 @@ let mode = ARGV[0], result = null;
 if (mode == 'status') result = resource_center_status();
 else if (mode == 'check') result = resource_center_check();
 else if (mode == 'versions') result = z2k_versions();
+else if (mode == 'versions-refresh') result = z2k_versions({ refresh: true });
 else if (mode == 'details') result = z2k_version_details(ARGV[1], { includeCompare: ARGV[2] == 'compare' });
 else if (mode == 'prepare') result = resource_center_prepare_version(ARGV[1]);
 else if (mode == 'update-async') result = resource_center_enqueue_update(request_file(ARGV[1]));
