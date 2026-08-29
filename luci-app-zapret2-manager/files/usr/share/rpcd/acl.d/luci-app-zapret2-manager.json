@@ -18,6 +18,7 @@
           "assets_asn",
           "resources_status",
           "resources_check",
+          "resources_update_status",
           "z2k_versions",
           "z2k_version_details",
           "profiles_list",

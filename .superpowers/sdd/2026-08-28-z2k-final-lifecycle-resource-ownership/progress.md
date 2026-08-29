@@ -115,3 +115,27 @@ The earlier readiness implementation was deployed source-only to the router and 
 - Focused post-fix matrix: `68/68` passed in WSL Ubuntu with native OpenWrt UCode. No APK/package build or install was performed. The source-only cleanup deployment's `rpcd reload` printed a segmentation fault; it was not retried, and read-only `ubus resources_status` remained available with a live rpcd process.
 
 Current verdict remains `NOT READY`: the candidate `r-80.3` runtime still fails to stay ready during the one authorized fresh upgrade attempt, and the required downgrade/reinstall gates therefore remain unrun. The cleanup fix is source-verified and router-deployed but not live-revalidated because the approved sequence stops after a failed upgrade.
+
+## Final autonomous lifecycle gate — 2026-08-29
+
+The remaining lifecycle sequence was completed through the Codex in-app Browser, with a fresh PREPARE and one visible confirmation for each operation:
+
+- Upgrade `r-79.7 -> r-80.3`: job `z2k-1787965701-af29beb70f4393de`, target commit `8f3787aa999dd00ffe76871c5f343a1c049973b1`, `39/39` downloaded, verified, staged, applied, `6` removed, runtime postflight `39/39`, completed.
+- Downgrade `r-80.3 -> r-79.7`: job `z2k-1787966219-a6dac665f7d6a2bd`, target commit `8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c`, `43/43` downloaded, verified, staged, applied, `2` removed, runtime postflight `43/43`, completed.
+- Reinstall `r-79.7 -> r-79.7`: job `z2k-1787966336-3d5c539070e0699a`, target commit `8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c`, `43/43` downloaded, verified, staged, applied, `0` removed, runtime postflight `43/43`, completed.
+
+Every job returned `rollbackAvailable=true`, `lifecycleCleanup.pause.ok=true`, `lifecycleCleanup.pause.released=true`, and `lifecycleCleanup.lock.ok=true`. The browser's final read-only refresh shows installed `r-79.7`, latest `r-80.3`, confirmed integrity, and the reinstall action for the selected current release.
+
+Final router evidence: Registry revision `10`, exactly `43` assets, all `43` provenance `r-79.7`, seven activation receipts with the last receipt `r-79.7` / `8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c` / `43` assets; `resources_status.ok=true`, installed authority `r-79.7` with confidence `confirmed`, Lua `7/7`, integrity `verified`. `nfqws2` is running as PID `31268`, NFQUEUE `300` is owned by that PID, and the nft queue rule is present. The watchdog is one process (`/usr/bin/ucode /usr/libexec/zapret2-manager/watchdog.uc`); the final 10-sample stability window had no recovery events. Pause and lifecycle-lock files are absent after completion, and the nine old failed-attempt staging directories were removed only after verifying each contained only its temporary `runtime-activation.tsv`; final `stage.*` count is zero.
+
+The exact broad command was run on both clean baseline and candidate after correcting a test anchor that matched the new `resource_center_update_status` export by prefix:
+
+```text
+timeout 300s node --test tests/product/z2k-*.test.mjs tests/ui/z2k-*.test.mjs
+```
+
+Baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508`: `105` tests, `101` pass, `4` fail, `0` skipped. Candidate: `150` tests, `146` pass, `4` fail, `0` skipped. The failing test-name set is identical and candidate-only failures are `0`; the four are the existing stale refresh-state assertion, signed-manifest fixture, upstream-classification expectation, and missing WSL `vitest` dependency. The final lifecycle focused matrix including the new regression tests and target contract is `84/84` in WSL with native OpenWrt UCode.
+
+Final adversarial answers Q1-Q17: Q1 no watchdog interference in the final transactions; Q2 yes, the pause contract was missing and is now explicit; Q3 no duplicate watchdog process; Q4 yes, pause spans intentional mutation, restart/readiness, rollback, and cleanup; Q5 yes, recovery remains enabled after the pause is released; Q6 no candidate crash remained once the guard and readiness path were fixed; Q7 the concrete defects were the bounded synchronous RPC transport, executable-mode invocation, Registry-vs-catalog byte-size postflight assumption, and txt-to-blob downgrade mapping, all covered by tests/fixes; Q8 rpcd is healthy and `resources_status` is readable; Q9 no reload is needed for the file-based coordinator worker path (one reload was used for RPC/ACL deployment and the process remained live); Q10 no staging leak remains; Q11 no candidate-only broad regression; Q12 upgrade PASS; Q13 downgrade PASS; Q14 reinstall PASS; Q15 receipt, Registry, runtime, and Resources agree after all three operations; Q16 Strategy/autocircular identity is preserved; Q17 delivery proof follows after commit/push.
+
+Final verdict: `Z2K VERSION LIFECYCLE READY`.

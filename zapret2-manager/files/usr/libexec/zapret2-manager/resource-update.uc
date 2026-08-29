@@ -20,6 +20,8 @@ const CHECK_STATE = '/etc/zapret2-manager/resource-source-check.json';
 const MAX_CHECK_STATE_BYTES = 512 * 1024;
 const LIFECYCLE_LOCK = '/tmp/z2m-z2k-lifecycle.lock';
 const Z2K_PAUSE_FILE = '/tmp/zapret2-manager/paused';
+const Z2K_OPERATION_PARENT = STAGE_PARENT + '/jobs';
+const Z2K_OPERATION_WORKER = '/usr/libexec/zapret2-manager/resource-update-worker.uc';
 const Z2K_RUNTIME_READY_TIMEOUT_MS = 12000;
 const Z2K_RUNTIME_READY_POLL_MS = 1000;
 
@@ -374,6 +376,7 @@ function z2k_lifecycle_lock_release() {
 		return fail('EBUSY', 'Z2K lifecycle lock could not be released.', { reason: 'lifecycle-lock-release-failed', detail: text(e) });
 	}
 }
+function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
 function z2k_runtime_guard_finish(guard, root, paths, result) {
 	cleanup(root, paths);
 	let pause = z2k_runtime_guard_release(guard), lock = z2k_lifecycle_lock_release();
@@ -387,13 +390,71 @@ function z2k_runtime_guard_finish(guard, root, paths, result) {
 	}
 	return answer;
 }
-function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
 function digest_text(value, prefix) {
 	let made = command('umask 077; mktemp /tmp/' + (prefix || 'z2m-digest') + '.XXXXXX'), path = trim(made.out);
 	if (made.rc != 0 || !match(path, /^\/tmp\/[A-Za-z0-9._-]+$/)) return null;
 	try { writefile(path, value == null ? '' : value); } catch (e) { cleanup(null, [path]); return null; }
 	let digest = sha256(path); cleanup(null, [path]); return digest;
 }
+function z2k_operation_id(request) {
+	if (!object(request) || !string(request.planToken) || !length(request.planToken)) return null;
+	let digest = digest_text(request.planToken, 'z2m-z2k-operation');
+	return valid_digest(digest) ? 'z2k-' + time() + '-' + substr(digest, 0, 16) : null;
+}
+function z2k_operation_id_valid(value) { return string(value) && match(value, /^z2k-[0-9]+-[a-f0-9]{16}$/); }
+function z2k_operation_path(operationId) { return Z2K_OPERATION_PARENT + '/' + operationId + '/job.json'; }
+function z2k_operation_write(path, value) {
+	if (!string(path) || !object(value)) return false;
+	let tmp = path + '.tmp';
+	try { writefile(tmp, sprintf('%J', value) + '\n'); } catch (e) { return false; }
+	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return false; }
+	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(path));
+	if (moved.rc != 0) { try { unlink(tmp); } catch (e) {} return false; }
+	return regular(path);
+}
+function z2k_operation_load(operationId) {
+	if (!z2k_operation_id_valid(operationId)) return null;
+	let raw = readfile(z2k_operation_path(operationId));
+	if (raw == null || length(raw) > MAX_REQUEST_BYTES) return null;
+	try { let value = json(raw); return object(value) && value.operationId == operationId ? value : null; }
+	catch (e) { return null; }
+}
+function z2k_operation_spawn(jobPath) {
+	let worker = '/usr/bin/ucode ' + shell_quote(Z2K_OPERATION_WORKER) + ' ' + shell_quote(jobPath) + ' >/dev/null 2>&1 & echo $!';
+	let launched = command('sh -c ' + shell_quote(worker)), pid = trim(launched.out);
+	return launched.rc == 0 && match(pid, /^[0-9]+$/) ? { ok: true, pid: +pid } : fail('ETARGET', 'Z2K lifecycle worker could not be started.', { output: trim(launched.out) });
+}
+export const resource_center_operation_write = function(path, value) { return z2k_operation_write(path, value); };
+export const resource_center_enqueue_update = function(request) {
+	if (!object(request) || request.confirm !== true || request.bundleId != 'z2k-curated-lua') return fail('EINPUT', 'Z2K lifecycle request is invalid.');
+	if (!string(request.targetVersion) || z2k_compare_versions(request.targetVersion, request.targetVersion) == null || !string(request.planToken) || !length(request.planToken)) return fail('EINPUT', 'Z2K lifecycle request is incomplete.');
+	let operationId = z2k_operation_id(request);
+	if (!operationId) return fail('EIO', 'Z2K lifecycle operation identity could not be created.');
+	try { mkdir(STAGE_PARENT); } catch (e) {}
+	try { mkdir(Z2K_OPERATION_PARENT); } catch (e) {}
+	let dir = Z2K_OPERATION_PARENT + '/' + operationId, jobPath = dir + '/job.json';
+	try { mkdir(dir); } catch (e) {}
+	if (stat(jobPath) != null) return fail('EBUSY', 'Z2K lifecycle operation identity is already in use.');
+	let now = time(), job = { schema: 1, operationId: operationId, phase: 'queued', finished: false, request: request, createdAt: now, updatedAt: now, pid: null };
+	if (!z2k_operation_write(jobPath, job)) return fail('EWRITE', 'Z2K lifecycle operation could not be queued.');
+	let spawned = z2k_operation_spawn(jobPath);
+	if (!spawned.ok) {
+		job.phase = 'failed'; job.finished = true; job.error = spawned.error; job.updatedAt = time(); job.finishedAt = job.updatedAt;
+		z2k_operation_write(jobPath, job);
+		return spawned;
+	}
+	return { ok: true, accepted: true, operationId: operationId, state: 'queued', phase: 'queued', targetVersion: request.targetVersion };
+};
+export const resource_center_update_status = function(request) {
+	let operationId = object(request) ? request.operationId : request;
+	if (!z2k_operation_id_valid(operationId)) return fail('EINPUT', 'Z2K lifecycle operation id is invalid.');
+	let job = z2k_operation_load(operationId);
+	if (job == null) return fail('ENOENT', 'Z2K lifecycle operation was not found.');
+	let answer = { ok: true, operationId: operationId, state: job.phase || 'queued', phase: job.phase || 'queued', finished: job.finished === true, pid: job.pid || null };
+	if (job.result != null) answer.result = job.result;
+	if (job.error != null) answer.error = job.error;
+	return answer;
+};
 function z2k_target_token(target, preparedAt) {
 	let removeIds = [], canonical;
 	for (let i = 0; i < length(target.removeIds || []); i++) push(removeIds, target.removeIds[i]);
@@ -582,7 +643,7 @@ function z2k_target_removals(listed, targetAssets, classification) {
 		let current = listed.assets[j], provenance = current && current.provenance;
 		if (!provenance || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua' || targetById[current.id]) continue;
 		let historical = provenance.sourcePath && z2k_classification_for(classification, provenance.sourcePath);
-		let expectedType = historical && historical.type == 'lua' ? 'lua' : historical && historical.type == 'bin' ? 'blob' : null;
+		let expectedType = historical && historical.type == 'lua' ? 'lua' : historical && (historical.type == 'bin' || historical.type == 'txt') ? 'blob' : null;
 		if (historical == null || historical.class != 'exact-managed' || expectedType != current.type || !runtime_target_path(historical.runtimeTarget)
 			|| type(current.revision) != 'int' || current.revision < 1 || !valid_digest(current.contentSha256) || type(current.byteSize) != 'int' || current.byteSize < 1
 			|| !object(provenance) || provenance.bundleId != 'z2k-curated-lua' || !string(provenance.version) || !string(provenance.sourceCommit) || !string(provenance.sourcePath) || provenance.sourcePath != historical.sourcePath)
@@ -643,7 +704,7 @@ function z2k_runtime_spec(target, listed, classification, root) {
 }
 function z2k_runtime_restart(stage) {
 	let operationStage = string(stage) && length(stage) ? stage : 'activation';
-	let restarted = command('/etc/init.d/zapret2 restart');
+	let restarted = command('sh /etc/init.d/zapret2 restart');
 	if (restarted.rc != 0) return fail('ERUNTIME', 'Zapret2 service restart failed.', { stage: operationStage, output: restarted.out });
 	let configured = read_var('NFQWS2_ENABLE');
 	let readiness = z2k_runtime_readiness({
@@ -668,11 +729,12 @@ function z2k_runtime_restart(stage) {
 	readiness.configValue = configured;
 	return readiness;
 }
-function z2k_runtime_postflight(target, diagnostics) {
+function z2k_runtime_postflight(target, diagnostics, listed) {
 	let matched = 0;
 	for (let i = 0; i < length(target.assets || []); i++) {
-		let item = target.assets[i], path = runtime_target_path(item.runtimeTarget), value = path && regular(path) ? sha256(path) : null, size = path && regular(path) ? stat(path).size : 0;
-		if (path == null || value != item.sha256 || size != item.byteSize) return fail('EVERIFY', 'Runtime bytes do not match the selected Z2K target.', { id: item.id, runtimeTarget: item.runtimeTarget || null, expectedSha256: item.sha256, actualSha256: value, expectedSize: item.byteSize, actualSize: size });
+		let item = target.assets[i], registered = registry_asset(listed && listed.assets, item.id), expectedSize = registered && registered.byteSize,
+			path = runtime_target_path(item.runtimeTarget), value = path && regular(path) ? sha256(path) : null, size = path && regular(path) ? stat(path).size : 0;
+		if (path == null || registered == null || type(expectedSize) != 'int' || expectedSize < 1 || value != item.sha256 || size != expectedSize) return fail('EVERIFY', 'Runtime bytes do not match the selected Z2K target.', { id: item.id, runtimeTarget: item.runtimeTarget || null, expectedSha256: item.sha256, actualSha256: value, expectedSize: expectedSize, actualSize: size });
 		matched++;
 	}
 	for (let i = 0; i < length(target.removeTargets || []); i++) {
@@ -690,7 +752,7 @@ function z2k_runtime_activate(target, listed, classification, root, diagnostics)
 	if (activated.rc != 0) return fail('ERUNTIME', 'Registry target could not be materialized into the active runtime.', { output: activated.out, spec: spec.path, activated: false });
 	let restarted = z2k_runtime_restart('activation');
 	if (!restarted.ok) return { ok: false, error: restarted.error, activated: true, restart: restarted, postflight: { verified: false, reason: 'restart-failed' } };
-	let postflight = z2k_runtime_postflight(target, diagnostics);
+	let postflight = z2k_runtime_postflight(target, diagnostics, listed);
 	if (!postflight.ok) return { ok: false, error: postflight.error, activated: true, restart: restarted, postflight: postflight };
 	return { ok: true, activated: true, restart: restarted, postflight: postflight, spec: spec };
 }

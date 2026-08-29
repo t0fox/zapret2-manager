@@ -180,3 +180,49 @@ Final review:
 14. No candidate-only broad regression: the exact broad matrix remained `135/139` passed with the same four baseline/environment failures.
 
 Final verdict: `Z2K VERSION LIFECYCLE NOT READY`. Blockers: the fresh `r-80.3` runtime activation did not remain ready, and downgrade/reinstall were therefore not run.
+
+## Final autonomous lifecycle completion — 2026-08-29
+
+The approved live sequence was completed end-to-end through the Codex in-app Browser. No CLI lifecycle mutation, APK build, APK install, or package deployment was used.
+
+| Operation | Job | Target commit | Registry transaction | Runtime postflight | Cleanup | Result |
+|---|---|---|---:|---:|---|---|
+| Upgrade `r-79.7 -> r-80.3` | `z2k-1787965701-af29beb70f4393de` | `8f3787aa999dd00ffe76871c5f343a1c049973b1` | `39 applied / 6 removed` | `39/39`, `ok=true` | pause released, lock released | PASS |
+| Downgrade `r-80.3 -> r-79.7` | `z2k-1787966219-a6dac665f7d6a2bd` | `8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c` | `43 applied / 2 removed` | `43/43`, `ok=true` | pause released, lock released | PASS |
+| Reinstall `r-79.7 -> r-79.7` | `z2k-1787966336-3d5c539070e0699a` | `8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c` | `43 applied / 0 removed` | `43/43`, `ok=true` | pause released, lock released | PASS |
+
+Each row used fresh PREPARE, immutable target identity, visible browser confirmation, full download/verify/stage/apply, runtime restart/readiness, and postflight. The final browser refresh shows `r-79.7` installed, `r-80.3` latest, `Подтверждена` integrity, and `Переустановить r-79.7` for the current selection.
+
+Final router postflight is non-hybrid: Registry revision `10`; `43` assets, all with provenance version `r-79.7`; seven activation receipts, with the last receipt `r-79.7`, source commit `8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c`, and `43` members; `resources_status.ok=true`; confirmed installed authority `r-79.7`; integrity `verified`; Lua `7/7`. The runtime is `nfqws2` PID `31268`, NFQUEUE `300` with matching owner, and the nft queue rule is present. The live command line still includes the canonical Strategy `z2k_all_in_one`, Z2K Lua assets, and `z2m-autocircular-policy.lua`; `status.json` reports one runtime instance, three profiles, and rules present. The autocircular state remained present and was treated as mutable runtime state, not overwritten by lifecycle.
+
+Watchdog evidence is explicit: one watchdog process was present, `/tmp/zapret2-manager/paused` was held by each intentional lifecycle worker and released in each result, and the final 10-sample stability check had no watchdog recovery events. The old event log retains historical crash-recovery entries from failed iterations, but no matching watchdog recovery occurred during the final three transactions. After lifecycle completion, watchdog remained active, so ordinary post-lifecycle crash recovery is preserved. Guards and all final lifecycle locks are absent. Nine stale directories from earlier failed iterations were inspected and removed with exact file deletion plus `rmdir`; no recursive broad deletion was used, and final `stage.*` count is zero.
+
+The final broad parity command was identical on baseline and candidate:
+
+```text
+timeout 300s node --test tests/product/z2k-*.test.mjs tests/ui/z2k-*.test.mjs
+```
+
+Baseline `f0e04b0f4bb64680b8c5bb2767d825b7e18d7508`: `105 / 101 pass / 4 fail / 0 skipped`. Candidate: `150 / 146 pass / 4 fail / 0 skipped`. Failure names are identical; candidate-only failures `0`. The four known failures are the stale refresh-state assertion, signed-manifest fixture assertion, upstream classification expectation, and missing WSL `vitest` dependency. The focused lifecycle/ownership matrix, including async transport, runtime guard, postflight-size, downgrade type, target contract, materialization, and receipt-authority tests, passed `84/84` in WSL with native OpenWrt UCode. JS syntax checks, `git diff --check`, and the knowledge validator passed.
+
+### Final adversarial review Q1-Q17
+
+1. No watchdog interference in the final transactions; the lifecycle pause was active throughout each intentional window.
+2. Yes. Z2K lacked the Engine-style pause contract; the canonical pause flag is now acquired before mutation and released only during final cleanup.
+3. No. The final router process list contains one watchdog instance.
+4. Yes. Mutation, restart/readiness, rollback, and cleanup run under the same guard.
+5. Yes. Releasing the pause restores normal watchdog recovery; the final stability window proves it remained active.
+6. No remaining candidate crash was observed once the guard, bounded readiness, and activation fixes were deployed.
+7. The engineering defects fixed were the 20-second LuCI transport abort, non-executable `/etc/init.d/zapret2` invocation, catalog-missing byte-size postflight check, and `txt` classification not mapping to Registry `blob` during downgrade. Each has focused regression coverage.
+8. Yes. rpcd is live and `resources_status` is readable after the one deployment reload; no repeated reload is required for the file-based worker coordinator.
+9. No for coordinator source changes; the RPC/ACL deployment reload was performed once, with the process and RPC remaining healthy.
+10. No. Final staging count is zero and guards/lock are absent.
+11. No. Same broad failure set on baseline and candidate; candidate-only failures `0`.
+12. PASS. Fresh UI upgrade completed with `39` target assets and `6` removals.
+13. PASS. Fresh UI downgrade completed with `43` target assets and `2` removals.
+14. PASS. Fresh UI reinstall completed with `43` target assets and `0` removals.
+15. Yes. After each operation, the activation receipt, Registry membership, runtime bytes/postflight, and final Resources projection agree; final authority is `r-79.7`.
+16. Yes. Strategy identity, nfqws2 command line, rules, and autocircular state were preserved.
+17. Pending only until the final delivery command below; it must prove local `HEAD` equals `origin/codex/z2k-version-lifecycle`.
+
+Final acceptance verdict before delivery: `Z2K VERSION LIFECYCLE READY`.

@@ -246,6 +246,23 @@ function confirmAction(ctx, title, message, confirmLabel, handler, kind) {
     })
   ]);
 }
+function waitForZ2KUpdate(ctx, operationId) {
+  var attempts = 0;
+  function poll() {
+    return checkedResult(ctx.api.resources.updateStatus({ operationId: operationId }), _('Состояние Z2K')).then(function (answer) {
+      var phase = String(answer && answer.phase || answer && answer.state || '').toLowerCase();
+      if ((answer && answer.finished === true) || phase === 'completed' || phase === 'failed') {
+        var result = answer && answer.result || answer;
+        if (!result || result.ok !== true) throw result && result.error || answer && answer.error || { code: 'EINTERNAL', message: _('Операция Z2K завершилась без результата.') };
+        return result;
+      }
+      attempts++;
+      if (attempts >= 180) throw { code: 'frontend-timeout', message: _('Операция Z2K не завершилась в установленный срок.') };
+      return new Promise(function (resolve) { window.setTimeout(resolve, 1000); }).then(poll);
+    });
+  }
+  return poll();
+}
 function kvPanel(shell, rows) {
   return E('div', { 'class': 'z2m-proxy-kv' }, rows.filter(function (row) {
     return row.value !== null && row.value !== undefined && row.value !== '';
@@ -530,6 +547,14 @@ function updateZ2K(ctx, component) {
         };
         var update = ctx.api.resources.update ? checkedResult(ctx.api.resources.update(JSON.stringify(payload)), _('Применение Z2K'), Z2K_MUTATION_TIMEOUT_MS)
           : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
+        update = update.then(function (answer) {
+          if (answer && answer.accepted === true) {
+            if (!answer.operationId || !ctx.api.resources.updateStatus)
+              throw { code: 'EINTERNAL', message: _('Z2K принял операцию, но состояние операции недоступно.') };
+            return waitForZ2KUpdate(ctx, answer.operationId);
+          }
+          return answer;
+        });
         update.then(function (answer) {
           if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
           // Operation-specific success toast follows the prepared operation.

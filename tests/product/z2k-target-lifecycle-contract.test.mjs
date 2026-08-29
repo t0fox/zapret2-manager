@@ -50,7 +50,7 @@ test('apply consumes the prepared target, downloads complete exact-managed asset
   assert.match(coordinator, /asset_registry_rollback_bundle/);
   assert.match(coordinator, /RAW_ROOT|raw\.githubusercontent\.com/);
   assert.match(coordinator, /targetCommitSha[\s\S]*item\.sourcePath/);
-  const applyBody = coordinator.slice(coordinator.indexOf('export const resource_center_update'));
+  const applyBody = coordinator.slice(coordinator.indexOf('export const resource_center_update = function'));
   assert.doesNotMatch(applyBody, /z2k_component_apply\(request\)/);
   assert.doesNotMatch(applyBody, /z2k_upstream_check\(\)/);
   assert.doesNotMatch(applyBody, /z2k-enhanced\/['\"] \+ sourcePath/);

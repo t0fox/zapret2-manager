@@ -308,6 +308,13 @@ function resource_version_arg(req) {
 function z2k_versions_method(req) { return resource_cli_action('versions'); }
 function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version); }
 function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare', version); }
+function resource_operation_arg(req) {
+	let operationId = null;
+	try { if (req && req.args && req.args.operationId != null) operationId = req.args.operationId; } catch (e) { }
+	if (operationId == null) { try { if (req && req.operationId != null) operationId = req.operationId; } catch (e) { } }
+	return type(operationId) == 'string' ? operationId : null;
+}
+function resources_update_status_method(req) { let operationId = resource_operation_arg(req); return operationId == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K lifecycle operation id is required' } } : resource_cli_action('update-status', operationId); }
 function resource_edit_action(req) {
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
@@ -320,7 +327,10 @@ function resource_edit_action(req) {
 	if (mkrc != 0 || index(tmp, '/tmp/z2m-resources-edit.') != 0) return { ok: false, error: { code: 'ETARGET', message: 'resource request temp file unavailable' } };
 	let wrote = null; try { wrote = writefile(tmp, edit); } catch (e) { wrote = null; }
 	if (wrote == null) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'resource request could not be written' } }; }
-	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' update ' + shell_escape(tmp) + ' 2>/dev/null';
+	let parsed = null;
+	try { parsed = json(edit); } catch (e) { }
+	let mode = parsed && parsed.bundleId == 'z2k-curated-lua' ? 'update-async' : 'update';
+	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' ' + mode + ' ' + shell_escape(tmp) + ' 2>/dev/null';
 	let child = popen(command, 'r');
 	if (!child) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'resource center runner unavailable' } }; }
 	let out = child.read('all') || '', rc = child.close(); try { unlink(tmp); } catch (e) {}
@@ -1240,6 +1250,7 @@ return {
 		assets_references: { args: { edit: 'string' }, call: function (req) { return assets_references_method(req); } },
 		resources_status: { call: function (req) { return resources_status_method(req); } },
 		resources_check: { call: function (req) { return resources_check_method(req); } },
+		resources_update_status: { args: { operationId: 'string' }, call: function (req) { return resources_update_status_method(req); } },
 		resources_update: { args: { edit: 'string' }, call: function (req) { return resources_update_method(req); } },
 		z2k_versions: { call: function (req) { return z2k_versions_method(req); } },
 		z2k_version_details: { args: { version: 'string' }, call: function (req) { return z2k_version_details_method(req); } },
