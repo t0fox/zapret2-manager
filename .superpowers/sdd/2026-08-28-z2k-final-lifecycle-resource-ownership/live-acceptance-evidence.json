@@ -1273,6 +1273,68 @@
         }
       },
       "verdict": "Z2K STRUCTURED CHANGE EVIDENCE READY"
+    },
+    "mainMergeIntegration": {
+      "date": "2026-08-29",
+      "mainBeforeSha": "bf3b56c63641d582a3dbad3bdaf4b7db9d0aa857",
+      "featureSha": "bdd82663f9724dd4eef3ce66713ba16eb8c0941d",
+      "mergeBaseSha": "c6c9b4c57a039f8440d959f72b1159f3bbe94a8c",
+      "featureAhead": 64,
+      "mainAhead": 2,
+      "mergeCommitSha": "7eae1b78efdcfa5308d6738c23a5a21965dc459d",
+      "postMergeTestFixSha": "fab0b817b8d51049f059341d7c2f4238cd8781a7",
+      "conflictedFiles": [],
+      "globalUpdateSourceMerged": false,
+      "forcePush": false,
+      "mainOnlySemantics": {
+        "telegramMissingPresetSettingsNullSafe": true,
+        "telegramLoadTimeoutMs": 15000,
+        "tests": { "passed": 14, "failed": 0 }
+      },
+      "featureSemantics": {
+        "lifecycleAuthorityUnchanged": true,
+        "resourceOwnershipUnchanged": true,
+        "managedDelta": { "modified": 2, "added": 2, "removed": 6 },
+        "structuredCompareEvidence": true,
+        "loadBearingFilesByteIdenticalToFeature": true
+      },
+      "mergedTests": {
+        "managedCompareUi": { "passed": 32, "failed": 0, "skipped": 12 },
+        "lifecycle": { "executingChecksPassed": true, "nativeOnlySkipped": 7 },
+        "nodeCheck": true,
+        "shellSyntax": true,
+        "knowledgeValidator": true,
+        "evidenceJson": true,
+        "diffCheck": true
+      },
+      "nativeRouter": {
+        "ucodeImport": true,
+        "cacheValidation": true,
+        "cacheSchema": 2,
+        "cacheBytes": 173088,
+        "compareCommits": 84,
+        "relevantFiles": 10,
+        "resourcesStatusReadable": true,
+        "installedRelease": "r-79.7",
+        "registryRevision": 10,
+        "preparedTarget": null,
+        "luaReady": 7,
+        "luaTotal": 7,
+        "lifecycleMutation": false
+      },
+      "browser": {
+        "provider": "Codex in-app Browser",
+        "readOnly": true,
+        "freshSmoke": "catalog EUNAVAILABLE due external GitHub rate limit",
+        "previousAcceptedFeatureEvidenceRetained": true,
+        "lifecycleMutation": false
+      },
+      "broad": {
+        "repositorySweep": { "testFiles": 219, "status": "incomplete-time-bound" },
+        "mergeOnlyRegression": false
+      },
+      "untrackedUserPathPreserved": true,
+      "mainFinalSha": "recorded-after-final-push"
     }
   }
 }

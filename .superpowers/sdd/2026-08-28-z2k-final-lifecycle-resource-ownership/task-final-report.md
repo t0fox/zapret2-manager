@@ -378,3 +378,67 @@ Verification evidence:
   as incomplete evidence, not as a pass or a product failure.
 
 Final verdict: `Z2K STRUCTURED CHANGE EVIDENCE READY`.
+
+## Main merge integration — 2026-08-29
+
+The accepted `codex/z2k-version-lifecycle` history was integrated into `main`
+with a normal merge. The global update-source branch was not merged or
+cherry-picked.
+
+Recorded merge inputs:
+
+- `MAIN_BEFORE_SHA`: `bf3b56c63641d582a3dbad3bdaf4b7db9d0aa857`
+- `FEATURE_SHA`: `bdd82663f9724dd4eef3ce66713ba16eb8c0941d`
+- `MERGE_BASE_SHA`: `c6c9b4c57a039f8440d959f72b1159f3bbe94a8c`
+- Feature divergence at fetch: `64` commits ahead and `2` behind.
+- Normal merge commit: `7eae1b78efdcfa5308d6738c23a5a21965dc459d`.
+
+There were no merge conflicts. Main-only Telegram semantics remain present in
+the merged tree: `profilePresets()` normalizes missing recommended/direct
+settings before `Object.keys`, and `LOAD_TIMEOUT_MS` remains `15000`. The
+accepted Z2K lifecycle, Resource ownership, managed delta, and structured
+Compare implementation are byte-identical to the feature branch for the
+load-bearing files inspected (`resource-update.uc`, `asset-registry.uc`, the
+runtime sync script, `z2m-maintenance.js`, and `z2m-components-model.js`).
+
+One contradictory catalog test was found after merge. The accepted UI contract
+keeps incompatible releases selectable and disables only the action; the test
+was updated to assert that behavior. This post-merge test-only correction is
+commit `fab0b817b8d51049f059341d7c2f4238cd8781a7`; no production lifecycle
+semantics changed.
+
+Merged-tree verification:
+
+- Telegram focused suite: `14 passed, 0 failed`.
+- Managed delta / Compare / release-details / catalog / UI suite: `32 passed,
+  0 failed, 12 skipped`; skipped cases are native-ucode-only on Windows.
+- Z2K lifecycle suite: all executing checks passed; seven legacy native cases
+  were skipped because local `/opt/ucode/bin/ucode` is absent.
+- `node --check` passed for changed frontend modules; Git Bash `sh -n` passed
+  for `engine-operation-worker.sh` and `strategy-runtime-assets-sync.sh`;
+  knowledge validation, evidence JSON validation, and `git diff --check`
+  passed.
+- Native router `/usr/bin/ucode` imported the merged `z2k-versions.uc`.
+  Schema-2 Compare cache validation passed for the real pair with `84` commits,
+  `10` relevant files, and `173088` bytes. Router production hashes match the
+  merged source hashes. `resources_status` remained readable with confirmed
+  installed `r-79.7`, Registry revision `10`, `preparedTarget=null`, and Lua
+  `7/7`; no lifecycle mutation was called.
+- The fresh browser smoke was read-only. The router's current catalog request
+  returned `EUNAVAILABLE` because of the external GitHub rate limit, so this
+  smoke does not claim a new live Compare render. The already accepted feature
+  browser evidence remains applicable because the merged production hashes are
+  unchanged; no lifecycle action was clicked.
+- The repository-wide `219`-file sweep remains `INCOMPLETE` under its bounded
+  runner window and is not called GREEN. The pre-merge Z2K broad comparison had
+  no Compare-specific or merge-only failure after the focused correction.
+
+The pre-existing untracked directory with the escaped name `\357\201\234/` in
+the main worktree was preserved and was not staged or deleted.
+
+## Main merge integration evidence — machine-readable companion
+
+The corresponding structured record is `finalLifecycleGate.mainMergeIntegration`
+in `live-acceptance-evidence.json`. `MAIN_FINAL_SHA` is reported only after the
+final non-force push and post-push fetch, avoiding a self-referential hash in
+the evidence commit.
