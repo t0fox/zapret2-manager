@@ -19,7 +19,7 @@ test('Resources UI exposes human states, provenance details, consumer references
   for (const label of ['Доступно обновление', 'Пакетная база', 'Технические детали', 'Используется', 'Импортировать', 'Обновить ресурс', 'Удалить']) assert.match(page, new RegExp(label));
   assert.match(page, /asset\.references/);
   assert.match(page, /asset\.provenance/);
-  assert.match(page, /asset\.mutable === true/);
+  assert.match(page, /management\(asset\)\.editable === true/);
   assert.match(page, /ctx\.api\.assets\.(import|update|validate|delete)/);
 });
 
@@ -43,6 +43,35 @@ test('Resource Center exposes one lazy route-aware workspace for first-class ass
 test('Package resources keep content available in a read-only editor', () => {
   assert.match(page, /Просмотр доступен/);
   assert.match(page, /CodeEditor\.mount/);
-  assert.match(page, /readOnly: asset\.ownership === 'package'/);
+  assert.match(page, /readOnly: !genericEditable\(asset\)/);
   assert.doesNotMatch(page, /z2m-lua-editor-overlay/);
+});
+
+test('Z2K lifecycle assets must not be treated as generic-editable when mutable is only lifecycle capability', () => {
+  assert.match(page, /function genericEditable\(asset\)/);
+  assert.match(page, /readOnly: !genericEditable\(asset\)/);
+
+  const lifecycleAsset = {
+    id: 'lua:z2k-modern-core',
+    type: 'lua',
+    ownership: 'manager',
+    mutable: true,
+    management: { owner: 'z2k-core', mode: 'lifecycle', editable: false, deletable: false },
+    provenance: {
+      kind: 'catalog/upstream',
+      source: 'necronicle/z2k',
+      bundleId: 'z2k-curated-lua',
+      version: 'r-79.7',
+    },
+  };
+
+  function currentWorkspaceEditabilityPredicate(asset) {
+    return asset.management && asset.management.editable === true;
+  }
+
+  assert.equal(
+    currentWorkspaceEditabilityPredicate(lifecycleAsset),
+    false,
+    'lifecycle-owned Z2K assets must stay read-only in Resources even though apply_bundle needs mutable=true internally',
+  );
 });

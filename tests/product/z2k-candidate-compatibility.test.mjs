@@ -133,12 +133,18 @@ test('SEMANTIC: excluded 5th-col survives load/write, get_record key pair, state
   // Also sidecar must be loaded before upstream wraps, so that upstream is outer wrapper
   // This is verified via strategy-runtime-assets-sync.sh LUAOPT order
   const sync = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh');
-  const luaopt = sync.match(/LUAOPT="([^"]+)"/);
-  assert.ok(luaopt, 'must have LUAOPT');
-  const order = luaopt[1];
-  const idxSidecar = order.indexOf('z2m-autocircular-policy.lua');
-  const idxPersist = order.indexOf('z2k-state-persist.lua');
-  const idxAuto = order.indexOf('zapret-auto.lua');
+  const dynamicLuaopt = sync.includes('append_luaopt_if_present zapret-auto.lua');
+  const order = dynamicLuaopt ? sync : (sync.match(/LUAOPT="([^"]+)"/) || [])[1];
+  assert.ok(order, 'must have canonical LuaOPT order');
+  const idxSidecar = dynamicLuaopt
+    ? order.indexOf('append_luaopt_if_present z2m-autocircular-policy.lua')
+    : order.indexOf('z2m-autocircular-policy.lua');
+  const idxPersist = dynamicLuaopt
+    ? order.indexOf('append_luaopt_if_present z2k-state-persist.lua')
+    : order.indexOf('z2k-state-persist.lua');
+  const idxAuto = dynamicLuaopt
+    ? order.indexOf('append_luaopt_if_present zapret-auto.lua')
+    : order.indexOf('zapret-auto.lua');
   assert.ok(idxAuto < idxSidecar && idxSidecar < idxPersist, 'load order must be zapret-auto -> sidecar -> state-persist (upstream outer)');
 });
 

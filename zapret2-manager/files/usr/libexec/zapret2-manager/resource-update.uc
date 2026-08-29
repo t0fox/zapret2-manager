@@ -3,16 +3,27 @@
 // Resource Center coordinator. It owns source/bundle policy and staging, while
 // Asset Registry remains the only writer of managed asset metadata and bytes.
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
-import { asset_registry_list, asset_registry_apply_bundle } from './asset-registry.uc';
+import { asset_registry_list, asset_registry_apply_bundle, asset_registry_rollback_bundle } from './asset-registry.uc';
 import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
+import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classification } from './z2k-versions.uc';
+import { z2k_registry_installed_release } from './z2k-installed-release.uc';
+import { read_var } from './apply.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
+const RUNTIME_SYNC = '/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh';
+const RUNTIME_BASE = '/opt/zapret2';
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const CHECK_STATE = '/etc/zapret2-manager/resource-source-check.json';
 const MAX_CHECK_STATE_BYTES = 512 * 1024;
+const LIFECYCLE_LOCK = '/tmp/z2m-z2k-lifecycle.lock';
+const Z2K_PAUSE_FILE = '/tmp/zapret2-manager/paused';
+const Z2K_OPERATION_PARENT = STAGE_PARENT + '/jobs';
+const Z2K_OPERATION_WORKER = '/usr/libexec/zapret2-manager/resource-update-worker.uc';
+const Z2K_RUNTIME_READY_TIMEOUT_MS = 12000;
+const Z2K_RUNTIME_READY_POLL_MS = 1000;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -22,6 +33,123 @@ function shell_quote(value) { let out = "'", raw = text(value); for (let i = 0; 
 function command(value) { let p = popen(value + ' 2>&1', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
 function regular(path) { try { let value = stat(path); return object(value) && value.type == 'file' && type(value.size) == 'int'; } catch (e) { return false; } }
 function sha256(path) { if (!regular(path)) return null; let value = command("sha256sum " + shell_quote(path) + " | awk '{print $1}'"); let digest = trim(value.out); return value.rc == 0 && match(digest, /^[a-f0-9]{64}$/) ? digest : null; }
+function z2k_runtime_monotonic_ms() { let now = clock(true); return now[0] * 1000 + int(now[1] / 1000000); }
+function z2k_runtime_tokens(raw) {
+	let out = [], current = '';
+	for (let i = 0; i < length(raw || ''); i++) {
+		let c = substr(raw, i, 1);
+		if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+			if (length(current)) { push(out, current); current = ''; }
+		} else current += c;
+	}
+	if (length(current)) push(out, current);
+	return out;
+}
+function z2k_runtime_pids(raw) {
+	let pids = [], tokens = z2k_runtime_tokens(raw);
+	for (let i = 0; i < length(tokens); i++) if (match(tokens[i], /^[0-9]+$/)) push(pids, +tokens[i]);
+	return pids;
+}
+function z2k_runtime_queue(raw, rc) {
+	if (rc != 0 || !length(raw || '')) return { registered: false, peerPid: null, row: null, reason: 'nfnetlink_queue unavailable' };
+	let lines = split(raw, '\n');
+	for (let i = 0; i < length(lines); i++) {
+		let row = trim(lines[i]), fields = z2k_runtime_tokens(row);
+		if (length(fields) >= 2 && fields[0] == '300' && match(fields[1], /^[0-9]+$/))
+			return { registered: true, peerPid: +fields[1], row: row };
+	}
+	return { registered: false, peerPid: null, row: null, reason: 'queue 300 not registered in kernel' };
+}
+function z2k_runtime_observe() {
+	let pid = command('pidof nfqws2');
+	let queue = command('cat /proc/net/netfilter/nfnetlink_queue');
+	let nft = command('nft list table inet zapret2');
+	let nftOutput = trim(nft.out), nftRuleReady = false, nftLines = split(nftOutput, '\n');
+	for (let i = 0; i < length(nftLines); i++) if (index(nftLines[i], 'queue') >= 0 && match(nftLines[i], /300/)) { nftRuleReady = true; break; }
+	return {
+		pids: z2k_runtime_pids(pid.out), pidRc: pid.rc, pidOutput: trim(pid.out),
+		queue: z2k_runtime_queue(queue.out, queue.rc),
+		nft: { ready: nft.rc == 0 && nftRuleReady, tableReady: nft.rc == 0,
+			ruleReady: nftRuleReady, rc: nft.rc, output: nftOutput }
+	};
+}
+function z2k_runtime_status_postflight() {
+	let status = command('/usr/bin/ucode /usr/libexec/zapret2-manager/status.uc --no-print');
+	return { ok: status.rc == 0 && regular('/tmp/zapret2-manager/status.json'), rc: status.rc,
+		fileReady: regular('/tmp/zapret2-manager/status.json'), output: trim(status.out) };
+}
+function z2k_runtime_has_pid(pids, wanted) {
+	for (let i = 0; i < length(pids || []); i++) if (pids[i] == wanted) return true;
+	return false;
+}
+function z2k_runtime_readiness_reason(observation, expectedEnabled) {
+	let value = object(observation) ? observation : {}, pids = type(value.pids) == 'array' ? value.pids : [];
+	let queue = object(value.queue) ? value.queue : {}, nft = object(value.nft) ? value.nft : {};
+	if (!expectedEnabled) return length(pids) ? 'daemon-still-running' : (!nft.ready ? (nft.tableReady === false ? 'nft-table-missing' : 'nft-queue-rule-missing') : null);
+	if (!length(pids)) return 'daemon-not-spawned';
+	if (length(pids) > 16) return 'daemon-count-invalid';
+	if (queue.registered !== true) return 'queue-300-listener-missing';
+	if (queue.peerPid == null || !z2k_runtime_has_pid(pids, queue.peerPid)) return 'queue-300-owner-mismatch';
+	if (nft.ready !== true) return nft.tableReady === false ? 'nft-table-missing' : 'nft-queue-rule-missing';
+	return null;
+}
+function z2k_runtime_readiness_message(reason, stage) {
+	if (reason == 'daemon-not-spawned') return 'nfqws2 is not running after Z2K ' + stage + '.';
+	if (reason == 'daemon-spawned-then-exited') return 'nfqws2 spawned but exited before Z2K ' + stage + ' readiness.';
+	if (reason == 'queue-300-listener-missing') return 'Zapret2 NFQUEUE postflight is missing queue 300 listener after Z2K ' + stage + '.';
+	if (reason == 'queue-300-owner-mismatch') return 'Zapret2 NFQUEUE queue 300 is owned by a different process after Z2K ' + stage + '.';
+	if (reason == 'daemon-count-invalid') return 'nfqws2 process count is outside the supported range after Z2K ' + stage + '.';
+	if (reason == 'daemon-still-running') return 'nfqws2 is still running while Z2K runtime is disabled after Z2K ' + stage + '.';
+	if (reason == 'nft-queue-rule-missing') return 'Zapret2 nft queue rule is not ready after Z2K ' + stage + '.';
+	if (reason == 'nft-table-missing') return 'Zapret2 nft table is not ready after Z2K ' + stage + '.';
+	return 'Z2K runtime readiness was not verified after Z2K ' + stage + '.';
+}
+function z2k_runtime_readiness_diagnostics(stage, expectedEnabled, configValue, attempts, started, now, observation, reason, history) {
+	let elapsed = now - started;
+	if (elapsed < 0) elapsed = 0;
+	return {
+		stage: stage, expectedEnabled: expectedEnabled, configValue: configValue == null ? null : configValue,
+		attempts: attempts, elapsedMs: elapsed,
+		reason: reason, pids: observation && type(observation.pids) == 'array' ? observation.pids : [],
+		queue: observation && observation.queue ? observation.queue : null,
+		nft: observation && observation.nft ? observation.nft : null,
+		observation: observation || null, history: history || []
+	};
+}
+export const z2k_runtime_readiness = function(seams) {
+	let input = object(seams) ? seams : {}, stage = string(input.stage) && length(input.stage) ? input.stage : 'activation';
+	let expectedEnabled = input.expectedEnabled !== false;
+	let configValue = input.configValue == null ? null : text(input.configValue);
+	let timeoutMs = type(input.timeoutMs) == 'int' && input.timeoutMs >= 0 ? input.timeoutMs : Z2K_RUNTIME_READY_TIMEOUT_MS;
+	let pollMs = type(input.pollIntervalMs) == 'int' && input.pollIntervalMs > 0 ? input.pollIntervalMs : Z2K_RUNTIME_READY_POLL_MS;
+	let attemptsLimit = int((timeoutMs + pollMs - 1) / pollMs) + 1;
+	if (attemptsLimit < 1) attemptsLimit = 1;
+	let nowFn = type(input.now) == 'function' ? input.now : function() { return z2k_runtime_monotonic_ms(); };
+	let waitFn = type(input.wait) == 'function' ? input.wait : function() { command('sleep 1'); };
+	let observeFn = type(input.observe) == 'function' ? input.observe : z2k_runtime_observe;
+	let started = nowFn(), last = null, reason = null, history = [];
+	for (let attempt = 1; attempt <= attemptsLimit; attempt++) {
+		last = observeFn();
+		reason = z2k_runtime_readiness_reason(last, expectedEnabled);
+		let now = nowFn();
+		push(history, { attempt: attempt, elapsedMs: now - started, reason: reason,
+			pids: last && type(last.pids) == 'array' ? last.pids : [],
+			queue: last && last.queue ? last.queue : null, nft: last && last.nft ? last.nft : null });
+		let diagnostics = z2k_runtime_readiness_diagnostics(stage, expectedEnabled, configValue, attempt, started, now, last, reason, history);
+		if (reason == null) {
+			let pids = type(last.pids) == 'array' ? last.pids : [], queue = last.queue || {};
+			return { ok: true, stage: stage, attempts: attempt, elapsedMs: diagnostics.elapsedMs,
+				expectedEnabled: expectedEnabled, pid: join(pids, ' '), pids: pids,
+				queue: queue.row || null, readiness: diagnostics };
+		}
+		if (attempt < attemptsLimit) waitFn(pollMs);
+	}
+	let observedPid = false;
+	for (let i = 0; i < length(history); i++) if (length(history[i].pids || [])) { observedPid = true; break; }
+	if (reason == 'daemon-not-spawned' && observedPid) reason = 'daemon-spawned-then-exited';
+	let elapsedNow = nowFn(), diagnostics = z2k_runtime_readiness_diagnostics(stage, expectedEnabled, configValue, attemptsLimit, started, elapsedNow, last, reason, history);
+	return { ok: false, error: { code: 'ERUNTIME', message: z2k_runtime_readiness_message(reason, stage), reason: reason, stage: stage, readiness: diagnostics } };
+};
 function load_manifest() { let raw = readfile(MANIFEST); if (raw == null || length(raw) > MAX_MANIFEST_BYTES) return fail('EINPUT', 'resource manifest is unavailable or too large'); let value = null; try { value = json(raw); } catch (e) { return fail('EINPUT', 'resource manifest is malformed'); } if (!object(value) || value.schema != 'zapret2-manager.resource-manifest.v1' || type(value.sources) != 'array' || type(value.bundles) != 'array') return fail('EINPUT', 'resource manifest schema is invalid'); return { ok: true, manifest: value }; }
 function source(manifest, id) { for (let i = 0; i < length(manifest.sources); i++) if (manifest.sources[i].id == id) return manifest.sources[i]; return null; }
 function bundle(manifest, id) { for (let i = 0; i < length(manifest.bundles); i++) if (manifest.bundles[i].id == id) return manifest.bundles[i]; return null; }
@@ -30,43 +158,18 @@ function known_release(value) {
 	if (!string(value) || !length(value) || substr(value, 0, 2) == 'p-' || match(value, /^[a-f0-9]{7,40}$/i)) return null;
 	return value;
 }
-function z2k_receipt_release(listed, want) {
-	let receipts = listed.activationReceipts || [];
-	for (let i = length(receipts) - 1; i >= 0; i--) {
-		let receipt = receipts[i];
-		if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != 'z2k-curated-lua' || !known_release(receipt.version) || type(receipt.assets) != 'array' || !length(receipt.assets)) continue;
-		let valid = true;
-		for (let j = 0; j < length(receipt.assets); j++) {
-			let item = receipt.assets[j], current = object(item) ? registry_asset(listed.assets, item.id) : null;
-			if (!object(item) || !want[item.id] || current == null || current.contentSha256 != item.sha256 || current.byteSize != item.byteSize || !object(current.provenance) || current.provenance.bundleId != receipt.bundleId) { valid = false; break; }
-		}
-		if (valid) return { value: receipt.version, confidence: 'confirmed', authority: 'activation-receipt' };
-	}
-	return null;
-}
-function z2k_known_release(manifest, listed, want) {
-	let candidates = [];
-	for (let i = 0; i < length(manifest.bundles); i++) {
-		let candidate = manifest.bundles[i];
-		if (candidate.sourceId != 'z2k-resources') continue;
-		let release = known_release(candidate.release || candidate.version), items = candidate.assets || [], valid = release != null && length(items) > 0;
-		for (let j = 0; valid && j < length(items); j++) {
-			let item = items[j], current = registry_asset(listed.assets, item.id);
-			if (!object(current) || current.contentSha256 != item.sha256 || current.byteSize != item.byteSize) valid = false;
-		}
-		if (valid) push(candidates, release);
-	}
-	if (length(candidates) == 1) return { value: candidates[0], confidence: 'inferred', authority: 'known-manifest' };
-	if (length(candidates) > 1) return { value: null, confidence: 'ambiguous', authority: 'known-manifest' };
-	return null;
-}
-function z2k_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention) {
-	let receipt = z2k_receipt_release(listed, want);
-	if (receipt != null) return receipt;
-	let inferred = z2k_known_release(manifest, listed, want);
-	if (inferred != null) return inferred;
+function z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention) {
+	let authority = z2k_registry_installed_release(listed);
+	if (authority && authority.value != null) return authority;
+	if (authority && authority.confidence == 'unknown' && authority.authority == null && !hasAttention && !(installedCount > 0 && hasMissing)) return authority;
 	if (hasAttention || (installedCount > 0 && hasMissing)) return { value: null, confidence: 'inconsistent', authority: 'known-manifest' };
 	return { value: null, confidence: 'unknown', authority: null };
+}
+function z2k_target_gate(manifest) {
+	let plan = z2k_upstream_plan(manifest);
+	if (!plan.ok) return plan;
+	if (length(plan.rebases || []) || length(plan.blockingReviews || [])) return fail('EZ2K_REVIEW_REQUIRED', 'Выбранный release требует проверки перед установкой.', { attentionState: plan.attentionState || 'review-required', blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [] });
+	return { ok: true, canApply: true, attentionState: plan.attentionState || 'none', blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [] };
 }
 function state_label(state) { return ({ current: 'Актуально', update: 'Доступно обновление', missing: 'Не установлено', checking: 'Проверяем', unavailable: 'Источник недоступен', stale: 'Проверка устарела', error: 'Ошибка проверки', attention: 'Требуется внимание', unknown: 'Не проверено' })[state] || 'Требуется внимание'; }
 function plan_token(checkedAt, manifest) {
@@ -203,27 +306,224 @@ function z2k_local_projection(manifest) {
 	let integrity = hasAttention ? 'broken' : hasMissing ? 'broken' : baselineMatched === total ? 'verified' : 'diverged';
 	let integrityOk = !hasMissing && !hasAttention;
 	let installed = !hasMissing && installedCount > 0 && total > 0;
-	let installedRelease = z2k_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
+	let installedRelease = z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
 	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease };
+}
+function runtime_target_path(runtimeTarget) {
+	if (!string(runtimeTarget)) return null;
+	let prefix = '/runtime-assets/', relative = substr(runtimeTarget, length(prefix));
+	if (substr(runtimeTarget, 0, length(prefix)) != prefix || !length(relative) || index(relative, '..') >= 0 || index(relative, '\\') >= 0 || !match(relative, /^[A-Za-z0-9._\/-]+$/)) return null;
+	if (substr(runtimeTarget, 0, length('/runtime-assets/bin/')) == '/runtime-assets/bin/') return RUNTIME_BASE + '/files/fake/' + substr(runtimeTarget, length('/runtime-assets/bin/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/lua/')) == '/runtime-assets/lua/') return RUNTIME_BASE + '/lua/' + substr(runtimeTarget, length('/runtime-assets/lua/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/lists/')) == '/runtime-assets/lists/') return RUNTIME_BASE + '/lists/' + substr(runtimeTarget, length('/runtime-assets/lists/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/ipset/')) == '/runtime-assets/ipset/') return RUNTIME_BASE + '/ipset/' + substr(runtimeTarget, length('/runtime-assets/ipset/'));
+	return null;
+}
+function runtime_source_safe(path) { return string(path) && substr(path, 0, length('/etc/zapret2-manager/assets/')) == '/etc/zapret2-manager/assets/' && index(path, '..') < 0 && index(path, '\\') < 0; }
+function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function z2k_target_asset_valid(item) {
+	return object(item) && string(item.sourcePath) && match(item.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
+		&& string(item.id) && (substr(item.id, 0, 4) == 'lua:' || substr(item.id, 0, 5) == 'blob:')
+		&& (item.type == 'lua' || item.type == 'blob') && valid_digest(item.sha256) && runtime_target_path(item.runtimeTarget) != null;
+}
+function valid_target_operation(value) { return value == 'install' || value == 'upgrade' || value == 'reinstall' || value == 'downgrade'; }
+function valid_latest_check(value) { return object(value) && type(value.checkedAt) == 'int' && value.checkedAt >= 0 && object(value.signed); }
+function valid_removal_descriptor(value, expectedId) {
+	return object(value) && value.id == expectedId && (value.type == 'lua' || value.type == 'blob')
+		&& string(value.sourcePath) && match(value.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
+		&& runtime_target_path(value.runtimeTarget) != null && type(value.expectedRevision) == 'int' && value.expectedRevision > 0
+		&& valid_digest(value.expectedContentSha256) && type(value.expectedByteSize) == 'int' && value.expectedByteSize > 0
+		&& value.bundleId == 'z2k-curated-lua' && string(value.version) && string(value.sourceCommit) && match(lc(value.sourceCommit), /^[a-f0-9]{40}$/);
+}
+function z2k_runtime_guard_acquire() {
+	let preexisting = false, owned = false;
+	try {
+		preexisting = stat(Z2K_PAUSE_FILE) != null;
+		if (preexisting) return { ok: true, owned: !preexisting, preexisting: preexisting };
+		writefile(Z2K_PAUSE_FILE, '');
+		owned = true;
+		if (stat(Z2K_PAUSE_FILE) == null) {
+			try { unlink(Z2K_PAUSE_FILE); } catch (cleanupError) { }
+			return fail('ERUNTIME', 'Z2K lifecycle could not pause the watchdog.', { reason: 'pause-acquire-failed' });
+		}
+		return { ok: true, owned: owned, preexisting: preexisting };
+	} catch (e) {
+		if (owned) { try { unlink(Z2K_PAUSE_FILE); } catch (cleanupError) { } }
+		return fail('ERUNTIME', 'Z2K lifecycle could not pause the watchdog.', { reason: 'pause-acquire-failed', detail: text(e) });
+	}
+}
+function z2k_runtime_guard_release(guard) {
+	if (!guard || guard.owned !== true) return { ok: true, skipped: true, preserved: guard && guard.preexisting === true };
+	try { unlink(Z2K_PAUSE_FILE); } catch (e) { }
+	try {
+		if (stat(Z2K_PAUSE_FILE) != null) {
+			let fallback = command('rm -f ' + shell_quote(Z2K_PAUSE_FILE));
+			if (fallback.rc != 0 || stat(Z2K_PAUSE_FILE) != null)
+				return fail('ERUNTIME', 'Z2K lifecycle could not release the watchdog pause.', { reason: 'pause-release-failed', output: fallback.out });
+		}
+	} catch (e) {
+		return fail('ERUNTIME', 'Z2K lifecycle could not release the watchdog pause.', { reason: 'pause-release-failed', detail: text(e) });
+	}
+	return { ok: true, released: true };
+}
+function z2k_lifecycle_lock_release() {
+	try {
+		let released = command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+		if (released.rc != 0 && stat(LIFECYCLE_LOCK) != null)
+			return fail('EBUSY', 'Z2K lifecycle lock could not be released.', { reason: 'lifecycle-lock-release-failed', output: released.out });
+		return { ok: true };
+	} catch (e) {
+		return fail('EBUSY', 'Z2K lifecycle lock could not be released.', { reason: 'lifecycle-lock-release-failed', detail: text(e) });
+	}
+}
+function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
+function z2k_runtime_guard_finish(guard, root, paths, result) {
+	cleanup(root, paths);
+	let pause = z2k_runtime_guard_release(guard), lock = z2k_lifecycle_lock_release();
+	let answer = object(result) ? result : fail('EINTERNAL', 'Z2K lifecycle returned an invalid result.');
+	answer.lifecycleCleanup = { pause: pause, lock: lock };
+	if (!pause.ok || !lock.ok) {
+		if (answer.ok === true) return fail('ERUNTIME', 'Z2K lifecycle cleanup could not release an owned resource.', { result: answer, lifecycleCleanup: answer.lifecycleCleanup });
+		answer.error = answer.error || { code: 'ERUNTIME', message: 'Z2K lifecycle cleanup failed.' };
+		answer.error.lifecycleCleanup = answer.lifecycleCleanup;
+		answer.ok = false;
+	}
+	return answer;
+}
+function digest_text(value, prefix) {
+	let made = command('umask 077; mktemp /tmp/' + (prefix || 'z2m-digest') + '.XXXXXX'), path = trim(made.out);
+	if (made.rc != 0 || !match(path, /^\/tmp\/[A-Za-z0-9._-]+$/)) return null;
+	try { writefile(path, value == null ? '' : value); } catch (e) { cleanup(null, [path]); return null; }
+	let digest = sha256(path); cleanup(null, [path]); return digest;
+}
+function z2k_operation_id(request) {
+	if (!object(request) || !string(request.planToken) || !length(request.planToken)) return null;
+	let digest = digest_text(request.planToken, 'z2m-z2k-operation');
+	return valid_digest(digest) ? 'z2k-' + time() + '-' + substr(digest, 0, 16) : null;
+}
+function z2k_operation_id_valid(value) { return string(value) && match(value, /^z2k-[0-9]+-[a-f0-9]{16}$/); }
+function z2k_operation_path(operationId) { return Z2K_OPERATION_PARENT + '/' + operationId + '/job.json'; }
+function z2k_operation_write(path, value) {
+	if (!string(path) || !object(value)) return false;
+	let tmp = path + '.tmp';
+	try { writefile(tmp, sprintf('%J', value) + '\n'); } catch (e) { return false; }
+	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return false; }
+	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(path));
+	if (moved.rc != 0) { try { unlink(tmp); } catch (e) {} return false; }
+	return regular(path);
+}
+function z2k_operation_load(operationId) {
+	if (!z2k_operation_id_valid(operationId)) return null;
+	let raw = readfile(z2k_operation_path(operationId));
+	if (raw == null || length(raw) > MAX_REQUEST_BYTES) return null;
+	try { let value = json(raw); return object(value) && value.operationId == operationId ? value : null; }
+	catch (e) { return null; }
+}
+function z2k_operation_spawn(jobPath) {
+	let worker = '/usr/bin/ucode ' + shell_quote(Z2K_OPERATION_WORKER) + ' ' + shell_quote(jobPath) + ' >/dev/null 2>&1 & echo $!';
+	let launched = command('sh -c ' + shell_quote(worker)), pid = trim(launched.out);
+	return launched.rc == 0 && match(pid, /^[0-9]+$/) ? { ok: true, pid: +pid } : fail('ETARGET', 'Z2K lifecycle worker could not be started.', { output: trim(launched.out) });
+}
+export const resource_center_operation_write = function(path, value) { return z2k_operation_write(path, value); };
+export const resource_center_enqueue_update = function(request) {
+	if (!object(request) || request.confirm !== true || request.bundleId != 'z2k-curated-lua') return fail('EINPUT', 'Z2K lifecycle request is invalid.');
+	if (!string(request.targetVersion) || z2k_compare_versions(request.targetVersion, request.targetVersion) == null || !string(request.planToken) || !length(request.planToken)) return fail('EINPUT', 'Z2K lifecycle request is incomplete.');
+	let operationId = z2k_operation_id(request);
+	if (!operationId) return fail('EIO', 'Z2K lifecycle operation identity could not be created.');
+	try { mkdir(STAGE_PARENT); } catch (e) {}
+	try { mkdir(Z2K_OPERATION_PARENT); } catch (e) {}
+	let dir = Z2K_OPERATION_PARENT + '/' + operationId, jobPath = dir + '/job.json';
+	try { mkdir(dir); } catch (e) {}
+	if (stat(jobPath) != null) return fail('EBUSY', 'Z2K lifecycle operation identity is already in use.');
+	let now = time(), job = { schema: 1, operationId: operationId, phase: 'queued', finished: false, request: request, createdAt: now, updatedAt: now, pid: null };
+	if (!z2k_operation_write(jobPath, job)) return fail('EWRITE', 'Z2K lifecycle operation could not be queued.');
+	let spawned = z2k_operation_spawn(jobPath);
+	if (!spawned.ok) {
+		job.phase = 'failed'; job.finished = true; job.error = spawned.error; job.updatedAt = time(); job.finishedAt = job.updatedAt;
+		z2k_operation_write(jobPath, job);
+		return spawned;
+	}
+	return { ok: true, accepted: true, operationId: operationId, state: 'queued', phase: 'queued', targetVersion: request.targetVersion };
+};
+export const resource_center_update_status = function(request) {
+	let operationId = object(request) ? request.operationId : request;
+	if (!z2k_operation_id_valid(operationId)) return fail('EINPUT', 'Z2K lifecycle operation id is invalid.');
+	let job = z2k_operation_load(operationId);
+	if (job == null) return fail('ENOENT', 'Z2K lifecycle operation was not found.');
+	let answer = { ok: true, operationId: operationId, state: job.phase || 'queued', phase: job.phase || 'queued', finished: job.finished === true, pid: job.pid || null };
+	if (job.result != null) answer.result = job.result;
+	if (job.error != null) answer.error = job.error;
+	return answer;
+};
+function z2k_target_token(target, preparedAt) {
+	let removeIds = [], canonical;
+	for (let i = 0; i < length(target.removeIds || []); i++) push(removeIds, target.removeIds[i]);
+	sort(removeIds);
+	let removalIdentity = [];
+	for (let i = 0; i < length(target.removeTargets || []); i++) {
+		let item = target.removeTargets[i];
+		push(removalIdentity, item.id + '|' + item.type + '|' + item.sourcePath + '|' + item.runtimeTarget + '|' + item.expectedRevision + '|' + item.expectedContentSha256 + '|' + item.expectedByteSize + '|' + item.bundleId + '|' + item.version + '|' + item.sourceCommit);
+	}
+	sort(removalIdentity);
+	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.classificationSha256 + '|' + target.operation + '|' + join(',', removeIds) + '|' + join(',', removalIdentity) + '|' + preparedAt;
+	let digest = digest_text(canonical, 'z2m-z2k-token');
+	return digest == null ? null : 'z2k-target-v2:' + digest;
+}
+function valid_prepared_target(value) {
+	if (!object(value) || value.schema != 2 || !string(value.targetVersion) || z2k_compare_versions(value.targetVersion, value.targetVersion) == null
+		|| !string(value.targetCommitSha) || !match(lc(value.targetCommitSha), /^[a-f0-9]{40}$/)
+		|| !valid_digest(value.manifestSha256) || !valid_digest(value.localFingerprint)
+		|| !valid_digest(value.classificationSha256)
+		|| !valid_target_operation(value.operation) || type(value.preparedAt) != 'int' || value.preparedAt < 0
+		|| !string(value.planToken) || substr(value.planToken, 0, length('z2k-target-v2:')) != 'z2k-target-v2:'
+		|| value.targetCanApply !== true || !string(value.targetAttentionState) || type(value.targetBlockingReasons) != 'array' || type(value.targetReviewDetails) != 'array'
+		|| type(value.assets) != 'array' || length(value.assets) == 0 || length(value.assets) > 64
+		|| type(value.removeIds) != 'array' || length(value.removeIds) > 64
+		|| type(value.removeTargets) != 'array' || length(value.removeTargets) != length(value.removeIds)) return false;
+	for (let i = 0; i < length(value.assets); i++) if (!z2k_target_asset_valid(value.assets[i])) return false;
+	let seen = {};
+	for (let i = 0; i < length(value.assets); i++) seen[value.assets[i].id] = true;
+	for (let i = 0; i < length(value.removeIds); i++) {
+		let id = value.removeIds[i];
+		if (!string(id) || !match(id, /^(lua|blob):[a-z0-9][a-z0-9._-]*$/) || seen[id]) return false;
+		seen[id] = true;
+		if (!valid_removal_descriptor(value.removeTargets[i], id)) return false;
+	}
+	return z2k_target_token(value, value.preparedAt) == value.planToken;
+}
+function z2k_target_from_state(state) { return state && state.preparedTarget && valid_prepared_target(state.preparedTarget) ? state.preparedTarget : null; }
+function normalize_check_state(value) {
+	if (!object(value)) return null;
+	if (value.schema == 2) {
+		if ((value.latestCheck != null && !valid_latest_check(value.latestCheck)) || (value.preparedTarget != null && !valid_prepared_target(value.preparedTarget))) return null;
+		return { schema: 2, latestCheck: value.latestCheck || null, preparedTarget: value.preparedTarget || null };
+	}
+	// Migrate the old single-snapshot shape in memory. The first subsequent
+	// check/prepare write persists schema 2; a corrupt old snapshot fails closed.
+	if (value.schema == 1 && type(value.checkedAt) == 'int' && object(value.signed))
+		return { schema: 2, latestCheck: { checkedAt: value.checkedAt, planToken: value.planToken || null, signed: value.signed, signedSources: value.signedSources || null }, preparedTarget: null };
+	return null;
 }
 function load_check_state() {
 	let raw = readfile(CHECK_STATE);
 	if (raw == null || length(raw) > MAX_CHECK_STATE_BYTES) return null;
 	let value = null;
 	try { value = json(raw); } catch (e) { return null; }
-	if (!object(value) || value.schema != 1 || type(value.checkedAt) != 'int' || !object(value.signed)) return null;
-	return value;
+	return normalize_check_state(value);
+}
+function persist_check_state(payload) {
+	let content = sprintf('%J', payload) + '\n', tmp = CHECK_STATE + '.tmp.' + time();
+	try { writefile(tmp, content); } catch (e) { return false; }
+	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return false; }
+	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(CHECK_STATE));
+	if (moved.rc != 0) { try { unlink(tmp); } catch (e) {} return false; }
+	return regular(CHECK_STATE);
 }
 function save_check_state(signed, checkedAt, signedSources, token) {
 	let planToken = token || (signed && signed.ok === true ? plan_token(checkedAt, signed.manifest) : null);
 	if (signed && signed.ok === true && planToken != null) signed.planToken = planToken;
-	let payload = { schema: 1, checkedAt: checkedAt, planToken: planToken, signed: signed, signedSources: signedSources };
-	let content = sprintf('%J', payload) + '\n';
-	let tmp = CHECK_STATE + '.tmp.' + time();
-	try { writefile(tmp, content); } catch (e) { return; }
-	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return; }
-	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(CHECK_STATE));
-	if (moved.rc != 0) { try { unlink(tmp); } catch (e) {} }
+	let old = load_check_state(), payload = { schema: 2, latestCheck: { checkedAt: checkedAt, planToken: planToken, signed: signed, signedSources: signedSources }, preparedTarget: old && old.preparedTarget || null };
+	persist_check_state(payload);
 }
 function build_status(manifest, checkedAt) {
 	let listed = asset_registry_list(null); if (!listed.ok) return listed;
@@ -238,7 +538,310 @@ function build_status(manifest, checkedAt) {
 	return { ok: true, schema: 1, checkedAt: checkedAt || null, manifest: { bundleId: manifest.bundleId, version: manifest.version, generatedAt: manifest.generatedAt }, sources: source_rows(manifest, rows), installed: installed, updates: updates, summary: { installed: length(installed), updates: length(updates), byType: byType, consumers: consumers }, autoCheck: { enabled: false, autoInstall: false, mode: 'manifest-only' } };
 }
 function make_stage_root() { try { mkdir(STAGE_PARENT); } catch (e) {} let value = command('mktemp -d ' + shell_quote(STAGE_PARENT + '/stage.XXXXXX')); let root = trim(value.out); return value.rc == 0 && index(root, STAGE_PARENT + '/') == 0 ? root : null; }
-function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
+function z2k_local_fingerprint(targetAssets, listed, removeIds) {
+	let rows = [];
+	for (let i = 0; i < length(targetAssets || []); i++) {
+		let item = targetAssets[i], current = registry_asset(listed.assets, item.id), path = current && current.path || item.packagePath || '', regularPath = path && regular(path), actual = regularPath ? sha256(path) : 'missing', size = regularPath ? stat(path).size : 0, provenance = current && current.provenance || {};
+		push(rows, item.id + '|' + actual + '|' + size + '|' + (current && current.revision || 0) + '|' + (current && current.ownership || 'none') + '|' + (provenance.bundleId || '') + '|' + (provenance.version || '') + '|' + (provenance.sourceCommit || '') + '|' + (provenance.sourcePath || ''));
+	}
+	for (let i = 0; i < length(removeIds || []); i++) {
+		let current = registry_asset(listed.assets, removeIds[i]), path = current && current.path || '', regularPath = path && regular(path), actual = regularPath ? sha256(path) : 'missing', size = regularPath ? stat(path).size : 0, provenance = current && current.provenance || {};
+		push(rows, 'remove|' + removeIds[i] + '|' + actual + '|' + size + '|' + (current && current.revision || 0) + '|' + (provenance.bundleId || '') + '|' + (provenance.version || '') + '|' + (provenance.sourceCommit || '') + '|' + (provenance.sourcePath || ''));
+	}
+	sort(rows); return digest_text(join('\n', rows), 'z2m-z2k-fingerprint');
+}
+function z2k_target_operation(targetVersion, installedVersion) {
+	if (!installedVersion) return 'install';
+	let comparison = z2k_compare_versions(targetVersion, installedVersion); if (comparison == null) return null;
+	return comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall');
+}
+function z2k_classification_for(map, path) {
+	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) if (map.files[i] && map.files[i].sourcePath == path) return map.files[i];
+	return null;
+}
+function z2k_classification_asset_for(map, id, typeName) {
+	let found = null;
+	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) {
+		let item = map.files[i], mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
+		if (!object(item) || item.class != 'exact-managed' || mappedType != typeName || !string(item.sourcePath) || !runtime_target_path(item.runtimeTarget)
+			|| z2k_asset_id_from_classification(item, item.sourcePath) != id) continue;
+		if (found != null) return { ambiguous: true };
+		found = item;
+	}
+	return found;
+}
+function z2k_receipt_header_valid(receipt) {
+	return object(receipt) && receipt.schema == 'asset-activation-receipt.v1' && receipt.bundleId == 'z2k-curated-lua'
+		&& string(receipt.version) && z2k_compare_versions(receipt.version, receipt.version) != null
+		&& string(receipt.sourceCommit) && match(lc(receipt.sourceCommit), /^[a-f0-9]{40}$/)
+		&& type(receipt.assets) == 'array' && length(receipt.assets) > 0;
+}
+function z2k_receipt_runtime_descriptor(id, typeName, receipts, classification) {
+	let complete = null, legacy = false;
+	for (let i = length(receipts || []) - 1; i >= 0; i--) {
+		let receipt = receipts[i];
+		if (!z2k_receipt_header_valid(receipt)) continue;
+		for (let j = 0; j < length(receipt.assets); j++) {
+			let recorded = receipt.assets[j];
+			if (!object(recorded) || recorded.id != id) continue;
+			let hasMetadata = recorded.sourceCommit != null || recorded.sourcePath != null || recorded.bundleId != null || recorded.version != null;
+			if (hasMetadata) {
+				if (!(string(recorded.sourceCommit) && string(recorded.sourcePath) && string(recorded.bundleId) && string(recorded.version))
+					|| recorded.sourceCommit != receipt.sourceCommit || recorded.sourcePath == '' || recorded.bundleId != receipt.bundleId || recorded.version != receipt.version
+					|| recorded.type != typeName || !valid_digest(recorded.sha256) || type(recorded.byteSize) != 'int' || recorded.byteSize < 1)
+					return fail('EVERIFY', 'Complete historical Z2K receipt metadata is inconsistent.', { id: id });
+				let item = z2k_classification_for(classification, recorded.sourcePath), mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
+				if (item == null || item.class != 'exact-managed' || mappedType != typeName || !runtime_target_path(item.runtimeTarget)
+					|| z2k_asset_id_from_classification(item, recorded.sourcePath) != id)
+					return fail('EVERIFY', 'Complete historical Z2K receipt asset has no canonical runtime identity.', { id: id, sourcePath: recorded.sourcePath });
+				if (complete != null && (complete.sourcePath != recorded.sourcePath || complete.type != recorded.type || complete.runtimeTarget != item.runtimeTarget))
+					return fail('EVERIFY', 'Complete historical Z2K receipt metadata is contradictory.', { id: id });
+				if (complete == null) complete = { id: id, type: typeName, sourcePath: recorded.sourcePath, runtimeTarget: item.runtimeTarget };
+			} else {
+				if (recorded.type != typeName || !valid_digest(recorded.sha256) || type(recorded.byteSize) != 'int' || recorded.byteSize < 1)
+					return fail('EVERIFY', 'Legacy historical Z2K receipt asset is invalid.', { id: id });
+				legacy = true;
+			}
+		}
+	}
+	if (complete != null) return { ok: true, descriptor: complete };
+	if (!legacy) return fail('EVERIFY', 'Historical Z2K asset has no trustworthy receipt metadata.', { id: id });
+	let item = z2k_classification_asset_for(classification, id, typeName);
+	if (item == null || item.ambiguous === true) return fail('EVERIFY', 'Legacy historical Z2K asset has no unique canonical runtime mapping.', { id: id });
+	return { ok: true, descriptor: { id: id, type: typeName, sourcePath: item.sourcePath, runtimeTarget: item.runtimeTarget } };
+}
+function z2k_read_classification_snapshot() {
+	try {
+		let raw = readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json'), value = raw == null ? null : json(raw);
+		if (!object(value) || type(value.files) != 'array') return null;
+		let digest = digest_text(raw, 'z2m-z2k-classification');
+		if (!valid_digest(digest)) return null;
+		for (let i = 0; type(value.historicalFiles) == 'array' && i < length(value.historicalFiles); i++) push(value.files, value.historicalFiles[i]);
+		return { value: value, sha256: digest };
+	} catch (e) { return null; }
+}
+function z2k_read_classification() {
+	let snapshot = z2k_read_classification_snapshot();
+	return snapshot == null ? null : snapshot.value;
+}
+function z2k_target_membership_compatible(listed, targetAssets, classification) {
+	let targetById = {};
+	for (let i = 0; i < length(targetAssets || []); i++) targetById[targetAssets[i].id] = targetAssets[i].sourcePath;
+	for (let j = 0; j < length(listed && listed.assets || []); j++) {
+		let current = listed.assets[j], provenance = current && current.provenance;
+		if (provenance && provenance.kind == 'catalog/upstream' && provenance.bundleId == 'z2k-curated-lua' && provenance.sourcePath && targetById[current.id] != provenance.sourcePath) {
+			let historical = z2k_classification_for(classification, provenance.sourcePath);
+			if (historical == null || historical.class != 'exact-managed') return fail('EZ2K_INCOMPATIBLE', 'Z2K target membership would leave an unmanaged hybrid asset set.', { id: current.id, sourcePath: provenance.sourcePath });
+		}
+	}
+	return { ok: true };
+}
+function z2k_target_removals(listed, targetAssets, classification) {
+	let targetById = {}, removeIds = [], targets = [];
+	for (let i = 0; i < length(targetAssets || []); i++) targetById[targetAssets[i].id] = true;
+	for (let j = 0; j < length(listed && listed.assets || []); j++) {
+		let current = listed.assets[j], provenance = current && current.provenance;
+		if (!provenance || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua' || targetById[current.id]) continue;
+		let historical = provenance.sourcePath && z2k_classification_for(classification, provenance.sourcePath);
+		let expectedType = historical && historical.type == 'lua' ? 'lua' : historical && (historical.type == 'bin' || historical.type == 'txt') ? 'blob' : null;
+		if (historical == null || historical.class != 'exact-managed' || expectedType != current.type || !runtime_target_path(historical.runtimeTarget)
+			|| type(current.revision) != 'int' || current.revision < 1 || !valid_digest(current.contentSha256) || type(current.byteSize) != 'int' || current.byteSize < 1
+			|| !object(provenance) || provenance.bundleId != 'z2k-curated-lua' || !string(provenance.version) || !string(provenance.sourceCommit) || !string(provenance.sourcePath) || provenance.sourcePath != historical.sourcePath)
+			return fail('EZ2K_INCOMPATIBLE', 'Z2K target removal descriptor is incomplete or inconsistent.', { id: current.id, sourcePath: provenance.sourcePath });
+		push(removeIds, current.id);
+		push(targets, { id: current.id, type: current.type, sourcePath: provenance.sourcePath, runtimeTarget: historical.runtimeTarget,
+			expectedRevision: current.revision, expectedContentSha256: current.contentSha256, expectedByteSize: current.byteSize,
+			bundleId: provenance.bundleId, version: provenance.version, sourceCommit: provenance.sourceCommit });
+	}
+	sort(removeIds);
+	sort(targets, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
+	return { ok: true, ids: removeIds, targets: targets };
+}
+function same_removal_descriptors(left, right) {
+	if (type(left) != 'array' || type(right) != 'array' || length(left) != length(right)) return false;
+	let fields = ['id', 'type', 'sourcePath', 'runtimeTarget', 'expectedRevision', 'expectedContentSha256', 'expectedByteSize', 'bundleId', 'version', 'sourceCommit'];
+	let a = [], b = [];
+	for (let i = 0; i < length(left); i++) push(a, left[i]);
+	for (let i = 0; i < length(right); i++) push(b, right[i]);
+	sort(a, function(x, y) { return x.id == y.id ? 0 : (x.id < y.id ? -1 : 1); });
+	sort(b, function(x, y) { return x.id == y.id ? 0 : (x.id < y.id ? -1 : 1); });
+	for (let i = 0; i < length(a); i++) for (let j = 0; j < length(fields); j++) if (a[i][fields[j]] != b[i][fields[j]]) return false;
+	return true;
+}
+function z2k_resource_conflicts(listed, removeIds) {
+	let conflictingAssets = [];
+	for (let i = 0; i < length(removeIds || []); i++) {
+		let current = registry_asset(listed && listed.assets, removeIds[i]), references = current && current.references;
+		if (current != null && type(references) == 'array' && length(references)) push(conflictingAssets, { id: current.id, references: references });
+	}
+	if (length(conflictingAssets)) return fail('EZ2K_RESOURCE_CONFLICT', 'Эта версия Z2K не может быть применена: удаляемые ресурсы используются другими компонентами.', { conflictingAssets: conflictingAssets });
+	return { ok: true };
+}
+function same_id_set(left, right) {
+	if (length(left || []) != length(right || [])) return false;
+	let seen = {};
+	for (let i = 0; i < length(left || []); i++) seen[left[i]] = true;
+	for (let i = 0; i < length(right || []); i++) if (!seen[right[i]]) return false;
+	return true;
+}
+function z2k_runtime_spec(target, listed, classification, root) {
+	let lines = [], targetById = {};
+	for (let i = 0; i < length(target.assets || []); i++) {
+		let item = target.assets[i], found = registry_asset(listed.assets, item.id), runtimePath = runtime_target_path(item.runtimeTarget);
+		if (found == null || !runtime_source_safe(found.path) || runtimePath == null || found.contentSha256 != item.sha256 || found.byteSize < 1) return fail('EVERIFY', 'Registry target cannot be materialized into the runtime.', { id: item.id, runtimeTarget: item.runtimeTarget || null });
+		targetById[item.id] = true;
+		push(lines, 'ASSET|' + item.id + '|' + item.type + '|' + found.path + '|' + item.runtimeTarget + '|' + item.sha256 + '|' + found.byteSize);
+	}
+	for (let i = 0; i < length(target.removeTargets || []); i++) {
+		let removal = target.removeTargets[i], id = removal.id, runtimeTarget = removal.runtimeTarget;
+		if (!object(removal) || !string(id) || (removal.type != 'lua' && removal.type != 'blob') || runtime_target_path(runtimeTarget) == null) return fail('EVERIFY', 'Registry removal target has no safe runtime mapping.', { id: id });
+		push(lines, 'REMOVE|' + id + '|' + removal.type + '||' + runtimeTarget + '||');
+	}
+	if (!length(lines)) return fail('EINPUT', 'Z2K target has no runtime assets to activate.');
+	let spec = root + '/runtime-activation.tsv';
+	try { writefile(spec, join('\n', lines) + '\n'); } catch (e) { return fail('EWRITE', 'Runtime activation spec could not be written.'); }
+	return { ok: true, path: spec, assets: length(target.assets || []), removed: length(target.removeIds || []) };
+}
+function z2k_runtime_restart(stage) {
+	let operationStage = string(stage) && length(stage) ? stage : 'activation';
+	let restarted = command('sh /etc/init.d/zapret2 restart');
+	if (restarted.rc != 0) return fail('ERUNTIME', 'Zapret2 service restart failed.', { stage: operationStage, output: restarted.out });
+	let configured = read_var('NFQWS2_ENABLE');
+	let readiness = z2k_runtime_readiness({
+		stage: operationStage,
+		expectedEnabled: configured != '0',
+		configValue: configured,
+		now: z2k_runtime_monotonic_ms,
+		wait: function() { command('sleep 1'); },
+		observe: z2k_runtime_observe
+	});
+	readiness.restart = { rc: restarted.rc, output: trim(restarted.out) };
+	if (!readiness.ok) {
+		readiness.error.restart = readiness.restart;
+		return readiness;
+	}
+	let status = z2k_runtime_status_postflight();
+	readiness.status = status;
+	if (!status.ok) return fail('ERUNTIME', 'Zapret2 status postflight failed after Z2K ' + operationStage + '.', {
+		stage: operationStage, reason: 'status-postflight-failed', restart: readiness.restart,
+		readiness: readiness.readiness, status: status
+	});
+	readiness.configValue = configured;
+	return readiness;
+}
+function z2k_runtime_postflight(target, diagnostics, listed) {
+	let matched = 0;
+	for (let i = 0; i < length(target.assets || []); i++) {
+		let item = target.assets[i], registered = registry_asset(listed && listed.assets, item.id), expectedSize = registered && registered.byteSize,
+			path = runtime_target_path(item.runtimeTarget), value = path && regular(path) ? sha256(path) : null, size = path && regular(path) ? stat(path).size : 0;
+		if (path == null || registered == null || type(expectedSize) != 'int' || expectedSize < 1 || value != item.sha256 || size != expectedSize) return fail('EVERIFY', 'Runtime bytes do not match the selected Z2K target.', { id: item.id, runtimeTarget: item.runtimeTarget || null, expectedSha256: item.sha256, actualSha256: value, expectedSize: expectedSize, actualSize: size });
+		matched++;
+	}
+	for (let i = 0; i < length(target.removeTargets || []); i++) {
+		let removal = target.removeTargets[i], path = runtime_target_path(removal.runtimeTarget);
+		if (path == null) return fail('EVERIFY', 'Removed runtime asset has no safe runtime mapping.', { id: removal.id });
+		if (regular(path)) return fail('EVERIFY', 'Removed runtime asset is still present.', { id: removal.id, runtimeTarget: removal.runtimeTarget });
+	}
+	diagnostics.runtimePostflightMatched = matched;
+	return { ok: true, verified: true, matched: matched, removed: length(target.removeTargets || []) };
+}
+function z2k_runtime_activate(target, listed, classification, root, diagnostics) {
+	let spec = z2k_runtime_spec(target, listed, classification, root);
+	if (!spec.ok) return spec;
+	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-registry ' + shell_quote(spec.path));
+	if (activated.rc != 0) return fail('ERUNTIME', 'Registry target could not be materialized into the active runtime.', { output: activated.out, spec: spec.path, activated: false });
+	let restarted = z2k_runtime_restart('activation');
+	if (!restarted.ok) return { ok: false, error: restarted.error, activated: true, restart: restarted, postflight: { verified: false, reason: 'restart-failed' } };
+	let postflight = z2k_runtime_postflight(target, diagnostics, listed);
+	if (!postflight.ok) return { ok: false, error: postflight.error, activated: true, restart: restarted, postflight: postflight };
+	return { ok: true, activated: true, restart: restarted, postflight: postflight, spec: spec };
+}
+function z2k_runtime_rollback() {
+	let restored = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --rollback-registry');
+	if (restored.rc != 0) return fail('EROLLBACK', 'Active runtime rollback failed.', { output: restored.out });
+	let restarted = z2k_runtime_restart('rollback');
+	if (!restarted.ok) return restarted;
+	return { ok: true, restored: true, restart: restarted };
+}
+export const z2k_runtime_confirmed_target = function(listed, classification, authority) {
+	let active = [], activeById = {}, historical = {}, receipts = listed.activationReceipts || [];
+	for (let i = 0; i < length(listed.assets || []); i++) {
+		let asset = listed.assets[i], provenance = asset && asset.provenance;
+		if (!provenance || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua') continue;
+		let item = z2k_classification_for(classification, provenance.sourcePath);
+		if (item == null || item.class != 'exact-managed' || !runtime_target_path(item.runtimeTarget)) return fail('EVERIFY', 'Confirmed Z2K asset has no safe runtime mapping.', { id: asset.id });
+		push(active, { id: asset.id, type: asset.type, sourcePath: provenance.sourcePath, runtimeTarget: item.runtimeTarget, sha256: asset.contentSha256, byteSize: asset.byteSize });
+		activeById[asset.id] = true;
+	}
+	for (let i = 0; i < length(receipts); i++) {
+		let receipt = receipts[i];
+		if (!z2k_receipt_header_valid(receipt)) continue;
+		for (let j = 0; j < length(receipt.assets); j++) {
+			let recorded = receipt.assets[j];
+			if (object(recorded) && string(recorded.id) && !historical[recorded.id]) historical[recorded.id] = recorded;
+		}
+	}
+	let removeTargets = [];
+	for (let id in historical) {
+		if (activeById[id]) continue;
+		let recorded = historical[id], descriptor = z2k_receipt_runtime_descriptor(id, recorded.type, receipts, classification);
+		if (!descriptor.ok) return descriptor;
+		push(removeTargets, descriptor.descriptor);
+	}
+	sort(active, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
+	sort(removeTargets, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
+	return { ok: true, target: { targetVersion: authority.value, operation: 'materialize', assets: active, removeIds: [], removeTargets: removeTargets } };
+};
+export const z2k_runtime_materialize_confirmed = function() {
+	let listed = asset_registry_list(null);
+	if (!listed.ok) return listed;
+	let authority = z2k_registry_installed_release(listed);
+	if (!authority || authority.confidence != 'confirmed' || !authority.value) return { ok: true, skipped: true, reason: 'no-confirmed-z2k-release' };
+	let classificationSnapshot = z2k_read_classification_snapshot();
+	if (classificationSnapshot == null) return fail('EVERIFY', 'Z2K classification mapping is unavailable or invalid.');
+	let target = z2k_runtime_confirmed_target(listed, classificationSnapshot.value, authority);
+	if (!target.ok) return target;
+	let root = make_stage_root();
+	if (root == null) return fail('ETARGET', 'resource staging directory is unavailable');
+	let spec = z2k_runtime_spec(target.target, listed, classificationSnapshot.value, root);
+	if (!spec.ok) { cleanup(root, []); return spec; }
+	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-registry ' + shell_quote(spec.path));
+	cleanup(root, []);
+	if (activated.rc != 0) return fail('ERUNTIME', 'Confirmed Z2K runtime materialization failed.', { output: activated.out, version: authority.value });
+	return { ok: true, skipped: false, version: authority.value, assets: length(target.target.assets), removed: length(target.target.removeTargets || []) };
+};
+function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated) {
+	let runtimeRollback = runtimeActivated ? z2k_runtime_rollback() : { ok: true, skipped: true };
+	let registryRollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.revision });
+	return { ok: runtimeRollback.ok && registryRollback.ok, runtime: runtimeRollback, registry: registryRollback };
+}
+function z2k_target_summary(target) {
+	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), preparedAt: target.preparedAt };
+}
+function save_prepared_target(target) {
+	let state = load_check_state() || { schema: 2, latestCheck: null, preparedTarget: null };
+	state.schema = 2; state.preparedTarget = target; return persist_check_state(state);
+}
+function consume_prepared_target(expectedState, expectedTarget) {
+	let locked = command('mkdir ' + shell_quote(LIFECYCLE_LOCK));
+	if (locked.rc != 0) return fail('EBUSY', 'Другая Z2K lifecycle-операция уже потребляет подготовленный target.');
+	try {
+		let current = load_check_state(), target = z2k_target_from_state(current);
+		if (!target || target.planToken != expectedTarget.planToken) {
+			command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+			return fail('ECHECK_STALE', 'Z2K prepared operation was already consumed; prepare the release again.');
+		}
+		let consumed = persist_check_state({ schema: 2, latestCheck: current && current.latestCheck || expectedState && expectedState.latestCheck || null, preparedTarget: null });
+		if (!consumed) {
+			command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+			return fail('EWRITE', 'Z2K prepared operation could not be consumed; no mutation was performed.');
+		}
+		return { ok: true, lockHeld: true };
+	} catch (e) {
+		command('rmdir ' + shell_quote(LIFECYCLE_LOCK));
+		return fail('EINTERNAL', 'Z2K prepared operation could not be consumed; no mutation was performed.', { detail: text(e) });
+	}
+}
 function base64_decode(value) { if (!string(value) || length(value) > MAX_REQUEST_BYTES || !match(value, /^[A-Za-z0-9+\/=%]*$/)) return null; let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', buffer = 0, bits = 0; for (let i = 0; i < length(value); i++) { let c = substr(value, i, 1); if (c == '=') break; let n = index(alphabet, c); if (n < 0) return null; buffer = buffer * 64 + n; bits += 6; if (bits >= 8) { bits -= 8; out += chr((buffer >> bits) & 255); buffer = buffer & ((1 << bits) - 1); } } return out; }
 function inline_bundle(request) {
 	let bundle = request.controlledBundle; if (!request.controlledTest || !object(bundle) || !string(bundle.bundleId) || substr(bundle.bundleId, 0, 11) != 'controlled-' || type(bundle.assets) != 'array' || !length(bundle.assets)) return null;
@@ -246,29 +849,128 @@ function inline_bundle(request) {
 	for (let i = 0; i < length(bundle.assets); i++) { let item = bundle.assets[i], content = base64_decode(item.contentBase64); if (!object(item) || content == null || !string(item.id) || !string(item.type)) { cleanup(root, paths); return fail('EINPUT', 'controlled bundle asset is invalid'); } let path = root + '/' + i + '.asset'; try { writefile(path, content); } catch (e) { cleanup(root, paths); return fail('EWRITE', 'controlled bundle staging failed'); } push(paths, path); push(staged, { type: item.type, id: item.id, name: item.name, stagedPath: path, sha256: item.sha256, byteSize: item.byteSize, dependencies: item.dependencies || [], provenance: { kind: 'catalog/upstream', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', sourcePath: item.sourcePath || item.id, bundleId: bundle.bundleId, version: bundle.version || 'test' } }); }
 	let answer = asset_registry_apply_bundle({ bundleId: bundle.bundleId, version: bundle.version || 'test', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', assets: staged }); cleanup(root, paths); return answer;
 }
+export const resource_center_prepare_version = function(request) {
+	let version = object(request) ? request.version : request;
+	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
+	let resolved = z2k_resolve_version(version); if (!resolved.ok) return resolved;
+	if (type(resolved.assets) != 'array' || !length(resolved.assets) || length(resolved.assets) > 64) return fail('EZ2K_INCOMPATIBLE', 'Выбранный release не содержит полного exact-managed набора.');
+	for (let i = 0; i < length(resolved.assets); i++) if (!z2k_target_asset_valid(resolved.assets[i])) return fail('EZ2K_INCOMPATIBLE', 'Выбранный release содержит неподдерживаемый managed asset.', { sourcePath: resolved.assets[i] && resolved.assets[i].sourcePath });
+	let listed = asset_registry_list(null); if (!listed.ok) return listed;
+	let classificationSnapshot = z2k_read_classification_snapshot(), classification = classificationSnapshot && classificationSnapshot.value;
+	if (classificationSnapshot == null) return fail('EZ2K_INCOMPATIBLE', 'Z2K classification mapping is unavailable or invalid.');
+	let membership = z2k_target_membership_compatible(listed, resolved.assets, classification); if (!membership.ok) return membership;
+	let targetGate = z2k_target_gate(resolved.manifest); if (!targetGate.ok) return targetGate;
+	let removals = z2k_target_removals(listed, resolved.assets, classification); if (!removals.ok) return removals;
+	let conflicts = z2k_resource_conflicts(listed, removals.ids); if (!conflicts.ok) return conflicts;
+	let authority = z2k_registry_installed_release(listed), installed = authority && authority.value || null, operation = z2k_target_operation(version, installed), localFingerprint = z2k_local_fingerprint(resolved.assets, listed, removals.ids);
+	if (operation == null || localFingerprint == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
+	let preparedAt = time(), target = { schema: 2, targetVersion: resolved.version, targetCommitSha: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: resolved.assets };
+	target.planToken = z2k_target_token(target, preparedAt);
+	if (target.planToken == null || !save_prepared_target(target)) return fail('EIO', 'Не удалось сохранить Z2K target snapshot.');
+	return { ok: true, target: z2k_target_summary(target), planToken: target.planToken, diagnostics: resolved.diagnostics || null };
+};
+function z2k_target_policy(listed, item) {
+	let registered = registry_asset(listed.assets, item.id);
+	if (registered == null) return { ok: true, registered: null };
+	let promotion = registered.ownership == 'package' && registered.provenance && registered.provenance.kind == 'builtin/package';
+	if (!promotion && (registered.ownership == 'package' || registered.ownership != 'manager' || !registered.provenance || registered.provenance.kind != 'catalog/upstream')) return fail('EPOLICY', 'package or user resource cannot be replaced by upstream', { id: item.id });
+	return { ok: true, registered: registered };
+}
+function z2k_target_postflight(listed, target, diagnostics) {
+	if (!listed.ok) return fail('ESTATE', 'asset registry metadata is unavailable after Z2K activation.');
+	diagnostics.removed = 0;
+	for (let i = 0; i < length(target.removeIds || []); i++) {
+		if (registry_asset(listed.assets, target.removeIds[i]) != null) return fail('EVERIFY', 'Z2K removed asset is still registered after activation.', { id: target.removeIds[i] });
+		diagnostics.removed++;
+	}
+	for (let i = 0; i < length(target.assets); i++) {
+		let item = target.assets[i], found = registry_asset(listed.assets, item.id), actual = found && found.path && regular(found.path) ? sha256(found.path) : null;
+		if (found == null || actual != item.sha256 || found.contentSha256 != item.sha256 || !found.provenance || found.provenance.kind != 'catalog/upstream' || found.provenance.sourceCommit != target.targetCommitSha || found.provenance.version != target.targetVersion || found.provenance.sourcePath != item.sourcePath) return fail('EVERIFY', 'Z2K postflight verification failed.', { id: item.id, expectedSha256: item.sha256, actualSha256: actual });
+		diagnostics.targetAssets[i].result = 'applied'; diagnostics.postflightMatched++;
+	}
+	return { ok: true };
+}
+function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed) {
+	let state = load_check_state(), target = z2k_target_from_state(state), requestedVersion = request && request.targetVersion;
+	if (!target || !string(requestedVersion) || requestedVersion != target.targetVersion || request.planToken != target.planToken || request.operation != target.operation || (request.installedVersion !== target.previousVersion)) return fail('ECHECK_STALE', 'Z2K update requires a matching prepared operation and installed baseline; prepare the release again.');
+	let fingerprint = z2k_local_fingerprint(target.assets, listed, target.removeIds);
+	if (fingerprint == null || fingerprint != target.localFingerprint) return fail('ECHECK_STALE', 'Z2K local resources changed after preparation; prepare the release again.');
+	let classificationSnapshot = z2k_read_classification_snapshot(), classification = classificationSnapshot && classificationSnapshot.value;
+	if (classificationSnapshot == null || classificationSnapshot.sha256 != target.classificationSha256) return fail('ECHECK_STALE', 'Z2K runtime classification changed after preparation; prepare the release again.');
+	let membership = z2k_target_membership_compatible(listed, target.assets, classification);
+	if (!membership.ok) return membership;
+	let removals = z2k_target_removals(listed, target.assets, classification);
+	if (!removals.ok || !same_id_set(removals.ids, target.removeIds) || !same_removal_descriptors(removals.targets, target.removeTargets)) return fail('ECHECK_STALE', 'Z2K managed membership or removal mapping changed after preparation; prepare the release again.');
+	let consumed = consume_prepared_target(state, target);
+	if (!consumed.ok) return consumed;
+	let root = null, paths = [], guard = null, staged = [], diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), removePlanned: length(target.removeIds || []), downloaded: 0, verified: 0, staged: 0, applied: 0, removed: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
+	try {
+		guard = z2k_runtime_guard_acquire();
+		if (!guard.ok) return z2k_runtime_guard_finish(guard, root, paths, guard);
+		root = make_stage_root();
+		if (root == null) return z2k_runtime_guard_finish(guard, root, paths, fail('ETARGET', 'resource staging directory is unavailable'));
+	for (let i = 0; i < length(target.assets); i++) {
+		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
+		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
+		if (!z2k_target_asset_valid(item)) { diagnostics.targetAssets[i].result = 'invalid-target'; return z2k_runtime_guard_finish(guard, root, paths, fail('EVERIFY', 'prepared Z2K target asset is invalid.', { sourcePath: item && item.sourcePath, diagnostics: diagnostics })); }
+		if (!policy.ok) { diagnostics.targetAssets[i].result = 'protected'; policy.diagnostics = diagnostics; return z2k_runtime_guard_finish(guard, root, paths, policy); }
+		let path = root + '/' + i + '.asset', url = 'https://raw.githubusercontent.com/necronicle/z2k/' + target.targetCommitSha + '/' + item.sourcePath, fetched = command('uclient-fetch -q -O ' + shell_quote(path) + ' ' + shell_quote(url));
+		if (fetched.rc != 0 || !regular(path)) { diagnostics.targetAssets[i].result = 'fetch-failed'; return z2k_runtime_guard_finish(guard, root, paths, fail('EUNAVAILABLE', 'resource source is unavailable.', { sourcePath: item.sourcePath, diagnostics: diagnostics })); }
+		diagnostics.downloaded++; let actual = sha256(path);
+		if (actual != lc(item.sha256)) { diagnostics.targetAssets[i].result = 'sha-mismatch'; return z2k_runtime_guard_finish(guard, root, paths, fail('EVERIFY', 'fetched bytes SHA does not match prepared target.', { sourcePath: item.sourcePath, expectedSha256: item.sha256, actualSha256: actual, diagnostics: diagnostics })); }
+		diagnostics.verified++; let gate = z2k_candidate_gate(item.sourcePath, path, item.sha256);
+		if (!gate.ok) { diagnostics.targetAssets[i].result = gate.error && gate.error.code == 'ESTALE' ? 'stale' : 'incompatible'; return z2k_runtime_guard_finish(guard, root, paths, fail(gate.error && gate.error.code || 'EZ2K_REVIEW_REQUIRED', 'staged Z2K candidate requires review.', { sourcePath: item.sourcePath, diagnostics: diagnostics })); }
+		push(paths, path); push(staged, { type: item.type, id: item.id, name: item.name, stagedPath: path, sha256: item.sha256, byteSize: stat(path).size, expectedRevision: before && before.revision || null, dependencies: item.dependencies || [], provenance: { kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: target.targetCommitSha, sourcePath: item.sourcePath, bundleId: selected.id, version: target.targetVersion } });
+		diagnostics.targetAssets[i].result = 'staged';
+	}
+	diagnostics.staged = length(staged);
+	let applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
+	if (!applied.ok) return z2k_runtime_guard_finish(guard, root, paths, applied);
+	diagnostics.applied = applied.updated || length(staged);
+	diagnostics.removed = applied.removed || 0;
+	let after = asset_registry_list(null), registryPostflight = z2k_target_postflight(after, target, diagnostics);
+	diagnostics.registryPostflight = registryPostflight;
+	if (!registryPostflight.ok) {
+		let rollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.revision });
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K Registry activation was rolled back after postflight verification failed.' : 'Z2K Registry activation failed and rollback could not be completed.', { postflight: registryPostflight.error, rollback: rollback, diagnostics: diagnostics }));
+	}
+	let runtimeSpecPath = root + '/runtime-activation.tsv';
+	push(paths, runtimeSpecPath);
+	let runtime = z2k_runtime_activate(target, after, classification, root, diagnostics);
+	diagnostics.runtimePostflight = runtime.postflight || { verified: false, reason: runtime.error && runtime.error.code || 'runtime-activation-failed' };
+	if (!runtime.ok) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtime.activated === true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ERUNTIME' : 'EROLLBACK', rollback.ok ? 'Z2K runtime activation was rolled back; Registry state was restored.' : 'Z2K runtime activation failed and rollback could not be completed.', { runtime: runtime.error || null, rollback: rollback, diagnostics: diagnostics }));
+	}
+	return z2k_runtime_guard_finish(guard, root, paths, { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: applied.revision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null });
+	} catch (e) {
+		return z2k_runtime_guard_finish(guard, root, paths, fail('EINTERNAL', 'Z2K lifecycle failed while the intentional runtime guard was active.', { detail: text(e), diagnostics: diagnostics }));
+	}
+}
 export const resource_center_status = function () {
 	// STALE-PROJECTION REGRESSION GUARD (see tests/product/z2k-candidate-compatibility.test.mjs):
 	// This returns the PERSISTED CHECK_STATE (/etc/zapret2-manager/resource-source-check.json),
 	// NOT a live fetch. After a sidecar migration or manifest change, it may still show
 	// the previous status (e.g., rebase-required) until an explicit resources_check
-	// (z2k_upstream_check) refreshes CHECK_STATE via save_check_state(). Do not make
+	// An explicit check refreshes CHECK_STATE via save_check_state(). Do not make
 	// this live — that would add network I/O to every status poll.
 	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, null);
 	if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
-	let persisted = load_check_state();
-	let remote = persisted ? z2k_projection(persisted.signed) : z2k_projection(null);
+	let persisted = load_check_state(), latestCheck = persisted && persisted.latestCheck;
+	let remote = latestCheck ? z2k_projection(latestCheck.signed) : z2k_projection(null);
 	remote.local = local;
-	remote.checkedAt = persisted ? persisted.checkedAt : null;
-	remote.planToken = persisted ? (persisted.planToken || remote.planToken) : null;
+	remote.checkedAt = latestCheck ? latestCheck.checkedAt : null;
+	remote.planToken = latestCheck ? (latestCheck.planToken || remote.planToken) : null;
+	remote.preparedTarget = persisted && persisted.preparedTarget ? { targetVersion: persisted.preparedTarget.targetVersion, operation: persisted.preparedTarget.operation, preparedAt: persisted.preparedTarget.preparedAt } : null;
 	answer.z2k = remote;
-	if (persisted) {
-		answer.checkedAt = persisted.checkedAt;
-		answer.signedSources = { z2k: persisted.signedSources };
+	if (latestCheck) {
+		answer.checkedAt = latestCheck.checkedAt;
+		answer.signedSources = { z2k: latestCheck.signedSources };
 		for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') {
-			answer.sources[i].checkMode = persisted.signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest';
-			answer.sources[i].verification = persisted.signedSources;
-			if (!persisted.signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); }
+			answer.sources[i].checkMode = latestCheck.signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest';
+			answer.sources[i].verification = latestCheck.signedSources;
+			if (!latestCheck.signed.ok) { answer.sources[i].state = 'error'; answer.sources[i].status = state_label('error'); }
 			else {
 				// Canonical product state must not contradict Resources: use z2k plan status, honest unknown
 				if (remote.status === 'current') { answer.sources[i].state = 'current'; answer.sources[i].status = state_label('current'); }
@@ -318,27 +1020,9 @@ export const resource_center_update = function (request) {
 	if (!object(request) || request.confirm !== true) return fail('EINPUT', 'explicit update confirmation is required');
 	// Branch detection for diagnostics: z2k-runtime vs bundle-based
 	let diagPathUsed = null;
-	if (request.component == 'z2k-runtime') diagPathUsed = 'z2k-runtime:z2k_component_apply';
+	if (request.component == 'z2k-runtime') return fail('ELEGACY_LIFECYCLE', 'The legacy Z2K component lifecycle is retired; prepare a release target first.');
 	else if (request.bundleId) diagPathUsed = 'bundle:' + text(request.bundleId);
 	else diagPathUsed = 'unknown';
-	if (request.component == 'z2k-runtime') {
-		let res = z2k_component_apply(request);
-		// Attach bounded diagnostics for component path
-		if (object(res)) {
-			res.pathUsed = diagPathUsed;
-			if (res.ok && res.transaction) {
-				res.diagnostics = { pathUsed: diagPathUsed, remoteRevision: null, planned: res.transaction.updated || 0, downloaded: 0, verified: 0, staged: 0, applied: res.transaction.updated || 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-			} else if (!res.ok) {
-				res.diagnostics = { pathUsed: diagPathUsed, remoteRevision: null, planned: 0, downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-			}
-			// Invariant: planned>0 && applied==0 => FAILED
-			let p = res.diagnostics ? res.diagnostics.planned : null, a = res.diagnostics ? res.diagnostics.applied : null;
-			if (p != null && a != null && p > 0 && a == 0 && res.ok) {
-				return { ok: false, error: { code: 'EVERIFY', message: 'Обновление не применено: ' + p + ' обновлений было запланировано, 0 установлено.', diagnostics: res.diagnostics }, diagnostics: res.diagnostics, pathUsed: diagPathUsed };
-			}
-		}
-		return res;
-	}
 	let controlled = inline_bundle(request); if (controlled != null) {
 		if (object(controlled)) { controlled.pathUsed = 'controlled-bundle'; controlled.diagnostics = { pathUsed: 'controlled-bundle', remoteRevision: null, planned: 0, downloaded: 0, verified: 0, staged: 0, applied: controlled.updated || 0, postflightMatched: 0, skipped: [], targetAssets: [] }; }
 		return controlled;
@@ -347,241 +1031,8 @@ export const resource_center_update = function (request) {
 	// Update pathUsed now that selected is known
 	if (selected.sourceId == 'z2k-resources') diagPathUsed = 'z2k-resources:bundle:' + selected.id;
 	else diagPathUsed = 'bundle:' + selected.id;
-	let signedForZ2k = null, checkSnapshotAt = null;
-	if (selected.sourceId == 'z2k-resources') {
-		// APPLY is bound to the last explicit CHECK_STATE snapshot. Never perform
-		// a second network check here: that could make the plan and downloaded
-		// bytes disagree with what the user confirmed.
-		let persisted = load_check_state(), snapshot = persisted && persisted.signed;
-		let expectedToken = persisted && snapshot ? plan_token(persisted.checkedAt, snapshot.manifest) : null;
-		if (!persisted || !object(snapshot) || snapshot.ok !== true || !persisted.planToken || expectedToken == null || request.planToken != persisted.planToken || request.planToken != expectedToken || snapshot.planToken != request.planToken || !object(snapshot.plan) || !object(snapshot.manifest)) {
-			return fail('ECHECK_STALE', 'Z2K update requires a matching successful check snapshot; run Проверить обновления again.');
-		}
-		signedForZ2k = snapshot;
-		checkSnapshotAt = persisted.checkedAt;
-		let canonical = signedForZ2k.plan;
-		if (canonical.attentionState == 'rebase-required' || length(canonical.rebases || [])) {
-			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest.current || null, planned: length(canonical.rebases || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: canonical.rebases || [], targetAssets: [] };
-			return fail('EZ2K_REBASE_REQUIRED', 'signed Z2K manifest requires adapted-file rebase', { rebases: canonical.rebases, diagnostics: d });
-		}
-		if (canonical.canApply !== true || length(canonical.updates || []) == 0) {
-			let d = { pathUsed: diagPathUsed, remoteRevision: signedForZ2k.manifest.current || null, planned: length(canonical.updates || []), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: canonical.blockingReviews || [], targetAssets: [] };
-			if (length(canonical.blockingReviews || [])) return fail('EZ2K_REVIEW_REQUIRED', 'signed Z2K manifest requires semantic review', { reviews: canonical.blockingReviews, blockingReasons: canonical.blockingReasons || [], diagnostics: d });
-			return fail('EUPDATE_NOT_AVAILABLE', 'Z2K check snapshot contains no applicable exact-managed updates.', { diagnostics: d });
-		}
-	}
+	if (selected.sourceId == 'z2k-resources') return z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed);
 	let root = make_stage_root(); if (root == null) return fail('ETARGET', 'resource staging directory is unavailable'); let paths = [], staged = [];
-	if (selected.sourceId == 'z2k-resources' && signedForZ2k) {
-		// Use the fresh verified manifest as the update target, not the static packaged bundle.
-		// This is snapshot-consistent: CHECK and APPLY use the same signed.manifest.
-		let planUpdates = signedForZ2k.plan.updates || [];
-		let remoteFiles = signedForZ2k.manifest.files_sha256 || {};
-		let remoteCommit = signedForZ2k.manifest.current || selected.sourceCommit;
-		let remoteVersion = signedForZ2k.manifest.current;
-		let diagnostics = { pathUsed: diagPathUsed, remoteRevision: remoteCommit, planned: length(planUpdates), downloaded: 0, verified: 0, staged: 0, applied: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
-		// Pre-fill targetAssets with before SHAs (correct slug derivation for all types)
-		for (let i = 0; i < length(planUpdates); i++) {
-			let sp = planUpdates[i], tgt = remoteFiles[sp] ? lc(remoteFiles[sp]) : null;
-			let assetId = null, assetTypeTmp = null;
-			try {
-				let map = json(readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json'));
-				if (map && type(map.files) == 'array') for (let k = 0; k < length(map.files); k++) if (map.files[k].sourcePath == sp) {
-					let it = map.files[k];
-					let baseTmp = it.localName ? it.localName : sp;
-					let slashTmp = rindex(baseTmp, '/'); let basenameTmp = slashTmp >=0 ? substr(baseTmp, slashTmp+1) : baseTmp;
-					let dotTmp = rindex(basenameTmp, '.'); let slugTmp = dotTmp >=0 ? substr(basenameTmp, 0, dotTmp) : basenameTmp;
-					slugTmp = lc(slugTmp);
-					if (slugTmp == 'list' && index(sp, 'extra_strats') >=0) {
-						let dirPartTmp = substr(sp, 0, rindex(sp, '/'));
-						let afterListsTmp = substr(dirPartTmp, length('files/lists/') );
-						let flatTmp = ''; for (let _ci2 = 0; _ci2 < length(afterListsTmp); _ci2++) { let ch2 = substr(afterListsTmp, _ci2, 1); flatTmp += ch2 == '/' ? '_' : lc(ch2); }
-						slugTmp = flatTmp + '_list';
-					}
-					if (it.type == 'lua') assetTypeTmp = 'lua';
-					else if (it.type == 'bin') assetTypeTmp = 'blob';
-					else if (it.type == 'txt') assetTypeTmp = 'blob';
-					else assetTypeTmp = null;
-					if (assetTypeTmp) assetId = assetTypeTmp + ':' + slugTmp;
-					break;
-				}
-			} catch (e) {}
-			if (assetId == null) {
-				let slash2 = rindex(sp, '/'); let base2 = slash2 >=0 ? substr(sp, slash2+1) : sp;
-				let dot2 = rindex(base2, '.'); let slug2 = dot2 >=0 ? substr(base2, 0, dot2) : base2;
-				slug2 = lc(slug2);
-				if (slug2 == 'list' && index(sp, 'extra_strats') >=0) {
-					let dirPart2 = substr(sp, 0, rindex(sp, '/'));
-					let afterLists2 = substr(dirPart2, length('files/lists/') );
-					let flat2 = ''; for (let _ci3 = 0; _ci3 < length(afterLists2); _ci3++) { let ch3 = substr(afterLists2, _ci3, 1); flat2 += ch3 == '/' ? '_' : lc(ch3); }
-					slug2 = flat2 + '_list';
-					assetId = 'blob:' + slug2;
-				} else assetId = 'lua:' + slug2;
-			}
-			let beforeSha = null;
-			for (let r = 0; r < length(listed.assets); r++) if (listed.assets[r].id == assetId) { beforeSha = listed.assets[r].contentSha256; break; }
-			push(diagnostics.targetAssets, { sourcePath: sp, assetId: assetId, installedShaBefore: beforeSha, targetSha: tgt, result: 'pending' });
-		}
-		for (let i = 0; i < length(planUpdates); i++) {
-			let sourcePath = planUpdates[i];
-			let targetSha = remoteFiles[sourcePath];
-			if (!string(targetSha) || !match(lc(targetSha), /^[a-f0-9]{64}$/)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'invalid-target-sha'; let e = fail('EVERIFY', 'remote target SHA is invalid', { sourcePath: sourcePath, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			// Resolve classification for asset id/type
-			let map = null; try { map = json(readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json')); } catch (e) { map = null; }
-			let item = null;
-			if (map && type(map.files) == 'array') for (let k = 0; k < length(map.files); k++) if (map.files[k].sourcePath == sourcePath) { item = map.files[k]; break; }
-			if (item == null) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'unclassified'; let e = fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K file has no classification', { sourcePath: sourcePath, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			let baseAsset = item.localName ? item.localName : sourcePath;
-			let slashAsset = rindex(baseAsset, '/'); let basenameAsset = slashAsset >=0 ? substr(baseAsset, slashAsset+1) : baseAsset;
-			let dotAsset = rindex(basenameAsset, '.'); let slugAsset = dotAsset >=0 ? substr(basenameAsset, 0, dotAsset) : basenameAsset;
-			slugAsset = lc(slugAsset);
-			// Ensure unique slug for colliding basenames like List.txt in different dirs
-			if (slugAsset == 'list' && index(sourcePath, 'extra_strats') >=0) {
-				let dirPart = substr(sourcePath, 0, rindex(sourcePath, '/'));
-				// dirPart like files/lists/extra_strats/TCP/RKN -> take after files/lists/
-				let afterLists = substr(dirPart, length('files/lists/') );
-				// replace / with _ and lower
-				let flat = ''; for (let _ci = 0; _ci < length(afterLists); _ci++) { let ch = substr(afterLists, _ci, 1); flat += ch == '/' ? '_' : lc(ch); }
-				slugAsset = flat + '_list';
-			}
-			let assetType;
-			if (item.type == 'lua') assetType = 'lua';
-			else if (item.type == 'bin') assetType = 'blob';
-			else if (item.type == 'txt') {
-				// Use blob for txt to avoid hostlist/ipset canonical normalization mismatch; store as raw
-				assetType = 'blob';
-			} else assetType = null;
-			let assetId = assetType ? (assetType + ':' + slugAsset) : null;
-			if (assetId == null) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'unsupported-type'; let e = fail('EINPUT', 'unsupported Z2K asset type', { sourcePath: sourcePath, type: item.type, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			let registered = null;
-			for (let r = 0; r < length(listed.assets); r++) if (listed.assets[r].id == assetId) { registered = listed.assets[r]; break; }
-			if (registered != null) {
-				let isPromotion = registered.ownership == 'package' && registered.provenance && registered.provenance.kind == 'builtin/package';
-				if (!isPromotion && (registered.ownership == 'package' || !registered.provenance || registered.provenance.kind != 'catalog/upstream')) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'protected'; let e = fail('EPOLICY', 'user or package resource is protected', { id: assetId, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			}
-			// Snapshot-consistent URL: use the same branch that UPDATES.json was fetched from (z2k-enhanced) with the verified manifest's files
-			// The remote manifest is from z2k-enhanced branch head, so fetch via branch, not static commit, but verify SHA afterwards.
-			let contentUrl = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/' + sourcePath;
-			let path = root + '/' + i + '.asset', fetched = command('uclient-fetch -q -O ' + shell_quote(path) + ' ' + shell_quote(contentUrl));
-			if (fetched.rc != 0 || !regular(path)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'fetch-failed'; let e = fail('EUNAVAILABLE', 'resource source is unavailable', { id: assetId, source: sourceValue.repository, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			diagnostics.downloaded++;
-			let actualSha = sha256(path);
-			if (actualSha != lc(targetSha)) { cleanup(root, paths); diagnostics.targetAssets[i].result = 'sha-mismatch'; let e = fail('EVERIFY', 'fetched bytes SHA does not match remote target', { sourcePath: sourcePath, expected: lc(targetSha), actual: actualSha, diagnostics: diagnostics }); e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e; }
-			diagnostics.verified++;
-			let byteSize = 0; try { byteSize = stat(path).size; } catch (e) { byteSize = 0; }
-			push(paths, path);
-			push(staged, { type: assetType, id: assetId, name: item.localName || assetId, stagedPath: path, sha256: lc(targetSha), byteSize: byteSize, expectedRevision: registered && registered.revision || null, dependencies: [], provenance: { kind: 'catalog/upstream', source: sourceValue.repository, sourceCommit: remoteCommit, sourcePath: sourcePath, bundleId: selected.id, version: remoteVersion } });
-			diagnostics.targetAssets[i].result = 'staged';
-		}
-		// AUTHORITATIVE STAGED GATE: verify staged bytes (identity + sidecar seam) BEFORE any apply.
-		// This is the load-bearing invariant: THE BYTES THAT PASS THE GATE ARE THE BYTES THAT ARE ACTIVATED.
-		for (let g = 0; g < length(staged); g++) {
-			let sp = staged[g].provenance.sourcePath;
-			let exp = staged[g].sha256;
-			let candPath = staged[g].stagedPath;
-			let gate = z2k_candidate_gate(sp, candPath, exp);
-			if (!gate.ok) {
-				cleanup(root, paths);
-				diagnostics.targetAssets[g].result = gate.error && gate.error.code == 'ESTALE' ? 'stale' : 'incompatible';
-				let code = gate.error && gate.error.code ? gate.error.code : 'EZ2K_REVIEW_REQUIRED';
-				let msg = code == 'ESTALE' ? 'staged candidate SHA does not match manifest (race)' : 'staged candidate incompatible — review required';
-				let e = fail(code, msg, { sourcePath: sp, expectedSha256: exp, actualSha256: gate.actualSha256, missing: gate.missing, diagnostics: diagnostics });
-				e.diagnostics = diagnostics;
-				e.pathUsed = diagPathUsed;
-				e.reviews = [sp];
-				e.status = 'review-required';
-				// Atomicity: no registry mutation, preserve runtime/state
-				return e;
-			}
-		}
-		diagnostics.staged = length(staged);
-		if (!length(staged)) {
-			cleanup(root, paths);
-			let ans = { ok: true, bundleId: selected.id, version: remoteVersion, updated: 0, state: 'current', status: state_label('current'), diagnostics: diagnostics, pathUsed: diagPathUsed, planned: diagnostics.planned, downloaded: diagnostics.downloaded, verified: diagnostics.verified, staged: diagnostics.staged, applied: 0, postflightMatched: 0, skipped: [], targetAssets: diagnostics.targetAssets, remoteRevision: remoteCommit };
-			// Invariant: planned>0 && applied==0 => FAILED
-			if (diagnostics.planned > 0 && ans.updated == 0) {
-				ans.ok = false;
-				ans.error = { code: 'EVERIFY', message: 'Обновление не применено: ' + diagnostics.planned + ' обновлений было запланировано, 0 установлено.', diagnostics: diagnostics };
-				ans.pathUsed = diagPathUsed;
-			}
-			return ans;
-		}
-		let answer = asset_registry_apply_bundle({ bundleId: selected.id, version: remoteVersion, source: sourceValue.repository, sourceCommit: remoteCommit, assets: staged });
-		diagnostics.applied = answer.ok ? (answer.updated || length(staged)) : 0;
-		// Postflight: verify that each planned update now has installed SHA == remote target and provenance
-		if (answer.ok) {
-			let listedAfter = asset_registry_list(null);
-			let postflightMatched = 0;
-			if (listedAfter.ok) {
-				for (let i = 0; i < length(planUpdates); i++) {
-					let sp = planUpdates[i], expSha = lc(remoteFiles[sp]);
-					let found = null;
-					for (let a = 0; a < length(listedAfter.assets); a++) {
-						let prov = listedAfter.assets[a].provenance;
-						if (prov && prov.sourcePath == sp) { found = listedAfter.assets[a]; break; }
-						let idFromPath = 'lua:' + substr(sp, length('files/lua/'), length(sp) - length('files/lua/') - 4);
-						if (listedAfter.assets[a].id == idFromPath) { found = listedAfter.assets[a]; break; }
-					}
-					if (found != null && found.contentSha256 == expSha) {
-						postflightMatched++;
-						diagnostics.targetAssets[i].result = 'applied';
-					} else {
-						diagnostics.targetAssets[i].result = 'postflight-mismatch';
-						cleanup(root, paths);
-						let e = fail('EVERIFY', 'postflight verification failed: installed SHA does not match remote target', { sourcePath: sp, expected: expSha, actual: found && found.contentSha256, diagnostics: diagnostics });
-						e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e;
-					}
-				}
-				diagnostics.postflightMatched = postflightMatched;
-				// POST-APPLY REPLAN against SAME manifest snapshot (no network) and persist CHECK_STATE.
-				// This makes resources_status immediately reflect post-apply truth (TASK 7).
-				let newPlan = null; try { newPlan = z2k_upstream_plan(signedForZ2k.manifest); } catch (e) { newPlan = null; }
-				if (newPlan && newPlan.ok && newPlan.status != 'current') {
-					let stillUpdates = newPlan.updates || [];
-					let overlap = false;
-					for (let u = 0; u < length(stillUpdates); u++) for (let p = 0; p < length(planUpdates); p++) if (stillUpdates[u] == planUpdates[p]) overlap = true;
-					if (overlap && length(stillUpdates) >= length(planUpdates)) {
-						cleanup(root, paths);
-						let e = fail('EVERIFY', 'postflight recheck still reports the same updates; update not fully applied', { stillUpdates: stillUpdates, diagnostics: diagnostics });
-						e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e;
-					}
-				}
-				// Persist post-apply truth without network (resources_status remains network-free)
-				try {
-					let persistedPlan = newPlan || { ok: true, status: 'current', updateState: 'current', attentionState: 'none', canApply: false, updates: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], manifest: signedForZ2k.manifest };
-					let newSigned = { ok: true, status: persistedPlan.status, updateState: persistedPlan.updateState, attentionState: persistedPlan.attentionState, canApply: persistedPlan.canApply, source: signedForZ2k.source, trustMode: signedForZ2k.trustMode, manifest: signedForZ2k.manifest, plan: persistedPlan, planToken: signedForZ2k.planToken };
-					let newSignedSources = { state: newPlan && newPlan.status == 'current' ? 'current' : (newPlan && newPlan.status == 'update-available' ? 'attention' : 'attention'), status: newPlan ? newPlan.status : 'current', checkMode: 'allow-untrusted', trustMode: newSigned.trustMode || 'allow-untrusted', verified: false, evidence: { repository: newSigned.source.repository, branch: newSigned.source.branch, trustMode: newSigned.trustMode || null, manifestSeq: newSigned.manifest.seq, manifestCurrent: newSigned.manifest.current } };
-					save_check_state(newSigned, checkSnapshotAt, newSignedSources, signedForZ2k.planToken);
-				} catch (e) {}
-			}
-		} else {
-			// Mark all as failed
-			for (let i = 0; i < length(diagnostics.targetAssets); i++) diagnostics.targetAssets[i].result = 'apply-failed';
-		}
-		// Invariant: planned>0 && applied==0 => FAILED
-		if (diagnostics.planned > 0 && diagnostics.applied == 0 && answer.ok) {
-			cleanup(root, paths);
-			let e = fail('EVERIFY', 'Обновление не применено: ' + diagnostics.planned + ' обновлений было запланировано, 0 установлено.', { diagnostics: diagnostics });
-			e.diagnostics = diagnostics; e.pathUsed = diagPathUsed; return e;
-		}
-		cleanup(root, paths);
-		if (answer.ok) {
-			answer.diagnostics = diagnostics;
-			answer.pathUsed = diagPathUsed;
-			answer.planned = diagnostics.planned;
-			answer.downloaded = diagnostics.downloaded;
-			answer.verified = diagnostics.verified;
-			answer.staged = diagnostics.staged;
-			answer.applied = diagnostics.applied;
-			answer.postflightMatched = diagnostics.postflightMatched;
-			answer.skipped = diagnostics.skipped;
-			answer.targetAssets = diagnostics.targetAssets;
-			answer.remoteRevision = remoteCommit;
-		} else {
-			answer.diagnostics = diagnostics;
-			answer.pathUsed = diagPathUsed;
-		}
-		return answer;
-	}
 	for (let i = 0; i < length(selected.assets || []); i++) { let item = selected.assets[i], row = row_for({ ...item, sourceId: selected.sourceId, sourceCommit: selected.sourceCommit }, listed.assets); if (row.state == 'current') continue; let registered = registry_asset(listed.assets, item.id); if (registered != null) {
 		let isPromotion = registered.ownership == 'package' && registered.provenance && registered.provenance.kind == 'builtin/package';
 		if (!isPromotion && (registered.ownership == 'package' || !registered.provenance || registered.provenance.kind != 'catalog/upstream')) { cleanup(root, paths); return fail('EPOLICY', 'user or package resource is protected', { id: item.id }); }

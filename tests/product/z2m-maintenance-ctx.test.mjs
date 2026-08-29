@@ -134,7 +134,7 @@ test('C refresh failure visible old page must not be busy', async () => {
 
 test('D successful Z2K update + context replacement ctx2 not busy', async () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
-  const updBody = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function updateZ2K') + 3000);
+  const updBody = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function z2kCatalogRows'));
   assert.ok(updBody.includes('componentOperation'), 'updateZ2K must use componentOperation');
   const hasClearBeforeRefresh = /componentOperation\s*=\s*null[\s\S]*?refresh\(ctx\)/.test(updBody);
   assert.equal(hasClearBeforeRefresh, true, 'updateZ2K must clear before refresh');
@@ -144,7 +144,7 @@ test('D successful Z2K update + context replacement ctx2 not busy', async () => 
 
 test('E failed Z2K update not busy', async () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
-  const updBody = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function updateZ2K') + 3000);
+  const updBody = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function z2kCatalogRows'));
   assert.match(updBody, /catch[\s\S]*?showError|catch.*componentOperation/);
 });
 
@@ -163,7 +163,7 @@ test('G no post-refresh rerender of detached caller ctx', async () => {
   const afterRefresh = checkBody.slice(checkBody.indexOf('return refresh(ctx)'));
   assert.doesNotMatch(afterRefresh, /rerender\(ctx\)/);
   const updStart = src.indexOf('function updateZ2K');
-  const updEnd = src.indexOf('function toggleEngine', updStart);
+  const updEnd = src.indexOf('function z2kCatalogRows', updStart);
   const updBody = src.slice(updStart, updEnd);
   const updAfter = updBody.slice(updBody.indexOf('return refresh(ctx)'));
   assert.doesNotMatch(updAfter, /rerender\(ctx\)/);

@@ -305,6 +305,31 @@ test('additional: registry asset with catalog/upstream repository fallback assig
 	assert.ok(z2kGroup.assets.find(a => a.id === 'blob:fallback-1'), 'fallback repo should assign to z2k-resources');
 });
 
+test('lifecycle management projection is consumed as the sole Resources editability truth', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const lifecycle = {
+		id: 'lua:z2k-modern-core', type: 'lua', source: 'z2k-resources', ownership: 'manager', mutable: true,
+		provenance: { kind: 'catalog/upstream', source: 'necronicle/z2k', bundleId: 'z2k-curated-lua', version: 'r-79.7' },
+		management: { owner: 'z2k-core', mode: 'lifecycle', editable: false, deletable: false }
+	};
+	const installedLifecycle = { ...lifecycle };
+	delete installedLifecycle.management;
+	const user = {
+		id: 'hostlist:custom', type: 'hostlist', ownership: 'manager', mutable: true,
+		provenance: { kind: 'imported' },
+		management: { owner: 'resources', mode: 'workspace', editable: true, deletable: true }
+	};
+	const out = model.buildModel({ sources, installed: [installedLifecycle], z2k: { status: 'current' } }, { assets: [lifecycle, user] }, { advanced: false });
+	const z2k = out.groups.find(group => group.id === 'z2k-resources').assets.find(asset => asset.id === lifecycle.id);
+	const custom = out.userGroup.assets.find(asset => asset.id === user.id);
+	assert.equal(z2k.readOnly, true);
+	assert.equal(z2k.management.owner, 'z2k-core');
+	assert.equal(z2k.management.editable, false);
+	assert.equal(custom.readOnly, false);
+	assert.equal(custom.management.deletable, true);
+});
+
 test('rebase-required must produce distinct callout: Требуется адаптация', () => {
 	const model = loadModel();
 	const sources = makeZ2kSources();

@@ -151,9 +151,12 @@ phase installing 65 'Удаляется legacy package и устанавлива
 phase restoring 75 'Восстанавливаются конфигурация и пользовательские списки.'; restore_config || fail ERESTORE "Не удалось восстановить пользовательские данные: ${RESTORE_ERROR:-unknown}."
 phase materializing 78 'Материализуются Z2K ресурсы в runtime движка.'
 SYNC=/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh
+REGISTRY_SYNC=/usr/libexec/zapret2-manager/asset-registry-runtime-sync.uc
 /bin/sh "$SYNC" || fail EZ2K_ASSETS 'Материализация Z2K ассетов завершилась ошибкой.'
 sync_verdict="$(/bin/sh "$SYNC" --verify)" || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
 printf '%s\n' "$sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
+registry_sync_verdict="$(/usr/bin/ucode "$REGISTRY_SYNC")" || fail EZ2K_ASSETS "Подтверждённые Z2K lifecycle-ассеты не материализованы: $registry_sync_verdict"
+printf '%s\n' "$registry_sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Подтверждённые Z2K lifecycle-ассеты не материализованы: $registry_sync_verdict"
 phase proving 82 'Доказываются обязательные возможности движка.'
 CAPABILITIES="$WORK/capabilities.json"
 REQUIRED_CAPS="$(jsonfilter -i "$JOB" -e '@.candidate.requiredCapabilities[*]' 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"

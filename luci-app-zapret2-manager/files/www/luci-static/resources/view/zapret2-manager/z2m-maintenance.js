@@ -8,6 +8,8 @@
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var LOAD_TIMEOUT_MS = 30000;
+var Z2K_COMPARE_LOAD_TIMEOUT_MS = 30000;
+var Z2K_MUTATION_TIMEOUT_MS = 180000;
 var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
@@ -76,6 +78,14 @@ var state = {
   engineOperationPolling: false,
   engineOperationOverride: false,
   z2kCheck: null,
+  z2kCatalog: null,
+  z2kSelectedVersion: null,
+  z2kDetails: null,
+  z2kDetailsCompared: false,
+  z2kDetailsRequestId: 0,
+  z2kDetailsExpanded: false,
+  z2kReleaseRefresh: null,
+  z2kPrepared: null,
   showAllBackups: false
 };
 function isBusyFor(componentId) {
@@ -89,6 +99,7 @@ function isBusyFor(componentId) {
 function operationPhase(op) {
   if (!op) return '';
   if (op.kind === 'check') return _('Проверка обновлений…');
+  if (op.kind === 'prepare' && op.scope === 'z2k') return _('Подготовка Z2K…');
   if (op.kind === 'update' && op.scope === 'z2k') return _('Обновление Z2K…');
   if (op.kind === 'refresh') return _('Обновление состояния…');
   return _('Обновление…');
@@ -96,6 +107,7 @@ function operationPhase(op) {
 function operationMessage(op) {
   if (!op) return '';
   if (op.kind === 'check') return _('Проверяем доступные версии…');
+  if (op.kind === 'prepare' && op.scope === 'z2k') return _('Сохраняем выбранный release…');
   if (op.kind === 'update' && op.scope === 'z2k') return _('Применяем Z2K-обновление…');
   return _('Выполняется операция…');
 }
@@ -110,14 +122,15 @@ function settled(result, api) {
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
-function boundedLoad(promise, label) {
+function boundedLoad(promise, label, timeoutMs) {
+  timeoutMs = Number(timeoutMs) || LOAD_TIMEOUT_MS;
   var timer;
   return Promise.race([
     promise,
     new Promise(function (_, reject) {
       timer = window.setTimeout(function () {
         reject({ code: 'frontend-timeout', message: label + ' timeout' });
-      }, LOAD_TIMEOUT_MS);
+      }, timeoutMs);
     })
   ]).then(function (value) {
     window.clearTimeout(timer);
@@ -127,8 +140,8 @@ function boundedLoad(promise, label) {
     throw error;
   });
 }
-function checkedResult(promise, label) {
-  return boundedLoad(promise, label).then(function (answer) {
+function checkedResult(promise, label, timeoutMs) {
+  return boundedLoad(promise, label, timeoutMs).then(function (answer) {
     if (!answer || answer.ok === false || answer.error)
       throw answer && answer.error || answer || { code: 'EEMPTY', message: label + ' не вернул результат.' };
     return answer;
@@ -181,6 +194,7 @@ function load(ctx) {
     boundedLoad(ctx.api.maintenance.versions(), 'manager versions'),
     boundedLoad(engineLoad, 'engine status'),
     boundedLoad(ctx.api.resources.status(), 'Z2K status'),
+    boundedLoad(ctx.api.resources.versions ? ctx.api.resources.versions() : Promise.resolve({ versions: [] }), 'Z2K release catalog'),
     boundedLoad(ctx.api.tg && ctx.api.tg.product && ctx.api.tg.product.status ? ctx.api.tg.product.status() : Promise.resolve({}), 'TG status')
   ]).then(function (values) {
     return {
@@ -188,7 +202,8 @@ function load(ctx) {
         versions: settled(values[0], ctx.api),
         engine: settled(values[1], ctx.api),
         resources: settled(values[2], ctx.api),
-        telegram: settled(values[3], ctx.api)
+        catalog: settled(values[3], ctx.api),
+        telegram: settled(values[4], ctx.api)
       }
     };
   });
@@ -224,15 +239,32 @@ function mutation(ctx, name, promise) {
     return null;
   });
 }
-function confirmAction(ctx, title, message, confirmLabel, handler) {
+function confirmAction(ctx, title, message, confirmLabel, handler, kind) {
   var shell = ctx.shell;
   shell.openModal(title, E('p', {}, message), [
     shell.button(_('Отмена'), '', shell.closeModal),
-    shell.button(confirmLabel, 'danger', function () {
+    shell.button(confirmLabel, kind || 'danger', function () {
       shell.closeModal();
       handler();
     })
   ]);
+}
+function waitForZ2KUpdate(ctx, operationId) {
+  var attempts = 0;
+  function poll() {
+    return checkedResult(ctx.api.resources.updateStatus({ operationId: operationId }), _('Состояние Z2K')).then(function (answer) {
+      var phase = String(answer && answer.phase || answer && answer.state || '').toLowerCase();
+      if ((answer && answer.finished === true) || phase === 'completed' || phase === 'failed') {
+        var result = answer && answer.result || answer;
+        if (!result || result.ok !== true) throw result && result.error || answer && answer.error || { code: 'EINTERNAL', message: _('Операция Z2K завершилась без результата.') };
+        return result;
+      }
+      attempts++;
+      if (attempts >= 180) throw { code: 'frontend-timeout', message: _('Операция Z2K не завершилась в установленный срок.') };
+      return new Promise(function (resolve) { window.setTimeout(resolve, 1000); }).then(poll);
+    });
+  }
+  return poll();
 }
 function kvPanel(shell, rows) {
   return E('div', { 'class': 'z2m-proxy-kv' }, rows.filter(function (row) {
@@ -299,14 +331,16 @@ function componentStateLabel(component) {
     if (attentionState === 'rebase-required' || rebases.length) return _('Требуется адаптация');
     if (attentionState === 'review-required' || blockingReviews.length) return _('Требуется проверка');
     if (attentionState === 'integration-required') return _('Требуется интеграция');
+    var installedValue = component.installedRelease && component.installedRelease.value;
+    var latestValue = component.latestRelease || component.availableRelease;
+    if (!installedValue) return runtimeHealth === 'ready' ? _('Работает') : _('Требует внимания');
     if (component.updateState === 'update-available') return _('Доступно обновление');
     if (component.updateState === 'review-required') return _('Требуется проверка');
     if (component.updateState === 'rebase-required') return _('Требуется адаптация');
     if (component.updateState === 'integration-required') return _('Требуется интеграция');
-    if (runtimeHealth === 'ready' && component.updateState === 'current' && compatibility === 'compatible') return _('Актуален');
+    if (runtimeHealth === 'ready' && component.updateState === 'current' && compatibility === 'compatible' && (!latestValue || installedValue === latestValue)) return _('Актуален');
     if (runtimeHealth === 'ready') {
-      if (component.updateState === 'unknown') return _('Работает');
-      return _('Актуален');
+      return _('Работает');
     }
     return _('Требует внимания');
   }
@@ -345,7 +379,7 @@ function mandatorySummary(page) {
   return parts.join(' · ');
 }
 function updateSummary(page) {
-  var counts = { 'update-available': 0, 'review-required': 0, 'rebase-required': 0, 'integration-required': 0, advisory: 0 };
+  var counts = { 'update-available': 0, 'review-required': 0, 'rebase-required': 0, 'integration-required': 0 };
   page.components.forEach(function (component) {
     var attentionState = component.attentionState;
     var blocking = attentionState === 'review-required' || attentionState === 'rebase-required'
@@ -360,8 +394,6 @@ function updateSummary(page) {
     }
     if (component.updateState === 'update-available' && (component.id !== 'z2k-core' || component.canApply !== false))
       counts['update-available']++;
-    if (attentionState === 'review-advisory' || (component.advisoryReviews && component.advisoryReviews.length))
-      counts.advisory++;
   });
   var parts = [];
   if (counts['update-available'] > 0)
@@ -372,11 +404,15 @@ function updateSummary(page) {
     parts.push(counts['rebase-required'] + ' ' + (counts['rebase-required'] === 1 ? _('компонент требует адаптации') : _('компонента требуют адаптации')));
   if (counts['integration-required'] > 0)
     parts.push(counts['integration-required'] + ' ' + (counts['integration-required'] === 1 ? _('компонент требует интеграции') : _('компонента требуют интеграции')));
-  if (counts.advisory > 0)
-    parts.push(counts.advisory + ' ' + (counts.advisory === 1 ? _('замечание') : _('замечания')));
+  if (z2kIdentityUnknown(page)) parts.push(_('Версия Z2K требует уточнения'));
   return parts.join(' · ') || _('Обновления не требуются');
 }
+function z2kIdentityUnknown(page) {
+  var z2k = page && page.components && page.components.find(function (component) { return component.id === 'z2k-core'; });
+  return !z2k || !z2k.installedRelease || !z2k.installedRelease.value;
+}
 function heroStatusLabel(page) {
+  if (page.health.state === 'ready' && z2kIdentityUnknown(page)) return _('Система работает');
   if (page.health.state === 'ready') return _('Система готова');
   if (page.health.state === 'broken') return _('Требуется восстановление');
   if (page.health.state === 'missing') return _('Требуется установка');
@@ -386,6 +422,10 @@ function heroStatusKind(page) {
   if (page.health.state === 'ready') return 'g';
   if (page.health.state === 'broken' || page.health.state === 'missing') return 'r';
   return 'o';
+}
+function heroStatusMessage(page) {
+  return page.health.state === 'ready' && z2kIdentityUnknown(page)
+    ? _('Версия Z2K требует уточнения') : page.health.message;
 }
 function refreshState(ctx) {
   if (state.componentOperation) return;
@@ -459,43 +499,241 @@ function checkUpdates(ctx, scope) {
 }
 function updateZ2K(ctx, component) {
   if (state.componentOperation) return;
-  var snapshot = state.z2kCheck || {};
-  var planToken = component && component.planToken || snapshot.planToken;
-  if (!planToken) {
-    showError(ctx, { code: 'ECHECK_STALE', message: _('Данные проверки устарели. Проверьте обновления ещё раз.') });
+  var targetRelease = z2kTargetRelease(component);
+  var operation = z2kOperation(component);
+  var legacyCatalogFallback = component && !component.selectedDetails && (!component.catalog || !component.catalog.length)
+    && component.canApply === true && component.updateState === 'update-available';
+  if (!targetRelease || !component || !operation || (!component.selectedDetails && !legacyCatalogFallback) || (component.selectedDetails && component.selectedDetails.installable !== true)) {
+    showError(ctx, { code: 'EINPUT', message: _('Сначала выберите доступный release и дождитесь его деталей.') });
     return;
   }
-  var targetRelease = z2kTargetRelease(component) || object(snapshot.manifest).current;
-  var advisoryReviews = component && Array.isArray(component.advisoryReviews) ? component.advisoryReviews : [];
-  var message = _('Будет установлен Z2K release ') + (targetRelease || _('из проверенного снимка')) + '.';
-  if (component && (component.attentionState === 'review-advisory' || advisoryReviews.length)) {
-    message += ' ' + _('Внимание: advisory-наблюдение остаётся отдельным предупреждением и не устанавливается автоматически.');
-    if (advisoryReviews.length) message += ' ' + advisoryReviews.join(', ');
-  }
-  confirmAction(ctx, _('Обновить Z2K до ') + (targetRelease || _('проверенного release')) + '?', message, z2kUpdateActionLabel(component), function () {
-    state.componentOperation = { kind: 'update', scope: 'z2k' };
+  state.componentOperation = { kind: 'prepare', scope: 'z2k', targetVersion: targetRelease };
+  rerender(ctx);
+  var prepare = ctx.api.resources.prepareVersion ? checkedResult(ctx.api.resources.prepareVersion({ version: targetRelease }), _('Подготовка Z2K'))
+    : Promise.reject({ code: 'EINPUT', message: 'z2k_prepare_version unavailable' });
+  prepare.then(function (prepared) {
+    var preparedTarget = prepared && prepared.target;
+    if (!prepared || !prepared.planToken || !preparedTarget
+      || preparedTarget.targetVersion !== targetRelease
+      || ['install', 'upgrade', 'reinstall', 'downgrade'].indexOf(preparedTarget.operation) < 0
+      || !Object.prototype.hasOwnProperty.call(preparedTarget, 'installedVersion')) {
+      throw { code: 'EINPUT', message: _('Подготовленный target Z2K не совпадает с выбранной операцией.') };
+    }
+    state.z2kPrepared = prepared;
+    state.componentOperation = null;
     rerender(ctx);
-    var payload = { bundleId: 'z2k-curated-lua', confirm: true, planToken: planToken };
-    var promise = ctx.api.resources.update ? ctx.api.resources.update(JSON.stringify(payload)) : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
-    promise.then(function (answer) {
-      if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
-      var planned = answer.planned != null ? answer.planned : (answer.diagnostics && answer.diagnostics.planned);
-      var applied = answer.applied != null ? answer.applied : (answer.diagnostics && answer.diagnostics.applied);
-      if (planned == null && answer.diagnostics && answer.diagnostics.targetAssets) planned = answer.diagnostics.targetAssets.length;
-      if (planned > 0 && applied === 0) {
-        throw { code: 'EVERIFY', message: 'Обновление не применено: ' + planned + ' обновлений было запланировано, 0 установлено.' };
-      }
-      ctx.shell.showToast(_('Z2K Core обновлён до ') + (targetRelease || _('проверенного release')), 'ok');
-    }).catch(function (error) {
-      showError(ctx, error);
-    }).then(function () {
-      state.componentOperation = null;
-      rerender(ctx);
-      return refresh(ctx);
-    }).catch(function (error) {
-      showError(ctx, error);
-    });
+    var preparedOperation = preparedTarget.operation;
+    var preparedRelease = preparedTarget.targetVersion;
+    var preparedInstalled = preparedTarget.installedVersion;
+    var preparedLabel = z2kOperationLabel(preparedOperation, preparedRelease);
+    var confirmationMessage = preparedOperation === 'reinstall'
+      ? _('Компоненты этой версии будут скачаны, проверены и установлены заново.')
+      : preparedOperation === 'downgrade'
+        ? _('Будет установлена более ранняя версия. При ошибке Manager запустит предусмотренный откат, а его результат будет показан в сообщении.')
+        : preparedOperation === 'upgrade'
+          ? _('Будет установлена новая версия компонентов Z2K. Перед применением загруженные файлы будут проверены.')
+          : _('Текущая версия не определена. Manager проверит установленные компоненты и приведёт их к выбранной версии.');
+    var transition = preparedInstalled && preparedInstalled !== preparedRelease
+      ? preparedInstalled + ' → ' + preparedRelease + '. '
+      : '';
+    confirmAction(ctx, preparedLabel + '?', preparedRelease + '. ' + transition + confirmationMessage,
+      preparedOperation === 'reinstall' ? _('Переустановить') : preparedLabel, function () {
+        state.componentOperation = { kind: 'update', scope: 'z2k', targetVersion: preparedRelease, operation: preparedOperation, installedVersion: preparedInstalled };
+        rerender(ctx);
+        var payload = {
+          bundleId: 'z2k-curated-lua',
+          targetVersion: preparedRelease,
+          operation: preparedOperation,
+          installedVersion: preparedInstalled,
+          planToken: prepared.planToken,
+          confirm: true
+        };
+        var update = ctx.api.resources.update ? checkedResult(ctx.api.resources.update(JSON.stringify(payload)), _('Применение Z2K'), Z2K_MUTATION_TIMEOUT_MS)
+          : Promise.reject({ code: 'EINPUT', message: 'resources_update unavailable' });
+        update = update.then(function (answer) {
+          if (answer && answer.accepted === true) {
+            if (!answer.operationId || !ctx.api.resources.updateStatus)
+              throw { code: 'EINTERNAL', message: _('Z2K принял операцию, но состояние операции недоступно.') };
+            return waitForZ2KUpdate(ctx, answer.operationId);
+          }
+          return answer;
+        });
+        update.then(function (answer) {
+          if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
+          // Operation-specific success toast follows the prepared operation.
+          ctx.shell.showToast(_('Z2K Core: ') + z2kOperationLabel(preparedOperation, preparedRelease) + '.', 'ok');
+        }).catch(function (error) {
+          showError(ctx, error);
+        }).then(function () {
+          state.z2kPrepared = null;
+          state.componentOperation = null;
+          rerender(ctx);
+          return refresh(ctx);
+        }).catch(function (error) {
+          showError(ctx, error);
+        });
+      }, 'primary');
+  }).catch(function (error) {
+    state.z2kPrepared = null;
+    state.componentOperation = null;
+    rerender(ctx);
+    showError(ctx, error);
   });
+}
+function z2kCatalogRows(component) {
+  return component && Array.isArray(component.catalog) ? component.catalog : [];
+}
+function z2kSelectedDetails(component) {
+  return component && component.selectedDetails && typeof component.selectedDetails === 'object' ? component.selectedDetails : null;
+}
+function z2kCatalogOptionLabel(item) {
+  var labels = [];
+  if (item.installed) labels.push(_('установлена'));
+  if (item.latest) labels.push(_('последняя'));
+  if (item.installable === false) return item.version + ' · ' + _('несовместим');
+  return item.version + (labels.length ? ' · ' + labels.join(' · ') : '');
+}
+function z2kUnavailableReason(item) {
+  if (!item) return _('Release недоступен.');
+  if (item.unavailableReason === 'incompatible-manager') return _('Release несовместим с текущим Manager.');
+  if (item.unavailableReason === 'invalid-manifest') return _('Manifest release не прошёл проверку.');
+  return _('Release временно недоступен.');
+}
+function z2kOperationLabel(operation, version) {
+  if (operation === 'install') return _('Установить') + (version ? ' ' + version : '');
+  if (operation === 'upgrade') return _('Обновить до ') + version;
+  if (operation === 'downgrade') return _('Откатить до ') + version;
+  if (operation === 'reinstall') return _('Переустановить ') + version;
+  return _('Действие недоступно');
+}
+function z2kChangeSummary(details) {
+  var changes = details && (details.installChanges || details.changes) || {};
+  if (changes.known === false) return _('История установленной версии не подтверждена.');
+  var parts = [];
+  if (changes.modified) parts.push(_('Обновится') + ' ' + changes.modified);
+  if (changes.added) parts.push(_('Добавится') + ' ' + changes.added);
+  if (changes.removed) parts.push(_('Удалится') + ' ' + changes.removed);
+  if (parts.length) return parts.join(' · ');
+  return details && details.operation === 'reinstall'
+    ? _('Изменений относительно установленной версии нет.')
+    : _('Новых изменений при установке нет.');
+}
+function z2kManagedChangeItems(changes, key) {
+  return changes && Array.isArray(changes[key]) ? changes[key] : [];
+}
+function z2kManagedChangeFallback(action, version) {
+  var verb = action === 'modified' ? _('Изменён в ') : action === 'added' ? _('Добавлен в ') : _('Удалён в ');
+  return verb + (version || _('выбранном release'));
+}
+function z2kEvidenceIdentity(item) {
+  var explanation = item && item.explanation;
+  if (!explanation || explanation.source !== 'repository-compare' || !explanation.commitSha) return null;
+  return explanation.commitSha + '|' + explanation.excerptIndexes.join(',') + '|' + explanation.excerpts.join('\n\n');
+}
+function z2kManagedEvidenceGroups(items) {
+  var groups = [], indexes = {};
+  items.forEach(function (item) {
+    var key = z2kEvidenceIdentity(item) || 'resource:' + (item && (item.sourcePath || item.id || item.name) || groups.length);
+    if (indexes[key] === undefined) {
+      indexes[key] = groups.length;
+      groups.push({ key: key, items: [] });
+    }
+    groups[indexes[key]].items.push(item);
+  });
+  return groups;
+}
+function z2kCompareContext(changes, commitSha) {
+  var contexts = changes && Array.isArray(changes.compareContext) ? changes.compareContext : [];
+  return contexts.find(function (item) { return item && (item.sha || item.commitSha) === commitSha; }) || null;
+}
+function z2kCommitUrl(commitSha) {
+  return typeof commitSha === 'string' && /^[a-f0-9]{40}$/i.test(commitSha)
+    ? 'https://github.com/necronicle/z2k/commit/' + commitSha
+    : null;
+}
+function z2kEvidenceContext(changes, explanation) {
+  if (!explanation || explanation.source !== 'repository-compare' || explanation.fullMessageAvailable !== true) return null;
+  var context = z2kCompareContext(changes, explanation.commitSha);
+  return context && Array.isArray(context.paragraphs) && context.paragraphs.length ? context : null;
+}
+function z2kAdditionalContext(context, explanation) {
+  var selected = Array.isArray(explanation && explanation.excerptIndexes) ? explanation.excerptIndexes : [];
+  return Array.isArray(context && context.paragraphs) ? context.paragraphs.filter(function (_, index) { return selected.indexOf(index) < 0; }) : [];
+}
+function z2kEvidenceGroup(changes, group, action, version) {
+  var first = group.items[0] || {};
+  var explanation = first.explanation;
+  var repositoryEvidence = explanation && explanation.source === 'repository-compare' && Array.isArray(explanation.excerpts) && explanation.excerpts.length;
+  var context = repositoryEvidence ? z2kEvidenceContext(changes, explanation) : null;
+  var additionalContext = context ? z2kAdditionalContext(context, explanation) : [];
+  var commitUrl = repositoryEvidence ? z2kCommitUrl(explanation.commitSha) : null;
+  var rows = group.items.map(function (item) {
+    item = item || {};
+    var name = item.name || item.id || item.sourcePath || _('Ресурс');
+    var itemExplanation = item.explanation;
+    var rowEvidence = !repositoryEvidence && itemExplanation && Array.isArray(itemExplanation.excerpts) && itemExplanation.excerpts.length
+      ? itemExplanation.excerpts.join('\n\n') : null;
+    return E('div', { 'class': 'z2m-z2k-change-item', role: 'listitem' }, [
+    E('span', { 'class': 'z2m-z2k-change-item-name' }, name),
+      item.sourcePath && item.sourcePath !== name ? E('span', { 'class': 'z2m-dim z2m-z2k-change-item-source' }, item.sourcePath) : null,
+      rowEvidence ? E('span', { 'class': 'z2m-z2k-change-summary' }, rowEvidence) : !repositoryEvidence ? E('span', { 'class': 'z2m-z2k-change-summary' }, z2kManagedChangeFallback(action, version)) : null
+    ]);
+  });
+  var fullContext = repositoryEvidence ? [E('strong', {}, explanation.commitSubject || _('Полный commit'))] : [];
+  if (repositoryEvidence) additionalContext.forEach(function (paragraph) { fullContext.push(E('p', {}, paragraph)); });
+  var evidence = repositoryEvidence ? E('div', { 'class': 'z2m-z2k-change-evidence' }, [
+    E('strong', { 'class': 'z2m-z2k-change-evidence-title' }, explanation.commitSubject || _('Изменения из одного upstream commit')),
+    E('div', { 'class': 'z2m-z2k-change-evidence-excerpts' }, explanation.excerpts.map(function (excerpt) {
+      return E('p', {}, excerpt);
+    })),
+    context || commitUrl ? E('div', { 'class': 'z2m-z2k-change-evidence-actions' }, [
+      additionalContext.length ? E('details', { 'class': 'z2m-z2k-change-evidence-context' }, [
+        E('summary', {}, _('Контекст')),
+        E('div', { 'class': 'z2m-z2k-change-evidence-full' }, fullContext)
+      ]) : null,
+      commitUrl ? E('a', { href: commitUrl, target: '_blank', rel: 'noreferrer', 'class': 'z2m-z2k-change-commit-link' }, _('Открыть commit ↗')) : null
+    ]) : null
+  ]) : null;
+  return E('div', { 'class': 'z2m-z2k-change-evidence-group' }, [
+    evidence,
+    E('div', { 'class': 'z2m-z2k-change-items', role: 'list' }, rows)
+  ]);
+}
+function z2kManagedChangeGroup(label, items, action, version, changes) {
+  if (!items.length) return null;
+  var children = [E('strong', {}, label + ' · ' + items.length)];
+  z2kManagedEvidenceGroups(items).forEach(function (group) { children.push(z2kEvidenceGroup(changes, group, action, version)); });
+  return E('div', { 'class': 'z2m-z2k-change-group' }, children);
+}
+function renderZ2KManagedChangeDetails(changes, version) {
+  return [
+    z2kManagedChangeGroup(_('Обновится'), z2kManagedChangeItems(changes, 'modifiedItems'), 'modified', version, changes),
+    z2kManagedChangeGroup(_('Добавится'), z2kManagedChangeItems(changes, 'addedItems'), 'added', version, changes),
+    z2kManagedChangeGroup(_('Удалится'), z2kManagedChangeItems(changes, 'removedItems'), 'removed', version, changes)
+  ].filter(Boolean);
+}
+function loadZ2KVersionDetails(ctx, version, includeCompare) {
+  if (!version || state.componentOperation || !ctx.api.resources || !ctx.api.resources.versionDetails) return;
+  var requestId = ++state.z2kDetailsRequestId;
+  checkedResult(ctx.api.resources.versionDetails({ version: version, includeCompare: includeCompare === true ? 'compare' : 'fallback' }), _('Детали Z2K release'), includeCompare === true ? Z2K_COMPARE_LOAD_TIMEOUT_MS : undefined).then(function (answer) {
+    if (state.z2kSelectedVersion !== version || state.z2kDetailsRequestId !== requestId) return;
+    state.z2kDetails = answer;
+    state.z2kDetailsCompared = includeCompare === true;
+    if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
+    else rerender(ctx);
+  }).catch(function (error) {
+    if (state.z2kSelectedVersion === version) showError(ctx, error);
+  });
+}
+function selectZ2KVersion(ctx, version) {
+  if (!version || state.componentOperation) return;
+  state.z2kSelectedVersion = version;
+  state.z2kDetails = null;
+  state.z2kDetailsCompared = false;
+  state.z2kDetailsExpanded = false;
+  if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
+  else rerender(ctx);
+  loadZ2KVersionDetails(ctx, version, false);
 }
 function toggleEngine(ctx) {
   state.engineExpanded = !state.engineExpanded;
@@ -506,12 +744,18 @@ function toggleZ2K(ctx) {
   state.z2kExpanded = !state.z2kExpanded;
   if (state.z2kExpanded) state.engineExpanded = false;
   rerender(ctx);
+  if (state.z2kExpanded && !state.z2kDetails) {
+    var resources = ctx.data && ctx.data.components && ctx.data.components.resources && ctx.data.components.resources.value || {};
+    var current = resources.z2k && resources.z2k.selectedDetails;
+    if (!current) loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, false);
+  }
 }
 function renderHero(ctx, page) {
   var shell = ctx.shell;
   var lastCheckLabel = formatLastCheck(shell, page.checkedAt);
   var heroKind = heroStatusKind(page);
   var heroLabel = heroStatusLabel(page);
+  var heroMessage = heroStatusMessage(page);
   var isReady = page.health.state === 'ready';
   return E('div', { 'class': 'z2m-components-hero' }, [
     E('div', { 'class': 'z2m-components-hero-main' }, [
@@ -523,7 +767,7 @@ function renderHero(ctx, page) {
         ]),
         E('div', { 'class': 'z2m-components-hero-stats' }, [
           E('span', { 'class': 'z2m-components-hero-ready' }, page.health.ready + ' / ' + page.health.total + ' ' + _('обязательных компонента работают')),
-          E('span', { 'class': 'z2m-dim' }, page.health.message),
+          E('span', { 'class': 'z2m-dim' }, heroMessage),
           E('span', { 'class': 'z2m-components-hero-updates' }, updateSummary(page))
         ]),
         E('div', { 'class': 'z2m-components-hero-dots' }, page.components.map(function (c) {
@@ -558,37 +802,51 @@ function engineMetaRows(component, engineStatus) {
 }
 function z2kMetaRows(component) {
   var rows = [];
-  rows.push({ label: _('Установленный release'), value: z2kReleaseLabel(component) });
+  rows.push({ label: _('Установлено'), value: z2kReleaseLabel(component) });
+  rows.push({ label: _('Последняя'), value: z2kLatestRelease(component) });
   if (component.counters && component.counters.lua) rows.push({ label: _('Lua'), value: component.counters.lua });
   rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
-  var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
-  rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : _('Не подтверждена') });
-  if (component.availableRelease)
-    rows.push({ label: _('Доступный release'), value: component.availableRelease });
   return rows;
 }
 function z2kReleaseLabel(component) {
   var release = component.installedRelease || {};
   if (release.value) return release.value;
-  return component.details && component.details.localInstalled === false ? _('Не установлен') : _('Не определён');
+  return component.details && component.details.localInstalled === false ? _('Не установлен') : _('Версия не определена');
+}
+function z2kLatestRelease(component) {
+  return component && (component.latestRelease || component.availableRelease) || _('Не определена');
+}
+function z2kOperation(component) {
+  var details = z2kSelectedDetails(component);
+  return component && (component.operation || details && details.operation) || null;
 }
 function z2kTargetRelease(component) {
-  var details = component && component.details || {};
-  var manifest = details.manifest || {};
-  return component && (component.availableRelease || manifest.current) || state.z2kCheck && state.z2kCheck.manifest && state.z2kCheck.manifest.current || null;
+  var details = z2kSelectedDetails(component);
+  return component && (component.selectedVersion || details && details.version || component.availableRelease) || null;
 }
 function z2kUpdateActionLabel(component) {
   var targetRelease = z2kTargetRelease(component);
-  return targetRelease ? _('Обновить до ') + targetRelease : _('Обновить');
+  var operation = z2kOperation(component);
+  if (!operation && component && component.updateState === 'update-available') operation = 'upgrade';
+  return z2kOperationLabel(operation, targetRelease);
 }
 function z2kCanApply(component) {
-  var attentionState = component && component.attentionState;
+  var selected = z2kSelectedDetails(component);
+  var attentionState = selected && selected.targetAttentionState !== null && selected.targetAttentionState !== undefined
+    ? selected.targetAttentionState : component && component.attentionState;
   var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
-  return !!component && component.updateState === 'update-available'
-    && component.canApply === true
+  var targetBlockingReasons = selected && Array.isArray(selected.targetBlockingReasons) ? selected.targetBlockingReasons : [];
+  var legacyCatalogFallback = !!component && !selected && (!component.catalog || !component.catalog.length)
+    && component.canApply === true && component.updateState === 'update-available';
+  var targetCanApply = selected && selected.targetCanApply !== null && selected.targetCanApply !== undefined
+    ? selected.targetCanApply === true : component && component.canApply === true;
+  return !!component && (selected && selected.installable === true || legacyCatalogFallback)
     && !!z2kTargetRelease(component)
+    && component.runtimeHealth === 'ready'
     && ['review-required', 'rebase-required', 'integration-required'].indexOf(attentionState) < 0
-    && blockingReviews.length === 0;
+    && blockingReviews.length === 0
+    && targetBlockingReasons.length === 0
+    && targetCanApply;
 }
 function z2kUpdateLabel(component) {
   if (component.attentionState === 'rebase-required' || (component.rebases && component.rebases.length)) return _('Требуется адаптация');
@@ -606,6 +864,9 @@ function z2kNeedsIntegration(component) {
     || rebases.length > 0;
 }
 function z2kReviewReason(component) {
+  var hasBlocking = component && (component.attentionState === 'review-required' || (component.blockingReviews && component.blockingReviews.length));
+  var hasRebase = component && (component.attentionState === 'rebase-required' || (component.rebases && component.rebases.length));
+  if (!hasBlocking && !hasRebase) return '';
   var details = component.details || {};
   var reviewDetails = details.reviewDetails || [];
   var reasons = [];
@@ -623,8 +884,6 @@ function z2kReviewReason(component) {
     reasons.push(_('Изменения в upstream-файлах требуют ручной semantic review: ') + component.reviews.join(', '));
   if (!reasons.length && component.rebases && component.rebases.length)
     reasons.push(_('Адаптированные файлы требуют ручного rebase: ') + component.rebases.join(', '));
-  if (!reasons.length && component.advisoryReviews && component.advisoryReviews.length)
-    reasons.push(_('Наблюдаемые upstream-файлы требуют внимания: ') + component.advisoryReviews.join(', '));
   return reasons.join(' ');
 }
 function componentCompatibilityLabel(component) {
@@ -693,11 +952,10 @@ function renderReviewCallout(component) {
   var attentionState = component.attentionState;
   var hasBlocking = attentionState === 'review-required' || (component.blockingReviews && component.blockingReviews.length);
   var hasRebase = attentionState === 'rebase-required' || (component.rebases && component.rebases.length);
-  var hasAdvisory = attentionState === 'review-advisory' || (component.advisoryReviews && component.advisoryReviews.length);
-  if (!hasBlocking && !hasRebase && !hasAdvisory && component.updateState !== 'review-required' && !z2kReviewReason(component)) return null;
-  var title = hasRebase ? _('Требуется адаптация') : hasBlocking || component.updateState === 'review-required' ? _('Требуется semantic review') : _('Требует внимания');
-  var kind = hasRebase ? 'rebase' : hasBlocking ? 'blocking' : 'advisory';
-  var reason = z2kReviewReason(component) || (hasRebase ? _('Адаптированные файлы нельзя обновить автоматически.') : hasBlocking ? _('Изменения требуют ручной проверки перед обновлением.') : _('Наблюдаемый upstream-файл изменился; обновление остаётся доступным после проверки.'));
+  if (!hasBlocking && !hasRebase && component.updateState !== 'review-required') return null;
+  var title = hasRebase ? _('Требуется адаптация') : _('Требуется semantic review');
+  var kind = hasRebase ? 'rebase' : 'blocking';
+  var reason = z2kReviewReason(component) || (hasRebase ? _('Адаптированные файлы нельзя обновить автоматически.') : _('Изменения требуют ручной проверки перед обновлением.'));
   return E('aside', { 'class': 'z2m-component-review-callout z2m-component-review-callout--' + kind, role: 'status', 'aria-live': 'polite' }, [
     E('strong', {}, title),
     E('p', {}, reason)
@@ -806,20 +1064,129 @@ function renderEngineDetails(ctx, component, engineStatus) {
     ])
   ]);
 }
+function z2kReleaseDate(ctx, selected) {
+  if (!selected || !selected.publishedAt) return null;
+  return formatTime(ctx.shell, selected.publishedAt) || String(selected.publishedAt);
+}
+function z2kSelectionMessage(component, selected, operation, targetRelease) {
+  if (!selected || selected.installable !== true) return _('Установка недоступна');
+  if (selected.targetCanApply === false) return _('Эта версия требует проверки перед установкой.');
+  var installed = selected.installedVersion || component.installedRelease && component.installedRelease.value;
+  if (operation === 'reinstall') return _('✓ Эта версия уже установлена.');
+  if (operation === 'upgrade') return _('Доступно обновление');
+  if (operation === 'downgrade') return _('Будет установлена более ранняя версия.');
+  if (operation === 'install') return _('Текущая версия не определена.');
+  return installed && targetRelease && installed === targetRelease ? _('Эта версия уже установлена.') : _('Выберите доступную версию.');
+}
+function z2kTransition(component, selected, operation, targetRelease) {
+  var installed = selected && selected.installedVersion || component.installedRelease && component.installedRelease.value;
+  if (!installed || !targetRelease || installed === targetRelease) return null;
+  if (operation === 'upgrade' || operation === 'downgrade') return installed + ' → ' + targetRelease;
+  return null;
+}
+function z2kReleasePanelUpdate(ctx, component) {
+  var next = Object.assign({}, component, {
+    selectedVersion: state.z2kSelectedVersion || component.selectedVersion,
+    selectedDetails: state.z2kDetails || null,
+    operation: state.z2kDetails && state.z2kDetails.operation || null
+  });
+  var host = typeof document !== 'undefined' && document.getElementById('z2m-z2k-release-panel-host');
+  if (host && typeof host.replaceChildren === 'function') host.replaceChildren(renderZ2KReleasePanel(ctx, next));
+  else rerender(ctx);
+}
+function toggleZ2KDetails(ctx) {
+  state.z2kDetailsExpanded = !state.z2kDetailsExpanded;
+  if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
+  else rerender(ctx);
+  if (state.z2kDetailsExpanded && !state.z2kDetailsCompared) loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, true);
+}
+function renderZ2KReleasePanel(ctx, component) {
+  var shell = ctx.shell;
+  var selected = z2kSelectedDetails(component);
+  if (!selected) return E('div', { id: 'z2m-z2k-release-panel', 'class': 'z2m-z2k-release-panel z2m-z2k-release-panel--empty', 'aria-live': 'polite', 'aria-busy': 'true' }, [
+    E('strong', {}, _('Загружаем выбранную версию…')),
+    E('p', { 'class': 'z2m-dim' }, _('Смена версии только показывает её сведения и готовит безопасный план.'))
+  ]);
+  var targetRelease = selected.version || component.selectedVersion;
+  var operation = selected.operation || z2kOperation(component);
+  var unavailable = selected.installable !== true;
+  var expanded = state.z2kDetailsExpanded === true;
+  var date = z2kReleaseDate(ctx, selected);
+  var transition = z2kTransition(component, selected, operation, targetRelease);
+  var compare = selected.compareUrl ? E('a', { href: selected.compareUrl, target: '_blank', rel: 'noreferrer', 'class': 'z2m-z2k-release-compare' }, _('Сравнить upstream изменения ↗')) : null;
+  var body = String(selected.releaseBody || '').trim();
+  var changes = selected.installChanges || selected.changes || {};
+  var changeCount = Number(changes.modified || 0) + Number(changes.added || 0) + Number(changes.removed || 0);
+  var hasDeviceDetails = !unavailable && changes.known === true && (changeCount > 0 || operation === 'reinstall');
+  var releaseHeadingId = 'z2m-z2k-release-heading';
+  var deviceHeadingId = 'z2m-z2k-device-heading';
+  var releaseDetailsId = 'z2m-z2k-release-details';
+  var changelog = E('div', { 'class': 'z2m-z2k-release-changelog' }, [
+    E('strong', { id: releaseHeadingId }, _('Что нового в ') + targetRelease),
+    body ? E('p', { 'class': 'z2m-z2k-release-body' }, body) : E('p', { 'class': 'z2m-z2k-release-body' }, _('Описание изменений для этого release не опубликовано.'))
+  ]);
+  var diff = unavailable ? null : E('div', { 'class': 'z2m-z2k-install-diff' }, [
+    E('strong', { id: deviceHeadingId }, _('Что изменится на устройстве')),
+    changes.known === false
+      ? E('p', { 'class': 'z2m-z2k-release-no-diff' }, z2kChangeSummary(selected))
+      : operation === 'reinstall' && !changes.modified && !changes.added && !changes.removed
+      ? E('p', { 'class': 'z2m-z2k-release-no-diff' }, z2kChangeSummary(selected))
+      : renderFactGrid([
+        { label: _('Обновится'), value: Number(changes.modified || 0) },
+        { label: _('Добавится'), value: Number(changes.added || 0) },
+        { label: _('Удалится'), value: Number(changes.removed || 0) }
+      ]),
+    hasDeviceDetails ? E('div', { id: releaseDetailsId, role: 'region', 'aria-labelledby': deviceHeadingId, 'class': 'z2m-z2k-release-details' + (expanded ? ' is-visible' : ''), hidden: expanded ? undefined : 'hidden' }, [
+      E('strong', {}, _('Ресурсы, которые изменятся')),
+      ].concat(renderZ2KManagedChangeDetails(changes, targetRelease))) : null
+  ]);
+  var actionLabel = unavailable ? _('Установка недоступна') : z2kOperationLabel(operation, targetRelease);
+  var actionEnabled = !unavailable && !!operation && z2kCanApply(component);
+  return E('div', { id: 'z2m-z2k-release-panel', 'class': 'z2m-z2k-release-panel' + (expanded ? ' is-expanded' : ''), 'aria-live': 'polite' }, [
+    E('div', { 'class': 'z2m-z2k-release-panel-head' }, [
+      E('div', { 'class': 'z2m-z2k-release-title' }, [
+        E('h4', {}, selected.releaseName || targetRelease),
+        date ? E('p', { 'class': 'z2m-z2k-release-date' }, date) : null
+      ]),
+      compare
+    ]),
+    E('div', { 'class': 'z2m-z2k-release-state ' + (unavailable ? 'is-unavailable' : '') }, [
+      E('strong', {}, z2kSelectionMessage(component, selected, operation, targetRelease)),
+      transition ? E('span', { 'class': 'z2m-z2k-release-transition' }, transition) : null,
+      operation === 'install' && !unavailable ? E('p', { 'class': 'z2m-dim' }, _('Manager проверит установленные компоненты и приведёт их к состоянию выбранной версии.')) : null,
+      operation === 'downgrade' && !unavailable ? E('p', { 'class': 'z2m-dim' }, _('При ошибке Manager запустит предусмотренный откат, а его результат будет показан в сообщении.')) : null,
+      unavailable ? E('p', { 'class': 'z2m-dim' }, z2kUnavailableReason(selected)) : null
+    ]),
+    changelog,
+    diff,
+    hasDeviceDetails ? shell.button(expanded ? _('Свернуть') : _('Подробнее'), 'sm', toggleZ2KDetails.bind(null, ctx), false, {
+      'aria-controls': releaseDetailsId,
+      'aria-expanded': expanded ? 'true' : 'false'
+    }) : null,
+    E('div', { 'class': 'z2m-z2k-release-actions' }, [
+      shell.button(actionLabel, actionEnabled ? 'primary' : 'sm', updateZ2K.bind(null, ctx, component), !actionEnabled || isBusyFor('z2k-core'))
+    ])
+  ]);
+}
 function renderZ2KDetails(ctx, component) {
   var shell = ctx.shell;
-  var details = component.details || {};
-  var provenance = component.provenance || details.provenance || {};
-  var manifest = details.manifest || {};
-  var localRevision = provenance.sourceCommit || provenance.commit;
+  var componentDetails = component.details || {};
+  var provenance = component.provenance || componentDetails.provenance || {};
   var isReady = (component.runtimeHealth || component.health) === 'ready';
-  var hasUpdate = z2kCanApply(component);
-  var updateLabel = z2kUpdateLabel(component);
-  var reviewReason = z2kReviewReason(component);
-  var reviewDetails = details.reviewDetails || [];
+  var catalog = z2kCatalogRows(component);
+  var selectedVersion = component.selectedVersion || (catalog[0] && catalog[0].version) || null;
+  var selected = z2kSelectedDetails(component);
+  state.z2kReleaseRefresh = function () { z2kReleasePanelUpdate(ctx, component); };
+  var selector = catalog.length ? E('div', { 'class': 'z2m-z2k-release-picker' }, [
+    E('label', { 'for': 'z2m-z2k-release-select' }, _('Выбрать версию')),
+    E('select', { id: 'z2m-z2k-release-select', 'class': 'z2m-select', value: selectedVersion || '', 'aria-label': _('Выбор Z2K release'), disabled: isBusyFor('z2k-core') ? 'disabled' : undefined, change: function (event) {
+      selectZ2KVersion(ctx, event && event.target ? event.target.value : this.value);
+    } }, catalog.map(function (item) {
+      return E('option', { value: item.version, selected: item.version === selectedVersion ? 'selected' : undefined }, z2kCatalogOptionLabel(item));
+    }))
+  ]) : E('p', { 'class': 'z2m-dim' }, _('Каталог release пока недоступен.'));
+  var reviewDetails = componentDetails.reviewDetails || [];
   var reviewPaths = reviewDetails.map(function (item) { return item && item.path; }).filter(Boolean).join(', ');
-  var manifestHash = manifest.sha256 || manifest.contentSha256 || manifest.hash;
-  var localHash = provenance.sha256 || provenance.contentSha256 || provenance.hash;
   return E('section', { 'class': 'z2m-component-details z2m-component-details--z2k', 'data-component-details': 'z2k-core' }, [
     E('div', { 'class': 'z2m-component-details-head' }, [
       E('div', { 'class': 'z2m-component-details-heading' }, [
@@ -828,7 +1195,8 @@ function renderZ2KDetails(ctx, component) {
           E('h3', {}, component.label),
           E('span', { 'class': 'z2m-chip ' + componentStateKind(component) }, componentStateLabel(component))
         ]),
-        E('p', { 'class': 'z2m-dim' }, component.summary)
+        E('p', { 'class': 'z2m-dim' }, component.summary),
+        E('span', { 'class': 'z2m-z2k-compatibility' }, _('Совместимость: ') + componentCompatibilityLabel(component))
       ]),
       E('div', { 'class': 'z2m-component-details-source' }, [
         E('span', { 'class': 'z2m-dim' }, _('Источник')),
@@ -836,38 +1204,29 @@ function renderZ2KDetails(ctx, component) {
       ])
     ]),
     renderFactGrid([
+      { label: _('Установлено'), value: z2kReleaseLabel(component) },
+      { label: _('Последняя'), value: z2kLatestRelease(component) },
       { label: _('Lua assets'), value: component.counters && component.counters.lua },
-      { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') },
-      { label: _('Совместимость'), value: componentCompatibilityLabel(component) },
-      { label: _('Установленный release'), value: z2kReleaseLabel(component) }
+      { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') }
     ]),
-    renderUpdateSection(ctx, {
-      stateLabel: updateLabel,
-      rows: [
-        { label: _('Установленный release'), value: z2kReleaseLabel(component) },
-        { label: _('Доступный release'), value: component.availableRelease || _('Нет данных') },
-        { label: _('Локальная revision'), value: localRevision || _('Не определена') },
-        { label: _('Последняя проверка'), value: formatLastCheck(shell, component.checkedAt) }
-      ],
-      actions: hasUpdate ? [
-        shell.button(z2kUpdateActionLabel(component), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')),
-        shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
-      ] : [
-        shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
-      ]
-    }),
+    renderDetailSection(_('Версии'), E('div', { 'class': 'z2m-z2k-release-selection' }, [
+      E('div', { 'class': 'z2m-z2k-current-version' }, [E('span', { 'class': 'z2m-dim' }, _('Текущая версия')), E('strong', {}, z2kReleaseLabel(component))]),
+      selector,
+      E('div', { id: 'z2m-z2k-release-panel-host' }, [renderZ2KReleasePanel(ctx, component)])
+    ]), 'z2m-z2k-release-selection-section'),
+    E('div', { 'class': 'z2m-z2k-release-check' }, [
+      E('span', { 'class': 'z2m-dim' }, _('Последняя проверка: ') + formatLastCheck(shell, component.checkedAt)),
+      shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
+    ]),
     renderReviewCallout(component),
     E('details', { 'class': 'z2m-component-technical' }, [
       E('summary', {}, _('Технические детали')),
       renderInfoRows([
-        { label: _('Provenance'), value: provenance.source },
-        { label: _('Source commit'), value: localRevision },
-        { label: _('Trust mode'), value: details.trustMode },
-        { label: _('Manifest revision'), value: manifest.current },
-        { label: _('Manifest hash'), value: manifestHash },
-        { label: _('Local asset hash'), value: localHash },
+        { label: _('Источник'), value: provenance.source },
+        { label: _('Trust mode'), value: componentDetails.trustMode },
+        { label: _('Выбранный release'), value: selectedVersion },
         { label: _('Проверяемые пути'), value: reviewPaths },
-        { label: _('Причина проверки'), value: reviewReason },
+        { label: _('Причина проверки'), value: z2kReviewReason(component) },
         { label: _('Rebase'), value: component.rebases && component.rebases.length ? component.rebases.join(', ') : null }
       ])
     ])
@@ -963,22 +1322,12 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
 }
 function renderZ2KCard(ctx, component) {
   var shell = ctx.shell;
-  var isReady = (component.runtimeHealth || component.health) === 'ready';
-  var hasUpdate = z2kCanApply(component);
-  var needsIntegration = z2kNeedsIntegration(component);
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = z2kMetaRows(component);
-  var primaryActions = [];
-  if (hasUpdate) {
-    primaryActions.push(shell.button(z2kUpdateActionLabel(component), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
-  } else if (component.updateState === 'review-required') {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
-  } else if (needsIntegration) {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
-  } else {
-    primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')));
+  var primaryActions = [shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))];
+  if (!state.z2kExpanded && z2kCanApply(component)) {
+    primaryActions.unshift(shell.button(z2kUpdateActionLabel(component), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
   }
   var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (state.z2kExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx), 'aria-expanded': state.z2kExpanded ? 'true' : 'false' }, [
     _('Подробнее'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(state.z2kExpanded ? 'chevronUp' : 'chevronDown', { size: 12 }))
@@ -988,7 +1337,7 @@ function renderZ2KCard(ctx, component) {
       E('div', { 'class': 'z2m-component-card-icon' }, Icons.wrappedNode('workflow', { size: 20, wrapperClass: 'z2m-card-icon-wrap' })),
       E('div', { 'class': 'z2m-component-card-title' }, [
         E('h3', {}, component.label),
-        E('p', { 'class': 'z2m-dim' }, _('Runtime-assets и расширения Zapret2'))
+        E('p', { 'class': 'z2m-dim' }, _('Ресурсы Z2K для обхода блокировок'))
       ]),
       E('span', { 'class': 'z2m-chip ' + chipKind }, chipLabel)
     ]),
@@ -1055,10 +1404,26 @@ function renderComponents(ctx, data) {
   } else {
     tgActions.push(E('a', { href: '#/telegram-tunnel', 'class': 'z2m-btn sm' }, _('Настроить →')));
   }
+  var resourceValue = payload.resources && payload.resources.value || {};
+  var resourceZ2K = resourceValue.z2k || {};
+  var catalogValue = payload.catalog && payload.catalog.value || resourceValue.catalog || resourceZ2K.catalog || {};
+  var catalogRows = Array.isArray(catalogValue.versions) ? catalogValue.versions : Array.isArray(catalogValue) ? catalogValue : [];
+  if (catalogRows.length) {
+    state.z2kCatalog = catalogValue;
+    if (!state.z2kSelectedVersion) {
+      var selectedCatalog = catalogRows.find(function (item) { return item && item.installed; }) || catalogRows[0];
+      state.z2kSelectedVersion = resourceZ2K.selectedVersion || selectedCatalog && selectedCatalog.version || null;
+    }
+  }
   var page = ComponentsModel.normalizePage({
     versions: payload.versions && payload.versions.value || {},
     engine: { status: engineStatus, catalog: engineValue[0] || {} },
-    z2k: payload.resources && payload.resources.value && payload.resources.value.z2k || {},
+    z2k: Object.assign({}, resourceZ2K, {
+      catalog: catalogRows,
+      selectedVersion: state.z2kSelectedVersion || resourceZ2K.selectedVersion,
+      selectedDetails: state.z2kDetails || resourceZ2K.selectedDetails,
+      preparedTarget: state.z2kPrepared || resourceZ2K.preparedTarget
+    }),
     checkedAt: latestCanonicalTimestamp(
       payload.resources && payload.resources.value && payload.resources.value.checkedAt,
       state.lastSuccessfulCheckAt

@@ -23,6 +23,15 @@ const SYNC = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
   'zapret2-manager', 'strategy-runtime-assets-sync.sh');
 const SRC = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share',
   'zapret2-manager', 'runtime-assets');
+const SHELL = process.platform === 'win32'
+  ? (process.env.Z2M_TEST_BASH || 'C:\\Program Files\\Git\\bin\\bash.exe')
+  : '/bin/sh';
+
+function bashPath(value) {
+  if (process.platform !== 'win32') return value;
+  const normalized = value.replaceAll('\\', '/');
+  return normalized.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+}
 
 function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-z2k-sync-'));
@@ -41,14 +50,14 @@ function sandbox() {
 }
 
 function runSync(sb, args = []) {
-  const result = spawnSync('/bin/sh', [SYNC, ...args], {
+  const result = spawnSync(SHELL, [bashPath(SYNC), ...args], {
     cwd: ROOT,
     env: {
       ...process.env,
-      Z2M_RUNTIME_ASSETS_SRC: SRC,
-      Z2M_RUNTIME_BASE: sb.base,
-      Z2M_MANAGER_STATE_ROOT: sb.stateRoot,
-      Z2M_MANAGER_ETC_ROOT: sb.etcRoot,
+      Z2M_RUNTIME_ASSETS_SRC: bashPath(SRC),
+      Z2M_RUNTIME_BASE: bashPath(sb.base),
+      Z2M_MANAGER_STATE_ROOT: bashPath(sb.stateRoot),
+      Z2M_MANAGER_ETC_ROOT: bashPath(sb.etcRoot),
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
     },
     encoding: 'utf8', timeout: 240_000
@@ -88,6 +97,31 @@ test('is idempotent and never downgrades existing upstream core Lua', () => {
   assert.equal(second.status, 0, second.stderr || second.stdout);
   assert.equal(fs.readFileSync(coreTarget, 'utf8'), '-- upstream custom core\n',
     'upstream core Lua was overwritten');
+});
+
+test('refreshes an existing Manager-owned Lua sidecar from the package baseline', () => {
+  const sb = sandbox();
+  const source = path.join(sb.dir, 'package-assets', 'lua');
+  const target = path.join(sb.base, 'lua');
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, 'z2m-hostkey-policy.lua'), '-- package NEW\n');
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'z2m-hostkey-policy.lua'), '-- runtime OLD\n');
+
+  const result = spawnSync(SHELL, [bashPath(SYNC)], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      Z2M_RUNTIME_ASSETS_SRC: bashPath(path.join(sb.dir, 'package-assets')),
+      Z2M_RUNTIME_BASE: bashPath(sb.base),
+      Z2M_MANAGER_STATE_ROOT: bashPath(sb.stateRoot),
+      Z2M_MANAGER_ETC_ROOT: bashPath(sb.etcRoot),
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
+    },
+    encoding: 'utf8', timeout: 240_000
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.readFileSync(path.join(target, 'z2m-hostkey-policy.lua'), 'utf8'), '-- package NEW\n');
 });
 
 test('--verify reports ok when installed copies match the baseline', () => {

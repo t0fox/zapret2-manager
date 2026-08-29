@@ -289,8 +289,8 @@ function assets_update_method(req) { let args = asset_args(req); return args && 
 function assets_register_builtin_method(req) { return asset_edit_action('register-builtin', req); }
 function assets_references_method(req) { return asset_edit_action('references', req); }
 function assets_resolve_method(req) { return asset_edit_action('resolve', req); }
-function resource_cli_action(mode) {
-	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' ' + mode + ' 2>/dev/null';
+function resource_cli_action(mode, argument, secondary) {
+	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' ' + mode + (argument == null ? '' : ' ' + shell_escape(argument)) + (secondary == null ? '' : ' ' + shell_escape(secondary)) + ' 2>/dev/null';
 	let p = popen(command, 'r');
 	if (!p) return { ok: false, error: { code: 'ETARGET', message: 'resource center runner unavailable' } };
 	let out = p.read('all') || '', rc = p.close();
@@ -299,6 +299,27 @@ function resource_cli_action(mode) {
 }
 function resources_status_method(req) { return resource_cli_action('status'); }
 function resources_check_method(req) { return resource_cli_action('check'); }
+function resource_version_arg(req) {
+	let version = null;
+	try { if (req && req.args && req.args.version != null) version = req.args.version; } catch (e) { }
+	if (version == null) { try { if (req && req.version != null) version = req.version; } catch (e) { } }
+	return type(version) == 'string' && match(version, /^r-[0-9]+(\.[0-9]+)?$/) ? version : null;
+}
+function resource_include_compare_arg(req) {
+	try { if (req && req.args && (req.args.includeCompare === true || req.args.includeCompare == 'compare')) return true; } catch (e) { }
+	try { if (req && (req.includeCompare === true || req.includeCompare == 'compare')) return true; } catch (e) { }
+	return false;
+}
+function z2k_versions_method(req) { return resource_cli_action('versions'); }
+function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version, resource_include_compare_arg(req) ? 'compare' : null); }
+function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare', version); }
+function resource_operation_arg(req) {
+	let operationId = null;
+	try { if (req && req.args && req.args.operationId != null) operationId = req.args.operationId; } catch (e) { }
+	if (operationId == null) { try { if (req && req.operationId != null) operationId = req.operationId; } catch (e) { } }
+	return type(operationId) == 'string' ? operationId : null;
+}
+function resources_update_status_method(req) { let operationId = resource_operation_arg(req); return operationId == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K lifecycle operation id is required' } } : resource_cli_action('update-status', operationId); }
 function resource_edit_action(req) {
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
@@ -311,7 +332,10 @@ function resource_edit_action(req) {
 	if (mkrc != 0 || index(tmp, '/tmp/z2m-resources-edit.') != 0) return { ok: false, error: { code: 'ETARGET', message: 'resource request temp file unavailable' } };
 	let wrote = null; try { wrote = writefile(tmp, edit); } catch (e) { wrote = null; }
 	if (wrote == null) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'resource request could not be written' } }; }
-	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' update ' + shell_escape(tmp) + ' 2>/dev/null';
+	let parsed = null;
+	try { parsed = json(edit); } catch (e) { }
+	let mode = parsed && parsed.bundleId == 'z2k-curated-lua' ? 'update-async' : 'update';
+	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' ' + mode + ' ' + shell_escape(tmp) + ' 2>/dev/null';
 	let child = popen(command, 'r');
 	if (!child) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'resource center runner unavailable' } }; }
 	let out = child.read('all') || '', rc = child.close(); try { unlink(tmp); } catch (e) {}
@@ -1231,7 +1255,11 @@ return {
 		assets_references: { args: { edit: 'string' }, call: function (req) { return assets_references_method(req); } },
 		resources_status: { call: function (req) { return resources_status_method(req); } },
 		resources_check: { call: function (req) { return resources_check_method(req); } },
+		resources_update_status: { args: { operationId: 'string' }, call: function (req) { return resources_update_status_method(req); } },
 		resources_update: { args: { edit: 'string' }, call: function (req) { return resources_update_method(req); } },
+		z2k_versions: { call: function (req) { return z2k_versions_method(req); } },
+		z2k_version_details: { args: { version: 'string', includeCompare: 'string' }, call: function (req) { return z2k_version_details_method(req); } },
+		z2k_prepare_version: { args: { version: 'string' }, call: function (req) { return z2k_prepare_version_method(req); } },
 		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
 		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
 		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },

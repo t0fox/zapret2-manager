@@ -22,5 +22,7 @@ test('initial Resource Center status stays network-free while explicit check car
   assert.match(source, /trustMode:\s*'allow-untrusted'/);
   assert.match(source, /manifestSeq:\s*signed\.manifest\.seq/);
   assert.match(source, /manifestCurrent:\s*signed\.manifest\.current/);
-  assert.match(source, /z2k_component_apply\(request\)/);
+  assert.match(source, /schema:\s*2/);
+  assert.match(source, /preparedTarget/);
+  assert.match(source, /ELEGACY_LIFECYCLE/);
 });
