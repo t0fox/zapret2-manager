@@ -627,6 +627,7 @@
 .z2m-components-page .z2m-z2k-change-item:last-child{border-bottom:0}
 .z2m-components-page .z2m-z2k-change-item>span:first-child{font-size:13px;overflow-wrap:anywhere}
 .z2m-components-page .z2m-z2k-change-item>.z2m-dim{font-size:11px;overflow-wrap:anywhere}
+.z2m-components-page .z2m-z2k-change-summary{font-size:12px;line-height:1.45;color:var(--text-muted,#9ca3af);overflow-wrap:anywhere}
 .z2m-components-page .z2m-z2k-release-actions{display:flex;justify-content:flex-end;min-width:0;padding-top:2px}
 .z2m-components-page .z2m-z2k-release-actions .z2m-btn{min-width:190px}
 .z2m-components-page .z2m-z2k-release-check{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:2px}

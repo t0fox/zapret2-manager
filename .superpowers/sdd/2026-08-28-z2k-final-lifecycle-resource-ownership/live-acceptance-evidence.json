@@ -1088,6 +1088,55 @@
         "preparedTarget": null
       },
       "verdict": "Z2K MANAGED RELEASE DETAILS READY"
+    },
+    "repositoryChangeExplanations": {
+      "date": "2026-08-29",
+      "upstream": {
+        "localCommit": "e135b37",
+        "metadataPath": "metadata/release-changes.json",
+        "historicalDelta": { "modified": 2, "added": 2, "removed": 6 },
+        "publishedTagsRewritten": false,
+        "push": "blocked: 403 Permission to necronicle/z2k.git denied to t0fox"
+      },
+      "manager": {
+        "transport": "one aggregate raw GitHub request at most; no per-resource REST",
+        "cache": "/tmp/zapret2-manager/update-cache/",
+        "aggregatePayloadLimitBytes": 262144,
+        "cacheLimitBytes": 524288,
+        "precedence": ["immutable-manifest", "repository-index", "factual-fallback"],
+        "mutationIndependent": true
+      },
+      "verification": {
+        "routerNativeUcode": {
+          "moduleImport": true,
+          "fixtureProjection": true,
+          "summarySources": ["immutable-manifest", "repository-index"]
+        },
+        "browser": {
+          "provider": "Codex in-app Browser",
+          "readOnly": true,
+          "cacheDisabledReload": true,
+          "selected": "r-80.3",
+          "installed": "r-79.7",
+          "modified": 2,
+          "added": 2,
+          "removed": 6,
+          "fallbacksVisible": true,
+          "lifecycleActionTriggered": false,
+          "repositorySummariesLive": "not-claimed; upstream push blocked"
+        },
+        "router": {
+          "sourceOnlyDeployment": true,
+          "installedAuthority": "r-79.7",
+          "registryRevision": 10,
+          "preparedTarget": null,
+          "changeCache": "absent after failed/unavailable raw fetch"
+        }
+      },
+      "apk": "not-built",
+      "agents": false,
+      "extraBranch": false,
+      "verdict": "ready pending upstream repository push"
     }
   }
 }

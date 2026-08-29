@@ -180,7 +180,9 @@ function normalizeZ2kDetails(value) {
           id: first(item.id, null),
           name: first(item.name || item.localName || item.id || item.sourcePath, null),
           sourcePath: first(item.sourcePath, null),
-          type: first(item.type, null)
+          type: first(item.type, null),
+          summary: typeof item.summary === 'string' && item.summary.trim() ? item.summary : null,
+          summarySource: item.summarySource === 'immutable-manifest' || item.summarySource === 'repository-index' ? item.summarySource : null
         };
       }).filter(function (item) {
         return item.id !== null || item.name !== null || item.sourcePath !== null;

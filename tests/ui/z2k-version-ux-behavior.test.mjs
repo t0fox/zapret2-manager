@@ -406,11 +406,11 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
       added: 2,
       removed: 6,
       modifiedItems: [
-        { id: 'lua:z2k-modern-core', name: 'Z2K modern core', sourcePath: 'files/lua/z2k-modern-core.lua', type: 'lua' },
+        { id: 'lua:z2k-modern-core', name: 'Z2K modern core', sourcePath: 'files/lua/z2k-modern-core.lua', type: 'lua', summary: 'fixture explanation XYZ', summarySource: 'immutable-manifest' },
         { id: 'lua:z2k-state-persist', name: 'z2k-state-persist.lua', sourcePath: 'files/lua/z2k-state-persist.lua', type: 'lua' },
       ],
       addedItems: [
-        { id: 'blob:active-discord-udp', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob' },
+        { id: 'blob:active-discord-udp', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob', summary: 'second explanation', summarySource: 'repository-index' },
         { id: 'blob:warp-endpoints', name: 'warp-endpoints.txt', sourcePath: 'files/lists/warp-endpoints.txt', type: 'blob' },
       ],
       removedItems: Array.from({ length: 6 }, (_, index) => ({
@@ -440,7 +440,11 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
   assert.match(text, /Удалится.*6/);
   assert.match(text, /Z2K modern core/);
   assert.match(text, /active_discord_udp\.bin/);
+  assert.match(text, /fixture explanation XYZ/);
+  assert.match(text, /second explanation/);
+  assert.match(text, /Удалён в r-80\.3/);
   assert.match(text, /old-1\.bin/);
+  assert.doesNotMatch(text, /Причина upstream:|Удалён в upstream:/);
   assert.doesNotMatch(text, /S51z2k-warp|mtproxy-client|webpanel/);
   assert.doesNotMatch(text, /\[object HTMLDivElement\]/);
   assert.match(text, /Сравнить upstream изменения ↗/);

@@ -618,25 +618,31 @@ function z2kChangeSummary(details) {
 function z2kManagedChangeItems(changes, key) {
   return changes && Array.isArray(changes[key]) ? changes[key] : [];
 }
-function z2kManagedChangeGroup(label, items) {
+function z2kManagedChangeFallback(action, version) {
+  var verb = action === 'modified' ? _('Изменён в ') : action === 'added' ? _('Добавлен в ') : _('Удалён в ');
+  return verb + (version || _('выбранном release'));
+}
+function z2kManagedChangeGroup(label, items, action, version) {
   if (!items.length) return null;
   return E('div', { 'class': 'z2m-z2k-change-group' }, [
     E('strong', {}, label + ' · ' + items.length),
     E('div', { 'class': 'z2m-z2k-change-items', role: 'list' }, items.map(function (item) {
       item = item || {};
       var name = item.name || item.id || item.sourcePath || _('Ресурс');
+      var summary = item.summary || z2kManagedChangeFallback(action, version);
       return E('div', { 'class': 'z2m-z2k-change-item', role: 'listitem' }, [
         E('span', {}, name),
-        item.sourcePath && item.sourcePath !== name ? E('span', { 'class': 'z2m-dim' }, item.sourcePath) : null
+        item.sourcePath && item.sourcePath !== name ? E('span', { 'class': 'z2m-dim' }, item.sourcePath) : null,
+        E('span', { 'class': 'z2m-z2k-change-summary' }, summary)
       ]);
     }))
   ]);
 }
-function renderZ2KManagedChangeDetails(changes) {
+function renderZ2KManagedChangeDetails(changes, version) {
   return [
-    z2kManagedChangeGroup(_('Обновится'), z2kManagedChangeItems(changes, 'modifiedItems')),
-    z2kManagedChangeGroup(_('Добавится'), z2kManagedChangeItems(changes, 'addedItems')),
-    z2kManagedChangeGroup(_('Удалится'), z2kManagedChangeItems(changes, 'removedItems'))
+    z2kManagedChangeGroup(_('Обновится'), z2kManagedChangeItems(changes, 'modifiedItems'), 'modified', version),
+    z2kManagedChangeGroup(_('Добавится'), z2kManagedChangeItems(changes, 'addedItems'), 'added', version),
+    z2kManagedChangeGroup(_('Удалится'), z2kManagedChangeItems(changes, 'removedItems'), 'removed', version)
   ].filter(Boolean);
 }
 function loadZ2KVersionDetails(ctx, version) {
@@ -1061,7 +1067,7 @@ function renderZ2KReleasePanel(ctx, component) {
       ]),
     hasDeviceDetails ? E('div', { id: releaseDetailsId, role: 'region', 'aria-labelledby': deviceHeadingId, 'class': 'z2m-z2k-release-details' + (expanded ? ' is-visible' : ''), hidden: expanded ? undefined : 'hidden' }, [
       E('strong', {}, _('Ресурсы, которые изменятся')),
-    ].concat(renderZ2KManagedChangeDetails(changes))) : null
+      ].concat(renderZ2KManagedChangeDetails(changes, targetRelease))) : null
   ]);
   var actionLabel = unavailable ? _('Установка недоступна') : z2kOperationLabel(operation, targetRelease);
   var actionEnabled = !unavailable && !!operation && z2kCanApply(component);

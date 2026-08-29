@@ -15,11 +15,17 @@ const TAGS_URL = API_ROOT + '/git/refs/tags?per_page=100';
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
 const CACHE_FILE = '/tmp/z2k-version-catalog.json';
 const CACHE_TTL = 900;
+const CHANGE_CACHE_DIR = '/tmp/zapret2-manager/update-cache';
+const CHANGE_CACHE_FILE = CHANGE_CACHE_DIR + '/z2k-release-changes.json';
+const CHANGE_CACHE_TTL = 900;
 const MAX_VERSIONS = 10;
 const MAX_TAGS = 256;
 const MAX_MANIFEST = 512 * 1024;
 const MAX_API_RESPONSE = 512 * 1024;
+const MAX_RELEASE_CHANGES = 256 * 1024;
+const MAX_CHANGE_CACHE = 512 * 1024;
 const MAX_PATH = 256;
+const RELEASE_CHANGES_URL = RAW_ROOT + '/' + BRANCH + '/metadata/release-changes.json';
 let REQUEST_COUNT = 0, REST_REQUEST_COUNT = 0;
 
 function object(value) { return type(value) == 'object' && value != null; }
@@ -83,6 +89,52 @@ function validate_manifest(value, rawSize, requested) {
 	let names = keys(value.files_sha256); if (!length(names) || length(names) > MAX_TAGS) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json file count is invalid.');
 	for (let i = 0; i < length(names); i++) { let path = names[i], digest = value.files_sha256[path]; if (!safe_path(path) || !valid_digest(digest)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path or invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
 	return { ok: true, manifest: value };
+}
+function utf8_codepoints(value) { let count = 0; for (let i = 0; i < length(value); i++) { let byte = ord(substr(value, i, 1)); if (byte < 128 || byte > 191) count++; } return count; }
+function valid_metadata_summary(value) {
+	if (!string(value) || length(value) == 0 || utf8_codepoints(value) > 1000) return false;
+	for (let i = 0; i < length(value); i++) { let byte = ord(substr(value, i, 1)); if (byte < 32 || byte == 127) return false; }
+	return true;
+}
+function normalized_change_entry(entry, action) {
+	let validAction = action == 'added' || action == 'modified' || action == 'removed';
+	return validAction && object(entry) && entry.action == action && valid_metadata_summary(entry.summary) ? { action: action, summary: entry.summary } : null;
+}
+function normalize_release_change_index(value) {
+	if (!object(value) || value.schema != 1 || !object(value.releases)) return null;
+	let normalized = { schema: 1, releases: {} }, releases = keys(value.releases);
+	for (let i = 0; i < length(releases); i++) {
+		let release = releases[i], record = value.releases[release];
+		if (parse_release(release) == null || !object(record) || !valid_sha(record.commit) || !object(record.changes)) return null;
+		let changes = {}, paths = keys(record.changes);
+		for (let j = 0; j < length(paths); j++) { let path = paths[j], entry = record.changes[path], action = object(entry) ? entry.action : null; if (!safe_path(path)) return null; let normalizedEntry = normalized_change_entry(entry, action); if (normalizedEntry == null) return null; changes[path] = normalizedEntry; }
+		normalized.releases[release] = { commit: lc(record.commit), changes: changes };
+	}
+	return normalized;
+}
+function read_change_cache() {
+	try {
+		let raw = readfile(CHANGE_CACHE_FILE); if (raw == null || length(raw) >= MAX_CHANGE_CACHE) return null;
+		let value = json(raw), index = object(value) && value.schema == 1 && type(value.cachedAt) == 'int' ? normalize_release_change_index(value.index) : null;
+		return index == null ? null : { cachedAt: value.cachedAt, index: index };
+	} catch (e) { return null; }
+}
+function save_change_cache(index) {
+	let tmp = CHANGE_CACHE_FILE + '.tmp.' + time();
+	try {
+		let raw = sprintf('%J', { schema: 1, cachedAt: time(), index: index }) + '\n';
+		if (length(raw) >= MAX_CHANGE_CACHE) return;
+		command('mkdir -p ' + quote(CHANGE_CACHE_DIR)); writefile(tmp, raw);
+		let moved = command('mv -f ' + quote(tmp) + ' ' + quote(CHANGE_CACHE_FILE)); if (moved.rc != 0) cleanup(tmp);
+	} catch (e) { cleanup(tmp); }
+}
+function fetch_release_change_index() {
+	let cached = read_change_cache();
+	if (cached != null && time() - cached.cachedAt <= CHANGE_CACHE_TTL) return cached.index;
+	let raw = fetch_text(RELEASE_CHANGES_URL, MAX_RELEASE_CHANGES, 'z2m-z2k-changes', false), parsed = null;
+	if (raw != null) try { parsed = normalize_release_change_index(json(raw)); } catch (e) { parsed = null; }
+	if (parsed != null) { save_change_cache(parsed); return parsed; }
+	return cached == null ? null : cached.index;
 }
 function fetch_manifest(version, commitSha) {
 	if (parse_release(version) == null || !valid_sha(commitSha)) return fail('EINPUT', 'Z2K target identity is invalid.');
@@ -204,6 +256,38 @@ function changes_between(current, previous, map) {
 	return managed_change_set(known, sort_change_items(modifiedItems), sort_change_items(addedItems), sort_change_items(removedItems), now.unknown);
 }
 export const z2k_managed_delta = function(current, previous, map) { return changes_between(current, previous, map); };
+function change_explanation(current, version, commitSha, historical, path, action) {
+	let entry = current && object(current.changes) ? normalized_change_entry(current.changes[path], action) : null;
+	if (entry != null) return { summary: entry.summary, summarySource: 'immutable-manifest' };
+	let record = historical && object(historical.releases) ? historical.releases[version] : null;
+	entry = record && valid_sha(commitSha) && valid_sha(record.commit) && lc(record.commit) == lc(commitSha) && object(record.changes) ? normalized_change_entry(record.changes[path], action) : null;
+	return entry == null ? { summary: null, summarySource: null } : { summary: entry.summary, summarySource: 'repository-index' };
+}
+function explain_items(items, current, version, commitSha, historical, action) {
+	let result = [];
+	for (let i = 0; i < length(items || []); i++) {
+		let item = items[i], copy = {}, explanation = change_explanation(current, version, commitSha, historical, item.sourcePath, action);
+		for (let key in item) copy[key] = item[key];
+		copy.summary = explanation.summary; copy.summarySource = explanation.summarySource; push(result, copy);
+	}
+	return result;
+}
+function enrich_change_set(changeSet, current, version, commitSha, historical) {
+	let normalizedHistorical = normalize_release_change_index(historical), result = {};
+	for (let key in changeSet || {}) result[key] = changeSet[key];
+	result.modifiedItems = explain_items(changeSet && changeSet.modifiedItems, current, version, commitSha, normalizedHistorical, 'modified');
+	result.addedItems = explain_items(changeSet && changeSet.addedItems, current, version, commitSha, normalizedHistorical, 'added');
+	result.removedItems = explain_items(changeSet && changeSet.removedItems, current, version, commitSha, normalizedHistorical, 'removed');
+	return result;
+}
+function change_set_needs_historical(changeSet, current, version, commitSha) {
+	let groups = [{ items: changeSet.modifiedItems, action: 'modified' }, { items: changeSet.addedItems, action: 'added' }, { items: changeSet.removedItems, action: 'removed' }];
+	for (let i = 0; i < length(groups); i++) for (let j = 0; j < length(groups[i].items || []); j++) if (change_explanation(current, version, commitSha, null, groups[i].items[j].sourcePath, groups[i].action).summary == null) return true;
+	return false;
+}
+export const z2k_explain_managed_delta = function(current, previous, map, version, commitSha, historical) {
+	return enrich_change_set(changes_between(current, previous, map), current, version, commitSha, historical);
+};
 
 export const z2k_version_details = function(version) {
 	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
@@ -217,7 +301,10 @@ export const z2k_version_details = function(version) {
 	let installedManifest = null;
 	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
 	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [];
-	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), body = manifest_body(checked.manifest, version) || human_body(metadata && metadata.message) || (releaseChangeSet.known ? fallback_body(releaseChangeSet) : null);
+	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map);
+	if (installChangeSet.known && change_set_needs_historical(installChangeSet, checked.manifest, version, row.commitSha)) installChangeSet = enrich_change_set(installChangeSet, checked.manifest, version, row.commitSha, fetch_release_change_index());
+	else installChangeSet = enrich_change_set(installChangeSet, checked.manifest, version, row.commitSha, null);
+	let body = manifest_body(checked.manifest, version) || human_body(metadata && metadata.message) || (releaseChangeSet.known ? fallback_body(releaseChangeSet) : null);
 	let releaseChanges = { known: releaseChangeSet.known, modified: releaseChangeSet.modified, added: releaseChangeSet.added, removed: releaseChangeSet.removed, changedPaths: releaseChangeSet.changedPaths, upstreamChangedPaths: releaseChangeSet.upstreamChangedPaths, managedPaths: releaseChangeSet.managedPaths, unknown: releaseChangeSet.unknown }, installChanges = { known: installChangeSet.known, modified: installChangeSet.modified, added: installChangeSet.added, removed: installChangeSet.removed, modifiedPaths: installChangeSet.modifiedPaths, addedPaths: installChangeSet.addedPaths, removedPaths: installChangeSet.removedPaths, modifiedItems: installChangeSet.modifiedItems, addedItems: installChangeSet.addedItems, removedItems: installChangeSet.removedItems, managedPaths: installChangeSet.managedPaths, unknown: installChangeSet.unknown };
 	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, releaseChanges: releaseChanges, installChanges: installChanges, changes: installChanges, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
 };

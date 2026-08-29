@@ -239,3 +239,42 @@ This bounded follow-up continued directly on `codex/z2k-version-lifecycle`, with
 - Router `zapret2-manager resources_status` remained readable and non-mutated: `resourcesStatus.ok=true`, installed authority `r-79.7` with confirmed confidence, Registry revision `10`, integrity `verified`, Lua `7/7`, and `preparedTarget=null`.
 
 Final verdict: `Z2K MANAGED RELEASE DETAILS READY`.
+
+## Repository-derived change explanations — 2026-08-29
+
+This follow-up continued on `codex/z2k-version-lifecycle` without an
+additional branch, agent, APK, package build, or lifecycle mutation.
+
+- Upstream `necronicle/z2k` now has repository-owned
+  `metadata/release-changes.json`, validator/generator support in
+  `scripts/validate_release_changes.mjs` and `scripts/release.sh`, a focused
+  `tests/test_release_changes_metadata.sh`, and the maintainer contract in
+  `RELEASING.md`. The historical `r-79.7 -> r-80.3` managed delta is covered:
+  2 modified, 2 added, and 6 removed paths with summaries derived from the
+  repository history. The local upstream commit is `e135b37`; pushing it was
+  blocked by GitHub `403 Permission to necronicle/z2k.git denied to t0fox`, so
+  the raw GitHub index is not claimed live until repository write access is
+  fixed. Published tags were not rewritten.
+- Manager `z2k-versions.uc` fetches at most one aggregate raw metadata index,
+  validates release/commit/path/action/summary identity, uses immutable
+  manifest `changes` before the historical index, keeps a bounded ephemeral
+  LKG cache under `/tmp/zapret2-manager/update-cache/`, and adds only
+  `summary`/`summarySource` to the display projection. Asset SHA, membership,
+  removal set, operation, plan token, prepared target, Registry, and runtime
+  fields remain mutation-independent.
+- UI rows keep canonical name plus muted `sourcePath`; repository summaries
+  are displayed as the third line. When metadata is unavailable, the factual
+  fallback is `Изменён/Добавлен/Удалён в r-X`. No per-file historical reason is
+  hardcoded in Manager.
+- TDD/source gates: explanation fixture tests pass; the full Z2K product/UI
+  run has the same pre-existing `Refresh-state regression` failure and no
+  explanation-specific failure; JS syntax and diff checks pass. Router-native
+  `/usr/bin/ucode` imported the deployed module and projected immutable plus
+  repository-index fixtures with exact path/action/commit matching.
+- Read-only router/browser acceptance after source-only deployment (backup,
+  `scp -O`, `root:root`, `0644`) showed the deployed hashes, unchanged
+  installed authority `r-79.7`, Registry revision `10`, `preparedTarget=null`,
+  and the live Components view with `Обновится · 2`, `Добавится · 2`,
+  `Удалится · 6`. Because the upstream commit could not be pushed, the live
+  browser correctly showed the factual fallbacks rather than unverified
+  repository summaries. The `Обновить до r-80.3` action was not activated.
