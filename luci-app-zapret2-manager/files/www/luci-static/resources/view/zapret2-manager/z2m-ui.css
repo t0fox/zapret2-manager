@@ -4355,3 +4355,42 @@
     transition:none;
   }
 }
+
+/* Strategy IDE regression guard: empty context must not become a panel, and
+ * profile controls must keep their intrinsic control height. */
+#z2m-view-strategy #strategy-modal .strategy-editor-provenance:empty {
+  display:none;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-name-field {
+  align-self:start;
+  height:auto;
+  min-height:0;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-name-field .form-input {
+  flex:0 0 40px;
+  height:40px;
+  max-height:40px;
+  min-height:40px;
+  line-height:1.35;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-tab .btn-icon-only {
+  display:inline-grid;
+  place-items:center;
+  min-width:40px;
+  width:40px;
+  min-height:40px;
+  height:40px;
+  padding:0;
+  border:1px solid transparent;
+  border-radius:7px;
+  background:transparent;
+  color:var(--tx3);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-tab .btn-icon-only:hover:not(:disabled) {
+  background:rgba(255,255,255,.06);
+  border-color:var(--border2);
+  color:var(--tx);
+}
+#z2m-view-strategy #strategy-modal .profile-toggle:checked {
+  box-shadow:0 0 0 3px rgba(92,185,139,.10);
+}
