@@ -2,9 +2,9 @@
 id: z2m-strategy-ide-workspace-design
 title: "Z2M Strategy IDE Workspace Redesign"
 type: spec
-status: draft
-authority: proposed
-updated: 2026-08-29
+status: approved
+authority: approved-spec
+updated: 2026-08-30
 publish: false
 tags: [strategy, ide, editor, ui, codemirror]
 ---

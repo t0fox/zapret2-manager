@@ -108,7 +108,7 @@ test('Strategy owner keeps profile lifecycle and circular edits on canonical pro
   const loaded = loadOwner();
   const { window } = loaded;
   const hosts = {};
-  for (const name of ['fieldsHost', 'profilesHost', 'editorHost', 'validationHost', 'previewHost', 'inspectorHost', 'problemsHost']) {
+  for (const name of ['fieldsHost', 'profilesHost', 'workspaceHeaderHost', 'editorHost', 'validationHost', 'previewHost', 'inspectorHost', 'problemsHost']) {
     hosts[name] = window.document.createElement('div');
     window.document.body.appendChild(hosts[name]);
   }
@@ -118,6 +118,7 @@ test('Strategy owner keeps profile lifecycle and circular edits on canonical pro
     strategy: { id: 's1', name: 'S1', description: '', profiles: [{ id: 'p1', name: 'P1', enabled: true, args: '--filter-tcp=443' }] },
   };
   const strategyEditor = loaded.owner.create(null, editorState, hosts);
+  editorState.onSemanticChange = () => strategyEditor.flush();
   const addCircular = hosts.fieldsHost.querySelector('[data-editor-action="add-circular-step"]');
   assert.ok(addCircular, 'circular builder should be owned by StrategyEditor');
   addCircular.click();
@@ -126,8 +127,50 @@ test('Strategy owner keeps profile lifecycle and circular edits on canonical pro
   assert.ok(addProfile, 'profile creation should remain available');
   addProfile.click();
   assert.equal(editorState.strategy.profiles.length, 2);
+  assert.equal(hosts.workspaceHeaderHost.querySelector('[data-workspace-profile-name]').textContent, 'Новый профиль');
   const removeProfile = hosts.profilesHost.querySelector('[data-editor-action="remove-profile"]');
   assert.ok(removeProfile, 'profile removal should remain available');
+  strategyEditor.destroy();
+});
+
+test('Strategy owner presents diagnostics for every profile without inventing backend ranges', () => {
+  const loaded = loadOwner();
+  const { window } = loaded;
+  loaded.nfqws2Ide.diagnostics = args => args.includes('warn')
+    ? [{ severity: 'warn', message: 'local warning', start: 2, end: 7 }]
+    : [];
+  const hosts = {};
+  for (const name of ['fieldsHost', 'profilesHost', 'editorHost', 'validationHost', 'previewHost', 'inspectorHost', 'problemsHost']) {
+    hosts[name] = window.document.createElement('div');
+    window.document.body.appendChild(hosts[name]);
+  }
+  const editorState = {
+    mode: 'edit',
+    viewByProfile: { 0: 'code', 1: 'code' },
+    strategy: {
+      id: 's-diagnostics', name: 'Diagnostics', description: '',
+      profiles: [
+        { id: 'p1', name: 'Clean', args: '--filter-tcp=443' },
+        { id: 'p2', name: 'Warning', args: '--warn-profile' },
+      ],
+    },
+  };
+  const strategyEditor = loaded.owner.create(null, editorState, hosts);
+  strategyEditor.setBackendDiagnostics([
+    { profileIndex: 1, message: 'backend warning' },
+    { message: 'server-only detail' },
+  ]);
+
+  assert.deepEqual(
+    [...hosts.profilesHost.querySelectorAll('[data-profile-diagnostic-count]')].map(node => node.textContent),
+    ['OK', '2'],
+  );
+  const problemRows = [...hosts.problemsHost.querySelectorAll('[data-source]')];
+  assert.ok(problemRows.some(row => row.textContent.includes('local warning')));
+  assert.ok(problemRows.some(row => row.textContent.includes('backend warning')));
+  const serverOnly = problemRows.find(row => row.textContent.includes('server-only detail'));
+  assert.ok(serverOnly);
+  assert.equal(serverOnly.tagName, 'DIV', 'message-only backend diagnostics must not fabricate a jump target');
   strategyEditor.destroy();
 });
 

@@ -49,6 +49,8 @@ return baseclass.extend({
     markHost(hosts.fieldsHost, 'fields');
     markHost(hosts.visualHost, 'visual');
     markHost(hosts.profilesHost, 'profiles');
+    markHost(hosts.workspaceHeaderHost, 'workspace-header');
+    markHost(hosts.statusHost, 'status');
     markHost(hosts.editorHost, 'editor');
     markHost(hosts.validationHost, 'validation');
     markHost(hosts.previewHost, 'preview');
@@ -78,7 +80,25 @@ return baseclass.extend({
       var parsed = Nfqws2Ide.parseProfile(text(profile && profile.args));
       return parsed && parsed.mode === 'structured' && parsed.lossless === true ? 'visual' : 'code';
     }
-    function markDirty() { editorState.dirty = true; }
+    function localProblemsForProfile(profile, index) {
+      return (Nfqws2Ide.diagnostics(text(profile && profile.args)) || []).map(function (item) {
+        return {
+          source: 'IDE',
+          profileIndex: index,
+          severity: diagnosticSeverity(item.severity),
+          message: item.message || 'Некорректный синтаксис',
+          from: Number.isFinite(item.start) ? item.start : undefined,
+          to: Number.isFinite(item.end) ? item.end : undefined,
+        };
+      });
+    }
+    function backendProblemsForProfile(index) {
+      return backendProblems.filter(function (problem) { return problem.profileIndex === index; });
+    }
+    function markDirty() {
+      editorState.dirty = true;
+      if (typeof editorState.onSemanticChange === 'function') editorState.onSemanticChange();
+    }
     function setText(host, value) {
       if (!host) return;
       clear(host);
@@ -115,8 +135,10 @@ return baseclass.extend({
     }
     function renderProfileTabs() {
       var host = hosts.profilesHost;
+      var workspaceHost = hosts.workspaceHeaderHost || host;
       if (!host) return;
       clear(host);
+      if (workspaceHost && workspaceHost !== host) clear(workspaceHost);
       var heading = element(document, 'div', 'strategy-editor-profiles-heading');
       heading.appendChild(element(document, 'h5', 'strategy-editor-section-title', 'Профили стратегии'));
       var add = element(document, 'button', 'btn btn-ghost btn-sm', 'Добавить профиль');
@@ -125,19 +147,27 @@ return baseclass.extend({
       add.addEventListener('click', addProfile);
       heading.appendChild(add);
       host.appendChild(heading);
-      var tabs = element(document, 'div', 'strategy-editor-profile-tabs');
+      var tabs = element(document, 'div', 'strategy-editor-profile-list');
+      tabs.setAttribute('data-editor-profile-list', 'true');
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', 'Профили стратегии');
       array(strategy.profiles).forEach(function (profile, index) {
         var id = profileId(profile, index);
-        var tab = element(document, 'div', 'strategy-editor-profile-tab');
-        var button = element(document, 'button', 'btn btn-ghost btn-sm' + (id === activeId ? ' is-active' : ''), profile.name || id);
+        var tab = element(document, 'div', 'strategy-editor-profile-item');
+        var button = element(document, 'button', 'btn btn-ghost btn-sm strategy-editor-profile-button' + (id === activeId ? ' is-active' : ''), profile.name || id);
         button.type = 'button';
         button.setAttribute('role', 'tab');
         button.setAttribute('aria-selected', id === activeId ? 'true' : 'false');
         button.dataset.profileId = id;
+        button.setAttribute('data-profile-id', id);
         button.addEventListener('click', function () { switchProfile(id); });
         tab.appendChild(button);
+        var localDiagnostics = localProblemsForProfile(profile, index);
+        var diagnosticTotal = localDiagnostics.length + backendProblemsForProfile(index).length;
+        var diagnosticCount = element(document, 'span', 'strategy-editor-profile-diagnostic-count', diagnosticTotal ? String(diagnosticTotal) : 'OK');
+        diagnosticCount.setAttribute('data-profile-diagnostic-count', 'true');
+        diagnosticCount.setAttribute('aria-label', diagnosticTotal ? 'Проблем: ' + String(diagnosticTotal) : 'Проблем нет');
+        button.appendChild(diagnosticCount);
         var remove = element(document, 'button', 'btn-icon-only', '×');
         remove.type = 'button';
         remove.setAttribute('aria-label', 'Удалить профиль «' + text(profile.name || id) + '»');
@@ -150,8 +180,19 @@ return baseclass.extend({
         tabs.appendChild(tab);
       });
       host.appendChild(tabs);
-      var modes = element(document, 'div', 'strategy-editor-mode-tabs');
+      if (!workspaceHost) return;
       var current = activeProfile(), parsed = current ? Nfqws2Ide.parseProfile(text(current.args)) : null;
+      var activeHeader = element(document, 'div', 'strategy-editor-active-profile-header');
+      activeHeader.setAttribute('data-editor-workspace-header', 'true');
+      var activeLabel = element(document, 'span', 'strategy-editor-side-kicker', 'Активный профиль');
+      var activeName = element(document, 'strong', '', current ? (current.name || 'Профиль ' + String(activeIndex() + 1)) : 'Профиль не выбран');
+      activeName.setAttribute('data-workspace-profile-name', 'true');
+      activeHeader.appendChild(activeLabel);
+      activeHeader.appendChild(activeName);
+      workspaceHost.appendChild(activeHeader);
+      var modes = element(document, 'div', 'strategy-editor-mode-tabs');
+      var modesLabel = element(document, 'span', 'strategy-editor-mode-label', 'Редактор');
+      modes.appendChild(modesLabel);
       ['visual', 'code'].forEach(function (mode) {
         var button = element(document, 'button', 'btn btn-ghost btn-sm' + (current && viewFor(current, activeIndex()) === mode ? ' is-active' : ''), mode === 'visual' ? 'Визуально' : 'Code');
         button.type = 'button';
@@ -168,13 +209,15 @@ return baseclass.extend({
         });
         modes.appendChild(button);
       });
-      host.appendChild(modes);
+      workspaceHost.appendChild(modes);
       if (current) {
         var controls = element(document, 'div', 'strategy-editor-profile-controls');
         var enabled = element(document, 'input', 'profile-toggle');
         enabled.type = 'checkbox';
         enabled.checked = current.enabled !== false;
         enabled.dataset.profileEnabled = 'true';
+        enabled.setAttribute('data-profile-enabled', 'true');
+        enabled.setAttribute('data-workspace-profile-enabled', 'true');
         enabled.addEventListener('change', function () { current.enabled = enabled.checked; markDirty(); });
         var enabledLabel = element(document, 'label', 'strategy-editor-profile-enabled');
         enabledLabel.appendChild(enabled);
@@ -190,14 +233,15 @@ return baseclass.extend({
         name.addEventListener('input', function () { current.name = name.value; markDirty(); });
         nameField.appendChild(name);
         controls.appendChild(nameField);
-        host.appendChild(controls);
+        workspaceHost.appendChild(controls);
       }
     }
     function syncProfileControls() {
       var current = activeProfile();
-      if (!current || !hosts.profilesHost) return;
-      var enabled = hosts.profilesHost.querySelector('[data-profile-enabled="true"]');
-      var name = hosts.profilesHost.querySelector('[data-profile-name="true"]');
+      var controlsHost = hosts.workspaceHeaderHost || hosts.profilesHost;
+      if (!current || !controlsHost) return;
+      var enabled = controlsHost.querySelector('[data-profile-enabled="true"]');
+      var name = controlsHost.querySelector('[data-profile-name="true"]');
       if (enabled) current.enabled = enabled.checked;
       if (name) current.name = name.value;
     }
@@ -212,8 +256,8 @@ return baseclass.extend({
       activeId = id;
       editorState.viewByProfile = editorState.viewByProfile || {};
       editorState.viewByProfile[index - 1] = 'code';
-      markDirty();
       render();
+      markDirty();
     }
     function removeProfile(id) {
       if (destroyed || array(strategy.profiles).length <= 1) return;
@@ -224,8 +268,8 @@ return baseclass.extend({
       strategy.profiles.splice(index, 1);
       delete profileMemory[id];
       activeId = profileId(strategy.profiles[Math.max(0, Math.min(index, strategy.profiles.length - 1))], Math.max(0, Math.min(index, strategy.profiles.length - 1)));
-      markDirty();
       render();
+      markDirty();
     }
     function circularBuilder(profile, visual) {
       if (!visual || !visual.circular) return null;
@@ -319,16 +363,10 @@ return baseclass.extend({
     function renderProblems() {
       if (!hosts.problemsHost) return;
       clear(hosts.problemsHost);
-      var profile = activeProfile();
-      var problems = profile ? (Nfqws2Ide.diagnostics(text(profile.args)) || []).map(function (item) {
-        return {
-          source: 'IDE',
-          severity: diagnosticSeverity(item.severity),
-          message: item.message || 'Некорректный синтаксис',
-          from: Number.isFinite(item.start) ? item.start : undefined,
-          to: Number.isFinite(item.end) ? item.end : undefined,
-        };
-      }) : [];
+      var problems = [];
+      array(strategy.profiles).forEach(function (profile, index) {
+        problems = problems.concat(localProblemsForProfile(profile, index));
+      });
       problems = problems.concat(backendProblems);
       hosts.problemsHost.appendChild(element(document, 'h4', 'strategy-editor-section-title', 'Проблемы'));
       if (!problems.length) {
@@ -484,7 +522,7 @@ return baseclass.extend({
         message: text(item.message || item.code || 'Backend diagnostic'),
       };
       var profileValue = item.profileIndex !== undefined ? item.profileIndex : item.profile_index;
-      if (Number.isInteger(Number(profileValue))) problem.profileIndex = Number(profileValue);
+      if (Number.isInteger(Number(profileValue)) && Number(profileValue) >= 0 && Number(profileValue) < array(strategy.profiles).length) problem.profileIndex = Number(profileValue);
       if (item.path !== undefined && item.path !== null) problem.path = text(item.path);
       var offset = Number(item.offset);
       var length = Number(item.length);
@@ -545,10 +583,12 @@ return baseclass.extend({
       applyVisualEdits: applyVisualEdits,
       setBackendDiagnostics: function (items) {
         backendProblems = array(items).map(backendProblem);
+        renderProfileTabs();
         renderProblems();
       },
       setValidation: function (value) { setText(hosts.validationHost, value); },
       setPreview: function (value) { setText(hosts.previewHost, value); },
+      getActiveIndex: function () { return activeIndex(); },
       getHandle: function () { return handle; },
       destroy: function () {
         if (destroyed) return;

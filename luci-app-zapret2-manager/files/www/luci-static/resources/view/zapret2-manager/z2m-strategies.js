@@ -158,6 +158,36 @@ function strategyInput(strategy) {
     })
   };
 }
+function editorDraftFingerprint(draft) {
+  draft = object(draft);
+  return JSON.stringify({
+    id: text(draft.id),
+    name: text(draft.name),
+    origin: text(draft.origin),
+    is_builtin: draft.is_builtin === true,
+    metadata: object(draft.metadata),
+    profiles: array(draft.profiles).map(function (profile) {
+      profile = object(profile);
+      return { id: text(profile.id), name: text(profile.name), args: text(profile.args), enabled: profile.enabled !== false };
+    }),
+  });
+}
+function editorValidationState(editor) {
+  if (!editor) return { status: 'not-checked', validatedDraftFingerprint: null };
+  if (!editor.validation) editor.validation = { status: 'not-checked', validatedDraftFingerprint: null };
+  if (!editor.validation.status) editor.validation.status = 'not-checked';
+  if (!Object.prototype.hasOwnProperty.call(editor.validation, 'validatedDraftFingerprint')) editor.validation.validatedDraftFingerprint = null;
+  return editor.validation;
+}
+function refreshEditorValidation(editor, draft) {
+  var validation = editorValidationState(editor);
+  if (validation.validatedDraftFingerprint !== null && validation.validatedDraftFingerprint !== undefined) {
+    validation.status = editorDraftFingerprint(draft) === validation.validatedDraftFingerprint ? 'current' : 'outdated';
+  } else if (validation.status !== 'validating') {
+    validation.status = 'not-checked';
+  }
+  return validation;
+}
 function requestIdentity(strategy, data) {
   return { strategy_id: strategy.id, revision: Number(strategy.revision || 0), catalog_digest: catalogDigest(data) };
 }
@@ -993,7 +1023,7 @@ function refreshStrategyStyles() {
   var link = document && document.getElementById ? document.getElementById('z2m-ui-css') : null;
   if (!link || !link.getAttribute || !link.setAttribute) return;
   var href = link.getAttribute('href') || '';
-  if (href.indexOf('v=p03dr-bulk-4') < 0) link.setAttribute('href', href.split('?')[0] + '?v=p03dr-bulk-4');
+  if (href.indexOf('v=p03dr-strategy-ide-20260830-3') < 0) link.setAttribute('href', href.split('?')[0] + '?v=p03dr-strategy-ide-20260830-3');
 }
 function refreshHealthcheck() {
   if (!state.ctx || !state.ctx.api.healthcheck || !state.ctx.api.healthcheck.status) return Promise.resolve();
@@ -1573,6 +1603,79 @@ function recoverStrategyEditorFailure(error) {
   notify('err', message);
   if (state.root && state.loaded) renderAll();
 }
+function composeStrategyIdeLayout(body, headerActions) {
+  var layout = body && body.querySelector('.strat-editor-layout');
+  if (!layout) return null;
+  var main = layout.querySelector('.strat-editor-main');
+  var side = layout.querySelector('.strat-editor-side');
+  if (!main || !side) return layout;
+  var fieldsHost = body.querySelector('[data-editor-fields-host]');
+  var profilesHost = body.querySelector('[data-editor-profiles-host]');
+  var visualHost = body.querySelector('[data-editor-visual-host]');
+  var editorHost = body.querySelector('[data-editor-editor-host]');
+  var validationHost = body.querySelector('[data-editor-validation-host]');
+  var previewHost = body.querySelector('[data-editor-preview-host]');
+  var actionsHost = body.querySelector('[data-editor-actions-host]');
+  var provenance = main.querySelector('.strategy-editor-provenance');
+  var codeHeader = main.querySelector('.strategy-editor-code-header');
+  var sidebar = document.createElement('aside');
+  sidebar.className = 'strategy-editor-sidebar';
+  sidebar.dataset.editorSidebar = 'true';
+  sidebar.setAttribute('data-editor-sidebar', 'true');
+  sidebar.setAttribute('aria-label', 'Навигация стратегии');
+  var sidebarTitle = document.createElement('div');
+  sidebarTitle.className = 'strategy-editor-sidebar-title';
+  sidebarTitle.innerHTML = '<span class="strategy-editor-side-kicker">Стратегия</span><strong>Профили</strong>';
+  sidebar.appendChild(sidebarTitle);
+  if (provenance) sidebar.appendChild(provenance);
+  if (fieldsHost) sidebar.appendChild(fieldsHost);
+  if (profilesHost) sidebar.appendChild(profilesHost);
+  var workspace = document.createElement('main');
+  workspace.className = 'strategy-editor-workspace';
+  workspace.dataset.editorWorkspace = 'true';
+  workspace.setAttribute('data-editor-workspace', 'true');
+  workspace.setAttribute('aria-label', 'Рабочая область стратегии');
+  var workspaceHeader = document.createElement('div');
+  workspaceHeader.className = 'strategy-editor-workspace-header';
+  workspaceHeader.dataset.editorWorkspaceHeader = 'true';
+  workspace.appendChild(workspaceHeader);
+  if (visualHost) workspace.appendChild(visualHost);
+  if (codeHeader) workspace.appendChild(codeHeader);
+  if (editorHost) workspace.appendChild(editorHost);
+  var output = document.createElement('section');
+  output.className = 'strategy-editor-workspace-output';
+  output.setAttribute('data-editor-preview-workspace', 'true');
+  output.setAttribute('aria-label', 'Проверка и превью');
+  if (validationHost) output.appendChild(validationHost);
+  if (previewHost) output.appendChild(previewHost);
+  workspace.appendChild(output);
+  var inspector = document.createElement('aside');
+  inspector.className = 'strat-editor-inspector';
+  inspector.id = 'editor-sidepanel';
+  inspector.dataset.editorInspector = 'true';
+  inspector.setAttribute('data-editor-inspector', 'true');
+  inspector.setAttribute('aria-label', 'Инспектор и проблемы');
+  while (side.firstChild) inspector.appendChild(side.firstChild);
+  var status = document.createElement('div');
+  status.className = 'strategy-editor-status';
+  status.dataset.editorStatus = 'true';
+  status.setAttribute('data-editor-status', 'true');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.innerHTML = '<span data-editor-status-local>Локальная диагностика: —</span><span data-editor-status-validation>Проверка: не запускалась</span><span data-editor-status-profiles>Профили: —</span>';
+  if (actionsHost && headerActions) headerActions.insertBefore(actionsHost, headerActions.firstChild);
+  var inspectorToggle = inspector.querySelector('[data-action="toggleEditorSidebar"]');
+  if (inspectorToggle) {
+    inspectorToggle.classList.add('strategy-editor-inspector-toggle');
+    inspectorToggle.setAttribute('aria-controls', 'editor-sidepanel');
+    var toggleAnchor = headerActions && (headerActions.querySelector('[data-action="toggleWorkspaceMaximize"]') || headerActions.querySelector('[data-action="closeModal"]'));
+    if (headerActions && toggleAnchor) headerActions.insertBefore(inspectorToggle, toggleAnchor);
+    else if (headerActions) headerActions.appendChild(inspectorToggle);
+    else workspaceHeader.appendChild(inspectorToggle);
+  }
+  layout.replaceChildren(sidebar, workspace, inspector, status);
+  return layout;
+}
 function closeModal() { if (!editorCloseAllowed()) return; clearEditorLoadingTimers(); unbindWorkspaceResize(); if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; } var modal = state.root && state.root.querySelector('#strategy-modal'); if (modal) modal.style.display = 'none'; state.editor = null; state.editorLoadingId = null; state.editorMaximized = false; }
 function closePreview() { var modal = state.root && state.root.querySelector('#preview-modal'); if (modal) modal.style.display = 'none'; state.preview = null; }
 function closeConfirm() { var modal = state.root && state.root.querySelector('#strategy-confirm-modal'); if (modal) modal.style.display = 'none'; }
@@ -1660,11 +1763,13 @@ function collectEditor() {
 }
 function renderEditorForm() {
   if (!state.editor) return;
+  state.editor.onSemanticChange = editorSemanticChange;
   var body = state.root.querySelector('#modal-body'), modal = state.root.querySelector('#strategy-modal');
   if (state.strategyEditor) {
     try {
       state.strategyEditor.update(state.editor);
       applyEditorWorkspaceClasses();
+      renderEditorStatus();
     } catch (error) {
       recoverStrategyEditorFailure(error);
     }
@@ -1686,6 +1791,8 @@ function renderEditorForm() {
   }
   try {
     body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><section class="strategy-editor-section strategy-editor-details" aria-labelledby="strategy-editor-details-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-details-title">Основные данные</h4><p>Идентификатор и описание, которые видны в каталоге.</p></div><span class="strategy-editor-section-step">01</span></div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-visual-host" data-editor-visual-host></div></section><section class="strategy-editor-section strategy-editor-profile-section" aria-labelledby="strategy-editor-profiles-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-profiles-title">Профили и аргументы</h4><p>Выберите профиль, затем настройте его визуально или в коде.</p></div><span class="strategy-editor-section-step">02</span></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-header"><div><span class="strategy-editor-code-kicker">Рабочая область</span><h4>Аргументы nfqws2</h4></div><span class="strategy-editor-code-hint">profile.args — источник истины</span></div><div class="strategy-editor-code-pane" data-editor-editor-host></div></section><section class="strategy-editor-section strategy-editor-results-section" aria-labelledby="strategy-editor-results-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-results-title">Проверка и превью</h4><p>Локальная диагностика отображается сразу; серверная проверка обязательна перед применением.</p></div><span class="strategy-editor-section-step">03</span></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host aria-live="polite"></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host aria-live="polite" style="display:none"></div></section><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><div><span class="strategy-editor-side-kicker">Контекст</span><strong>Инспектор</strong></div><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть подсказки</button></div><section class="nfq-side-card token-help" aria-labelledby="strategy-editor-inspector-title"><h4 class="editor-side-title" id="strategy-editor-inspector-title">Подсказка по синтаксису</h4><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></section><section class="nfq-side-card strategy-editor-problems-card" data-editor-problems-host aria-live="polite"></section></aside></div>';
+    var actionsHost = body.querySelector('[data-editor-actions-host]');
+    composeStrategyIdeLayout(body, headerActions);
     state.editor.onSave = saveEditor;
     state.strategyEditor = StrategyEditor.create(state.ctx, state.editor, {
       fieldsHost: body.querySelector('[data-editor-fields-host]'),
@@ -1694,17 +1801,48 @@ function renderEditorForm() {
       editorHost: body.querySelector('[data-editor-editor-host]'),
       validationHost: body.querySelector('[data-editor-validation-host]'),
       previewHost: body.querySelector('[data-editor-preview-host]'),
-      actionsHost: body.querySelector('[data-editor-actions-host]'),
+      actionsHost: actionsHost,
+      workspaceHeaderHost: body.querySelector('[data-editor-workspace-header]'),
+      statusHost: body.querySelector('[data-editor-status]'),
       inspectorHost: body.querySelector('[data-editor-inspector-host]'),
       problemsHost: body.querySelector('[data-editor-problems-host]'),
     });
     bindWorkspaceResize(strategy);
     applyEditorWorkspaceClasses();
+    renderEditorStatus();
   } catch (error) {
     recoverStrategyEditorFailure(error);
   }
 }
 function editorDraft() { collectEditor(); return strategyInput(state.editor.strategy); }
+function editorSemanticChange() {
+  if (!state.editor) return;
+  refreshEditorValidation(state.editor, editorDraft());
+  renderEditorStatus();
+}
+function renderEditorStatus() {
+  if (!state.editor || !state.root) return;
+  var host = state.root.querySelector('[data-editor-status]');
+  if (!host) return;
+  var profiles = array(state.editor.strategy && state.editor.strategy.profiles), localCount = 0;
+  profiles.forEach(function (profile) { localCount += array(Nfqws2Ide.diagnostics(text(profile && profile.args))).length; });
+  var validation = editorValidationState(state.editor), labels = {
+    'not-checked': 'Проверка: не запускалась',
+    validating: 'Проверка: выполняется…',
+    current: 'Проверка: актуальна',
+    outdated: 'Проверка: устарела — черновик изменён',
+    failed: 'Проверка: ошибка',
+  };
+  var active = profiles[state.strategyEditor && state.strategyEditor.getActiveIndex ? state.strategyEditor.getActiveIndex() : 0];
+  var local = host.querySelector('[data-editor-status-local]');
+  var validationNode = host.querySelector('[data-editor-status-validation]');
+  var profileNode = host.querySelector('[data-editor-status-profiles]');
+  if (local) local.textContent = localCount ? 'Локальная диагностика: ' + String(localCount) + ' проблем' : 'Локальная диагностика: OK';
+  if (validationNode) validationNode.textContent = labels[validation.status] || labels['not-checked'];
+  if (profileNode) profileNode.textContent = 'Профили: ' + String(profiles.length) + (active ? ' · активен: ' + text(active.name || 'без имени') : '');
+  host.dataset.validationStatus = validation.status;
+  host.dataset.localProblemCount = String(localCount);
+}
 function setEditorOperationBusy(operation, busy) {
   if (!state.root) return;
   var labels = { validate: 'Проверяем…', preview: 'Готовим превью…', save: state.editor && state.editor.mode === 'create' ? 'Создаём…' : 'Сохраняем…' };
@@ -1731,16 +1869,26 @@ function validateEditor() {
   if (!state.editor || state.editor.validationPending || state.editor.operationPending) return;
   var editor = state.editor;
   var draft = editorDraft(), local = [];
+  var validation = editorValidationState(editor), draftFingerprint = editorDraftFingerprint(draft);
   array(state.editor.strategy.profiles).forEach(function (profile, index) {
     Nfqws2Ide.diagnostics(profile.args).forEach(function (item) { local.push(Object.assign({}, item, { path: 'profiles[' + index + '].' + (item.path || 'raw') })); });
   });
   var output = state.root.querySelector('#editor-validation-output');
   if (output) output.innerHTML = local.length ? local.map(function (item) { return '<div class="nfq-diag-' + (item.severity === 'error' ? 'error' : 'warning') + '">' + escapeHtml(item.path + ': ' + item.message) + '</div>'; }).join('') : '<span class="nfq-diag-ok">local diagnostics: ok</span>';
-  state.editor.validationPending = true; state.editor.operationPending = 'validate'; setEditorOperationBusy('validate', true);
+  validation.status = 'validating';
+  state.editor.validationPending = true; state.editor.operationPending = 'validate'; setEditorOperationBusy('validate', true); renderEditorStatus();
   call(state.ctx.api.strategies.validate, { strategy_data: draft, catalog_digest: catalogDigest(state.data), validate: true }).then(function (answer) {
-    if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = answer && answer.ok === true; setEditorOperationBusy('validate', false);
+    if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = answer && answer.ok === true;
+    if (answer && answer.ok === true) {
+      validation.validatedDraftFingerprint = draftFingerprint;
+      refreshEditorValidation(editor, editorDraft());
+    } else {
+      validation.validatedDraftFingerprint = null;
+      validation.status = 'failed';
+    }
+    setEditorOperationBusy('validate', false); renderEditorStatus();
     if (output) output.innerHTML += '<div class="strategy-validation-result">' + escapeHtml(editorValidationText(answer)) + '</div>';
-  }).catch(function (error) { if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = false; setEditorOperationBusy('validate', false); if (output) output.innerHTML += '<div class="nfq-diag-error">server: ' + escapeHtml(errorText(state.ctx, error)) + '</div>'; });
+  }).catch(function (error) { if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = false; validation.validatedDraftFingerprint = null; validation.status = 'failed'; setEditorOperationBusy('validate', false); renderEditorStatus(); if (output) output.innerHTML += '<div class="nfq-diag-error">server: ' + escapeHtml(errorText(state.ctx, error)) + '</div>'; });
 }
 function strategyDiffHtml(strategy) {
   var active = state.rows.find(function (item) { return item.current || item.applied; });
@@ -1921,7 +2069,10 @@ function onChange(event) {
 }
 function onInput(event) {
   var target = event.target;
-  if (state.editor && target.closest && target.closest('#strategy-modal')) state.editor.dirty = true;
+  if (state.editor && target.closest && target.closest('#strategy-modal')) {
+    state.editor.dirty = true;
+    if (!target.closest('[data-editor-owner="strategy"]') && typeof state.editor.onSemanticChange === 'function') state.editor.onSemanticChange();
+  }
   if (target.closest && target.closest('#healthcheck-settings-panel') && state.healthcheckSettings) state.healthcheckSettings.draft = healthcheckDraftFromDom();
 }
 function onKey(event) { if (event.key !== 'Escape') return; if (state.editor) closeModal(); else if (state.preview) closePreview(); else if (state.stratPicker) closeStratPicker(); else if (state.learnedModal && state.learnedModal.open) closeLearnedModal(); }
@@ -2023,6 +2174,9 @@ return baseclass.extend({
     return {
       supported: true,
       isFullStrategy: isFullStrategy,
+      editorDraftFingerprint: editorDraftFingerprint,
+      editorValidationState: editorValidationState,
+      refreshEditorValidation: refreshEditorValidation,
       ensureFullStrategy: function (strategy) {
         return ensureFullStrategy(strategy, function (source) {
           if (typeof api.strategies.get !== 'function') return Promise.reject(new Error('strategies.get недоступен'));

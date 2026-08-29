@@ -2,9 +2,9 @@
 id: z2m-strategy-ide-workspace
 title: "Z2M Strategy IDE Workspace Implementation Plan"
 type: plan
-status: draft
-authority: proposed
-updated: 2026-08-29
+status: active
+authority: approved-plan
+updated: 2026-08-30
 publish: false
 tags: [strategy, ide, editor, ui, codemirror]
 ---

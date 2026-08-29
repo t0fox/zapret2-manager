@@ -3883,6 +3883,77 @@
   padding:22px 24px 24px;
   scrollbar-gutter:stable;
 }
+#z2m-view-strategy #strategy-modal .strat-editor-layout {
+  grid-template-columns:minmax(220px,260px) minmax(0,1fr) minmax(260px,296px);
+  grid-template-rows:minmax(0,1fr) auto;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar,
+#z2m-view-strategy #strategy-modal .strat-editor-inspector {
+  min-width:0;
+  min-height:0;
+  overflow:auto;
+  scrollbar-gutter:stable;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar {
+  grid-column:1;
+  grid-row:1 / span 2;
+  padding:18px 16px 20px;
+  border-right:1px solid var(--border2);
+  background:var(--panel2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace {
+  grid-column:2;
+  grid-row:1;
+  min-width:0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  background:var(--panel);
+}
+#z2m-view-strategy #strategy-modal .strat-editor-inspector {
+  grid-column:3;
+  grid-row:1 / span 2;
+  padding:20px 18px 24px;
+  border-left:1px solid var(--border2);
+  background:var(--panel2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-header {
+  min-height:58px;
+  flex:0 0 auto;
+  padding:14px 18px;
+  border-bottom:1px solid var(--border2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output {
+  flex:0 0 auto;
+  min-width:0;
+  max-height:34%;
+  overflow:auto;
+  padding:12px 18px 16px;
+  border-top:1px solid var(--border2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-status {
+  grid-column:2;
+  grid-row:2;
+  min-width:0;
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  gap:16px;
+  overflow:auto;
+  padding:8px 18px;
+  border-top:1px solid var(--border2);
+  background:var(--panel2);
+  color:var(--tx3);
+  font-size:11px;
+  white-space:nowrap;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-code-pane.z2m-code-editor {
+  min-height:0;
+  height:auto !important;
+  flex:1 1 auto;
+  border-radius:0;
+}
 #z2m-view-strategy #strategy-modal .strat-editor-side {
   min-width:0;
   min-height:0;
@@ -4129,9 +4200,6 @@
   text-align:right;
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-code-pane.z2m-code-editor {
-  height:clamp(340px,48vh,620px) !important;
-  min-height:340px;
-  flex:0 0 clamp(340px,48vh,620px);
   border-color:var(--border2);
   border-radius:8px;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
@@ -4393,4 +4461,330 @@
 }
 #z2m-view-strategy #strategy-modal .profile-toggle:checked {
   box-shadow:0 0 0 3px rgba(92,185,139,.10);
+}
+
+/* Strategy IDE workspace: calm navigation, one focused editor surface, and
+ * explicit status without turning every control into a card. */
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-list {
+  display:grid;
+  gap:4px;
+  margin-top:14px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar-title {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:16px;
+  padding-bottom:14px;
+  border-bottom:1px solid var(--border2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar-title strong {
+  color:var(--tx);
+  font-size:15px;
+  font-weight:650;
+  line-height:1.25;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-item {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 32px;
+  align-items:center;
+  gap:4px;
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-button {
+  width:100%;
+  min-width:0;
+  min-height:42px;
+  justify-content:space-between;
+  padding:8px 10px;
+  border-color:transparent;
+  background:transparent;
+  color:var(--tx2);
+  text-align:left;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-button::before {
+  content:'';
+  width:3px;
+  height:18px;
+  flex:0 0 3px;
+  border-radius:999px;
+  background:transparent;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-button.is-active {
+  border-color:rgba(75,159,213,.35);
+  background:rgba(75,159,213,.12);
+  color:var(--tx);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-button.is-active::before {
+  background:var(--blue);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-diagnostic-count {
+  flex:0 0 auto;
+  min-width:28px;
+  padding:2px 6px;
+  border:1px solid var(--border2);
+  border-radius:999px;
+  color:var(--tx3);
+  font-size:10px;
+  line-height:1.3;
+  text-align:center;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-button.is-active .strategy-editor-profile-diagnostic-count {
+  border-color:rgba(75,159,213,.45);
+  color:var(--blue);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-item > .btn-icon-only {
+  min-width:32px;
+  width:32px;
+  min-height:32px;
+  height:32px;
+  border-radius:6px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-provenance {
+  margin:0 0 18px;
+  padding:0 0 14px;
+  border:0;
+  border-bottom:1px solid var(--border2);
+  background:transparent;
+  font-size:11px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-fields {
+  margin-bottom:20px;
+  padding-bottom:18px;
+  border-bottom:1px solid var(--border2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-metadata {
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-field .form-input {
+  min-height:38px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-header {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:14px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-active-profile-header {
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-active-profile-header > strong {
+  overflow:hidden;
+  color:var(--tx);
+  font-size:15px;
+  line-height:1.25;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs {
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:3px;
+  border:1px solid var(--border2);
+  border-radius:7px;
+  background:var(--panel2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-mode-label {
+  padding:0 6px;
+  color:var(--tx3);
+  font-size:10px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs .btn {
+  min-height:30px;
+  padding:4px 9px;
+  border-color:transparent;
+  background:transparent;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs .btn.is-active {
+  border-color:var(--border2);
+  background:var(--raised);
+  color:var(--tx);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-controls {
+  grid-column:1 / -1;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  margin-top:2px;
+  padding-top:12px;
+  border-top:1px solid var(--border2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled {
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:32px;
+  color:var(--tx2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-name-field {
+  display:grid;
+  grid-template-columns:auto minmax(160px,280px);
+  align-items:center;
+  gap:8px;
+  flex:1 1 auto;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-name-field .form-input {
+  width:100%;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace .strategy-editor-visual {
+  margin:0;
+  padding:18px;
+  border:0;
+  border-bottom:1px solid var(--border2);
+  border-radius:0;
+  background:transparent;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-code-header {
+  flex:0 0 auto;
+  padding:14px 18px 10px;
+  border-bottom:1px solid var(--border2);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-code-hint {
+  color:var(--tx3);
+  font-size:11px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-code-pane.z2m-code-editor {
+  height:auto !important;
+  min-height:180px;
+  flex:1 1 280px;
+  border:0;
+  border-radius:0;
+  background:#17191c;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-status[data-validation-status="current"] [data-editor-status-validation] { color:var(--green); }
+#z2m-view-strategy #strategy-modal .strategy-editor-status[data-validation-status="outdated"] [data-editor-status-validation],
+#z2m-view-strategy #strategy-modal .strategy-editor-status[data-validation-status="failed"] [data-editor-status-validation] { color:var(--orange); }
+#z2m-view-strategy #strategy-modal .strategy-editor-status[data-validation-status="validating"] [data-editor-status-validation] { color:var(--blue); }
+#z2m-view-strategy #strategy-modal .strategy-editor-status > span + span {
+  padding-left:16px;
+  border-left:1px solid var(--border2);
+}
+#z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions {
+  position:static;
+  flex:0 1 auto;
+  max-width:760px;
+  margin:0;
+  padding:0;
+  background:transparent;
+}
+#z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions .btn {
+  min-height:40px;
+  white-space:nowrap;
+}
+#z2m-view-strategy #strategy-modal .modal-header-actions > .strategy-editor-inspector-toggle {
+  flex:0 0 auto;
+  min-height:40px;
+  white-space:nowrap;
+}
+#z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions .ide-capability-note {
+  flex:0 1 220px;
+  max-width:220px;
+  color:var(--tx3);
+  font-size:10px;
+  line-height:1.3;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .strategy-editor-section-heading {
+  margin-bottom:10px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .strategy-editor-section-step {
+  display:none;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .log-viewer {
+  max-height:220px;
+}
+#z2m-view-strategy #strategy-modal [data-editor-inspector] .strategy-editor-problems-card {
+  margin-top:22px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-button:focus-visible,
+#z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs .btn:focus-visible,
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-item > .btn-icon-only:focus-visible {
+  outline:2px solid var(--blue);
+  outline-offset:2px;
+}
+@media (max-width:900px) {
+  #z2m-view-strategy #strategy-modal .strat-editor-layout {
+    display:flex;
+    flex-direction:column;
+    overflow:auto;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar {
+    order:1;
+    flex:0 0 auto;
+    border-right:0;
+    border-bottom:1px solid var(--border2);
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace {
+    order:2;
+    flex:0 0 auto;
+    min-height:520px;
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-inspector {
+    order:3;
+    flex:0 0 auto;
+    border-top:1px solid var(--border2);
+    border-left:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-status {
+    order:4;
+    flex:0 0 auto;
+    min-height:42px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace-header {
+    grid-template-columns:1fr;
+    align-items:stretch;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs {
+    justify-content:space-between;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-controls {
+    align-items:stretch;
+    flex-direction:column;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-name-field {
+    grid-template-columns:1fr;
+  }
+  #z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions {
+    max-width:none;
+  }
+  #z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions .ide-capability-note {
+    display:none;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-code-pane.z2m-code-editor {
+    min-height:300px;
+    flex-basis:300px;
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-button,
+  #z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs .btn {
+    transition:none;
+  }
+}
+
+#z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed {
+  grid-template-columns:minmax(220px,260px) minmax(0,1fr);
+}
+#z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-sidebar { grid-column:1; }
+#z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-workspace {
+  grid-column:2;
+}
+#z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-status {
+  grid-column:2;
+}
+#z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strat-editor-inspector { display:none; }
+@media (max-width:900px) {
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-sidebar { display:block; }
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strat-editor-inspector { display:none; }
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-workspace,
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-status {
+    grid-column:auto;
+  }
 }
