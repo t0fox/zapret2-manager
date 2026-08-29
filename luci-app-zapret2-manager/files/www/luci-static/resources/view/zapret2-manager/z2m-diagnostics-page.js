@@ -3,6 +3,7 @@
 'require view.zapret2-manager.z2m-monitor as Monitor';
 'require view.zapret2-manager.z2m-monitor-model as MonitorModel';
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
+'require view.zapret2-manager.z2m-icons as Icons';
 
 var state = { exported: null, busy: false };
 
@@ -52,10 +53,24 @@ function freshnessLabel(freshness) {
   if (freshness.state === 'stale') return _('данные устарели');
   return _('обновлено ') + freshness.ageSec + _(' с назад');
 }
+var HEALTH_ICONS = {
+  engine: 'zapret',
+  nfqws2: 'nfqws',
+  strategy: 'strategy',
+  firewall: 'shield-check',
+  scanner: 'search',
+  dns: 'network',
+  telegram: 'route',
+  warp: 'workflow',
+  proxy: 'route'
+};
 function healthCard(shell, card) {
   var action = card.owner && card.owner.route ? E('a', { href: '#/' + card.owner.route, 'class': 'z2m-health-action' }, _('Открыть')) : null;
   return E('div', { 'class': 'z2m-kpi' }, [
-    E('div', { 'class': 'v z2m-health-status z2m-health-' + card.status }, shell.chip(card.statusLabel, statusKind(card.status), true)),
+    E('div', { 'class': 'z2m-kpi-head' }, [
+      E('span', { 'class': 'z2m-kpi-icon', 'aria-hidden': 'true' }, [Icons.wrappedNode(HEALTH_ICONS[card.id] || 'activity', { size: 18 })]),
+      E('div', { 'class': 'v z2m-health-status z2m-health-' + card.status }, shell.chip(card.statusLabel, statusKind(card.status), true))
+    ]),
     E('div', { 'class': 'l' }, card.label),
     E('div', { 'class': 'z2m-health-reason' }, card.reason),
     E('div', { 'class': 'z2m-dim z2m-health-freshness' }, freshnessLabel(card.freshness)),
@@ -114,7 +129,10 @@ function renderMonitoring(ctx, data) {
   var cards = ['engine', 'nfqws2', 'strategy', 'firewall', 'scanner', 'dns', 'telegram', 'warp'];
   if (health.cards.proxy) cards.push('proxy');
   return E('div', { 'class': 'z2m-health-center' }, [
-    E('p', { 'class': 'z2m-dim z2m-health-scope' }, _('zapret2 engine · nfqws2 · NFQUEUE / firewall · Scanner · DNS · Telegram Proxy · Overlay')),
+    E('p', { 'class': 'z2m-dim z2m-health-scope' }, [
+      E('strong', {}, _('Область проверки')),
+      E('span', {}, _('zapret2 engine · nfqws2 · NFQUEUE / firewall · Scanner · DNS · Telegram Proxy · Overlay'))
+    ]),
     shell.panel(_('Состояние компонентов'), E('div', { 'class': 'z2m-kpis z2m-health-grid' }, cards.map(function (id) {
       return healthCard(shell, health.cards[id]);
     }))),
@@ -129,13 +147,8 @@ function render(ctx) {
   var pane = activePane(ctx);
   if (pane === 'logs') return AvatarLog.render(ctx);
   var body = renderMonitoring(ctx, ctx.data || {});
-  var tabs = ctx.shell.subTabs([
-    { id: 'monitor', label: _('Мониторинг') },
-    { id: 'logs', label: _('Журналы') }
-  ], pane, function (id) { ctx.navigate(id); }, { 'aria-label': _('Разделы диагностики') });
-  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-diagnostics' }, [
-    E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Диагностика')), E('p', {}, _('Единый read-only health и log workspace'))])]),
-    tabs,
+  return E('section', { 'class': 'z2m-view on z2m-monitoring-page', id: 'z2m-view-diagnostics' }, [
+    E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Мониторинг')), E('p', {}, _('Read-only состояние компонентов · журналы открываются через навигацию'))])]),
     body
   ]);
 }

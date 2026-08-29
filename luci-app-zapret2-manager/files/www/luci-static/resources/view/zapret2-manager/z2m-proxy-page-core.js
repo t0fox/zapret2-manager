@@ -41,7 +41,12 @@ var state = {
   tgReleaseExpanded: false,
   tgReleaseKey: null,
   tgReleaseCurrent: null,
-  tgSettingsAdvanced: false
+  tgSettingsAdvanced: false,
+  loadToken: 0,
+  deferred: {},
+  deferredTimer: null,
+  fullHealthRequested: false,
+  mountedLoadToken: null
 };
 
 var PANE_ALIASES = { install: 'component', status: 'overview', activity: 'journal' };
@@ -110,31 +115,94 @@ function telegramEventRows(envelope) {
   var rows = array(value.events || value.lines || value.items || value.rows || value.log);
   return rows.filter(isTelegramEvent);
 }
+function explicitHealthRead(ctx) {
+  return edit(ctx.api.proxy.health, {});
+}
+function statusHealthEnvelope(statusEnvelope) {
+  if (statusEnvelope && statusEnvelope.error) return { error: statusEnvelope.error };
+  var value = statusEnvelope && statusEnvelope.value;
+  for (var i = 0; i < 4; i++) {
+    if (Array.isArray(value)) { value = value[0]; continue; }
+    if (value && typeof value === 'object' && value.value !== undefined) { value = value.value; continue; }
+    break;
+  }
+  return { value: object(value && value.health) };
+}
 function load(ctx) {
+  var token = ++state.loadToken;
+  state.deferred = {};
+  if (state.deferredTimer) clearTimeout(state.deferredTimer);
+  state.deferredTimer = null;
+  var requestHealth = state.fullHealthRequested === true;
+  state.fullHealthRequested = false;
+  function rerender() {
+    if (token !== state.loadToken || !ctx || typeof ctx.rerender !== 'function') return;
+    window.setTimeout(function () {
+      if (token === state.loadToken) ctx.rerender();
+    }, 0);
+  }
+  function publish(job, result) {
+    if (token !== state.loadToken) return;
+    var value = settled(result, ctx.api);
+    if (job.keys) job.keys.forEach(function (key) { state.deferred[key] = value; });
+    else state.deferred[job.key] = value;
+    rerender();
+  }
+  function scheduleDeferred() {
+    var jobs = [];
+    if (requestHealth) jobs.push({ key: 'health', label: _('состояния Telegram Proxy'), run: function () {
+      return explicitHealthRead(ctx);
+    } });
+    jobs.push(
+      { key: 'status', label: _('статуса proxy'), run: function () { return ctx.api.proxy.status(); } },
+      { keys: ['providerCatalog', 'providerPreflight'], label: _('каталога Telegram Proxy'), run: function () {
+        return ctx.api.tg.product.catalog();
+      } },
+      { key: 'providerVersions', label: _('версий Telegram Proxy'), run: function () {
+        return ctx.api.tg.product.versions();
+      } },
+      { key: 'events', label: _('журнала proxy'), run: function () {
+        return edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 });
+      } }
+    );
+    var next = 0, active = 0;
+    function pump() {
+      if (token !== state.loadToken) return;
+      while (active < 2 && next < jobs.length) {
+        (function (job) {
+          active++;
+          Promise.resolve().then(function () { return boundedLoad(job.run(), job.label); })
+            .then(function (value) { publish(job, { status: 'fulfilled', value: value }); },
+              function (error) { publish(job, { status: 'rejected', reason: error }); })
+            .then(function () { active--; pump(); });
+        })(jobs[next++]);
+      }
+    }
+    state.deferredTimer = window.setTimeout(function () {
+      state.deferredTimer = null;
+      pump();
+    }, 0);
+  }
+  // tg_product_status is the canonical local aggregator. It already includes
+  // proxy runtime/config health with upstream:false, so it is the sole source
+  // for the initial provider status; the explicit health action is deferred.
   return Promise.allSettled([
-    boundedLoad(ctx.api.proxy.capabilities(), _('возможностей proxy')),
-    boundedLoad(ctx.api.proxy.status(), _('статуса proxy')),
-    boundedLoad(ctx.api.proxy.configGet(), _('конфигурации proxy')),
-    boundedLoad(edit(ctx.api.proxy.health, {}), _('состояния proxy')),
-    boundedLoad(edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 }), _('журнала proxy')),
-    boundedLoad(ctx.api.tg.product.catalog(), _('каталога Telegram Proxy')),
     boundedLoad(ctx.api.tg.product.status(), _('статуса Telegram Proxy')),
-    boundedLoad(ctx.api.tg.product.versions(), _('версий Telegram Proxy')),
+    boundedLoad(ctx.api.proxy.capabilities(), _('возможностей proxy')),
+    boundedLoad(ctx.api.proxy.configGet(), _('конфигурации proxy')),
     boundedLoad(ctx.api.tg.product.operationStatus({}), _('операции Telegram Proxy'))
   ]).then(function (results) {
+    var providerStatus = settled(results[0], ctx.api);
     var base = {
-      capabilities: settled(results[0], ctx.api),
-      status: settled(results[1], ctx.api),
+      capabilities: settled(results[1], ctx.api),
       config: settled(results[2], ctx.api),
-      health: settled(results[3], ctx.api),
-      events: settled(results[4], ctx.api),
-      providerCatalog: settled(results[5], ctx.api),
-      providerStatus: settled(results[6], ctx.api),
-      providerPreflight: settled(results[5], ctx.api),
-      providerVersions: settled(results[7], ctx.api),
-      providerOperation: settled(results[8], ctx.api),
+      providerStatus: providerStatus,
+      status: providerStatus,
+      health: statusHealthEnvelope(providerStatus),
+      providerOperation: settled(results[3], ctx.api),
       providerUpdates: { value: {} }
     };
+    scheduleDeferred();
     return base;
   });
 }
@@ -554,6 +622,10 @@ function lifecycle(ctx, method, label, message) {
   confirm(ctx, label + '?', message, label, function () {
     mutation(ctx, label, method());
   });
+}
+function refreshWithHealth(ctx) {
+  state.fullHealthRequested = true;
+  return ctx.refresh('proxy');
 }
 function providerStatus(data) {
   return object(data.providerStatus && data.providerStatus.value);
@@ -1003,6 +1075,11 @@ function installPane(ctx, data) {
     if (current) releasePanel.update(current.provider, current.item);
   };
   var cards = providers.map(function (provider) { return providerCard(ctx, data, provider, status, releasePanel); });
+  var metadataNotice = !data.providerCatalog
+    ? shell.statePanel({ message: _('Каталог версий Telegram Proxy загружается…'), kind: 'info' })
+    : data.providerCatalog.error
+      ? shell.statePanel({ message: _('Каталог версий Telegram Proxy временно недоступен.'), kind: 'error' })
+      : null;
   var initialProvider = providers.filter(function (provider) { return state.tgSelectedRelease && state.tgSelectedRelease.provider === provider.id; })[0] ||
     providers.filter(function (provider) { return choicesForProvider(data, provider.id).length > 0; })[0] || providers[0];
   var initialChoices = initialProvider ? choicesForProvider(data, initialProvider.id) : [];
@@ -1079,6 +1156,7 @@ function installPane(ctx, data) {
   ]) : null;
   return E('div', { 'class': 'z2m-proxy-pane' }, compact([
     head,
+    metadataNotice,
     E('div', { 'class': 'z2m-grid z2m-grid-2 z2m-proxy-provider-grid' }, cards),
     selectedVersionPanel,
     removePanel
@@ -1098,6 +1176,7 @@ function statusPane(ctx, data, normalized) {
   });
 
   var raw = object(data.status && data.status.value);
+  if (!Object.keys(raw).length) raw = pstatus;
   var cfg = object(data.config && data.config.value);
   var applied = object(cfg.applied || cfg.draft);
   var listener = array(raw.listeners)[0] || {};
@@ -1107,7 +1186,7 @@ function statusPane(ctx, data, normalized) {
     lifecycle(ctx, ctx.api.tg.product.start, _('Запустить'), _('Сервер проверит процесс и точный адрес слушателя после запуска.'));
   }, !!state.busy));
   if (normalized.process) actions.push(shell.button(_('Проверить'), 'primary sm', function () {
-    return ctx.refresh('proxy');
+    return refreshWithHealth(ctx);
   }, !!state.busy));
   if (normalized.process) actions.push(shell.button(_('Перезапустить'), 'sm', function () {
     lifecycle(ctx, ctx.api.tg.product.restart, _('Перезапустить'), _('Текущие подключения будут прерваны.'));
@@ -1138,6 +1217,7 @@ function statusPane(ctx, data, normalized) {
   var listenerPort = listener.port !== undefined ? listener.port : applied.port;
   var infoRow = function (row) { return E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, row[0]), E('strong', {}, row[1])]); };
   var rawHealth = object(data.health && data.health.value);
+  if (!Object.keys(rawHealth).length) rawHealth = object(pstatus.health);
   var runtime = object(raw.runtime);
   var technicalRows = [
     [_('PID'), display(raw.pid !== undefined ? raw.pid : runtime.pid)],
@@ -1169,7 +1249,7 @@ function statusPane(ctx, data, normalized) {
     return E('div', { 'class': 'z2m-proxy-health-step ' + (row[2] ? 'ok' : 'warn') }, compact([
       E('span', {}, row[1]),
       E('strong', {}, row[3]),
-      !row[2] && row[0] === 'telegram' ? shell.button(_('Проверить снова'), 'ghost sm', function () { return ctx.refresh('proxy'); }, !!state.busy) : null
+      !row[2] && row[0] === 'telegram' ? shell.button(_('Проверить снова'), 'ghost sm', function () { return refreshWithHealth(ctx); }, !!state.busy) : null
     ]));
   }
   var listenerLabel = normalized.listener && listenerAddress ? display(listenerAddress) + ':' + display(listenerPort) : _('Не подтверждён');
@@ -1579,7 +1659,10 @@ function settingsPane(ctx, data) {
 }
 function activityPane(ctx, data) {
   var shell = ctx.shell;
-  var rows = AvatarLog.normalizeRows({ events: telegramEventRows(data.events) }, 8);
+  var eventEnvelope = data.events;
+  var rows = AvatarLog.normalizeRows({ events: telegramEventRows(eventEnvelope) }, 8);
+  var eventPending = !eventEnvelope;
+  var eventError = eventEnvelope && eventEnvelope.error;
   var host = AvatarLog.renderNormalized(rows, {
     id: 'telegram-activity-events',
     label: _('Журнал Telegram Proxy'),
@@ -1587,7 +1670,11 @@ function activityPane(ctx, data) {
     compact: true,
     advanced: true,
     redactTechnical: ProductUX.redact,
-    empty: shell.statePanel({ message: _('Событий Telegram Proxy пока нет.'), kind: 'info' })
+    empty: eventPending
+      ? shell.statePanel({ message: _('Журнал Telegram Proxy загружается…'), kind: 'info' })
+      : eventError
+        ? shell.statePanel({ message: _('Журнал Telegram Proxy недоступен.'), kind: 'error' })
+        : shell.statePanel({ message: _('Событий Telegram Proxy пока нет.'), kind: 'info' })
   });
   var refresh = shell.button(_('Обновить'), 'sm', function () { ctx.refresh('proxy'); });
   var openLogs = shell.button(_('Открыть все журналы →'), 'primary sm', function () { return ctx.navigate('logs'); });
@@ -1597,7 +1684,7 @@ function activityPane(ctx, data) {
     E('div', { 'class': 'z2m-btnrow' }, [refresh, openLogs]));
 }
 function render(ctx) {
-  var data = ctx.data || {};
+  var data = Object.assign({}, ctx.data || {}, state.deferred || {});
   var pstatus = providerStatus(data);
   var canonical = canonicalProjection(pstatus, object(data.health && data.health.value));
   var merged = Object.assign({}, object(data.status && data.status.value), object(data.health && data.health.value), {
@@ -1703,6 +1790,14 @@ function createAdapter(api) {
 }
 function unmount() {
   state.revealed = null;
+  var leavingMountedPage = state.mountedLoadToken === state.loadToken;
+  if (leavingMountedPage) {
+    state.loadToken++;
+    if (state.deferredTimer) clearTimeout(state.deferredTimer);
+    state.deferredTimer = null;
+  }
+  state.mountedLoadToken = null;
+  state.deferred = {};
   if (state.tgOperationTimer) clearTimeout(state.tgOperationTimer);
   state.tgOperationTimer = null;
   state.tgPollGeneration++;
@@ -1718,7 +1813,7 @@ return baseclass.extend({
   subtitle: _('Опциональная установка последней версии Rust / Go'),
   load: load,
   render: render,
-  mount: function () {},
+  mount: function () { state.mountedLoadToken = state.loadToken; },
   unmount: unmount,
   createAdapter: createAdapter
 });

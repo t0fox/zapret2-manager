@@ -15,26 +15,24 @@ const fastStatus = fs.readFileSync(
   'utf8'
 );
 
-test('Dashboard keeps the critical transport wave bounded', () => {
-  // The critical wave lives in the staged loader and prefers status_fast.
-  assert.match(loading, /\(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)\(\)/,
-    'Главная must prefer the bounded status_fast RPC');
-  const secondary = loading.slice(loading.indexOf('function loadSecondary()'),
-    loading.indexOf(']);', loading.indexOf('function loadSecondary()')));
-  assert.doesNotMatch(secondary, /ctx\.api\.tg\.product\.status\(\)/,
-    'optional Telegram status must not share the secondary events wave');
-  assert.match(loading, /timer\(function \(\)[\s\S]*ctx\.api\.tg\.product\.status\(\)/,
-    'optional Telegram status must be scheduled behind a timer');
+test('Dashboard reuses the bounded app-shell transport and schedules enrichment after bootstrap', () => {
+  assert.match(loading, /hasInitial\(ctx\.initial\)/,
+    'Dashboard must reuse the app-shell status_fast result when available');
+  assert.match(loading, /var read = ctx\.api\.service && \(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)/,
+    'direct module consumers still get a bounded status_fast fallback');
+  assert.match(loading, /MAX_DEFERRED_IN_FLIGHT = 2/,
+    'deferred Dashboard reads must use two lanes');
+  assert.match(loading, /scheduleDeferred\(data\)/,
+    'enrichment must be queued only after the first render data resolves');
+  assert.match(loading, /ctx\.api\.tg\.product\.status\(\)/,
+    'Telegram status remains a deferred local block');
 });
 
-test('Dashboard RPC waves are strictly staged: critical settles before secondary starts', () => {
-  const continuation = loading.slice(loading.indexOf('.then(function (data) {'));
-  assert.match(continuation, /loadSecondary\(\)/,
-    'phase 2 must be invoked from the phase-1 continuation');
-  const secondaryBody = loading.slice(loading.indexOf('function loadSecondary()'),
-    loading.indexOf('PHASE 1'));
-  assert.doesNotMatch(secondaryBody, /^\s*var\s+\w+\s*=\s*Promise\.allSettled/,
-    'secondary batch must not be created at module/load scope');
+test('Dashboard deferred blocks are independently settled and generation guarded', () => {
+  assert.match(loading, /runtime\.deferred\[job\.key\] = settled/);
+  assert.match(loading, /if \(token !== runtime\.loadToken\) return/);
+  assert.match(loading, /active < MAX_DEFERRED_IN_FLIGHT/);
+  assert.doesNotMatch(loading, /loadSecondary|secondaryReady/);
 });
 
 test('status_fast supplies the autostart evidence used by the Dashboard', () => {

@@ -86,7 +86,7 @@ function categoryLabel(category) {
 function serviceIconData(item) {
   var id = String(item && item.id || '').toLowerCase();
   var aliases = { 'flowseal-discord': 'discord', 'x-twitter': 'x-twitter', 'chatgpt-openai': 'chatgpt-openai', 'google-gemini': 'gemini', 'microsoft-copilot': 'microsoft', 'meta-ai': 'meta', 'trae-ai': 'trae' };
-  var colors = { tiktok: '#ff0050', spotify: '#1db954', twitch: '#9146ff', instagram: '#e4405f', youtube: '#ff0000', discord: '#5865f2', github: '#8b949e', whatsapp: '#25d366', 'x-twitter': '#e7e9ea', 'chatgpt-openai': '#10a37f', claude: '#cc9b7a', gemini: '#4285f4', grok: '#111111', manus: '#6c63ff', meta: '#0866ff', microsoft: '#5e5ce6', elevenlabs: '#111111', trae: '#0b7cff', windsurf: '#1b9aaa' };
+  var colors = { tiktok: '#ff0050', spotify: '#1db954', twitch: '#9146ff', instagram: '#e4405f', youtube: '#ff0000', discord: '#5865f2', github: '#8b949e', whatsapp: '#25d366', 'x-twitter': '#e7e9ea', 'chatgpt-openai': '#10a37f', claude: '#cc9b7a', gemini: '#4285f4', grok: '#111111', manus: '#6c63ff', meta: '#0866ff', microsoft: '#5e5ce6', elevenlabs: '#111111', trae: '#0b7cff', windsurf: '#1b9aaa', parsec: '#7d5cff', supercell: '#f3a21b', jetbrains: '#ff318c', mangalib: '#e96a9a', canva: '#00c4cc', deepl: '#0f2b46', notion: '#e7e7e7', 'ntc-party': '#f1b23e', rutor: '#39a9db', square: '#00a650' };
   return { name: 'service:' + (aliases[id] || id), color: colors[id] || '#4b9fd5' };
 }
 
@@ -184,21 +184,21 @@ function renderCatalog(ctx) {
   var visible = DomainHubModel.selectPackages(working, state.query, state.filter, state.category);
   var map = enabledMap(working.enabled);
   var search = E('input', {
-    type: 'search', value: state.query, 'class': 'z2m-input z2m-service-dns-search', placeholder: _('Поиск сервисов или доменов…'),
+    type: 'search', name: 'service-search', autocomplete: 'off', value: state.query, 'class': 'z2m-input z2m-service-dns-search', placeholder: _('Поиск сервисов или доменов…'),
     'aria-label': _('Поиск по каталогу')
   });
   search.addEventListener('input', function () {
     state.query = search.value;
     rerender(ctx);
   });
-  var filter = E('select', { 'class': 'z2m-select z2m-service-dns-filter', 'aria-label': _('Фильтр состояния') }, [
+  var filter = E('select', { name: 'service-state', 'class': 'z2m-select z2m-service-dns-filter', 'aria-label': _('Фильтр состояния') }, [
     E('option', { value: 'all' }, _('Все')),
     E('option', { value: 'on' }, _('Включённые')),
     E('option', { value: 'off' }, _('Выключенные'))
   ]);
   filter.value = state.filter;
   filter.addEventListener('change', function () { state.filter = filter.value; rerender(ctx); });
-  var categoryFilter = E('select', { 'class': 'z2m-select z2m-service-dns-filter', 'aria-label': _('Фильтр категории') }, [
+  var categoryFilter = E('select', { name: 'service-category', 'class': 'z2m-select z2m-service-dns-filter', 'aria-label': _('Фильтр категории') }, [
     E('option', { value: 'all' }, _('Все категории'))
   ].concat(array(working.categories).map(function (category) {
     return E('option', { value: category }, categoryLabel(category));
@@ -233,18 +233,38 @@ function renderCatalog(ctx) {
       var meta = [categoryLabel(item.category), item.domainCount ? ' · ' + item.domainCount + ' ' + _('доменов') : ''].join('');
       var statusNode = check ? E('div', { 'class': 'z2m-service-check-status ' + check.status, role: 'status' }, [E('span', {}, checkLabel(check)), check.message ? E('span', {}, check.message) : null]) : null;
       var diagnostic = check && check.status !== 'checking' ? shell.button(_('Посмотреть диагностику'), 'link sm', function () { ctx.navigate('strategy'); }) : null;
-      var copyNode = E('div', { 'class': 'z2m-service-dns-copy' }, [E('strong', { 'class': 'z2m-service-name' }, item.name || item.id), E('small', { 'class': 'z2m-service-domains' }, meta), statusNode, diagnostic]);
       var toggle = shell.switchControl({ checked: on, label: item.name || item.id, onChange: function () { var next = clone(state.working); next.enabled = DomainHubModel.togglePackage(next.enabled, item.id); stage(ctx, next); } });
-      var actions = E('div', { 'class': 'z2m-service-catalog-actions' }, [shell.button(check && check.status === 'checking' ? _('Проверяем…') : _('Проверить'), 'sm', function () { startServiceRun(ctx, item); }, state.runBusy || !!(check && check.status === 'checking')), toggle]);
+      var nameLine = E('div', { 'class': 'z2m-service-dns-name-line' }, [E('strong', { 'class': 'z2m-service-name' }, item.name || item.id), toggle]);
+      var copyNode = E('div', { 'class': 'z2m-service-dns-copy' }, [nameLine, E('small', { 'class': 'z2m-service-domains' }, meta), statusNode, diagnostic]);
+      var actions = E('div', { 'class': 'z2m-service-catalog-actions' }, [shell.button(check && check.status === 'checking' ? _('Проверяем…') : _('Проверить'), 'sm', function () { startServiceRun(ctx, item); }, state.runBusy || !!(check && check.status === 'checking'))]);
       body.appendChild(E('div', { 'class': 'z2m-service-dns-row' + (changed ? ' changed' : ''), 'data-service-id': item.id }, [E('div', { 'class': 'z2m-service-dns-row-main' }, [icon, copyNode]), E('div', { 'class': 'z2m-service-dns-action' }, actions)]));
     });
     rows.push(E('section', { 'class': 'z2m-service-dns-section', 'data-category': category }, [E('div', { 'class': 'z2m-service-dns-section-head' }, [E('h3', { 'class': 'z2m-service-dns-section-title' }, categoryLabel(category)), E('span', { 'class': 'z2m-service-dns-count' }, String(categoryState.enabled) + ' / ' + String(categoryState.total)), categorySwitch]), body]));
   });
-  var changedOnly = E('input', { type: 'checkbox', 'aria-label': _('Показывать только изменённые') });
-  var searchControl = E('label', { 'class': 'z2m-service-dns-search-control' }, [E('span', { 'class': 'z2m-service-dns-search-icon', 'aria-hidden': 'true' }, [Icons.wrappedNode('search', { size: 16, fallback: 'search' })]), search]);
-  var toolbar = E('div', { 'class': 'z2m-service-dns-toolbar' }, [searchControl, E('div', { 'class': 'z2m-service-dns-filterbar' }, [categoryFilter, filter]), E('label', { 'class': 'z2m-service-dns-changed' }, [changedOnly, _('Только изменённые')])]);
+  var changedOnly = E('input', { type: 'checkbox', name: 'service-changed-only', 'aria-label': _('Показывать только изменённые') });
+  var searchControl = E('label', { 'class': 'z2m-service-dns-search-control' }, [
+    E('span', { 'class': 'z2m-service-dns-field-label' }, _('Поиск по каталогу')),
+    E('span', { 'class': 'z2m-service-dns-search-icon', 'aria-hidden': 'true' }, [Icons.wrappedNode('search', { size: 16, fallback: 'search' })]),
+    search
+  ]);
+  var filterControl = function (label, select) {
+    return E('label', { 'class': 'z2m-service-dns-filter-control' }, [E('span', { 'class': 'z2m-service-dns-field-label' }, label), select]);
+  };
+  var toolbar = E('div', { 'class': 'z2m-service-dns-toolbar' }, [
+    searchControl,
+    E('div', { 'class': 'z2m-service-dns-filterbar' }, [filterControl(_('Категория'), categoryFilter), filterControl(_('Состояние'), filter)]),
+    E('label', { 'class': 'z2m-service-dns-changed' }, [changedOnly, _('Только изменённые')])
+  ]);
   var changeCount = state.baseline.enabled.filter(function (id) { return map[id] !== true; }).length + working.enabled.filter(function (id) { return state.baseline.enabled.indexOf(id) < 0; }).length;
-  var summary = E('p', { 'class': 'z2m-service-dns-summary' }, String(working.packages.length) + ' ' + _('сервисов') + ' · ' + String(working.enabled.length) + ' ' + _('включено') + ' · ' + String(working.packages.length - working.enabled.length) + ' ' + _('по умолчанию') + (changeCount ? ' · ' + String(changeCount) + ' ' + _('изменения') : ''));
+  var summaryItems = [
+    [working.packages.length, _('сервисов')],
+    [working.enabled.length, _('включено')],
+    [working.packages.length - working.enabled.length, _('по умолчанию')]
+  ];
+  if (changeCount) summaryItems.push([changeCount, _('изменения')]);
+  var summary = E('div', { 'class': 'z2m-service-dns-summary', role: 'status', 'aria-live': 'polite' }, summaryItems.map(function (item) {
+    return E('span', { 'class': 'z2m-service-dns-summary-item' }, [E('strong', {}, String(item[0])), E('span', {}, item[1])]);
+  }));
   function applyFilter() {
     var needle = String(search.value || '').toLowerCase(), category = categoryFilter.value, mode = filter.value, onlyChanged = changedOnly.checked;
     var visibleCategories = {};
@@ -263,19 +283,21 @@ function renderCatalog(ctx) {
     ctx.shell.panel(_('Каталог сервисов'), E('div', { 'class': 'z2m-service-dns-access' }, [
       summary,
       toolbar,
-      E('div', { 'class': 'z2m-btnrow z2m-service-bulk' }, [
-        shell.button(_('Включить все'), 'sm', function () {
-          var next = clone(working);
-          next.enabled = DomainHubModel.toggleAll(working.packages, working.enabled, true);
-          stage(ctx, next);
-        }),
-        shell.button(_('Выключить все'), 'sm', function () {
-          var next = clone(working);
-          next.enabled = DomainHubModel.toggleAll(working.packages, working.enabled, false);
-          stage(ctx, next);
-        })
+      E('div', { 'class': 'z2m-service-dns-bulkbar' }, [
+        E('div', { 'class': 'z2m-btnrow z2m-service-bulk' }, [
+          shell.button(_('Включить все'), 'sm', function () {
+            var next = clone(working);
+            next.enabled = DomainHubModel.toggleAll(working.packages, working.enabled, true);
+            stage(ctx, next);
+          }),
+          shell.button(_('Выключить все'), 'sm', function () {
+            var next = clone(working);
+            next.enabled = DomainHubModel.toggleAll(working.packages, working.enabled, false);
+            stage(ctx, next);
+          })
+        ]),
+        E('p', { 'class': 'z2m-bulk-note' }, _('Массовые действия применяются ко всему каталогу, включая скрытые поиском сервисы'))
       ]),
-      E('p', { 'class': 'z2m-bulk-note' }, _('Массовые действия применяются ко всему каталогу, включая скрытые поиском сервисы')),
       E('div', { 'class': 'z2m-service-dns-list' }, rows.length ? rows : [
         shell.statePanel({ message: _('По текущему фильтру ничего не найдено.'), kind: 'info' })
       ])
@@ -475,8 +497,8 @@ function applyHubChanges() {
 
 return baseclass.extend({
   id: 'services',
-  title: _('������� � ������'),
-  subtitle: _('�������, ���������������� ������, Autohostlist � ���������'),
+  title: _('Сервисы и домены'),
+  subtitle: _('Каталог, пользовательские домены, Autohostlist и источники'),
   load: load,
   render: render,
   mount: function () { state.disposed = false; },

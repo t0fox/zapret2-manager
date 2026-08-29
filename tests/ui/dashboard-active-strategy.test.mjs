@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Behavioral regression: dashboard PHASE 1 "active strategy" resolution.
+// Behavioral regression: Dashboard active-strategy enrichment.
 //
 // Production bug 1: z2m-overview-loading exported a plain object
 // (`return { createLoader }`) which the real LuCI loader rejects with
@@ -98,7 +98,8 @@ test('active strategyStatus id resolves via strategies.get through the INJECTED 
     return fn(JSON.stringify(value || {}));
   };
   const { api, calls, gates } = makeApi();
-  const loader = OverviewLoading.createLoader(Object.assign(makeLoaderOptions(), { runtime: makeRuntime(), edit: injectedEdit }));
+  const runtime = makeRuntime();
+  const loader = OverviewLoading.createLoader(Object.assign(makeLoaderOptions(), { runtime, edit: injectedEdit }));
 
   const done = loader.load(makeCtx(api));
   gates.critical.resolve({ strategyStatus: { id: 'strat-9' } });
@@ -113,9 +114,9 @@ test('active strategyStatus id resolves via strategies.get through the INJECTED 
   const data = await done;
   await new Promise(resolve => setTimeout(resolve, 10));
 
-  assert.ok(data.strategy, 'data.strategy must be populated');
-  assert.equal(data.strategy.error, undefined, 'no error expected on happy path');
-  assert.equal(data.strategy.value && data.strategy.value.id, 'strat-9');});
+  assert.ok(runtime.deferred.strategy, 'deferred strategy must be populated');
+  assert.equal(runtime.deferred.strategy.error, undefined, 'no error expected on happy path');
+  assert.equal(runtime.deferred.strategy.value && runtime.deferred.strategy.value.id, 'strat-9');});
 
 test('missing strategy id skips canonical lookup entirely', async () => {
   const OverviewLoading = loadModule();
@@ -143,18 +144,21 @@ test('absent strategies.get degrades to null instead of crashing', async () => {
     'load must resolve without a canonical strategy and without throwing');
 });
 
-test('rejected strategies.get surfaces as data.strategy.error, load still resolves', async () => {
+test('rejected strategies.get surfaces as a local deferred error, load still resolves', async () => {
   const OverviewLoading = loadModule();
   const { api, gates } = makeApi();
-  const loader = OverviewLoading.createLoader(makeLoaderOptions());
+  const runtime = makeRuntime();
+  const loader = OverviewLoading.createLoader(makeLoaderOptions({ runtime }));
   const done = loader.load(makeCtx(api));
   gates.critical.resolve({ strategyStatus: { id: 'boom' } });
   await new Promise(resolve => setTimeout(resolve, 5));
   gates.strategiesGet.reject(new Error('rpc exploded'));
   const data = await done;
-  assert.ok(data.strategy && data.strategy.error,
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(data.strategy, undefined, 'deferred enrichment must not delay bootstrap data');
+  assert.ok(runtime.deferred.strategy && runtime.deferred.strategy.error,
     'strategy error envelope expected after rejection');
-  assert.match(String(data.strategy.error.message || ''), /exploded|rejected/i);
+  assert.match(String(runtime.deferred.strategy.error.message || ''), /exploded|rejected/i);
 });
 
 test('malformed critical envelopes never break phase 1', async () => {

@@ -51,14 +51,13 @@ test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
 test('P01 Dashboard initial load does not wait for unused Orchestra reads', () => {
   const loading = read('z2m-overview-loading.js');
   const orchestration = `${read('z2m-overview.js')}\n${loading}`;
-  assert.match(loading, /\(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)\(\)/);
+  assert.match(loading, /hasInitial\(ctx\.initial\)/);
   assert.match(loading, /ctx\.api\.strategy\.preview\(\)/);
   assert.match(loading, /ctx\.api\.monitor\.eventsTail/);
   assert.match(orchestration, /ctx\.rerender/);
-  assert.match(loading, /loadSecondary/);
-  // Staged invariant: the secondary batch is only created from the
-  // phase-1 continuation, never at load scope.
-  assert.match(loading, /\)\.then\(function \(data\) \{[\s\S]*loadSecondary\(\)/);
+  assert.match(loading, /scheduleDeferred/);
+  assert.match(loading, /MAX_DEFERRED_IN_FLIGHT/);
+  assert.match(loading, /runtime\.deferred\[job\.key\]/);
   assert.doesNotMatch(loading, /ctx\.api\.orchestra\.runHistory\(\)/);
   assert.doesNotMatch(loading, /ctx\.api\.orchestra\.status\(\)/);
 });
@@ -96,6 +95,13 @@ test('P01 Dashboard mounts its structure before the first status RPC resolves', 
   const app = read('app.js');
   assert.match(app, /tab === 'dashboard' \|\| tab === 'control'/);
   assert.match(app, /renderTabData\(tab, module, \{\}, token, force\)/);
+});
+
+test('P01 progressive rerenders keep the live page context and deferred state', () => {
+  const app = read('app.js');
+  assert.match(app, /activeModule !== module \|\| !activeContext \|\| activeContext\.route !== tab/);
+  assert.match(app, /var sameLivePage = activeModule === module && activeContext && activeContext\.route === tab/);
+  assert.match(app, /if \(!sameLivePage && activeModule && activeContext && activeModule\.unmount\)/);
 });
 
 test('P01 app entrypoint does not gate Dashboard on DNS/TG product status', () => {

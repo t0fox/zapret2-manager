@@ -149,7 +149,12 @@ return L.view.extend({
           invalidateTabCache(target || tab);
         },
         rerender: function () {
-          if (activeContext !== ctx) return Promise.resolve();
+          // A progressive loader keeps its original context while deferred
+          // blocks arrive. The app may have already rendered one block and
+          // replaced activeContext, so identity alone would drop all later
+          // updates. Accept rerenders from the same live module/route, while
+          // still rejecting callbacks from a page that has been left.
+          if (activeModule !== module || !activeContext || activeContext.route !== tab) return Promise.resolve();
           var token = ++activationToken;
           renderTabData(tab, module, tabDataCache[tab] || data || {}, token, true);
           setContentBusy(false);
@@ -176,7 +181,8 @@ return L.view.extend({
     }
     function renderTabData(tab, module, data, token, force) {
       if (token !== activationToken) return;
-      if (activeModule && activeContext && activeModule.unmount) activeModule.unmount(activeContext);
+      var sameLivePage = activeModule === module && activeContext && activeContext.route === tab;
+      if (!sameLivePage && activeModule && activeContext && activeModule.unmount) activeModule.unmount(activeContext);
       activeModule = module;
       var ctx = buildContext(tab, module, data);
       var node;

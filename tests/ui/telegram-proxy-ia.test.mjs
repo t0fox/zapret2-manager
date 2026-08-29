@@ -45,11 +45,17 @@ test('Telegram Proxy read-only load cannot remain on the initial skeleton foreve
   const core = fs.readFileSync(`${ROOT}/z2m-proxy-page-core.js`, 'utf8');
   for (const call of [
     'ctx.api.proxy.capabilities()',
-    'ctx.api.proxy.status()',
     'ctx.api.proxy.configGet()',
     'ctx.api.tg.product.status()',
-    'ctx.api.tg.product.versions()',
     'ctx.api.tg.product.operationStatus({})'
   ]) assert.ok(core.includes(`boundedLoad(${call}`), call);
+  assert.match(core, /function scheduleDeferred/);
+  assert.match(core, /ctx\.api\.proxy\.status\(\)/);
+  assert.match(core, /ctx\.api\.tg\.product\.versions\(\)/);
+  assert.match(core, /ctx\.api\.monitor\.eventsTail/);
+  const loadStart = core.indexOf('function load(ctx)');
+  const loadEnd = core.indexOf('\nfunction appliedConfig', loadStart);
+  assert.doesNotMatch(core.slice(loadStart, loadEnd), /edit\(ctx\.api\.proxy\.health,\s*\{\}\)/,
+    'the upstream health probe must be opt-in');
   assert.match(core, /boundedLoad\(ctx\.api\.tg\.product\.checkUpdates/);
 });

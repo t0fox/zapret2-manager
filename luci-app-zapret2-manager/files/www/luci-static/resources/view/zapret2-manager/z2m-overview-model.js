@@ -99,14 +99,18 @@ function corpusMetrics(run) {
   };
 }
 
-function strategyInfo(preview, canonical) {
+function strategyInfo(preview, canonical, status) {
   preview = object(preview);
   canonical = object(canonical);
+  status = object(status);
   canonical = object(canonical.strategy || canonical.item || canonical);
   var state = object(preview.strategyState);
+  var statusStrategy = object(status.strategyStatus);
   var active = object(state.active || preview.active);
-  var name = firstDefined([canonical.name, canonical.displayName, active.name, active.displayName]);
-  var description = firstDefined([canonical.description, canonical.summary, active.description, active.summary]);
+  var name = firstDefined([canonical.name, canonical.displayName, active.name, active.displayName,
+    statusStrategy.name, statusStrategy.displayName, statusStrategy.id, statusStrategy.strategyId]);
+  var description = firstDefined([canonical.description, canonical.summary, active.description, active.summary,
+    statusStrategy.description, statusStrategy.summary]);
   if (name && !description) {
     var suffix = /\s*\(([^()]+)\)\s*$/.exec(String(name));
     if (suffix) {
@@ -115,7 +119,8 @@ function strategyInfo(preview, canonical) {
     }
   }
   return {
-    id: firstDefined([canonical.id, canonical.strategyId, active.candidateId, active.managerId, active.id]),
+    id: firstDefined([canonical.id, canonical.strategyId, active.candidateId, active.managerId, active.id,
+      statusStrategy.id, statusStrategy.strategyId]),
     name: name,
     description: description,
     source: firstDefined([canonical.source, active.source, state.source, preview.source]),
@@ -180,7 +185,7 @@ function normalize(data) {
   });
 
   var health = runtimeHealth(status);
-  var strategy = strategyInfo(preview, canonicalStrategy);
+  var strategy = strategyInfo(preview, canonicalStrategy, status);
   var corpus = corpusMetrics(lastRun);
   var operation = activeRun(orchestra, history);
   var rollback = rollbackInfo(preview, status);

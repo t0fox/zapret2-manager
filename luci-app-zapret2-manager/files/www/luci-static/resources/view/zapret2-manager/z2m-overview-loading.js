@@ -1,15 +1,11 @@
 'use strict';
-// Strictly staged dashboard loading orchestration.
+// Progressive dashboard loading orchestration.
 //
-//   PHASE 1 (critical) : status_fast | engine status | maintenance status | versions | resources status
-//   PHASE 2 (secondary): discord strategy preview, events tail, recommendations
-//   PHASE 3 (optional) : telegram product status, proxy health
-//
-// A Promise.allSettled([...]) expression CREATES its promises at expression
-// evaluation time, so secondary fan-out must live in a function that is only
-// CALLED from the phase-1 continuation. Optional RPCs additionally wait for
-// phase-2 settlement. This keeps clean-install rpcd free of secondary load
-// while the critical batch is still in flight.
+// The app shell has already fetched status_fast before the Dashboard module is
+// mounted. Reuse that result for the first meaningful render, then enrich the
+// page through a small, page-local scheduler. Each block has its own timeout
+// and publishes independently, so a slow diagnostic or version read cannot
+// keep the whole Dashboard in a skeleton state.
 //
 // Module contract: dependencies are injected via createLoader(), but the
 // module itself MUST satisfy the LuCI loader factory contract — it has to
@@ -19,6 +15,7 @@
 'require baseclass';
 
 var LOAD_TIMEOUT_MS = 5000;
+var MAX_DEFERRED_IN_FLIGHT = 2;
 function boundedLoad(promise, label, timeoutMs) {
 	timeoutMs = Number(timeoutMs) || LOAD_TIMEOUT_MS;
 	return new Promise(function (resolve, reject) {
@@ -45,7 +42,10 @@ function boundedLoad(promise, label, timeoutMs) {
 function createLoader(options) {
 	var runtime = options.runtime;
 	var timer = options.timer || function (fn) { window.setTimeout(fn, 0); };
-	var settled = options.settled;
+	var settled = options.settled || function (result, api) {
+		return result.status === 'fulfilled' ? { value: result.value || {} } :
+			{ error: api.normalizeError(result.reason) };
+	};
 	var edit = options.edit || function (fn, value) { return fn(JSON.stringify(value || {})); };
 	var timeoutMs = Number(options.timeoutMs) || LOAD_TIMEOUT_MS;
 	function bound(promise, label) { return boundedLoad(promise, label, timeoutMs); }
@@ -53,7 +53,6 @@ function createLoader(options) {
 	function load(ctx) {
 		var token = ++runtime.loadToken;
 		var initialReady = false;
-		var secondaryReady = false;
 		runtime.deferred = {};
 
 		function rerender() {
@@ -63,72 +62,82 @@ function createLoader(options) {
 			});
 		}
 
-		// PHASE 3 — optional health probes; started only from the phase-2 continuation.
-		function loadOptionalTelegramStatus() {
-			timer(function () {
-				if (token !== runtime.loadToken || !ctx.api.tg || !ctx.api.tg.product ||
-				    typeof ctx.api.tg.product.status !== 'function') return;
-				Promise.allSettled([
-					bound(ctx.api.tg.product.status(), _('статуса Telegram Proxy')),
-					bound(edit(ctx.api.proxy.health, {}), _('состояния Telegram Proxy'))
-				]).then(function (results) {
-					if (token !== runtime.loadToken) return;
-					runtime.deferred.tgStatus = settled(results[0], ctx.api);
-					runtime.deferred.tgHealth = settled(results[1], ctx.api);
-					rerender();
-				});
-			});
+		function initialEnvelope(value) {
+			return value && value.error ? { error: value.error } : { value: value || {} };
 		}
-
-		// PHASE 2 — secondary content; invoked only after phase 1 settles.
-		function loadSecondary() {
-			return Promise.allSettled([
-				bound(ctx.api.strategy.preview(), _('предпросмотра стратегии')),
-				bound(edit(ctx.api.monitor.eventsTail, { limit: 8 }), _('журнала событий')),
-					typeof ctx.api.strategies.recommendations === 'function'
-						? bound(ctx.api.strategies.recommendations(), _('рекомендаций'))
-						: typeof options.recommendationsRpc === 'function'
-							? bound(options.recommendationsRpc(), _('рекомендаций'))
-							: Promise.resolve({})
-			]).then(function (results) {
+		function hasInitial(value) {
+			return value && typeof value === 'object' && Object.keys(value).length > 0;
+		}
+		function publish(job, result) {
+			if (token !== runtime.loadToken) return;
+			runtime.deferred[job.key] = settled(result, ctx.api);
+			rerender();
+		}
+		function scheduleDeferred(data) {
+			var jobs = [
+				{ key: 'preview', label: _('предпросмотра стратегии'), run: function () {
+					return ctx.api.strategy && typeof ctx.api.strategy.preview === 'function'
+						? ctx.api.strategy.preview() : {};
+				} },
+				{ key: 'events', label: _('журнала событий'), run: function () {
+					return ctx.api.monitor && typeof ctx.api.monitor.eventsTail === 'function'
+						? edit(ctx.api.monitor.eventsTail, { limit: 8 }) : {};
+				} },
+				{ key: 'recommendations', label: _('рекомендаций'), run: function () {
+					if (ctx.api.strategies && typeof ctx.api.strategies.recommendations === 'function')
+						return ctx.api.strategies.recommendations();
+					return typeof options.recommendationsRpc === 'function' ? options.recommendationsRpc() : {};
+				} },
+				{ key: 'tgStatus', label: _('статуса Telegram Proxy'), run: function () {
+					return ctx.api.tg && ctx.api.tg.product && typeof ctx.api.tg.product.status === 'function'
+						? ctx.api.tg.product.status() : {};
+				} },
+				{ key: 'strategy', label: _('активной стратегии'), run: function () {
+					return resolveCanonicalStrategy(ctx, data.status, edit);
+				} },
+				{ key: 'engineStatus', label: _('состояния zapret2'), run: function () {
+					return ctx.api.engine && typeof ctx.api.engine.status === 'function' ? ctx.api.engine.status() : {};
+				} },
+				{ key: 'systemStatus', label: _('состояния системы'), run: function () {
+					return ctx.api.maintenance && typeof ctx.api.maintenance.status === 'function' ? ctx.api.maintenance.status() : {};
+				} },
+				{ key: 'versionStatus', label: _('версий'), run: function () {
+					return ctx.api.maintenance && typeof ctx.api.maintenance.versions === 'function' ? ctx.api.maintenance.versions() : {};
+				} },
+				{ key: 'resourcesStatus', label: _('состояния ресурсов'), run: function () {
+					return ctx.api.resources && typeof ctx.api.resources.status === 'function' ? ctx.api.resources.status() : {};
+				} }
+			];
+			var next = 0, active = 0;
+			function pump() {
 				if (token !== runtime.loadToken) return;
-				runtime.deferred = {
-					preview: settled(results[0], ctx.api),
-					events: settled(results[1], ctx.api),
-					recommendations: settled(results[2], ctx.api)
-				};
-				secondaryReady = true;
-				if (initialReady) rerender();
-				loadOptionalTelegramStatus();
-			});
+				while (active < MAX_DEFERRED_IN_FLIGHT && next < jobs.length) {
+					(function (job) {
+						active++;
+						Promise.resolve().then(function () { return bound(job.run(), job.label); })
+							.then(function (value) { publish(job, { status: 'fulfilled', value: value }); },
+								function (error) { publish(job, { status: 'rejected', reason: error }); })
+							.then(function () { active--; pump(); });
+					})(jobs[next++]);
+				}
+			}
+			timer(pump);
 		}
 
-		// PHASE 1 — critical bounded state; nothing else may start before it settles.
-		return Promise.allSettled([
-			(ctx.api.service.statusFast || ctx.api.service.status)(),
-			ctx.api.engine.status(),
-			ctx.api.maintenance.status(),
-			ctx.api.maintenance.versions(),
-			ctx.api.resources && typeof ctx.api.resources.status === 'function' ? ctx.api.resources.status() : Promise.resolve({})
-		]).then(function (results) {
-			var data = {
-				status: settled(results[0], ctx.api),
-				engineStatus: settled(results[1], ctx.api),
-				systemStatus: settled(results[2], ctx.api),
-				versionStatus: settled(results[3], ctx.api),
-				resourcesStatus: settled(results[4], ctx.api)
-			};
-			return resolveCanonicalStrategy(ctx, data.status, edit).then(function (strategy) {
-				if (strategy) data.strategy = { value: strategy };
-				return data;
-			}).catch(function (error) {
-				data.strategy = { error: ctx.api.normalizeError(error) };
-				return data;
-			});
-		}).then(function (data) {
+		// The app shell owns the first status_fast call. Only a direct module
+		// consumer without shell data needs the bounded fallback read.
+		var bootstrap = hasInitial(ctx.initial)
+			? Promise.resolve(initialEnvelope(ctx.initial))
+			: Promise.resolve().then(function () {
+				var read = ctx.api.service && (ctx.api.service.statusFast || ctx.api.service.status);
+				return bound(read(), _('быстрого состояния')).then(function (value) {
+					return { status: 'fulfilled', value: value };
+				}, function (error) { return { status: 'rejected', reason: error }; });
+			}).then(function (result) { return settled(result, ctx.api); });
+		return bootstrap.then(function (status) {
+			var data = { status: status };
 			initialReady = true;
-			if (secondaryReady) rerender();
-			loadSecondary();
+			scheduleDeferred(data);
 			return data;
 		});
 	}

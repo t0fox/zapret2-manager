@@ -136,7 +136,7 @@ function serviceCategoryLabel(category) {
 function serviceIconData(item) {
   var id = String(item && item.id || '').toLowerCase();
   var aliases = { 'flowseal-discord': 'discord', 'x-twitter': 'x-twitter', 'chatgpt-openai': 'chatgpt-openai', 'google-gemini': 'gemini', 'microsoft-copilot': 'microsoft', 'meta-ai': 'meta', 'trae-ai': 'trae' };
-  var colors = { tiktok: '#ff0050', spotify: '#1db954', twitch: '#9146ff', instagram: '#e4405f', youtube: '#ff0000', discord: '#5865f2', github: '#8b949e', whatsapp: '#25d366', 'x-twitter': '#e7e9ea', 'chatgpt-openai': '#10a37f', claude: '#cc9b7a', gemini: '#4285f4', grok: '#111111', manus: '#6c63ff', meta: '#0866ff', microsoft: '#5e5ce6', elevenlabs: '#111111', trae: '#0b7cff', windsurf: '#1b9aaa' };
+  var colors = { tiktok: '#ff0050', spotify: '#1db954', twitch: '#9146ff', instagram: '#e4405f', youtube: '#ff0000', discord: '#5865f2', github: '#8b949e', whatsapp: '#25d366', 'x-twitter': '#e7e9ea', 'chatgpt-openai': '#10a37f', claude: '#cc9b7a', gemini: '#4285f4', grok: '#111111', manus: '#6c63ff', meta: '#0866ff', microsoft: '#5e5ce6', elevenlabs: '#111111', trae: '#0b7cff', windsurf: '#1b9aaa', parsec: '#7d5cff', supercell: '#f3a21b', jetbrains: '#ff318c', mangalib: '#e96a9a', canva: '#00c4cc', deepl: '#0f2b46', notion: '#e7e7e7', 'ntc-party': '#f1b23e', rutor: '#39a9db', square: '#00a650' };
   return { name: 'service:' + (aliases[id] || id), color: colors[id] || '#4b9fd5' };
 }
 function normalizeServiceSelections(selections, items) {
@@ -156,8 +156,12 @@ function providerId(provider) { return String(provider && (provider.id || provid
 function providerName(provider) { return provider && (provider.name || provider.label || provider.displayName || providerId(provider)) || '—'; }
 function providerIconData(provider) {
   var id = providerId(provider).toLowerCase().replace(/[_.]/g, '-');
-  var aliases = { '1-1-1-1': 'cloudflare', cloudflare: 'cloudflare', 'google-dns': 'google', google: 'google', dnssb: 'dns-sb', 'dns-sb': 'dns-sb', 'comss-dns': 'comss', comss: 'comss', adguard: 'adguard', quad9: 'quad9', nextdns: 'nextdns' };
-  return { name: 'provider:' + (aliases[id] || id), color: provider && provider.color || '#4b9fd5' };
+  var label = String(provider && (provider.name || provider.label || provider.displayName) || '').toLowerCase();
+  var aliases = { '1-1-1-1': 'cloudflare', cloudflare: 'cloudflare', 'google-dns': 'google', google: 'google', dnssb: 'dns-sb', 'dns-sb': 'dns-sb', 'comss-dns': 'comss', comss: 'comss', adguard: 'adguard', quad9: 'quad9', nextdns: 'nextdns', opendns: 'opendns', 'opendns-cisco': 'opendns', 'dnsdoh-art': 'dnsdoh', 'xbox-dns': 'xbox', xboxdns: 'xbox', 'xbox-dns-v2': 'xbox', 'xboxdns-v2': 'xbox', 'xbox-dns-old': 'xbox', 'xboxdns-old': 'xbox', 'malw-link': 'malw-link', 'dns-malw-link': 'malw-link' };
+  var byLabel = label.indexOf('opendns') >= 0 ? 'opendns' : label.indexOf('dnsdoh') >= 0 ? 'dnsdoh' : label.indexOf('xbox') >= 0 ? 'xbox' : label.indexOf('malw.link') >= 0 ? 'malw-link' : '';
+  var name = aliases[id] || byLabel || id;
+  var colors = { cloudflare: '#f38020', google: '#4285f4', 'dns-sb': '#4ba3c7', comss: '#21a179', adguard: '#67b279', quad9: '#f04b35', nextdns: '#ef3f5a', opendns: '#f15a24', dnsdoh: '#2f80ed', xbox: '#107c10', 'malw-link': '#f1b23e' };
+  return { name: 'provider:' + name, color: provider && provider.color || colors[name] || '#4b9fd5' };
 }
 function tiktokAutoStateLabel(value) {
   var stateValue = value && typeof value === 'object' ? value.state : value;
@@ -760,7 +764,7 @@ function render(ctx) {
           var diagnose = shell.button(busy ? _('Проверяется…') : _('Проверить'), 'sm', function () { diagnoseProvider(provider, redraw); }, busy || state.allProvidersBusy);
           var select = shell.button(selected ? _('Выбран') : _('Выбрать'), selected ? 'sm' : 'primary sm', function () { selectProvider(provider); }, busy || selected);
           body.appendChild(E('div', { 'class': 'z2m-provider-row' + (selected ? ' selected' : '') }, [
-            E('span', { 'class': 'z2m-provider-icon' }, [icon]),
+            E('span', { 'class': 'z2m-provider-icon', style: 'color:' + iconData.color }, [icon]),
             E('div', { 'class': 'z2m-provider-main' }, [E('strong', { 'class': 'z2m-provider-name' }, providerName(provider)), E('small', { 'class': 'z2m-provider-addresses' }, asArray(provider.ipv4 || provider.addresses).join(' · ') || _('Адрес не указан'))]),
             E('div', { 'class': 'z2m-provider-result-cell' }, [providerResultNode(provider)]),
             E('div', { 'class': 'z2m-provider-actions' }, [diagnose, select])

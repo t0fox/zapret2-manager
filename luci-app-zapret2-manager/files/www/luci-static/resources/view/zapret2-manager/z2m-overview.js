@@ -10,7 +10,7 @@
 'require view.zapret2-manager.z2m-avatar-dashboard as AvatarDashboard';
 'require view.zapret2-manager.z2m-icons as Icons';
 
-var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0,
+var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0, mountedLoadToken: null,
   lifecycle: { pending: false, action: null, result: null },
   events: { initialized: false, keys: [], follow: true, unread: 0 } };
 var recommendationsRpc = rpc.declare({ object: 'zapret2-manager', method: 'strategies_recommendations', reject: true });
@@ -79,11 +79,10 @@ function runningState(status) {
 }
 
 function load(ctx) {
-	// Delegated to z2m-overview-loading.js: strictly staged orchestration
-	// (critical -> secondary -> optional). Secondary RPCs are created only
-	// after the critical batch settles — a Promise expression would start
-	// them immediately and fan out onto rpcd while critical reads are still
-	// in flight.
+	// Delegated to z2m-overview-loading.js: status_fast bootstrap followed by
+	// independently published, bounded deferred blocks. The scheduler keeps
+	// rpcd fan-out capped while allowing one slow optional read to yield to the
+	// rest of the Dashboard.
 	return OverviewLoading.createLoader({
 		runtime: runtime,
 		settled: settled,
@@ -445,10 +444,22 @@ function render(ctx) {
     if (z2k.rebases && z2k.rebases.length) details.push(z2k.rebases.length + ' ' + _('требуют адаптации'));
     if (z2k.reviews && z2k.reviews.length) details.push(z2k.reviews.length + ' ' + _('требуют проверки'));
     return E('section', { id: 'component-update-summary', 'class': 'card z2m-overview-update-summary', 'data-update-state': presentation.state }, [
-      E('div', { 'class': 'card-title' }, [Icons.wrappedNode('package', { size: 18, wrapperClass: 'status-card-icon' }), _('Компоненты')]),
-      E('div', { 'class': 'status-card-value ' + presentation.kind }, presentation.label),
-      E('div', { 'class': 'status-card-detail' }, details.length ? details.join(' · ') : _('Проверка обновлений выполняется в разделе Компоненты')),
-      E('a', { href: '#/components', 'class': 'text-muted' }, _('Открыть Компоненты →'))
+      E('div', { 'class': 'z2m-overview-update-summary-main' }, [
+        E('div', { 'class': 'z2m-overview-update-summary-heading' }, [
+          E('span', { 'class': 'z2m-overview-update-summary-icon ' + presentation.kind, 'aria-hidden': 'true' }, [
+            Icons.wrappedNode('cpu', { size: 18, wrapperClass: 'z2m-overview-update-summary-icon-glyph' })
+          ]),
+          E('div', { 'class': 'z2m-overview-update-summary-copy' }, [
+            E('strong', { 'class': 'z2m-overview-update-summary-title' }, _('Компоненты')),
+            E('span', { 'class': 'z2m-overview-update-summary-state ' + presentation.kind }, presentation.label)
+          ])
+        ]),
+        E('div', { 'class': 'z2m-overview-update-summary-detail' }, details.length ? details.join(' · ') : _('Проверка обновлений выполняется в разделе Компоненты'))
+      ]),
+      E('a', { href: '#/components', 'class': 'z2m-overview-update-summary-action' }, [
+        Icons.wrappedNode('external-link', { size: 14, wrapperClass: 'z2m-overview-update-summary-action-icon' }),
+        _('Открыть Компоненты →')
+      ])
     ]);
   }
   function telegramCardValue() {
@@ -653,11 +664,18 @@ function render(ctx) {
   });
 }
 
-function mount() {}
+function mount() {
+  runtime.mountedLoadToken = runtime.loadToken;
+}
 function unmount() {
   if (runtime.timer) window.clearTimeout(runtime.timer);
   runtime.timer = null;
   runtime.runId = null;
+  // Invalidate page-local deferred work before the next tab can reuse the
+  // shared runtime object. Late RPC results must not repaint a newer page.
+  if (runtime.mountedLoadToken === runtime.loadToken) runtime.loadToken++;
+  runtime.mountedLoadToken = null;
+  runtime.deferred = {};
   runtime.events = { initialized: false, keys: [], follow: true, unread: 0 };
 }
 

@@ -43,3 +43,10 @@ test('P03-V2 formats filtered search counts with the donor parenthetical', () =>
   const page = read('z2m-strategies.js');
   assert.match(page, /' \(отфильтровано из ' \+ items\.length \+ '\)'/);
 });
+
+test('P03-V2 keeps overflow actions out of layout until the menu is opened', () => {
+  const page = read('z2m-strategies.js');
+  const css = read('z2m-ui.css');
+  assert.match(page, /<details class="strategy-card-menu">[\s\S]*<summary class="strategy-card-menu-trigger/);
+  assert.match(css, /\.strategy-card-menu:not\(\[open\]\) > \.strategy-card-menu-panel \{\s*display:none/);
+});

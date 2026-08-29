@@ -65,9 +65,11 @@ function render(options) {
   var recentLink = E('a', { href: '#/logs', 'class': 'text-muted control-all-logs' }, [icon('external-link'), _('Все логи')]);
   var extension = options.extension || null;
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-overview' }, [
-    E('header', { 'class': 'page-header' }, [
-      E('h1', { 'class': 'page-title' }, [icon('dashboard'), E('span', {}, _('Главная'))]),
-      E('p', { 'class': 'page-description' }, _('Обзор состояния системы'))
+    E('header', { 'class': 'page-header dashboard-page-header' }, [
+      E('div', { 'class': 'dashboard-page-heading' }, [
+        E('h1', { 'class': 'page-title' }, [icon('dashboard'), E('span', {}, _('Главная'))]),
+        E('p', { 'class': 'page-description' }, _('Обзор состояния системы'))
+      ])
     ]),
     E('div', { id: 'status-grid', 'class': 'status-grid' }, cards.map(statusCard)),
     E('div', { 'class': 'card', id: 'quick-actions-card' }, [
