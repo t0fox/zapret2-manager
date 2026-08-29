@@ -47,6 +47,7 @@ return baseclass.extend({
     var syncSource = null;
     var listeners = [];
     markHost(hosts.fieldsHost, 'fields');
+    markHost(hosts.visualHost, 'visual');
     markHost(hosts.profilesHost, 'profiles');
     markHost(hosts.editorHost, 'editor');
     markHost(hosts.validationHost, 'validation');
@@ -117,7 +118,7 @@ return baseclass.extend({
       if (!host) return;
       clear(host);
       var heading = element(document, 'div', 'strategy-editor-profiles-heading');
-      heading.appendChild(element(document, 'strong', '', 'Профили стратегии'));
+      heading.appendChild(element(document, 'h5', 'strategy-editor-section-title', 'Профили стратегии'));
       var add = element(document, 'button', 'btn btn-ghost btn-sm', 'Добавить профиль');
       add.type = 'button';
       add.dataset.editorAction = 'add-profile';
@@ -125,16 +126,21 @@ return baseclass.extend({
       heading.appendChild(add);
       host.appendChild(heading);
       var tabs = element(document, 'div', 'strategy-editor-profile-tabs');
+      tabs.setAttribute('role', 'tablist');
+      tabs.setAttribute('aria-label', 'Профили стратегии');
       array(strategy.profiles).forEach(function (profile, index) {
         var id = profileId(profile, index);
         var tab = element(document, 'div', 'strategy-editor-profile-tab');
         var button = element(document, 'button', 'btn btn-ghost btn-sm' + (id === activeId ? ' is-active' : ''), profile.name || id);
         button.type = 'button';
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', id === activeId ? 'true' : 'false');
         button.dataset.profileId = id;
         button.addEventListener('click', function () { switchProfile(id); });
         tab.appendChild(button);
         var remove = element(document, 'button', 'btn-icon-only', '×');
         remove.type = 'button';
+        remove.setAttribute('aria-label', 'Удалить профиль «' + text(profile.name || id) + '»');
         remove.title = 'Удалить профиль';
         remove.dataset.editorAction = 'remove-profile';
         remove.dataset.profileId = id;
@@ -149,6 +155,9 @@ return baseclass.extend({
       ['visual', 'code'].forEach(function (mode) {
         var button = element(document, 'button', 'btn btn-ghost btn-sm' + (current && viewFor(current, activeIndex()) === mode ? ' is-active' : ''), mode === 'visual' ? 'Визуально' : 'Code');
         button.type = 'button';
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', current && viewFor(current, activeIndex()) === mode ? 'true' : 'false');
+        button.setAttribute('aria-label', mode === 'visual' ? 'Визуальный редактор' : 'Редактор кода');
         button.disabled = mode === 'visual' && (!parsed || parsed.mode !== 'structured' || parsed.lossless !== true);
         button.addEventListener('click', function () {
           editorState.viewByProfile = editorState.viewByProfile || {};
@@ -167,16 +176,20 @@ return baseclass.extend({
         enabled.checked = current.enabled !== false;
         enabled.dataset.profileEnabled = 'true';
         enabled.addEventListener('change', function () { current.enabled = enabled.checked; markDirty(); });
-        var enabledLabel = element(document, 'label', 'strategy-editor-profile-enabled', 'Включён');
-        enabledLabel.insertBefore(enabled, enabledLabel.firstChild);
+        var enabledLabel = element(document, 'label', 'strategy-editor-profile-enabled');
+        enabledLabel.appendChild(enabled);
+        enabledLabel.appendChild(element(document, 'span', '', 'Профиль включён'));
         controls.appendChild(enabledLabel);
+        var nameField = element(document, 'label', 'strategy-editor-profile-name-field');
+        nameField.appendChild(element(document, 'span', 'strategy-editor-field-label', 'Имя профиля'));
         var name = element(document, 'input', 'form-input form-input-sm');
         name.type = 'text';
         name.value = text(current.name || 'Профиль ' + String(activeIndex() + 1));
         name.dataset.profileName = 'true';
         name.setAttribute('aria-label', 'Имя активного профиля');
         name.addEventListener('input', function () { current.name = name.value; markDirty(); });
-        controls.appendChild(name);
+        nameField.appendChild(name);
+        controls.appendChild(nameField);
         host.appendChild(controls);
       }
     }
@@ -232,6 +245,8 @@ return baseclass.extend({
         value.setAttribute('aria-label', 'Значение шага ' + String(index + 1));
         var remove = element(document, 'button', 'btn-icon-only', '×');
         remove.type = 'button';
+        remove.setAttribute('aria-label', 'Удалить шаг ' + String(index + 1));
+        remove.title = 'Удалить шаг';
         remove.dataset.editorAction = 'remove-circular-step';
         remove.addEventListener('click', function () {
           var next = collectCircularSteps().filter(function (_item, itemIndex) { return itemIndex !== index; });
@@ -263,7 +278,7 @@ return baseclass.extend({
       return builder;
     }
     function renderVisual() {
-      var profile = activeProfile(), host = hosts.fieldsHost;
+      var profile = activeProfile(), host = hosts.visualHost || hosts.fieldsHost;
       if (!host || !profile) return;
       var old = host.querySelector('.strategy-editor-visual');
       if (old) old.remove();
@@ -271,7 +286,7 @@ return baseclass.extend({
       var visual = element(document, 'div', 'strategy-editor-visual');
       visual.dataset.mode = parsed.mode;
       visual.style.display = viewFor(profile, activeIndex()) === 'visual' ? '' : 'none';
-      visual.appendChild(element(document, 'div', 'strategy-editor-section-title', 'Visual'));
+      visual.appendChild(element(document, 'h5', 'strategy-editor-section-title', 'Визуальные параметры'));
       if (parsed.mode !== 'structured' || parsed.lossless !== true) {
         visual.appendChild(element(document, 'p', 'strategy-editor-raw-only', 'Raw-only: неизвестный синтаксис сохранён без изменений; Visual отключён.'));
         host.appendChild(visual);
@@ -315,25 +330,31 @@ return baseclass.extend({
         };
       }) : [];
       problems = problems.concat(backendProblems);
-      hosts.problemsHost.appendChild(element(document, 'div', 'strategy-editor-section-title', 'Problems'));
+      hosts.problemsHost.appendChild(element(document, 'h4', 'strategy-editor-section-title', 'Проблемы'));
       if (!problems.length) {
         hosts.problemsHost.appendChild(element(document, 'p', 'strategy-editor-problems-ok', 'Нет проблем.'));
         return;
       }
       problems.forEach(function (problem) {
-        var row = element(document, 'div', 'strategy-editor-problem ' + problem.severity);
+        var canJump = Number.isFinite(problem.from) && Number.isFinite(problem.to) && handle;
+        var row = element(document, canJump ? 'button' : 'div', 'strategy-editor-problem ' + problem.severity + (canJump ? ' is-interactive' : ' is-static'));
+        if (canJump) {
+          row.type = 'button';
+          row.setAttribute('aria-label', 'Перейти к проблеме: ' + text(problem.message));
+        }
         row.dataset.source = problem.source || 'IDE';
         if (problem.profileIndex !== undefined) row.dataset.profileIndex = String(problem.profileIndex);
         row.appendChild(element(document, 'b', '', problem.source || 'IDE'));
         row.appendChild(element(document, 'span', '', ': ' + text(problem.message)));
-        if (Number.isFinite(problem.from) && Number.isFinite(problem.to) && handle) {
-          row.addEventListener('click', function () {
+        if (canJump) {
+          var jumpToProblem = function () {
             if (problem.profileIndex !== undefined && problem.profileIndex !== activeIndex()) switchProfile(profileId(strategy.profiles[problem.profileIndex], problem.profileIndex));
             if (handle && handle.view) {
               handle.view.dispatch({ selection: { anchor: problem.from, head: problem.to }, scrollIntoView: true });
               handle.focus();
             }
-          });
+          };
+          row.addEventListener('click', jumpToProblem);
         }
         hosts.problemsHost.appendChild(row);
       });
@@ -429,7 +450,7 @@ return baseclass.extend({
     function renderActions() {
       if (!hosts.actionsHost) return;
       clear(hosts.actionsHost);
-      [['editorValidate', 'Validate'], ['editorPreview', 'Preview'], ['saveEditor', editorState.mode === 'create' ? 'Создать' : 'Сохранить'], ['closeModal', 'Отмена']].forEach(function (item) {
+      [['editorValidate', 'Проверить'], ['editorPreview', 'Показать превью'], ['saveEditor', editorState.mode === 'create' ? 'Создать стратегию' : 'Сохранить стратегию'], ['closeModal', 'Отмена']].forEach(function (item) {
         var button = element(document, 'button', 'btn ' + (item[0] === 'saveEditor' ? 'btn-primary' : 'btn-ghost'), item[1]);
         button.type = 'button';
         button.dataset.action = item[0];
@@ -437,7 +458,7 @@ return baseclass.extend({
         hosts.actionsHost.appendChild(button);
       });
       if (ctx && ctx.api && ctx.api.strategies && ctx.api.strategies.test) {
-        var testButton = element(document, 'button', 'btn btn-ghost btn-sm', 'Test');
+        var testButton = element(document, 'button', 'btn btn-ghost', 'Тестировать');
         testButton.type = 'button';
         testButton.dataset.action = 'editorTest';
         hosts.actionsHost.insertBefore(testButton, hosts.actionsHost.lastChild);
@@ -496,6 +517,7 @@ return baseclass.extend({
       }
       handle = null;
       clear(hosts.fieldsHost);
+      clear(hosts.visualHost);
       clear(hosts.profilesHost);
       clear(hosts.editorHost);
       clear(hosts.validationHost);
@@ -536,6 +558,7 @@ return baseclass.extend({
         if (handle) handle.destroy();
         handle = null;
         clear(hosts.fieldsHost);
+        clear(hosts.visualHost);
         clear(hosts.profilesHost);
         clear(hosts.editorHost);
         clear(hosts.validationHost);
