@@ -49,22 +49,21 @@ test('component planner consumes canonical upstream plan instead of a second pre
 test('check state carries a bounded plan token and update consumes the checked snapshot', () => {
   assert.match(resourceUpdate, /planToken/);
   assert.match(resourceUpdate, /ECHECK_STALE/);
-  assert.match(resourceUpdate, /manifest\.current/);
+  assert.match(resourceUpdate, /targetVersion/);
+  assert.match(resourceUpdate, /z2k-target-v2/);
   assert.match(resourceUpdate, /checkedAt/);
   const updateBody = resourceUpdate.slice(resourceUpdate.indexOf('export const resource_center_update'));
   assert.doesNotMatch(updateBody, /signedForZ2k\s*=\s*z2k_upstream_check\(\)/, 'apply must not perform a second network check');
-  assert.match(updateBody, /load_check_state/);
-  assert.match(updateBody, /planToken/);
+  assert.match(updateBody, /z2k_apply_prepared/);
+  assert.match(resourceUpdate.slice(resourceUpdate.indexOf('function z2k_apply_prepared')), /planToken/);
 });
 
-test('available release and activation receipt version come from manifest.current', () => {
-  const projection = resourceUpdate.slice(resourceUpdate.indexOf('function z2k_projection'), resourceUpdate.indexOf('function z2k_local_projection'));
-  assert.match(projection, /availableRelease:\s*known_release\(manifest\.current\)/);
-  const remoteVersionLine = resourceUpdate.match(/let remoteVersion\s*=([^;]+);/);
-  assert.ok(remoteVersionLine, 'Z2K update must define remoteVersion');
-  assert.match(remoteVersionLine[1], /manifest\.current/);
-  assert.doesNotMatch(remoteVersionLine[1], /signedForZ2k\.release/);
+test('available release and activation receipt version come from the selected catalog target', () => {
+  assert.match(resourceUpdate, /z2k_resolve_version\(version\)/);
+  assert.match(resourceUpdate, /targetVersion:\s*resolved\.version/);
+  assert.match(resourceUpdate, /sourceCommit:\s*target\.targetCommitSha/);
+  assert.match(resourceUpdate, /version:\s*target\.targetVersion/);
   const componentApply = component.slice(component.indexOf('export const z2k_component_apply'));
-  assert.match(componentApply, /let version\s*=\s*planned\.manifest\.current/);
-  assert.doesNotMatch(componentApply, /version:\s*request\.version/);
+  assert.match(componentApply, /ELEGACY_LIFECYCLE/);
+  assert.doesNotMatch(componentApply, /z2k_upstream_check\(\)|asset_registry_apply_bundle/);
 });

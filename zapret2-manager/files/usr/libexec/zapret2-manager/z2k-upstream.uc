@@ -26,7 +26,7 @@ function validate_manifest(value, rawSize) {
 	for (let name in names) { let path = name, digest = value.files_sha256[path]; if (!validate_path(path)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path.', { path: path }); if (type(digest) != 'string' || !match(lc(digest), /^[a-f0-9]{64}$/)) return fail('EVERIFY', 'UPDATES.json contains an invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
 	return { ok: true, manifest: value };
 }
-function classification() { let value = read_json(CLASSIFICATION); return type(value) == 'object' && value != null && value.schema == 'zapret2-manager.z2k-integration.v1' && type(value.files) == 'array' ? value : null; }
+function classification() { let value = read_json(CLASSIFICATION); if (type(value) != 'object' || value == null || value.schema != 'zapret2-manager.z2k-integration.v1' || type(value.files) != 'array') return null; for (let i = 0; type(value.historicalFiles) == 'array' && i < length(value.historicalFiles); i++) push(value.files, value.historicalFiles[i]); return value; }
 function class_for(value, path) { for (let item in value.files) if (item.sourcePath == path) return item; return null; }
 function installedShaFor(path) {
 	try {

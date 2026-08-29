@@ -155,10 +155,135 @@ function z2kLuaEvidence(value) {
     && lua.total > 0 && lua.ready === lua.total;
 }
 
+function normalizeZ2kCatalog(value) {
+  return array(value).map(function (item) {
+    item = object(item);
+    return {
+      version: first(item.version, null),
+      latest: item.latest === true,
+      installed: item.installed === true,
+      installable: item.installable === true,
+      unavailableReason: first(item.unavailableReason, null),
+      publishedAt: first(item.publishedAt, null)
+    };
+  }).filter(function (item) { return item.version !== null; });
+}
+
+function normalizeZ2kDetails(value) {
+  value = object(value);
+  function normalizeChanges(input) {
+    input = object(input);
+    function normalizeExplanation(value) {
+      value = object(value);
+      var source = value.source === 'repository-compare' || value.source === 'immutable-manifest' ? value.source : null;
+      var excerpts = array(value.excerpts).filter(function (item) { return typeof item === 'string' && item.trim(); });
+      if (!source || !excerpts.length) return null;
+      return {
+        source: source,
+        commitSha: first(value.commitSha, null),
+        commitSubject: first(value.commitSubject, null),
+        excerpts: excerpts,
+        excerptIndexes: array(value.excerptIndexes).filter(function (item) { return Number.isInteger(item) && item >= 0; }),
+        fullMessageAvailable: value.fullMessageAvailable === true,
+        relation: first(value.relation, null)
+      };
+    }
+    function normalizeCompareContext(value) {
+      return array(value).map(function (item) {
+        item = object(item);
+        return {
+          sha: first(item.sha || item.commitSha, null),
+          subject: first(item.subject || item.commitSubject, null),
+          paragraphs: array(item.paragraphs).filter(function (paragraph) { return typeof paragraph === 'string' && paragraph.trim(); })
+        };
+      }).filter(function (item) { return item.sha !== null && item.paragraphs.length > 0; });
+    }
+    function normalizeItems(value) {
+      return array(value).map(function (item) {
+        item = object(item);
+        var summary = typeof item.summary === 'string' && item.summary.trim() ? item.summary : null;
+        var summarySource = item.summarySource === 'immutable-manifest' || item.summarySource === 'repository-compare' ? item.summarySource : null;
+        var explanation = normalizeExplanation(item.explanation);
+        if (!explanation && summary && summarySource === 'immutable-manifest') explanation = {
+          source: 'immutable-manifest',
+          commitSha: null,
+          commitSubject: null,
+          excerpts: [summary],
+          excerptIndexes: [],
+          fullMessageAvailable: false,
+          relation: 'exact-path'
+        };
+        return {
+          id: first(item.id, null),
+          name: first(item.name || item.localName || item.id || item.sourcePath, null),
+          sourcePath: first(item.sourcePath, null),
+          type: first(item.type, null),
+          summary: summary,
+          summarySource: summarySource,
+          explanation: explanation
+        };
+      }).filter(function (item) {
+        return item.id !== null || item.name !== null || item.sourcePath !== null;
+      });
+    }
+    var hasNumericCounts = typeof input.modified === 'number' || typeof input.added === 'number' || typeof input.removed === 'number';
+    var known = input.known === true || (input.known === undefined && hasNumericCounts);
+    return {
+      known: known,
+      modified: known && typeof input.modified === 'number' ? input.modified : null,
+      added: known && typeof input.added === 'number' ? input.added : null,
+      removed: known && typeof input.removed === 'number' ? input.removed : null,
+      modifiedPaths: array(input.modifiedPaths),
+      addedPaths: array(input.addedPaths),
+      removedPaths: array(input.removedPaths),
+      modifiedItems: normalizeItems(input.modifiedItems),
+      addedItems: normalizeItems(input.addedItems),
+      removedItems: normalizeItems(input.removedItems),
+      compareContext: normalizeCompareContext(input.compareContext),
+      managedPaths: array(input.managedPaths),
+      unknown: array(input.unknown)
+    };
+  }
+  var legacyChanges = value.changes || {};
+  var releaseChanges = normalizeChanges(value.releaseChanges || legacyChanges);
+  var installChanges = normalizeChanges(value.installChanges || value.changes || value.releaseChanges || {});
+  var compareDiagnostics = value.compareDiagnostics && typeof value.compareDiagnostics === 'object' && !Array.isArray(value.compareDiagnostics)
+    ? value.compareDiagnostics : null;
+  return {
+    version: first(value.version, null),
+    releaseName: first(value.releaseName || value.version, null),
+    releaseBody: first(value.releaseBody, null),
+    publishedAt: first(value.publishedAt, null),
+    previousVersion: first(value.previousVersion, null),
+    installedVersion: first(value.installedVersion, null),
+    installable: value.installable === true,
+    unavailableReason: first(value.unavailableReason, null),
+    latest: value.latest === true,
+    installed: value.installed === true,
+    operation: first(value.operation, null),
+    targetCanApply: value.targetCanApply !== undefined ? value.targetCanApply === true : null,
+    targetAttentionState: first(value.targetAttentionState, null),
+    targetBlockingReasons: array(value.targetBlockingReasons),
+    targetReviewDetails: array(value.targetReviewDetails),
+    releaseChanges: releaseChanges,
+    installChanges: installChanges,
+    changes: installChanges,
+    compareUrl: first(value.compareUrl, null),
+    compareDiagnostics: compareDiagnostics ? {
+      requested: compareDiagnostics.requested === true,
+      requestCount: typeof compareDiagnostics.requestCount === 'number' ? compareDiagnostics.requestCount : null,
+      cache: first(compareDiagnostics.cache, null)
+    } : null
+  };
+}
+
 function normalizeZ2k(input, engineReady) {
   input = object(input);
 	var value = object(input.z2k || input.component || input);
 	var plan = object(value.plan);
+	var catalog = normalizeZ2kCatalog(value.catalog || input.catalog);
+	var selectedDetails = normalizeZ2kDetails(value.selectedDetails || input.selectedDetails);
+	var selectedVersion = first(value.selectedVersion || selectedDetails.version, null);
 	var remoteStatus = first(value.updateState || value.status || value.state, 'unknown');
 	var updateState = z2kUpdateState(remoteStatus);
 	var local = object(value.local);
@@ -260,8 +385,13 @@ function normalizeZ2k(input, engineReady) {
 		installedRelease = { value: null, confidence: 'unknown', authority: null };
 	}
 	var availableReleaseRaw = value.availableRelease || value.available;
+	var catalogLatest = catalog.filter(function (item) { return item.latest === true; })[0];
 	var availableRelease = availableReleaseRaw && typeof availableReleaseRaw === 'object'
 		? versionFrom(availableReleaseRaw) : first(availableReleaseRaw, null);
+	var latestRelease = availableRelease || catalogLatest && catalogLatest.version || (catalog[0] && catalog[0].version) || null;
+	if (selectedVersion === null) selectedVersion = installedRelease.value || latestRelease || null;
+	var preparedTarget = object(value.preparedTarget);
+	var operation = first(preparedTarget.operation || selectedDetails.operation, null);
 	var versionRaw = installedRelease.value;
 	return {
     id: 'z2k-core',
@@ -276,6 +406,16 @@ function normalizeZ2k(input, engineReady) {
 		compatibility: compatibilityStateValue,
 		installedRelease: installedRelease,
 		availableRelease: availableRelease,
+		latestRelease: latestRelease,
+		catalog: catalog,
+		selectedVersion: selectedVersion,
+		selectedDetails: selectedDetails.version ? selectedDetails : null,
+		preparedTarget: preparedTarget && preparedTarget.targetVersion ? {
+			targetVersion: first(preparedTarget.targetVersion, null),
+			operation: first(preparedTarget.operation, null),
+			preparedAt: preparedTarget.preparedAt !== undefined ? preparedTarget.preparedAt : null
+		} : null,
+		operation: operation,
 		checkedAt: timestamp(value.checkedAt),
 		planToken: planToken,
 		advisoryReviews: advisoryReviews,

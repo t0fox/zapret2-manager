@@ -1,3 +1,14 @@
+---
+id: tg-proxy-feed-lifecycle
+title: "Жизненный цикл провайдеров Telegram Proxy через GitHub Releases"
+type: adr
+status: current
+authority: approved-spec
+updated: 2026-08-24
+publish: true
+tags: [adr, telegram-proxy, lifecycle, github-releases]
+---
+
 # TG Proxy Provider Lifecycle — GitHub-Releases Updater (rev 2)
 
 Date: 2026-08-24

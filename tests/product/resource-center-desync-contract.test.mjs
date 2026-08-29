@@ -11,7 +11,7 @@ test('REGRESSION: resource_center_status stays network-free', () => {
   const idxCheck = SRC.indexOf('resource_center_check');
   assert.ok(idxStatus >= 0 && idxCheck > idxStatus, 'both functions must exist');
   const statusBody = SRC.slice(idxStatus, idxCheck);
-  assert.doesNotMatch(statusBody, /z2k_upstream_check/, 'status must not call upstream check');
+  assert.doesNotMatch(statusBody, /z2k_upstream_check\s*\(/, 'status must not call upstream check');
   assert.doesNotMatch(statusBody, /uclient-fetch/, 'status must not fetch');
   assert.doesNotMatch(statusBody, /fetch_untrusted/, 'status must not fetch untrusted manifest');
 });

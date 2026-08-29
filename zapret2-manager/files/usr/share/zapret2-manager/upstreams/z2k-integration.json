@@ -1179,5 +1179,73 @@
       "basedOnSha256": "e0b556e7c19847e30c260b97caae4e0998cac2d21acd467c9d4f97389903e489",
       "consumer": "not installed by Z2M; provenance only"
     }
+  ],
+  "historicalFiles": [
+    {
+      "sourcePath": "files/fake/4pda.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+      "localName": "runtime-assets/bin/4pda.bin",
+      "runtimeTarget": "/runtime-assets/bin/4pda.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/4pda.bin",
+      "consumer": "Z2M managed historical runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/http_iana_org.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "f77d1cdaff02b6311d4276eeb8479830ab777d8fce4a4b116135c7768f3a284a",
+      "localName": "runtime-assets/bin/http_iana_org.bin",
+      "runtimeTarget": "/runtime-assets/bin/http_iana_org.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/http_iana_org.bin",
+      "consumer": "Z2M managed historical runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_initial_ozon_ru.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "7458d074a6a860ee3762a0979c0aed87e1c10c40180498c5fa9c41693fcace1c",
+      "localName": "runtime-assets/bin/quic_initial_ozon_ru.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_initial_ozon_ru.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_ozon_ru.bin",
+      "consumer": "Z2M managed historical runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/quic_test_00.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "96032bf86c2cd113f793285516822702cab4f89cbd2b7356f9682843fbb5420e",
+      "localName": "runtime-assets/bin/quic_test_00.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_test_00.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_test_00.bin",
+      "consumer": "Z2M managed historical runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/fake/zero_256.bin",
+      "class": "exact-managed",
+      "type": "bin",
+      "basedOnSha256": "5341e6b2646979a70e57653007a1f310169421ec9bdd9f1a5648f75ade005af1",
+      "localName": "runtime-assets/bin/zero_256.bin",
+      "runtimeTarget": "/runtime-assets/bin/zero_256.bin",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/zero_256.bin",
+      "consumer": "Z2M managed historical runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lua/z2k-detectors.lua",
+      "class": "exact-managed",
+      "type": "lua",
+      "basedOnSha256": "c7702b2f1adb007176fe25ebe25cfedfd24827891e7883477340479fadf3eac4",
+      "localName": "runtime-assets/lua/z2k-detectors.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-detectors.lua",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-detectors.lua",
+      "consumer": "Z2M managed historical Lua asset resolver",
+      "requiredCapabilities": []
+    }
   ]
 }

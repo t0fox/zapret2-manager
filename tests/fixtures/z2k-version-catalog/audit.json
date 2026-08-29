@@ -1,0 +1,22 @@
+{
+  "repository": "necronicle/z2k",
+  "branch": "z2k-enhanced",
+  "generatedFrom": "git ls-remote refs/tags/r-* + tag commit manifests",
+  "versions": [
+    {
+      "version": "r-80.3",
+      "commitSha": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+      "manifest": { "current": "r-80.3", "seq": 48, "fileCount": 143, "exactManagedCount": 39,
+        "membership": "files/fake/active_discord_udp.bin|files/fake/quic_1.bin|files/fake/quic_4.bin|files/fake/quic_5.bin|files/fake/quic_6.bin|files/fake/quic_initial_dbankcloud_ru.bin|files/fake/quic_initial_rutracker_org.bin|files/fake/quic_initial_www_google_com.bin|files/fake/stun.bin|files/fake/syn_packet.bin|files/fake/t2.bin|files/fake/tls_clienthello_14.bin|files/fake/tls_clienthello_4pda_to.bin|files/fake/tls_clienthello_activated.bin|files/fake/tls_clienthello_gosuslugi_ru.bin|files/fake/tls_clienthello_max_ru.bin|files/fake/tls_clienthello_vk_com.bin|files/fake/tls_clienthello_www_google_com.bin|files/fake/tls_clienthello_www_onetrust_com.bin|files/lists/cf_extra_check_ips.txt|files/lists/extra_strats/TCP/RKN/Discord.txt|files/lists/extra_strats/TCP/RKN/List.txt|files/lists/extra_strats/TCP/YT_GV/List.txt|files/lists/extra_strats/TCP/YT/List.txt|files/lists/extra_strats/UDP/YT/List.txt|files/lists/extra-domains.txt|files/lists/ipset-exclude.txt|files/lists/meta-ranges.txt|files/lists/rkn-false-positive.txt|files/lists/telegram_ips.txt|files/lists/warp-endpoints.txt|files/lists/youtube_ips.txt|files/lists/youtube_ips6.txt|files/lua/z2k-alert.lua|files/lua/z2k-fooling-ext.lua|files/lua/z2k-modern-core.lua|files/lua/z2k-quic-silence.lua|files/lua/z2k-range-rand.lua|files/lua/z2k-state-persist.lua" }
+    },
+    { "version": "r-80.2", "commitSha": "c315afee5f6c200072104fee450e7f10623b68fa", "sameMembershipAs": "r-80.3", "manifest": { "current": "r-80.2", "seq": 47, "fileCount": 143, "exactManagedCount": 39 } },
+    { "version": "r-80.1", "commitSha": "a1007b92687f14a2d24628cd7724c2c902687c1b", "sameMembershipAs": "r-80.3", "manifest": { "current": "r-80.1", "seq": 46, "fileCount": 143, "exactManagedCount": 39 } },
+    { "version": "r-80", "commitSha": "251b67769ee0da42c80a901918052be3031f317a", "manifest": { "current": "r-80", "seq": 45, "fileCount": 143, "exactManagedCount": 38 }, "unsupportedReason": "incompatible-manager", "unknownRelevantPaths": ["files/fake/ACTIVE_DISCORD_UDP.bin"] },
+    { "version": "r-79.7", "commitSha": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c", "manifest": { "current": "r-79.7", "seq": 34, "fileCount": 145, "exactManagedCount": 37 }, "unsupportedReason": "incompatible-manager", "unknownRelevantPaths": ["files/fake/4pda.bin", "files/fake/http_iana_org.bin", "files/fake/quic_initial_ozon_ru.bin", "files/fake/quic_test_00.bin", "files/fake/zero_256.bin", "files/lua/z2k-detectors.lua"] },
+    { "version": "r-79.6", "commitSha": "1756a4385f6fdeacaafa8d0bf815fd285e90496e", "sameMembershipAs": "r-79.7", "manifest": { "current": "r-79.6", "seq": 33, "fileCount": 145, "exactManagedCount": 37 }, "unsupportedReason": "incompatible-manager" },
+    { "version": "r-79.5", "commitSha": "89b41fd1cd019e0bc5c6f45ffd8aaf8194d9828d", "sameMembershipAs": "r-79.7", "manifest": { "current": "r-79.5", "seq": 33, "fileCount": 145, "exactManagedCount": 37 }, "unsupportedReason": "incompatible-manager" },
+    { "version": "r-79.4", "commitSha": "dfe2cf2d1946213451f39547a7215f6760e2658b", "sameMembershipAs": "r-79.7", "manifest": { "current": "r-79.4", "seq": 32, "fileCount": 145, "exactManagedCount": 37 }, "unsupportedReason": "incompatible-manager" },
+    { "version": "r-79.2", "commitSha": "621fed23361f7a3493ecd59547117b2350c7d30a", "sameMembershipAs": "r-79.7", "manifest": { "current": "r-79.2", "seq": 30, "fileCount": 145, "exactManagedCount": 37 }, "unsupportedReason": "incompatible-manager" },
+    { "version": "r-79.1", "commitSha": "f9d4a147090baaafa193198fbcea61ae6a03d27a", "sameMembershipAs": "r-79.7", "manifest": { "current": "r-79.1", "seq": 29, "fileCount": 145, "exactManagedCount": 37 }, "unsupportedReason": "incompatible-manager" }
+  ]
+}

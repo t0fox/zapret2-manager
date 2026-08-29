@@ -1,0 +1,1278 @@
+{
+  "schema": 1,
+  "capturedAt": "2026-08-28",
+  "candidate": {
+    "branch": "codex/z2k-version-lifecycle",
+    "sha": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
+    "sourceSha": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
+    "worktreeClean": true
+  },
+  "baseline": {
+    "router": "192.168.1.1",
+    "installedAuthority": {
+      "value": "r-79.7",
+      "confidence": "confirmed",
+      "authority": "activation-receipt"
+    },
+    "registry": {
+      "revision": 7,
+      "lifecycleAssetCount": 43,
+      "lifecycleAssets": [
+        {
+          "id": "lua:z2k-modern-core",
+          "sha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7",
+          "byteSize": 24878,
+          "revision": 5
+        },
+        {
+          "id": "lua:z2k-state-persist",
+          "sha256": "df4d6c1429a727deaf182762807f23841e6f7df1243264158c6d420188953576",
+          "byteSize": 41832,
+          "revision": 6
+        },
+        {
+          "id": "lua:z2k-alert",
+          "sha256": "bc8fd3b2d1fdac3fb5658a3b47a39b3ea35e7091a24c007438fb0c7d3451ed51",
+          "byteSize": 33305,
+          "revision": 7
+        },
+        {
+          "id": "lua:z2k-quic-silence",
+          "sha256": "3080b592cee163c99eb60ebc1a074fd66f5d04d822821d066a358c455e50dde3",
+          "byteSize": 8786,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_1",
+          "sha256": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_4",
+          "sha256": "0e53683f2408bab1f52bc3db10c11b3a2bf238f68db64f4d0ea8aff37e07a61d",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_5",
+          "sha256": "a7ea947b0efe4690b91f6180ff16c0f750443901f0f6310d94dca9f0b8606dac",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_6",
+          "sha256": "97f544d62aaa0d85db91dbb611a3e1782647dda243777417d57096ed7e668a1c",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_initial_dbankcloud_ru",
+          "sha256": "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df",
+          "byteSize": 1357,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_initial_rutracker_org",
+          "sha256": "d5d77f90ff45489d246bd447c3e9f28e98891e206dc17c79d4de1da6bd0f18e8",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:quic_initial_www_google_com",
+          "sha256": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a",
+          "byteSize": 1200,
+          "revision": 5
+        },
+        {
+          "id": "blob:stun",
+          "sha256": "9cd5469309780ca56c0bd97266524a48c7ee529d02c3179cfecb20b260a59641",
+          "byteSize": 100,
+          "revision": 5
+        },
+        {
+          "id": "blob:syn_packet",
+          "sha256": "92b092ff4f9c18263ba17c108bf224f99ab6c8ede28353893504937a28dc161a",
+          "byteSize": 32,
+          "revision": 5
+        },
+        {
+          "id": "blob:t2",
+          "sha256": "d4a111b9a9497f185283d1ff480a92db08372c2c2a3af8bd868ff798e64c2da7",
+          "byteSize": 192,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_14",
+          "sha256": "72c0bbc8d02077e28f8b41574a0673ebbdcfb4a86274c3468160b11a320e17d1",
+          "byteSize": 228,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_4pda_to",
+          "sha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+          "byteSize": 284,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_activated",
+          "sha256": "f2162ff9d4ac745729f4c32c2182a84988b553ca511fb2a620fd2981fe25be6e",
+          "byteSize": 655,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_gosuslugi_ru",
+          "sha256": "ec581c9877ebc4b69e6cdab48f46e0f7b0eeb67c5fefe849f21525faa1ff4f74",
+          "byteSize": 517,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_max_ru",
+          "sha256": "741bf7660081fe572f93582735d2c36ffbb93a0e59ff8bd7a6bced05ca8ade49",
+          "byteSize": 193,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_vk_com",
+          "sha256": "d6d63c53bc0e1d97e913a43fc4db34f6558bb807228bf6100e3b6863f0720404",
+          "byteSize": 517,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_www_google_com",
+          "sha256": "936c2bee4cfb80aa3c426b2dcbcc834b3fbcd1adb17172959dc569c73a14275c",
+          "byteSize": 681,
+          "revision": 5
+        },
+        {
+          "id": "blob:tls_clienthello_www_onetrust_com",
+          "sha256": "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624",
+          "byteSize": 664,
+          "revision": 5
+        },
+        {
+          "id": "blob:cf_extra_check_ips",
+          "sha256": "79ffc4803151f5ded1de96d7dc1ecaba37ec2e4b2bb7985cecf8c7ff8da68975",
+          "byteSize": 14,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra-domains",
+          "sha256": "744c86618b146e9f709235a58560285eb5f7e455eab842cce55d1d191e96f6f5",
+          "byteSize": 2049,
+          "revision": 5
+        },
+        {
+          "id": "blob:discord",
+          "sha256": "a56b277a06466c6a6152d7a48c17010629ae6f50c038a55b9d3889202bc9a7f1",
+          "byteSize": 387,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_tcp_rkn_list",
+          "sha256": "e8c04588571fc5fbd798c255c5d39ac34af9855d86802f2dfbca97e5f3f251b2",
+          "byteSize": 1893432,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_tcp_yt_list",
+          "sha256": "e9d2e1e18d2d7a73485b506306721171e0c264feed3546b6d964cc213eef191c",
+          "byteSize": 2728,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_tcp_yt_gv_list",
+          "sha256": "1ef28791f0404ee91a98fbe531c765b3909f36fd66991602fedbb99e46c04df1",
+          "byteSize": 33,
+          "revision": 5
+        },
+        {
+          "id": "blob:extra_strats_udp_yt_list",
+          "sha256": "4f7afee22e947ca0b28465f55ee58b746acb68187407740b0de380ba549fd26e",
+          "byteSize": 295,
+          "revision": 5
+        },
+        {
+          "id": "blob:ipset-exclude",
+          "sha256": "5570916896d740f962e7fd10e23c0784bbb78b7ce701497386fa8ccd092b27ae",
+          "byteSize": 130,
+          "revision": 5
+        },
+        {
+          "id": "blob:meta-ranges",
+          "sha256": "b81609ca7944494664880f4fb68c2d56ae82ddc0358fe93709042837ee307a0e",
+          "byteSize": 815,
+          "revision": 5
+        },
+        {
+          "id": "blob:rkn-false-positive",
+          "sha256": "39d67b97698763e023c31c31ed1fa28856911518e07f2aebb728438695e568ee",
+          "byteSize": 1615,
+          "revision": 5
+        },
+        {
+          "id": "blob:telegram_ips",
+          "sha256": "e6a64d3224dc507f6b9faf50dadf7f1594f056de5a1d5b2f02fd8f5d880851b8",
+          "byteSize": 335,
+          "revision": 5
+        },
+        {
+          "id": "blob:youtube_ips",
+          "sha256": "e3118339de975d0a13c17c0cbb99e4f968a217dd579f30f94f71bd37cd2180e7",
+          "byteSize": 8779,
+          "revision": 5
+        },
+        {
+          "id": "blob:youtube_ips6",
+          "sha256": "d51f5e44b989b503729ae35b79cf80adf7e47ac96fde42d785e0ba6e501c28cb",
+          "byteSize": 15877,
+          "revision": 5
+        },
+        {
+          "id": "lua:z2k-fooling-ext",
+          "sha256": "4b5efb6672f54dbe4d04440066f06e84d92e43c8534cdfb88d136028e6d8231f",
+          "byteSize": 2714,
+          "revision": 5
+        },
+        {
+          "id": "lua:z2k-range-rand",
+          "sha256": "073c24d9133484b9f2282f1e398b5963eb577b483c1cab8c29cfd6e7bf8acd9a",
+          "byteSize": 5040,
+          "revision": 5
+        },
+        {
+          "id": "blob:4pda",
+          "sha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8",
+          "byteSize": 284,
+          "revision": 2
+        },
+        {
+          "id": "blob:http_iana_org",
+          "sha256": "f77d1cdaff02b6311d4276eeb8479830ab777d8fce4a4b116135c7768f3a284a",
+          "byteSize": 418,
+          "revision": 2
+        },
+        {
+          "id": "blob:quic_initial_ozon_ru",
+          "sha256": "7458d074a6a860ee3762a0979c0aed87e1c10c40180498c5fa9c41693fcace1c",
+          "byteSize": 1200,
+          "revision": 2
+        },
+        {
+          "id": "blob:quic_test_00",
+          "sha256": "96032bf86c2cd113f793285516822702cab4f89cbd2b7356f9682843fbb5420e",
+          "byteSize": 144,
+          "revision": 2
+        },
+        {
+          "id": "blob:zero_256",
+          "sha256": "5341e6b2646979a70e57653007a1f310169421ec9bdd9f1a5648f75ade005af1",
+          "byteSize": 256,
+          "revision": 2
+        },
+        {
+          "id": "lua:z2k-detectors",
+          "sha256": "c7702b2f1adb007176fe25ebe25cfedfd24827891e7883477340479fadf3eac4",
+          "byteSize": 92129,
+          "revision": 2
+        }
+      ],
+      "activationReceipts": [
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-79.7",
+          "sourceCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+          "assetCount": 43,
+          "activatedAt": 1787915429
+        },
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-80.3",
+          "sourceCommit": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+          "assetCount": 39,
+          "activatedAt": 1787921230
+        },
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-79.7",
+          "sourceCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+          "assetCount": 43,
+          "activatedAt": 1787921578
+        },
+        {
+          "bundleId": "z2k-curated-lua",
+          "version": "r-79.7",
+          "sourceCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+          "assetCount": 43,
+          "activatedAt": 1787921679
+        }
+      ]
+    },
+    "service": {
+      "state": "running",
+      "pid": 7943,
+      "queue": 300,
+      "queueRegistered": true,
+      "ownerMatches": true,
+      "appliedMatch": true,
+      "argvSha256": "5bdd9e3db797cf0f4715be1a7a981c3c427b058a35f102965bd81130b96d8f31",
+      "strategyId": "z2k_all_in_one",
+      "strategyConfigSha256": "26c96c5a9655a3fe1949b157f5d6b8a976d0621d5e04db45f066543c04ed5cfa",
+      "strategyMatch": true,
+      "autocircularState": {
+        "path": "/tmp/z2k-autocircular-state.tsv",
+        "sha256": "333bae264f275466214239ab8fea124e9e89877e4cf19e99b22b7bc4adf3262b",
+        "lines": 1907
+      }
+    }
+  },
+  "postDeploy": {
+    "sourceFiles": [
+      {
+        "path": "/usr/libexec/zapret2-manager/asset-registry.uc",
+        "sha256": "8731ba58f5b438701bd3d64731399731bbc95975c94a9ac5d63fb584d7cd583d"
+      },
+      {
+        "path": "/usr/libexec/zapret2-manager/resource-update.uc",
+        "sha256": "fbdc4a601c22a309998cdfb5b131413073c7d33b14ad60920448e0f41855a3aa"
+      },
+      {
+        "path": "/usr/libexec/zapret2-manager/z2k-versions.uc",
+        "sha256": "3090dc21a6ad7309937fc265b51f5e56d3fe033934bfe2f65daae2fb41a1d3bc"
+      },
+      {
+        "path": "/www/luci-static/resources/view/zapret2-manager/z2m-assets.js",
+        "sha256": "40aac1a63bdb06c8de1d3de4690bd19d7d48030c620995533c99574db78d6d80"
+      },
+      {
+        "path": "/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js",
+        "sha256": "2324243f2b61b53fc4257be3cdbcb3f7976de7216f76db2db1a986e0830c044d"
+      }
+    ],
+    "mode": "root:root 0644",
+    "httpFrontendHashesMatch": true,
+    "backendImports": true,
+    "negativeBackendProof": {
+      "id": "lua:z2k-modern-core",
+      "before": {
+        "revision": 5,
+        "sha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7",
+        "management": {
+          "owner": "z2k-core",
+          "mode": "lifecycle",
+          "editable": false,
+          "deletable": false
+        }
+      },
+      "update": {
+        "code": "EPOLICY"
+      },
+      "delete": {
+        "code": "EPOLICY"
+      },
+      "after": {
+        "revision": 5,
+        "sha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7"
+      }
+    },
+    "service": {
+      "state": "running",
+      "pid": 7943,
+      "queue": 300,
+      "queueRegistered": true,
+      "ownerMatches": true,
+      "appliedMatch": true,
+      "argvSha256": "5bdd9e3db797cf0f4715be1a7a981c3c427b058a35f102965bd81130b96d8f31",
+      "strategyId": "z2k_all_in_one",
+      "strategyConfigSha256": "26c96c5a9655a3fe1949b157f5d6b8a976d0621d5e04db45f066543c04ed5cfa",
+      "strategyMatch": true,
+      "runtimeHashes": {
+        "/opt/zapret2/lua/z2k-modern-core.lua": "3ca245e836570ebe618300f77e73b52a2b0cb91b677902991805e92f20676e91",
+        "/opt/zapret2/lua/z2k-detectors.lua": "48f1faa21c5470a119d57a2b3461ce92e0359767d59b9e19f82f1552a203110d",
+        "/opt/zapret2/lua/z2k-state-persist.lua": "51c01887fc5ca3ac53b9db105d08d03eb156d75914705f316b7751fe4c79f3d9",
+        "/opt/zapret2/files/fake/quic_1.bin": "f4589c57749f956bb30538197a521d7005f8b0a8723b4707e72405e51ddac50a"
+      },
+      "autocircularState": {
+        "path": "/tmp/z2k-autocircular-state.tsv",
+        "sha256": "2885e74f8498218ac38cf75cb3f51a696c7abee5a287d6f1449d628d66f27b59",
+        "lines": 1918,
+        "note": "runtime state is mutable under live traffic"
+      }
+    }
+  },
+  "browser": {
+    "resourcesSummary": "43 ресурса · 0 пользовательских · Доступно обновление",
+    "lifecycleWorkspace": {
+      "owner": "Управляется Z2K Core",
+      "management": "Lifecycle: только через Компоненты",
+      "editorTabPresent": false,
+      "textboxPresent": false,
+      "viewerLoaded": true
+    },
+    "components": {
+      "installed": "r-79.7",
+      "latest": "r-80.3",
+      "compatibility": "Подтверждена",
+      "integrity": "Подтверждена"
+    },
+    "cacheDisabledReload": true,
+    "loadedModelSha256": "2324243f2b61b53fc4257be3cdbcb3f7976de7216f76db2db1a986e0830c044d"
+  },
+  "broadComparison": {
+    "command": "node --test --test-reporter=tap tests/product tests/ui filtered by z2k|resources|system-components",
+    "baseline": {
+      "commit": "f0e04b0f4bb64680b8c5bb2767d825b7e18d7508",
+      "tests": 213,
+      "pass": 200,
+      "fail": 11,
+      "skipped": 2,
+      "exit": 1
+    },
+    "candidate": {
+      "commit": "a32364e7fac448958fcad684ad7ac2f297eee4bb",
+      "tests": 223,
+      "pass": 210,
+      "fail": 11,
+      "skipped": 2,
+      "exit": 1
+    },
+    "failingTestNameSetEqual": true,
+    "candidateOnlyFailures": 0
+  },
+  "lifecycleOperations": {
+    "upgrade": {
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "status": "failed-rolled-back",
+      "path": "Components UI",
+      "confirmation": "confirmed in browser dialog",
+      "prepare": {
+        "targetVersion": "r-80.3",
+        "operation": "upgrade",
+        "assetCount": 39,
+        "removedCount": 6,
+        "targetCanApply": true,
+        "attentionState": "review-advisory",
+        "planToken": "z2k-target-v2:6a12ec324e5ba58f2882327e98d35f8f1cd1d38e32675d2db97acf6221c5252a",
+        "resolution": "selected-tag"
+      },
+      "apply": {
+        "errorCode": "ERUNTIME",
+        "message": "Z2K runtime activation was rolled back; Registry state was restored.",
+        "runtimeErrorCode": "EVERIFY",
+        "runtimeMessage": "Registry removal target has no safe runtime mapping.",
+        "blockingAssetId": "blob:4pda",
+        "planned": 39,
+        "downloaded": 39,
+        "verified": 39,
+        "staged": 39,
+        "applied": 39,
+        "removed": 6,
+        "postflightMatched": 39,
+        "registryPostflight": true,
+        "runtimePostflightVerified": false,
+        "rollbackOk": true,
+        "runtimeRollback": "skipped",
+        "registryRestoredAuthority": "r-79.7",
+        "rollbackAvailable": false
+      },
+      "postRollback": {
+        "installedAuthority": "r-79.7",
+        "registryRevision": 7,
+        "lifecycleAssetCount": 43,
+        "serviceState": "running",
+        "pid": 7943,
+        "queue": 300,
+        "queueRegistered": true,
+        "ownerConflict": false,
+        "strategyId": "z2k_all_in_one",
+        "configSha256": "26c96c5a9655a3fe1949b157f5d6b8a976d0621d5e04db45f066543c04ed5cfa",
+        "runtimeHashesUnchanged": true,
+        "preparedTargetRetained": {
+          "targetVersion": "r-80.3",
+          "operation": "upgrade",
+          "preparedAt": 1787938569
+        }
+      },
+      "blocker": "The selected r-80.3 removal set contains blob:4pda without a safe runtime mapping; no speculative fix was applied."
+    },
+    "downgrade": {
+      "from": "r-80.3",
+      "to": "r-79.7",
+      "status": "not-run",
+      "reason": "stopped after the UI upgrade failed and rolled back"
+    },
+    "reinstall": {
+      "version": "r-79.7",
+      "status": "not-run",
+      "reason": "stopped after the UI upgrade failed and rolled back"
+    }
+  },
+  "followUp": {
+    "commit": "71616247bec3594b586011ad549d5e19fae2d706",
+    "sourceFile": "zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc",
+    "sourceSha256": "dc64c09cc1699577722c6f6fde16113218da26ec6a19313bfefb6384677af509",
+    "remoteBranchEqual": true,
+    "focusedGate": {
+      "tests": 67,
+      "pass": 67,
+      "fail": 0
+    },
+    "router": {
+      "sourceOnlyDeployment": true,
+      "rpcdReloaded": true,
+      "installedAuthority": "r-79.7",
+      "registryRevision": 7,
+      "preparedTarget": null,
+      "luaReady": 7,
+      "luaTotal": 7,
+      "integrity": "verified",
+      "statusOk": true
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "loginRecovered": true,
+      "passwordEntered": false,
+      "prepareStatus": "blocked-before-confirmation",
+      "errorCode": "EUNAVAILABLE",
+      "message": "Не удалось получить immutable tag выбранного release.",
+      "diagnostics": {
+        "requestCount": 1,
+        "restRequestCount": 1,
+        "resolution": "selected-tag"
+      }
+    },
+    "githubRateLimit": {
+      "httpStatus": 403,
+      "coreLimit": 60,
+      "coreRemaining": 0,
+      "resetAtMsk": "2026-08-28 22:54:39"
+    },
+    "previousRuntimeErrorRootCause": "UCode join arguments were reversed, producing a null activation spec; fixed by 71616247.",
+    "verdict": "not-ready"
+  },
+  "apk": {
+    "status": "not-built",
+    "reason": "explicitly forbidden by user; temporary build was stopped and removed"
+  },
+  "finalUpdate": {
+    "date": "2026-08-29",
+    "implementationCommits": [
+      "eaa00fbb2001e662a28c3f3ee7ebd3b8acc9ea89",
+      "a9bb6240457c733a91138e6ed42bd4ed89fd455c"
+    ],
+    "executionEnvironment": "WSL Ubuntu with native OpenWrt UCode",
+    "focusedGate": {
+      "command": "timeout 180s node --test tests/product/z2k-materialization.test.mjs tests/product/z2k-full-lifecycle-review.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs tests/product/z2k-installed-release-authority.test.mjs",
+      "tests": 61,
+      "pass": 61,
+      "fail": 0,
+      "skipped": 0,
+      "nativeUcode": true
+    },
+    "nativeResolverCases": {
+      "A": "pass",
+      "B": "pass",
+      "C": "pass",
+      "D": "pass",
+      "E": "pass"
+    },
+    "broadGate": {
+      "command": "timeout 240s node --test tests/product/z2k-*.test.mjs tests/ui/z2k-*.test.mjs",
+      "tests": 131,
+      "pass": 127,
+      "fail": 4,
+      "skipped": 0,
+      "candidateOnlyFailures": "not established against a same-command baseline; failures are known baseline or environment gates"
+    },
+    "router": {
+      "sourceOnlyDeployment": true,
+      "hashes": {
+        "resource-update.uc": "ca5814331cfd7a9a8202d1d36ba8634ad283a77526e3ccc2e93c61c96d007390",
+        "z2k-versions.uc": "3653538761fc883e555724d321a518a73035e1969706c0832495913cc25b9978",
+        "strategy-runtime-assets-sync.sh": "7457c235d5d36c9ed5a0ad60541403a575fa35620686b13af99a472a5ffee213"
+      },
+      "installedAuthority": "r-79.7",
+      "registryRevision": 7,
+      "receipts": 4,
+      "preparedTarget": null,
+      "integrity": "verified",
+      "luaReady": 7,
+      "luaTotal": 7,
+      "nfqws2": "running",
+      "queue": 300,
+      "runtimeModeFixVerified": "0755",
+      "recoveryRollback": true
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "loginRecovered": true,
+      "upgradeRetry": {
+        "from": "r-79.7",
+        "to": "r-80.3",
+        "status": "confirmed-but-no-success",
+        "registryChanged": false,
+        "installedAfter": "r-79.7",
+        "preparedTargetAfter": null
+      },
+      "downgrade": {
+        "status": "not-run"
+      },
+      "reinstall": {
+        "status": "not-run"
+      }
+    },
+    "apk": {
+      "status": "not-built"
+    },
+    "verdict": "not-ready",
+    "blockers": [
+      "Fresh Components UI upgrade retry did not produce a successful mutation; Registry remained r-79.7. Downgrade and reinstall were not run."
+    ]
+  },
+  "frontendTimeoutFix": {
+    "date": "2026-08-29",
+    "rootCause": {
+      "class": "CASE_A",
+      "layer": "LuCI RPC transport",
+      "evidence": [
+        "Components UI sent resources_update after the user confirmed the prepared target",
+        "Network.loadingFailed reported canceled=true and net::ERR_ABORTED at 20.009981 seconds",
+        "Router-served rpc.js sets timeout to (L.env.rpctimeout ?? 20) * 1000",
+        "rpc.declare timeout options are ignored by the served rpc.js transport",
+        "Router staging existed after the browser abort while Registry remained revision 7"
+      ],
+      "frontendLoadTimeoutHypothesis": "Partially true at the transport layer; the actual boundary was the 20 second LuCI rpctimeout before the maintenance LOAD_TIMEOUT_MS=30000 boundary.",
+      "backendErrorBody": "not-captured-after-browser-cancel",
+      "registryApplied": false
+    },
+    "fix": {
+      "commit": "29c3dab1",
+      "files": [
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js",
+        "tests/product/z2k-frontend-timeout-contract.test.mjs"
+      ],
+      "mutationTimeoutMs": 180000,
+      "pageLoadTimeoutMs": 30000,
+      "transportTimeoutMs": 180000,
+      "oneShotPreparedTargetPreserved": true,
+      "structuredBackendErrorPreserved": true
+    },
+    "tdd": {
+      "red": "2 tests failed before the frontend fix",
+      "green": "2 tests passed after the frontend fix"
+    },
+    "focusedGate": {
+      "tests": 63,
+      "pass": 63,
+      "fail": 0,
+      "skipped": 0,
+      "nativeUcode": true
+    },
+    "broadParity": {
+      "command": "timeout 240s node --test tests/product/z2k-*.test.mjs tests/ui/z2k-*.test.mjs",
+      "baseline": {
+        "tests": 105,
+        "pass": 101,
+        "fail": 4,
+        "skipped": 0,
+        "exitCode": 1
+      },
+      "candidate": {
+        "tests": 133,
+        "pass": 129,
+        "fail": 4,
+        "skipped": 0,
+        "exitCode": 1
+      },
+      "candidateOnlyFailures": 0,
+      "sameFailureSet": true,
+      "note": "Four known failures remain: stale candidate compatibility assertion, signed-update fixture assertion, upstream-classification expectation, and missing vitest dependency."
+    },
+    "liveAttempt": {
+      "provider": "Codex in-app Browser",
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "prepare": {
+        "status": "success",
+        "preparedAt": 1787954353,
+        "planTokenPrefix": "z2k-target-v2:7bf8c5d1",
+        "targetCommitSha": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+        "assetCount": 39,
+        "removedCount": 6,
+        "requestCount": 3,
+        "restRequestCount": 2,
+        "resolution": "selected-tag"
+      },
+      "confirm": {
+        "status": "confirmed",
+        "requestId": "25148.973",
+        "sentAt": 1787954472.98572
+      },
+      "rpc": {
+        "method": "resources_update",
+        "transportStatus": 200,
+        "browserAbortAfterMs": 20010,
+        "networkError": "net::ERR_ABORTED",
+        "responseBody": "not-captured"
+      },
+      "routerAfter": {
+        "authority": "r-79.7",
+        "registryRevision": 7,
+        "preparedTarget": null,
+        "receiptVersions": [
+          "r-79.7",
+          "r-80.3",
+          "r-79.7",
+          "r-79.7"
+        ],
+        "stagingObservedAfterAbort": true,
+        "stagingEventuallyCleaned": true,
+        "nfqws2": "running",
+        "queue": 300
+      },
+      "durationMs": 20010,
+      "result": "transport-timeout-before-observable-backend-result"
+    },
+    "verdict": "not-ready",
+    "blocker": "The fresh Components UI upgrade still did not produce a successful lifecycle result; no downgrade or reinstall was run."
+  },
+  "freshAttemptAfterFix": {
+    "date": "2026-08-29",
+    "sourceOnlyDeployment": {
+      "commit": "29c3dab1",
+      "files": [
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js"
+      ],
+      "routerSha256": {
+        "z2m-api.js": "7fd01be31f1b7dfbd67aa3023825b17e8957c989f167ba0b020ced12df49aa44",
+        "z2m-maintenance.js": "ac65b80fe0e4b50aa9cf9617e5876b521ea4386111925d360a7741906df1c9ae"
+      },
+      "httpSha256MatchesSource": true,
+      "ownershipMode": "root:root 0644",
+      "rpcdReloaded": true,
+      "wslRouterNetwork": "unreachable; Windows OpenSSH used for router transport",
+      "apk": "not-built"
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "cacheDisabledHardReload": true,
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "prepare": {
+        "status": "success",
+        "preparedAt": 1787956028,
+        "planTokenPrefix": "z2k-target-v2:88fb4057",
+        "targetCommitSha": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+        "assetCount": 39,
+        "removedCount": 6,
+        "resolution": "selected-tag"
+      },
+      "confirm": {
+        "status": "confirmed",
+        "sentAt": 1787956058177,
+        "requestId": "25148.1060",
+        "rpcId": 100001
+      },
+      "transport": {
+        "status": "loadingFinished",
+        "durationMs": 27153,
+        "networkAbort": false,
+        "responseBodyCaptured": true
+      },
+      "result": "backend-error-after-transport-fix"
+    },
+    "backend": {
+      "errorCode": "EROLLBACK",
+      "message": "Z2K runtime activation failed and rollback could not be completed.",
+      "runtime": {
+        "code": "ERUNTIME",
+        "message": "nfqws2 is not running after Z2K activation.",
+        "pid": "",
+        "output": ""
+      },
+      "rollback": {
+        "ok": false,
+        "registryRestored": true,
+        "rollbackAvailable": false
+      },
+      "diagnostics": {
+        "planned": 39,
+        "downloaded": 39,
+        "verified": 39,
+        "staged": 39,
+        "applied": 39,
+        "removed": 6,
+        "postflightMatched": 39
+      }
+    },
+    "routerAfter": {
+      "installedAuthority": "r-79.7",
+      "authorityConfidence": "confirmed",
+      "registryRevision": 7,
+      "preparedTarget": null,
+      "integrity": "verified",
+      "luaReady": 7,
+      "luaTotal": 7,
+      "engine": "running",
+      "nfqws2": "running",
+      "queue": 300,
+      "stagingDirectoryCount": 8,
+      "nonHybrid": true
+    },
+    "downgrade": "not-run",
+    "reinstall": "not-run",
+    "verdict": "not-ready",
+    "blocker": "Backend runtime activation cannot keep nfqws2 running after target activation, and rollback reports failure."
+  },
+  "readinessAttemptAfterFix": {
+    "date": "2026-08-29",
+    "sourceOnlyDeployment": {
+      "implementationCommit": "25a03b45c8217243601c8cf7e138926b0df22cc0",
+      "cleanupFixCommit": "a90658fa85d72a56612528d4ac6ebfa5b27f7a44",
+      "file": "zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc",
+      "routerSha256": "ff51ecc906d54a5dae55adb915652b8bda5e7687da3beaf720daa8e3e35fb412",
+      "ownershipMode": "root:root 0644",
+      "rpcdReload": {
+        "outputIncludedSegmentationFault": true,
+        "retried": false,
+        "postflightProcessAlive": true,
+        "postflightResourcesStatusReadable": true
+      },
+      "wslRouterNetwork": "unreachable; Windows OpenSSH used for router transport",
+      "apk": "not-built"
+    },
+    "browser": {
+      "provider": "Codex in-app Browser",
+      "path": "Components UI",
+      "cacheDisabledState": true,
+      "from": "r-79.7",
+      "to": "r-80.3",
+      "confirmation": "confirmed once in visible browser dialog",
+      "targetCommitSha": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+      "targetAssetCount": 39,
+      "targetRemovalCount": 6,
+      "uiResult": "no-success-state; installed release remained r-79.7",
+      "structuredErrorBody": "not-captured-after-transient-toast-expired"
+    },
+    "routerDuringAttempt": {
+      "events": [
+        {
+          "ts": "2026-08-28T23:07:02Z",
+          "message": "nft table zapret2 missing or empty"
+        },
+        {
+          "ts": "2026-08-28T23:07:04Z",
+          "message": "nfqws2 process gone; recovery start rc=0"
+        }
+      ],
+      "exactObservedBlocker": "candidate runtime did not remain ready after activation"
+    },
+    "routerAfter": {
+      "nfqws2": "running",
+      "pid": 452,
+      "queue": 300,
+      "queueOwnerPid": 452,
+      "nftQueueRule": true,
+      "installedAuthority": "r-79.7",
+      "authorityConfidence": "confirmed",
+      "registryRevision": 7,
+      "integrity": "verified",
+      "luaReady": 7,
+      "luaTotal": 7,
+      "preparedTarget": null,
+      "nonHybrid": true,
+      "strategyPreserved": true
+    },
+    "staging": {
+      "directoryCountBefore": 8,
+      "directoryCountAfter": 9,
+      "newDirectory": "/tmp/z2m-resource-update/stage.mjiljL",
+      "leftoverFile": "runtime-activation.tsv",
+      "cleanupFix": "source-tested-and-deployed; not-live-revalidated-after-stop-gate"
+    },
+    "verification": {
+      "readinessTests": 6,
+      "focusedTests": 68,
+      "focusedPassed": 68,
+      "focusedFailed": 0,
+      "nativeOpenWrtUcode": true,
+      "broadCandidateOnlyFailures": 0
+    },
+    "downgrade": "not-run",
+    "reinstall": "not-run",
+    "verdict": "not-ready",
+    "blockers": [
+      "Fresh r-80.3 runtime activation did not remain ready; router evidence shows nft table loss and nfqws2 process exit during the attempt.",
+      "Downgrade and reinstall were not run because the approved sequence stops after a failed upgrade."
+    ]
+  },
+  "finalLifecycleGate": {
+    "date": "2026-08-29",
+    "provider": "Codex in-app Browser",
+    "apk": "not-built",
+    "cliLifecycleMutation": "not-used",
+    "operations": [
+      {
+        "operation": "upgrade",
+        "from": "r-79.7",
+        "to": "r-80.3",
+        "job": "z2k-1787965701-af29beb70f4393de",
+        "targetCommit": "8f3787aa999dd00ffe76871c5f343a1c049973b1",
+        "freshPrepare": true,
+        "confirmedInBrowser": true,
+        "phase": "completed",
+        "planned": 39,
+        "downloaded": 39,
+        "verified": 39,
+        "staged": 39,
+        "applied": 39,
+        "removed": 6,
+        "postflightMatched": 39,
+        "runtimePostflight": { "ok": true, "verified": true, "matched": 39, "removed": 6 },
+        "rollbackAvailable": true,
+        "cleanup": { "pauseReleased": true, "lockReleased": true }
+      },
+      {
+        "operation": "downgrade",
+        "from": "r-80.3",
+        "to": "r-79.7",
+        "job": "z2k-1787966219-a6dac665f7d6a2bd",
+        "targetCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+        "freshPrepare": true,
+        "confirmedInBrowser": true,
+        "phase": "completed",
+        "planned": 43,
+        "downloaded": 43,
+        "verified": 43,
+        "staged": 43,
+        "applied": 43,
+        "removed": 2,
+        "postflightMatched": 43,
+        "runtimePostflight": { "ok": true, "verified": true, "matched": 43, "removed": 2 },
+        "rollbackAvailable": true,
+        "cleanup": { "pauseReleased": true, "lockReleased": true }
+      },
+      {
+        "operation": "reinstall",
+        "from": "r-79.7",
+        "to": "r-79.7",
+        "job": "z2k-1787966336-3d5c539070e0699a",
+        "targetCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c",
+        "freshPrepare": true,
+        "confirmedInBrowser": true,
+        "phase": "completed",
+        "planned": 43,
+        "downloaded": 43,
+        "verified": 43,
+        "staged": 43,
+        "applied": 43,
+        "removed": 0,
+        "postflightMatched": 43,
+        "runtimePostflight": { "ok": true, "verified": true, "matched": 43, "removed": 0 },
+        "rollbackAvailable": true,
+        "cleanup": { "pauseReleased": true, "lockReleased": true }
+      }
+    ],
+    "router": {
+      "installedRelease": "r-79.7",
+      "authorityConfidence": "confirmed",
+      "registryRevision": 10,
+      "registryAssetCount": 43,
+      "registryProvenanceCounts": { "r-79.7": 43 },
+      "activationReceiptCount": 7,
+      "lastReceipt": { "version": "r-79.7", "sourceCommit": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c", "assetCount": 43 },
+      "resourcesStatusOk": true,
+      "integrity": "verified",
+      "luaReady": 7,
+      "luaTotal": 7,
+      "nfqws2Pid": 31268,
+      "queue": 300,
+      "queueOwnerMatches": true,
+      "nftQueueRule": true,
+      "watchdogProcesses": 1,
+      "watchdogRecoveryEventsDuringFinalStability": 0,
+      "pauseFileAbsent": true,
+      "lifecycleLockAbsent": true,
+      "stagingDirectoriesAfterCleanup": 0,
+      "strategyId": "z2k_all_in_one",
+      "autocircularStatePresent": true
+    },
+    "browser": {
+      "installed": "r-79.7",
+      "latest": "r-80.3",
+      "compatibility": "Подтверждена",
+      "integrity": "Подтверждена",
+      "selected": "r-79.7",
+      "reinstallAction": "Переустановить r-79.7"
+    },
+    "focused": { "command": "timeout 300s node --test tests/product/z2k-async-lifecycle.test.mjs tests/product/z2k-runtime-postflight-size.test.mjs tests/product/z2k-downgrade-removal-type.test.mjs tests/product/z2k-runtime-readiness.test.mjs tests/product/z2k-runtime-guard.test.mjs tests/product/z2k-runtime-target-luaopt.test.mjs tests/product/z2k-staging-cleanup.test.mjs tests/product/z2k-materialization.test.mjs tests/product/z2k-full-lifecycle-review.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-target-lifecycle-contract.test.mjs", "tests": 84, "pass": 84, "fail": 0, "skipped": 0, "nativeOpenWrtUcode": true },
+    "broadParity": {
+      "command": "timeout 300s node --test tests/product/z2k-*.test.mjs tests/ui/z2k-*.test.mjs",
+      "baseline": { "commit": "f0e04b0f4bb64680b8c5bb2767d825b7e18d7508", "tests": 105, "pass": 101, "fail": 4, "skipped": 0 },
+      "candidate": { "tests": 150, "pass": 146, "fail": 4, "skipped": 0 },
+      "sameFailureSet": true,
+      "candidateOnlyFailures": 0,
+      "knownFailures": ["stale refresh-state assertion", "signed-manifest fixture", "upstream classification expectation", "missing WSL vitest dependency"]
+    },
+    "verdict": "ready",
+    "delivery": {
+      "commit": "1926e8cddd74ccb243ae89bc5086ca5e9d013c31",
+      "branch": "codex/z2k-version-lifecycle",
+      "headEqualsRemote": true,
+      "worktreeClean": true,
+      "forcePush": false
+    },
+    "managedReleaseDetailsUi": {
+      "baseCommit": "30e5b637fbe0026d7cba2d7b43d93758aad77689",
+      "implementationCommit": "7dda7d09f686d524fe79dce88a9795159f97db6f",
+      "branch": "codex/z2k-version-lifecycle",
+      "extraBranch": false,
+      "agents": false,
+      "apk": false,
+      "changedFiles": [
+        "zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js",
+        "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css",
+        "tests/product/z2k-managed-delta.test.mjs",
+        "tests/product/z2k-version-details-contract.test.mjs",
+        "tests/product/z2k-full-lifecycle-review.test.mjs",
+        "tests/ui/z2k-version-ux-behavior.test.mjs"
+      ],
+      "focused": {
+        "tests": 107,
+        "pass": 107,
+        "fail": 0,
+        "skipped": 0,
+        "nativeOpenWrtUcode": true,
+        "nodeCheck": true,
+        "diffCheck": true
+      },
+      "routerDeployment": {
+        "transport": "Windows OpenSSH scp -O",
+        "rpcdReload": true,
+        "ownership": "root:root",
+        "mode": "0644",
+        "hashes": {
+          "z2k-versions.uc": "5db939dfe883491ad5903e64aa3a1720873063182289095e212336faf32b8565",
+          "z2m-components-model.js": "38c5f22b949cc2131f499f14820e036f3131207bb04b428711d16ba9ab64fe0c",
+          "z2m-maintenance.js": "65f04b1e9b16f3eae5e6db12787f40e920c0f6b865bdd39cd52e8f3faa5e49f8",
+          "z2m-components.css": "116b50f6da1e942025381ea719fcb2204e5dabaade9eee1146b1ada276851920"
+        }
+      },
+      "browser": {
+        "surface": "Codex in-app Browser",
+        "installed": "r-79.7",
+        "selected": "r-80.3",
+        "expanded": true,
+        "modified": 2,
+        "added": 2,
+        "removed": 6,
+        "managedNamesVisible": true,
+        "compareLinkVisible": true,
+        "upstreamNoiseAbsent": true,
+        "objectDivAbsent": true,
+        "mutationTriggered": false
+      },
+      "router": {
+        "resourcesStatusOk": true,
+        "installedRelease": "r-79.7",
+        "authorityConfidence": "confirmed",
+        "registryRevision": 10,
+        "integrity": "verified",
+        "luaReady": 7,
+        "luaTotal": 7,
+        "preparedTarget": null
+      },
+      "verdict": "Z2K MANAGED RELEASE DETAILS READY"
+    },
+    "repositoryChangeExplanations": {
+      "date": "2026-08-29",
+      "upstream": {
+        "localCommit": "e135b37",
+        "metadataPath": "metadata/release-changes.json",
+        "historicalDelta": { "modified": 2, "added": 2, "removed": 6 },
+        "publishedTagsRewritten": false,
+        "push": "blocked: 403 Permission to necronicle/z2k.git denied to t0fox"
+      },
+      "manager": {
+        "transport": "one aggregate raw GitHub request at most; no per-resource REST",
+        "cache": "/tmp/zapret2-manager/update-cache/",
+        "aggregatePayloadLimitBytes": 262144,
+        "cacheLimitBytes": 524288,
+        "precedence": ["immutable-manifest", "repository-index", "factual-fallback"],
+        "mutationIndependent": true
+      },
+      "verification": {
+        "routerNativeUcode": {
+          "moduleImport": true,
+          "fixtureProjection": true,
+          "summarySources": ["immutable-manifest", "repository-index"]
+        },
+        "browser": {
+          "provider": "Codex in-app Browser",
+          "readOnly": true,
+          "cacheDisabledReload": true,
+          "selected": "r-80.3",
+          "installed": "r-79.7",
+          "modified": 2,
+          "added": 2,
+          "removed": 6,
+          "fallbacksVisible": true,
+          "lifecycleActionTriggered": false,
+          "repositorySummariesLive": "not-claimed; upstream push blocked"
+        },
+        "router": {
+          "sourceOnlyDeployment": true,
+          "installedAuthority": "r-79.7",
+          "registryRevision": 10,
+          "preparedTarget": null,
+          "changeCache": "absent after failed/unavailable raw fetch"
+        }
+      },
+      "apk": "not-built",
+      "agents": false,
+      "extraBranch": false,
+      "verdict": "ready pending upstream repository push"
+    },
+    "readOnlyCompareExplanations": {
+      "date": "2026-08-29",
+      "supersedes": "repositoryChangeExplanations",
+      "managerHeadBeforeChange": "a5c8c92139754dba2724dcff863a9b56ef7e67dc",
+      "branch": "codex/z2k-version-lifecycle",
+      "upstreamWriteAttempt": false,
+      "agents": false,
+      "apk": "not-built",
+      "productionDependencyRemoved": [
+        "metadata/release-changes.json",
+        "RELEASE_CHANGES_URL",
+        "repository-index"
+      ],
+      "compare": {
+        "transport": "GET /repos/necronicle/z2k/compare/<immutable-from>...<immutable-to>",
+        "requestKey": "immutable fromCommit/toCommit",
+        "perResourceRequests": 0,
+        "pagination": "bounded to at most three pages for <=250 commits",
+        "rawComparePersisted": false,
+        "normalizedPairBytesLimit": 262144,
+        "normalizedCacheTotalBytesLimit": 524288,
+        "summarySources": ["immutable-manifest", "repository-compare", null]
+      },
+      "tests": {
+        "nodeStaticAndUi": { "passed": 18, "failed": 0, "skipped": 7 },
+        "routerNativeUcodeFixture": true,
+        "routerNativeCacheValidation": true,
+        "jsSyntax": true,
+        "diffCheck": true,
+        "broadZ2kProductUi": { "passed": 139, "failed": 5, "skipped": 21 }
+      },
+      "router": {
+        "sourceOnlyDeployment": true,
+        "installedRelease": "r-79.7",
+        "registryRevision": 10,
+        "preparedTarget": null,
+        "lifecycleMutation": false,
+        "fallbackDetails": { "requested": false, "compareRequests": 0, "cache": "not-requested", "counts": "2/2/6" },
+        "firstRealCompareAttempt": { "pair": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c...8f3787aa999dd00ffe76871c5f343a1c049973b1", "requests": 1, "cache": "fallback", "summaryCount": 0, "http": "403 rate limit exceeded", "remaining": 0 },
+        "secondRealCompareAttempt": { "requests": 0, "cache": "cooldown", "summaryCount": 0 },
+        "finalRealCompareAttempt": { "pair": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c...8f3787aa999dd00ffe76871c5f343a1c049973b1", "requests": 1, "cache": "cold", "repositorySummaryCount": 5, "fallbackCount": 5, "cacheBytes": 242133, "cachePath": "/tmp/zapret2-manager/update-cache/z2k-compare-8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c-8f3787aa999dd00ffe76871c5f343a1c049973b1.json" },
+        "finalWarmDetailsAttempt": { "requests": 0, "cache": "warm", "browserNetworkRequests": 0, "repositorySummaryRetained": true },
+        "noEtcExplanationCache": true
+      },
+      "liveRepositorySummaryGate": "PASSED: 5 repository-derived summaries and 5 factual fallbacks",
+      "verdict": "Z2K READ-ONLY CHANGE EXPLANATIONS READY"
+    },
+    "structuredCompareEvidence": {
+      "date": "2026-08-29",
+      "supersedes": "readOnlyCompareExplanations.presentation",
+      "branch": "codex/z2k-version-lifecycle",
+      "expectedBaseHead": "7702da8b476b433af8bf3445fa1923bc53238e50",
+      "agents": false,
+      "apk": "not-built",
+      "lifecycleMutation": false,
+      "scope": [
+        "Compare evidence normalization",
+        "structured evidence grouping",
+        "cached context presentation",
+        "SHA-derived local commit links"
+      ],
+      "authorityUnchanged": [
+        "Registry",
+        "runtime activation",
+        "watchdog",
+        "selected-tag resolver",
+        "planToken",
+        "manifest authority",
+        "managed delta category counts"
+      ],
+      "normalization": {
+        "lineEndings": "CRLF-to-LF",
+        "paragraphs": "blank-line separated",
+        "ranking": [
+          "exact sourcePath",
+          "basename token",
+          "quoted/code basename or stem with same commit file change",
+          "generic patch context"
+        ],
+        "maxSelectedParagraphs": 2,
+        "operationalOnlyFallback": true,
+        "rejectsReplacementOrControlText": true,
+        "selectedEvidenceLimitBytes": 4096,
+        "displayTruncation": false,
+        "normalizedCommitBodiesDeduplicatedBySha": true
+      },
+      "cache": {
+        "schema": 2,
+        "pairLimitBytes": 262144,
+        "totalLimitBytes": 524288,
+        "previousSchema1Bytes": 242133,
+        "currentSchema2Bytes": 173088,
+        "rawBodiesPersisted": false,
+        "cold": { "aggregateRequests": 1, "cache": "cold" },
+        "warm": { "aggregateRequests": 0, "cache": "warm" }
+      },
+      "realCompare": {
+        "from": "r-79.7",
+        "to": "r-80.3",
+        "commitCount": 84,
+        "aggregateUpstreamPathCount": 175,
+        "relevantManagedPathCount": 10,
+        "managedCounts": { "modified": 2, "added": 2, "removed": 6 },
+        "perFileRequests": 0
+      },
+      "browser": {
+        "provider": "Codex in-app Browser",
+        "readOnly": true,
+        "cacheDisabledHardReload": true,
+        "installed": "r-79.7",
+        "selected": "r-80.3",
+        "evidenceGroups": 10,
+        "localCommitLinks": 7,
+        "cachedContextDetails": 7,
+        "topCounts": "2/2/6",
+        "objectHtmlDivAbsent": true,
+        "replacementCharacterAbsent": true,
+        "mutationTriggered": false
+      },
+      "tests": {
+        "product": { "passed": 3, "failed": 0, "skipped": 11, "skipReason": "local /opt/ucode/bin/ucode absent on Windows" },
+        "ui": { "passed": 17, "failed": 0, "skipped": 0 },
+        "routerNativeUcodeFixture": true,
+        "routerNativeRealAggregate": true,
+        "nodeCheck": true,
+        "diffCheck": true,
+        "fullRepositorySweep": {
+          "testFiles": 219,
+          "status": "incomplete-time-bound",
+          "boundSeconds": 210,
+          "resultSummary": "not-produced",
+          "productVerdict": "not-used-as-green-gate"
+        }
+      },
+      "verdict": "Z2K STRUCTURED CHANGE EVIDENCE READY"
+    }
+  }
+}

@@ -31,7 +31,7 @@ function string(value) { return type(value) == 'string'; }
 function ok(value) { return { ok: true, asset: value }; }
 function fail(code, message, extra) { let out = { ok: false, error: { code: code, message: message } }; for (let k in extra || {}) out.error[k] = extra[k]; return out; }
 function valid_type(value) { for (let i = 0; i < length(TYPES); i++) if (TYPES[i] == value) return true; return false; }
-function valid_slug(value) { return string(value) && length(value) > 0 && length(value) <= 96 && match(value, /^[a-z][a-z0-9._-]*$/); }
+function valid_slug(value) { return string(value) && length(value) > 0 && length(value) <= 96 && match(value, /^[a-z0-9][a-z0-9._-]*$/); }
 function valid_id(kind, value) { return string(value) && substr(value, 0, length(kind) + 1) == kind + ':' && valid_slug(substr(value, length(kind) + 1)); }
 function copy(value) { let out = {}; for (let k in value || {}) out[k] = value[k]; return out; }
 function copy_array(value) { let out = []; for (let i = 0; type(value) == 'array' && i < length(value); i++) push(out, value[i]); return out; }
@@ -202,6 +202,14 @@ function find_asset(state, id) { for (let i = 0; i < length(state.assets); i++) 
 function server_asset_path(kind, slug) { return USER_ROOT + '/' + kind + '/' + slug + '.' + EXT[kind]; }
 function mutable_asset_path_safe(asset) { let slug = substr(asset.id, length(asset.type) + 1); return asset.mutable == true && asset.path == server_asset_path(asset.type, slug) && under(asset.path, USER_ROOT); }
 function references_copy(asset) { return copy_array(asset.references); }
+function is_z2k_lifecycle_asset(asset) { return object(asset) && object(asset.provenance) && asset.provenance.kind == 'catalog/upstream' && asset.provenance.bundleId == 'z2k-curated-lua'; }
+function asset_management(asset) {
+	if (is_z2k_lifecycle_asset(asset)) return { owner: 'z2k-core', mode: 'lifecycle', editable: false, deletable: false };
+	if (object(asset) && asset.ownership == 'package') return { owner: 'package', mode: 'immutable', editable: false, deletable: false };
+	let editable = object(asset) && asset.mutable == true;
+	return { owner: 'resources', mode: 'workspace', editable: editable, deletable: editable };
+}
+function project_asset(asset) { let out = copy(asset); out.references = references_copy(asset); out.management = asset_management(asset); return out; }
 function staged_path_safe(path) { return string(path) && under(path, STAGE_ROOT) && regular(path); }
 function valid_sha(value) { return string(value) && match(value, /^[a-f0-9]{64}$/); }
 function package_manifest_asset(id) {
@@ -223,14 +231,14 @@ function validate_request(request) {
 	return { ok: true };
 }
 
-export const asset_registry_list = function(kind) { let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); let assets = []; for (let i = 0; i < length(state.assets); i++) if (kind == null || state.assets[i].type == kind) { let a = copy(state.assets[i]); a.references = references_copy(a); push(assets, a); } return { ok: true, schema: 1, revision: state.revision, assets: assets, activationReceipts: copy_array(state.activationReceipts) }; };
-export const asset_registry_get = function(id) { let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); let asset = find_asset(state, id); return asset == null ? fail('EDEPENDENCY', 'asset dependency is missing') : ok(copy(asset)); };
+export const asset_registry_list = function(kind) { let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); let assets = []; for (let i = 0; i < length(state.assets); i++) if (kind == null || state.assets[i].type == kind) push(assets, project_asset(state.assets[i])); return { ok: true, schema: 1, revision: state.revision, assets: assets, activationReceipts: copy_array(state.activationReceipts) }; };
+export const asset_registry_get = function(id) { let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); let asset = find_asset(state, id); return asset == null ? fail('EDEPENDENCY', 'asset dependency is missing') : ok(project_asset(asset)); };
 export const asset_registry_import = function(request) {
 	let checked = validate_request(request); if (!checked.ok) return checked; let provenance = request.provenance || { kind: 'imported' }; let content = base64_decode(request.contentBase64); if (content == null) return fail('EINPUT', 'contentBase64 is invalid');
 	let normalized = normalize_content(request.type, content); if (!normalized.ok) return normalized; if (length(normalized.content) > LIMITS[request.type]) return fail('ESIZE', 'asset exceeds bounded size'); let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (find_asset(state, request.id) != null) return fail('ECONFLICT', 'asset ID already exists');
 	let slug = substr(request.id, length(request.type) + 1), path = server_asset_path(request.type, slug); if (!asset_parent_safe(request.type)) return fail('ESAFETY', 'asset parent is not a safe directory'); if (stat(path) != null) return regular(path) ? fail('ECONFLICT', 'canonical asset path already exists') : fail('ESAFETY', 'canonical asset path is not a regular file'); let text = normalized.content; if (!atomic_write(path, text)) return fail('EWRITE', 'asset atomic write failed');
 	let asset = { schema: 1, type: request.type, id: request.id, name: string(request.name) && length(request.name) ? request.name : slug, ownership: provenance.kind == 'builtin/package' ? 'package' : 'manager', mutable: provenance.kind != 'builtin/package', provenance: copy(provenance), contentSha256: sha256_file(path), byteSize: content_size(path), revision: 1, path: path, legacyPath: null, references: [], validation: { status: request.type == 'lua' ? 'passed-structural-only' : 'passed', errors: [] } };
-	if (asset.contentSha256 == null || asset.byteSize < 0) { try { unlink(path); } catch (e) {} return fail('EWRITE', 'asset evidence could not be read back'); } if (provenance.kind == 'builtin/package' && asset.contentSha256 != provenance.expectedSha256) { try { unlink(path); } catch (e) {} return fail('EVERIFY', 'package hash does not match provenance'); } push(state.assets, asset); state.revision++; if (!state_save(state)) { try { unlink(path); } catch (e) {} return fail('EWRITE', 'asset registry metadata atomic write failed'); } return ok(asset);
+	if (asset.contentSha256 == null || asset.byteSize < 0) { try { unlink(path); } catch (e) {} return fail('EWRITE', 'asset evidence could not be read back'); } if (provenance.kind == 'builtin/package' && asset.contentSha256 != provenance.expectedSha256) { try { unlink(path); } catch (e) {} return fail('EVERIFY', 'package hash does not match provenance'); } push(state.assets, asset); state.revision++; if (!state_save(state)) { try { unlink(path); } catch (e) {} return fail('EWRITE', 'asset registry metadata atomic write failed'); } return ok(project_asset(asset));
 };
 function remote_url_safe(url) {
 	if (!string(url) || length(url) > MAX_REMOTE_URL_BYTES || !match(url, /^https?:\/\/[^\/?#]+(?:[\/?#].*)?$/i)) return false;
@@ -274,7 +282,7 @@ function lua_validate_content(content) {
 	return { status: 'failed', errors: [{ line: match_line ? +match_line[1] : null, message: match_line ? match_line[2] : trim(probe.out || 'Lua syntax error') }], checker: 'luac' };
 }
 export const asset_registry_get_content = function(id) {
-	let result = asset_registry_get(id); if (!result.ok && result.error && result.error.code == 'EDEPENDENCY') { let packageAsset = package_manifest_asset(id); if (packageAsset != null) result = ok(packageAsset); }
+	let result = asset_registry_get(id); if (!result.ok && result.error && result.error.code == 'EDEPENDENCY') { let packageAsset = package_manifest_asset(id); if (packageAsset != null) result = ok(project_asset(packageAsset)); }
 	if (!result.ok) return result;
 	let content = readfile(result.asset.path);
 	if (content == null || length(content) > LIMITS[result.asset.type]) return fail('ESAFETY', 'asset content is unavailable or exceeds its type limit');
@@ -328,20 +336,28 @@ export const asset_registry_reconcile_builtin = function(request) {
 	let initial = asset_registry_register_builtin(request); if (initial.ok || initial.error.code != 'ECONFLICT') return initial;
 	let state = state_load(), asset = state == null ? null : find_asset(state, request.id); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (asset == null) return fail('EDEPENDENCY', 'builtin asset disappeared during reconciliation'); let path = legacy_path(request.type, request.canonicalPath), actual = path == null ? null : sha256_file(path); if (asset.ownership != 'package' || asset.mutable == true || asset.type != request.type || asset.path != path) return fail('ECONFLICT', 'package identity collides with a non-package asset'); if (actual == null || actual != request.provenance.expectedSha256) return fail('EVERIFY', 'builtin hash does not match package manifest'); if (asset.contentSha256 == actual && asset.provenance.expectedSha256 == request.provenance.expectedSha256) return ok(copy(asset)); let old = copy(asset), next = copy(request.provenance); asset.provenance = next; asset.contentSha256 = actual; asset.byteSize = content_size(path); asset.revision++; state.revision++; if (!state_save(state)) { for (let k in old) asset[k] = old[k]; return fail('EWRITE', 'builtin registry update failed'); } return ok(copy(asset)); };
 export const asset_registry_update = function(id, request) {
-	let state = state_load(), asset = state == null ? null : find_asset(state, id); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (asset == null) return fail('EDEPENDENCY', 'asset dependency is missing'); if (!object(request)) return fail('EINPUT', 'asset update request is invalid'); if (asset.mutable != true) return fail('EPOLICY', 'builtin/package asset is read-only'); if (!mutable_asset_path_safe(asset) || !asset_parent_safe(asset.type)) return fail('ESAFETY', 'asset path is not manager-owned'); if (request.expectedRevision != asset.revision) return fail('ECONFLICT', 'asset revision is stale'); let content = base64_decode(request.contentBase64); if (content == null) return fail('EINPUT', 'contentBase64 is invalid'); let normalized = normalize_content(asset.type, content); if (!normalized.ok) return normalized; if (length(normalized.content) > LIMITS[asset.type]) return fail('ESIZE', 'asset exceeds bounded size'); let oldContent = readfile(asset.path); if (oldContent == null) return fail('ESAFETY', 'asset content could not be read before update'); if (!atomic_write(asset.path, normalized.content)) return fail('EWRITE', 'asset atomic update failed'); let oldSha = asset.contentSha256, oldSize = asset.byteSize, oldRevision = asset.revision; asset.contentSha256 = sha256_file(asset.path); asset.byteSize = content_size(asset.path); asset.revision++; state.revision++; if (!asset.contentSha256 || asset.byteSize < 0 || !state_save(state)) { atomic_write(asset.path, oldContent); asset.contentSha256 = oldSha; asset.byteSize = oldSize; asset.revision = oldRevision; return fail('EWRITE', 'asset registry metadata atomic write failed'); } return ok(copy(asset));
+	let state = state_load(), asset = state == null ? null : find_asset(state, id); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (asset == null) return fail('EDEPENDENCY', 'asset dependency is missing'); if (is_z2k_lifecycle_asset(asset)) return fail('EPOLICY', 'Ресурс управляется Z2K Core. Измените версию Z2K в разделе «Компоненты».', { managedBy: 'z2k-core', bundleId: 'z2k-curated-lua' }); if (!object(request)) return fail('EINPUT', 'asset update request is invalid'); if (asset.mutable != true) return fail('EPOLICY', 'builtin/package asset is read-only'); if (!mutable_asset_path_safe(asset) || !asset_parent_safe(asset.type)) return fail('ESAFETY', 'asset path is not manager-owned'); if (request.expectedRevision != asset.revision) return fail('ECONFLICT', 'asset revision is stale'); let content = base64_decode(request.contentBase64); if (content == null) return fail('EINPUT', 'contentBase64 is invalid'); let normalized = normalize_content(asset.type, content); if (!normalized.ok) return normalized; if (length(normalized.content) > LIMITS[asset.type]) return fail('ESIZE', 'asset exceeds bounded size'); let oldContent = readfile(asset.path); if (oldContent == null) return fail('ESAFETY', 'asset content could not be read before update'); if (!atomic_write(asset.path, normalized.content)) return fail('EWRITE', 'asset atomic update failed'); let oldSha = asset.contentSha256, oldSize = asset.byteSize, oldRevision = asset.revision; asset.contentSha256 = sha256_file(asset.path); asset.byteSize = content_size(asset.path); asset.revision++; state.revision++; if (!asset.contentSha256 || asset.byteSize < 0 || !state_save(state)) { atomic_write(asset.path, oldContent); asset.contentSha256 = oldSha; asset.byteSize = oldSize; asset.revision = oldRevision; return fail('EWRITE', 'asset registry metadata atomic write failed'); } return ok(project_asset(asset));
 };
 export const asset_registry_apply_bundle = function(request) {
 	if (!object(request) || !string(request.bundleId) || !string(request.version) || !string(request.source)
 		|| !string(request.sourceCommit)
 		|| type(request.assets) != 'array' || !length(request.assets) || length(request.assets) > MAX_BUNDLE_ASSETS)
 		return fail('EINPUT', 'resource bundle manifest is incomplete');
-	let state = state_load(), oldStateRaw = readfile(STATE), total = 0, seen = {}, prepared = [];
+	let removeIds = request.removeIds == null ? [] : request.removeIds, removalExpectations = request.removals == null ? null : request.removals;
+	if (type(removeIds) != 'array' || length(removeIds) > MAX_BUNDLE_ASSETS) return fail('EINPUT', 'resource bundle removal list is invalid');
+	if (removalExpectations != null && (type(removalExpectations) != 'array' || length(removalExpectations) > MAX_BUNDLE_ASSETS)) return fail('EINPUT', 'resource bundle removal expectations are invalid');
+	if (request.bundleId == 'z2k-curated-lua' && length(removeIds) && removalExpectations == null) return fail('EINPUT', 'Z2K removals require snapshot-bound expectations');
+	if (removalExpectations != null && length(removalExpectations) != length(removeIds)) return fail('EINPUT', 'resource removal expectations do not match removal IDs');
+	let state = state_load(), oldStateRaw = readfile(STATE), total = 0, seen = {}, prepared = [], removals = [];
 	if (state == null) return fail('ESTATE', 'asset registry metadata is invalid');
 	for (let i = 0; i < length(request.assets); i++) {
 		let item = request.assets[i];
 		if (!object(item) || !valid_type(item.type) || !valid_id(item.type, item.id) || seen[item.id]
 			|| !staged_path_safe(item.stagedPath) || !valid_sha(item.sha256) || type(item.byteSize) != 'int'
-			|| item.byteSize < 1 || item.byteSize > LIMITS[item.type]) return fail('EINPUT', 'resource bundle asset declaration is invalid');
+			|| item.byteSize < 1 || item.byteSize > LIMITS[item.type]) return fail('EINPUT', 'resource bundle asset declaration is invalid', {
+				id: item && item.id || null, type: item && item.type || null, byteSize: item && item.byteSize || null,
+				stagedPath: item && item.stagedPath || null
+			});
 		seen[item.id] = true;
 		let actualSize = content_size(item.stagedPath), actualSha = sha256_file(item.stagedPath);
 		if (actualSize != item.byteSize || actualSha == null || actualSha != item.sha256) return fail('EVERIFY', 'resource bundle asset hash or size mismatch', { id: item.id });
@@ -363,6 +379,21 @@ export const asset_registry_apply_bundle = function(request) {
 		if (!object(provenance) || provenance.kind != 'catalog/upstream' || !string(provenance.source) || !string(provenance.sourceCommit)
 			|| !string(provenance.sourcePath) || !string(provenance.bundleId) || !string(provenance.version)) return fail('EINPUT', 'upstream provenance is incomplete', { id: item.id });
 		push(prepared, { item: item, old: old, content: content, provenance: provenance });
+	}
+	for (let i = 0; i < length(removeIds); i++) {
+		let id = removeIds[i], expectation = removalExpectations && removalExpectations[i], separator = string(id) ? index(id, ':') : -1, kind = separator > 0 ? substr(id, 0, separator) : null, old = separator > 0 ? find_asset(state, id) : null;
+		if (!string(id) || separator <= 0 || !valid_type(kind) || !valid_id(kind, id) || seen[id]) return fail('EINPUT', 'resource bundle removal declaration is invalid', { id: id });
+		seen[id] = true;
+		if (old == null) return fail('EDEPENDENCY', 'resource removal target is missing', { id: id });
+		if (old.mutable != true || !old.provenance || old.provenance.kind != 'catalog/upstream' || old.provenance.bundleId != request.bundleId) return fail('EPOLICY', 'package, user, or cross-bundle resource cannot be removed by upstream', { id: id });
+		if (expectation == null || expectation.id != id || expectation.type != old.type || expectation.bundleId != request.bundleId
+			|| expectation.sourcePath != old.provenance.sourcePath || expectation.version != old.provenance.version || expectation.sourceCommit != old.provenance.sourceCommit
+			|| expectation.expectedRevision != old.revision || expectation.expectedContentSha256 != old.contentSha256 || expectation.expectedByteSize != old.byteSize)
+			return fail('ECONFLICT', 'resource removal snapshot is stale', { id: id });
+		let actualSha = sha256_file(old.path), actualSize = content_size(old.path);
+		if (actualSha == null || actualSha != old.contentSha256 || actualSize != old.byteSize) return fail('ECONFLICT', 'resource removal bytes changed after preparation', { id: id });
+		if (length(old.references || [])) return fail('EREFERENCED', 'resource removal target is referenced', { id: id, references: references_copy(old) });
+		push(removals, { id: id, old: old, expectation: expectation });
 	}
 	for (let i = 0; i < length(prepared); i++) {
 		let item = prepared[i].item;
@@ -391,6 +422,15 @@ export const asset_registry_apply_bundle = function(request) {
 		push(changed, { path: path, previous: previous, previousPath: previousPath, oldPrevious: oldPrevious });
 		push(rollbackRecords, { path: path, previousPath: previousPath, hadPrevious: previous != null });
 	}
+	for (let i = 0; result == null && i < length(removals); i++) {
+		let entry = removals[i], path = entry.old.path;
+		if (!mutable_asset_path_safe(entry.old) || !regular(path)) { result = fail('ESAFETY', 'resource removal target path is not manager-owned', { id: entry.id }); break; }
+		let previous = readfile(path), previousPath = rollback_path(path), oldPrevious = null;
+		if (previous == null) { result = fail('ESAFETY', 'resource removal target content could not be read', { id: entry.id }); break; }
+		if (stat(previousPath) != null) { if (!regular(previousPath)) { result = fail('ESAFETY', 'resource rollback path is not a regular file', { id: entry.id }); break; } oldPrevious = readfile(previousPath); }
+		push(changed, { path: path, previous: previous, previousPath: previousPath, oldPrevious: oldPrevious });
+		push(rollbackRecords, { path: path, previousPath: previousPath, hadPrevious: true });
+	}
 	if (result == null && !rollback_save({ schema: 1, bundleId: request.bundleId, version: request.version, sourceCommit: request.sourceCommit, oldStateRaw: oldStateRaw, records: rollbackRecords })) result = fail('EWRITE', 'resource rollback snapshot could not be saved');
 	if (result == null) for (let i = 0; i < length(changed); i++) {
 		let backup = changed[i];
@@ -408,11 +448,23 @@ export const asset_registry_apply_bundle = function(request) {
 			old.provenance = copy(entry.provenance); old.contentSha256 = item.sha256; old.byteSize = item.byteSize; old.revision++; old.lastChecked = time(); old.lastUpdated = time(); if (item.name) old.name = item.name;
 		}
 	}
+	if (result == null) for (let i = 0; i < length(removals); i++) {
+		let entry = removals[i];
+		try { unlink(entry.old.path); } catch (e) { result = fail('EWRITE', 'resource removal failed', { id: entry.id }); break; }
+		if (stat(entry.old.path) != null) { result = fail('EWRITE', 'resource removal did not clear the target path', { id: entry.id }); break; }
+	}
+	if (result == null && length(removals)) {
+		let removeSet = {};
+		for (let i = 0; i < length(removals); i++) removeSet[removals[i].id] = true;
+		let kept = [];
+		for (let i = 0; i < length(state.assets); i++) if (!removeSet[state.assets[i].id]) push(kept, state.assets[i]);
+		state.assets = kept;
+	}
 	if (result == null) {
 		let receiptAssets = [], receipts = copy_array(state.activationReceipts);
 		for (let i = 0; i < length(prepared); i++) {
-			let item = prepared[i].item;
-			push(receiptAssets, { id: item.id, type: item.type, sha256: item.sha256, byteSize: item.byteSize });
+			let item = prepared[i].item, provenance = prepared[i].provenance;
+			push(receiptAssets, { id: item.id, type: item.type, sha256: item.sha256, byteSize: item.byteSize, sourceCommit: provenance.sourceCommit, sourcePath: provenance.sourcePath, bundleId: provenance.bundleId, version: provenance.version });
 		}
 		push(receipts, { schema: 'asset-activation-receipt.v1', bundleId: request.bundleId, version: request.version, source: request.source, sourceCommit: request.sourceCommit, activatedAt: time(), assets: receiptAssets });
 		while (length(receipts) > MAX_ACTIVATION_RECEIPTS) { let bounded = []; for (let i = 1; i < length(receipts); i++) push(bounded, receipts[i]); receipts = bounded; }
@@ -426,7 +478,7 @@ export const asset_registry_apply_bundle = function(request) {
 		if (oldRollbackRaw == null) { try { unlink(ROLLBACK_STATE); } catch (e) {} } else atomic_write(ROLLBACK_STATE, oldRollbackRaw);
 		return result;
 	}
-	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), revision: state.revision, rollbackAvailable: true, postflight: { verified: true, assets: length(prepared) } };
+	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), removed: length(removals), revision: state.revision, rollbackAvailable: true, postflight: { verified: true, assets: length(prepared), removed: length(removals) } };
 };
 export const asset_registry_rollback_bundle = function(request) {
 	if (!object(request) || !string(request.bundleId)) return fail('EINPUT', 'rollback bundle identity is required');
@@ -447,7 +499,7 @@ export const asset_registry_rollback_bundle = function(request) {
 	try { unlink(ROLLBACK_STATE); } catch (e) {}
 	return { ok: true, bundleId: snapshot.bundleId, version: snapshot.version, restored: restored, rollbackAvailable: false };
 };
-export const asset_registry_delete = function(id) { let state = state_load(), asset = state == null ? null : find_asset(state, id); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (asset == null) return fail('EDEPENDENCY', 'asset dependency is missing'); if (length(asset.references)) return fail('EREFERENCED', 'asset is referenced', { references: references_copy(asset) }); if (asset.mutable != true) return fail('EPOLICY', 'builtin/package asset is read-only'); if (!mutable_asset_path_safe(asset) || !regular(asset.path)) return fail('ESAFETY', 'asset path is not a manager-owned regular file'); let oldContent = readfile(asset.path); if (oldContent == null) return fail('ESAFETY', 'asset content could not be read before delete'); try { unlink(asset.path); } catch (e) { return fail('EWRITE', 'asset delete failed'); } let kept = []; for (let i = 0; i < length(state.assets); i++) if (state.assets[i].id != id) push(kept, state.assets[i]); state.assets = kept; state.revision++; if (state_save(state)) return { ok: true, deleted: id }; atomic_write(asset.path, oldContent); return fail('EWRITE', 'asset registry metadata atomic write failed'); };
+export const asset_registry_delete = function(id) { let state = state_load(), asset = state == null ? null : find_asset(state, id); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (asset == null) return fail('EDEPENDENCY', 'asset dependency is missing'); if (is_z2k_lifecycle_asset(asset)) return fail('EPOLICY', 'Ресурс управляется Z2K Core. Измените версию Z2K в разделе «Компоненты».', { managedBy: 'z2k-core', bundleId: 'z2k-curated-lua' }); if (length(asset.references)) return fail('EREFERENCED', 'asset is referenced', { references: references_copy(asset) }); if (asset.mutable != true) return fail('EPOLICY', 'builtin/package asset is read-only'); if (!mutable_asset_path_safe(asset) || !regular(asset.path)) return fail('ESAFETY', 'asset path is not a manager-owned regular file'); let oldContent = readfile(asset.path); if (oldContent == null) return fail('ESAFETY', 'asset content could not be read before delete'); try { unlink(asset.path); } catch (e) { return fail('EWRITE', 'asset delete failed'); } let kept = []; for (let i = 0; i < length(state.assets); i++) if (state.assets[i].id != id) push(kept, state.assets[i]); state.assets = kept; state.revision++; if (state_save(state)) return { ok: true, deleted: id }; atomic_write(asset.path, oldContent); return fail('EWRITE', 'asset registry metadata atomic write failed'); };
 export const asset_registry_set_references = function(consumer, references) { if (!string(consumer) || type(references) != 'array' || length(consumer) > 128) return fail('EINPUT', 'consumer references are invalid'); let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); for (let i = 0; i < length(references); i++) { let ref = references[i], asset = object(ref) ? find_asset(state, ref.id) : null; if (!object(ref) || !valid_type(ref.type) || !valid_id(ref.type, ref.id) || asset == null) return fail('EDEPENDENCY', 'referenced asset is missing'); if (asset.type != ref.type) return fail('ETYPE', 'referenced asset type is wrong'); } for (let i = 0; i < length(state.assets); i++) { let kept = []; for (let j = 0; j < length(state.assets[i].references); j++) if (state.assets[i].references[j].consumer != consumer) push(kept, state.assets[i].references[j]); state.assets[i].references = kept; } for (let i = 0; i < length(references); i++) { let ref = references[i], asset = find_asset(state, ref.id); push(asset.references, { consumer: consumer, type: ref.type, id: ref.id, revision: ref.revision == null ? null : ref.revision, contentSha256: ref.contentSha256 == null ? null : ref.contentSha256 }); } state.revision++; return state_save(state) ? { ok: true } : fail('EWRITE', 'asset registry metadata atomic write failed'); };
 export const asset_registry_resolve = function(reference) { if (!object(reference) || !valid_type(reference.type)) return fail('EINPUT', 'asset type is required'); let state = state_load(), asset = state == null ? null : find_asset(state, reference.id); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid'); if (asset == null && string(reference.legacyPath)) { let legacy = legacy_path(reference.type, reference.legacyPath); if (legacy == null) return fail('EINPUT', 'legacy path is outside the trusted canonical root'); for (let i = 0; i < length(state.assets); i++) if (state.assets[i].type == reference.type && state.assets[i].legacyPath == legacy) { asset = state.assets[i]; break; } } if (asset == null) return fail('EDEPENDENCY', 'asset dependency is missing'); if (asset.type != reference.type) return fail('ETYPE', 'asset type does not match reference'); if (reference.revision != null && reference.revision != asset.revision) return fail('ECONFLICT', 'asset revision is stale'); if (reference.contentSha256 != null && reference.contentSha256 != asset.contentSha256) return fail('ECONFLICT', 'asset hash is stale'); if (!regular(asset.path)) return fail('ESAFETY', 'asset path is not a regular non-symlink file'); let actual = sha256_file(asset.path); if (actual == null || actual != asset.contentSha256) return fail('EVERIFY', 'asset content hash does not match registry metadata'); return ok(copy(asset)); };
 export const asset_registry_validate = function(id) { let resolved = asset_registry_get(id); if (!resolved.ok) return resolved; let asset = resolved.asset, result = asset_registry_resolve({ type: asset.type, id: asset.id, revision: asset.revision, contentSha256: asset.contentSha256 }); if (!result.ok) return result; return { ok: true, asset: asset, validation: asset.validation }; };
