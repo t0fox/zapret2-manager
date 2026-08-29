@@ -15,6 +15,8 @@ test('Strategy IDE has a bounded workspace and a separate visual editor host', (
   assert.match(css, /#z2m-view-strategy #strategy-modal \.modal-content[\s\S]*?max-width:1280px/);
   assert.match(css, /\.strategy-editor-code-pane\.z2m-code-editor[\s\S]*?height:clamp\(340px,48vh,620px\) !important/);
   assert.match(css, /grid-template-columns:minmax\(0,1fr\) 296px/);
+  assert.match(page, /Math\.min\(window\.innerWidth - 32, 1280\)/);
+  assert.match(page, /Math\.min\(window\.innerHeight - 32, 900\)/);
 });
 
 test('Strategy IDE controls expose accessible names and keyboard-safe problem navigation', () => {
