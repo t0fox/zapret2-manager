@@ -8,6 +8,7 @@
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var LOAD_TIMEOUT_MS = 30000;
+var Z2K_COMPARE_LOAD_TIMEOUT_MS = 30000;
 var Z2K_MUTATION_TIMEOUT_MS = 180000;
 var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
@@ -624,33 +625,97 @@ function z2kManagedChangeFallback(action, version) {
   var verb = action === 'modified' ? _('Изменён в ') : action === 'added' ? _('Добавлен в ') : _('Удалён в ');
   return verb + (version || _('выбранном release'));
 }
-function z2kManagedChangeGroup(label, items, action, version) {
-  if (!items.length) return null;
-  return E('div', { 'class': 'z2m-z2k-change-group' }, [
-    E('strong', {}, label + ' · ' + items.length),
-    E('div', { 'class': 'z2m-z2k-change-items', role: 'list' }, items.map(function (item) {
-      item = item || {};
-      var name = item.name || item.id || item.sourcePath || _('Ресурс');
-      var summary = item.summary || z2kManagedChangeFallback(action, version);
-      return E('div', { 'class': 'z2m-z2k-change-item', role: 'listitem' }, [
-        E('span', {}, name),
-        item.sourcePath && item.sourcePath !== name ? E('span', { 'class': 'z2m-dim' }, item.sourcePath) : null,
-        E('span', { 'class': 'z2m-z2k-change-summary' }, summary)
-      ]);
-    }))
+function z2kEvidenceIdentity(item) {
+  var explanation = item && item.explanation;
+  if (!explanation || explanation.source !== 'repository-compare' || !explanation.commitSha) return null;
+  return explanation.commitSha + '|' + explanation.excerptIndexes.join(',') + '|' + explanation.excerpts.join('\n\n');
+}
+function z2kManagedEvidenceGroups(items) {
+  var groups = [], indexes = {};
+  items.forEach(function (item) {
+    var key = z2kEvidenceIdentity(item) || 'resource:' + (item && (item.sourcePath || item.id || item.name) || groups.length);
+    if (indexes[key] === undefined) {
+      indexes[key] = groups.length;
+      groups.push({ key: key, items: [] });
+    }
+    groups[indexes[key]].items.push(item);
+  });
+  return groups;
+}
+function z2kCompareContext(changes, commitSha) {
+  var contexts = changes && Array.isArray(changes.compareContext) ? changes.compareContext : [];
+  return contexts.find(function (item) { return item && (item.sha || item.commitSha) === commitSha; }) || null;
+}
+function z2kCommitUrl(commitSha) {
+  return typeof commitSha === 'string' && /^[a-f0-9]{40}$/i.test(commitSha)
+    ? 'https://github.com/necronicle/z2k/commit/' + commitSha
+    : null;
+}
+function z2kEvidenceContext(changes, explanation) {
+  if (!explanation || explanation.source !== 'repository-compare' || explanation.fullMessageAvailable !== true) return null;
+  var context = z2kCompareContext(changes, explanation.commitSha);
+  return context && Array.isArray(context.paragraphs) && context.paragraphs.length ? context : null;
+}
+function z2kAdditionalContext(context, explanation) {
+  var selected = Array.isArray(explanation && explanation.excerptIndexes) ? explanation.excerptIndexes : [];
+  return Array.isArray(context && context.paragraphs) ? context.paragraphs.filter(function (_, index) { return selected.indexOf(index) < 0; }) : [];
+}
+function z2kEvidenceGroup(changes, group, action, version) {
+  var first = group.items[0] || {};
+  var explanation = first.explanation;
+  var repositoryEvidence = explanation && explanation.source === 'repository-compare' && Array.isArray(explanation.excerpts) && explanation.excerpts.length;
+  var context = repositoryEvidence ? z2kEvidenceContext(changes, explanation) : null;
+  var additionalContext = context ? z2kAdditionalContext(context, explanation) : [];
+  var commitUrl = repositoryEvidence ? z2kCommitUrl(explanation.commitSha) : null;
+  var rows = group.items.map(function (item) {
+    item = item || {};
+    var name = item.name || item.id || item.sourcePath || _('Ресурс');
+    var itemExplanation = item.explanation;
+    var rowEvidence = !repositoryEvidence && itemExplanation && Array.isArray(itemExplanation.excerpts) && itemExplanation.excerpts.length
+      ? itemExplanation.excerpts.join('\n\n') : null;
+    return E('div', { 'class': 'z2m-z2k-change-item', role: 'listitem' }, [
+    E('span', { 'class': 'z2m-z2k-change-item-name' }, name),
+      item.sourcePath && item.sourcePath !== name ? E('span', { 'class': 'z2m-dim z2m-z2k-change-item-source' }, item.sourcePath) : null,
+      rowEvidence ? E('span', { 'class': 'z2m-z2k-change-summary' }, rowEvidence) : !repositoryEvidence ? E('span', { 'class': 'z2m-z2k-change-summary' }, z2kManagedChangeFallback(action, version)) : null
+    ]);
+  });
+  var fullContext = repositoryEvidence ? [E('strong', {}, explanation.commitSubject || _('Полный commit'))] : [];
+  if (repositoryEvidence) additionalContext.forEach(function (paragraph) { fullContext.push(E('p', {}, paragraph)); });
+  var evidence = repositoryEvidence ? E('div', { 'class': 'z2m-z2k-change-evidence' }, [
+    E('strong', { 'class': 'z2m-z2k-change-evidence-title' }, explanation.commitSubject || _('Изменения из одного upstream commit')),
+    E('div', { 'class': 'z2m-z2k-change-evidence-excerpts' }, explanation.excerpts.map(function (excerpt) {
+      return E('p', {}, excerpt);
+    })),
+    context || commitUrl ? E('div', { 'class': 'z2m-z2k-change-evidence-actions' }, [
+      additionalContext.length ? E('details', { 'class': 'z2m-z2k-change-evidence-context' }, [
+        E('summary', {}, _('Контекст')),
+        E('div', { 'class': 'z2m-z2k-change-evidence-full' }, fullContext)
+      ]) : null,
+      commitUrl ? E('a', { href: commitUrl, target: '_blank', rel: 'noreferrer', 'class': 'z2m-z2k-change-commit-link' }, _('Открыть commit ↗')) : null
+    ]) : null
+  ]) : null;
+  return E('div', { 'class': 'z2m-z2k-change-evidence-group' }, [
+    evidence,
+    E('div', { 'class': 'z2m-z2k-change-items', role: 'list' }, rows)
   ]);
+}
+function z2kManagedChangeGroup(label, items, action, version, changes) {
+  if (!items.length) return null;
+  var children = [E('strong', {}, label + ' · ' + items.length)];
+  z2kManagedEvidenceGroups(items).forEach(function (group) { children.push(z2kEvidenceGroup(changes, group, action, version)); });
+  return E('div', { 'class': 'z2m-z2k-change-group' }, children);
 }
 function renderZ2KManagedChangeDetails(changes, version) {
   return [
-    z2kManagedChangeGroup(_('Обновится'), z2kManagedChangeItems(changes, 'modifiedItems'), 'modified', version),
-    z2kManagedChangeGroup(_('Добавится'), z2kManagedChangeItems(changes, 'addedItems'), 'added', version),
-    z2kManagedChangeGroup(_('Удалится'), z2kManagedChangeItems(changes, 'removedItems'), 'removed', version)
+    z2kManagedChangeGroup(_('Обновится'), z2kManagedChangeItems(changes, 'modifiedItems'), 'modified', version, changes),
+    z2kManagedChangeGroup(_('Добавится'), z2kManagedChangeItems(changes, 'addedItems'), 'added', version, changes),
+    z2kManagedChangeGroup(_('Удалится'), z2kManagedChangeItems(changes, 'removedItems'), 'removed', version, changes)
   ].filter(Boolean);
 }
 function loadZ2KVersionDetails(ctx, version, includeCompare) {
   if (!version || state.componentOperation || !ctx.api.resources || !ctx.api.resources.versionDetails) return;
   var requestId = ++state.z2kDetailsRequestId;
-  checkedResult(ctx.api.resources.versionDetails({ version: version, includeCompare: includeCompare === true ? 'compare' : 'fallback' }), _('Детали Z2K release')).then(function (answer) {
+  checkedResult(ctx.api.resources.versionDetails({ version: version, includeCompare: includeCompare === true ? 'compare' : 'fallback' }), _('Детали Z2K release'), includeCompare === true ? Z2K_COMPARE_LOAD_TIMEOUT_MS : undefined).then(function (answer) {
     if (state.z2kSelectedVersion !== version || state.z2kDetailsRequestId !== requestId) return;
     state.z2kDetails = answer;
     state.z2kDetailsCompared = includeCompare === true;

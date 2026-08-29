@@ -173,16 +173,54 @@ function normalizeZ2kDetails(value) {
   value = object(value);
   function normalizeChanges(input) {
     input = object(input);
+    function normalizeExplanation(value) {
+      value = object(value);
+      var source = value.source === 'repository-compare' || value.source === 'immutable-manifest' ? value.source : null;
+      var excerpts = array(value.excerpts).filter(function (item) { return typeof item === 'string' && item.trim(); });
+      if (!source || !excerpts.length) return null;
+      return {
+        source: source,
+        commitSha: first(value.commitSha, null),
+        commitSubject: first(value.commitSubject, null),
+        excerpts: excerpts,
+        excerptIndexes: array(value.excerptIndexes).filter(function (item) { return Number.isInteger(item) && item >= 0; }),
+        fullMessageAvailable: value.fullMessageAvailable === true,
+        relation: first(value.relation, null)
+      };
+    }
+    function normalizeCompareContext(value) {
+      return array(value).map(function (item) {
+        item = object(item);
+        return {
+          sha: first(item.sha || item.commitSha, null),
+          subject: first(item.subject || item.commitSubject, null),
+          paragraphs: array(item.paragraphs).filter(function (paragraph) { return typeof paragraph === 'string' && paragraph.trim(); })
+        };
+      }).filter(function (item) { return item.sha !== null && item.paragraphs.length > 0; });
+    }
     function normalizeItems(value) {
       return array(value).map(function (item) {
         item = object(item);
+        var summary = typeof item.summary === 'string' && item.summary.trim() ? item.summary : null;
+        var summarySource = item.summarySource === 'immutable-manifest' || item.summarySource === 'repository-compare' ? item.summarySource : null;
+        var explanation = normalizeExplanation(item.explanation);
+        if (!explanation && summary && summarySource === 'immutable-manifest') explanation = {
+          source: 'immutable-manifest',
+          commitSha: null,
+          commitSubject: null,
+          excerpts: [summary],
+          excerptIndexes: [],
+          fullMessageAvailable: false,
+          relation: 'exact-path'
+        };
         return {
           id: first(item.id, null),
           name: first(item.name || item.localName || item.id || item.sourcePath, null),
           sourcePath: first(item.sourcePath, null),
           type: first(item.type, null),
-          summary: typeof item.summary === 'string' && item.summary.trim() ? item.summary : null,
-          summarySource: item.summarySource === 'immutable-manifest' || item.summarySource === 'repository-compare' ? item.summarySource : null
+          summary: summary,
+          summarySource: summarySource,
+          explanation: explanation
         };
       }).filter(function (item) {
         return item.id !== null || item.name !== null || item.sourcePath !== null;
@@ -201,6 +239,7 @@ function normalizeZ2kDetails(value) {
       modifiedItems: normalizeItems(input.modifiedItems),
       addedItems: normalizeItems(input.addedItems),
       removedItems: normalizeItems(input.removedItems),
+      compareContext: normalizeCompareContext(input.compareContext),
       managedPaths: array(input.managedPaths),
       unknown: array(input.unknown)
     };

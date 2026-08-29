@@ -41,6 +41,10 @@ function buttonsOf(node) {
   return findAll(node, item => item.tag === 'button').map(item => item.attrs.label || textOf(item));
 }
 
+function linksOf(node) {
+  return findAll(node, item => item.tag === 'a');
+}
+
 function loadModel() {
   const presentation = vm.runInNewContext(`(function () { ${presentationSource}\n })()`, {
     baseclass: { extend: value => value },
@@ -412,7 +416,15 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
         { id: 'lua:z2k-state-persist', name: 'z2k-state-persist.lua', sourcePath: 'files/lua/z2k-state-persist.lua', type: 'lua' },
       ],
       addedItems: [
-        { id: 'blob:active-discord-udp', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob', summary: 'second explanation', summarySource: 'repository-compare' },
+        { id: 'blob:active-discord-udp', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob', summary: 'second explanation', summarySource: 'repository-compare', explanation: {
+          source: 'repository-compare',
+          commitSha: 'b'.repeat(40),
+          commitSubject: 'add active discord blob',
+          excerpts: ['second explanation'],
+          excerptIndexes: [0],
+          fullMessageAvailable: true,
+          relation: 'basename',
+        } },
         { id: 'blob:warp-endpoints', name: 'warp-endpoints.txt', sourcePath: 'files/lists/warp-endpoints.txt', type: 'blob' },
       ],
       removedItems: Array.from({ length: 6 }, (_, index) => ({
@@ -425,6 +437,7 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
       addedPaths: ['files/fake/active_discord_udp.bin', 'files/lists/warp-endpoints.txt'],
       removedPaths: Array.from({ length: 6 }, (_, index) => `files/fake/old-${index + 1}.bin`),
       managedPaths: [],
+      compareContext: [{ sha: 'b'.repeat(40), subject: 'add active discord blob', paragraphs: ['second explanation', 'More bounded context.'] }],
     },
   });
   const ctx = makeContext(z2k);
@@ -457,5 +470,68 @@ test('repository Compare is requested only after the managed-resource details ex
   assert.match(maintenanceSource, /versionDetails\(\{ version: version, includeCompare: includeCompare === true \? 'compare' : 'fallback' \}\)/);
   assert.match(maintenanceSource, /loadZ2KVersionDetails\(ctx, version, false\)/);
   assert.match(maintenanceSource, /state\.z2kDetailsExpanded && !state\.z2kDetailsCompared\) loadZ2KVersionDetails\(ctx, state\.z2kSelectedVersion, true\)/);
+  assert.match(maintenanceSource, /Z2K_COMPARE_LOAD_TIMEOUT_MS/);
   assert.match(modelSource, /summarySource === 'repository-compare'/);
+});
+
+test('shared structured evidence renders once with resource rows and cached context link', () => {
+  const internals = loadMaintenance();
+  const shared = {
+    source: 'repository-compare',
+    commitSha: 'a'.repeat(40),
+    commitSubject: 'refactor(resources): remove unused blobs',
+    excerpts: ['files/fake/a.bin, files/fake/b.bin and files/fake/c.bin share this repository reason.'],
+    excerptIndexes: [0],
+    fullMessageAvailable: true,
+    relation: 'basename',
+  };
+  const z2k = z2kRaw({
+    installedVersion: 'r-79.7',
+    selectedVersion: 'r-80.3',
+    installChanges: {
+      known: true,
+      modified: 0,
+      added: 0,
+      removed: 3,
+      modifiedItems: [],
+      addedItems: [],
+      removedItems: ['a', 'b', 'c'].map(name => ({
+        id: `blob:${name}`,
+        name: `${name}.bin`,
+        sourcePath: `files/fake/${name}.bin`,
+        type: 'blob',
+        explanation: shared,
+      })),
+      compareContext: [{
+        sha: shared.commitSha,
+        subject: shared.commitSubject,
+        paragraphs: [shared.excerpts[0], 'Additional bounded upstream context.'],
+      }],
+    },
+  });
+  const ctx = makeContext(z2k);
+  renderState(internals, z2k);
+  internals.state.z2kDetailsExpanded = true;
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(rendered);
+  const groups = findAll(rendered, node => classHas(node, 'z2m-z2k-change-evidence-group'));
+  const evidenceTextCount = (text.match(/share this repository reason/g) || []).length;
+  const commitLink = linksOf(rendered).find(link => link.attrs.href === `https://github.com/necronicle/z2k/commit/${shared.commitSha}`);
+
+  assert.equal(groups.length, 1, text);
+  assert.equal(evidenceTextCount, 1);
+  assert.match(text, /a\.bin/);
+  assert.match(text, /b\.bin/);
+  assert.match(text, /c\.bin/);
+  assert.match(text, /Контекст/);
+  assert.match(text, /Additional bounded upstream context/);
+  assert.ok(commitLink);
+});
+
+test('structured evidence presentation does not fall back to a per-row flattened summary', () => {
+  assert.match(modelSource, /explanation/);
+  assert.match(modelSource, /compareContext/);
+  assert.match(maintenanceSource, /z2m-z2k-change-evidence-group/);
+  assert.match(maintenanceSource, /fullMessageAvailable/);
+  assert.doesNotMatch(maintenanceSource, /item\.summary \|\| z2kManagedChangeFallback/);
 });

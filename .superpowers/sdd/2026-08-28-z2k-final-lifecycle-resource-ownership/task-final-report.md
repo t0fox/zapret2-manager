@@ -331,3 +331,50 @@ Verification:
   `vitest`), with no explanation-specific failure.
 
 Final verdict: `Z2K READ-ONLY CHANGE EXPLANATIONS READY`.
+
+## Structured repository Compare evidence — 2026-08-29
+
+This follow-up supersedes only the presentation/normalization details of the
+preceding read-only Compare section. Lifecycle authority and mutation behavior
+are unchanged: Registry, runtime activation, watchdog, selected-tag resolver,
+planToken, manifest authority, and the 2/2/6 managed delta remain outside this
+change.
+
+- The aggregate Compare response is normalized after CRLF-to-LF conversion
+  into complete paragraphs. Deterministic relevance ranking is exact
+  `sourcePath`, basename, quoted/code basename or stem, then generic context.
+  At most two contiguous structurally connected paragraphs are selected;
+  operational-only TEST/COMMANDS material is skipped unless it is the only
+  direct evidence. Broken U+FFFD/control text is rejected.
+- Normalized commit bodies are deduplicated by SHA and cache records contain
+  paragraph references rather than flattened per-file bodies or patches. A
+  selected paragraph is bounded to 4 KiB without display truncation; the pair
+  cache remains bounded to 256 KiB and the total cache to 512 KiB.
+- The UI groups shared evidence by commit SHA plus selected paragraph indexes
+  and content, renders the real commit subject once, keeps resource rows
+  separate, and expands additional context from the already-cached normalized
+  Compare. Commit links are local SHA-derived URLs; ambiguous or missing-link
+  rows use the factual `Изменён/Добавлен/Удалён в r-80.3` fallback.
+
+Verification evidence:
+
+- Real router transition was `r-79.7 → r-80.3`; the top managed counts stayed
+  `2 / 2 / 6`. The cold Compare path made one aggregate request and produced
+  schema-2 cache data of `173088` bytes; the warm details call made `0` new
+  requests and reported `cache=warm`.
+- The real aggregate contained `84` commits and `175` upstream paths; after
+  relevance filtering, `10` managed paths were projected into the UI. The
+  browser showed `10` evidence groups, `7` local commit links, and `7`
+  expandable cached contexts. No `[object HTMLDivElement]`, replacement
+  character, per-file request, or lifecycle action was observed.
+- Focused product tests: `3 passed, 0 failed, 11 skipped` (the skipped cases
+  require local `/opt/ucode/bin/ucode`, which is absent on Windows). Focused UI
+  tests: `17 passed, 0 failed`. Frontend syntax checks and `git diff --check`
+  passed. Router-native `/usr/bin/ucode` fixture and real-aggregate probes
+  passed; the broad baseline matrix is not used as a GREEN claim.
+- A repository-wide product/UI sweep of `219` test files was started with a
+  bounded `210s` allowance but did not produce a final summary; its exact
+  worktree test-runner processes were stopped after the bound. This is recorded
+  as incomplete evidence, not as a pass or a product failure.
+
+Final verdict: `Z2K STRUCTURED CHANGE EVIDENCE READY`.

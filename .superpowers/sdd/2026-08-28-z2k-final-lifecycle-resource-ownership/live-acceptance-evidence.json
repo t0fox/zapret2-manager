@@ -1184,6 +1184,95 @@
       },
       "liveRepositorySummaryGate": "PASSED: 5 repository-derived summaries and 5 factual fallbacks",
       "verdict": "Z2K READ-ONLY CHANGE EXPLANATIONS READY"
+    },
+    "structuredCompareEvidence": {
+      "date": "2026-08-29",
+      "supersedes": "readOnlyCompareExplanations.presentation",
+      "branch": "codex/z2k-version-lifecycle",
+      "expectedBaseHead": "7702da8b476b433af8bf3445fa1923bc53238e50",
+      "agents": false,
+      "apk": "not-built",
+      "lifecycleMutation": false,
+      "scope": [
+        "Compare evidence normalization",
+        "structured evidence grouping",
+        "cached context presentation",
+        "SHA-derived local commit links"
+      ],
+      "authorityUnchanged": [
+        "Registry",
+        "runtime activation",
+        "watchdog",
+        "selected-tag resolver",
+        "planToken",
+        "manifest authority",
+        "managed delta category counts"
+      ],
+      "normalization": {
+        "lineEndings": "CRLF-to-LF",
+        "paragraphs": "blank-line separated",
+        "ranking": [
+          "exact sourcePath",
+          "basename token",
+          "quoted/code basename or stem with same commit file change",
+          "generic patch context"
+        ],
+        "maxSelectedParagraphs": 2,
+        "operationalOnlyFallback": true,
+        "rejectsReplacementOrControlText": true,
+        "selectedEvidenceLimitBytes": 4096,
+        "displayTruncation": false,
+        "normalizedCommitBodiesDeduplicatedBySha": true
+      },
+      "cache": {
+        "schema": 2,
+        "pairLimitBytes": 262144,
+        "totalLimitBytes": 524288,
+        "previousSchema1Bytes": 242133,
+        "currentSchema2Bytes": 173088,
+        "rawBodiesPersisted": false,
+        "cold": { "aggregateRequests": 1, "cache": "cold" },
+        "warm": { "aggregateRequests": 0, "cache": "warm" }
+      },
+      "realCompare": {
+        "from": "r-79.7",
+        "to": "r-80.3",
+        "commitCount": 84,
+        "aggregateUpstreamPathCount": 175,
+        "relevantManagedPathCount": 10,
+        "managedCounts": { "modified": 2, "added": 2, "removed": 6 },
+        "perFileRequests": 0
+      },
+      "browser": {
+        "provider": "Codex in-app Browser",
+        "readOnly": true,
+        "cacheDisabledHardReload": true,
+        "installed": "r-79.7",
+        "selected": "r-80.3",
+        "evidenceGroups": 10,
+        "localCommitLinks": 7,
+        "cachedContextDetails": 7,
+        "topCounts": "2/2/6",
+        "objectHtmlDivAbsent": true,
+        "replacementCharacterAbsent": true,
+        "mutationTriggered": false
+      },
+      "tests": {
+        "product": { "passed": 3, "failed": 0, "skipped": 11, "skipReason": "local /opt/ucode/bin/ucode absent on Windows" },
+        "ui": { "passed": 17, "failed": 0, "skipped": 0 },
+        "routerNativeUcodeFixture": true,
+        "routerNativeRealAggregate": true,
+        "nodeCheck": true,
+        "diffCheck": true,
+        "fullRepositorySweep": {
+          "testFiles": 219,
+          "status": "incomplete-time-bound",
+          "boundSeconds": 210,
+          "resultSummary": "not-produced",
+          "productVerdict": "not-used-as-green-gate"
+        }
+      },
+      "verdict": "Z2K STRUCTURED CHANGE EVIDENCE READY"
     }
   }
 }
