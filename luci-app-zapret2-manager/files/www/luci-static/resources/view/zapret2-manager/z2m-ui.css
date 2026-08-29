@@ -3975,6 +3975,9 @@
   margin:0 0 10px;
   align-items:center;
 }
+#z2m-view-strategy #strategy-modal .strategy-editor-profiles-heading > .btn {
+  min-height:40px;
+}
 #z2m-view-strategy #strategy-modal .strategy-editor-profiles-heading h5,
 #z2m-view-strategy #strategy-modal .strategy-editor-visual h5,
 #z2m-view-strategy #strategy-modal .strategy-editor-problems-card h4 {
@@ -3998,7 +4001,7 @@
   min-width:0;
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-profile-tab .btn:first-child {
-  min-height:38px;
+  min-height:40px;
   max-width:240px;
   border-color:transparent;
   background:transparent;
@@ -4011,8 +4014,8 @@
   box-shadow:0 1px 2px rgba(0,0,0,.18);
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-profile-tab .btn-icon-only {
-  min-width:40px;
-  min-height:40px;
+  min-width:44px;
+  min-height:44px;
   border-radius:6px;
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs {
@@ -4025,7 +4028,7 @@
   background:var(--panel2);
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs .btn {
-  min-height:36px;
+  min-height:40px;
   border-color:transparent;
   background:transparent;
 }
@@ -4037,7 +4040,7 @@
   margin-top:12px;
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled {
-  min-height:40px;
+  min-height:44px;
   display:inline-flex;
   align-items:center;
   gap:9px;
@@ -4113,8 +4116,8 @@
   min-height:44px;
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-circular-step .btn-icon-only {
-  min-width:40px;
-  min-height:40px;
+  min-width:44px;
+  min-height:44px;
 }
 #z2m-view-strategy #strategy-modal .strategy-editor-code-header {
   align-items:center;
@@ -4212,7 +4215,7 @@
   font-weight:650;
 }
 #z2m-view-strategy #strategy-modal .editor-side-toolbar .btn {
-  min-height:36px;
+  min-height:40px;
   flex:0 0 auto;
 }
 #z2m-view-strategy #strategy-modal .nfq-side-card {

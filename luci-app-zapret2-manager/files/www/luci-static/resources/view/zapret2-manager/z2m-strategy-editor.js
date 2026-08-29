@@ -463,7 +463,7 @@ return baseclass.extend({
         testButton.dataset.action = 'editorTest';
         hosts.actionsHost.insertBefore(testButton, hosts.actionsHost.lastChild);
       } else {
-        hosts.actionsHost.appendChild(element(document, 'span', 'ide-capability-note', 'Временный runtime-тест не предоставлен backend; сначала используйте Validate и Preview.'));
+        hosts.actionsHost.appendChild(element(document, 'span', 'ide-capability-note', 'Временный runtime-тест не предоставлен backend; сначала используйте «Проверить» и «Показать превью».'));
       }
     }
     function render() {
