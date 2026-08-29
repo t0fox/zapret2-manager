@@ -41,6 +41,7 @@ sections:
       - docs/04-contracts/z2m-canonical-json-v1.md
     parityReferences:
       - docs/05-parity/avatar-parity.md
+    activeSpec: docs/superpowers/specs/2026-08-29-z2m-strategy-ide-workspace-design.md
   blockcheck:
     codeGlobs:
       - "zapret2-manager/files/usr/libexec/zapret2-manager/blockcheck-*"
