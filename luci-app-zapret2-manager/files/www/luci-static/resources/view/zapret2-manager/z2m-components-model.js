@@ -182,7 +182,7 @@ function normalizeZ2kDetails(value) {
           sourcePath: first(item.sourcePath, null),
           type: first(item.type, null),
           summary: typeof item.summary === 'string' && item.summary.trim() ? item.summary : null,
-          summarySource: item.summarySource === 'immutable-manifest' || item.summarySource === 'repository-index' ? item.summarySource : null
+          summarySource: item.summarySource === 'immutable-manifest' || item.summarySource === 'repository-compare' ? item.summarySource : null
         };
       }).filter(function (item) {
         return item.id !== null || item.name !== null || item.sourcePath !== null;
@@ -208,6 +208,8 @@ function normalizeZ2kDetails(value) {
   var legacyChanges = value.changes || {};
   var releaseChanges = normalizeChanges(value.releaseChanges || legacyChanges);
   var installChanges = normalizeChanges(value.installChanges || value.changes || value.releaseChanges || {});
+  var compareDiagnostics = value.compareDiagnostics && typeof value.compareDiagnostics === 'object' && !Array.isArray(value.compareDiagnostics)
+    ? value.compareDiagnostics : null;
   return {
     version: first(value.version, null),
     releaseName: first(value.releaseName || value.version, null),
@@ -227,7 +229,12 @@ function normalizeZ2kDetails(value) {
     releaseChanges: releaseChanges,
     installChanges: installChanges,
     changes: installChanges,
-    compareUrl: first(value.compareUrl, null)
+    compareUrl: first(value.compareUrl, null),
+    compareDiagnostics: compareDiagnostics ? {
+      requested: compareDiagnostics.requested === true,
+      requestCount: typeof compareDiagnostics.requestCount === 'number' ? compareDiagnostics.requestCount : null,
+      cache: first(compareDiagnostics.cache, null)
+    } : null
   };
 }
 

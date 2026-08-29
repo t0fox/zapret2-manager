@@ -1137,6 +1137,53 @@
       "agents": false,
       "extraBranch": false,
       "verdict": "ready pending upstream repository push"
+    },
+    "readOnlyCompareExplanations": {
+      "date": "2026-08-29",
+      "supersedes": "repositoryChangeExplanations",
+      "managerHeadBeforeChange": "a5c8c92139754dba2724dcff863a9b56ef7e67dc",
+      "branch": "codex/z2k-version-lifecycle",
+      "upstreamWriteAttempt": false,
+      "agents": false,
+      "apk": "not-built",
+      "productionDependencyRemoved": [
+        "metadata/release-changes.json",
+        "RELEASE_CHANGES_URL",
+        "repository-index"
+      ],
+      "compare": {
+        "transport": "GET /repos/necronicle/z2k/compare/<immutable-from>...<immutable-to>",
+        "requestKey": "immutable fromCommit/toCommit",
+        "perResourceRequests": 0,
+        "pagination": "bounded to at most three pages for <=250 commits",
+        "rawComparePersisted": false,
+        "normalizedPairBytesLimit": 262144,
+        "normalizedCacheTotalBytesLimit": 524288,
+        "summarySources": ["immutable-manifest", "repository-compare", null]
+      },
+      "tests": {
+        "nodeStaticAndUi": { "passed": 18, "failed": 0, "skipped": 7 },
+        "routerNativeUcodeFixture": true,
+        "routerNativeCacheValidation": true,
+        "jsSyntax": true,
+        "diffCheck": true,
+        "broadZ2kProductUi": { "passed": 139, "failed": 5, "skipped": 21 }
+      },
+      "router": {
+        "sourceOnlyDeployment": true,
+        "installedRelease": "r-79.7",
+        "registryRevision": 10,
+        "preparedTarget": null,
+        "lifecycleMutation": false,
+        "fallbackDetails": { "requested": false, "compareRequests": 0, "cache": "not-requested", "counts": "2/2/6" },
+        "firstRealCompareAttempt": { "pair": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c...8f3787aa999dd00ffe76871c5f343a1c049973b1", "requests": 1, "cache": "fallback", "summaryCount": 0, "http": "403 rate limit exceeded", "remaining": 0 },
+        "secondRealCompareAttempt": { "requests": 0, "cache": "cooldown", "summaryCount": 0 },
+        "finalRealCompareAttempt": { "pair": "8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c...8f3787aa999dd00ffe76871c5f343a1c049973b1", "requests": 1, "cache": "cold", "repositorySummaryCount": 5, "fallbackCount": 5, "cacheBytes": 242133, "cachePath": "/tmp/zapret2-manager/update-cache/z2k-compare-8455ae2c5da9c60d7c9ff07409b79ea6d04dd16c-8f3787aa999dd00ffe76871c5f343a1c049973b1.json" },
+        "finalWarmDetailsAttempt": { "requests": 0, "cache": "warm", "browserNetworkRequests": 0, "repositorySummaryRetained": true },
+        "noEtcExplanationCache": true
+      },
+      "liveRepositorySummaryGate": "PASSED: 5 repository-derived summaries and 5 factual fallbacks",
+      "verdict": "Z2K READ-ONLY CHANGE EXPLANATIONS READY"
     }
   }
 }

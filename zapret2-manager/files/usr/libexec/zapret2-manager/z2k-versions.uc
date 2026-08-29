@@ -15,18 +15,27 @@ const TAGS_URL = API_ROOT + '/git/refs/tags?per_page=100';
 const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
 const CACHE_FILE = '/tmp/z2k-version-catalog.json';
 const CACHE_TTL = 900;
-const CHANGE_CACHE_DIR = '/tmp/zapret2-manager/update-cache';
-const CHANGE_CACHE_FILE = CHANGE_CACHE_DIR + '/z2k-release-changes.json';
-const CHANGE_CACHE_TTL = 900;
+// Product-specific adapter boundary. A future shared update-source.uc can
+// replace the transport inside fetch_compare_evidence without changing the
+// Z2K lifecycle contract or its immutable pair cache.
+const COMPARE_CACHE_DIR = '/tmp/zapret2-manager/update-cache';
+const COMPARE_CACHE_TTL = 900;
+const COMPARE_CACHE_SCHEMA = 1;
+const COMPARE_TIMEOUT = 10;
+const COMPARE_COOLDOWN = 900;
+const MAX_COMPARE_RESPONSE = 4 * 1024 * 1024;
+const MAX_COMPARE_CACHE = 256 * 1024;
+const MAX_COMPARE_CACHE_TOTAL = 512 * 1024;
+const MAX_COMPARE_COMMITS = 250;
+const MAX_COMPARE_FILES = 512;
+const MAX_COMPARE_TEXT = 1000;
+const MAX_SUMMARY = 1000;
 const MAX_VERSIONS = 10;
 const MAX_TAGS = 256;
 const MAX_MANIFEST = 512 * 1024;
 const MAX_API_RESPONSE = 512 * 1024;
-const MAX_RELEASE_CHANGES = 256 * 1024;
-const MAX_CHANGE_CACHE = 512 * 1024;
 const MAX_PATH = 256;
-const RELEASE_CHANGES_URL = RAW_ROOT + '/' + BRANCH + '/metadata/release-changes.json';
-let REQUEST_COUNT = 0, REST_REQUEST_COUNT = 0;
+let REQUEST_COUNT = 0, REST_REQUEST_COUNT = 0, COMPARE_REQUEST_COUNT = 0, COMPARE_CACHE_STATE = 'none';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -37,11 +46,11 @@ function command(value) { let p = popen(value + ' 2>/dev/null', 'r'); if (!p) re
 function regular(path) { try { let value = stat(path); return object(value) && value.type == 'file' && type(value.size) == 'int'; } catch (e) { return false; } }
 function temp_file(prefix) { let safe = prefix || 'z2m-z2k'; let p = popen('umask 077; mktemp /tmp/' + safe + '.XXXXXX 2>/dev/null', 'r'); if (!p) return null; let value = trim(p.read('all') || ''), rc = p.close(); return rc == 0 && match(value, /^\/tmp\/[A-Za-z0-9._-]+$/) ? value : null; }
 function cleanup(path) { if (path != null) try { unlink(path); } catch (e) {} }
-function fetch_text(url, limit, prefix, rest) {
+function fetch_text(url, limit, prefix, rest, timeout) {
 	REQUEST_COUNT++;
 	if (rest !== false) REST_REQUEST_COUNT++;
 	let qurl = quote(url), path = temp_file(prefix); if (qurl == null || path == null) { cleanup(path); return null; }
-	let result = command('uclient-fetch -q -T 20 -O ' + quote(path) + ' ' + qurl);
+	let result = command('uclient-fetch -q -T ' + (timeout || 20) + ' -O ' + quote(path) + ' ' + qurl);
 	let size = stat(path), raw = result.rc == 0 && size != null && size.size <= (limit || MAX_API_RESPONSE) ? readfile(path) : null;
 	cleanup(path); return raw == null || length(raw) > (limit || MAX_API_RESPONSE) ? null : raw;
 }
@@ -91,51 +100,148 @@ function validate_manifest(value, rawSize, requested) {
 	return { ok: true, manifest: value };
 }
 function utf8_codepoints(value) { let count = 0; for (let i = 0; i < length(value); i++) { let byte = ord(substr(value, i, 1)); if (byte < 128 || byte > 191) count++; } return count; }
-function valid_metadata_summary(value) {
-	if (!string(value) || length(value) == 0 || utf8_codepoints(value) > 1000) return false;
+function bounded_text(value, limit) {
+	let out = trim(text(value));
+	if (!length(out)) return null;
+	return utf8_codepoints(out) > limit ? substr(out, 0, limit) : out;
+}
+function valid_summary(value) {
+	if (!string(value) || length(value) == 0 || utf8_codepoints(value) > MAX_SUMMARY) return false;
 	for (let i = 0; i < length(value); i++) { let byte = ord(substr(value, i, 1)); if (byte < 32 || byte == 127) return false; }
 	return true;
 }
-function normalized_change_entry(entry, action) {
-	let validAction = action == 'added' || action == 'modified' || action == 'removed';
-	return validAction && object(entry) && entry.action == action && valid_metadata_summary(entry.summary) ? { action: action, summary: entry.summary } : null;
+function compare_cache_file(fromCommit, toCommit) { return COMPARE_CACHE_DIR + '/z2k-compare-' + lc(fromCommit) + '-' + lc(toCommit) + '.json'; }
+function compare_lock_file(cacheFile) { return cacheFile + '.lock'; }
+function compare_action_status(status, action) {
+	return action == 'added' ? (status == 'added' || status == 'renamed') : (action == 'removed' ? (status == 'removed' || status == 'renamed') : status == 'modified');
 }
-function normalize_release_change_index(value) {
-	if (!object(value) || value.schema != 1 || !object(value.releases)) return null;
-	let normalized = { schema: 1, releases: {} }, releases = keys(value.releases);
-	for (let i = 0; i < length(releases); i++) {
-		let release = releases[i], record = value.releases[release];
-		if (parse_release(release) == null || !object(record) || !valid_sha(record.commit) || !object(record.changes)) return null;
-		let changes = {}, paths = keys(record.changes);
-		for (let j = 0; j < length(paths); j++) { let path = paths[j], entry = record.changes[path], action = object(entry) ? entry.action : null; if (!safe_path(path)) return null; let normalizedEntry = normalized_change_entry(entry, action); if (normalizedEntry == null) return null; changes[path] = normalizedEntry; }
-		normalized.releases[release] = { commit: lc(record.commit), changes: changes };
+function collapse_compare_whitespace(value) {
+	let raw = trim(text(value)), out = '', pendingSpace = false;
+	for (let i = 0; i < length(raw); i++) {
+		let ch = substr(raw, i, 1);
+		if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') { if (length(out)) pendingSpace = true; continue; }
+		if (pendingSpace) out += ' ';
+		out += ch; pendingSpace = false;
 	}
-	return normalized;
+	return trim(out);
 }
-function read_change_cache() {
-	try {
-		let raw = readfile(CHANGE_CACHE_FILE); if (raw == null || length(raw) >= MAX_CHANGE_CACHE) return null;
-		let value = json(raw), index = object(value) && value.schema == 1 && type(value.cachedAt) == 'int' ? normalize_release_change_index(value.index) : null;
-		return index == null ? null : { cachedAt: value.cachedAt, index: index };
-	} catch (e) { return null; }
+function compare_commit_message(value) {
+	let message = trim(text(value)), lines = split(message, '\n'), subject = trim(lines[0] || ''), colon = index(subject, ':');
+	if (colon > 0 && colon < 48 && match(substr(subject, 0, colon), /^[a-z]+(\([A-Za-z0-9._\/-]+\))?$/)) {
+		subject = trim(substr(subject, colon + 1));
+		message = subject + (length(lines) > 1 ? ' — ' + trim(join('\n', slice(lines, 1))) : '');
+	}
+	return bounded_text(collapse_compare_whitespace(message), MAX_COMPARE_TEXT);
 }
-function save_change_cache(index) {
-	let tmp = CHANGE_CACHE_FILE + '.tmp.' + time();
+function compare_file_message_score(message, path) {
+	let body = lc(text(message)), full = lc(path), slash = rindex(path, '/'), base = slash >= 0 ? substr(path, slash + 1) : path, dot = rindex(base, '.'), stem = dot > 0 ? substr(base, 0, dot) : base;
+	if (index(body, full) >= 0) return 3;
+	if (index(body, lc(base)) >= 0) return 2;
+	return length(stem) >= 4 && index(body, lc(stem)) >= 0 ? 1 : 0;
+}
+function normalized_compare_commit(value) {
+	if (!object(value) || !valid_sha(value.sha) || !object(value.commit) || !string(value.commit.message)) return null;
+	let message = compare_commit_message(value.commit.message); if (message == null) return null;
+	return { sha: lc(value.sha), subject: bounded_text(split(message, '\n')[0], 256), body: message };
+}
+function normalized_compare_file(value, commits) {
+	if (!object(value) || !safe_path(value.filename) || !string(value.status)) return null;
+	let status = value.status; if (status != 'added' && status != 'modified' && status != 'removed' && status != 'renamed' && status != 'copied') return null;
+	let evidence = [];
+	for (let i = 0; i < length(commits); i++) {
+		let score = compare_file_message_score(commits[i].body, value.filename);
+		if (score > 0) push(evidence, { sha: commits[i].sha, score: score, subject: commits[i].subject, body: commits[i].body });
+	}
+	return { status: status, previousFilename: safe_path(value.previous_filename) ? value.previous_filename : null, commitEvidence: evidence };
+}
+function normalize_compare_evidence(value, fromCommit, toCommit) {
+	if (!object(value) || type(value.commits) != 'array' || type(value.files) != 'array' || type(value.total_commits) != 'int' || value.total_commits < 0 || value.total_commits > MAX_COMPARE_COMMITS || length(value.commits) != value.total_commits || value.total_commits > MAX_COMPARE_COMMITS || length(value.files) >= MAX_COMPARE_FILES) return null;
+	let commits = [], files = {}, seen = {};
+	for (let i = 0; i < length(value.commits); i++) { let commit = normalized_compare_commit(value.commits[i]); if (commit == null) return null; push(commits, commit); }
+	for (let i = 0; i < length(value.files); i++) { let file = normalized_compare_file(value.files[i], commits); if (file == null || seen[value.files[i].filename]) return null; seen[value.files[i].filename] = true; files[value.files[i].filename] = file; }
+	let canonicalFrom = valid_sha(fromCommit) ? lc(fromCommit) : null, canonicalTo = valid_sha(toCommit) ? lc(toCommit) : null;
+	return { schemaVersion: COMPARE_CACHE_SCHEMA, repository: REPOSITORY, fromCommit: canonicalFrom, toCommit: canonicalTo, fetchedAt: time(), totalCommits: value.total_commits, commits: commits, files: files, complete: true };
+}
+function validate_normalized_compare_evidence(value, fromCommit, toCommit) {
+	if (!object(value) || value.schemaVersion != COMPARE_CACHE_SCHEMA || value.repository != REPOSITORY || !valid_sha(value.fromCommit) || !valid_sha(value.toCommit) || lc(value.fromCommit) != lc(fromCommit) || lc(value.toCommit) != lc(toCommit) || type(value.fetchedAt) != 'int' || type(value.totalCommits) != 'int' || value.totalCommits < 0 || value.totalCommits > MAX_COMPARE_COMMITS || type(value.commits) != 'array' || length(value.commits) != value.totalCommits || type(value.files) != 'object' || value.complete !== true) return null;
+	for (let i = 0; i < length(value.commits); i++) if (!object(value.commits[i]) || !valid_sha(value.commits[i].sha) || !valid_summary(value.commits[i].subject) || !valid_summary(value.commits[i].body)) return null;
+	let paths = keys(value.files); if (length(paths) >= MAX_COMPARE_FILES) return null;
+	for (let i = 0; i < length(paths); i++) {
+		let path = paths[i], file = value.files[path]; if (!safe_path(path) || !object(file) || !string(file.status) || (file.status != 'added' && file.status != 'modified' && file.status != 'removed' && file.status != 'renamed' && file.status != 'copied')) return null;
+		if (file.previousFilename != null && !safe_path(file.previousFilename)) return null;
+		if (type(file.commitEvidence) != 'array') return null;
+		for (let j = 0; j < length(file.commitEvidence); j++) { let evidence = file.commitEvidence[j]; if (!object(evidence) || !valid_sha(evidence.sha) || type(evidence.score) != 'int' || evidence.score < 1 || evidence.score > 3 || !valid_summary(evidence.subject) || !valid_summary(evidence.body)) return null; }
+	}
+	return value;
+}
+function validate_compare_cache(value, fromCommit, toCommit, rawSize) {
+	if (rawSize != null && rawSize > MAX_COMPARE_CACHE) return null;
+	if (!object(value) || value.schemaVersion != COMPARE_CACHE_SCHEMA || value.repository != REPOSITORY || !valid_sha(value.fromCommit) || !valid_sha(value.toCommit) || !valid_sha(fromCommit) || !valid_sha(toCommit) || lc(value.fromCommit) != lc(fromCommit) || lc(value.toCommit) != lc(toCommit) || type(value.fetchedAt) != 'int') return null;
+	if (value.cooldownUntil != null && type(value.cooldownUntil) != 'int') return null;
+	if (value.evidence == null) return { cachedAt: value.fetchedAt, cooldownUntil: value.cooldownUntil || 0, evidence: null };
+	let evidence = validate_normalized_compare_evidence(value.evidence, fromCommit, toCommit);
+	return evidence == null ? null : { cachedAt: value.fetchedAt, cooldownUntil: value.cooldownUntil || 0, evidence: evidence };
+}
+function read_compare_cache(fromCommit, toCommit) {
+	let file = compare_cache_file(fromCommit, toCommit);
+	try { let raw = readfile(file); if (raw == null || length(raw) > MAX_COMPARE_CACHE) return null; return validate_compare_cache(json(raw), fromCommit, toCommit, length(raw)); } catch (e) { return null; }
+}
+function save_compare_cache(fromCommit, toCommit, evidence, cooldownUntil) {
+	let file = compare_cache_file(fromCommit, toCommit), tmp = file + '.tmp.' + time();
 	try {
-		let raw = sprintf('%J', { schema: 1, cachedAt: time(), index: index }) + '\n';
-		if (length(raw) >= MAX_CHANGE_CACHE) return;
-		command('mkdir -p ' + quote(CHANGE_CACHE_DIR)); writefile(tmp, raw);
-		let moved = command('mv -f ' + quote(tmp) + ' ' + quote(CHANGE_CACHE_FILE)); if (moved.rc != 0) cleanup(tmp);
+		let record = { schemaVersion: COMPARE_CACHE_SCHEMA, repository: REPOSITORY, fromCommit: lc(fromCommit), toCommit: lc(toCommit), fetchedAt: time(), cooldownUntil: cooldownUntil || 0, evidence: evidence };
+		let raw = sprintf('%J', record) + '\n', usage = command('du -sk ' + quote(COMPARE_CACHE_DIR)); if (length(raw) > MAX_COMPARE_CACHE || usage.rc != 0 || (+trim(usage.out) * 1024) + length(raw) > MAX_COMPARE_CACHE_TOTAL) return;
+		command('mkdir -p ' + quote(COMPARE_CACHE_DIR)); writefile(tmp, raw);
+		let moved = command('mv -f ' + quote(tmp) + ' ' + quote(file)); if (moved.rc != 0) cleanup(tmp);
 	} catch (e) { cleanup(tmp); }
 }
-function fetch_release_change_index() {
-	let cached = read_change_cache();
-	if (cached != null && time() - cached.cachedAt <= CHANGE_CACHE_TTL) return cached.index;
-	let raw = fetch_text(RELEASE_CHANGES_URL, MAX_RELEASE_CHANGES, 'z2m-z2k-changes', false), parsed = null;
-	if (raw != null) try { parsed = normalize_release_change_index(json(raw)); } catch (e) { parsed = null; }
-	if (parsed != null) { save_change_cache(parsed); return parsed; }
-	return cached == null ? null : cached.index;
+function wait_for_compare_cache(fromCommit, toCommit) {
+	for (let i = 0; i < 5; i++) { let cached = read_compare_cache(fromCommit, toCommit); if (cached != null && (cached.evidence != null || cached.cooldownUntil > time())) return cached; command('sleep 1'); }
+	return read_compare_cache(fromCommit, toCommit);
 }
+// uclient-fetch does not expose a portable HTTP status parser here. 403,
+// exhausted rate limits, malformed JSON, and truncated compare responses all
+// take the same bounded cooldown path: keep valid LKG evidence or fall back.
+function fetch_compare_page(url) {
+	COMPARE_REQUEST_COUNT++;
+	let raw = fetch_text(url, MAX_COMPARE_RESPONSE, 'z2m-z2k-compare', true, COMPARE_TIMEOUT);
+	if (raw == null) return null;
+	try { return json(raw); } catch (e) { return null; }
+}
+function fetch_compare_evidence(fromCommit, toCommit) {
+	if (!valid_sha(fromCommit) || !valid_sha(toCommit) || lc(fromCommit) == lc(toCommit)) { COMPARE_CACHE_STATE = 'none'; return null; }
+	let cached = read_compare_cache(fromCommit, toCommit), now = time();
+	if (cached != null && cached.evidence != null && now - cached.cachedAt <= COMPARE_CACHE_TTL) { COMPARE_CACHE_STATE = 'warm'; return cached.evidence; }
+	if (cached != null && cached.cooldownUntil > now) { COMPARE_CACHE_STATE = cached.evidence != null ? 'lkg' : 'cooldown'; return cached.evidence; }
+	let file = compare_cache_file(fromCommit, toCommit), lock = compare_lock_file(file); command('mkdir -p ' + quote(COMPARE_CACHE_DIR)); let acquired = command('mkdir ' + quote(lock)).rc == 0;
+	if (!acquired) { let waited = wait_for_compare_cache(fromCommit, toCommit); COMPARE_CACHE_STATE = waited && waited.evidence != null ? 'singleflight' : 'fallback'; return waited && waited.evidence || cached && cached.evidence || null; }
+	let result = null;
+	try {
+		cached = read_compare_cache(fromCommit, toCommit); now = time();
+		if (cached != null && cached.evidence != null && now - cached.cachedAt <= COMPARE_CACHE_TTL) { COMPARE_CACHE_STATE = 'warm'; result = cached.evidence; }
+		else if (cached != null && cached.cooldownUntil > now) { COMPARE_CACHE_STATE = cached.evidence != null ? 'lkg' : 'cooldown'; result = cached.evidence; }
+		else {
+			let url = API_ROOT + '/compare/' + lc(fromCommit) + '...' + lc(toCommit) + '?per_page=100', aggregate = fetch_compare_page(url), normalized = null;
+			if (aggregate != null && type(aggregate.total_commits) == 'int' && aggregate.total_commits <= MAX_COMPARE_COMMITS && type(aggregate.commits) == 'array') {
+				let received = length(aggregate.commits), page = 2;
+				while (received < aggregate.total_commits && page <= 3) {
+					let next = fetch_compare_page(url + '&page=' + page);
+					if (next == null || next.total_commits != aggregate.total_commits || type(next.commits) != 'array' || !length(next.commits)) { aggregate = null; break; }
+					for (let i = 0; i < length(next.commits); i++) push(aggregate.commits, next.commits[i]);
+					received = length(aggregate.commits); page++;
+				}
+				if (aggregate != null && received != aggregate.total_commits) aggregate = null;
+			}
+			if (aggregate != null) normalized = normalize_compare_evidence(aggregate, fromCommit, toCommit);
+			if (normalized != null) { save_compare_cache(fromCommit, toCommit, normalized, 0); COMPARE_CACHE_STATE = 'cold'; result = normalized; }
+			else { save_compare_cache(fromCommit, toCommit, null, now + COMPARE_COOLDOWN); COMPARE_CACHE_STATE = cached && cached.evidence != null ? 'lkg' : 'fallback'; result = cached && cached.evidence || null; }
+		}
+	} catch (e) { COMPARE_CACHE_STATE = cached && cached.evidence != null ? 'lkg' : 'fallback'; result = cached && cached.evidence || null; }
+	command('rmdir ' + quote(lock));
+	return result;
+}
+export const z2k_normalize_compare_evidence = function(value, fromCommit, toCommit) { return normalize_compare_evidence(value, fromCommit, toCommit); };
+export const z2k_validate_compare_cache = function(value, fromCommit, toCommit, rawSize) { return validate_compare_cache(value, fromCommit, toCommit, rawSize); };
 function fetch_manifest(version, commitSha) {
 	if (parse_release(version) == null || !valid_sha(commitSha)) return fail('EINPUT', 'Z2K target identity is invalid.');
 	let url = RAW_ROOT + '/' + commitSha + '/UPDATES.json', raw = fetch_text(url, MAX_MANIFEST, 'z2m-z2k-manifest', false);
@@ -191,7 +297,7 @@ function save_cache(value) { let tmp = CACHE_FILE + '.tmp.' + time(); try { valu
 
 export const z2k_versions = function(options) {
 	let fresh = object(options) && options.fresh === true;
-	REQUEST_COUNT = 0; REST_REQUEST_COUNT = 0;
+	REQUEST_COUNT = 0; REST_REQUEST_COUNT = 0; COMPARE_REQUEST_COUNT = 0; COMPARE_CACHE_STATE = 'none';
 	let installed = installed_release(), cached = read_cache();
 	if (!fresh && cached != null) return cached_result(cached, installed);
 	let refs = fetch_refs(), stale = false;
@@ -256,40 +362,55 @@ function changes_between(current, previous, map) {
 	return managed_change_set(known, sort_change_items(modifiedItems), sort_change_items(addedItems), sort_change_items(removedItems), now.unknown);
 }
 export const z2k_managed_delta = function(current, previous, map) { return changes_between(current, previous, map); };
-function change_explanation(current, version, commitSha, historical, path, action) {
-	let entry = current && object(current.changes) ? normalized_change_entry(current.changes[path], action) : null;
-	if (entry != null) return { summary: entry.summary, summarySource: 'immutable-manifest' };
-	let record = historical && object(historical.releases) ? historical.releases[version] : null;
-	entry = record && valid_sha(commitSha) && valid_sha(record.commit) && lc(record.commit) == lc(commitSha) && object(record.changes) ? normalized_change_entry(record.changes[path], action) : null;
-	return entry == null ? { summary: null, summarySource: null } : { summary: entry.summary, summarySource: 'repository-index' };
+function immutable_manifest_explanation(current, path, action) {
+	let entry = current && object(current.changes) ? current.changes[path] : null;
+	return object(entry) && entry.action == action && valid_summary(entry.summary) ? { summary: entry.summary, summarySource: 'immutable-manifest' } : null;
 }
-function explain_items(items, current, version, commitSha, historical, action) {
+function compare_explanation(compareEvidence, path, action) {
+	let file = compareEvidence && object(compareEvidence.files) ? compareEvidence.files[path] : null;
+	if (!object(file) || !compare_action_status(file.status, action) || type(file.commitEvidence) != 'array' || !length(file.commitEvidence)) return null;
+	let best = null, bestScore = 0, bestCount = 0;
+	for (let i = 0; i < length(file.commitEvidence); i++) {
+		let candidate = file.commitEvidence[i];
+		if (!object(candidate) || !valid_summary(candidate.body) || type(candidate.score) != 'int') continue;
+		if (best == null || candidate.score > bestScore) { best = candidate; bestScore = candidate.score; bestCount = 1; }
+		else if (candidate.score == bestScore) { best = candidate; bestCount++; }
+	}
+	if (best == null || (bestScore < 3 && bestCount > 1)) return null;
+	return { summary: bounded_text(best.body, MAX_SUMMARY), summarySource: 'repository-compare' };
+}
+function change_explanation(current, compareEvidence, path, action) {
+	let immutable = immutable_manifest_explanation(current, path, action); if (immutable != null) return immutable;
+	let compared = compare_explanation(compareEvidence, path, action); return compared == null ? { summary: null, summarySource: null } : compared;
+}
+function explain_items(items, current, compareEvidence, action) {
 	let result = [];
 	for (let i = 0; i < length(items || []); i++) {
-		let item = items[i], copy = {}, explanation = change_explanation(current, version, commitSha, historical, item.sourcePath, action);
+		let item = items[i], copy = {}, explanation = change_explanation(current, compareEvidence, item.sourcePath, action);
 		for (let key in item) copy[key] = item[key];
 		copy.summary = explanation.summary; copy.summarySource = explanation.summarySource; push(result, copy);
 	}
 	return result;
 }
-function enrich_change_set(changeSet, current, version, commitSha, historical) {
-	let normalizedHistorical = normalize_release_change_index(historical), result = {};
+function prepare_compare_evidence(value) {
+	if (value == null) return null;
+	if (object(value) && value.schemaVersion == COMPARE_CACHE_SCHEMA && value.repository == REPOSITORY) return value;
+	return normalize_compare_evidence(value, null, null);
+}
+function enrich_change_set(changeSet, current, compareEvidence) {
+	let normalizedCompare = prepare_compare_evidence(compareEvidence), result = {};
 	for (let key in changeSet || {}) result[key] = changeSet[key];
-	result.modifiedItems = explain_items(changeSet && changeSet.modifiedItems, current, version, commitSha, normalizedHistorical, 'modified');
-	result.addedItems = explain_items(changeSet && changeSet.addedItems, current, version, commitSha, normalizedHistorical, 'added');
-	result.removedItems = explain_items(changeSet && changeSet.removedItems, current, version, commitSha, normalizedHistorical, 'removed');
+	result.modifiedItems = explain_items(changeSet && changeSet.modifiedItems, current, normalizedCompare, 'modified');
+	result.addedItems = explain_items(changeSet && changeSet.addedItems, current, normalizedCompare, 'added');
+	result.removedItems = explain_items(changeSet && changeSet.removedItems, current, normalizedCompare, 'removed');
 	return result;
 }
-function change_set_needs_historical(changeSet, current, version, commitSha) {
-	let groups = [{ items: changeSet.modifiedItems, action: 'modified' }, { items: changeSet.addedItems, action: 'added' }, { items: changeSet.removedItems, action: 'removed' }];
-	for (let i = 0; i < length(groups); i++) for (let j = 0; j < length(groups[i].items || []); j++) if (change_explanation(current, version, commitSha, null, groups[i].items[j].sourcePath, groups[i].action).summary == null) return true;
-	return false;
-}
-export const z2k_explain_managed_delta = function(current, previous, map, version, commitSha, historical) {
-	return enrich_change_set(changes_between(current, previous, map), current, version, commitSha, historical);
+export const z2k_explain_managed_delta = function(current, previous, map, version, compareEvidence) {
+	return enrich_change_set(changes_between(current, previous, map), current, compareEvidence);
 };
 
-export const z2k_version_details = function(version) {
+export const z2k_version_details = function(version, options) {
+	let includeCompare = object(options) && options.includeCompare === true;
 	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
 	let catalog = z2k_versions(); if (!catalog.ok) return catalog; let row = target_release(version, catalog.versions); if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.');
 	let emptyChanges = { known: false, modified: null, added: null, removed: null, changedPaths: [], upstreamChangedPaths: [], modifiedPaths: [], addedPaths: [], removedPaths: [], modifiedItems: [], addedItems: [], removedItems: [], managedPaths: [], unknown: [] };
@@ -301,12 +422,12 @@ export const z2k_version_details = function(version) {
 	let installedManifest = null;
 	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
 	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [];
-	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map);
-	if (installChangeSet.known && change_set_needs_historical(installChangeSet, checked.manifest, version, row.commitSha)) installChangeSet = enrich_change_set(installChangeSet, checked.manifest, version, row.commitSha, fetch_release_change_index());
-	else installChangeSet = enrich_change_set(installChangeSet, checked.manifest, version, row.commitSha, null);
+	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), compareEvidence = null;
+	if (includeCompare && installChangeSet.known && installedRow != null && valid_sha(installedRow.commitSha) && valid_sha(row.commitSha) && lc(installedRow.commitSha) != lc(row.commitSha)) compareEvidence = fetch_compare_evidence(installedRow.commitSha, row.commitSha);
+	installChangeSet = enrich_change_set(installChangeSet, checked.manifest, compareEvidence);
 	let body = manifest_body(checked.manifest, version) || human_body(metadata && metadata.message) || (releaseChangeSet.known ? fallback_body(releaseChangeSet) : null);
 	let releaseChanges = { known: releaseChangeSet.known, modified: releaseChangeSet.modified, added: releaseChangeSet.added, removed: releaseChangeSet.removed, changedPaths: releaseChangeSet.changedPaths, upstreamChangedPaths: releaseChangeSet.upstreamChangedPaths, managedPaths: releaseChangeSet.managedPaths, unknown: releaseChangeSet.unknown }, installChanges = { known: installChangeSet.known, modified: installChangeSet.modified, added: installChangeSet.added, removed: installChangeSet.removed, modifiedPaths: installChangeSet.modifiedPaths, addedPaths: installChangeSet.addedPaths, removedPaths: installChangeSet.removedPaths, modifiedItems: installChangeSet.modifiedItems, addedItems: installChangeSet.addedItems, removedItems: installChangeSet.removedItems, managedPaths: installChangeSet.managedPaths, unknown: installChangeSet.unknown };
-	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, releaseChanges: releaseChanges, installChanges: installChanges, changes: installChanges, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
+	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, releaseChanges: releaseChanges, installChanges: installChanges, changes: installChanges, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, compareDiagnostics: { requested: includeCompare, requestCount: COMPARE_REQUEST_COUNT, cache: includeCompare ? COMPARE_CACHE_STATE : 'not-requested' }, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets };
 };
 
 function z2k_resolve_tag_fresh(version) {

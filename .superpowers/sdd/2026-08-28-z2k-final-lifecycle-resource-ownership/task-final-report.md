@@ -278,3 +278,56 @@ additional branch, agent, APK, package build, or lifecycle mutation.
   `Удалится · 6`. Because the upstream commit could not be pushed, the live
   browser correctly showed the factual fallbacks rather than unverified
   repository summaries. The `Обновить до r-80.3` action was not activated.
+
+## Replacement: read-only immutable Compare evidence — 2026-08-29
+
+The preceding metadata-index design is rejected and superseded here. The
+Manager no longer depends on `metadata/release-changes.json`, a release-index
+parser, or the obsolete `repository-index` source. The old upstream local
+experiment `e135b37` was left untouched, was not retried, and is not treated as
+published authority.
+
+The replacement is a product-specific, read-only adapter in
+`z2k-versions.uc`. For an installed-to-selected transition it uses immutable
+catalog commit SHAs and one aggregate GitHub Compare request with
+`<fromCommit>...<toCommit>`; it never derives the request from mutable version
+names and never makes per-resource GitHub requests. Compare pagination is
+bounded to the normal 250-commit API surface, and a mismatch between reported
+and received commit count fails closed. Only normalized bounded commit text,
+file status, and deterministic path-linked commit evidence are retained;
+patches are discarded before caching.
+
+Cache records are keyed by the immutable pair under
+`/tmp/zapret2-manager/update-cache/`, capped at 256 KiB per pair and 512 KiB
+total. Corrupt, mismatched, oversized, rate-limited, or truncated data is a
+cache miss/fallback. A valid stale record is LKG evidence; a failed fetch enters
+a bounded cooldown without retries. Lifecycle planning, `canApply`, prepared
+targets, Registry, runtime, and mutation payloads remain independent of
+optional Compare evidence.
+
+The UI keeps `Что изменится на устройстве` with the existing 2/2/6 counts and
+canonical name + muted `sourcePath` + summary/fallback rows. Initial selected
+release details do not browse Compare; the aggregate request is made only when
+managed-resource details expand, with request sequencing preventing stale
+same-release responses from overwriting the latest state.
+
+Verification:
+
+- Focused product/UI suite: `18 passed, 0 failed, 7 skipped` (native-only
+  cases skipped on Windows because `/opt/ucode/bin/ucode` is absent).
+- Router-native UCode fixture: passed for repository-derived summary,
+  normalized cache validation, and immutable-pair mismatch rejection.
+- Browser read-only acceptance on the live router: selected `r-80.3` from
+  installed `r-79.7`; cold inner-details expansion made one Compare request and
+  displayed five repository-derived summaries plus five factual fallbacks; the
+  second collapse/expand made zero browser network requests and retained the
+  summaries. Counts stayed 2/2/6 and no lifecycle action was activated.
+- Router cache: exact pair record at
+  `/tmp/zapret2-manager/update-cache/`, `242133` bytes; no explanation cache
+  was created under `/etc`.
+- Broad Z2K product/UI matrix: `139 passed, 5 failed, 21 skipped`; the five
+  failures are existing unrelated baseline/environment cases (refresh-state,
+  runtime LuaOPT, signed fixture key, classification fixture, and missing local
+  `vitest`), with no explanation-specific failure.
+
+Final verdict: `Z2K READ-ONLY CHANGE EXPLANATIONS READY`.

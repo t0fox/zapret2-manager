@@ -80,6 +80,8 @@ var state = {
   z2kCatalog: null,
   z2kSelectedVersion: null,
   z2kDetails: null,
+  z2kDetailsCompared: false,
+  z2kDetailsRequestId: 0,
   z2kDetailsExpanded: false,
   z2kReleaseRefresh: null,
   z2kPrepared: null,
@@ -645,11 +647,13 @@ function renderZ2KManagedChangeDetails(changes, version) {
     z2kManagedChangeGroup(_('Удалится'), z2kManagedChangeItems(changes, 'removedItems'), 'removed', version)
   ].filter(Boolean);
 }
-function loadZ2KVersionDetails(ctx, version) {
+function loadZ2KVersionDetails(ctx, version, includeCompare) {
   if (!version || state.componentOperation || !ctx.api.resources || !ctx.api.resources.versionDetails) return;
-  checkedResult(ctx.api.resources.versionDetails({ version: version }), _('Детали Z2K release')).then(function (answer) {
-    if (state.z2kSelectedVersion !== version) return;
+  var requestId = ++state.z2kDetailsRequestId;
+  checkedResult(ctx.api.resources.versionDetails({ version: version, includeCompare: includeCompare === true ? 'compare' : 'fallback' }), _('Детали Z2K release')).then(function (answer) {
+    if (state.z2kSelectedVersion !== version || state.z2kDetailsRequestId !== requestId) return;
     state.z2kDetails = answer;
+    state.z2kDetailsCompared = includeCompare === true;
     if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
     else rerender(ctx);
   }).catch(function (error) {
@@ -660,10 +664,11 @@ function selectZ2KVersion(ctx, version) {
   if (!version || state.componentOperation) return;
   state.z2kSelectedVersion = version;
   state.z2kDetails = null;
+  state.z2kDetailsCompared = false;
   state.z2kDetailsExpanded = false;
   if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
   else rerender(ctx);
-  loadZ2KVersionDetails(ctx, version);
+  loadZ2KVersionDetails(ctx, version, false);
 }
 function toggleEngine(ctx) {
   state.engineExpanded = !state.engineExpanded;
@@ -677,7 +682,7 @@ function toggleZ2K(ctx) {
   if (state.z2kExpanded && !state.z2kDetails) {
     var resources = ctx.data && ctx.data.components && ctx.data.components.resources && ctx.data.components.resources.value || {};
     var current = resources.z2k && resources.z2k.selectedDetails;
-    if (!current) loadZ2KVersionDetails(ctx, state.z2kSelectedVersion);
+    if (!current) loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, false);
   }
 }
 function renderHero(ctx, page) {
@@ -1028,6 +1033,7 @@ function toggleZ2KDetails(ctx) {
   state.z2kDetailsExpanded = !state.z2kDetailsExpanded;
   if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
   else rerender(ctx);
+  if (state.z2kDetailsExpanded && !state.z2kDetailsCompared) loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, true);
 }
 function renderZ2KReleasePanel(ctx, component) {
   var shell = ctx.shell;

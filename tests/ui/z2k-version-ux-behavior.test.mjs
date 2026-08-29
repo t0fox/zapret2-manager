@@ -7,9 +7,11 @@ import vm from 'node:vm';
 const root = path.resolve(import.meta.dirname, '../..');
 const maintenancePath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
 const modelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js');
+const apiPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 const presentationPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-update-presentation.js');
 const maintenanceSource = fs.readFileSync(maintenancePath, 'utf8');
 const modelSource = fs.readFileSync(modelPath, 'utf8');
+const apiSource = fs.readFileSync(apiPath, 'utf8');
 const presentationSource = fs.readFileSync(presentationPath, 'utf8');
 
 function vnode(tag, attrs, children) {
@@ -410,7 +412,7 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
         { id: 'lua:z2k-state-persist', name: 'z2k-state-persist.lua', sourcePath: 'files/lua/z2k-state-persist.lua', type: 'lua' },
       ],
       addedItems: [
-        { id: 'blob:active-discord-udp', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob', summary: 'second explanation', summarySource: 'repository-index' },
+        { id: 'blob:active-discord-udp', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob', summary: 'second explanation', summarySource: 'repository-compare' },
         { id: 'blob:warp-endpoints', name: 'warp-endpoints.txt', sourcePath: 'files/lists/warp-endpoints.txt', type: 'blob' },
       ],
       removedItems: Array.from({ length: 6 }, (_, index) => ({
@@ -448,4 +450,12 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
   assert.doesNotMatch(text, /S51z2k-warp|mtproxy-client|webpanel/);
   assert.doesNotMatch(text, /\[object HTMLDivElement\]/);
   assert.match(text, /Сравнить upstream изменения ↗/);
+});
+
+test('repository Compare is requested only after the managed-resource details expand', () => {
+  assert.match(apiSource, /versionDetails:function\(value\)\{return value&&typeof value==='object'\?calls\.z2kVersionDetails\(value\.version,value\.includeCompare\):calls\.z2kVersionDetails\(value\);\}/);
+  assert.match(maintenanceSource, /versionDetails\(\{ version: version, includeCompare: includeCompare === true \? 'compare' : 'fallback' \}\)/);
+  assert.match(maintenanceSource, /loadZ2KVersionDetails\(ctx, version, false\)/);
+  assert.match(maintenanceSource, /state\.z2kDetailsExpanded && !state\.z2kDetailsCompared\) loadZ2KVersionDetails\(ctx, state\.z2kSelectedVersion, true\)/);
+  assert.match(modelSource, /summarySource === 'repository-compare'/);
 });

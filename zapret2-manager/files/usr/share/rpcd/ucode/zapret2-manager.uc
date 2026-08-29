@@ -289,8 +289,8 @@ function assets_update_method(req) { let args = asset_args(req); return args && 
 function assets_register_builtin_method(req) { return asset_edit_action('register-builtin', req); }
 function assets_references_method(req) { return asset_edit_action('references', req); }
 function assets_resolve_method(req) { return asset_edit_action('resolve', req); }
-function resource_cli_action(mode, argument) {
-	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' ' + mode + (argument == null ? '' : ' ' + shell_escape(argument)) + ' 2>/dev/null';
+function resource_cli_action(mode, argument, secondary) {
+	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' ' + mode + (argument == null ? '' : ' ' + shell_escape(argument)) + (secondary == null ? '' : ' ' + shell_escape(secondary)) + ' 2>/dev/null';
 	let p = popen(command, 'r');
 	if (!p) return { ok: false, error: { code: 'ETARGET', message: 'resource center runner unavailable' } };
 	let out = p.read('all') || '', rc = p.close();
@@ -305,8 +305,13 @@ function resource_version_arg(req) {
 	if (version == null) { try { if (req && req.version != null) version = req.version; } catch (e) { } }
 	return type(version) == 'string' && match(version, /^r-[0-9]+(\.[0-9]+)?$/) ? version : null;
 }
+function resource_include_compare_arg(req) {
+	try { if (req && req.args && (req.args.includeCompare === true || req.args.includeCompare == 'compare')) return true; } catch (e) { }
+	try { if (req && (req.includeCompare === true || req.includeCompare == 'compare')) return true; } catch (e) { }
+	return false;
+}
 function z2k_versions_method(req) { return resource_cli_action('versions'); }
-function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version); }
+function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version, resource_include_compare_arg(req) ? 'compare' : null); }
 function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare', version); }
 function resource_operation_arg(req) {
 	let operationId = null;
@@ -1253,7 +1258,7 @@ return {
 		resources_update_status: { args: { operationId: 'string' }, call: function (req) { return resources_update_status_method(req); } },
 		resources_update: { args: { edit: 'string' }, call: function (req) { return resources_update_method(req); } },
 		z2k_versions: { call: function (req) { return z2k_versions_method(req); } },
-		z2k_version_details: { args: { version: 'string' }, call: function (req) { return z2k_version_details_method(req); } },
+		z2k_version_details: { args: { version: 'string', includeCompare: 'string' }, call: function (req) { return z2k_version_details_method(req); } },
 		z2k_prepare_version: { args: { version: 'string' }, call: function (req) { return z2k_prepare_version_method(req); } },
 		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
 		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
