@@ -134,7 +134,7 @@ function makeContext(z2k) {
     root: { replaceChildren() {} },
     store: { get: () => ({ ui: {} }), update() {} },
     shell: {
-      button: (label, kind, click, disabled) => vnode('button', { label, kind, click, disabled }, label),
+      button: (label, kind, click, disabled, attrs) => vnode('button', { label, kind, click, disabled, ...(attrs || {}) }, label),
       panel: (title, body) => vnode('section', { class: 'z2m-panel' }, [title, body]),
       statePanel: options => vnode('div', { class: 'z2m-state-panel' }, options && options.message || ''),
       switchControl: () => vnode('input', {}, ''),
@@ -174,6 +174,14 @@ function z2kDetails(rendered) {
   return findAll(rendered, node => classHas(node, 'z2m-component-details--z2k'))[0];
 }
 
+function z2kDetailsToggle(rendered) {
+  return findAll(rendered, node => node.tag === 'button' && node.attrs && node.attrs['aria-controls'] === 'z2m-z2k-release-details')[0];
+}
+
+function z2kDetailsRegion(rendered) {
+  return findAll(rendered, node => node.attrs && node.attrs.id === 'z2m-z2k-release-details')[0];
+}
+
 test('opening Z2K details loads the selected release before showing the operation', async () => {
   const internals = loadMaintenance();
   const calls = [];
@@ -193,6 +201,170 @@ test('opening Z2K details loads the selected release before showing the operatio
   assert.equal(calls.length, 1);
   assert.equal(calls[0].version, 'r-80.3');
   assert.equal(internals.state.z2kDetails.version, 'r-80.3');
+});
+
+test('cached Z2K details reopen locally after compare enrichment', async () => {
+  const internals = loadMaintenance();
+  let resolveCompare;
+  let compareCalls = 0;
+  const deviceChanges = {
+    known: true,
+    modified: 1,
+    added: 1,
+    removed: 0,
+    modifiedItems: [{ id: 'lua:state', name: 'z2k-state-persist.lua', sourcePath: 'files/lua/z2k-state-persist.lua', type: 'lua' }],
+    addedItems: [{ id: 'blob:discord', name: 'active_discord_udp.bin', sourcePath: 'files/fake/active_discord_udp.bin', type: 'blob' }],
+    removedItems: [],
+  };
+  const fallback = { version: 'r-80.3', releaseName: 'Z2K r-80.3', installable: true, operation: 'upgrade', releaseBody: 'Fallback', deviceChanges };
+  const enriched = {
+    ...fallback,
+    releaseBody: 'Enriched',
+    deviceChanges: {
+      ...deviceChanges,
+      modifiedItems: [{ ...deviceChanges.modifiedItems[0], explanation: { source: 'repository-compare', commitSha: 'a'.repeat(40), commitSubject: 'persist state', excerpts: ['Keeps state.'], excerptIndexes: [0], fullMessageAvailable: true } }],
+      addedItems: [{ ...deviceChanges.addedItems[0], explanation: { source: 'repository-compare', commitSha: 'b'.repeat(40), commitSubject: 'add discord blob', excerpts: ['Adds blob.'], excerptIndexes: [0], fullMessageAvailable: true } }],
+    },
+  };
+  const z2k = z2kRaw({ selectedVersion: 'r-80.3', selectedDetails: fallback });
+  const ctx = makeContext(z2k);
+  ctx.api.resources = {
+    versionDetails: request => {
+      compareCalls += 1;
+      assert.equal(request.includeCompare, 'compare');
+      return new Promise(resolve => { resolveCompare = resolve; });
+    },
+  };
+
+  internals.state.componentOperation = null;
+  internals.state.z2kExpanded = true;
+  internals.state.engineExpanded = false;
+  internals.state.z2kDetails = null;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+  internals.state.z2kDetailsCompared = false;
+  internals.state.z2kDetailsExpanded = false;
+  let rendered = internals.renderComponents(ctx, ctx.data);
+  assert.equal(internals.state.z2kDetailsExpanded, false);
+  assert.equal(internals.state.z2kDetailsCompared, false);
+
+  z2kDetailsToggle(rendered).attrs.click();
+  assert.equal(compareCalls, 1);
+  assert.equal(internals.state.z2kDetailsExpanded, true);
+  rendered = internals.renderComponents(ctx, ctx.data);
+  const pendingToggle = z2kDetailsToggle(rendered);
+  const pendingRegion = z2kDetailsRegion(rendered);
+  assert.equal(internals.state.z2kDetailsLoading, true);
+  assert.equal(textOf(pendingToggle), 'Загрузка…');
+  assert.equal(pendingToggle.attrs.disabled, true);
+  assert.equal(pendingToggle.attrs['aria-expanded'], 'true');
+  assert.equal(pendingRegion.attrs['aria-busy'], 'true');
+  assert.match(textOf(pendingRegion), /Загружаем подробности изменений…/);
+  assert.match(textOf(pendingRegion), /z2k-state-persist\.lua/);
+  assert.match(textOf(pendingRegion), /active_discord_udp\.bin/);
+  pendingToggle.attrs.click();
+  assert.equal(compareCalls, 1);
+  resolveCompare(enriched);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(internals.state.z2kDetailsCompared, true);
+  assert.equal(internals.state.z2kDetailsLoading, false);
+
+  rendered = internals.renderComponents(ctx, ctx.data);
+  let toggle = z2kDetailsToggle(rendered);
+  assert.equal(textOf(toggle), 'Свернуть');
+  assert.equal(toggle.attrs['aria-expanded'], 'true');
+  toggle.attrs.click();
+  assert.equal(internals.state.z2kDetailsExpanded, false);
+  assert.equal(internals.state.z2kDetailsCompared, true);
+
+  rendered = internals.renderComponents(ctx, ctx.data);
+  toggle = z2kDetailsToggle(rendered);
+  assert.equal(textOf(toggle), 'Подробнее');
+  assert.equal(toggle.attrs['aria-expanded'], 'false');
+  toggle.attrs.click();
+  assert.equal(internals.state.z2kDetailsExpanded, true);
+  assert.equal(internals.state.z2kDetailsCompared, true);
+  assert.equal(compareCalls, 1);
+
+  rendered = internals.renderComponents(ctx, ctx.data);
+  toggle = z2kDetailsToggle(rendered);
+  assert.equal(textOf(toggle), 'Свернуть');
+  assert.equal(toggle.attrs['aria-expanded'], 'true');
+  assert.equal(z2kDetailsRegion(rendered).attrs['aria-busy'], 'false');
+  assert.match(textOf(rendered), /Enriched/);
+  assert.match(textOf(rendered), /persist state/);
+
+  toggle.attrs.click();
+  rendered = internals.renderComponents(ctx, ctx.data);
+  z2kDetailsToggle(rendered).attrs.click();
+  rendered = internals.renderComponents(ctx, ctx.data);
+  z2kDetailsToggle(rendered).attrs.click();
+  rendered = internals.renderComponents(ctx, ctx.data);
+  z2kDetailsToggle(rendered).attrs.click();
+  rendered = internals.renderComponents(ctx, ctx.data);
+  assert.equal(compareCalls, 1);
+  assert.equal(z2kDetailsToggle(rendered).attrs['aria-expanded'], 'true');
+  assert.equal(z2kDetailsRegion(rendered).attrs['aria-busy'], 'false');
+});
+
+test('compare error keeps the device plan visible and retry reuses the compare path', async () => {
+  const internals = loadMaintenance();
+  let rejectCompare;
+  let resolveRetry;
+  let compareCalls = 0;
+  const deviceChanges = {
+    known: true,
+    modified: 1,
+    added: 0,
+    removed: 0,
+    modifiedItems: [{ id: 'lua:state', name: 'z2k-state-persist.lua', sourcePath: 'files/lua/z2k-state-persist.lua', type: 'lua' }],
+    addedItems: [],
+    removedItems: [],
+  };
+  const fallback = { version: 'r-80.3', releaseName: 'Z2K r-80.3', installable: true, operation: 'upgrade', releaseBody: 'Fallback', deviceChanges };
+  const enriched = { ...fallback, releaseBody: 'Retry succeeded' };
+  const ctx = makeContext(z2kRaw({ selectedVersion: 'r-80.3', selectedDetails: fallback }));
+  ctx.api.resources = {
+    versionDetails: request => {
+      compareCalls += 1;
+      assert.equal(request.includeCompare, 'compare');
+      if (compareCalls === 1) return new Promise((resolve, reject) => { rejectCompare = reject; });
+      return new Promise(resolve => { resolveRetry = resolve; });
+    },
+  };
+  internals.state.componentOperation = null;
+  internals.state.z2kExpanded = true;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+  let rendered = internals.renderComponents(ctx, ctx.data);
+
+  z2kDetailsToggle(rendered).attrs.click();
+  rendered = internals.renderComponents(ctx, ctx.data);
+  assert.equal(internals.state.z2kDetailsLoading, true);
+  assert.match(textOf(z2kDetailsRegion(rendered)), /z2k-state-persist\.lua/);
+  rejectCompare({ code: 'ECOMPARE', message: 'Compare unavailable' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  rendered = internals.renderComponents(ctx, ctx.data);
+  const failedRegion = z2kDetailsRegion(rendered);
+  assert.equal(internals.state.z2kDetailsLoading, false);
+  assert.equal(internals.state.z2kDetailsCompared, false);
+  assert.equal(failedRegion.attrs['aria-busy'], 'false');
+  assert.match(textOf(failedRegion), /Не удалось загрузить пояснения/);
+  assert.match(textOf(failedRegion), /z2k-state-persist\.lua/);
+  const retry = findAll(failedRegion, node => node.tag === 'button' && textOf(node) === 'Повторить')[0];
+  assert.ok(retry);
+  retry.attrs.click();
+  rendered = internals.renderComponents(ctx, ctx.data);
+  assert.equal(compareCalls, 2);
+  assert.equal(internals.state.z2kDetailsLoading, true);
+  assert.equal(z2kDetailsRegion(rendered).attrs['aria-busy'], 'true');
+  resolveRetry(enriched);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(internals.state.z2kDetailsCompared, true);
+  assert.equal(internals.state.z2kDetailsLoading, false);
+  assert.match(textOf(internals.renderComponents(ctx, ctx.data)), /Retry succeeded/);
 });
 
 test('current selection is factual and exposes reinstall as the sole operation', () => {
@@ -388,6 +560,44 @@ test('rapid release selection cannot let a stale A response overwrite the latest
   assert.equal(internals.state.z2kDetails.releaseBody, 'B');
 });
 
+test('stale compare response cannot change the selected release lifecycle', async () => {
+  const internals = loadMaintenance();
+  const pending = [];
+  const fallbackA = { version: 'r-80.3', releaseName: 'Z2K r-80.3', installable: true, operation: 'upgrade', deviceChanges: { known: true, modified: 1, added: 0, removed: 0, modifiedItems: [{ id: 'a', name: 'a.lua', type: 'lua' }], addedItems: [], removedItems: [] } };
+  const fallbackB = { version: 'r-80.2', releaseName: 'Z2K r-80.2', installable: true, operation: 'reinstall', deviceChanges: { known: true, modified: 1, added: 0, removed: 0, modifiedItems: [{ id: 'b', name: 'b.lua', type: 'lua' }], addedItems: [], removedItems: [] } };
+  const ctx = makeContext(z2kRaw({ selectedVersion: 'r-80.3', selectedDetails: fallbackA }));
+  ctx.api.resources = {
+    versionDetails: request => new Promise((resolve, reject) => { pending.push({ request, resolve, reject }); }),
+  };
+  internals.state.componentOperation = null;
+  internals.state.z2kExpanded = true;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+  let rendered = internals.renderComponents(ctx, ctx.data);
+
+  z2kDetailsToggle(rendered).attrs.click();
+  assert.equal(internals.state.z2kDetailsLoading, true);
+  assert.equal(pending[0].request.version, 'r-80.3');
+  assert.equal(pending[0].request.includeCompare, 'compare');
+
+  internals.selectZ2KVersion(ctx, 'r-80.2');
+  assert.equal(internals.state.z2kDetailsLoading, false);
+  assert.equal(internals.state.z2kDetailsLoadError, null);
+  assert.equal(pending[1].request.version, 'r-80.2');
+  assert.equal(pending[1].request.includeCompare, 'fallback');
+  pending[0].resolve({ ...fallbackA, releaseBody: 'stale A' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(internals.state.z2kSelectedVersion, 'r-80.2');
+  assert.equal(internals.state.z2kDetails, null);
+  assert.equal(internals.state.z2kDetailsCompared, false);
+
+  pending[1].resolve({ ...fallbackB, releaseBody: 'current B' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  rendered = internals.renderComponents(ctx, ctx.data);
+  assert.equal(internals.state.z2kDetails.version, 'r-80.2');
+  assert.equal(internals.state.z2kDetails.releaseBody, 'current B');
+  assert.doesNotMatch(textOf(rendered), /stale A/);
+});
+
 test('expanded Z2K view has one primary operation action', () => {
   const internals = loadMaintenance();
   const details = z2kDetails(renderState(internals, z2kRaw({ installedVersion: 'r-80.2', selectedVersion: 'r-80.3' })));
@@ -469,9 +679,10 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
 
 test('repository Compare is requested only after the managed-resource details expand', () => {
   assert.match(apiSource, /versionDetails:function\(value\)\{return value&&typeof value==='object'\?calls\.z2kVersionDetails\(value\.version,value\.includeCompare\):calls\.z2kVersionDetails\(value\);\}/);
-  assert.match(maintenanceSource, /versionDetails\(\{ version: version, includeCompare: includeCompare === true \? 'compare' : 'fallback' \}\)/);
+  assert.match(maintenanceSource, /versionDetails\(\{ version: version, includeCompare: compareRequested \? 'compare' : 'fallback' \}\)/);
   assert.match(maintenanceSource, /loadZ2KVersionDetails\(ctx, version, false\)/);
-  assert.match(maintenanceSource, /state\.z2kDetailsExpanded && !state\.z2kDetailsCompared\) loadZ2KVersionDetails\(ctx, state\.z2kSelectedVersion, true\)/);
+  assert.match(maintenanceSource, /function requestZ2KDetailsCompare\(ctx\)/);
+  assert.match(maintenanceSource, /loadZ2KVersionDetails\(ctx, state\.z2kSelectedVersion, true\)/);
   assert.match(maintenanceSource, /Z2K_COMPARE_LOAD_TIMEOUT_MS/);
   assert.match(modelSource, /summarySource === 'repository-compare'/);
 });

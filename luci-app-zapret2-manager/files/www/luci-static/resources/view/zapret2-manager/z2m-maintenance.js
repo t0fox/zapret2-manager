@@ -82,6 +82,8 @@ var state = {
   z2kSelectedVersion: null,
   z2kDetails: null,
   z2kDetailsCompared: false,
+  z2kDetailsLoading: false,
+  z2kDetailsLoadError: null,
   z2kDetailsRequestId: 0,
   z2kDetailsExpanded: false,
   z2kReleaseRefresh: null,
@@ -795,15 +797,28 @@ function renderZ2KManagedChangeDetails(changes, version) {
 }
 function loadZ2KVersionDetails(ctx, version, includeCompare) {
   if (!version || state.componentOperation || !ctx.api.resources || !ctx.api.resources.versionDetails) return;
+  var compareRequested = includeCompare === true;
   var requestId = ++state.z2kDetailsRequestId;
-  checkedResult(ctx.api.resources.versionDetails({ version: version, includeCompare: includeCompare === true ? 'compare' : 'fallback' }), _('Детали Z2K release'), includeCompare === true ? Z2K_COMPARE_LOAD_TIMEOUT_MS : undefined).then(function (answer) {
+  checkedResult(ctx.api.resources.versionDetails({ version: version, includeCompare: compareRequested ? 'compare' : 'fallback' }), _('Детали Z2K release'), compareRequested ? Z2K_COMPARE_LOAD_TIMEOUT_MS : undefined).then(function (answer) {
     if (state.z2kSelectedVersion !== version || state.z2kDetailsRequestId !== requestId) return;
     state.z2kDetails = answer;
-    state.z2kDetailsCompared = includeCompare === true;
+    state.z2kDetailsCompared = compareRequested;
+    if (compareRequested) {
+      state.z2kDetailsLoading = false;
+      state.z2kDetailsLoadError = null;
+    }
     if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
     else rerender(ctx);
   }).catch(function (error) {
-    if (state.z2kSelectedVersion === version) showError(ctx, error);
+    if (state.z2kSelectedVersion !== version || state.z2kDetailsRequestId !== requestId) return;
+    if (compareRequested) {
+      state.z2kDetailsLoading = false;
+      state.z2kDetailsLoadError = error;
+      if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
+      else rerender(ctx);
+      return;
+    }
+    showError(ctx, error);
   });
 }
 function selectZ2KVersion(ctx, version) {
@@ -811,6 +826,9 @@ function selectZ2KVersion(ctx, version) {
   state.z2kSelectedVersion = version;
   state.z2kDetails = null;
   state.z2kDetailsCompared = false;
+  state.z2kDetailsLoading = false;
+  state.z2kDetailsLoadError = null;
+  state.z2kDetailsRequestId += 1;
   state.z2kDetailsExpanded = false;
   if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
   else rerender(ctx);
@@ -1167,20 +1185,48 @@ function z2kTransition(component, selected, operation, targetRelease) {
   return null;
 }
 function z2kReleasePanelUpdate(ctx, component) {
+  var selectedVersion = state.z2kSelectedVersion || component.selectedVersion;
+  var componentDetails = component.selectedDetails && (!component.selectedDetails.version || component.selectedDetails.version === selectedVersion)
+    ? component.selectedDetails
+    : null;
+  var selectedDetails = state.z2kDetails || componentDetails;
   var next = Object.assign({}, component, {
-    selectedVersion: state.z2kSelectedVersion || component.selectedVersion,
-    selectedDetails: state.z2kDetails || null,
-    operation: state.z2kDetails && state.z2kDetails.operation || null
+    selectedVersion: selectedVersion,
+    selectedDetails: selectedDetails,
+    operation: selectedDetails && selectedDetails.operation || null
   });
   var host = typeof document !== 'undefined' && document.getElementById('z2m-z2k-release-panel-host');
   if (host && typeof host.replaceChildren === 'function') host.replaceChildren(renderZ2KReleasePanel(ctx, next));
   else rerender(ctx);
 }
-function toggleZ2KDetails(ctx) {
-  state.z2kDetailsExpanded = !state.z2kDetailsExpanded;
+function refreshZ2KDetailsPanel(ctx) {
   if (typeof state.z2kReleaseRefresh === 'function') state.z2kReleaseRefresh();
   else rerender(ctx);
-  if (state.z2kDetailsExpanded && !state.z2kDetailsCompared) loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, true);
+}
+function requestZ2KDetailsCompare(ctx) {
+  if (!state.z2kSelectedVersion || state.componentOperation || state.z2kDetailsCompared || state.z2kDetailsLoading) return;
+  state.z2kDetailsLoading = true;
+  state.z2kDetailsLoadError = null;
+  refreshZ2KDetailsPanel(ctx);
+  loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, true);
+}
+function retryZ2KDetails(ctx) {
+  if (state.z2kDetailsLoading) return;
+  requestZ2KDetailsCompare(ctx);
+}
+function toggleZ2KDetails(ctx) {
+  if (state.z2kDetailsLoading) return;
+  if (state.z2kDetailsExpanded) {
+    state.z2kDetailsExpanded = false;
+    refreshZ2KDetailsPanel(ctx);
+    return;
+  }
+  state.z2kDetailsExpanded = true;
+  if (!state.z2kDetailsCompared && !state.z2kDetailsLoadError) {
+    requestZ2KDetailsCompare(ctx);
+    return;
+  }
+  refreshZ2KDetailsPanel(ctx);
 }
 function renderZ2KReleasePanel(ctx, component) {
   var shell = ctx.shell;
@@ -1200,6 +1246,8 @@ function renderZ2KReleasePanel(ctx, component) {
   var changes = selected.deviceChanges || selected.installChanges || selected.changes || {};
   var changeCount = Number(changes.modified || 0) + Number(changes.added || 0) + Number(changes.removed || 0);
   var hasDeviceDetails = !unavailable && changes.known === true && (changeCount > 0 || operation === 'reinstall');
+  var detailsLoading = state.z2kDetailsLoading === true && state.z2kDetailsCompared !== true;
+  var detailsError = state.z2kDetailsLoadError;
   var releaseHeadingId = 'z2m-z2k-release-heading';
   var deviceHeadingId = 'z2m-z2k-device-heading';
   var releaseDetailsId = 'z2m-z2k-release-details';
@@ -1218,9 +1266,16 @@ function renderZ2KReleasePanel(ctx, component) {
         { label: _('Добавится'), value: Number(changes.added || 0) },
         { label: _('Удалится'), value: Number(changes.removed || 0) }
       ]),
-    hasDeviceDetails ? E('div', { id: releaseDetailsId, role: 'region', 'aria-labelledby': deviceHeadingId, 'class': 'z2m-z2k-release-details' + (expanded ? ' is-visible' : ''), hidden: expanded ? undefined : 'hidden' }, [
-      E('strong', {}, _('Ресурсы, которые изменятся')),
-      ].concat(renderZ2KManagedChangeDetails(changes, targetRelease))) : null
+    hasDeviceDetails ? E('div', { id: releaseDetailsId, role: 'region', 'aria-labelledby': deviceHeadingId, 'aria-busy': detailsLoading ? 'true' : 'false', 'class': 'z2m-z2k-release-details' + (expanded ? ' is-visible' : ''), hidden: expanded ? undefined : 'hidden' }, [
+      E('strong', {}, _('Ресурсы, которые изменятся'))
+    ].concat(renderZ2KManagedChangeDetails(changes, targetRelease), detailsLoading ? [E('div', { 'class': 'z2m-z2k-release-details-status', role: 'status', 'aria-live': 'polite' }, [
+      E('span', { 'class': 'spinner-inline', 'aria-hidden': 'true' }),
+      _('Загружаем подробности изменений…')
+    ])] : [], detailsError ? [E('div', { 'class': 'z2m-z2k-release-details-error', role: 'alert' }, [
+      E('strong', {}, _('Не удалось загрузить пояснения.')),
+      E('p', {}, _('План изменений сохранён. Повторите попытку, чтобы получить пояснения.')),
+      shell.button(_('Повторить'), 'sm', retryZ2KDetails.bind(null, ctx), false)
+    ])] : [])) : null
   ]);
   var actionLabel = unavailable ? _('Установка недоступна') : z2kOperationLabel(operation, targetRelease);
   var actionEnabled = !unavailable && !!operation && z2kCanApply(component);
@@ -1241,9 +1296,10 @@ function renderZ2KReleasePanel(ctx, component) {
     ]),
     changelog,
     diff,
-    hasDeviceDetails ? shell.button(expanded ? _('Свернуть') : _('Подробнее'), 'sm', toggleZ2KDetails.bind(null, ctx), false, {
+    hasDeviceDetails ? shell.button(detailsLoading ? [E('span', { 'class': 'spinner-inline', 'aria-hidden': 'true' }), _('Загрузка…')] : expanded ? _('Свернуть') : _('Подробнее'), 'sm', toggleZ2KDetails.bind(null, ctx), detailsLoading, {
       'aria-controls': releaseDetailsId,
-      'aria-expanded': expanded ? 'true' : 'false'
+      'aria-expanded': expanded ? 'true' : 'false',
+      'aria-disabled': detailsLoading ? 'true' : 'false'
     }) : null,
     E('div', { 'class': 'z2m-z2k-release-actions' }, [
       shell.button(actionLabel, actionEnabled ? 'primary' : 'sm', updateZ2K.bind(null, ctx, component), !actionEnabled || isBusyFor('z2k-core'))
