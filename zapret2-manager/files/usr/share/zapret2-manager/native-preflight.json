@@ -1,16 +1,4 @@
 {
-  "schema": "zapret2-manager.native-preflight.v3",
-  "minNfqws2CompatVer": 1,
-  "luaFiles": [
-    "/opt/zapret2/lua/zapret-lib.lua",
-    "/opt/zapret2/lua/zapret-antidpi.lua",
-    "/opt/zapret2/lua/zapret-auto.lua",
-    "/opt/zapret2/lua/z2k-detectors.lua",
-    "/opt/zapret2/lua/z2k-modern-core.lua",
-    "/opt/zapret2/lua/z2k-fooling-ext.lua",
-    "/opt/zapret2/lua/z2k-range-rand.lua",
-    "/opt/zapret2/lua/z2k-state-persist.lua",
-    "/opt/zapret2/lua/z2k-alert.lua",
-    "/opt/zapret2/lua/z2k-quic-silence.lua"
-  ]
+  "schema": "zapret2-manager.native-preflight.v4",
+  "minNfqws2CompatVer": 1
 }

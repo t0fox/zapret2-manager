@@ -35,7 +35,7 @@ function materialize_source(entry, listed) {
 		&& index(entry.packagePath, '..') < 0 && index(entry.packagePath, '\\') < 0) return entry.packagePath;
 	return null;
 }
-function emit_activation_tsv(result) {
+function emit_activation_tsv(result, includeScannerOverlay) {
 	let listed = asset_registry_list(null);
 	if (!listed.ok) return listed;
 	let lines = ['SNAPSHOT|' + result.snapshotId + '|' + result.compositionSnapshotId + '|' + result.membershipDigest];
@@ -47,6 +47,11 @@ function emit_activation_tsv(result) {
 	for (let i = 0; i < length(result.luaInit || []); i++) {
 		let entry = result.luaInit[i];
 		push(lines, 'LUA_INIT|' + entry.id + '|' + entry.type + '|' + entry.kind + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256 + '|' + entry.runtimeOrder);
+	}
+	if (includeScannerOverlay === true) for (let i = 0; i < length(result.scannerOverlay || []); i++) {
+		let entry = result.scannerOverlay[i];
+		if (!object(entry) || entry.type != 'scanner-overlay') return fail('EINPUT', 'scanner overlay entry is not diagnostic-only');
+		push(lines, 'OVERLAY|' + entry.id + '|' + entry.type + '|' + entry.kind + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256 + '|' + entry.byteSize + '|' + (entry.runtimeOrder == null ? '' : entry.runtimeOrder));
 	}
 	return { ok: true, output: join(lines, '\n') + '\n' };
 }
@@ -80,7 +85,7 @@ function request_file(file) {
 function emit(value) { print(sprintf('%J', value) + '\n'); }
 let consumer = ARGV[0], result = runtime_composition_cli_dispatch(consumer, request_file(ARGV[1]));
 if (ARGV[2] == 'activation-tsv' && result && result.ok === true) {
-	let output = emit_activation_tsv(result);
+	let output = emit_activation_tsv(result, consumer == 'scanner');
 	if (output.ok) { print(output.output); exit(0); }
 	result = output;
 }

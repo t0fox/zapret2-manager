@@ -1,31 +1,19 @@
 'use strict';
 // native-preflight.uc — production fail-closed verification for a rendered
 // NFQWS2_OPT candidate. It never intercepts traffic and never mutates config.
-// Verification proves the upstream NFQWS2_COMPAT_VER contract plus the
-// packaged Lua baseline pinned in native-preflight.v3 (luaFiles). Engine
-// behavior extensions live exclusively in manager-owned sidecars loaded via
-// the runtime-assets chain; no native capability gating remains.
+// Verification proves the exact selected runtime composition.  Static engine
+// capability evidence is read from native-preflight.json; dynamic Z2K
+// runtimeAssets/luaInit are supplied by the canonical resolver and are never
+// reconstructed from a package directory or a hand-copied list.
 
 import { readfile, stat, popen } from 'fs';
 import { z2m_tokenize, z2m_parse, z2m_validate } from './profiles.uc';
+import { resolveInstalled } from './runtime-composition.uc';
 
 const NFQWS2_BIN = '/opt/zapret2/nfq2/nfqws2';
 const MANIFEST = '/usr/share/zapret2-manager/native-preflight.json';
 const ALLOWED_LUA_ROOT = '/opt/zapret2/';
 const RUNTIME_LUA_ROOT = '/opt/zapret2/lua/';
-const RUNTIME_LUA_FILES = [
-	'zapret-lib.lua',
-	'zapret-antidpi.lua',
-	'zapret-auto.lua',
-	'z2k-modern-core.lua',
-	'z2k-detectors.lua',
-	'z2k-fooling-ext.lua',
-	'z2k-state-persist.lua',
-	// Full pinned bundle: keep the smoke aligned with the manifest luaFiles.
-	'z2k-range-rand.lua',
-	'z2k-alert.lua',
-	'z2k-quic-silence.lua'
-];
 
 function shell_escape(value) {
 	let s = '' + value, out = "'";
@@ -61,7 +49,8 @@ function load_manifest() {
 		return { ok: false, reason: 'native preflight manifest schema is unsupported' };
 	if (value.schema != 'zapret2-manager.native-preflight.v1'
 		&& value.schema != 'zapret2-manager.native-preflight.v2'
-		&& value.schema != 'zapret2-manager.native-preflight.v3')
+		&& value.schema != 'zapret2-manager.native-preflight.v3'
+		&& value.schema != 'zapret2-manager.native-preflight.v4')
 		return { ok: false, reason: 'native preflight manifest schema is unsupported' };
 	if (value.schema == 'zapret2-manager.native-preflight.v1') {
 		if (type(value.expectedNfqws2Sha256) != 'string' || length(value.expectedNfqws2Sha256) != 64)
@@ -69,9 +58,61 @@ function load_manifest() {
 		if (type(value.expectedLuaBundleSha256) != 'string' || length(value.expectedLuaBundleSha256) != 64)
 			return { ok: false, reason: 'expectedLuaBundleSha256 is not pinned' };
 	}
-	if (type(value.luaFiles) != 'array' || length(value.luaFiles) == 0)
-		return { ok: false, reason: 'luaFiles are not pinned' };
+	if (type(value.minNfqws2CompatVer) != 'int' || value.minNfqws2CompatVer < 1)
+		return { ok: false, reason: 'minimum nfqws2 compatibility is not pinned' };
 	return { ok: true, value: value };
+}
+
+function runtime_target_path(target) {
+	if (type(target) != 'string') return null;
+	if (substr(target, 0, length('/opt/zapret2/')) == '/opt/zapret2/') return target;
+	if (substr(target, 0, length('/runtime-assets/lua/')) == '/runtime-assets/lua/')
+		return RUNTIME_LUA_ROOT + substr(target, length('/runtime-assets/lua/'));
+	if (substr(target, 0, length('/runtime-assets/bin/')) == '/runtime-assets/bin/')
+		return '/opt/zapret2/files/fake/' + substr(target, length('/runtime-assets/bin/'));
+	if (substr(target, 0, length('/runtime-assets/lists/')) == '/runtime-assets/lists/')
+		return '/opt/zapret2/lists/' + substr(target, length('/runtime-assets/lists/'));
+	if (substr(target, 0, length('/runtime-assets/ipset/')) == '/runtime-assets/ipset/')
+		return '/opt/zapret2/ipset/' + substr(target, length('/runtime-assets/ipset/'));
+	return null;
+}
+
+function runtime_composition_snapshot(input) {
+	let value = input;
+	if (type(value) != 'object' || value == null) {
+		try { value = resolveInstalled({}); } catch (e) { value = null; }
+	}
+	if (type(value) != 'object' || value == null || value.ok != true
+		|| value.lifecycleState != 'installed' || value.compositionStatus != 'canonical'
+		|| type(value.snapshotId) != 'string' || type(value.compositionSnapshotId) != 'string'
+		|| type(value.membershipDigest) != 'string' || type(value.runtimeAssets) != 'array'
+		|| type(value.luaInit) != 'array' || type(value.dependencyIndex) != 'object')
+		return { ok: false, reason: 'canonical installed runtime composition is unavailable' };
+	let runtime = [], lua = [], seen = {};
+	for (let entry in value.runtimeAssets) {
+		if (type(entry) != 'object' || entry == null || type(entry.id) != 'string' || seen[entry.id])
+			return { ok: false, reason: 'runtime composition contains an invalid or duplicate entry' };
+		let path = runtime_target_path(entry.runtimeTarget);
+		if (path == null || type(entry.contentSha256) != 'string' || length(entry.contentSha256) != 64
+			|| type(entry.byteSize) != 'int' || !stat(path))
+			return { ok: false, reason: 'selected runtime asset is missing: ' + entry.id };
+		let actual = sha256_file(path), metadata = stat(path);
+		if (actual != entry.contentSha256 || metadata == null || metadata.size != entry.byteSize)
+			return { ok: false, reason: 'selected runtime asset identity does not match: ' + entry.id };
+		seen[entry.id] = true; push(runtime, { id: entry.id, kind: entry.kind, type: entry.type,
+			path: path, contentSha256: entry.contentSha256, byteSize: entry.byteSize });
+	}
+	for (let entry in value.luaInit) {
+		if (type(entry) != 'object' || entry == null || entry.kind != 'lua' || entry.role != 'lua-init'
+			|| type(entry.runtimeOrder) != 'int' || !seen[entry.id])
+			return { ok: false, reason: 'ordered Lua closure is not a subset of runtimeAssets' };
+		let path = runtime_target_path(entry.runtimeTarget);
+		if (path == null || substr(path, -4) != '.lua') return { ok: false, reason: 'ordered Lua target is invalid' };
+		push(lua, { id: entry.id, path: path, runtimeOrder: entry.runtimeOrder,
+			contentSha256: entry.contentSha256, byteSize: entry.byteSize });
+	}
+	if (length(lua) == 0) return { ok: false, reason: 'canonical runtime composition has no ordered Lua closure' };
+	return { ok: true, value: value, runtime: runtime, lua: lua };
 }
 
 function lua_bundle_digest(files) {
@@ -114,11 +155,11 @@ function probe_binary_capabilities(binaryPath) {
 	return caps;
 }
 
-function command_for(candidate, mode) {
+function command_for(candidate, mode, luaFiles) {
 	let tokens = z2m_tokenize(candidate).tokens;
 	let cmd = 'cd /opt/zapret2 && ' + shell_escape(NFQWS2_BIN) + ' ' + mode + ' --qnum=30999';
-	for (let i = 0; i < length(RUNTIME_LUA_FILES); i++)
-		cmd += ' --lua-init=' + shell_escape('@' + RUNTIME_LUA_ROOT + RUNTIME_LUA_FILES[i]);
+	for (let i = 0; i < length(luaFiles); i++)
+		cmd += ' --lua-init=' + shell_escape('@' + luaFiles[i]);
 	for (let i = 0; i < length(tokens); i++) cmd += ' ' + shell_escape(tokens[i].value);
 	return cmd;
 }
@@ -127,7 +168,7 @@ function diagnostics(reason, code) {
 	return [{ severity: 'error', code: code, message: reason, tokenIndex: null, profileIndex: null }];
 }
 
-export const native_preflight = function(candidate) {
+export const native_preflight = function(candidate, runtimeComposition, strategyDependencies) {
 	let coverage = {
 		cliSyntax: 'not_checked',
 		luaLoad: 'not_checked',
@@ -148,6 +189,20 @@ export const native_preflight = function(candidate) {
 		return { status: 'rejected', coverage: coverage, diagnostics: diagnostics('candidate execution plan is structurally invalid', 'EXECUTION_PLAN_REJECTED'), evidence: evidence };
 	}
 	coverage.executionPlan = 'passed';
+	let composition = runtime_composition_snapshot(runtimeComposition);
+	if (!composition.ok)
+		return { status: 'unavailable', coverage: coverage,
+			diagnostics: diagnostics(composition.reason, 'RUNTIME_COMPOSITION_UNAVAILABLE'), evidence: evidence };
+	evidence.snapshotId = composition.value.snapshotId;
+	evidence.compositionSnapshotId = composition.value.compositionSnapshotId;
+	evidence.membershipDigest = composition.value.membershipDigest;
+	evidence.runtimeAssetIds = [];
+	for (let entry in composition.runtime) push(evidence.runtimeAssetIds, entry.id);
+	if (type(strategyDependencies) == 'object' && strategyDependencies != null) {
+		evidence.dependencyIndex = composition.value.dependencyIndex;
+		if (strategyDependencies.available != true) return { status: 'rejected', coverage: coverage,
+			diagnostics: diagnostics('Strategy dependency closure is unavailable', 'EDEPENDENCY'), evidence: evidence };
+	}
 
 	if (!stat(NFQWS2_BIN))
 		return { status: 'unavailable', coverage: coverage, diagnostics: diagnostics('nfqws2 binary is missing', 'NATIVE_UNAVAILABLE'), evidence: evidence };
@@ -188,7 +243,14 @@ export const native_preflight = function(candidate) {
 		return { status: 'rejected', coverage: coverage, diagnostics: diagnostics('nfqws2 digest does not match the release manifest', 'ENGINE_DIGEST_MISMATCH'), evidence: evidence };
 	}
 
-	let lua = lua_bundle_digest(manifest.value.luaFiles);
+	let luaPaths = [];
+	for (let entry in composition.lua) {
+		push(luaPaths, entry.path);
+		if (sha256_file(entry.path) != entry.contentSha256 || stat(entry.path).size != entry.byteSize)
+			return { status: 'rejected', coverage: coverage,
+				diagnostics: diagnostics('selected Lua content identity does not match the runtime snapshot', 'LUA_RUNTIME_MISMATCH'), evidence: evidence };
+	}
+	let lua = lua_bundle_digest(luaPaths);
 	if (!lua.ok)
 		return { status: 'partial', coverage: coverage, diagnostics: diagnostics(lua.reason, 'LUA_BUNDLE_UNAVAILABLE'), evidence: evidence };
 	evidence.luaBundleSha256 = lua.digest;
@@ -198,7 +260,7 @@ export const native_preflight = function(candidate) {
 	}
 	coverage.luaCompatibility = 'passed';
 
-	let dry = run(command_for(candidate, '--dry-run'));
+	let dry = run(command_for(candidate, '--dry-run', luaPaths));
 	evidence.cliExit = dry.rc;
 	if (dry.rc != 0) {
 		coverage.cliSyntax = 'failed';
@@ -210,7 +272,7 @@ export const native_preflight = function(candidate) {
 
 	// Upstream --intercept=0 executes the exact Lua init/action/blob resolution
 	// path and exits without binding/intercepting traffic.
-	let luaRun = run(command_for(candidate, '--intercept=0'));
+	let luaRun = run(command_for(candidate, '--intercept=0', luaPaths));
 	evidence.luaExit = luaRun.rc;
 	if (luaRun.rc != 0) {
 		coverage.luaLoad = 'failed';
@@ -244,7 +306,7 @@ export const native_preflight = function(candidate) {
 // Canonical stock bol-van releases carry an EMPTY requirement list — a
 // stock runtime is healthy without any Z2K native delta. Capability booleans
 // are still reported for evidence, but only *required* ones gate ok.
-export const install_proof = function() {
+export const install_proof = function(runtimeComposition) {
 	let caps = {
 		ok: false,
 		Z2K_TLS_MOD: false,
@@ -264,13 +326,28 @@ export const install_proof = function() {
 	if (length(requiredArg) > 0) {
 		caps.requiredCapabilities = split(requiredArg, /[\s]+/);
 	}
+	let composition = runtime_composition_snapshot(runtimeComposition);
+	if (!composition.ok) {
+		caps.compositionStatus = 'unavailable';
+		caps.compositionError = composition.reason;
+		return caps;
+	}
+	caps.compositionStatus = 'canonical';
+	caps.snapshotId = composition.value.snapshotId;
+	caps.compositionSnapshotId = composition.value.compositionSnapshotId;
+	caps.membershipDigest = composition.value.membershipDigest;
 	if (!stat(NFQWS2_BIN)) return caps;
 	let digest = sha256_file(NFQWS2_BIN);
 	if (digest == null) return caps;
 	caps.nfqws2Sha256 = digest;
 	let luaDir = run('ls -la ' + shell_escape(RUNTIME_LUA_ROOT) + ' 2>&1');
 	caps.luaDirListing = trim(luaDir.out);
-	caps.libFile = stat(RUNTIME_LUA_ROOT + 'zapret-lib.lua') != null ? 'exists' : 'missing';
+	caps.libFile = 'missing';
+	let luaPaths = [];
+	for (let entry in composition.lua) {
+		push(luaPaths, entry.path);
+		if (substr(entry.path, -length('/zapret-lib.lua')) == '/zapret-lib.lua') caps.libFile = 'exists';
+	}
 	caps.whoami = trim(run('id').out);
 
 	// Z2K_TLS_MOD: compiled-in option tokens (help output or binary strings).
@@ -279,16 +356,21 @@ export const install_proof = function() {
 		&& index(run("strings " + shell_escape(NFQWS2_BIN) + " | grep -c 'z2k_alpn'").out || '', '0') != 0;
 
 	// ANTIDPI_REPEATS_LOOP / AUTO_FAMILY_SPLIT: materialized Lua markers.
-	let repeats = readfile('/opt/zapret2/lua/zapret-antidpi.lua') || '';
+	let repeats = '';
+	let autoLua = '';
+	for (let path in luaPaths) {
+		let body = readfile(path) || '';
+		if (substr(path, -length('/zapret-antidpi.lua')) == '/zapret-antidpi.lua') repeats = body;
+		if (substr(path, -length('/zapret-auto.lua')) == '/zapret-auto.lua') autoLua = body;
+	}
 	caps.ANTIDPI_REPEATS_LOOP = index(repeats, 'repeats > 1 and desync.reasm_data and desync.arg.tls_mod') >= 0;
-	let autoLua = readfile('/opt/zapret2/lua/zapret-auto.lua') || '';
 	caps.AUTO_FAMILY_SPLIT = index(autoLua, 'family_split') >= 0;
 
 	// Lua init smoke through nfqws2 itself (no interception): every pinned
 	// runtime Lua file must parse and initialize inside the daemon.
 	let cmd = shell_escape(NFQWS2_BIN) + ' --dry-run --intercept=0 --qnum=30999';
-	for (let i = 0; i < length(RUNTIME_LUA_FILES); i++)
-		cmd += ' --lua-init=' + shell_escape('@' + RUNTIME_LUA_ROOT + RUNTIME_LUA_FILES[i]);
+	for (let i = 0; i < length(luaPaths); i++)
+		cmd += ' --lua-init=' + shell_escape('@' + luaPaths[i]);
 	let smoke = run(cmd);
 	caps.luaSmoke = smoke.rc == 0;
 	if (!caps.luaSmoke) caps.smokeStderr = substr(trim(smoke.out), 0, 400);

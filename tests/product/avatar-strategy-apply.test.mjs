@@ -25,6 +25,15 @@ const NEW_CONFIG_HASH = 'd'.repeat(64);
 const CANDIDATE = '--filter-tcp=443';
 const CANDIDATE_HASH = createHash('sha256').update(CANDIDATE).digest('hex');
 
+test('Strategy Apply source contract re-resolves installed authority immediately before mutation', () => {
+  const source = fs.readFileSync(CLI, 'utf8');
+  assert.match(source, /resolveInstalled/);
+  assert.match(source, /strategy.*snapshot|installed.*snapshot/i);
+  assert.match(source, /observedRegistryRevision|membershipDigest|compositionSnapshotId/);
+  assert.match(source, /ESTALE/);
+  assert.match(source, /profiles_apply_candidate/);
+});
+
 const environment = {
   listMode: 'none',
   paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
@@ -58,10 +67,22 @@ function runtimeChecks(verified) {
     queueRegistered: verified, ownerMatch: verified };
 }
 
+function runtimeComposition(overrides = {}) {
+  return {
+    ok: true, lifecycleState: 'installed', compositionStatus: 'canonical',
+    snapshotId: 'z2k-lifecycle-v2|installed-a', compositionSnapshotId: 'z2k-composition-v2|installed-a',
+    membershipDigest: HASH, observedRegistryRevision: 17,
+    lifecycleIdentity: { kind: 'installed', release: 'r-80.3', sourceCommit: 'c'.repeat(40) },
+    receiptIdentity: { receiptId: 'receipt-r-80.3' }, runtimeAssets: [], luaInit: [],
+    dependencyIndex: {}, scannerOverlay: [], ...overrides,
+  };
+}
+
 function transactionHook(overrides = {}) {
   const { state: stateOverrides = {}, candidate: candidateOverride = null,
-    reconciliation: reconciliationOverride = null, ...transactionOverrides } = overrides;
-  const hook = { state: {
+    reconciliation: reconciliationOverride = null, runtimeComposition: runtimeCompositionOverride = null,
+    ...transactionOverrides } = overrides;
+  const hook = { runtimeComposition: runtimeCompositionOverride || runtimeComposition(), state: {
     strategy_apply_revalidate: { ok: true },
     strategy_selection_apply: { ok: true },
     ...stateOverrides,
@@ -422,6 +443,20 @@ test('strategy_apply executes a successful transaction through the injected cand
   assert.deepEqual(result.strategy, { id: record.id, origin: 'user', revision: record.revision, candidateSha256: CANDIDATE_HASH });
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_LEASE), false);
+}));
+
+test('strategy_apply rejects a Registry/runtime composition change before the profile writer', () => storage(({ record, env }) => {
+  const before = runtimeComposition({ observedRegistryRevision: 17 });
+  const after = runtimeComposition({ observedRegistryRevision: 18,
+    snapshotId: 'z2k-lifecycle-v2|installed-b', compositionSnapshotId: 'z2k-composition-v2|installed-b' });
+  const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
+    strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
+    snapshotId: 'client-forged-snapshot',
+  })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+    candidate: strategyCandidateStub(), runtimeComposition: [before, after],
+  }) });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'ESTALE');
 }));
 
 test('strategy_apply executes restart failure and verified rollback through the injected seams', () => storage(({ record, env }) => {

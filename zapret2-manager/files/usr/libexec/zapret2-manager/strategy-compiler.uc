@@ -516,9 +516,9 @@ function wants_native_validation(environment) {
 	return environment.validate == true || environment.executionAdmission == true;
 }
 
-function validate_native(candidate, environment) {
+function validate_native(candidate, environment, dependencies) {
 	if (!wants_native_validation(environment)) return native_validation_shell();
-	try { return native_preflight(candidate); }
+	try { return native_preflight(candidate, environment.runtimeComposition, dependencies); }
 	catch (e) {
 		let shell = native_validation_shell();
 		return {
@@ -651,7 +651,7 @@ function compile_normalized(strategy, environment) {
 	if (length(fragments) == 0) {
 		let digest = digest_text('');
 		if (digest == null) return error_result('EINTERNAL', 'SHA-256 is unavailable for candidate identity');
-		let nativeValidation = validate_native('', environment);
+		let nativeValidation = validate_native('', environment, dependencies);
 		dependencies.nativeValidation = nativeValidation;
 		return {
 			ok: true, strategyArgs: '', fragments: [], profilesCount: 0,
@@ -669,7 +669,7 @@ function compile_normalized(strategy, environment) {
 		return error_result('EINTERNAL', 'Profile renderer round-trip proof failed');
 	let digest = digest_text(rendered.candidate);
 	if (digest == null) return error_result('EINTERNAL', 'SHA-256 is unavailable for candidate identity');
-	let nativeValidation = validate_native(rendered.candidate, environment);
+	let nativeValidation = validate_native(rendered.candidate, environment, dependencies);
 	dependencies.nativeValidation = nativeValidation;
 	let nativeVerified = nativeValidation.status == 'verified';
 	return {

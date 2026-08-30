@@ -10,6 +10,11 @@ const component = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-co
 const resourceUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const generator = read('tools/generate-z2k-classification.mjs');
 const integration = JSON.parse(read('zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json'));
+const nativePreflight = read('zapret2-manager/files/usr/libexec/zapret2-manager/native-preflight.uc');
+const nativeManifest = JSON.parse(read('zapret2-manager/files/usr/share/zapret2-manager/native-preflight.json'));
+const nativeManifestSource = read('zapret2-manager/files/usr/share/zapret2-manager/native-preflight.json');
+const strategyCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const scannerAdapter = read('zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh');
 
 test('classification policy is explicit: production shell drift is advisory, trust roots are blocking', () => {
   assert.match(generator, /reviewPolicy/);
@@ -66,4 +71,34 @@ test('available release and activation receipt version come from the selected ca
   const componentApply = component.slice(component.indexOf('export const z2k_component_apply'));
   assert.match(componentApply, /ELEGACY_LIFECYCLE/);
   assert.doesNotMatch(componentApply, /z2k_upstream_check\(\)|asset_registry_apply_bundle/);
+});
+
+test('native preflight consumes the installed resolver closure instead of a static Lua list', () => {
+  assert.match(nativePreflight, /runtime-composition\.uc/,
+    'native preflight must import the canonical runtime composition boundary');
+  assert.match(nativePreflight, /runtimeAssets|dependencyIndex/,
+    'native preflight must receive explicit runtime assets and dependency closure');
+  assert.match(nativePreflight, /luaInit/,
+    'native preflight must build the command from resolver-owned ordered luaInit');
+  assert.doesNotMatch(nativePreflight, /RUNTIME_LUA_FILES\s*=|for \(let i = 0; i < length\(RUNTIME_LUA_FILES\)/,
+    'native preflight must not maintain a hand-copied Lua load list');
+  assert.doesNotMatch(nativeManifestSource, /luaFiles/,
+    'native preflight manifest must remain static engine evidence only');
+  assert.ok(nativeManifest.minNfqws2CompatVer >= 1);
+});
+
+test('Strategy Apply owns two resolver snapshots and final CAS before profile mutation', () => {
+  assert.match(strategyCli, /runtime-composition\.uc/,
+    'Strategy Apply must use the canonical resolver rather than a client snapshot');
+  const first = strategyCli.indexOf('resolveInstalled');
+  const writer = strategyCli.lastIndexOf('profiles_apply_candidate');
+  const final = strategyCli.lastIndexOf('resolveInstalled');
+  assert.ok(first >= 0 && final > first && writer > final,
+    'Apply must resolve, preflight, re-resolve and only then call the profile writer');
+  assert.match(strategyCli, /ESTALE/,
+    'Registry/receipt/composition changes must fail closed as ESTALE');
+  assert.match(strategyCli, /observedRegistryRevision|membershipDigest|compositionSnapshotId/,
+    'final CAS must compare resolver-owned snapshot identity');
+  assert.doesNotMatch(strategyCli, /input\.snapshotId\s*==|input\.compositionSnapshotId\s*==/,
+    'client-supplied snapshot identifiers must not be the Apply authority');
 });

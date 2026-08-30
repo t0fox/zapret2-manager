@@ -27,11 +27,10 @@ test('P2-Task 2: All runtime Lua assets and provenance manifests exist and are v
     assert.ok(content.length > 50, `Lua asset ${file} must not be empty`);
   }
 
-  // Verify native-preflight.json lists these files
+  // The static preflight manifest must not duplicate the dynamic Lua closure;
+  // runtime-composition.uc owns the selected ordered membership.
   const manifestPath = path.resolve('zapret2-manager/files/usr/share/zapret2-manager/native-preflight.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  for (const file of requiredLuaFiles) {
-    const expectedPath = '/opt/zapret2/lua/' + file;
-    assert.ok(manifest.luaFiles.includes(expectedPath), `Manifest must include ${expectedPath}`);
-  }
+  assert.equal(manifest.schema, 'zapret2-manager.native-preflight.v4');
+  assert.ok(!('luaFiles' in manifest));
 });

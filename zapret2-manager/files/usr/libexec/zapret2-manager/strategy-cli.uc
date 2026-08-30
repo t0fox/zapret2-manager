@@ -16,6 +16,7 @@ import { z2m_parse, z2m_validate, z2m_tokenize } from './profiles.uc';
 import { avatar_tokenize, strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
+import { resolveInstalled } from './runtime-composition.uc';
 import { discord_autocircular_donor } from './discord-profile.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
@@ -43,7 +44,7 @@ const MAX_DEPENDENCY_BYTES = 16384;
 const MAX_IMPORT_PROFILES = 256;
 const MAX_IMPORT_DIAGNOSTICS = 16;
 const MAX_IMPORT_NAME = 256;
-const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY',
+const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ESTALE', 'ENOENABLED', 'EDEPENDENCY',
 	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO',
 	'EOUTPUT', 'ECHILD', 'EUNAVAILABLE'];
 
@@ -70,7 +71,7 @@ function error_result(code, message, extra) {
 	return result;
 }
 
-let APPLY_HOOK = null, APPLY_HOOK_LOADED = false;
+let APPLY_HOOK = null, APPLY_HOOK_LOADED = false, APPLY_HOOK_CURSOR = {};
 
 function apply_hook_value(section, name) {
 	if (!APPLY_HOOK_LOADED) {
@@ -79,6 +80,13 @@ function apply_hook_value(section, name) {
 		if (raw != null && length(raw) <= 65536) try { APPLY_HOOK = json(raw); } catch (e) { APPLY_HOOK = null; }
 	}
 	let group = is_object(APPLY_HOOK) ? APPLY_HOOK[section] : null;
+	if (type(group) == 'array') {
+		let cursor = APPLY_HOOK_CURSOR[section + ':' + (name || '__value')];
+		if (type(cursor) != 'int') cursor = 0;
+		let index = cursor < length(group) ? cursor : length(group) - 1;
+		APPLY_HOOK_CURSOR[section + ':' + (name || '__value')] = cursor + 1;
+		return index >= 0 ? group[index] : null;
+	}
 	if (name == null) return group;
 	return is_object(group) && group[name] != null ? group[name] : null;
 }
@@ -216,6 +224,57 @@ function runtime_inputs_bounded(value) {
 	return true;
 }
 
+function runtime_target_path(target) {
+	if (!is_string(target)) return null;
+	if (starts_with(target, '/opt/zapret2/')) return target;
+	if (starts_with(target, '/runtime-assets/lua/')) return '/opt/zapret2/lua/' + substr(target, length('/runtime-assets/lua/'));
+	if (starts_with(target, '/runtime-assets/bin/')) return '/opt/zapret2/files/fake/' + substr(target, length('/runtime-assets/bin/'));
+	if (starts_with(target, '/runtime-assets/lists/')) return '/opt/zapret2/lists/' + substr(target, length('/runtime-assets/lists/'));
+	if (starts_with(target, '/runtime-assets/ipset/')) return '/opt/zapret2/ipset/' + substr(target, length('/runtime-assets/ipset/'));
+	return null;
+}
+
+function runtime_snapshot_valid(value) {
+	return is_object(value) && value.ok == true && value.lifecycleState == 'installed'
+		&& value.compositionStatus == 'canonical' && is_string(value.snapshotId)
+		&& is_string(value.compositionSnapshotId) && is_string(value.membershipDigest)
+		&& is_integer(value.observedRegistryRevision) && type(value.runtimeAssets) == 'array'
+		&& type(value.luaInit) == 'array' && is_object(value.dependencyIndex);
+}
+
+function runtime_composition_for_apply() {
+	let injected = apply_hook_value('runtimeComposition', null);
+	if (injected != null) return injected;
+	try { return resolveInstalled({}); }
+	catch (e) { return error_result('ESTALE', 'installed runtime composition could not be resolved'); }
+}
+
+function runtime_snapshot_equal(left, right) {
+	if (!runtime_snapshot_valid(left) || !runtime_snapshot_valid(right)) return false;
+	for (let key in ['snapshotId', 'compositionSnapshotId', 'membershipDigest', 'observedRegistryRevision'])
+		if (left[key] != right[key]) return false;
+	for (let key in ['lifecycleIdentity', 'receiptIdentity', 'runtimeAssets', 'luaInit', 'dependencyIndex'])
+		if (sprintf('%J', left[key]) != sprintf('%J', right[key])) return false;
+	return true;
+}
+
+function runtime_snapshot_error(value) {
+	if (is_object(value) && value.error && value.error.code == 'RECONCILIATION_REQUIRED')
+		return error_result('ERECONCILE', 'canonical Z2K runtime composition requires reconciliation');
+	return error_result('ESTALE', 'installed runtime composition is unavailable or inconsistent', { resolver: value });
+}
+
+function composition_lua_inputs(snapshot) {
+	if (!runtime_snapshot_valid(snapshot)) return null;
+	let result = [];
+	for (let entry in snapshot.luaInit) {
+		let path = runtime_target_path(entry.runtimeTarget);
+		if (!is_string(path) || !match(path, /\.lua$/)) return null;
+		push(result, path);
+	}
+	return result;
+}
+
 function runtime_context_from_environment() {
 	if (getenv('Z2M_STRATEGY_SERVER_TEST') != '1') return null;
 	let runtime = null, environment = {};
@@ -223,7 +282,11 @@ function runtime_context_from_environment() {
 	try { environment = json(getenv('Z2M_STRATEGY_RUNTIME_ENVIRONMENT') || '{}'); } catch (e) { environment = {}; }
 	if (!runtime_inputs_bounded(runtime) || runtime.source != 'live'
 		|| runtime.enginePath != ENGINE_PATH) return error_result('EUNAVAILABLE', 'server runtime composition test evidence is unavailable');
-	return { ok: true, environment: is_object(environment) ? environment : {}, runtimeInputs: runtime };
+	let composition = null;
+	try { composition = json(getenv('Z2M_STRATEGY_RUNTIME_COMPOSITION') || 'null'); } catch (e) { composition = null; }
+	if (is_object(environment)) environment.runtimeComposition = composition;
+	return { ok: true, environment: is_object(environment) ? environment : {}, runtimeInputs: runtime,
+		runtimeComposition: composition };
 }
 
 function synthetic_environment_with_inputs(runtimeInputs) {
@@ -302,9 +365,10 @@ function live_runtime_inputs() {
 		if (matched >= 0) used[matched] = true;
 		else push(baseArgs, found[0][i]);
 	}
-	let luaInit = [], hostlists = [];
-	for (let value in found[0])
-		if (starts_with(value, '--lua-init=')) push(luaInit, substr(value, 11));
+	let composition = runtime_composition_for_apply();
+	if (!runtime_snapshot_valid(composition)) return runtime_snapshot_error(composition);
+	let luaInit = composition_lua_inputs(composition), hostlists = [];
+	if (luaInit == null) return error_result('ESTALE', 'installed runtime composition Lua closure is invalid');
 	for (let value in configured)
 		if (starts_with(value, '--hostlist=')) push(hostlists, substr(value, 11));
 	if (length(baseArgs) + length(luaInit) + length(hostlists) == 0 && length(configured) == 0)
@@ -362,9 +426,9 @@ function live_runtime_inputs() {
 		}
 	}
 
-	return { ok: true, environment: {
+	return { ok: true, runtimeComposition: composition, environment: {
 		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake', listRoot: '/lists', ipsetRoot: '/lists' },
-		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}
+		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}, runtimeComposition: composition
 	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
 
@@ -598,7 +662,7 @@ export const strategy_validate = function(input, context) {
 	return evaluated(input, context, true, true);
 };
 
-function strategy_apply_projection(resolved, input, candidate, selection, configHash) {
+function strategy_apply_projection(resolved, input, candidate, selection, configHash, runtimeSnapshot) {
 	return {
 		candidateSha256: candidate.digest,
 		callerContext: 'strategy_apply', operationNonce: selection.operationNonce,
@@ -612,6 +676,11 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 		selected: {
 			id: resolved.id, origin: resolved.origin, revision: input.revision,
 			candidateSha256: candidate.digest
+		}, runtimeSnapshot: {
+			snapshotId: runtimeSnapshot.snapshotId,
+			compositionSnapshotId: runtimeSnapshot.compositionSnapshotId,
+			membershipDigest: runtimeSnapshot.membershipDigest,
+			observedRegistryRevision: runtimeSnapshot.observedRegistryRevision
 		}
 	};
 }
@@ -678,6 +747,12 @@ export const strategy_apply = function(input, context) {
 	catch (e) { begun = null; }
 	if (!is_object(begun) || begun.ok != true)
 		return error_result(begun && begun.error ? begun.error.code : 'EUNCERTAIN', begun && begun.error ? begun.error.message : 'Strategy Apply guard could not be established.');
+	// Validate the installed runtime authority independently of the request and
+	// retain it for the compiler/preflight transaction. A client snapshotId is
+	// deliberately not consulted here.
+	let installedSnapshot = runtime_composition_for_apply();
+	if (!runtime_snapshot_valid(installedSnapshot))
+		return strategy_apply_finish(runtime_snapshot_error(installedSnapshot), begun.operationNonce);
 	let currentCatalog = catalog();
 	if (!is_object(currentCatalog) || currentCatalog.ok == false) return strategy_apply_finish(currentCatalog, begun.operationNonce);
 	let resolved = resolve_strategy(input, currentCatalog);
@@ -688,6 +763,7 @@ export const strategy_apply = function(input, context) {
 	if (!trusted.ok) trusted = { ok: true, environment: {} };
 	trusted.environment.validate = true;
 	trusted.environment.executionAdmission = true;
+	trusted.environment.runtimeComposition = installedSnapshot;
 	let candidate = null;
 	try { candidate = strategy_apply_candidate(resolved, trusted.environment); }
 	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy compilation failed'), begun.operationNonce); }
@@ -705,7 +781,15 @@ export const strategy_apply = function(input, context) {
 		return strategy_apply_finish(error_result('EVERIFY', 'authoritative pre-Apply config and candidate hashes are unavailable'), begun.operationNonce);
 	let selection = { revision: begun.selectionRevision, selected: begun.selected,
 		operationNonce: begun.operationNonce, previousCandidateSha256: begun.oldCandidateSha256 };
-	let projection = strategy_apply_projection(resolved, input, candidate, selection, begun.oldConfigSha256);
+	// Resolve the authority again immediately before handing control to the
+	// existing profile transaction. Any Registry, receipt, membership, order,
+	// or composition change is ESTALE; profiles_apply_candidate is never called.
+	let finalSnapshot = runtime_composition_for_apply();
+	if (!runtime_snapshot_valid(finalSnapshot) || !runtime_snapshot_equal(installedSnapshot, finalSnapshot))
+		return strategy_apply_finish(error_result('ESTALE', 'installed runtime composition changed during Strategy Apply', {
+			before: installedSnapshot, after: finalSnapshot
+		}), begun.operationNonce);
+	let projection = strategy_apply_projection(resolved, input, candidate, selection, begun.oldConfigSha256, installedSnapshot);
 	let applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection);
 	if (!is_object(applied)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction returned no result'), begun.operationNonce);
 	if (applied.ok != true) {

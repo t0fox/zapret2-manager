@@ -14,6 +14,8 @@ const PROBE_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2
 const WORKER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-state.uc');
 const RESULTS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc');
+const RUNTIME_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh');
+const COMPOSITION_CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-cli.uc');
 const FIXTURE = path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/targets.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -76,6 +78,18 @@ test('production terminal paths invoke the fail-closed reconciliation module wit
   const worker = readFileSync(WORKER, 'utf8');
   assert.match(worker, /scanner_stale_worker_recover\(|scanner_terminal_reconcile\(/);
   assert.match(worker, /seam\(seams, 'reconcile'\)|terminal_reconciliation/);
+});
+
+test('Scanner consumes resolver output and keeps overlay diagnostic-only', () => {
+  const adapter = readFileSync(RUNTIME_ADAPTER, 'utf8');
+  const cli = readFileSync(COMPOSITION_CLI, 'utf8');
+  assert.match(adapter, /runtime-composition-cli|scannerOverlay|scanner-overlay/,
+    'Scanner runtime adapter must consume the bounded resolver boundary');
+  assert.doesNotMatch(adapter, /for init in\s+\\|[\s\S]*zapret-antidpi\.lua|--lua-init=@\/opt\/zapret2\/lua\//,
+    'Scanner adapter must not carry a hand-copied production Lua chain');
+  assert.match(cli, /includeScannerInLuaInit/);
+  assert.match(cli, /scanner overlay cannot become production luaInit/);
+  assert.match(cli, /scannerOverlay/);
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

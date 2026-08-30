@@ -13,6 +13,9 @@ LOCK=/opt/zapret2/config.lock
 QUEUE=300
 QUEUE_MAX=307
 OWNER=scanner/session
+RUNTIME_COMPOSITION_UCODE=${Z2M_RUNTIME_UCODE_BIN:-/usr/bin/ucode}
+RUNTIME_COMPOSITION_CLI=${Z2M_RUNTIME_COMPOSITION_CLI:-/usr/libexec/zapret2-manager/runtime-composition-cli.uc}
+RUNTIME_COMPOSITION_TMP=""
 
 # OpenWrt BusyBox sleep may not accept fractional seconds. Keep polling bounded.
 short_sleep() { sleep 1; }
@@ -398,6 +401,7 @@ cleanup_internal() {
 
 fail() {
 	code=$1; stage=$2
+	[ -z "${RUNTIME_COMPOSITION_TMP:-}" ] || rm -rf "$RUNTIME_COMPOSITION_TMP"
 	extra=""
 	[ -n "${helper_last_operation:-}" ] && extra="$extra,\"helperOperation\":\"$helper_last_operation\""
 	[ -n "${helper_last_code:-}" ] && extra="$extra,\"helperCode\":\"$helper_last_code\""
@@ -486,25 +490,38 @@ activate() {
 		esac
 		set -- "$@" "$token"
 		done < "$ARGV_FILE"
-	for init in \
-		/opt/zapret2/lua/zapret-lib.lua \
-		/opt/zapret2/lua/zapret-antidpi.lua \
-		/opt/zapret2/lua/zapret-auto.lua \
-		/opt/zapret2/lua/z2k-modern-core.lua \
-		/opt/zapret2/lua/z2k-detectors.lua \
-		/opt/zapret2/lua/z2k-fooling-ext.lua \
-		/opt/zapret2/lua/z2k-state-persist.lua; do
-		[ -r "$init" ] && [ ! -L "$init" ] || fail EDEPENDENCY runtime
-	done
-	set -- \
-		--lua-init=@/opt/zapret2/lua/zapret-lib.lua \
-		--lua-init=@/opt/zapret2/lua/zapret-antidpi.lua \
-		--lua-init=@/opt/zapret2/lua/zapret-auto.lua \
-		--lua-init=@/opt/zapret2/lua/z2k-modern-core.lua \
-		--lua-init=@/opt/zapret2/lua/z2k-detectors.lua \
-		--lua-init=@/opt/zapret2/lua/z2k-fooling-ext.lua \
-		--lua-init=@/opt/zapret2/lua/z2k-state-persist.lua \
-		"$@"
+	# Scanner must consume the same resolver-owned installed closure as the
+	# production runtime.  The overlay is diagnostic-only; only explicit
+	# LUA_INIT rows become process arguments, in resolver order.
+	RUNTIME_COMPOSITION_TMP=$(mktemp -d /tmp/z2m-runtime-scanner.XXXXXX 2>/dev/null) || fail EDEPENDENCY runtime
+	_runtime_input="$RUNTIME_COMPOSITION_TMP/input.json"
+	_runtime_spec="$RUNTIME_COMPOSITION_TMP/activation.tsv"
+	[ -x "$RUNTIME_COMPOSITION_UCODE" ] || fail EDEPENDENCY runtime
+	[ -r "$RUNTIME_COMPOSITION_CLI" ] || fail EDEPENDENCY runtime
+	printf '%s\n' '{}' > "$_runtime_input" || fail EDEPENDENCY runtime
+	"$RUNTIME_COMPOSITION_UCODE" "$RUNTIME_COMPOSITION_CLI" scanner "$_runtime_input" activation-tsv > "$_runtime_spec" 2>/dev/null || fail EDEPENDENCY runtime
+	[ -s "$_runtime_spec" ] || fail EDEPENDENCY runtime
+	grep -q '^SNAPSHOT|' "$_runtime_spec" || fail EDEPENDENCY runtime
+	resolver_luaopt "$_runtime_spec" || fail EDEPENDENCY runtime
+	_lua_init_count=0
+	while IFS='|' read -r _kind _id _type _entry_kind _source _target _sha _order; do
+		[ "$_kind" = LUA_INIT ] || continue
+		[ "$_type" = lifecycle-managed ] || [ "$_type" = package-static ] || fail EDEPENDENCY runtime
+		[ "$_entry_kind" = lua ] || fail EDEPENDENCY runtime
+		runtime_target_rel "$_target" || fail EDEPENDENCY runtime
+		case "$_target" in /runtime-assets/lua/*) : ;; *) fail EDEPENDENCY runtime ;; esac
+		_init_path="/opt/zapret2/$RUNTIME_TARGET_REL"
+		[ -r "$_init_path" ] && [ ! -L "$_init_path" ] || fail EDEPENDENCY runtime
+		case "$_sha" in ''|*[!A-Fa-f0-9]*) fail EDEPENDENCY runtime ;; esac
+		[ "${#_sha}" -eq 64 ] || fail EDEPENDENCY runtime
+		[ "$(sha256sum "$_init_path" | awk '{print $1}')" = "$_sha" ] || fail EDEPENDENCY runtime
+		case "$_order" in ''|*[!0-9]*) fail EDEPENDENCY runtime ;; esac
+		set -- "$@" "--lua-init=@$_init_path"
+		_lua_init_count=$((_lua_init_count + 1))
+	done < "$_runtime_spec"
+	[ "$_lua_init_count" -gt 0 ] || fail EDEPENDENCY runtime
+	rm -rf "$RUNTIME_COMPOSITION_TMP"
+	RUNTIME_COMPOSITION_TMP=""
 	operation_id="$session:$candidate:$generation"
 	operation_nonce="$lock_nonce"
 	table_name=""

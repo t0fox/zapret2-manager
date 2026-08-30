@@ -17,12 +17,12 @@ test('production planner binds locally loaded authority once and keeps pure vali
   assert.match(source, /strategy_runtime_environment/,
     'production planning must bind the live runtime compiler environment');
   const strategyCli = readFileSync(join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc'), 'utf8');
-  assert.match(strategyCli, /readfile\(path\)/,
-    'live Strategy runtime composition must discover functions from the installed Lua bundle');
-  assert.match(strategyCli, /for \(let init in luaInit\)/,
-    'live Strategy compatibility must be derived from the Lua files loaded by production nfqws2');
-  assert.match(strategyCli, /for \(let value in found\[0\]\)[\s\S]*starts_with\(value, '--lua-init='/,
-    'live Lua init inputs must come from the authoritative process argv');
+  assert.match(strategyCli, /resolveInstalled/,
+    'live Strategy runtime composition must use the canonical installed resolver');
+  assert.match(strategyCli, /composition_lua_inputs/,
+    'live Strategy Lua init inputs must come from resolver-owned ordered closure');
+  assert.match(strategyCli, /runtimeComposition/,
+    'live Strategy compatibility must carry the canonical runtime composition');
   assert.match(source, /Scanner live runtime composition is unavailable/,
     'missing live runtime composition must remain a structured dependency error');
 });
@@ -98,8 +98,8 @@ test('production worker records monotonic state-write timing without changing th
     'adapter tamper failures must identify the exact bounded identity invariant');
   assert.match(adapter, /argv_stream=.*awk/,
     'adapter must verify the canonical space-delimited compiled token stream, not staging newline bytes');
-  assert.match(adapter, /zapret-antidpi\.lua[\s\S]*z2k-modern-core\.lua/,
-    'temporary nfqws2 must load the same packaged Lua runtime as production nfqws2');
+  assert.match(adapter, /runtime-composition-cli/,
+    'temporary nfqws2 must load the resolver-owned Lua runtime as production nfqws2');
   assert.match(adapter, /fail EDEPENDENCY runtime/,
     'missing packaged runtime must remain a structured dependency failure');
   assert.match(adapter, /process_alive\(\).*print \$3.*!= Z/,
