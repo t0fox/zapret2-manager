@@ -10,6 +10,7 @@ const registry = read('zapret2-manager/files/usr/libexec/zapret2-manager/asset-r
 const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const worker = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc');
 const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc');
+const recovery = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-lifecycle-recovery.uc');
 
 function functionBody(source, marker, nextMarker) {
   const start = source.indexOf(marker);
@@ -52,6 +53,18 @@ test('worker job is only a progress mirror and recovery is a separate durable co
   assert.match(coordinator, /\/tmp\/z2m-resource-update\/jobs/);
 });
 
+test('boot recovery is a loadable UCode module, not a shebang script', () => {
+  assert.doesNotMatch(recovery, /^#!/, 'init invokes recovery through ucode and modules must not contain a shebang');
+  assert.match(recovery, /import \{ resource_center_recover_pending \}/);
+});
+
+test('PREPARED durable evidence is recoverable before committed Registry revision exists', () => {
+  const identity = functionBody(coordinator, 'function z2k_pending_identity_valid', 'function z2k_finalized_pending_matches');
+  assert.match(identity, /phase.*PREPARED|PREPARED.*phase/);
+  assert.match(identity, /committedAssetRevision/);
+  assert.match(identity, /phase.*PREPARED[\s\S]*committedAssetRevision|committedAssetRevision[\s\S]*phase.*PREPARED/);
+});
+
 test('pre-commit CAS rejects unrelated Registry changes but accepts the transaction own revision transition', () => {
   const apply = functionBody(coordinator, 'function z2k_apply_prepared', 'export const resource_center_status');
   assert.match(apply, /observedRegistryRevision/);
@@ -60,6 +73,9 @@ test('pre-commit CAS rejects unrelated Registry changes but accepts the transact
   assert.match(apply, /committedAssetRevision/);
   assert.match(apply, /membership.*candidate|candidate.*membership/i);
   assert.match(registry, /expectedRevision|expectedRegistryRevision/);
+  assert.match(registry, /request\.expectedRegistryRevision/);
+  assert.match(registry, /state\.revision.*request\.expectedRegistryRevision|request\.expectedRegistryRevision.*state\.revision/s);
+  assert.match(apply, /expectedRegistryRevision:\s*target\.baseRegistryRevision/);
 });
 
 test('same-release V1 reconciliation uses FRESH resolution and the normal reinstall transaction', () => {

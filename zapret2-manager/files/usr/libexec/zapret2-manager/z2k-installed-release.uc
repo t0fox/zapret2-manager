@@ -44,7 +44,7 @@ function v2_receipt_valid(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v2' || receipt.bundleId != 'z2k-curated-lua'
 		|| parse_release(receipt.version) == null || !valid_commit(receipt.sourceCommit) || !valid_sha(receipt.manifestSha256)
 		|| !valid_sha(receipt.classificationSha256) || type(receipt.installedAuthorityRevision) != 'int'
-		|| !object(listed) || type(listed.revision) != 'int' || receipt.installedAuthorityRevision != listed.revision
+		|| !object(listed) || type(listed.revision) != 'int' || receipt.installedAuthorityRevision > listed.revision
 		|| type(receipt.z2kMembership) != 'array' || !length(receipt.z2kMembership)) return false;
 	let seen = {}, current = [];
 	for (let i = 0; i < length(listed.assets || []); i++) {

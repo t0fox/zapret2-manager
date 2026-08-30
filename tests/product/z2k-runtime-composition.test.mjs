@@ -103,6 +103,28 @@ test('canonical runtime composition module exposes the five planned lifecycle fu
   assert.match(source, /scannerOverlay/);
 });
 
+test('installed authority revision remains distinct from later observed Registry revision', () => {
+  const fixture = v2Fixture();
+  fixture.registry.revision = 18;
+  fixture.registry.assets.push({ id: 'user:note', type: 'other', path: '/etc/zapret2-manager/assets/user/note',
+    ownership: 'user', contentSha256: HASH('u'), byteSize: 1, revision: 1,
+    provenance: { kind: 'user', sourcePath: 'user/note' } });
+  const result = invoke(`composition.resolveInstalled(${JSON.stringify({
+    registry: fixture.registry, receipt: fixture.receipt, staticBase: fixture.staticBase,
+  })})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.installedAuthorityRevision, 17);
+  assert.equal(result.observedRegistryRevision, 18);
+});
+
+test('installed receipt with a future Registry revision fails closed', () => {
+  const fixture = v2Fixture();
+  fixture.registry.revision = 16;
+  const result = invoke(`composition.resolveInstalled(${JSON.stringify(fixture)})`);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'EINCONSISTENT');
+});
+
 test('v2 installed resolution returns a complete, deterministic closure with Lua-only luaInit', { skip: !HAS_UCODE }, () => {
   assert.ok(exists(compositionPath), 'runtime-composition.uc must exist for UCode behavior tests');
   const fixture = v2Fixture();

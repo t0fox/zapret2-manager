@@ -205,7 +205,7 @@ function v2_authority(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v2' || receipt.bundleId != BUNDLE_ID
 		|| !valid_release(receipt.version) || !valid_commit(receipt.sourceCommit) || !valid_digest(receipt.manifestSha256)
 		|| !valid_digest(receipt.classificationSha256) || !integer(receipt.installedAuthorityRevision)
-		|| !object(listed) || !integer(listed.revision) || receipt.installedAuthorityRevision != listed.revision) return fail('EINCONSISTENT', 'v2 installed authority identity is invalid');
+		|| !object(listed) || !integer(listed.revision) || receipt.installedAuthorityRevision > listed.revision) return fail('EINCONSISTENT', 'v2 installed authority identity is invalid');
 	let membership = registry_match_membership(receipt.z2kMembership, listed, receipt);
 	if (!membership.ok) return membership;
 	return { ok: true, receipt: receipt, entries: membership.entries };

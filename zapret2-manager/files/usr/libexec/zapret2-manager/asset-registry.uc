@@ -350,6 +350,8 @@ export const asset_registry_apply_bundle = function(request) {
 	if (removalExpectations != null && length(removalExpectations) != length(removeIds)) return fail('EINPUT', 'resource removal expectations do not match removal IDs');
 	let state = state_load(), oldStateRaw = readfile(STATE), total = 0, seen = {}, prepared = [], removals = [];
 	if (state == null) return fail('ESTATE', 'asset registry metadata is invalid');
+	if (request.expectedRegistryRevision != null && (type(request.expectedRegistryRevision) != 'int' || state.revision != request.expectedRegistryRevision))
+		return fail('ESTALE', 'resource Registry revision is stale', { expectedRevision: request.expectedRegistryRevision, observedRegistryRevision: state.revision });
 	for (let i = 0; i < length(request.assets); i++) {
 		let item = request.assets[i];
 		if (!object(item) || !valid_type(item.type) || !valid_id(item.type, item.id) || seen[item.id]

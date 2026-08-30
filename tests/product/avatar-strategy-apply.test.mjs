@@ -202,10 +202,11 @@ function holdUcode(module, expression, env) {
 
 test('Apply accepts only authoritative persisted Strategy identity', () => storage(({ record, env }) => {
   const source = { strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST };
-  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify(source)}).error.code`, env), 'EPREFLIGHT');
-  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', {strategy_data:${JSON.stringify(strategy())}}).error.code`, env), 'EINPUT');
-  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({ ...source, revision: 2 })}).error.code`, env), 'ECONFLICT');
-  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({ ...source, candidate:'--filter-tcp=80' })}).error.code`, env), 'EINPUT');
+  const runtimeEnv = { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook() };
+  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify(source)}).error.code`, runtimeEnv), 'EPREFLIGHT');
+  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', {strategy_data:${JSON.stringify(strategy())}}).error.code`, runtimeEnv), 'EINPUT');
+  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({ ...source, revision: 2 })}).error.code`, runtimeEnv), 'ECONFLICT');
+  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({ ...source, candidate:'--filter-tcp=80' })}).error.code`, runtimeEnv), 'EINPUT');
 }));
 
 test('Apply rejects zero enabled Profiles and missing dependencies before mutation', () => storage(({ record, env }) => {
@@ -214,14 +215,14 @@ test('Apply rejects zero enabled Profiles and missing dependencies before mutati
   fs.writeFileSync(path.join(env.Z2M_STRATEGY_DIR, `${record.id}.json`), JSON.stringify(zero));
   const zeroResult = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
     strategy_id: record.id, revision: zero.revision, catalog_digest: CATALOG_DIGEST,
-  })}, ${JSON.stringify({ environment, runtimeInputs: { source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2', baseArgs: [], luaInit: [], hostlists: [] } })})`, env);
+  })}, ${JSON.stringify({ environment, runtimeInputs: { source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2', baseArgs: [], luaInit: [], hostlists: [] } })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook() });
   assert.equal(zeroResult.error.code, 'ENOENABLED');
   const missing = { ...zero, revision: zero.revision + 1,
     profiles: [{ id: 'p1', args: '--lua-init=@lua/missing.lua', enabled: true }] };
   fs.writeFileSync(path.join(env.Z2M_STRATEGY_DIR, `${record.id}.json`), JSON.stringify(missing));
   const missingResult = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
     strategy_id: record.id, revision: missing.revision, catalog_digest: CATALOG_DIGEST,
-  })}, ${JSON.stringify({ environment: { ...environment, lua: { 'missing.lua': { present: false } } }, runtimeInputs: { source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2', baseArgs: [], luaInit: [], hostlists: [] } })})`, env);
+  })}, ${JSON.stringify({ environment: { ...environment, lua: { 'missing.lua': { present: false } } }, runtimeInputs: { source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2', baseArgs: [], luaInit: [], hostlists: [] } })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook() });
   assert.equal(missingResult.error.code, 'EDEPENDENCY');
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_STATE), false);
 }));

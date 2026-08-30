@@ -991,12 +991,18 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 	return { ok: okResult, runtime: runtimeRollback, registry: registryRollback, journal: journal };
 }
 function z2k_pending_identity_valid(pending) {
-	return object(pending) && string(pending.candidateSnapshotId) && string(pending.membershipDigest)
-		&& string(pending.targetVersion) && string(pending.targetCommit) && string(pending.planToken)
-		&& type(pending.baseRegistryRevision) == 'int' && type(pending.committedAssetRevision) == 'int'
-		&& object(pending.rollbackIdentity) && type(pending.rollbackIdentity.registryRevision) == 'int'
-		&& pending.rollbackIdentity.registryRevision == pending.baseRegistryRevision
-		&& pending.rollbackIdentity.runtimeSnapshot == '/etc/zapret2-manager/runtime-assets.snapshot';
+	if (!object(pending) || !string(pending.candidateSnapshotId) || !string(pending.membershipDigest)
+		|| !string(pending.targetVersion) || !string(pending.targetCommit) || !string(pending.planToken)
+		|| type(pending.baseRegistryRevision) != 'int' || !object(pending.rollbackIdentity)
+		|| type(pending.rollbackIdentity.registryRevision) != 'int'
+		|| pending.rollbackIdentity.registryRevision != pending.baseRegistryRevision
+		|| pending.rollbackIdentity.runtimeSnapshot != '/etc/zapret2-manager/runtime-assets.snapshot') return false;
+	// PREPARED is written before the first irreversible Registry commit, so it
+	// intentionally has no committed revision and can be safely abandoned on
+	// recovery. Every later phase must carry the exact N+1 bundle revision.
+	if (pending.phase == 'PREPARED') return pending.committedAssetRevision == null;
+	return type(pending.committedAssetRevision) == 'int'
+		&& pending.committedAssetRevision > pending.baseRegistryRevision;
 }
 function z2k_finalized_pending_matches(pending, listed) {
 	if (!z2k_pending_identity_valid(pending) || !object(listed) || listed.ok !== true) return false;
@@ -1006,7 +1012,8 @@ function z2k_finalized_pending_matches(pending, listed) {
 		&& receipt.version == pending.targetVersion && receipt.sourceCommit == pending.targetCommit
 		&& receipt.candidateSnapshotId == pending.candidateSnapshotId && receipt.membershipDigest == pending.membershipDigest
 		&& receipt.committedRegistryRevision == pending.committedAssetRevision
-		&& receipt.installedAuthorityRevision == listed.revision;
+		&& type(receipt.installedAuthorityRevision) == 'int'
+		&& receipt.installedAuthorityRevision <= listed.revision;
 }
 export const resource_center_recover_pending = function() {
 	let marker = stat(Z2K_PENDING_ACTIVATION);
@@ -1181,7 +1188,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		baseRegistryRevision: target.baseRegistryRevision, targetVersion: target.targetVersion, targetCommit: target.targetCommitSha || target.targetCommit,
 		planToken: target.planToken, rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' }, phase: 'PREPARED' };
 	if (!z2k_pending_write(pending, 'PREPARED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Durable pending activation evidence could not be persisted.'));
-	let applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
+	let applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit, expectedRegistryRevision: target.baseRegistryRevision, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
 	if (!applied.ok) return z2k_runtime_guard_finish(guard, root, paths, applied);
 	diagnostics.applied = applied.updated || length(staged);
 	diagnostics.removed = applied.removed || 0;

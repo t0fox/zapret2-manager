@@ -118,6 +118,24 @@ test('legacy receipt history has a canonical, ambiguity-checked runtime identity
   assert.doesNotMatch(target, /z2k_classification_for\(classification, recorded\.sourcePath\)/);
 });
 
+test('v2 installed receipt remains valid after an unrelated Registry revision', { skip: !hasUcode }, () => {
+  const receipt = {
+    schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'r-80.3',
+    sourceCommit: SOURCE_COMMIT, manifestSha256: '3'.repeat(64), classificationSha256: '4'.repeat(64),
+    installedAuthorityRevision: 7,
+    z2kMembership: BASE_ASSETS.map(asset => ({ id: asset.id, type: 'lifecycle-managed', owner: 'z2k-core',
+      kind: asset.type, role: asset.type == 'lua' ? 'lua-init' : 'dependency', sourcePath: asset.sourcePath,
+      runtimeTarget: `/runtime-assets/${asset.type}/${asset.id.split(':')[1]}`, contentSha256: asset.contentSha256,
+      byteSize: asset.byteSize, ...(asset.type == 'lua' ? { runtimeOrder: 0 } : {}), version: 'r-80.3', sourceCommit: SOURCE_COMMIT })),
+  };
+  const value = listed(receipt, BASE_ASSETS.map(asset => ({ ...asset, version: 'r-80.3' })));
+  value.revision = 8;
+  value.assets.push({ id: 'user:note', type: 'other', contentSha256: '9'.repeat(64), byteSize: 1,
+    provenance: { kind: 'user', sourcePath: 'user/note' } });
+  const result = invoke(authorityModule, `mod.z2k_registry_receipt_state(${JSON.stringify(value)})`);
+  assert.equal(result.state, 'confirmed', JSON.stringify(result));
+});
+
 const currentClassification = {
   sourcePath: 'files/lua/z2k-modern-core.lua', class: 'exact-managed', type: 'lua',
   localName: 'runtime-assets/lua/z2k-modern-core.lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua'
