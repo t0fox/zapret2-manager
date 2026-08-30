@@ -93,9 +93,22 @@ function runtimeChecks(value) {
     queueRegistered: value, ownerMatch: value };
 }
 
+function runtimeComposition(overrides = {}) {
+  return {
+    ok: true, lifecycleState: 'installed', compositionStatus: 'canonical',
+    snapshotId: 'z2k-lifecycle-v2|installed-a', compositionSnapshotId: 'z2k-composition-v2|installed-a',
+    membershipDigest: HASH, observedRegistryRevision: 17,
+    lifecycleIdentity: { kind: 'installed', release: 'r-80.3', sourceCommit: 'c'.repeat(40) },
+    receiptIdentity: { receiptId: 'receipt-r-80.3' }, runtimeAssets: [], luaInit: [],
+    dependencyIndex: {}, scannerOverlay: [], ...overrides,
+  };
+}
+
 function transactionHook(overrides = {}) {
-  const { state: stateOverrides = {}, candidate: candidateOverrides = {}, realState = false, ...transactionOverrides } = overrides;
+  const { state: stateOverrides = {}, candidate: candidateOverrides = {}, runtimeComposition: runtimeCompositionOverride = null,
+    realState = false, ...transactionOverrides } = overrides;
   return JSON.stringify({
+    runtimeComposition: runtimeCompositionOverride || runtimeComposition(),
     state: realState ? { strategy_apply_revalidate: { ok: true }, ...stateOverrides }
       : { strategy_apply_revalidate: { ok: true }, strategy_selection_apply: { ok: true }, ...stateOverrides },
     transaction: {
