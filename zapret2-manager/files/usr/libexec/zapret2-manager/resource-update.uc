@@ -508,6 +508,38 @@ function z2k_canonical_target_assets(targetVersion, targetCommit, manifestSha256
 	}
 	return result;
 }
+function z2k_target_assets_with_sizes(assets, listed, targetCommit) {
+	if (type(assets) != 'array' || !length(assets) || !object(listed) || type(listed.assets) != 'array' || !valid_sha(targetCommit))
+		return fail('EZ2K_INCOMPATIBLE', 'Z2K target size evidence is unavailable.');
+	let result = [], root = null, paths = [];
+	try {
+		for (let i = 0; i < length(assets); i++) {
+			let item = assets[i], copy = {};
+			if (!object(item) || !valid_digest(item.sha256)) { cleanup(root, paths); return fail('EZ2K_INCOMPATIBLE', 'Z2K target asset has no valid content identity.'); }
+			for (let key in item) copy[key] = item[key];
+			if (type(item.byteSize) == 'int' && item.byteSize > 0) { push(result, copy); continue; }
+			let current = registry_asset(listed.assets, item.id), currentPath = current && current.path;
+			if (current != null && runtime_source_safe(currentPath) && regular(currentPath) && current.contentSha256 == lc(item.sha256)
+				&& type(current.byteSize) == 'int' && current.byteSize > 0 && stat(currentPath).size == current.byteSize && sha256(currentPath) == lc(item.sha256)) {
+				copy.byteSize = current.byteSize; push(result, copy); continue;
+			}
+			if (string(item.packagePath) && regular(item.packagePath)) {
+				let packageSha = sha256(item.packagePath), packageSize = stat(item.packagePath).size;
+				if (packageSha == lc(item.sha256) && packageSize > 0) { copy.byteSize = packageSize; push(result, copy); continue; }
+			}
+			if (root == null) root = make_stage_root();
+			if (root == null) { cleanup(root, paths); return fail('EUNAVAILABLE', 'immutable Z2K asset size evidence is unavailable.', { sourcePath: item.sourcePath }); }
+			let path = root + '/' + i + '.size', url = 'https://raw.githubusercontent.com/necronicle/z2k/' + targetCommit + '/' + item.sourcePath,
+				fetched = command('uclient-fetch -q -O ' + shell_quote(path) + ' ' + shell_quote(url));
+			if (fetched.rc != 0 || !regular(path)) { cleanup(root, paths); return fail('EUNAVAILABLE', 'immutable Z2K asset size evidence is unavailable.', { sourcePath: item.sourcePath }); }
+			let actual = sha256(path), size = stat(path).size;
+			if (actual != lc(item.sha256) || size < 1) { cleanup(root, paths); return fail('EVERIFY', 'immutable Z2K asset size evidence failed SHA verification.', { sourcePath: item.sourcePath, expectedSha256: item.sha256, actualSha256: actual }); }
+			copy.byteSize = size; push(paths, path); push(result, copy);
+		}
+	} catch (e) { cleanup(root, paths); return fail('EINTERNAL', 'Z2K target size evidence failed.', { detail: text(e) }); }
+	cleanup(root, paths);
+	return { ok: true, assets: result };
+}
 function z2k_v1_reconciliation_check(listed, resolved) {
 	let state = z2k_registry_receipt_state(listed), receipt = state && state.receipt;
 	if (!state || state.state != 'V1_VERIFIED_MEMBERSHIP' || !object(receipt)) return { ok: true, required: false };
@@ -1115,7 +1147,9 @@ export const resource_center_prepare_version = function(request) {
 	if (!legacyReconciliation.ok) return legacyReconciliation;
 	let operation = legacyReconciliation.required ? 'reinstall' : z2k_target_operation(version, installed), localFingerprint = z2k_local_fingerprint(resolved.assets, listed, removals.ids);
 	if (operation == null || localFingerprint == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
-	let canonicalAssets = z2k_canonical_target_assets(resolved.version, resolved.commitSha, resolved.manifestSha256, classificationSnapshot.sha256, resolved.assets);
+	let sizedTarget = z2k_target_assets_with_sizes(resolved.assets, listed, resolved.commitSha);
+	if (!sizedTarget.ok) return sizedTarget;
+	let canonicalAssets = z2k_canonical_target_assets(resolved.version, resolved.commitSha, resolved.manifestSha256, classificationSnapshot.sha256, sizedTarget.assets);
 	if (canonicalAssets == null) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical runtime composition для выбранного release.');
 	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets };
 	target.planToken = z2k_target_token(target, preparedAt);

@@ -103,6 +103,24 @@ test('same-release V1 reconciliation takes byte size from the Registry-backed me
     'V1 byte-size equality must be checked against the Registry-backed asset');
 });
 
+test('prepare fills missing target byte sizes from Registry or the existing immutable asset fetch', () => {
+  const coordinator = read(coordinatorPath);
+  assert.match(coordinator, /function z2k_target_assets_with_sizes/,
+    'prepare needs an explicit size-evidence boundary before building canonical entries');
+  const helperStart = coordinator.indexOf('function z2k_target_assets_with_sizes');
+  const helperEnd = coordinator.indexOf('function z2k_v1_reconciliation_check', helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, 'target size helper must be scoped before V1 reconciliation');
+  const helper = coordinator.slice(helperStart, helperEnd);
+  assert.match(helper, /registry_asset\(listed\.assets/,
+    'unchanged target bytes should use the Registry without a redundant download');
+  assert.match(helper, /uclient-fetch/,
+    'changed/new target bytes must use the existing immutable SHA-bound asset fetch');
+  assert.match(helper, /sha256\(/,
+    'downloaded target size evidence must remain SHA verified');
+  assert.match(coordinator, /z2k_target_assets_with_sizes\(resolved\.assets/,
+    'prepare must consume the size-evidenced target before canonical composition');
+});
+
 test('v1 migration reuses the normal candidate transaction instead of a second updater', { todo: 'Task 4 transaction slice' }, () => {
   const coordinator = read(coordinatorPath);
   for (const step of [
