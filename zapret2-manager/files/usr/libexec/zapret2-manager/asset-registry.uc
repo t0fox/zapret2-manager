@@ -5,7 +5,7 @@
 import { readfile, writefile, stat, readlink, unlink, mkdir, lsdir, popen } from 'fs';
 import { private_tempfile } from './core/private-temp.uc';
 
-const STATE = '/etc/zapret2-manager/asset-registry.json';
+const STATE = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_ASSET_REGISTRY_STATE') ? getenv('Z2M_ASSET_REGISTRY_STATE') : '/etc/zapret2-manager/asset-registry.json';
 const USER_ROOT = '/etc/zapret2-manager/assets';
 const STAGE_ROOT = '/tmp/z2m-resource-update';
 const ROLLBACK_STATE = '/etc/zapret2-manager/asset-registry.previous.json';

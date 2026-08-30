@@ -5,7 +5,7 @@ import { z2k_candidate_gate, z2k_state_persist_compat_raw } from './z2k-compat.u
 import * as update_source from './update-source.uc';
 
 const MANIFEST_URL = 'https://raw.githubusercontent.com/necronicle/z2k/z2k-enhanced/UPDATES.json';
-const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
+const CLASSIFICATION = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_Z2K_CLASSIFICATION_PATH') ? getenv('Z2M_Z2K_CLASSIFICATION_PATH') : '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
 const ALLOW_UNTRUSTED = true;
 const MAX_MANIFEST = 512 * 1024;
 const MAX_FILES = 512;

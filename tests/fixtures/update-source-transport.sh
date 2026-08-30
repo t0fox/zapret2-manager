@@ -69,6 +69,39 @@ case "$mode" in
 		esac
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
+	z2k_presentation)
+		case "$url" in
+			*/git/refs/tags\?per_page=100)
+				printf '%s' '[{"ref":"refs/tags/r-80.3","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}},{"ref":"refs/tags/r-79.7","object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"tag"}}]' > "$output"
+				;;
+			*/git/ref/tags/r-80.3)
+				printf '%s' '{"ref":"refs/tags/r-80.3","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}}' > "$output"
+				;;
+			*/git/tags/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
+				printf '%s' '{"object":{"sha":"dddddddddddddddddddddddddddddddddddddddd","type":"commit"},"tagger":{"date":"2026-08-29T00:00:00Z"}}' > "$output"
+				;;
+			*/UPDATES.json)
+				case "$url" in
+					*/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/UPDATES.json)
+						printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":2,"current":"r-80.3","history":[{"v":"r-80.3","desc":"Target release summary"}],"files_sha256":{"files/lua/z2k-alert.lua":"2222222222222222222222222222222222222222222222222222222222222222"}}' > "$output"
+						;;
+					*/dddddddddddddddddddddddddddddddddddddddd/UPDATES.json)
+						printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":1,"current":"r-79.7","files_sha256":{"files/lua/z2k-alert.lua":"1111111111111111111111111111111111111111111111111111111111111111"}}' > "$output"
+						;;
+					*)
+						printf '%s' '{}' > "$output"
+						;;
+				esac
+				;;
+			*/compare/dddddddddddddddddddddddddddddddddddddddd...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\?per_page=100)
+				printf '%s' '{"total_commits":1,"commits":[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","commit":{"message":"update files/lua/z2k-alert.lua"}}],"files":[{"filename":"files/lua/z2k-alert.lua","status":"modified"}]}' > "$output"
+				;;
+			*)
+				printf '%s' '{}' > "$output"
+				;;
+		 esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
 	z2k_compare)
 		printf '%s' '{"total_commits":1,"commits":[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","commit":{"message":"update files/lua/z2k-alert.lua"}}],"files":[{"filename":"files/lua/z2k-alert.lua","status":"modified"}]}' > "$output"
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"

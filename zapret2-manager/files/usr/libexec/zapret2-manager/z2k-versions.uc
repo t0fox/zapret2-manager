@@ -13,7 +13,7 @@ const BRANCH = 'z2k-enhanced';
 const API_ROOT = 'https://api.github.com/repos/' + REPOSITORY;
 const RAW_ROOT = 'https://raw.githubusercontent.com/' + REPOSITORY;
 const TAGS_URL = API_ROOT + '/git/refs/tags?per_page=100';
-const CLASSIFICATION = '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
+const CLASSIFICATION = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_Z2K_CLASSIFICATION_PATH') ? getenv('Z2M_Z2K_CLASSIFICATION_PATH') : '/usr/share/zapret2-manager/upstreams/z2k-integration.json';
 // Product-specific normalized Compare evidence remains bounded and ephemeral;
 // its raw transport/cache/lock/rate authority is the shared coordinator.
 const COMPARE_CACHE_DIR = '/tmp/zapret2-manager/update-cache';
@@ -72,11 +72,11 @@ function parse_release(value) {
 }
 function release_compare(a, b) { let left = parse_release(a.version || a), right = parse_release(b.version || b); if (left.major != right.major) return right.major - left.major; if (left.minor != right.minor) return right.minor - left.minor; return text(left.version) == text(right.version) ? 0 : (text(left.version) < text(right.version) ? -1 : 1); }
 function tag_name(ref) { if (!object(ref) || !string(ref.ref)) return null; let prefix = 'refs/tags/'; if (substr(ref.ref, 0, length(prefix)) != prefix) return null; let value = substr(ref.ref, length(prefix)); return parse_release(value) == null ? null : value; }
-function resolve_tag_commit(version, tagSha, objectType) {
+function resolve_tag_commit(version, tagSha, objectType, mode) {
 	if (parse_release(version) == null || !valid_sha(tagSha)) return null;
 	if (objectType == 'commit') return { commitSha: lc(tagSha), publishedAt: null, tagSha: lc(tagSha) };
 	let request = source_request('z2k:' + REPOSITORY + ':tag-object:' + lc(tagSha), 'github-rest', API_ROOT + '/git/tags/' + tagSha, MAX_API_RESPONSE, function(value) { return object(value); });
-	let result = source_call(request, 'fresh'); record_source(result, 'github-rest');
+	let result = source_call(request, mode || 'fresh'); record_source(result, 'github-rest');
 	let tag = source_payload(result), target = object(tag) && object(tag.object) ? tag.object : null;
 	if (target != null && target.type == 'commit' && valid_sha(target.sha)) return { commitSha: lc(target.sha), publishedAt: object(tag.tagger) && tag.tagger.date || null, tagSha: lc(tagSha) };
 	return null;
@@ -327,13 +327,13 @@ export const z2k_compare_evidence = function(fromCommit, toCommit) {
 };
 export const z2k_normalize_compare_evidence = function(value, fromCommit, toCommit) { return normalize_compare_evidence(value, fromCommit, toCommit); };
 export const z2k_validate_compare_cache = function(value, fromCommit, toCommit, rawSize) { return validate_compare_cache(value, fromCommit, toCommit, rawSize); };
-function fetch_manifest(version, commitSha) {
+function fetch_manifest(version, commitSha, mode) {
 	if (parse_release(version) == null || !valid_sha(commitSha)) return fail('EINPUT', 'Z2K target identity is invalid.');
 	let url = RAW_ROOT + '/' + commitSha + '/UPDATES.json';
 	let request = source_request('z2k:' + REPOSITORY + ':manifest:' + lc(commitSha), 'raw-content', url, MAX_MANIFEST, function(value) {
 		return validate_manifest(value, length(sprintf('%J', value)), version);
 	});
-	let result = source_call(request, 'fresh'); record_source(result, 'raw-content');
+	let result = source_call(request, mode || 'fresh'); record_source(result, 'raw-content');
 	if (result.ok !== true || source_payload(result) == null) return source_error(result, 'Не удалось получить UPDATES.json выбранного release.', 'selected-tag');
 	if (!valid_digest(result.contentSha256)) return fail('EIO', 'Не удалось вычислить digest manifest.', { diagnostics: network_diagnostics('selected-tag') });
 	return { ok: true, manifest: source_payload(result), manifestSha256: lc(result.contentSha256) };
@@ -398,7 +398,16 @@ function fallback_body(changeSet) {
 	return 'Изменено ' + modified + ' ресурсов Z2K. Добавлено ' + added + '. Удалено ' + removed + '.';
 }
 function target_release(version, catalog) { for (let i = 0; i < length(catalog || []); i++) if (catalog[i].version == version) return catalog[i]; return null; }
-function release_manifest(row) { return row == null || !valid_sha(row.commitSha) ? fail('EUNAVAILABLE', 'Выбранный release не имеет immutable commit.') : fetch_manifest(row.version, row.commitSha); }
+function release_manifest(row, mode) {
+	if (row == null) return fail('EUNAVAILABLE', 'Выбранный release не имеет immutable commit.');
+	let commitSha = row.commitSha;
+	if (!valid_sha(commitSha) && row.objectType == 'tag' && valid_sha(row.tagSha)) {
+		let resolved = resolve_tag_commit(row.version, row.tagSha, row.objectType, mode || 'fresh');
+		if (resolved == null) return fail('EUNAVAILABLE', 'Immutable tag выбранного release не указывает на commit.');
+		commitSha = resolved.commitSha; row.commitSha = commitSha; row.publishedAt = resolved.publishedAt || row.publishedAt;
+	}
+	return !valid_sha(commitSha) ? fail('EUNAVAILABLE', 'Выбранный release не имеет immutable commit.') : fetch_manifest(row.version, commitSha, mode || 'fresh');
+}
 function release_changes_between(current, previous) {
 	let currentBy = current == null || !object(current.files_sha256) ? null : current.files_sha256, previousBy = previous == null || !object(previous.files_sha256) ? null : previous.files_sha256, added = 0, modified = 0, removed = 0, paths = [], known = currentBy != null && previousBy != null;
 	if (known) { for (let path in currentBy) { if (previousBy[path] == null) { added++; push(paths, path); } else if (previousBy[path] != currentBy[path]) { modified++; push(paths, path); } } for (let path in previousBy) if (currentBy[path] == null) { removed++; push(paths, path); } }
@@ -542,10 +551,38 @@ function z2k_resolve_tag_fresh(version) {
 	return { ok: true, version: version, tagSha: resolved.tagSha, commitSha: resolved.commitSha, publishedAt: resolved.publishedAt, diagnostics: network_diagnostics('selected-tag') };
 }
 
-export const z2k_resolve_version = function(version) {
+function z2k_resolve_version_fresh(version) {
 	let resolved = z2k_resolve_tag_fresh(version); if (!resolved.ok) return resolved;
 	let checked = fetch_manifest(version, resolved.commitSha); if (!checked.ok) { checked.diagnostics = network_diagnostics('selected-tag'); return checked; } let map = read_classification(), membership = managed_membership(checked.manifest, map); if (!object(membership) || membership.ok === false) return fail(membership && membership.error && membership.error.code || 'EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Интеграционная классификация Z2K недоступна.', { version: version, diagnostics: network_diagnostics('selected-tag') }); if (length(membership.unknown)) return fail('EZ2K_INCOMPATIBLE', 'Эта версия несовместима с текущей версией Zapret2 Manager.', { version: version, unknownRelevantPaths: membership.unknown, diagnostics: network_diagnostics('selected-tag') });
 	return { ok: true, version: version, tagSha: resolved.tagSha, commitSha: resolved.commitSha, manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets, latest: false, installed: installed_release(), diagnostics: network_diagnostics('selected-tag') };
+}
+
+function z2k_resolve_version_browse(version, catalog) {
+	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.', { diagnostics: network_diagnostics('selected-tag') });
+	let available = catalog || z2k_versions();
+	if (!available.ok) return available;
+	let row = target_release(version, available.versions);
+	if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.', { diagnostics: network_diagnostics('selected-tag') });
+	let resolved = { ok: true, version: version, tagSha: row.tagSha, commitSha: row.commitSha, publishedAt: row.publishedAt };
+	if (row.objectType == 'tag') {
+		let tag = resolve_tag_commit(version, row.tagSha, row.objectType, 'browse');
+		if (tag == null) return fail('EUNAVAILABLE', 'Immutable tag выбранного release не указывает на commit.', { diagnostics: network_diagnostics('selected-tag') });
+		resolved.tagSha = tag.tagSha; resolved.commitSha = tag.commitSha; resolved.publishedAt = tag.publishedAt || row.publishedAt;
+		row.commitSha = resolved.commitSha; row.publishedAt = resolved.publishedAt;
+	}
+	if (!valid_sha(resolved.commitSha)) return fail('EUNAVAILABLE', 'Выбранный release не имеет immutable commit.', { diagnostics: network_diagnostics('selected-tag') });
+	let checked = fetch_manifest(version, resolved.commitSha, 'browse');
+	if (!checked.ok) { checked.diagnostics = network_diagnostics('selected-tag'); return checked; }
+	let map = read_classification(), membership = managed_membership(checked.manifest, map);
+	if (!object(membership) || membership.ok === false) return fail(membership && membership.error && membership.error.code || 'EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Интеграционная классификация Z2K недоступна.', { version: version, diagnostics: network_diagnostics('selected-tag') });
+	if (length(membership.unknown)) return fail('EZ2K_INCOMPATIBLE', 'Эта версия несовместима с текущей версией Zapret2 Manager.', { version: version, unknownRelevantPaths: membership.unknown, diagnostics: network_diagnostics('selected-tag') });
+	return { ok: true, version: version, tagSha: resolved.tagSha, commitSha: resolved.commitSha, publishedAt: resolved.publishedAt, manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets, latest: row.latest, installed: row.installed, diagnostics: network_diagnostics('selected-tag') };
+}
+
+// Default resolution is intentionally mutation-grade FRESH. Presentation callers
+// must opt into browse and may pass their already-fetched catalog snapshot.
+export const z2k_resolve_version = function(version, mode, catalog) {
+	return mode == 'browse' ? z2k_resolve_version_browse(version, catalog) : z2k_resolve_version_fresh(version);
 };
 
 export const z2k_version_details = function(version, options) {
@@ -553,22 +590,22 @@ export const z2k_version_details = function(version, options) {
 	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
 	let catalog = z2k_versions(); if (!catalog.ok) return catalog; let row = target_release(version, catalog.versions); if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.');
 	let emptyChanges = { known: false, modified: null, added: null, removed: null, changedPaths: [], upstreamChangedPaths: [], modifiedPaths: [], addedPaths: [], removedPaths: [], modifiedItems: [], addedItems: [], removedItems: [], managedPaths: [], unknown: [] };
-	let resolved = z2k_resolve_version(version); if (!resolved.ok) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: resolved.error && resolved.error.code || 'invalid-manifest', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'unknown', targetBlockingReasons: [], diagnostics: resolved.diagnostics || network_diagnostics('selected-tag') };
+	let resolved = z2k_resolve_version(version, 'browse', catalog); if (!resolved.ok) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: resolved.error && resolved.error.code || 'invalid-manifest', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'unknown', targetBlockingReasons: [], diagnostics: resolved.diagnostics || network_diagnostics('selected-tag') };
 	row.commitSha = resolved.commitSha; row.tagSha = resolved.tagSha; row.publishedAt = resolved.publishedAt || row.publishedAt;
 	let checked = { ok: true, manifest: resolved.manifest, manifestSha256: resolved.manifestSha256 }, map = read_classification(), membership = managed_membership(checked.manifest, map); if (!object(membership) || membership.ok === false) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: membership && membership.error && membership.error.code || 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership && membership.error && membership.error.details && membership.error.details.unknownRelevantPaths || [] } };
 	if (length(membership.unknown)) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership.unknown } };
 	let previous = null, previousVersion = null, installedVersion = installed_release(), operation = target_operation(version, installedVersion); for (let i = 0; i < length(catalog.versions); i++) if (catalog.versions[i].version == version && i + 1 < length(catalog.versions)) { previous = catalog.versions[i + 1]; previousVersion = previous.version; break; }
-	let previousManifest = null; if (previous != null && previous.installable === true) { let old = release_manifest(previous); if (old.ok) previousManifest = old.manifest; }
+	let previousManifest = null; if (previous != null && previous.installable === true) { let old = release_manifest(previous, 'browse'); if (old.ok) previousManifest = old.manifest; }
 	let installedRow = target_release(installedVersion, catalog.versions);
 	let installedManifest = null;
-	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
+	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow, 'browse'); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
 	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [];
 	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), compareEvidence = null, installedCommit = installedRow && installedRow.commitSha;
 	// Catalog rows for annotated tags intentionally keep tagSha and defer commit
 	// resolution. Compare is independent from historical manifest availability,
 	// so resolve the installed identity here when the user explicitly requests it.
 	if (includeCompare && installedRow != null && !valid_sha(installedCommit) && valid_sha(installedRow.tagSha) && installedRow.objectType == 'tag') {
-		let resolvedInstalled = resolve_tag_commit(installedVersion, installedRow.tagSha, installedRow.objectType);
+		let resolvedInstalled = resolve_tag_commit(installedVersion, installedRow.tagSha, installedRow.objectType, 'browse');
 		if (resolvedInstalled != null) installedCommit = resolvedInstalled.commitSha;
 	}
 	if (includeCompare && installedRow != null && valid_sha(installedCommit) && valid_sha(row.commitSha) && lc(installedCommit) != lc(row.commitSha)) compareEvidence = fetch_compare_evidence(installedCommit, row.commitSha);
