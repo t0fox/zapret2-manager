@@ -11,8 +11,8 @@ test('System maintenance owns the canonical Components page and keeps engine man
   assert.match(source, /function renderComponents\s*\(/);
   assert.match(source, /Zapret2 Engine/);
   assert.match(model, /Z2K Core/);
-  assert.match(source, /ОБЯЗАТЕЛЬНЫЕ КОМПОНЕНТЫ/);
-  assert.match(source, /ДОПОЛНИТЕЛЬНЫЕ КОМПОНЕНТЫ/);
+  assert.match(source, /Обязательные компоненты/);
+  assert.match(source, /Дополнительные компоненты/);
   assert.match(source, /Управление/);
   assert.match(source, /EnginePanel\.render/);
   assert.doesNotMatch(source, /function engineRouteIsOpen\s*\(/);

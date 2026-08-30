@@ -1818,7 +1818,7 @@ function renderComponents(ctx, data) {
     renderZ2KPostMutationRefreshError(ctx),
     E('section', { 'class': 'z2m-components-section' }, [
       E('div', { 'class': 'z2m-components-section-head' }, [
-        E('h2', {}, _('ОБЯЗАТЕЛЬНЫЕ КОМПОНЕНТЫ')),
+        E('h2', {}, _('Обязательные компоненты')),
         E('span', { 'class': 'z2m-dim' }, summaryText)
       ]),
       E('div', { 'class': 'z2m-components-grid' }, [
@@ -1830,7 +1830,7 @@ function renderComponents(ctx, data) {
     ]),
     E('section', { 'class': 'z2m-components-section z2m-components-section--optional' }, [
       E('div', { 'class': 'z2m-components-section-head' }, [
-        E('h2', {}, _('ДОПОЛНИТЕЛЬНЫЕ КОМПОНЕНТЫ')),
+        E('h2', {}, _('Дополнительные компоненты')),
         E('span', { 'class': 'z2m-dim' }, _('Не влияют на готовность основной системы'))
       ]),
       E('div', { 'class': 'z2m-components-grid' }, [
@@ -1860,7 +1860,7 @@ function renderComponents(ctx, data) {
     ]),
     E('section', { 'class': 'z2m-components-section z2m-components-section--advanced' }, [
       E('div', { 'class': 'z2m-components-section-head' }, [
-        E('h2', {}, _('ДОПОЛНИТЕЛЬНО')),
+        E('h2', {}, _('Дополнительно')),
         E('span', { 'class': 'z2m-dim' }, '')
       ]),
       E('div', { 'class': 'z2m-advanced-block' }, (function() {

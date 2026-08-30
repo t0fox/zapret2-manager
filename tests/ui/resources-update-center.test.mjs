@@ -7,7 +7,7 @@ const api = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/reso
 const css = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css', 'utf8');
 
 test('Resources page keeps the canonical Asset Registry center and segmented filters', () => {
-  for (const label of ['Ресурсы', 'Все', 'Системные', 'Пользовательские', 'Открыть workspace']) assert.match(page, new RegExp(label));
+  for (const label of ['Ресурсы', 'Все ·', 'Системные ·', 'Мои ·', 'Открыть workspace']) assert.match(page, new RegExp(label));
   assert.match(page, /shell\.segmented/);
   assert.match(page, /ctx\.api\.resources\.(status|check)/);
   assert.match(page, /assetTypeForRoute/);

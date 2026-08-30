@@ -30,10 +30,10 @@ test('hero status panel has two distinct actions, not ambiguous Проверит
   assert.match(SRC, /Последняя проверка|последняя проверка/i, 'hero must show last check time');
 });
 
-// 3. Section headers как в Обход DPI — uppercase, динамические счётчики
-test('section headers are uppercase and dynamic, not hardcoded', () => {
-  assert.match(SRC, /ОБЯЗАТЕЛЬНЫЕ КОМПОНЕНТЫ/, 'must have uppercase section header');
-  assert.match(SRC, /ДОПОЛНИТЕЛЬНЫЕ КОМПОНЕНТЫ/, 'must have optional section header');
+// 3. Section headers follow the readable sentence-case hierarchy with dynamic counters
+test('section headers use sentence case and remain dynamic, not hardcoded', () => {
+  assert.match(SRC, /Обязательные компоненты/, 'must have sentence-case section header');
+  assert.match(SRC, /Дополнительные компоненты/, 'must have optional section header');
   assert.doesNotMatch(SRC, /['"]2 из 2 готовы['"]/, 'must not have hardcoded 2 из 2');
   // Динамический счётчик справа
   assert.match(SRC, /работают|работает|требует внимания/, 'must have dynamic counter like "2 работают · 1 обновление"');

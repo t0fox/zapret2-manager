@@ -265,6 +265,7 @@ function render(ctx) {
 
   function renderGroupCard(group) {
     var isExpanded = !!expanded[group.id];
+    var isStrategySource = group.id === 'avatar-strategy-catalog' || group.kind === 'strategy-catalog';
     var assets = routeAssets(group);
     var counts = countsText(assets.reduce(function (result, asset) {
       var type = text(asset.type) || 'blob';
@@ -272,19 +273,24 @@ function render(ctx) {
       return result;
     }, {}));
     var totalLine = ResourcesModel.resourceCountText(assets.length) + (counts ? ' · ' + counts : '');
-    var metaLine = totalLine;
+    var metaLine = isStrategySource
+      ? [_('Каталог стратегий'), group.repository].filter(Boolean).join(' · ')
+      : totalLine;
     if (group.consumer || group.repository) {
       var extra = [group.consumer, group.repository].filter(Boolean).join(' · ');
-      if (extra) metaLine = totalLine + ' · ' + extra;
+      if (extra && !isStrategySource) metaLine = totalLine + ' · ' + extra;
     }
     // For user group with 0, metaLine is empty, show special
     var state = group.state || 'unknown';
-    var badge = group.id === 'z2k-resources' && group.bundlePresentation && group.bundleUpdateState !== 'current' && group.bundleUpdateState !== 'unknown'
+    var badge = isStrategySource
+      ? stateBadge({ state: state, status: state === 'current' ? _('Подключён') : HUMAN_STATES[state] || group.stateLabel })
+      : group.id === 'z2k-resources' && group.bundlePresentation && group.bundleUpdateState !== 'current' && group.bundleUpdateState !== 'unknown'
       ? updateBadge(group.bundlePresentation)
       : stateBadge({ state: state, status: HUMAN_STATES[state] || group.stateLabel });
+    var groupClass = 'z2m-resource-group-row' + (isStrategySource ? ' z2m-resource-group-row--source' : group.id === 'user' ? ' z2m-resource-group-row--user' : ' z2m-resource-group-row--managed');
 
     if (group.id === 'user' && assets.length === 0) {
-      return E('section', { 'class': 'z2m-resource-group-row z2m-resource-group-empty', 'data-group-id': group.id }, [
+      return E('section', { 'class': groupClass + ' z2m-resource-group-empty', 'data-group-id': group.id }, [
         E('div', { 'class': 'z2m-resource-group-main' }, [
           E('div', { 'class': 'z2m-resource-group-left' }, [
             E('h2', {}, group.label),
@@ -367,7 +373,7 @@ function render(ctx) {
       children.push(E('div', { 'class': 'z2m-resource-table' }, [tableHead].concat(rows)));
     }
 
-    return E('section', { 'class': 'z2m-resource-group-row', 'data-group-id': group.id }, children);
+    return E('section', { 'class': groupClass, 'data-group-id': group.id }, children);
   }
 
   function openImport() {
@@ -392,11 +398,11 @@ function render(ctx) {
         technical = E('details', { 'class': 'z2m-resource-technical' }, [
           E('summary', {}, _('Дополнительно')),
           E('div', { 'class': 'z2m-resource-technical-body' }, [
-            E('div', {}, [E('strong', {}, pkg.label), E('div', { 'class': 'z2m-dim mono' }, _('Commit: ') + text(pkg.commit || (pkg.source && pkg.source.commit) || '—'))]),
-            pkg.source && pkg.source.version ? E('div', { 'class': 'z2m-dim' }, _('Версия: ') + text(pkg.source.version)) : null,
-            pkg.source && pkg.source.repository ? E('div', { 'class': 'z2m-dim mono' }, text(pkg.source.repository)) : null,
-            E('div', { 'class': 'z2m-dim' }, pkg.total + ' ' + _('ресурсов')),
-            pkg.source && pkg.source.kind ? E('div', { 'class': 'z2m-dim' }, _('Provenance: ') + text(pkg.source.kind)) : null
+             E('div', {}, [E('strong', {}, pkg.label), E('div', { 'class': 'z2m-dim mono' }, _('Commit: ') + text(pkg.commit || (pkg.source && pkg.source.commit) || '—'))]),
+             pkg.source && pkg.source.version ? E('div', { 'class': 'z2m-dim' }, _('Версия: ') + text(pkg.source.version)) : null,
+             pkg.source && pkg.source.repository ? E('div', { 'class': 'z2m-dim mono' }, text(pkg.source.repository)) : null,
+             E('div', { 'class': 'z2m-dim' }, ResourcesModel.resourceCountText(pkg.total)),
+             pkg.source && pkg.source.kind ? E('div', { 'class': 'z2m-dim' }, _('Provenance: ') + text(pkg.source.kind)) : null
           ].filter(Boolean))
         ]);
       }
@@ -404,17 +410,15 @@ function render(ctx) {
     return E('div', { 'class': 'z2m-resource-groups' }, [].concat(callout ? [callout] : []).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
   }
 
-  var summaryLine = E('div', { 'class': 'z2m-resource-summary' }, [
-    E('span', {}, ResourcesModel.resourceCountText(summaryForRoute.total) + ' · ' + summaryForRoute.user + ' ' + _('пользовательских') + ' · ' + summaryForRoute.stateLabel)
-  ]);
+  var summaryMeta = E('span', { 'class': 'z2m-resource-head-meta' }, ResourcesModel.resourceCountText(summaryForRoute.total) + ' · ' + summaryForRoute.user + ' ' + _('пользовательских') + ' · ' + summaryForRoute.stateLabel);
 
-  var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов...'), 'aria-label': _('Поиск ресурсов') });
+  var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов…'), 'aria-label': _('Поиск ресурсов') });
   searchInput.addEventListener('input', function () { searchQuery = searchInput.value; body.replaceChildren(renderBody()); });
 
   var filterTabs = ctx.shell.segmented([
-    { id: 'all', label: _('Все') },
-    { id: 'system', label: _('Системные') },
-    { id: 'user', label: _('Пользовательские') }
+    { id: 'all', label: _('Все · ' + summaryForRoute.total) },
+    { id: 'system', label: _('Системные · ' + summaryForRoute.system) },
+    { id: 'user', label: _('Мои · ' + summaryForRoute.user) }
   ], filter, function (id) { filter = id; body.replaceChildren(renderBody()); }, { 'aria-label': _('Фильтр ресурсов') });
 
   var checkBtn = ctx.shell.button(_('Проверить обновления'), 'sm', function () {
@@ -427,10 +431,10 @@ function render(ctx) {
   var addBtn = ctx.shell.button(_('+ Добавить ресурс'), 'primary sm', openImport);
 
   var header = E('div', { 'class': 'z2m-phead z2m-resource-head' }, [
-    E('div', {}, [
-      E('h1', {}, _('Ресурсы')),
-      E('p', {}, _('Файлы и данные, используемые Zapret2 Manager')),
-      summaryLine
+      E('div', {}, [
+        E('h1', {}, _('Ресурсы')),
+        E('p', {}, _('Файлы и данные, используемые Zapret2 Manager')),
+        summaryMeta
     ]),
     E('div', { 'class': 'sp' }, [addBtn, checkBtn])
   ]);
