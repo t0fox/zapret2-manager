@@ -16,6 +16,7 @@ const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager
 const RESULTS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc');
 const RUNTIME_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh');
 const COMPOSITION_CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-cli.uc');
+const COMPOSITION_API = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-api.uc');
 const FIXTURE = path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/targets.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -83,13 +84,16 @@ test('production terminal paths invoke the fail-closed reconciliation module wit
 test('Scanner consumes resolver output and keeps overlay diagnostic-only', () => {
   const adapter = readFileSync(RUNTIME_ADAPTER, 'utf8');
   const cli = readFileSync(COMPOSITION_CLI, 'utf8');
+  const api = readFileSync(COMPOSITION_API, 'utf8');
   assert.match(adapter, /runtime-composition-cli|scannerOverlay|scanner-overlay/,
     'Scanner runtime adapter must consume the bounded resolver boundary');
   assert.doesNotMatch(adapter, /for init in\s+\\|[\s\S]*zapret-antidpi\.lua|--lua-init=@\/opt\/zapret2\/lua\//,
     'Scanner adapter must not carry a hand-copied production Lua chain');
-  assert.match(cli, /includeScannerInLuaInit/);
-  assert.match(cli, /scanner overlay cannot become production luaInit/);
-  assert.match(cli, /scannerOverlay/);
+  assert.match(cli, /runtime-composition-api\.uc/,
+    'Executable CLI must delegate to the pure runtime composition API');
+  assert.match(api, /includeScannerInLuaInit/);
+  assert.match(api, /scanner overlay cannot become production luaInit/);
+  assert.match(api, /scannerOverlay/);
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

@@ -8,6 +8,7 @@ import { ucodeModulePattern, ucodeDiagnostic } from '../native/core/ucode-test-h
 const root = path.resolve(import.meta.dirname, '../..');
 const compositionPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc');
 const cliPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-cli.uc');
+const cliApiPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-api.uc');
 const coordinatorPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const authorityPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -32,7 +33,7 @@ function invoke(expression, env = {}) {
 }
 
 function invokeCli(expression, env = {}) {
-  const source = `import * as cli from ${JSON.stringify(cliPath)}; print(sprintf('%J', ${expression}));`;
+  const source = `import * as cli from ${JSON.stringify(cliApiPath)}; print(sprintf('%J', ${expression}));`;
   const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
     cwd: root,
     env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...env },
@@ -276,14 +277,32 @@ test('legacy v1 is explicitly incomplete and cannot be reconstructed from mutabl
 
 test('runtime CLI keeps candidate and installed materialization distinct and postflight verification-only', () => {
   assert.ok(exists(cliPath), 'runtime-composition-cli.uc must be created');
+  assert.ok(exists(cliApiPath), 'runtime-composition-api.uc must be created');
   const source = read(cliPath);
+  const api = read(cliApiPath);
+  assert.doesNotMatch(source, /export\s+const/);
+  assert.match(source, /runtime-composition-api\.uc/);
+  assert.match(api, /export const runtime_composition_cli_dispatch/);
   for (const consumer of ['candidate-materialize', 'installed-materialize', 'scanner', 'install-proof', 'postflight'])
-    assert.match(source, new RegExp(consumer));
-  assert.match(source, /resolveCandidate\(input\.preparedTarget/);
-  assert.match(source, /resolveInstalled\(input\)/);
-  assert.match(source, /postflight/);
-  assert.match(source, /verifyActivationProcess|verifyInstalledProcess/);
-  assert.doesNotMatch(source, /lsdir|fallback.*list/i);
+    assert.match(api, new RegExp(consumer));
+  assert.match(api, /resolveCandidate\(input\.preparedTarget/);
+  assert.match(api, /resolveInstalled\(input\)/);
+  assert.match(api, /postflight/);
+  assert.match(api, /verifyActivationProcess|verifyInstalledProcess/);
+  assert.doesNotMatch(api, /lsdir|fallback.*list/i);
+});
+
+test('runtime CLI direct UCode entry point is executable', { skip: !HAS_UCODE }, () => {
+  const input = '/tmp/z2m-runtime-cli-test-' + process.pid + '.json';
+  fs.writeFileSync(input, '{}', { mode: 0o600 });
+  try {
+    const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, cliPath, 'installed-materialize', input], {
+      cwd: root, env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+      encoding: 'utf8', timeout: 30_000,
+    });
+    assert.notEqual(result.status, 255, result.stderr || result.stdout);
+    assert.doesNotMatch(result.stderr || '', /Exports may only appear|Syntax error/);
+  } finally { try { fs.unlinkSync(input); } catch (e) {} }
 });
 
 test('runtime CLI postflight never resolves a candidate', { skip: !HAS_UCODE }, () => {
