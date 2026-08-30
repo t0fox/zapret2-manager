@@ -117,7 +117,7 @@ function discordRuntimeActive(data) {
     var cmdline = text(instances[i] && instances[i].cmdline);
     if (cmdline.indexOf('--filter-l7=discord,stun') < 0) continue;
     if (!/--filter-udp=[^\s]*50000-50100(?:[,\s]|$)/.test(cmdline)) continue;
-    if (!/--lua-desync=circular:[^\s]*key=discord_(?:udp|voice)(?:[,\s]|$)/.test(cmdline)) continue;
+    if (!/--lua-desync=circular:[^\s]*key=discord_(?:udp|voice)(?:[,\s:]|$)/.test(cmdline)) continue;
     if (cmdline.indexOf('hostkey=z2k_nohost_key') < 0) continue;
     return true;
   }

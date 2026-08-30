@@ -146,7 +146,7 @@ test('DISCORD_RUNTIME_STATUS: detector rejects stale config and stopped runtime 
     (value) => Array.isArray(value) ? value : [],
     (value) => value === null || value === undefined ? '' : String(value),
   );
-  const cmdline = '--filter-udp=50000-50100,1400 --filter-l7=discord,stun --lua-desync=circular:foo,key=discord_udp,hostkey=z2k_nohost_key';
+  const cmdline = '--filter-udp=50000-50100,1400 --filter-l7=discord,stun --lua-desync=circular:foo:key=discord_udp:nld=2:hostkey=z2k_nohost_key';
   const current = { status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline }] } } };
   assert.equal(detector(current), true);
   assert.equal(detector({ status: { serviceState: 'stopped', runtime: { present: true, instances: [{ cmdline }] } } }), false);
