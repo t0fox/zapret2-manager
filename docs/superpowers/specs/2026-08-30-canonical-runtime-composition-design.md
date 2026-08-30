@@ -186,6 +186,7 @@ membership. The minimum result shape is:
   schemaVersion,
   snapshotId,
   compositionSnapshotId,
+  observedRegistryRevision,
   state: installed | candidate,
   compositionStatus: canonical | incomplete,
   authority: {
@@ -271,11 +272,18 @@ unchanged. Neither identity includes UI state, process IDs,
 timestamps, or an arbitrary filesystem listing. The membership digest is
 likewise deterministic and content-bound.
 
+observedRegistryRevision is the global Asset Registry revision observed while
+resolving this result. It is optimistic-CAS evidence for the current operation,
+not lifecycle identity. It must not be compared forever with
+installedAuthorityRevision.
+
 A resolver result is invalid when any of these conditions holds:
 
 - an installed result has a missing, incomplete, or inconsistent receipt;
-- an installed receipt authority, source commit, manifest, classification, or
-  membership does not match the Registry evidence;
+- an installed v2 authority or z2kMembership[] fails its self-consistency or
+  exact current Z2K Registry membership/provenance/content check;
+- an installed v2 manifest/classification digest or source identity is missing
+  or malformed for the recorded Z2K selection;
 - a candidate has a missing/invalid prepared target, FRESH identity,
   planToken/content identity, target membership, or removals;
 - an installed Registry/receipt membership entry is absent, has a mismatched
@@ -342,6 +350,26 @@ package classification. Full historical manifest/classification retrieval is
 reserved for explicit reconciliation and audit, not required for every
 steady-state resolution.
 
+### Global Registry revision versus Z2K authority
+
+installedAuthorityRevision is historical transaction evidence: the global
+Registry revision at which finalizeActivation() appended the v2 receipt. It
+does not mean that the current global Registry revision must forever equal it.
+
+resolveInstalled() validates the installed Z2K authority by comparing
+v2.z2kMembership[] with the current Registry's exact Z2K bundle membership,
+provenance, and content. It rejects a missing selected Z2K member, changed
+SHA/size/path/provenance, or an unauthorized extra lifecycle asset in that
+same Z2K bundle. An unrelated Registry asset or revision change does not
+invalidate the installed Z2K receipt.
+
+An unrelated change to current staticBase can change compositionSnapshotId and
+make an old process or preflight composition stale. The Z2K receipt and its
+installed authority remain confirmed; the runtime must instead be
+revalidated/restarted against the new composition. observedRegistryRevision
+records the current optimistic-CAS observation but never replaces either
+installedAuthorityRevision or the Z2K membership authority.
+
 ### Two-phase Registry and receipt promotion
 
 The existing asset_registry_apply_bundle() behavior must change at the
@@ -388,15 +416,54 @@ leave no candidate installed receipt behind. If an unrelated Registry change
 prevents safe compensation, fail closed with explicit incomplete-activation
 recovery required; do not overwrite the unrelated change.
 
+### Mandatory pending activation evidence
+
+Before, or atomically with, the first candidate asset commit that makes the
+Registry differ from the previous installed receipt, durable recovery
+evidence must already exist. It must be content-bound to at least:
+
+- candidate snapshotId;
+- baseRegistryRevision;
+- committedAssetRevision when known;
+- previous installed receipt/authority;
+- previous Registry rollback identity;
+- previous config/runtime rollback identity;
+- planToken/target identity;
+- phase/state.
+
+A new standalone journal is not mandatory if the existing rollback snapshot
+and operation state can be proven to provide this complete same contract. One
+durable source must exist either way. It is transaction evidence, not an
+installed authority, and cannot be consumed by resolveInstalled().
+
+The durable phase/state machine is:
+
+~~~text
+PREPARED
+  -> COMMITTED
+  -> MATERIALIZED
+  -> PROCESS_VERIFIED
+  -> FINALIZED
+
+failure from any non-final phase
+  -> ROLLING_BACK
+  -> ROLLED_BACK
+~~~
+
+Recovery must never infer a phase from target files alone. On boot/recovery:
+
+- FINALIZED enters the normal installed path;
+- COMMITTED but unfinalized may resume/finalize only with exact matching
+  evidence and CAS, otherwise it rolls back;
+- MATERIALIZED or PROCESS_VERIFIED without finalization follows the same
+  bounded resume-or-rollback decision;
+- ambiguous or incomplete evidence fails closed with no installed promotion.
+
 The crash/interruption window after bundle commit and before finalization is
-an incomplete activation. A bounded pending-activation journal may record the
-candidate identity, baseRegistryRevision, committedAssetRevision, previous
-installed authority, and recovery status, but it is transaction evidence and
-cannot be consumed by resolveInstalled() as installed authority. On recovery,
-the system either completes the already verified activation through
-finalizeActivation() under its CAS or rolls back under the existing safe
-rollback boundary. If evidence is ambiguous, it remains incomplete and
-fails closed; target assets alone never infer an installed release.
+therefore an incomplete activation. The durable evidence makes previous and
+candidate identities known, but target assets alone never infer an installed
+release. Evidence is removed only after successful FINALIZED promotion or
+verified ROLLED_BACK recovery.
 
 ### V1_VERIFIED_MEMBERSHIP
 
@@ -810,11 +877,16 @@ strategies_apply must execute the following server-side sequence:
 3. run complete native preflight against that exact installed
    runtimeAssets[]/luaInit[] and explicit dependency closure;
 4. immediately before profiles_apply_candidate(), call resolveInstalled()
-   again and compare Registry revision, receipt identity, membership digest,
-   content identities, order, lifecycle snapshotId, and compositionSnapshotId;
+   again and compare observedRegistryRevision, receipt identity,
+   v2.z2kMembership[], membership digest, content identities, order, lifecycle
+   snapshotId, and compositionSnapshotId. If the first observed revision R
+   differs from the final observed revision, use the conservative ESTALE
+   outcome for this contract.
 5. call profiles_apply_candidate() only when the compare succeeds.
 
-If the Registry, receipt, content, or composition changed between the first
+installedAuthorityRevision is not compared to observedRegistryRevision and is
+never treated as the current global Registry revision. If the Registry,
+receipt, content, or composition changed between the first
 resolution/preflight and the final compare, strategies_apply returns
 ESTALE/equivalent and does not call profiles_apply_candidate(). A stale
 client-supplied snapshotId cannot bypass this server-side re-resolution.
@@ -930,6 +1002,15 @@ These cases cover the two-phase Registry/receipt promotion boundary:
 | --- | --- | --- |
 | F | v2 Z2K receipt remains unchanged while a verified Manager static sidecar changes version/hash | v2.z2kMembership[] and Z2K authority remain unchanged; compositionSnapshotId changes, old running process fails, and a correctly restarted process passes |
 
+### Round 4 state-machine RED matrix
+
+| Case | Setup | Expected result |
+| --- | --- | --- |
+| A | v2 finalized at Registry revision 20; unrelated user/package asset advances the global Registry to 21; Z2K membership is unchanged | resolveInstalled() reports observedRegistryRevision=21 and Z2K authority CONFIRMED; installedAuthorityRevision remains historical 20 |
+| B | The unrelated revision-21 change also modifies current staticBase | Z2K receipt remains CONFIRMED; compositionSnapshotId changes, the old process/preflight composition is stale, and a correctly restarted process verifies |
+| C | The actual supported router has r-80.3 V1_VERIFIED_MEMBERSHIP with no canonical order metadata | Same-release FRESH resolution of r-80.3/sourceCommit either activates and finalizes v2 after exact proof or returns RECONCILIATION_REQUIRED; it never guesses promotion or becomes permanent unknown |
+| D | Power loss occurs immediately after candidate bundle commit and before finalization | Durable phase/evidence identifies the incomplete activation; recovery takes exact finalize-or-rollback path, reports no candidate installed, and removes evidence only after FINALIZED or verified ROLLED_BACK |
+
 ### Future release matrix
 
 With release N containing A and B, and release N+1 removing B, modifying A,
@@ -989,6 +1070,11 @@ this documentation commit. It must include, on the real LuCI/OpenWrt router:
    native validation fails closed.
 9. Package synchronization with unknown authority, proving lifecycle Z2K
    bytes are not resurrected or treated as active success.
+10. On the existing supported r-80.3 v1 router, execute the same-release
+    FRESH reconciliation/activation path and prove either v2 promotion after
+    exact membership/SHA proof or explicit RECONCILIATION_REQUIRED recovery.
+11. Advance the global Registry with an unrelated asset and prove the Z2K
+    receipt remains confirmed while observedRegistryRevision changes.
 
 All captures must identify the router, revision/snapshot identity, command
 path, and exact result. No APK is involved.
@@ -1001,6 +1087,9 @@ This spec was reviewed against the approved amendments:
 - [x] Confirmed installed identity, Registry revision, source/manifest identity,
       membership digest, per-entry path/SHA/size/target, and fail-closed
       mismatch handling are explicit.
+- [x] installedAuthorityRevision is historical finalization evidence;
+      observedRegistryRevision is current CAS evidence and unrelated global
+      Registry revisions do not invalidate exact Z2K authority.
 - [x] Snapshot/CAS is revalidated before update Apply and before Strategy
       Apply; the candidate's own expected revision transition is handled
       separately from unrelated pre-commit changes.
@@ -1036,6 +1125,8 @@ This spec was reviewed against the approved amendments:
 - [x] Bundle commit, activation proof, and finalizeActivation() are separate;
       an incomplete/crashed window cannot be inferred as installed from target
       assets alone.
+- [x] Durable pending activation evidence is mandatory, content-bound, phase
+      driven, and removed only after FINALIZED or verified ROLLED_BACK.
 - [x] Activation process proof requires this activation's process; installed
       steady-state proof accepts a later PID/starttime when current
       closure/config/runtime/readiness match.
@@ -1048,7 +1139,8 @@ This spec was reviewed against the approved amendments:
       profiles_apply_candidate().
 - [x] Future classified additions flow to all consumers without consumer list
       edits; unknown additions remain review-required.
-- [x] Test matrix contains cases A-S and the future-release behavior.
+- [x] Test matrix contains cases A-S, the Round 4 state-machine cases A-D, and
+      the future-release behavior.
 - [x] First phase excludes Discord/autocircular changes.
 - [x] No Global Update Source or direct-fetch bypass is introduced.
 
