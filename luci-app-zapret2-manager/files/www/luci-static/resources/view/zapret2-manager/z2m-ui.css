@@ -3321,7 +3321,7 @@
 
 .z2m-catalog-progress-timer { margin-top: 6px; font-size: 11px; color: var(--tx3); line-height: 1.2; }
 
-#z2m-view-assets .z2m-resource-center{display:grid;gap:16px;min-width:0}
+#z2m-view-assets.z2m-resource-center{display:grid;gap:16px;min-width:0}
 #z2m-view-assets .z2m-resource-head{margin:0;min-width:0}
 #z2m-view-assets .z2m-resource-head .sp{align-self:center}
 #z2m-view-assets .z2m-resource-head-meta{display:block;margin-top:6px;color:var(--tx3);font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums}
