@@ -175,7 +175,8 @@ Scanner-only Lua must not enter the production --lua-init invocation.
 ## Content-bound snapshot contract
 
 Every resolver result is a snapshot, not a live union of all current Registry
-rows. It is bound to one confirmed installed identity and one exact
+rows. Every resolver result is bound to exactly one validated lifecycle authority:
+a confirmed installed identity or a FRESH prepared candidate, and one exact
 membership. The minimum result shape is:
 
 ~~~text
@@ -183,6 +184,7 @@ membership. The minimum result shape is:
   schemaVersion,
   snapshotId,
   state: installed | candidate,
+  compositionStatus: canonical | incomplete,
   authority: {
     kind: installed | candidate,
     installed: {
@@ -197,6 +199,7 @@ membership. The minimum result shape is:
       classificationSha256
     },
     candidate: {
+      baseRegistryRevision,
       targetVersion,
       targetCommit,
       manifestSha256,
@@ -204,14 +207,16 @@ membership. The minimum result shape is:
       assets,
       removals,
       planToken,
-      contentIdentity
+      contentIdentity,
+      committedRegistryRevision: null | revision
     }
   },
   membershipDigest,
-  runtimeAssets: [entry...],
-  luaInit: [luaEntry...],
+  runtimeAssets: [entry...] | absent,
+  luaInit: [luaEntry...] | absent,
   dependencyIndex: { reference: dependency... },
   scannerOverlay: [entry...],
+  legacyMembership: [record...] | absent,
   strategyDependencies: [dependency...],
   warnings: [warning...],
   blockingReasons: [reason...]
@@ -237,26 +242,34 @@ Each runtime entry is content-addressed and must include, at minimum:
 
 For an installed result, only the installed authority branch is populated. For
 a candidate result, only the FRESH prepared-target branch is populated; an
-installed receipt is not required. The candidate may carry the Registry
-revision observed during preparation as part of contentIdentity, but that is
-not an installed authority.
+installed receipt is not required. baseRegistryRevision is the pre-mutation CAS
+prerequisite. committedRegistryRevision is null while the candidate is being
+prepared and is populated only with the exact revision returned/observed from
+that candidate's own successful bundle commit. It is transaction evidence, not
+part of the candidate's semantic snapshot identity.
 
 The snapshotId is a deterministic serialization/fingerprint of the populated
 lifecycle authority, Registry/target identity, manifest/classification
 identities, complete selected membership, entry content identities, and
-canonical luaInit order. It must not include UI state, process IDs,
+canonical luaInit order. For a candidate, its semantic snapshotId includes
+baseRegistryRevision and target content identity but deliberately excludes the
+expected revision transition caused by its own bundle commit. After commit,
+the same candidate snapshotId is verified against committedRegistryRevision
+and then promoted to an installed snapshot whose authority is bound to that
+committed revision. Snapshot identity must not include UI state, process IDs,
 timestamps, or an arbitrary filesystem listing. The membership digest is
 likewise deterministic and content-bound.
 
 A resolver result is invalid when any of these conditions holds:
 
-- the installed receipt is missing, incomplete, or inconsistent with the
-  Registry;
-- the receipt authority, source commit, manifest, classification, or
+- an installed result has a missing, incomplete, or inconsistent receipt;
+- an installed receipt authority, source commit, manifest, classification, or
   membership does not match the Registry evidence;
-- a Registry/receipt membership entry is absent, has a mismatched SHA/size,
-  has a wrong runtime target, or is an extra lifecycle asset not authorized by
-  the snapshot;
+- a candidate has a missing/invalid prepared target, FRESH identity,
+  planToken/content identity, target membership, or removals;
+- an installed Registry/receipt membership entry is absent, has a mismatched
+  SHA/size, has a wrong runtime target, or is an extra lifecycle asset not
+  authorized by the snapshot;
 - a target contains an unknown or unclassified upstream asset;
 - an entry lacks a valid owner, role, runtime target, content identity, or
   canonical order;
@@ -289,7 +302,10 @@ installed authority. The next receipt revision, v2, records at least:
 - membership digest;
 - complete asset entries with id, owner, role, kind, type, sourcePath,
   runtimeTarget, contentSha256, byteSize, and runtimeOrder;
-- the activation/runtime generation evidence needed by postflight.
+- historical activation process evidence (activation PID/starttime or
+  equivalent, candidate config hash, argv, runtime hashes, and readiness).
+  This evidence is not the persistent installed authority and is not required
+  to equal the PID/starttime of a later steady-state process.
 
 The manifest and classification references are content-addressed immutable
 activation evidence. A later update to the package's mutable classification
@@ -303,27 +319,55 @@ is the v2 installed authority committed atomically with the matching Registry
 revision and membership digest. A failed postflight cannot promote a
 candidate.
 
+### V1_VERIFIED_MEMBERSHIP
+
+An existing asset-activation-receipt.v1 can establish only this explicitly
+limited legacy state:
+
+~~~text
+V1_VERIFIED_MEMBERSHIP {
+  receipt membership matches Registry,
+  trusted: version, sourceCommit, contentSha256, byteSize, sourcePath,
+  compositionMetadata: incomplete,
+  reconciliationRequired: true
+}
+~~~
+
+V1 does not prove every role, runtimeTarget, runtimeOrder, or historical
+classification identity required for a canonical runtimeAssets[]/luaInit[].
+resolveInstalled() therefore returns compositionStatus=incomplete with
+legacyMembership[] and does not claim complete runtimeAssets[] or luaInit[].
+It must not invent missing order/role/classification semantics from the
+current mutable package classification.
+
 Existing v1 routers have a managed compatibility path:
 
-1. v1 is accepted only when its complete recorded membership/provenance
-   matches the Registry. The resolver can compute the expected
-   runtimeAssets[]/luaInit[] from that v1 evidence without using package
-   fallback.
-2. Until historical manifest/classification evidence is reconciled, the
-   result is marked legacy-reconciliation-required. This is not a permanent
-   unknown and does not reinterpret the installed snapshot from current
-   mutable classification.
-3. An explicit reconciliation operation obtains the exact immutable
-   manifest/classification evidence through the existing authoritative
-   release/update path, compares its target membership, paths, SHA values,
-   roles, and order with the v1 receipt plus Registry, and atomically promotes
-   a v2 receipt only on an exact match.
-4. If exact evidence is unavailable or mismatches, normal read-only runtime
-   verification may continue from the matching v1 Registry membership, but
-   candidate mutation/activation requiring full historical identity is blocked
-   with a specific reconciliation-required error. The router is not silently
-   converted to permanent unknown, and no package bytes are activated to
-   escape the state.
+1. v1 is accepted only as V1_VERIFIED_MEMBERSHIP when its recorded
+   membership/provenance matches the Registry. No package fallback or guessed
+   composition is allowed.
+2. Before reconciliation, the following remain allowed: read-only status,
+   receipt/Registry inspection, raw recorded path/SHA/size verification that
+   does not require composition, and observation/continued use of an already
+   active service when the existing service owner can safely leave it running.
+   These operations must report the incomplete legacy state rather than claim
+   canonical installed readiness.
+3. Before reconciliation, the following block with
+   RECONCILIATION_REQUIRED: Z2K materialization or activation, restart/reload
+   that needs a newly composed luaInit[], native preflight, Strategy Apply,
+   Z2K update/rollback, package synchronization that could activate lifecycle
+   Z2K bytes, and install/process proof that requires canonical
+   runtimeAssets[]/luaInit[].
+4. An explicit reconciliation operation obtains the exact immutable historical
+   manifest/classification through the existing authoritative update path,
+   compares version/sourceCommit, target membership, paths, SHA values, roles,
+   runtime targets, and order with the v1 receipt plus Registry, builds the
+   canonical composition, and atomically promotes a v2 receipt only on exact
+   proof.
+5. If exact evidence is unavailable or mismatches, the state remains
+   V1_VERIFIED_MEMBERSHIP with reconciliationRequired=true and the specific
+   RECONCILIATION_REQUIRED error for blocked operations. The router is not
+   silently converted to permanent unknown, and no package bytes are activated
+   to escape the state.
 
 This migration is one controlled authority upgrade, not a second receipt
 store. Once v2 exists, its immutable references are the historical authority
@@ -349,13 +393,16 @@ The resolver is pure with respect to runtime composition:
 - it returns a bounded structured result or a blocking error;
 - it emits one ordered entry sequence, rather than one sequence per consumer.
 
-The static package contract is represented once as resolver input. Dynamic Z2K
-membership comes from the confirmed Registry/receipt and classification
-snapshot. Dynamic managed entries carry their canonical runtimeOrder in the
-classification record consumed by the resolver. A classified entry with no
-valid order is REVIEW REQUIRED, not arbitrarily appended. Thus classification
-data supplies metadata, while the resolver remains the only code that
-interprets and emits the order.
+The static package contract is represented once as resolver input. For an
+installed state, dynamic Z2K membership and composition metadata come from
+the confirmed v2 Registry/receipt and its immutable classification snapshot.
+For a candidate state, they come from the FRESH prepared target and its
+content-bound classification snapshot. Dynamic managed entries carry their
+canonical runtimeOrder in that validated lifecycle input. A classified entry
+with no valid order is REVIEW REQUIRED, not arbitrarily appended. Thus
+classification data supplies validated metadata, while the resolver remains
+the only code that interprets and emits the order. A legacy v1 result never
+uses the current mutable package classification to fill missing facts.
 
 Future classified additions become automatic for every consumer: once an
 upstream asset is explicitly classified, assigned an owner/role/runtime
@@ -410,9 +457,16 @@ result and runtime evidence; they do not create a second list or a second
 composition algorithm.
 
 Any generated invocation input or persisted closure must contain snapshotId,
-Registry revision, membership digest, and the complete ordered entry
-identities. It expires on authority/revision mismatch and cannot outlive the
-Registry revision that produced it.
+membership digest, and the complete ordered entry identities. For an installed
+result, its Registry revision must continue to match the installed authority.
+For a candidate result, the recorded baseRegistryRevision is only the
+pre-commit CAS prerequisite. A candidate closure is invalid before commit
+when the current Registry revision differs from baseRegistryRevision.
+The expected N-to-N+1 transition caused by its own bundle commit does not
+invalidate the candidate semantic snapshot. The commit's returned
+committedRegistryRevision is captured, the committed membership is verified
+against the candidate, and only then is the candidate re-bound to the
+installed authority at that committed revision.
 
 ### Expected closure versus runtime verification
 
@@ -427,10 +481,12 @@ contracts:
    target, and generated invocation input. Missing or mismatched runtime
    content is a verification failure, while the expected closure remains
    available for materialization.
-3. verifyRunningProcess(snapshot) compares the expected luaInit[] with the
-   owned process argv, process generation, runtime hashes, and active
-   configuration. A stale process is a verification failure even when its
-   paths happen to match.
+3. Process verification compares the expected luaInit[] with the owned process
+   argv, process generation, runtime hashes, and active configuration.
+   Activation uses verifyActivationProcess(candidate,
+   activationEvidence); steady state uses
+   verifyInstalledProcess(installedSnapshot). A stale process is a
+   verification failure even when its paths happen to match.
 
 Authority/receipt/target inconsistency is a resolution failure and must fail
 closed. Runtime file/process mismatch is a verification failure and must not
@@ -483,11 +539,14 @@ FRESH manifest/target resolution
   -> planToken/check gates
   -> resolveCandidate(preparedTarget)
   -> snapshot-bound prepare
+  -> immediate current Registry revision == baseRegistryRevision CAS
   -> immutable asset fetch and SHA verification
-  -> Registry commit
+  -> asset_registry_apply_bundle
+  -> capture committedRegistryRevision
+  -> verify committed Registry exactly equals candidate membership
   -> runtime materialization/activation
-  -> process restart or reload
-  -> exact postflight
+  -> activation process postflight
+  -> promote candidate to v2 installed authority at committedRegistryRevision
   -> success or rollback
 ~~~
 
@@ -507,16 +566,22 @@ Prepare persists the complete candidate identity needed for Apply:
 
 Immediately before Apply, the system calls resolveCandidate() from the
 current FRESH prepared target and compares the persisted candidate identity
-and all content-bound fields. If the Registry revision, prepared target,
-manifest/classification identity, target membership, planToken, content SHA,
-or order differs, Apply returns ESTALE/equivalent and performs no activation.
-A presentation cache or a stale generated closure cannot satisfy this
-compare-and-swap gate.
+and all content-bound fields. It then performs the immediate pre-commit CAS:
+current Registry revision must equal baseRegistryRevision. If the Registry
+revision, prepared target, manifest/classification identity, target
+membership, planToken, content SHA, or order differs before the bundle commit,
+Apply returns ESTALE/equivalent and performs no activation. The successful
+bundle commit is expected to advance the Registry revision; that own
+N-to-N+1 transition is not an ESTALE. The returned committedRegistryRevision
+is captured and the resulting Registry membership is compared exactly with
+the candidate before materialization. A presentation cache or a stale
+generated closure cannot satisfy this compare-and-swap gate.
 
-After a successful Registry commit and activation, postflight must verify the
-candidate snapshot. Only after postflight succeeds is the candidate promoted
-to the new installed receipt/authority. A mutation cannot report success
-based only on files written or Registry rows updated.
+After a successful Registry commit and activation, activation postflight must
+verify the candidate snapshot. Only after postflight succeeds is the candidate
+promoted to the new installed receipt/authority bound to
+committedRegistryRevision. A mutation cannot report success based only on
+files written or Registry rows updated.
 
 On postflight failure, the existing rollback authority is used. Rollback must
 restore the previous Registry/runtime/config/process state and then verify the
@@ -555,7 +620,7 @@ The native command line used for the dry-run is generated from resolver
 luaInit[]. Preflight must not add scanner-only assets and must not silently
 add a package file to make a missing dependency pass.
 
-## Running-process postflight
+## Process proof
 
 The success invariant is:
 
@@ -565,7 +630,18 @@ selected resolver runtimeAssets[]/luaInit[]
   == running process argv closure
 ~~~
 
-The activation/process proof sequence is:
+### Activation process proof
+
+Activation uses verifyActivationProcess(candidate, activationEvidence). It
+requires all of the following:
+
+- the process was created/restarted for this activation;
+- the candidate active-config hash is the one observed by the process;
+- the candidate luaInit[] is present in the exact argv order;
+- every candidate runtime asset has the expected runtime hash;
+- queue/runtime readiness is owned by the activated process/runtime.
+
+The activation proof sequence is:
 
 ~~~text
 materialize candidate runtimeAssets[]
@@ -577,11 +653,13 @@ materialize candidate runtimeAssets[]
   -> verify argv luaInit order
   -> verify runtime file hashes
   -> verify active config hash and generation
+  -> verify queue/runtime readiness
 ~~~
 
-Postflight obtains the owned running process command line and compares the
-normalized, ordered --lua-init entries to the expected candidate luaInit[].
-It must detect and fail on:
+The activation process evidence includes the observed PID/starttime (or
+equivalent process-creation evidence), candidate snapshot identity, active
+config hash, runtime hashes, argv, and readiness evidence. An old PID cannot
+pass activation proof. It must detect and fail on:
 
 - a removed Lua path still present in the old argv;
 - a selected Lua entry absent from argv;
@@ -595,14 +673,36 @@ Generation is evidence derived from the snapshot, active config hash, process
 creation/start evidence, and observed process/runtime state. It is not a new
 source of truth or an independently editable authority. The activation
 boundary records enough evidence to correlate the process with this
-activation; postflight verifies that correlation. If the runtime closure
-changes, the old nfqws2 PID/generation cannot pass, even when all argv paths
-and their order happen to look identical.
+activation; verifyActivationProcess verifies that correlation. If the runtime
+closure changes, the old nfqws2 PID/generation cannot pass, even when all argv
+paths and their order happen to look identical.
 
 The regression case “old argv contains removed Lua while new target does not”
-must fail postflight and trigger rollback or an explicit failed activation.
-Successful activation must prove the removed path is absent from the running
-argv.
+must fail activation proof and trigger rollback or an explicit failed
+activation. Successful activation must prove the removed path is absent from
+the running argv.
+
+### Installed steady-state process proof
+
+After candidate promotion, verifyInstalledProcess(installedSnapshot) is the
+steady-state proof. It verifies the current process against the same installed
+snapshot:
+
+- current materialized runtime hashes and ownership;
+- active config hash and composition;
+- argv luaInit[] membership and order;
+- queue owner and runtime readiness.
+
+It deliberately permits a legitimate later service restart, router reboot,
+new PID, or new process starttime. It does not require the activation PID or
+activation starttime stored in the receipt to equal the current process. The
+original activation PID/starttime and activation generation remain historical
+evidence only; they are not persistent installed authority.
+
+A current PID with stale config, stale runtime hashes, stale luaInit order,
+wrong snapshot/composition, or missing readiness fails
+verifyInstalledProcess(). A new PID is accepted only when its current
+runtime/config/process evidence matches the same installed snapshot.
 
 ## Strategy Apply snapshot CAS
 
@@ -613,6 +713,8 @@ server authority.
 strategies_apply must execute the following server-side sequence:
 
 1. call resolveInstalled() and retain the complete installed snapshot identity;
+   if compositionStatus=incomplete for V1_VERIFIED_MEMBERSHIP, return
+   RECONCILIATION_REQUIRED before attempting Strategy mutation;
 2. compile the candidate Strategy;
 3. run complete native preflight against that exact installed
    runtimeAssets[]/luaInit[] and explicit dependency closure;
@@ -709,7 +811,12 @@ preserving the duplicated architecture.
 | J | strategies_validate uses snapshot N; Registry becomes N+1 before strategies_apply reaches profiles_apply_candidate() | Server-side recheck returns ESTALE; profiles_apply_candidate() is not called |
 | K | Current v2 receipt and legacy v1 receipt are reconciled | v2 keeps immutable manifest/classification evidence; v1 follows the managed reconciliation path without package fallback |
 | L | Mutable package classification changes after installed release activation | resolveInstalled() still uses the immutable installed classification snapshot; installed membership is not reinterpreted |
-| M | Old and new processes expose the same argv Lua paths/order, but the old process generation predates activation | verifyRunningProcess() fails; old PID/generation cannot pass postflight |
+| M | Old and new processes expose the same argv Lua paths/order, but the old process generation predates activation | verifyActivationProcess() fails; old PID/generation cannot pass activation proof |
+| N | Candidate is prepared at Registry revision N, then an unrelated Registry change occurs before bundle commit | Immediate pre-commit CAS returns ESTALE; asset_registry_apply_bundle is not called |
+| O | Candidate is prepared at N, its own bundle commit returns N+1, and committed membership equals the candidate | No ESTALE; committedRegistryRevision=N+1 is captured, materialization/postflight run, and v2 is promoted at N+1 |
+| P | Candidate activation succeeds with PID 100; later normal service restart creates PID 200 with matching closure/config/runtime/readiness | verifyInstalledProcess() passes; receipt activation PID/starttime is treated as historical evidence only |
+| Q | PID 200 has stale config or runtime hashes despite matching paths/order | verifyInstalledProcess() fails |
+| R | V1 receipt omits runtimeOrder; mutable current package classification supplies a different order | Result remains V1_VERIFIED_MEMBERSHIP with no invented canonical luaInit[]; RECONCILIATION_REQUIRED |
 
 ### Future release matrix
 
@@ -759,11 +866,16 @@ this documentation commit. It must include, on the real LuCI/OpenWrt router:
 3. Evidence that selected closure, materialized closure, and running argv are
    identical in membership, content identity, and order.
 4. Evidence that the removed Lua path is absent from the running argv.
-5. A safe preflight/prepare followed by a deliberate Registry revision change,
+5. Evidence that activation proof accepts only the process created for the
+   activation, then a normal service restart with a new PID/starttime passes
+   steady-state verification when closure/config/runtime/readiness match.
+6. Evidence that a new PID with stale config/runtime hashes fails
+   steady-state verification.
+7. A safe preflight/prepare followed by a deliberate Registry revision change,
    proving ESTALE and no Apply.
-6. A Strategy referencing a removed provider or mismatched blob, proving
+8. A Strategy referencing a removed provider or mismatched blob, proving
    native validation fails closed.
-7. Package synchronization with unknown authority, proving lifecycle Z2K
+9. Package synchronization with unknown authority, proving lifecycle Z2K
    bytes are not resurrected or treated as active success.
 
 All captures must identify the router, revision/snapshot identity, command
@@ -777,7 +889,12 @@ This spec was reviewed against the approved amendments:
 - [x] Confirmed installed identity, Registry revision, source/manifest identity,
       membership digest, per-entry path/SHA/size/target, and fail-closed
       mismatch handling are explicit.
-- [x] Snapshot/CAS is revalidated before Apply.
+- [x] Snapshot/CAS is revalidated before update Apply and before Strategy
+      Apply; the candidate's own expected revision transition is handled
+      separately from unrelated pre-commit changes.
+- [x] Candidate baseRegistryRevision is the pre-commit CAS prerequisite;
+      committedRegistryRevision is captured from the candidate's own commit,
+      which does not make the candidate semantic snapshot stale.
 - [x] Expected resolution is separate from materialized/runtime/process
       verification.
 - [x] runtimeAssets[], luaInit[], dependencyIndex, and scannerOverlay[] have
@@ -788,22 +905,28 @@ This spec was reviewed against the approved amendments:
 - [x] One resolver owns membership, dependency indexing, and order; no static
       Lua function/provider map is a correctness authority.
 - [x] Shell and UCode consume the same bounded result; no hand-copied lists.
-- [x] Generated/persisted closure cannot outlive Registry authority.
+- [x] Generated/persisted closure cannot outlive Registry authority; candidate
+      closure is invalidated by a pre-commit base revision mismatch and is
+      explicitly rebound to the committed revision after its own commit.
 - [x] Package sync cannot materialize lifecycle-managed Z2K assets as fallback.
 - [x] {ok:true, skipped:true} is not permission to leave package Z2K bytes
       active.
 - [x] Installed receipt evolution makes manifest/classification evidence
-      immutable and defines v1 reconciliation.
+      immutable and defines V1_VERIFIED_MEMBERSHIP, its allowed/blocked
+      operations, and explicit reconciliation.
+- [x] Activation process proof requires this activation's process; installed
+      steady-state proof accepts a later PID/starttime when current
+      closure/config/runtime/readiness match.
 - [x] Stale running argv, removed Lua, missing selected Lua, wrong order, and
-      old generation are postflight failures; same paths with stale generation
-      also fail.
+      old generation are activation/steady-state verification failures; same
+      paths with stale generation also fail.
 - [x] Explicit Strategy dependencies are snapshot-bound, while exact native
       preflight proves Lua function existence/compatibility.
 - [x] strategies_apply has its own server-side installed-snapshot CAS before
       profiles_apply_candidate().
 - [x] Future classified additions flow to all consumers without consumer list
       edits; unknown additions remain review-required.
-- [x] Test matrix contains cases A-M and the future-release behavior.
+- [x] Test matrix contains cases A-R and the future-release behavior.
 - [x] First phase excludes Discord/autocircular changes.
 - [x] No Global Update Source or direct-fetch bypass is introduced.
 
