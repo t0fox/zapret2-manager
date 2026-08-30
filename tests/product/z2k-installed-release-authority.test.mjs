@@ -15,6 +15,7 @@ const runtimeCoordinator = path.resolve(root, 'zapret2-manager/files/usr/libexec
 const runtimeSource = fs.readFileSync(runtimeCoordinator, 'utf8');
 const authorityModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc');
 const versionsModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
+const compositionModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc');
 const ucodeBin = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const ucodeArgs = process.env.UCODE_ARGS_PIPE
   ? process.env.UCODE_ARGS_PIPE.split('|')
@@ -100,6 +101,11 @@ test('legacy v1 receipt compatibility is explicit and shares the reinstall opera
   assert.match(authority, /provenance\.version\s*!=\s*receipt\.version/);
   assert.match(authority, /provenance\.sourceCommit\s*!=\s*receipt\.sourceCommit/);
   assert.match(versions, /export const z2k_target_operation/);
+  assert.ok(fs.existsSync(compositionModule), 'canonical resolver must own legacy capability state');
+  const composition = fs.readFileSync(compositionModule, 'utf8');
+  assert.match(composition, /V1_VERIFIED_MEMBERSHIP/);
+  assert.match(composition, /reconciliationRequired/);
+  assert.match(composition, /RECONCILIATION_REQUIRED/);
 });
 
 test('legacy receipt history has a canonical, ambiguity-checked runtime identity resolver', () => {

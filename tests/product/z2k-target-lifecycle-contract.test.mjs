@@ -8,6 +8,8 @@ const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/reso
 const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc');
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
+const composition = fs.existsSync('zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc')
+  ? read('zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc') : '';
 
 test('Z2K target planning has one immutable identity and a v2 prepared snapshot', () => {
   assert.match(versions, /z2k_resolve_version/);
@@ -67,4 +69,16 @@ test('watched or advisory upstream files cannot become target assets or primary 
   assert.match(versions, /relevant_path/);
   assert.doesNotMatch(versions, /z2k-config-validator\.sh.*assets/);
   assert.match(coordinator, /advisoryReviews/);
+});
+
+test('prepared target exposes candidate-only authority before installed receipt promotion', () => {
+  assert.match(composition, /resolveCandidate/);
+  assert.match(composition, /baseRegistryRevision/);
+  assert.match(composition, /observedRegistryRevision/);
+  assert.match(composition, /targetVersion/);
+  assert.match(composition, /targetCommit/);
+  assert.match(composition, /manifestSha256/);
+  assert.match(composition, /classificationSha256/);
+  assert.match(composition, /planToken/);
+  assert.match(composition, /receiptIdentity\s*[:=]\s*null/);
 });
