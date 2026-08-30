@@ -7,8 +7,10 @@ import vm from 'node:vm';
 const root = path.resolve(import.meta.dirname, '../..');
 const maintenancePath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
 const componentsCssPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css');
+const uiCssPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css');
 const maintenanceSource = fs.readFileSync(maintenancePath, 'utf8');
 const componentsCss = fs.readFileSync(componentsCssPath, 'utf8');
+const uiCss = fs.readFileSync(uiCssPath, 'utf8');
 
 function vnode(tag, attrs, children) {
   const list = Array.isArray(children) ? children : children === undefined || children === null ? [] : [children];
@@ -118,4 +120,17 @@ test('Z2K details CSS restores native hidden semantics and keeps loading motion 
   assert.match(componentsCss, /\.z2m-components-page \.z2m-z2k-release-panel-loading\{[^}]*display:flex/);
   assert.match(componentsCss, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*z2m-z2k-release-panel-loading \.spinner-inline/);
   assert.match(componentsCss, /\.z2m-dns-pane\[hidden\]\{display:none\}/, 'existing scoped hidden convention must remain intact');
+});
+
+test('spinner-inline and fallback z2m-spinner are self-contained loading indicators', () => {
+  const inlineRule = uiCss.match(/\.z2m-view \.spinner-inline\{([^}]*)\}/);
+  const fallbackRule = uiCss.match(/\.z2m-view \.z2m-spinner\{([^}]*)\}/);
+
+  assert.ok(inlineRule, 'spinner-inline contract must exist in the shared UI stylesheet');
+  assert.ok(fallbackRule, 'z2m-spinner fallback contract must exist in the shared UI stylesheet');
+
+  for (const property of ['display:inline-block', 'border:2px solid var(--border)', 'border-top-color:var(--blue)', 'border-radius:50%', 'animation:z2m-avatar-spin .8s linear infinite']) {
+    assert.match(inlineRule[1], new RegExp(property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `spinner-inline must define ${property}`);
+    assert.match(fallbackRule[1], new RegExp(property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `z2m-spinner must define ${property}`);
+  }
 });

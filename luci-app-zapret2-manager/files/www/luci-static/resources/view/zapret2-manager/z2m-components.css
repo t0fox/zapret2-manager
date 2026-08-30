@@ -624,7 +624,7 @@
 .z2m-components-page .z2m-z2k-release-details[hidden]{display:none}
 .z2m-components-page .z2m-z2k-release-details>strong{font-size:13px}
 .z2m-components-page .z2m-z2k-release-panel-loading{display:flex;align-items:center;gap:9px;min-height:40px;color:var(--tx2);font-size:14px;line-height:1.45}
-.z2m-components-page .z2m-z2k-release-panel-loading .spinner-inline{display:inline-block;width:16px;height:16px;flex:0 0 16px;margin:0;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%}
+.z2m-components-page .z2m-z2k-release-panel-loading .spinner-inline{width:16px;height:16px;flex:0 0 16px;margin:0}
 .z2m-components-page .z2m-z2k-release-details-status{display:flex;align-items:center;gap:8px;min-height:40px;padding:9px 11px;border:1px solid rgba(75,159,213,.32);border-radius:5px;background:rgba(75,159,213,.08);color:var(--tx2);font-size:13px;line-height:1.45}
 .z2m-components-page .z2m-z2k-release-details-status .spinner-inline{flex:0 0 auto;margin:0}
 .z2m-components-page .z2m-z2k-release-details-error{display:grid;gap:6px;padding:10px 11px;border:1px solid rgba(239,108,96,.45);border-radius:5px;background:rgba(239,108,96,.08);color:var(--tx2);font-size:13px;line-height:1.45}
