@@ -25,8 +25,9 @@ tags: [z2k, asset-registry, runtime-composition, lifecycle, strategy, scanner]
 
 - Use one content-bound runtime composition snapshot; do not interpret “all current Registry rows” as a selected closure.
 - `resolveInstalled()` consumes confirmed installed authority; `resolveCandidate(preparedTarget)` consumes a FRESH prepared target and does not require an installed receipt.
+- Every resolver result exposes `observedRegistryRevision`, `compositionStatus`, `lifecycleIdentity`, and `receiptIdentity` when applicable. `installedAuthorityRevision` is the revision bound into the confirmed installed receipt and is deliberately distinct from the Registry revision observed during this read/CAS.
 - Separate expected-closure resolution from `verifyMaterialized`, `verifyActivationProcess`, and `verifyInstalledProcess`.
-- Every canonical entry has explicit `kind`/`type`; `runtimeAssets[]`, `luaInit[]`, `dependencyIndex`, and `scannerOverlay[]` remain distinct.
+- Every canonical entry has explicit `kind`/`type`; `runtimeAssets[]`, `luaInit[]`, `dependencyIndex`, and `scannerOverlay[]` remain distinct. The common entry schema does not require lifecycle-only `version`/`sourceCommit` on `package-static` entries; lifecycle-managed provenance fields are required only for lifecycle-managed entries.
 - `runtimeAssets[]` is the full selected runtime inventory; only ordered Lua entries enter `luaInit[]`; blobs, lists, and ipsets never enter `luaInit[]`.
 - The existing same-version operation is `reinstall`; V1 migration reuses that path and never creates a separate migration updater.
 - A candidate prepared at `baseRegistryRevision=N` is rejected for an unrelated pre-commit revision change, but its own successful commit to `committedAssetRevision=N+1` is expected and does not stale the candidate.
@@ -38,7 +39,9 @@ tags: [z2k, asset-registry, runtime-composition, lifecycle, strategy, scanner]
 - `strategies_validate` is diagnostic only; `strategies_apply` performs its own server-side resolve, native preflight, and final CAS before `profiles_apply_candidate()`.
 - Scanner overlay is diagnostic-only and never becomes production Registry membership or production `--lua-init` input.
 - BROWSE is cache/LKG presentation, REFRESH is explicit checking, and FRESH is the only mutation/prepare authority.
-- All Z2K metadata and candidate-byte transport stays behind the existing Global Update Source; do not add a second cache or direct Z2K fetch path.
+- Global Update Source remains the sole authority for Z2K metadata and BROWSE/REFRESH/FRESH resolution. Preserve the existing immutable SHA-bound mutation asset fetch unless a concrete audit proves that fetch defective; this plan forbids only new metadata/direct-fetch bypasses.
+- Candidate materialization has one explicit boundary: `runtime-composition-cli --consumer=candidate-materialize` consumes a prepared target through `resolveCandidate()`; `--consumer=installed-materialize` consumes `resolveInstalled()`; `--consumer=postflight` verifies evidence only and is never an implicit candidate API. Shell consumers may not enumerate local files, maintain a fallback list, or silently switch consumers.
+- Materialization follows ownership: `package-static` entries come from verified package sources, lifecycle-managed entries come from Registry-selected sources, and removals come only from the candidate declaration. Not every `runtimeAssets[]` entry is Registry-owned.
 - Package synchronization never resurrects a lifecycle-managed Z2K asset when installed authority is unknown.
 - Preserve Strategy, autocircular, Engine, Scanner, and unrelated Resource owners; do not create a second updater, Registry, CHECK_STATE, or resource store.
 - No APK, deployment, router mutation, or implementation push is part of this planning step.
@@ -48,7 +51,7 @@ tags: [z2k, asset-registry, runtime-composition, lifecycle, strategy, scanner]
 ### Create
 
 - `zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc` — sole pure resolver and expected/runtime/process verification contracts.
-- `zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-cli.uc` — bounded JSON adapter for shell consumers (`scanner`, `install-proof`, `postflight`).
+- `zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-cli.uc` — bounded JSON adapter with explicit `candidate-materialize`, `installed-materialize`, `scanner`, `install-proof`, and verification-only `postflight` consumers.
 - `zapret2-manager/files/usr/libexec/zapret2-manager/z2k-lifecycle-recovery.uc` — boot/recovery entry point for durable pending activation evidence.
 - `tests/product/z2k-runtime-composition.test.mjs` — RED/green resolver, closure, explicit kind/type, and verification behavior.
 - `tests/product/z2k-lifecycle-transaction.test.mjs` — RED/green commit/finalize/CAS/durable-recovery behavior.
@@ -92,7 +95,7 @@ tags: [z2k, asset-registry, runtime-composition, lifecycle, strategy, scanner]
 - Test baseline: the existing `tests/product/z2k-*.test.mjs` files listed below.
 
 **Interfaces:**
-- Consumes: current `main` at spec commit `2ae23ee4`.
+- Consumes: `main` at `IMPLEMENTATION_BASE_SHA=f9f2c399`, with the approved design recorded at `SPEC_SHA=2ae23ee4`. A later docs-only plan-review descendant is valid; do not require HEAD to equal `SPEC_SHA`.
 - Produces: a recorded baseline report; no source changes.
 
 - [ ] **Step 1: Confirm checkout and source baseline**
@@ -108,7 +111,7 @@ git diff --check
 git worktree list
 ```
 
-Expected: the working tree is clean on `main`, HEAD is `2ae23ee4`, and `git diff --check` is empty. If unrelated user changes appear, preserve them and stop before overlapping files.
+Expected: the working tree is clean on `main` at or after `IMPLEMENTATION_BASE_SHA=f9f2c399`, and `git diff --check` is empty. Record the actual HEAD; do not require HEAD to equal `SPEC_SHA=2ae23ee4`. If unrelated user changes appear, preserve them and stop before overlapping files.
 
 - [ ] **Step 2: Run the focused baseline suite**
 
@@ -138,6 +141,7 @@ Do not commit generated logs or production changes. Keep the command output in t
 
 **Files:**
 - Create: `tests/product/z2k-runtime-composition.test.mjs`
+- Create: `tests/product/z2k-v1-reconciliation.test.mjs`
 - Modify: `tests/product/z2k-installed-release-authority.test.mjs`
 - Modify: `tests/product/z2k-target-lifecycle-contract.test.mjs`
 
@@ -164,11 +168,15 @@ reordered/content-changed entry                 -> snapshot identity changes
 
 The candidate assertions must verify `targetVersion`, `targetCommit`, `manifestSha256`, `classificationSha256`, assets/removals, `planToken`, `baseRegistryRevision`, and membership digest are content-bound.
 
-- [ ] **Step 3: Add resolution-versus-verification RED tests**
+- [ ] **Step 3: Add V1 capability and migration RED tests**
+
+Create `tests/product/z2k-v1-reconciliation.test.mjs` in this task. Assert that a valid v1 receipt yields `V1_VERIFIED_MEMBERSHIP` with `reconciliationRequired=true`, cannot invent runtime order or `luaInit[]` from mutable package classification, and can proceed only through same-release FRESH reconciliation. Add exact-version/sourceCommit mismatch, membership/path/SHA/size/removal mismatch, and successful same-release `reinstall` handoff cases; the latter remains RED until the Task 4 transaction slice exists.
+
+- [ ] **Step 4: Add resolution-versus-verification RED tests**
 
 Assert that a missing runtime file still produces the expected candidate closure and that `verifyMaterialized()` fails with the missing content identity. Assert that authority/receipt/target inconsistency fails during resolution instead of being reported as a runtime-file failure.
 
-- [ ] **Step 4: Run only the new tests and record RED**
+- [ ] **Step 5: Run only the new tests and record RED**
 
 Run:
 
@@ -191,13 +199,16 @@ Expected: fail because the new resolver/migration exports and behavior do not ye
 - Produces: the following exact UCode interface:
 
 ```text
-resolveInstalled() -> { ok, lifecycleState, snapshotId, compositionSnapshotId,
-  installedAuthorityRevision, runtimeAssets[], luaInit[], dependencyIndex,
-  scannerOverlay[], membershipDigest }
+resolveInstalled() -> { ok, lifecycleState, compositionStatus,
+  lifecycleIdentity, receiptIdentity, snapshotId, compositionSnapshotId,
+  installedAuthorityRevision, observedRegistryRevision, runtimeAssets[],
+  luaInit[], dependencyIndex, scannerOverlay[], membershipDigest }
 
 resolveCandidate(preparedTarget) -> { ok, lifecycleState: "candidate",
-  snapshotId, compositionSnapshotId, baseRegistryRevision, runtimeAssets[],
-  luaInit[], dependencyIndex, scannerOverlay[], membershipDigest }
+  compositionStatus, lifecycleIdentity, receiptIdentity: null,
+  snapshotId, compositionSnapshotId, baseRegistryRevision,
+  observedRegistryRevision, runtimeAssets[], luaInit[], dependencyIndex,
+  scannerOverlay[], membershipDigest }
 
 verifyMaterialized(snapshot, evidence) -> { ok, ... }
 verifyActivationProcess(candidate, activationEvidence) -> { ok, ... }
@@ -206,7 +217,7 @@ verifyInstalledProcess(installedSnapshot, processEvidence) -> { ok, ... }
 
 - [ ] **Step 1: Implement normalized entry validation**
 
-Require each selected entry to carry `id`, `type`, `kind`, `role`, `sourcePath`, `runtimeTarget`, `contentSha256`, `byteSize`, `version`, `sourceCommit`, and `runtimeOrder` where its role requires ordering. Reject unknown owner/role/runtime target, invalid digest/size, duplicate IDs, unsafe paths, and noncanonical order. Keep `runtimeAssets[]` as the complete selected inventory.
+Require every selected entry to carry the common fields `id`, `type`, `kind`, `role`, `sourcePath`, `runtimeTarget`, `contentSha256`, and `byteSize`, plus `runtimeOrder` where its role requires ordering. Require `version`, `sourceCommit`, `manifestSha256`, and `classificationSha256` only for lifecycle-managed entries; package-static entries must not be assigned guessed lifecycle identity. Reject unknown owner/role/runtime target, invalid digest/size, duplicate IDs, unsafe paths, and noncanonical order. Keep `runtimeAssets[]` as the complete selected inventory.
 
 - [ ] **Step 2: Implement ordered subsets without a provider map**
 
@@ -224,9 +235,9 @@ Validate the FRESH prepared target without requiring an installed receipt. Bind 
 
 `verifyMaterialized()` checks runtime target ownership, file existence, SHA, byte size, generated invocation/config evidence, and absence of removals. `verifyActivationProcess()` requires activation-specific process creation/restart evidence, candidate config hash, exact argv Lua order, runtime hashes, and queue readiness. `verifyInstalledProcess()` allows a later PID/starttime after restart/reboot but requires the same installed closure/config/runtime/readiness.
 
-- [ ] **Step 6: Implement bounded CLI consumers**
+- [ ] **Step 6: Implement the explicit CLI/runtime-sync boundary**
 
-Make `runtime-composition-cli.uc` accept only the supported consumer names and emit the same bounded snapshot. Reject unknown consumer, oversized output, invalid lifecycle state, and scanner overlay requested as production `luaInit`. Add CLI tests for `scanner`, `install-proof`, and `postflight`.
+Make `runtime-composition-cli.uc` accept only `candidate-materialize`, `installed-materialize`, `scanner`, `install-proof`, and verification-only `postflight`. `candidate-materialize` requires an explicit prepared-target payload and calls `resolveCandidate(preparedTarget)` before an installed receipt exists; `installed-materialize` calls `resolveInstalled()`; `postflight` accepts a snapshot plus evidence and only verifies it. Reject unknown consumer, oversized output, invalid lifecycle state, and scanner overlay requested as production `luaInit`. Add CLI tests proving the candidate and installed routes are distinct, that postflight never resolves a candidate, and that no shell fallback/list is consulted.
 
 - [ ] **Step 7: Run the resolver suite green**
 
@@ -245,7 +256,7 @@ git add zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc
 git commit -m "feat: add canonical runtime composition resolver"
 ```
 
-### Task 3: Evolve Registry receipt authority and preserve V1 capability limits
+### Task 3: Define Registry receipt contract and RED matrix (no standalone transaction commit)
 
 **Files:**
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc`
@@ -256,17 +267,19 @@ git commit -m "feat: add canonical runtime composition resolver"
 
 **Interfaces:**
 - Consumes: candidate snapshot and exact Registry membership from Task 2.
-- Produces: `asset_registry_apply_bundle()` returning `committedAssetRevision` without an installed receipt, and `asset_registry_finalize_activation({ expectedRevision, candidate, activationEvidence })` appending the v2 receipt atomically.
+- Produces: RED contracts for asset_registry_apply_bundle returning committedAssetRevision without an installed receipt and asset_registry_finalize_activation appending the v2 receipt atomically. Task 3 does not land a production Registry split; Task 4 implements this contract together with its coordinator and durable journal.
+
+Task 3 and Task 4 are one coherent transaction slice. Task 3 may create or amend the RED tests below, but it must not commit a partially wired asset_registry_apply_bundle/finalizeActivation split. Task 4 carries the Registry implementation, coordinator wiring, durable pending evidence, recovery, and V1 migration into one implementation commit; no compatibility seam is needed.
 
 - [ ] **Step 1: Write RED assertions for two-phase promotion**
 
 Assert that bundle commit changes candidate Registry membership but does not append v1/v2 installed receipt. Assert that finalization requires the exact committed revision, candidate snapshot identity, membership digest, content identities, and activation evidence. Assert that an unrelated Registry change between commit and finalization returns `ESTALE` and does not append an installed receipt.
 
-- [ ] **Step 2: Implement v2 receipt serialization**
+- [ ] **Step 2: Specify the v2 receipt serialization for the Task 4 slice**
 
-Persist immutable target version/commit, manifest/classification digests, membership digest, normalized Z2K-only `z2kMembership[]`, committed/final Registry revision evidence, and historical activation process evidence. Keep static package baseline outside the Z2K receipt. Make all receipt writes atomic and bounded.
+Define the RED fixture and serialization contract for immutable target version/commit, manifest/classification digests, membership digest, normalized Z2K-only z2kMembership[], committed/final Registry revision evidence, and historical activation process evidence. Keep static package baseline outside the Z2K receipt. The production serialization and atomic write are implemented only in Task 4 after durable journal/coordinator wiring is ready.
 
-- [ ] **Step 3: Implement explicit V1 state**
+- [ ] **Step 3: Specify explicit V1 state**
 
 For a valid v1 receipt whose recorded membership matches Registry, return `V1_VERIFIED_MEMBERSHIP` with trusted version/sourceCommit/path/SHA/size and `reconciliationRequired=true`. Allowed before reconciliation: read-only status/inspection, raw recorded path/SHA/size verification, and safe observation of an already active service. Block materialization, new activation/restart requiring composition, native preflight, Strategy Apply, Z2K update/rollback, package synchronization that would activate Z2K bytes, and canonical process proof with `RECONCILIATION_REQUIRED`.
 
@@ -274,7 +287,7 @@ For a valid v1 receipt whose recorded membership matches Registry, return `V1_VE
 
 Use a fixture where current package classification gives a different order/role than the v1 evidence. Assert that no canonical `runtimeOrder`, `luaInit[]`, or historical classification is emitted and that the result remains `V1_VERIFIED_MEMBERSHIP`/`RECONCILIATION_REQUIRED`.
 
-- [ ] **Step 5: Run receipt and V1 tests green**
+- [ ] **Step 5: Validate the RED inputs for Task 4**
 
 Run:
 
@@ -282,29 +295,31 @@ Run:
 node --test --test-concurrency=1 tests/product/z2k-v1-reconciliation.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs
 ```
 
-- [ ] **Step 6: Commit Registry/receipt slice**
-
-```text
-git add zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc tests/product/z2k-v1-reconciliation.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs
-git commit -m "feat: split Z2K bundle commit from installed receipt promotion"
-```
+Expected at this point: the new two-phase/V1 assertions remain RED or are explicitly marked pending Task 4; do not declare a green implementation and do not create a standalone Task 3 commit.
 
 ### Task 4: Implement candidate transaction, durable evidence, and same-release V1 migration
 
 **Files:**
 - Create: `zapret2-manager/files/usr/libexec/zapret2-manager/z2k-lifecycle-recovery.uc`
+- Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc`
+- Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc`
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc`
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc`
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc`
 - Modify: `zapret2-manager/files/etc/init.d/zapret2-manager`
 - Modify: `tests/product/z2k-lifecycle-transaction.test.mjs`
+- Modify: `tests/product/z2k-v1-reconciliation.test.mjs`
+- Modify: `tests/product/z2k-installed-release-authority.test.mjs`
+- Modify: `tests/product/z2k-final-lifecycle-ownership.test.mjs`
 - Modify: `tests/product/z2k-update-transaction.test.mjs`
 - Modify: `tests/product/z2k-async-lifecycle.test.mjs`
 - Modify: `tests/product/z2k-post-mutation-check-state.test.mjs`
 
 **Interfaces:**
-- Consumes: FRESH prepared target, `resolveCandidate()`, Registry two-phase functions, existing `CHECK_STATE`, runtime sync, and existing rollback snapshots.
-- Produces: one normal candidate transaction and `resource_center_recover_pending()` driven by durable evidence at `/etc/zapret2-manager/z2k-pending-activation.json`.
+- Consumes: the Task 3 RED contracts, FRESH prepared target, `resolveCandidate()`, and existing Registry/CHECK_STATE/runtime-sync/rollback owners.
+- Produces: the complete Registry two-phase implementation, coordinator finalize wiring, one normal candidate transaction, and `resource_center_recover_pending()` driven by durable evidence at `/etc/zapret2-manager/z2k-pending-activation.json`. This is the first and only production commit for the split commit/finalize boundary.
+
+Task 3 and Task 4 are one coherent implementation slice. The Registry split, coordinator finalization, durable pending evidence, recovery, and V1 migration must become usable together. No intermediate commit may expose candidate bytes without recovery evidence or an installed receipt without postflight.
 
 - [ ] **Step 1: Add RED tests for the durable journal boundary**
 
@@ -327,7 +342,7 @@ Write the journal atomically with mode `0600` before the first irreversible cand
 
 - [ ] **Step 4: Rewire prepare/apply to the canonical candidate**
 
-`resource_center_prepare_version()` must use the existing FRESH target path, build `resolveCandidate(preparedTarget)`, persist base Registry revision and ordered identity, and preserve existing planToken/check gates. Apply must re-resolve the prepared candidate, perform immediate pre-commit CAS, write durable evidence, commit the bundle, capture `committedAssetRevision`, verify exact committed membership, materialize, call `verifyMaterialized()`, restart/reload, call `verifyActivationProcess()`, and call `asset_registry_finalize_activation()`.
+`resource_center_prepare_version()` must use the existing FRESH target path, build `resolveCandidate(preparedTarget)`, persist base Registry revision and ordered identity, and preserve existing planToken/check gates. Apply must re-resolve the prepared candidate, perform immediate pre-commit CAS against `observedRegistryRevision`, write durable evidence before the first irreversible Registry mutation, call `asset_registry_apply_bundle()`, capture `committedAssetRevision`, verify exact committed membership, materialize, call `verifyMaterialized()`, restart/reload, call `verifyActivationProcess()`, and call `asset_registry_finalize_activation()`. The Task 4 implementation must land the apply/finalize coordinator and Registry APIs together; no intermediate state may expose candidate bytes without recovery evidence or an installed receipt without postflight.
 
 - [ ] **Step 5: Implement same-release V1 reconciliation through `reinstall`**
 
@@ -335,7 +350,7 @@ Read v1 version/sourceCommit/recorded membership/SHA, request authoritative FRES
 
 - [ ] **Step 6: Remove Z2K direct-fetch bypasses**
 
-Route immutable Z2K candidate bytes through the existing `update-source.uc` FRESH request contract with bounded source keys, validation, and content SHA. Do not add `curl`, `wget`, or standalone `uclient-fetch` for Z2K metadata or candidate bytes in `resource-update.uc` or the resolver. Preserve existing non-Z2K source owners only where their current contract is outside this lifecycle.
+Keep Global Update Source as the sole Z2K metadata authority and do not add metadata/direct-fetch bypasses. Preserve the existing immutable SHA-bound mutation asset fetch and its validation unless a focused audit proves that existing fetch defective; do not replace it merely to make the new resolver own byte transport. Preserve existing non-Z2K source owners outside this lifecycle.
 
 - [ ] **Step 7: Implement boot recovery entry point**
 
@@ -356,7 +371,7 @@ node --test --test-concurrency=1 tests/product/z2k-lifecycle-transaction.test.mj
 - [ ] **Step 10: Commit lifecycle transaction slice**
 
 ```text
-git add zapret2-manager/files/usr/libexec/zapret2-manager/z2k-lifecycle-recovery.uc zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc zapret2-manager/files/etc/init.d/zapret2-manager tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-update-transaction.test.mjs tests/product/z2k-async-lifecycle.test.mjs tests/product/z2k-post-mutation-check-state.test.mjs
+git add zapret2-manager/files/usr/libexec/zapret2-manager/z2k-lifecycle-recovery.uc zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc zapret2-manager/files/etc/init.d/zapret2-manager tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-v1-reconciliation.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs tests/product/z2k-update-transaction.test.mjs tests/product/z2k-async-lifecycle.test.mjs tests/product/z2k-post-mutation-check-state.test.mjs
 git commit -m "feat: make Z2K activation recovery durable and two-phase"
 ```
 
@@ -372,7 +387,7 @@ git commit -m "feat: make Z2K activation recovery durable and two-phase"
 - Modify: `tests/product/z2k-runtime-readiness.test.mjs`
 
 **Interfaces:**
-- Consumes: CLI `--consumer=postflight` output and resolver verification functions.
+- Consumes: CLI `--consumer=candidate-materialize` for candidate closure, CLI `--consumer=installed-materialize` for installed closure, and CLI `--consumer=postflight` only for verification.
 - Produces: materialized files, generated config/hash, activation evidence, and steady-state evidence tied to one snapshot.
 
 - [ ] **Step 1: Add RED test for static-list removal**
@@ -381,7 +396,7 @@ Assert that the production sync helper has no hand-copied Lua array, no fixed ap
 
 - [ ] **Step 2: Implement resolver-driven materialization**
 
-Validate `runtimeAssets[]`, copy only Registry-owned source paths to validated runtime targets, remove only candidate-declared removals, and generate the exact ordered `luaInit[]` input. Record the candidate snapshot ID, membership digest, config hash, runtime hashes, and process-generation evidence.
+Validate `runtimeAssets[]` and route each entry by ownership: copy `package-static` entries only from verified package sources, lifecycle-managed entries only from Registry-selected source paths, and remove only candidate-declared removals. Generate the exact ordered `luaInit[]` input from the candidate CLI output. Record the candidate snapshot ID, membership digest, config hash, runtime hashes, and process-generation evidence. Never label the complete `runtimeAssets[]` array Registry-owned.
 
 - [ ] **Step 3: Separate activation from steady-state process checks**
 
@@ -483,7 +498,7 @@ Run:
 rg -n "curl|wget|uclient-fetch" zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc
 ```
 
-Expected after migration: resolver code has no transport; Z2K metadata/candidate transport appears only through `update-source.uc` requests, and no new direct metadata fetch exists outside that authority. Keep generic non-Z2K behavior classified separately.
+Expected after migration: resolver code has no transport; Z2K metadata resolution and any new metadata fetch appear only through `update-source.uc` requests, and no new direct metadata bypass exists outside that authority. The existing immutable SHA-bound mutation asset fetch remains present and is audited separately rather than removed by this plan. Keep generic non-Z2K behavior classified separately.
 
 - [ ] **Step 3: Run ownership and clean-install tests green**
 
@@ -592,18 +607,25 @@ Do not push or deploy from this plan-writing step. After production implementati
 ## Plan Self-Review
 
 - [x] Resolver authority is split into `resolveInstalled()` and `resolveCandidate(preparedTarget)` without creating two sources of truth.
+- [x] Task 0 records `SPEC_SHA=2ae23ee4` separately from `IMPLEMENTATION_BASE_SHA=f9f2c399` and permits later docs-only descendants.
+- [x] Resolver API exposes `observedRegistryRevision`, `compositionStatus`, lifecycle/receipt identity, and distinguishes observed Registry revision from installed authority revision for final CAS.
 - [x] Expected closure, materialized verification, activation process proof, and installed steady-state proof are separate tasks and tests.
 - [x] `runtimeAssets[]`, `luaInit[]`, `dependencyIndex`, and `scannerOverlay[]` are explicit and non-overlapping.
+- [x] Common entry fields are separated from lifecycle-managed version/sourceCommit fields; package-static entries do not receive invented lifecycle identity.
+- [x] Candidate materialization has an explicit CLI/runtime-sync boundary; postflight is verification-only and shell fallback/list paths are forbidden.
+- [x] Materialization ownership routes package-static entries to verified package sources, lifecycle-managed entries to Registry-selected sources, and removals to candidate declarations.
 - [x] Candidate base revision, own committed revision, and final installed authority revision have separate tests and implementation boundaries.
 - [x] V1 migration uses same-release FRESH identity/membership proof and existing `reinstall`; current classification is never called historical authority.
 - [x] V1 allowed/blocked operations and `RECONCILIATION_REQUIRED` are specified.
 - [x] V2 receipt captures immutable manifest/classification identity and normalized Z2K membership; v1-to-v2 compatibility is covered.
+- [x] V1 RED test creation and execution occur in Task 1 before later Task 3 amendments.
+- [x] Registry split, coordinator finalize wiring, and durable journal are one Task 3/4 implementation slice with no broken intermediate transaction commit.
 - [x] Durable pending evidence is created before candidate Registry mutation; `/tmp` worker state is explicitly non-authoritative.
 - [x] Native preflight proves exact selected Lua/dependency closure and does not use a static provider map as correctness authority.
 - [x] Strategy Apply has an independent server-side resolve/preflight/final CAS; stale client snapshot IDs cannot authorize mutation.
 - [x] Scanner shares production closure and keeps overlay diagnostic-only.
 - [x] Package synchronization cannot resurrect lifecycle Z2K bytes under unknown authority.
-- [x] Existing Global Update Source remains the sole metadata/candidate transport/cache authority.
+- [x] Existing Global Update Source remains the sole Z2K metadata authority; the existing immutable SHA-bound mutation fetch is preserved unless a focused audit proves a defect, and no new metadata/direct-fetch bypass is added.
 - [x] The RED matrix covers candidate-without-receipt, missing runtime asset, non-Lua exclusion, unrelated/own Registry transitions, V1 migration, mutable classification drift, PID/generation split, and stale process evidence.
 - [x] Direct-fetch audit, focused tests, native gates, and real-router acceptance are separate evidence classes.
 - [x] No production code, deployment, APK, or implementation push is performed while writing this plan.
