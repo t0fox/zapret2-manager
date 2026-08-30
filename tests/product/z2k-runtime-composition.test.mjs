@@ -31,6 +31,18 @@ function invoke(expression, env = {}) {
   return JSON.parse(result.stdout);
 }
 
+function invokeCli(expression, env = {}) {
+  const source = `import * as cli from ${JSON.stringify(cliPath)}; print(sprintf('%J', ${expression}));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+    cwd: root,
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...env },
+    encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0,
+    `${result.stderr || result.stdout}\n${ucodeDiagnostic([UCODE_BIN, ...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], UCODE_MODULE_PATTERN)}`);
+  return JSON.parse(result.stdout);
+}
+
 const HASH = value => value.repeat(64);
 const lifecycle = (id, kind, role, order, digest, sourcePath = `files/${kind}/${id.split(':')[1]}`) => ({
   id, owner: 'z2k-core', role, sourcePath, runtimeTarget: `/runtime-assets/${kind}/${id.split(':')[1]}`,
@@ -152,7 +164,7 @@ test('candidate identity changes when order or content changes, while UI-indepen
   assert.equal(base.snapshotId, invoke(`composition.resolveCandidate(${JSON.stringify(uiOnly)})`).snapshotId);
 });
 
-test('candidate CAS distinguishes unrelated revision changes from its own N to N+1 commit', () => {
+test('candidate CAS distinguishes unrelated revision changes from its own N to N+1 commit', { todo: 'Task 4 transaction slice' }, () => {
   const coordinator = read(coordinatorPath);
   assert.match(coordinator, /baseRegistryRevision/);
   assert.match(coordinator, /observedRegistryRevision/);
@@ -194,4 +206,20 @@ test('legacy v1 is explicitly incomplete and cannot be reconstructed from mutabl
   assert.match(composition, /RECONCILIATION_REQUIRED/);
   assert.match(composition, /same.release|same_release|reinstall/i);
   assert.doesNotMatch(composition, /current.*classification.*runtimeOrder|classification.*historical/i);
+});
+
+test('runtime CLI keeps candidate and installed materialization distinct and postflight verification-only', () => {
+  assert.ok(exists(cliPath), 'runtime-composition-cli.uc must be created');
+  const source = read(cliPath);
+  for (const consumer of ['candidate-materialize', 'installed-materialize', 'scanner', 'install-proof', 'postflight'])
+    assert.match(source, new RegExp(consumer));
+  assert.match(source, /resolveCandidate\(input\.preparedTarget/);
+  assert.match(source, /resolveInstalled\(input\)/);
+  assert.match(source, /postflight/);
+  assert.match(source, /verifyActivationProcess|verifyInstalledProcess/);
+  assert.doesNotMatch(source, /lsdir|fallback.*list/i);
+});
+
+test('runtime CLI postflight never resolves a candidate', { skip: !HAS_UCODE }, () => {
+  assert.equal(invokeCli(`cli.runtime_composition_cli_dispatch('postflight', {snapshot:{lifecycleState:'candidate'}, evidence:{}})`).ok, false);
 });

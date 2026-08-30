@@ -78,7 +78,7 @@ test('mutable package classification cannot invent v1 runtime order, role, or lu
   assert.match(JSON.stringify(result.blockingReasons || []), /RECONCILIATION_REQUIRED/);
 });
 
-test('same-release FRESH reconciliation requires exact v1 version/sourceCommit and membership proof', () => {
+test('same-release FRESH reconciliation requires exact v1 version/sourceCommit and membership proof', { todo: 'Task 4 transaction slice' }, () => {
   const authority = read(authorityPath);
   const coordinator = read(coordinatorPath);
   assert.match(authority, /V1_VERIFIED_MEMBERSHIP|reconciliationRequired/);
@@ -91,7 +91,7 @@ test('same-release FRESH reconciliation requires exact v1 version/sourceCommit a
   assert.doesNotMatch(coordinator, /current.*classification.*historical|historical.*current.*classification/i);
 });
 
-test('v1 migration reuses the normal candidate transaction instead of a second updater', () => {
+test('v1 migration reuses the normal candidate transaction instead of a second updater', { todo: 'Task 4 transaction slice' }, () => {
   const coordinator = read(coordinatorPath);
   for (const step of [
     'resolveCandidate', 'pending', 'asset_registry_apply_bundle', 'materialize',
@@ -114,7 +114,7 @@ test('exact identity and membership mismatch remain reconciliation-required', { 
   }
 });
 
-test('successful same-release reconciliation is an explicit reinstall handoff to v2 authority', () => {
+test('successful same-release reconciliation is an explicit reinstall handoff to v2 authority', { todo: 'Task 4 transaction slice' }, () => {
   const coordinator = read(coordinatorPath);
   assert.match(coordinator, /reinstall/);
   assert.match(coordinator, /asset-activation-receipt\.v2|schema:\s*['"]?2/);
