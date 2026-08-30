@@ -377,8 +377,9 @@ function render(ctx) {
   function renderGroupSection(group) {
     var isStrategySource = group.id === 'avatar-strategy-catalog' || group.kind === 'strategy-catalog';
     var sectionKind = isStrategySource ? 'source' : group.id === 'user' ? 'user' : 'managed';
+    var sectionState = group.id === 'z2k-resources' ? (group.bundleUpdateState || 'unknown') : (group.state || 'unknown');
     var sectionLabel = isStrategySource ? _('Источники') : group.id === 'user' ? _('Мои ресурсы') : _('Управляемые ресурсы');
-    return E('section', { 'class': 'z2m-resource-section z2m-resource-section--' + sectionKind, 'data-resource-section': sectionKind }, [
+    return E('section', { 'class': 'z2m-resource-section z2m-resource-section--' + sectionKind, 'data-resource-section': sectionKind, 'data-resource-state': sectionState }, [
       E('div', { 'class': 'z2m-resource-section-head' }, [E('h2', {}, sectionLabel)]),
       renderGroupCard(group)
     ]);
