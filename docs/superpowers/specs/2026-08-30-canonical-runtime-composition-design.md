@@ -2,9 +2,9 @@
 id: z2m-canonical-runtime-composition-design
 title: "Canonical Runtime Composition and Resource Ownership"
 type: spec
-status: review
+status: approved
 authority: approved-design
-implementation: not-authorized
+implementation: planning-authorized
 updated: 2026-08-30
 publish: false
 tags: [z2k, asset-registry, runtime-ownership, preflight, scanner, postflight]
@@ -503,12 +503,28 @@ Existing v1 routers have a managed compatibility path:
    Z2K update/rollback, package synchronization that could activate lifecycle
    Z2K bytes, and install/process proof that requires canonical
    runtimeAssets[]/luaInit[].
-4. An explicit reconciliation operation obtains the exact immutable historical
-   manifest/classification through the existing authoritative update path,
-   compares version/sourceCommit, target membership, paths, SHA values, roles,
-   runtime targets, and order with the v1 receipt plus Registry, builds the
-   canonical composition, and atomically promotes a v2 receipt only on exact
-   proof.
+4. Supported reconciliation performs a same-release FRESH reconciliation,
+   not historical classification recovery. It first reads the exact v1
+   version, sourceCommit, and recorded membership/SHA evidence, then attempts
+   authoritative FRESH resolution of that same release. The resolved target
+   version and sourceCommit must exactly match the v1 identity. The candidate
+   is built from the current trusted FRESH manifest/classification; the spec
+   never claims that classification is the historical classification.
+   Candidate lifecycle membership must then exactly match both the v1 receipt
+   and the Registry by asset id, source path, content SHA, byte size, and
+   removals/absence.
+
+   When that proof is exact, reconciliation reuses the existing lifecycle's
+   same-version `reinstall` operation semantics through the normal candidate
+   transaction: resolveCandidate, durable pending-activation evidence,
+   pre-commit CAS, bundle commit, materialize, verifyMaterialized,
+   restart/reload, verifyActivationProcess, finalizeActivation, and v2
+   promotion. This establishes a new canonical v2 activation of the same
+   release from this point forward; it does not reconstruct or assert the
+   historical manifest/classification. Historical manifest/classification
+   retrieval may be used as an optional optimization or audit path when
+   genuinely available, but it is not required for supported v1 migration.
+   No separate migration updater may be introduced.
 5. If exact evidence is unavailable or mismatches, the state remains
    V1_VERIFIED_MEMBERSHIP with reconciliationRequired=true and the specific
    RECONCILIATION_REQUIRED error for blocked operations. The router is not
@@ -516,10 +532,12 @@ Existing v1 routers have a managed compatibility path:
    to escape the state.
 
 This migration is one controlled authority upgrade, not a second receipt
-store. Once v2 exists, its normalized z2kMembership[] and recorded
+store. It reuses the existing same-release `reinstall` lifecycle and never
+uses the current mutable package classification as historical authority.
+Once v2 exists, its normalized z2kMembership[] and recorded
 manifest/classification digests are the steady-state authority for
-resolveInstalled(); full historical payload retrieval is reserved for explicit
-reconciliation and audit.
+resolveInstalled(); historical payload retrieval remains optional for
+reconciliation/audit and is not required for supported v1 migration.
 
 ## Canonical resolver and interface
 
@@ -1115,7 +1133,12 @@ This spec was reviewed against the approved amendments:
       active.
 - [x] Installed receipt evolution makes manifest/classification evidence
       immutable and defines V1_VERIFIED_MEMBERSHIP, its allowed/blocked
-      operations, and explicit reconciliation.
+      operations, and same-release FRESH `reinstall` reconciliation; current
+      mutable classification is never claimed to be historical authority.
+- [x] V1 migration proves exact version/sourceCommit and lifecycle membership
+      against v1 plus Registry, builds from a trusted FRESH target, and
+      promotes v2 only through the normal candidate transaction; historical
+      recovery is optional, not required.
 - [x] v2.z2kMembership[] contains lifecycle-managed Z2K assets only; current
       staticBase is resolved independently and a package update cannot rewrite
       Z2K authority or force reconciliation solely through a sidecar change.
@@ -1127,6 +1150,9 @@ This spec was reviewed against the approved amendments:
       assets alone.
 - [x] Durable pending activation evidence is mandatory, content-bound, phase
       driven, and removed only after FINALIZED or verified ROLLED_BACK.
+- [x] The implementation plan must create or identify durable pending
+      activation evidence before the first irreversible candidate Registry
+      commit; `/tmp` resource-update-worker job state alone is insufficient.
 - [x] Activation process proof requires this activation's process; installed
       steady-state proof accepts a later PID/starttime when current
       closure/config/runtime/readiness match.
@@ -1139,15 +1165,15 @@ This spec was reviewed against the approved amendments:
       profiles_apply_candidate().
 - [x] Future classified additions flow to all consumers without consumer list
       edits; unknown additions remain review-required.
-- [x] Test matrix contains cases A-S, the Round 4 state-machine cases A-D, and
-      the future-release behavior.
+- [x] Test matrix contains cases A-S, the Round 4 state-machine cases A-D,
+      same-release V1 FRESH migration/reconciliation, and the future-release
+      behavior.
 - [x] First phase excludes Discord/autocircular changes.
 - [x] No Global Update Source or direct-fetch bypass is introduced.
 
 ## Review gate
 
-The next action is for the user to review this written spec. After approval,
-the implementation workflow is:
+The design is approved for planning. The implementation workflow is:
 
 1. use superpowers:writing-plans to create the implementation plan;
 2. run baseline tests and write RED regressions for the matrix above;
@@ -1156,5 +1182,7 @@ the implementation workflow is:
 5. perform adversarial review and verification before any implementation
    delivery.
 
-This commit contains no production implementation and must not be treated as
-an implementation approval or a push authorization.
+This correction and the following plan contain no production implementation.
+Planning is authorized; production implementation remains gated on the
+written plan and its TDD sequence. No deployment or implementation push is
+authorized by this spec-only correction.
