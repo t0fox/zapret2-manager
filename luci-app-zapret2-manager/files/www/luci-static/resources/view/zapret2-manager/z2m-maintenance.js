@@ -1232,7 +1232,10 @@ function renderZ2KReleasePanel(ctx, component) {
   var shell = ctx.shell;
   var selected = z2kSelectedDetails(component);
   if (!selected) return E('div', { id: 'z2m-z2k-release-panel', 'class': 'z2m-z2k-release-panel z2m-z2k-release-panel--empty', 'aria-live': 'polite', 'aria-busy': 'true' }, [
-    E('strong', {}, _('Загружаем выбранную версию…')),
+    E('div', { 'class': 'z2m-z2k-release-panel-loading', role: 'status', 'aria-live': 'polite' }, [
+      E('span', { 'class': 'spinner-inline', 'aria-hidden': 'true' }),
+      E('span', {}, _('Загружаем выбранную версию…'))
+    ]),
     E('p', { 'class': 'z2m-dim' }, _('Смена версии только показывает её сведения и готовит безопасный план.'))
   ]);
   var targetRelease = selected.version || component.selectedVersion;
