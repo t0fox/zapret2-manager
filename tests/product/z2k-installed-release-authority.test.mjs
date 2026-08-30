@@ -64,7 +64,8 @@ function invoke(module, expression) {
 
 test('Asset Registry exposes bounded activation receipts as the installed-release authority', () => {
   assert.match(registry, /activationReceipts/);
-  assert.match(registry, /asset-activation-receipt\.v1/);
+  assert.match(registry, /asset-activation-receipt\.v2/);
+  assert.match(authority, /asset-activation-receipt\.v1/);
   assert.match(registry, /activatedAt/);
   assert.match(registry, /sourceCommit/);
   assert.match(registry, /return \{ ok: true, schema: 1, revision: state\.revision, assets: assets, activationReceipts:/);

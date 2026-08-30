@@ -12,6 +12,8 @@ function copy_array(value) { let result = []; for (let i = 0; type(value) == 'ar
 function parse_release(value) { return string(value) && match(value, /^r-[0-9]+(\.[0-9]+)?$/) ? value : null; }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function valid_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && !match(value, /[\x00\r\n]/); }
+function valid_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && !match(value, /[\x00\r\n]/); }
 function asset_by_id(assets, id) { for (let i = 0; i < length(assets || []); i++) if (assets[i] && assets[i].id == id) return assets[i]; return null; }
 function receipt_valid(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != 'z2k-curated-lua' || parse_release(receipt.version) == null || !valid_commit(receipt.sourceCommit) || type(receipt.assets) != 'array' || !length(receipt.assets)) return false;
@@ -51,11 +53,14 @@ function v2_receipt_valid(receipt, listed) {
 	}
 	for (let i = 0; i < length(receipt.z2kMembership); i++) {
 		let expected = receipt.z2kMembership[i], found = null;
+		if (!object(expected) || !string(expected.id)) return false;
 		for (let j = 0; j < length(current); j++) if (current[j].id == expected.id) { found = current[j]; break; }
 		let provenance = found && found.provenance;
-		if (!object(expected) || !string(expected.id) || seen[expected.id] || found == null || expected.type != 'lifecycle-managed'
-			|| expected.kind != found.type || expected.contentSha256 != found.contentSha256 || expected.byteSize != found.byteSize
-			|| !string(expected.sourcePath) || expected.sourcePath != provenance.sourcePath || expected.version != receipt.version
+		if (seen[expected.id] || found == null || expected.type != 'lifecycle-managed'
+			|| expected.owner != 'z2k-core' || !string(expected.role) || !string(expected.kind) || !valid_source_path(expected.sourcePath)
+			|| !valid_runtime_target(expected.runtimeTarget) || (expected.role == 'lua-init' && (expected.kind != 'lua' || type(expected.runtimeOrder) != 'int'))
+			|| expected.kind != found.type || !valid_sha(expected.contentSha256) || expected.contentSha256 != found.contentSha256 || expected.byteSize != found.byteSize
+			|| expected.sourcePath != provenance.sourcePath || expected.version != receipt.version
 			|| expected.sourceCommit != receipt.sourceCommit || provenance.version != receipt.version || provenance.sourceCommit != receipt.sourceCommit) return false;
 		seen[expected.id] = true;
 	}

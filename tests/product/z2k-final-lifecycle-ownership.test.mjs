@@ -21,7 +21,7 @@ test('fresh selected-tag resolution uses one exact ref and avoids full catalog c
   assert.ok(start >= 0);
   const body = versions.slice(start, versions.indexOf('export const z2k_compare_versions', start));
   assert.doesNotMatch(body, /z2k_versions\(\{\s*fresh:\s*true\s*\}\)/);
-  assert.match(body, /z2k_resolve_tag_fresh\(version\)/);
+  assert.match(body, /z2k_resolve_(?:tag|version)_fresh\(version\)/);
 });
 
 test('Registry derives lifecycle management and protects only the canonical Z2K bundle', () => {

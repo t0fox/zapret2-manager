@@ -460,15 +460,10 @@ export const asset_registry_apply_bundle = function(request) {
 		for (let i = 0; i < length(state.assets); i++) if (!removeSet[state.assets[i].id]) push(kept, state.assets[i]);
 		state.assets = kept;
 	}
+	// Bundle commit deliberately stops before installed-authority promotion.
+	// The coordinator must prove materialization and activation before calling
+	// asset_registry_finalize_activation().
 	if (result == null) {
-		let receiptAssets = [], receipts = copy_array(state.activationReceipts);
-		for (let i = 0; i < length(prepared); i++) {
-			let item = prepared[i].item, provenance = prepared[i].provenance;
-			push(receiptAssets, { id: item.id, type: item.type, sha256: item.sha256, byteSize: item.byteSize, sourceCommit: provenance.sourceCommit, sourcePath: provenance.sourcePath, bundleId: provenance.bundleId, version: provenance.version });
-		}
-		push(receipts, { schema: 'asset-activation-receipt.v1', bundleId: request.bundleId, version: request.version, source: request.source, sourceCommit: request.sourceCommit, activatedAt: time(), assets: receiptAssets });
-		while (length(receipts) > MAX_ACTIVATION_RECEIPTS) { let bounded = []; for (let i = 1; i < length(receipts); i++) push(bounded, receipts[i]); receipts = bounded; }
-		state.activationReceipts = receipts;
 		state.revision++;
 		if (!state_save(state)) result = fail('EWRITE', 'resource registry metadata write failed');
 	}
@@ -478,7 +473,51 @@ export const asset_registry_apply_bundle = function(request) {
 		if (oldRollbackRaw == null) { try { unlink(ROLLBACK_STATE); } catch (e) {} } else atomic_write(ROLLBACK_STATE, oldRollbackRaw);
 		return result;
 	}
-	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), removed: length(removals), revision: state.revision, rollbackAvailable: true, postflight: { verified: true, assets: length(prepared), removed: length(removals) } };
+	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), removed: length(removals), revision: state.revision, committedAssetRevision: state.revision, rollbackAvailable: true, receiptFinalized: false, postflight: { verified: true, assets: length(prepared), removed: length(removals) } };
+};
+
+function lifecycle_membership_matches(state, request) {
+	if (!object(request) || request.bundleId != 'z2k-curated-lua' || type(request.z2kMembership) != 'array' || !length(request.z2kMembership)) return fail('EINPUT', 'Z2K activation membership is required');
+	let current = [], byId = {}, seen = {};
+	for (let i = 0; i < length(state.assets); i++) {
+		let asset = state.assets[i], provenance = asset && asset.provenance;
+		if (is_z2k_lifecycle_asset(asset)) { push(current, asset); byId[asset.id] = asset; }
+	}
+	if (length(current) != length(request.z2kMembership)) return fail('ESTALE', 'committed Registry membership does not equal the candidate');
+	for (let i = 0; i < length(request.z2kMembership); i++) {
+		let expected = request.z2kMembership[i], actual = expected && byId[expected.id], provenance = actual && actual.provenance;
+		if (!object(expected) || seen[expected.id] || actual == null || expected.type != 'lifecycle-managed'
+			|| expected.kind != actual.type || expected.contentSha256 != actual.contentSha256 || expected.byteSize != actual.byteSize
+			|| expected.sourcePath != provenance.sourcePath || expected.version != request.version
+			|| expected.sourceCommit != request.sourceCommit || provenance.version != request.version
+			|| provenance.sourceCommit != request.sourceCommit || provenance.bundleId != request.bundleId) return fail('ESTALE', 'committed Registry membership does not equal the candidate', { id: expected && expected.id || null });
+		seen[expected.id] = true;
+	}
+	return { ok: true, assets: current };
+}
+
+export const asset_registry_finalize_activation = function(request) {
+	if (!object(request) || request.bundleId != 'z2k-curated-lua' || !string(request.version) || !string(request.sourceCommit)
+		|| !valid_sha(request.manifestSha256) || !valid_sha(request.classificationSha256)
+		|| !string(request.candidateSnapshotId) || !string(request.membershipDigest)
+		|| type(request.committedAssetRevision) != 'int' || type(request.activationEvidence) != 'object') return fail('EINPUT', 'Z2K activation finalization evidence is incomplete');
+	let state = state_load(); if (state == null) return fail('ESTATE', 'asset registry metadata is invalid');
+	if (state.revision != request.committedAssetRevision) return fail('ESTALE', 'Registry changed after candidate bundle commit', { expectedRevision: request.committedAssetRevision, observedRegistryRevision: state.revision });
+	let membership = lifecycle_membership_matches(state, request); if (!membership.ok) return membership;
+	if (request.baseRegistryRevision != null && (type(request.baseRegistryRevision) != 'int' || request.baseRegistryRevision >= request.committedAssetRevision)) return fail('ESTALE', 'candidate base revision is not before its committed revision');
+	let evidence = request.activationEvidence;
+	if (evidence.verified !== true && evidence.ok !== true && evidence.processVerified !== true) return fail('EVERIFY', 'activation evidence is not verified');
+	let receipt = { schema: 'asset-activation-receipt.v2', bundleId: request.bundleId, version: request.version, source: request.source || 'necronicle/z2k', sourceCommit: request.sourceCommit,
+		manifestSha256: request.manifestSha256, classificationSha256: request.classificationSha256, membershipDigest: request.membershipDigest,
+		candidateSnapshotId: request.candidateSnapshotId, baseRegistryRevision: request.baseRegistryRevision == null ? null : request.baseRegistryRevision,
+		committedRegistryRevision: request.committedAssetRevision, installedAuthorityRevision: state.revision + 1,
+		z2kMembership: copy_array(request.z2kMembership), activationEvidence: copy(evidence), activatedAt: time() };
+	let receipts = copy_array(state.activationReceipts); push(receipts, receipt);
+	while (length(receipts) > MAX_ACTIVATION_RECEIPTS) { let bounded = []; for (let i = 1; i < length(receipts); i++) push(bounded, receipts[i]); receipts = bounded; }
+	state.activationReceipts = receipts;
+	state.revision++;
+	if (!state_save(state)) return fail('EWRITE', 'installed activation authority could not be persisted');
+	return { ok: true, receipt: receipt, committedRegistryRevision: request.committedAssetRevision, installedAuthorityRevision: state.revision, membership: membership.assets };
 };
 export const asset_registry_rollback_bundle = function(request) {
 	if (!object(request) || !string(request.bundleId)) return fail('EINPUT', 'rollback bundle identity is required');

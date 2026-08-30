@@ -77,6 +77,31 @@ function sort_by_order(left, right) {
 }
 function sorted_copy(entries, comparator) { let out = copy_array(entries); sort(out, comparator || sort_by_id); return out; }
 
+function identity_authority(authority) {
+	if (!object(authority)) return {};
+	let result = { kind: authority.kind };
+	if (authority.kind == 'installed') {
+		result.release = authority.release;
+		result.sourceCommit = authority.sourceCommit;
+		result.manifestSha256 = authority.manifestSha256;
+		result.classificationSha256 = authority.classificationSha256;
+		result.receiptId = authority.receiptId || null;
+		result.installedAuthorityRevision = authority.installedAuthorityRevision;
+	} else if (authority.kind == 'candidate') {
+		// observedRegistryRevision and committedAssetRevision are transport/CAS
+		// observations. The candidate's semantic identity must survive its own
+		// expected N -> N+1 Registry transition.
+		result.targetVersion = authority.targetVersion;
+		result.targetCommit = authority.targetCommit;
+		result.manifestSha256 = authority.manifestSha256;
+		result.classificationSha256 = authority.classificationSha256;
+		result.planToken = authority.planToken;
+		result.baseRegistryRevision = authority.baseRegistryRevision;
+		result.contentIdentity = authority.contentIdentity || null;
+	}
+	return result;
+}
+
 function identity_entry(entry) {
 	return [entry.id, entry.owner, entry.role, entry.sourcePath, entry.runtimeTarget, entry.contentSha256,
 		entry.byteSize, entry.runtimeOrder == null ? '' : entry.runtimeOrder, entry.kind, entry.type,
@@ -126,7 +151,7 @@ function compose(state, authority, lifecycleEntries, staticEntries, scannerEntri
 	for (let i = 0; i < length(staticResult.entries); i++) push(all, staticResult.entries[i]);
 	for (let i = 0; i < length(lifecycleEntries || []); i++) push(all, lifecycleEntries[i]);
 	let runtimeAssets = sorted_copy(all), luaInit = lua_subset(all), overlay = scannerEntries || [];
-	let lifecycleIdentity = identity_text('z2k-lifecycle-v2', sprintf('%J', authority), lifecycleEntries || [], luaInit, removals || []);
+	let lifecycleIdentity = identity_text('z2k-lifecycle-v2', sprintf('%J', identity_authority(authority)), lifecycleEntries || [], luaInit, removals || []);
 	let compositionIdentity = identity_text('z2k-composition-v2', lifecycleIdentity, runtimeAssets, luaInit, removals || []);
 	let membershipIdentity = identity_text('z2k-membership-v2', '', lifecycleEntries || [], luaInit, removals || []);
 	if (lifecycleIdentity == null || compositionIdentity == null || membershipIdentity == null) return fail('EINPUT', 'runtime composition identity is too large');
@@ -230,8 +255,8 @@ export const resolveInstalled = function(input) {
 };
 
 export const resolveCandidate = function(preparedTarget, context) {
-	if (!object(preparedTarget) || preparedTarget.schema != 'z2k-target-v2' || !valid_release(preparedTarget.targetVersion)
-		|| !valid_commit(preparedTarget.targetCommit) || !valid_digest(preparedTarget.manifestSha256)
+	if (!object(preparedTarget) || (preparedTarget.schema != 'z2k-target-v2' && preparedTarget.schema != 2) || !valid_release(preparedTarget.targetVersion)
+		|| !valid_commit(preparedTarget.targetCommit || preparedTarget.targetCommitSha) || !valid_digest(preparedTarget.manifestSha256)
 		|| !valid_digest(preparedTarget.classificationSha256) || !string(preparedTarget.planToken) || !length(preparedTarget.planToken)
 		|| !integer(preparedTarget.baseRegistryRevision) || preparedTarget.baseRegistryRevision < 0) return fail('EINPUT', 'prepared Z2K target is incomplete');
 	let current = object(context) && integer(context.observedRegistryRevision) ? context.observedRegistryRevision : preparedTarget.baseRegistryRevision;
@@ -242,7 +267,7 @@ export const resolveCandidate = function(preparedTarget, context) {
 	if (!normalized.ok) return normalized;
 	let removals = remove_ids(preparedTarget.removeIds || preparedTarget.removals);
 	if (!removals.ok) return removals;
-	let authority = { kind: 'candidate', targetVersion: preparedTarget.targetVersion, targetCommit: preparedTarget.targetCommit,
+	let authority = { kind: 'candidate', targetVersion: preparedTarget.targetVersion, targetCommit: preparedTarget.targetCommit || preparedTarget.targetCommitSha,
 		manifestSha256: preparedTarget.manifestSha256, classificationSha256: preparedTarget.classificationSha256,
 		planToken: preparedTarget.planToken, baseRegistryRevision: preparedTarget.baseRegistryRevision,
 		observedRegistryRevision: current, committedAssetRevision: committed == null ? null : committed,

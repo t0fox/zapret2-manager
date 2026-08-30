@@ -13,6 +13,8 @@ let jobPath = ARGV[0], raw = valid_job_path(jobPath) ? readfile(jobPath) : null,
 try { if (raw != null) job = json(raw); } catch (e) { job = null; }
 if (!object(job) || !object(job.request) || job.operationId == null || !stat(jobPath)) exit(1);
 
+// This job file is only a /tmp progress mirror. Durable lifecycle recovery is
+// owned by resource-update.uc and its /etc pending-activation journal.
 job.phase = 'running';
 job.finished = false;
 job.startedAt = job.startedAt || time();

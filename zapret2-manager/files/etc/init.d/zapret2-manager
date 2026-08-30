@@ -17,6 +17,7 @@ HELPERD=/usr/libexec/zapret2-manager/z2m-helperd
 
 start_service() {
 	"$BOOTSTRAP" all || return $?
+	"$UCODE" /usr/libexec/zapret2-manager/z2k-lifecycle-recovery.uc recover || return $?
 	procd_open_instance helperd
 	procd_set_param command "$HELPERD"
 	procd_set_param respawn 60 5 5
