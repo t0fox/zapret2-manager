@@ -88,7 +88,9 @@ var state = {
   z2kDetailsExpanded: false,
   z2kReleaseRefresh: null,
   z2kPrepared: null,
+  z2kPostMutationStatus: null,
   z2kPostMutationRefreshError: null,
+  z2kOperationError: null,
   showAllBackups: false,
   componentLoadToken: 0,
   componentHydrationToken: null,
@@ -105,6 +107,17 @@ function isBusyFor(componentId) {
 }
 function operationPhase(op) {
   if (!op) return '';
+  if (op.scope === 'z2k') {
+    var z2kPhase = String(op.phase || '').toLowerCase();
+    if (z2kPhase === 'queued') return _('Операция Z2K в очереди…');
+    if (z2kPhase === 'running') {
+      if (op.kind === 'prepare') return _('Подготовка Z2K…');
+      if (op.kind === 'refresh') return _('Проверка состояния Z2K…');
+      return _('Обновление Z2K…');
+    }
+    if (z2kPhase === 'completed') return _('Обновление завершено');
+    if (z2kPhase === 'failed') return _('Обновление не завершено');
+  }
   if (op.kind === 'check') return _('Проверка обновлений…');
   if (op.kind === 'prepare' && op.scope === 'z2k') return _('Подготовка Z2K…');
   if (op.kind === 'update' && op.scope === 'z2k') return _('Обновление Z2K…');
@@ -113,6 +126,15 @@ function operationPhase(op) {
 }
 function operationMessage(op) {
   if (!op) return '';
+  if (op.scope === 'z2k') {
+    var z2kPhase = String(op.phase || '').toLowerCase();
+    if (z2kPhase === 'queued') return _('Операция поставлена в очередь на роутере.');
+    if (z2kPhase === 'running') {
+      if (op.kind === 'prepare') return _('Подготавливаем безопасный план обновления.');
+      if (op.kind === 'refresh') return _('Проверяем установленное состояние системы.');
+      return _('Операция выполняется на роутере.');
+    }
+  }
   if (op.kind === 'check') return _('Проверяем доступные версии…');
   if (op.kind === 'prepare' && op.scope === 'z2k') return _('Сохраняем выбранный release…');
   if (op.kind === 'update' && op.scope === 'z2k') return _('Применяем Z2K-обновление…');
@@ -311,6 +333,13 @@ function rerenderCurrent(ctx) {
   if (ctx && typeof ctx.rerender === 'function') return ctx.rerender();
   return rerender(ctx);
 }
+function rerenderZ2KOperation(ctx) {
+  if (state.z2kExpanded && typeof state.z2kReleaseRefresh === 'function') {
+    state.z2kReleaseRefresh();
+    return;
+  }
+  rerender(ctx);
+}
 function refresh(ctx) {
   return ctx.refresh(ctx.route || 'system');
 }
@@ -342,6 +371,7 @@ function waitForZ2KUpdate(ctx, operationId) {
   function poll() {
     return checkedResult(ctx.api.resources.updateStatus({ operationId: operationId }), _('Состояние Z2K')).then(function (answer) {
       var operation = state.componentOperation;
+      if (!operation || operation.scope !== 'z2k' || operation.operationId && operation.operationId !== operationId) return null;
       var nextOperation = operation ? Object.assign({}, operation) : null;
       var projectionChanged = false;
       if (nextOperation && answer && answer.phase !== undefined && nextOperation.phase !== answer.phase) {
@@ -360,12 +390,16 @@ function waitForZ2KUpdate(ctx, operationId) {
         projectionChanged = true;
       }
       if (nextOperation && answer && Array.isArray(answer.stages)) {
-        nextOperation.stages = answer.stages;
-        projectionChanged = true;
+        var previousStages = JSON.stringify(nextOperation.stages || []);
+        var nextStages = JSON.stringify(answer.stages);
+        if (previousStages !== nextStages) {
+          nextOperation.stages = answer.stages;
+          projectionChanged = true;
+        }
       }
       if (projectionChanged) {
         state.componentOperation = nextOperation;
-        rerender(ctx);
+        rerenderZ2KOperation(ctx);
       }
       var phase = String(answer && answer.phase || answer && answer.state || '').toLowerCase();
       if ((answer && answer.finished === true) || phase === 'completed' || phase === 'failed') {
@@ -562,7 +596,9 @@ function invalidateZ2KAfterMutation(targetRelease) {
   state.z2kDetailsLoadError = null;
   state.z2kDetailsRequestId += 1;
   state.z2kDetailsExpanded = false;
+  state.z2kPostMutationStatus = null;
   state.z2kPostMutationRefreshError = null;
+  state.z2kOperationError = null;
   if (targetRelease) state.z2kSelectedVersion = targetRelease;
 }
 function reloadZ2KSelectedDetails(ctx) {
@@ -574,15 +610,22 @@ function reloadZ2KSelectedDetails(ctx) {
 }
 function refreshZ2KAfterMutation(ctx, targetRelease) {
   invalidateZ2KAfterMutation(targetRelease);
+  state.z2kPostMutationStatus = {
+    kind: 'success',
+    title: _('Z2K обновлён до ') + targetRelease,
+    message: _('Проверяем установленное состояние…')
+  };
   state.componentOperation = { kind: 'refresh', scope: 'z2k', targetVersion: targetRelease };
   rerender(ctx);
   state.componentOperation = null;
   rerender(ctx);
   return Promise.resolve().then(function () { return refresh(ctx); }).then(function () {
+    state.z2kPostMutationStatus = null;
     state.z2kPostMutationRefreshError = null;
     reloadZ2KSelectedDetails(ctx);
   }, function (error) {
     state.componentOperation = null;
+    state.z2kPostMutationStatus = null;
     state.z2kPostMutationRefreshError = { code: 'z2k-post-mutation-refresh', cause: error };
     rerenderCurrent(ctx);
     showError(ctx, error);
@@ -591,14 +634,21 @@ function refreshZ2KAfterMutation(ctx, targetRelease) {
 function retryZ2KPostMutationRefresh(ctx) {
   if (state.componentOperation) return;
   state.z2kPostMutationRefreshError = null;
+  state.z2kPostMutationStatus = {
+    kind: 'success',
+    title: _('Проверка состояния Z2K'),
+    message: _('Проверяем установленное состояние…')
+  };
   state.componentOperation = { kind: 'refresh', scope: 'z2k' };
   rerender(ctx);
   state.componentOperation = null;
   rerender(ctx);
   Promise.resolve().then(function () { return refresh(ctx); }).then(function () {
+    state.z2kPostMutationStatus = null;
     reloadZ2KSelectedDetails(ctx);
   }, function (error) {
     state.componentOperation = null;
+    state.z2kPostMutationStatus = null;
     state.z2kPostMutationRefreshError = { code: 'z2k-post-mutation-refresh', cause: error };
     rerenderCurrent(ctx);
     showError(ctx, error);
@@ -608,6 +658,10 @@ var CHECK_TIMEOUT_MS = 20000;
 function checkUpdates(ctx, scope) {
   scope = scope || 'all';
   if (state.componentOperation) return;
+  if (scope === 'all' || scope === 'z2k') {
+    state.z2kOperationError = null;
+    state.z2kPostMutationStatus = null;
+  }
   state.componentOperation = { kind: 'check', scope: scope };
   rerender(ctx);
   var promises = [];
@@ -665,6 +719,8 @@ function checkUpdates(ctx, scope) {
 }
 function updateZ2K(ctx, component) {
   if (state.componentOperation) return;
+  state.z2kOperationError = null;
+  state.z2kPostMutationStatus = null;
   var targetRelease = z2kTargetRelease(component);
   var operation = z2kOperation(component);
   var legacyCatalogFallback = component && !component.selectedDetails && (!component.catalog || !component.catalog.length)
@@ -720,6 +776,7 @@ function updateZ2K(ctx, component) {
           if (answer && answer.accepted === true) {
             if (!answer.operationId || !ctx.api.resources.updateStatus)
               throw { code: 'EINTERNAL', message: _('Z2K принял операцию, но состояние операции недоступно.') };
+            state.componentOperation = Object.assign({}, state.componentOperation, { operationId: answer.operationId });
             return waitForZ2KUpdate(ctx, answer.operationId);
           }
           return answer;
@@ -732,6 +789,7 @@ function updateZ2K(ctx, component) {
         }).catch(function (error) {
           state.z2kPrepared = null;
           state.componentOperation = null;
+          state.z2kOperationError = operationErrorProjection(ctx, error);
           rerender(ctx);
           showError(ctx, error);
         });
@@ -739,9 +797,18 @@ function updateZ2K(ctx, component) {
   }).catch(function (error) {
     state.z2kPrepared = null;
     state.componentOperation = null;
+    state.z2kOperationError = operationErrorProjection(ctx, error);
     rerender(ctx);
     showError(ctx, error);
   });
+}
+function operationErrorProjection(ctx, error) {
+  var normalized = ctx.api.normalizeError(error);
+  var rollback = error && error.rollback || normalized && normalized.rollback;
+  return {
+    message: normalized && normalized.message || _('Операция Z2K не завершена.'),
+    rollback: rollback && typeof rollback === 'object' ? rollback : null
+  };
 }
 function z2kCatalogRows(component) {
   return component && Array.isArray(component.catalog) ? component.catalog : [];
@@ -904,6 +971,8 @@ function loadZ2KVersionDetails(ctx, version, includeCompare) {
 function selectZ2KVersion(ctx, version) {
   if (!version || state.componentOperation) return;
   state.z2kSelectedVersion = version;
+  state.z2kOperationError = null;
+  state.z2kPostMutationStatus = null;
   state.z2kDetails = null;
   state.z2kDetailsCompared = false;
   state.z2kDetailsLoading = false;
@@ -1309,10 +1378,55 @@ function toggleZ2KDetails(ctx) {
   }
   refreshZ2KDetailsPanel(ctx);
 }
+function z2kBusyActionLabel(operation) {
+  if (operation && operation.kind === 'prepare') return _('⟳ Подготавливаем…');
+  if (operation && operation.kind === 'refresh') return _('⟳ Проверяем состояние…');
+  return _('⟳ Обновление…');
+}
+function renderZ2KPostMutationStatus(ctx) {
+  var status = state.z2kPostMutationStatus;
+  if (!status) return null;
+  return E('div', { 'class': 'z2m-z2k-operation-result z2m-z2k-operation-result--success', role: 'status', 'aria-live': 'polite' }, [
+    E('div', { 'class': 'z2m-z2k-operation-result-heading' }, [
+      E('span', { 'class': 'z2m-z2k-operation-result-icon', 'aria-hidden': 'true' }, '✓'),
+      E('strong', {}, status.title)
+    ]),
+    E('p', {}, status.message)
+  ]);
+}
+function renderZ2KOperationError(ctx) {
+  var error = state.z2kOperationError;
+  if (!error) return null;
+  var rollback = error.rollback;
+  var rollbackMessage = rollback && (rollback.verified === true || rollback.ok === true || rollback.state === 'completed')
+    ? _('Откат выполнен и проверен.')
+    : rollback && rollback.requested === true
+      ? _('Откат запрошен, но его результат не подтверждён.')
+      : null;
+  return E('div', { 'class': 'z2m-z2k-operation-result z2m-z2k-operation-result--error', role: 'alert', 'aria-live': 'assertive' }, [
+    E('div', { 'class': 'z2m-z2k-operation-result-heading' }, [
+      E('span', { 'class': 'z2m-z2k-operation-result-icon', 'aria-hidden': 'true' }, '✕'),
+      E('strong', {}, _('Не удалось обновить Z2K'))
+    ]),
+    E('p', {}, error.message),
+    rollbackMessage ? E('p', { 'class': 'z2m-z2k-operation-result-rollback' }, rollbackMessage) : null,
+    ctx.shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), !!state.componentOperation)
+  ]);
+}
+function renderZ2KOperationHost(ctx, component) {
+  var children = [];
+  if (isBusyFor('z2k-core')) children.push(renderInlineOperation(ctx, component, operationRenderOptions()));
+  var postMutationStatus = renderZ2KPostMutationStatus(ctx);
+  var operationError = renderZ2KOperationError(ctx);
+  if (postMutationStatus) children.push(postMutationStatus);
+  if (operationError) children.push(operationError);
+  return E('div', { id: 'z2m-z2k-operation-host', 'class': 'z2m-z2k-operation-host' }, children);
+}
 function renderZ2KReleasePanel(ctx, component) {
   var shell = ctx.shell;
   var selected = z2kSelectedDetails(component);
   if (!selected) return E('div', { id: 'z2m-z2k-release-panel', 'class': 'z2m-z2k-release-panel z2m-z2k-release-panel--empty', 'aria-live': 'polite', 'aria-busy': 'true' }, [
+    renderZ2KOperationHost(ctx, component),
     E('div', { 'class': 'z2m-z2k-release-panel-loading', role: 'status', 'aria-live': 'polite' }, [
       E('span', { 'class': 'spinner-inline', 'aria-hidden': 'true' }),
       E('span', {}, _('Загружаем выбранную версию…'))
@@ -1332,6 +1446,7 @@ function renderZ2KReleasePanel(ctx, component) {
   var hasDeviceDetails = !unavailable && changes.known === true && (changeCount > 0 || operation === 'reinstall');
   var detailsLoading = state.z2kDetailsLoading === true && state.z2kDetailsCompared !== true;
   var detailsError = state.z2kDetailsLoadError;
+  var operationBusy = isBusyFor('z2k-core');
   var releaseHeadingId = 'z2m-z2k-release-heading';
   var deviceHeadingId = 'z2m-z2k-device-heading';
   var releaseDetailsId = 'z2m-z2k-release-details';
@@ -1361,8 +1476,8 @@ function renderZ2KReleasePanel(ctx, component) {
       shell.button(_('Повторить'), 'sm', retryZ2KDetails.bind(null, ctx), false)
     ])] : [])) : null
   ]);
-  var actionLabel = unavailable ? _('Установка недоступна') : z2kOperationLabel(operation, targetRelease);
-  var actionEnabled = !unavailable && !!operation && z2kCanApply(component);
+  var actionLabel = operationBusy ? z2kBusyActionLabel(state.componentOperation) : unavailable ? _('Установка недоступна') : z2kOperationLabel(operation, targetRelease);
+  var actionEnabled = !operationBusy && !unavailable && !!operation && z2kCanApply(component);
   return E('div', { id: 'z2m-z2k-release-panel', 'class': 'z2m-z2k-release-panel' + (expanded ? ' is-expanded' : ''), 'aria-live': 'polite' }, [
     E('div', { 'class': 'z2m-z2k-release-panel-head' }, [
       E('div', { 'class': 'z2m-z2k-release-title' }, [
@@ -1385,8 +1500,9 @@ function renderZ2KReleasePanel(ctx, component) {
       'aria-expanded': expanded ? 'true' : 'false',
       'aria-disabled': detailsLoading ? 'true' : 'false'
     }) : null,
+    renderZ2KOperationHost(ctx, component),
     E('div', { 'class': 'z2m-z2k-release-actions' }, [
-      shell.button(actionLabel, actionEnabled ? 'primary' : 'sm', updateZ2K.bind(null, ctx, component), !actionEnabled || isBusyFor('z2k-core'))
+      shell.button(actionLabel, actionEnabled ? 'primary' : 'sm', updateZ2K.bind(null, ctx, component), !actionEnabled)
     ])
   ]);
 }
@@ -1501,8 +1617,9 @@ function renderInlineOperation(ctx, component, opts) {
       E('span', {}, s.label + (s.detail ? ' — ' + s.detail : ''))
     ]);
   })) : null;
-  return E('div', { 'class': 'z2m-component-operation' }, [
+  return E('div', { 'class': 'z2m-component-operation', role: 'status', 'aria-live': 'polite', 'aria-busy': isBusy ? 'true' : 'false' }, [
     E('div', { 'class': 'z2m-op-header' }, [
+      isBusy ? E('span', { 'class': 'spinner-inline z2m-op-spinner', 'aria-hidden': 'true' }) : null,
       E('strong', {}, phase || _('Обновление…')),
       progress !== null && progress !== undefined ? E('span', { 'class': 'z2m-op-progress-text' }, progress + '%') : null,
       cancellable ? shell.button(_('Отменить'), 'sm', function () {
@@ -1591,7 +1708,7 @@ function renderZ2KCard(ctx, component) {
       E('div', { 'class': 'z2m-btnrow' }, primaryActions),
       E('div', { 'class': 'z2m-btnrow' }, [detailsBtn])
     ]),
-    renderInlineOperation(ctx, component, isBusyFor(component.id) ? operationRenderOptions() : {}),
+    !state.z2kExpanded && isBusyFor(component.id) ? renderInlineOperation(ctx, component, operationRenderOptions()) : null,
   ]);
 }
 function renderZ2KPostMutationRefreshError(ctx) {
@@ -1680,10 +1797,10 @@ function renderComponents(ctx, data) {
       remoteState: catalogState,
       remoteAvailable: catalogValue.remoteAvailable,
       selectedVersion: state.z2kSelectedVersion || resourceZ2K.selectedVersion,
-      selectedDetails: postMutationRefreshFailed ? null : state.z2kDetails || resourceZ2K.selectedDetails,
-      preparedTarget: postMutationRefreshFailed ? null : state.z2kPrepared || resourceZ2K.preparedTarget,
-      updateState: postMutationRefreshFailed ? 'refresh-required' : resourceZ2K.updateState,
-      canApply: postMutationRefreshFailed ? false : resourceZ2K.canApply
+      selectedDetails: postMutationRefreshFailed || state.z2kPostMutationStatus ? null : state.z2kDetails || resourceZ2K.selectedDetails,
+      preparedTarget: postMutationRefreshFailed || state.z2kPostMutationStatus ? null : state.z2kPrepared || resourceZ2K.preparedTarget,
+      updateState: postMutationRefreshFailed ? 'refresh-required' : state.z2kPostMutationStatus ? 'checking' : resourceZ2K.updateState,
+      canApply: postMutationRefreshFailed || state.z2kPostMutationStatus ? false : resourceZ2K.canApply
     }),
     checkedAt: latestCanonicalTimestamp(
       payload.resources && payload.resources.value && payload.resources.value.checkedAt,

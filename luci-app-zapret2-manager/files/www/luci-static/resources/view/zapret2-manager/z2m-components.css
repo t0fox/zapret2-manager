@@ -482,6 +482,7 @@
 .z2m-component-card--optional .z2m-chip.o{background:rgba(125,133,142,.12);border-color:var(--border2);color:var(--tx3)}
 .z2m-component-operation{display:grid;gap:10px;padding:12px;background:var(--panel2);border:1px solid var(--border);border-radius:6px}
 .z2m-op-header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.z2m-op-header .z2m-op-spinner{flex:0 0 auto;margin:0}
 .z2m-op-header strong{font-size:13px}
 .z2m-op-progress{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
 .z2m-op-progress-bar{height:100%;background:var(--blue);transition:width .3s}
@@ -493,6 +494,24 @@
 .z2m-op-stage--done{color:var(--green)}
 .z2m-op-stage--running{color:var(--blue)}
 .z2m-op-stage--error{color:var(--red)}
+.z2m-z2k-operation-host{display:grid;gap:10px;min-width:0}
+.z2m-z2k-operation-host:empty{display:none}
+.z2m-z2k-operation-host .z2m-component-operation{border-color:rgba(75,159,213,.5);box-shadow:inset 3px 0 0 var(--blue)}
+.z2m-z2k-operation-result{display:grid;gap:7px;padding:12px 13px;border:1px solid var(--border2);border-radius:6px;background:var(--panel2);font-size:13px;line-height:1.45}
+.z2m-z2k-operation-result--success{border-color:rgba(67,184,132,.45);background:rgba(67,184,132,.08)}
+.z2m-z2k-operation-result--error{border-color:rgba(239,108,96,.5);background:rgba(239,108,96,.08)}
+.z2m-z2k-operation-result-heading{display:flex;align-items:center;gap:8px;min-width:0}
+.z2m-z2k-operation-result-heading strong{font-size:13px;overflow-wrap:break-word}
+.z2m-z2k-operation-result-icon{display:inline-grid;place-items:center;width:18px;height:18px;flex:0 0 18px;border-radius:50%;font-size:12px;font-weight:700}
+.z2m-z2k-operation-result--success .z2m-z2k-operation-result-icon{background:rgba(67,184,132,.2);color:var(--green)}
+.z2m-z2k-operation-result--error .z2m-z2k-operation-result-icon{background:rgba(239,108,96,.2);color:var(--red)}
+.z2m-z2k-operation-result p{margin:0;color:var(--tx2)}
+.z2m-z2k-operation-result .z2m-btn{justify-self:start;margin-top:2px}
+@media(prefers-reduced-motion:reduce){
+  .z2m-op-progress-bar{transition:none}
+  .z2m-op-progress--indeterminate .z2m-op-progress-bar{width:100%;animation:none;transform:none;opacity:.58}
+  .z2m-op-spinner{animation:none}
+}
 @media(max-width:900px){
   .z2m-components-hero{flex-direction:column;align-items:stretch}
   .z2m-components-hero-meta{justify-items:start}

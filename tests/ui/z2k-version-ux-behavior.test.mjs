@@ -62,7 +62,7 @@ function loadModel() {
 function loadMaintenance() {
   const marker = '\nreturn baseclass.extend({';
   const end = maintenanceSource.lastIndexOf(marker);
-  return vm.runInNewContext(`(function () {\n${maintenanceSource.slice(0, end)}\nreturn { renderComponents, selectZ2KVersion, toggleZ2K, updateZ2K, waitForZ2KUpdate, state };\n})()`, {
+  return vm.runInNewContext(`(function () {\n${maintenanceSource.slice(0, end)}\nreturn { renderComponents, selectZ2KVersion, toggleZ2K, updateZ2K, waitForZ2KUpdate, refreshZ2KAfterMutation, state };\n})()`, {
     baseclass: { extend: value => value },
     _: value => value,
     E: vnode,
@@ -1003,4 +1003,139 @@ test('Z2K operation status keeps backend progress projection visible while updat
   await new Promise(resolve => setTimeout(resolve, 1100));
   resolveTerminal({ phase: 'completed', result: { ok: true } });
   await first;
+});
+
+test('Z2K update feedback stays beside the release action and uses an honest loading state', async () => {
+  const internals = loadMaintenance();
+  let resolveTerminal;
+  let statusCalls = 0;
+  let boundedRefreshes = 0;
+  let fullRerenders = 0;
+  const ctx = makeContext(z2kRaw({ installedVersion: 'r-79.7', selectedVersion: 'r-80.3' }));
+  ctx.root.replaceChildren = () => { fullRerenders += 1; };
+  ctx.api.resources = {
+    updateStatus: () => {
+      statusCalls += 1;
+      if (statusCalls === 1) return Promise.resolve({ phase: 'running' });
+      return new Promise(resolve => { resolveTerminal = resolve; });
+    },
+  };
+  internals.state.z2kExpanded = true;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+  internals.state.componentOperation = { kind: 'update', scope: 'z2k', targetVersion: 'r-80.3' };
+  internals.state.z2kReleaseRefresh = () => { boundedRefreshes += 1; };
+
+  const first = internals.waitForZ2KUpdate(ctx, 'operation-1');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  try {
+    const rendered = internals.renderComponents(ctx, ctx.data);
+    const panel = findAll(rendered, node => node.attrs && node.attrs.id === 'z2m-z2k-release-panel')[0];
+    const operationPanel = findAll(panel, node => classHas(node, 'z2m-component-operation'))[0];
+    const action = findAll(panel, node => node.tag === 'button' && textOf(node) === '⟳ Обновление…')[0];
+
+    assert.ok(operationPanel, 'operation feedback must be inside the selected release panel');
+    assert.equal(operationPanel.attrs.role, 'status');
+    assert.equal(operationPanel.attrs['aria-live'], 'polite');
+    assert.match(textOf(operationPanel), /Обновление Z2K…/);
+    assert.ok(findAll(operationPanel, node => classHas(node, 'z2m-op-progress--indeterminate')).length > 0);
+    assert.ok(action, 'mutation action must communicate that the update is running');
+    assert.equal(action.attrs.disabled, true);
+    assert.equal(findAll(z2kCard(rendered), node => classHas(node, 'z2m-component-operation')).length, 0,
+      'expanded release view must not duplicate the operation panel in the card');
+
+    assert.ok(boundedRefreshes > 0, 'status polling should refresh the bounded release panel');
+    assert.equal(fullRerenders, 0, 'status polling should not rebuild the whole Components page');
+  } finally {
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    resolveTerminal({ phase: 'completed', result: { ok: true } });
+    await first;
+  }
+});
+
+test('confirming Z2K update mounts inline feedback before the update RPC resolves', async () => {
+  const internals = loadMaintenance();
+  let modal;
+  let resolveUpdate;
+  const ctx = makeContext(z2kRaw({ installedVersion: 'r-79.7', selectedVersion: 'r-80.3' }));
+  ctx.shell.openModal = (title, message, actions) => { modal = { title, message, actions }; };
+  ctx.shell.closeModal = () => {};
+  ctx.refresh = () => Promise.resolve();
+  ctx.api.resources = {
+    prepareVersion: () => Promise.resolve({
+      planToken: 'fresh-plan',
+      target: { targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-79.7' },
+    }),
+    update: () => new Promise(resolve => { resolveUpdate = resolve; }),
+  };
+  const component = {
+    id: 'z2k-core',
+    runtimeHealth: 'ready',
+    compatibility: 'compatible',
+    updateState: 'update-available',
+    attentionState: 'none',
+    canApply: true,
+    selectedVersion: 'r-80.3',
+    selectedDetails: {
+      version: 'r-80.3', installable: true, operation: 'upgrade', installedVersion: 'r-79.7',
+    },
+    installedRelease: { value: 'r-79.7' },
+    latestRelease: 'r-80.3',
+    availableRelease: 'r-80.3',
+    catalog: ctx.data.components.resources.value.z2k.catalog,
+  };
+  internals.state.z2kExpanded = true;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+
+  internals.updateZ2K(ctx, component);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(modal, 'the prepared update must ask for confirmation');
+  modal.actions[1].attrs.click();
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const panel = findAll(rendered, node => node.attrs && node.attrs.id === 'z2m-z2k-release-panel')[0];
+  const operationPanel = findAll(panel, node => classHas(node, 'z2m-component-operation'))[0];
+  const action = findAll(panel, node => node.tag === 'button' && textOf(node) === '⟳ Обновление…')[0];
+  assert.equal(internals.state.componentOperation.kind, 'update');
+  assert.ok(operationPanel, 'feedback must be visible while the update RPC is pending');
+  assert.ok(action);
+  assert.equal(action.attrs.disabled, true);
+
+  resolveUpdate({ ok: true });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+});
+
+test('post-update verification remains visible until the authoritative refresh resolves', async () => {
+  const internals = loadMaintenance();
+  let resolveRefresh;
+  const staleDetails = {
+    version: 'r-80.3',
+    releaseName: 'Z2K r-80.3',
+    releaseBody: 'Старый снимок',
+    installable: true,
+    operation: 'upgrade',
+    installedVersion: 'r-79.7',
+  };
+  const ctx = makeContext(z2kRaw({ installedVersion: 'r-79.7', selectedVersion: 'r-80.3', selectedDetails: staleDetails }));
+  ctx.refresh = () => new Promise(resolve => { resolveRefresh = resolve; });
+  internals.state.z2kExpanded = true;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+  internals.state.z2kDetails = staleDetails;
+  internals.state.z2kDetailsCompared = true;
+
+  const refreshPromise = internals.refreshZ2KAfterMutation(ctx, 'r-80.3');
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(rendered);
+  assert.equal(internals.state.componentOperation, null, 'the refresh boundary must not leave the old operation busy');
+  assert.match(text, /Z2K обновлён до r-80\.3/);
+  assert.match(text, /Проверяем установленное состояние…/);
+  assert.doesNotMatch(text, /Старый снимок/);
+
+  resolveRefresh();
+  await refreshPromise;
+  assert.equal(internals.state.z2kPostMutationStatus, null);
 });

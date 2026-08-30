@@ -134,3 +134,11 @@ test('spinner-inline and fallback z2m-spinner are self-contained loading indicat
     assert.match(fallbackRule[1], new RegExp(property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `z2m-spinner must define ${property}`);
   }
 });
+
+test('Z2K operation feedback has an accessible live region and reduced-motion fallback', () => {
+  assert.match(maintenanceSource, /'class': 'z2m-component-operation', role: 'status', 'aria-live': 'polite', 'aria-busy': isBusy/);
+  assert.match(maintenanceSource, /'class': 'spinner-inline z2m-op-spinner'/);
+  assert.match(componentsCss, /\.z2m-z2k-operation-host\{display:grid/);
+  assert.match(componentsCss, /\.z2m-op-progress--indeterminate \.z2m-op-progress-bar\{width:40%;animation:z2m-op-indeterminate 1\.2s infinite\}/);
+  assert.match(componentsCss, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*\.z2m-op-progress--indeterminate \.z2m-op-progress-bar\{width:100%;animation:none/);
+});
