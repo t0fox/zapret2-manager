@@ -16,13 +16,14 @@ const ru = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-upda
 const versions = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
 const registry = read('zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc');
 const installedRelease = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc');
+const runtimeSyncAdapter = read('zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry-runtime-sync.uc');
 const sync = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh');
 const maintenance = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
 const model = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js');
 
 test('1. canonical Z2K apply owns Registry to runtime materialization', () => {
   assert.match(ru, /strategy-runtime-assets-sync\.sh/);
-  assert.match(ru, /--activate-registry/);
+  assert.match(ru, /--activate-resolved candidate-materialize/);
   assert.match(ru, /runtime.*postflight|z2k_runtime_postflight/i);
 });
 
@@ -45,7 +46,13 @@ test('4. the existing sync bridge accepts an authoritative registry target spec'
   assert.match(sync, /sha256/);
 });
 
-test('4a. UCode builds lifecycle text with separator-first join arguments', () => {
+test('4a. confirmed Registry rematerialization uses the installed resolver boundary', () => {
+  assert.match(runtimeSyncAdapter, /z2k_runtime_materialize_confirmed/);
+  assert.match(ru, /--activate-resolved installed-materialize/);
+  assert.doesNotMatch(ru.slice(ru.indexOf('export const z2k_runtime_materialize_confirmed')), /--activate-registry/);
+});
+
+test('4b. UCode builds lifecycle text with separator-first join arguments', () => {
   assert.match(ru, /join\('\\n', lines\)/);
   assert.match(ru, /join\('\\n', rows\)/);
   assert.match(ru, /join\(',', removeIds\)/);
@@ -310,7 +317,7 @@ test('11. missing historical manifest is not represented as all files added', ()
 test('12. release diff compares the actual previous upstream release', () => {
   assert.match(versions, /function release_changes_between\s*\(/);
   assert.match(versions, /previousVersion/);
-  assert.match(versions, /release_manifest\(previous\)/);
+  assert.match(versions, /(?:release_manifest|z2k_resolve_version)(?:_fresh)?\(previous/);
   assert.match(versions, /previousManifest/);
   assert.match(versions, /releaseChangeSet = release_changes_between\(checked\.manifest, previousManifest\)/);
   assert.match(versions, /releaseChanges/);

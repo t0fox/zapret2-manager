@@ -9,7 +9,7 @@ import { z2k_candidate_gate } from './z2k-compat.uc';
 import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
 import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, verifyMaterialized, verifyActivationProcess } from './runtime-composition.uc';
-import { read_var } from './apply.uc';
+import { read_var, config_sha256 } from './apply.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -816,6 +816,7 @@ function z2k_runtime_spec(target, listed, classification, root) {
 }
 function z2k_runtime_restart(stage) {
 	let operationStage = string(stage) && length(stage) ? stage : 'activation';
+	let before = z2k_runtime_observe(), previousProcesses = z2k_runtime_processes(before && before.pids);
 	let restarted = command('sh /etc/init.d/zapret2 restart');
 	if (restarted.rc != 0) return fail('ERUNTIME', 'Zapret2 service restart failed.', { stage: operationStage, output: restarted.out });
 	let configured = read_var('NFQWS2_ENABLE');
@@ -828,6 +829,7 @@ function z2k_runtime_restart(stage) {
 		observe: z2k_runtime_observe
 	});
 	readiness.restart = { rc: restarted.rc, output: trim(restarted.out) };
+	readiness.previousProcesses = previousProcesses;
 	if (!readiness.ok) {
 		readiness.error.restart = readiness.restart;
 		return readiness;
@@ -839,6 +841,7 @@ function z2k_runtime_restart(stage) {
 		readiness: readiness.readiness, status: status
 	});
 	readiness.configValue = configured;
+	readiness.activeConfigHash = config_sha256();
 	return readiness;
 }
 function z2k_runtime_postflight(target, diagnostics, listed) {
@@ -865,20 +868,38 @@ function z2k_process_starttime(pid) {
 	let fields = split(trim(substr(raw, close + 1)), ' ');
 	return length(fields) > 20 && match(fields[19], /^[0-9]+$/) ? fields[19] : null;
 }
+function z2k_runtime_processes(pids) {
+	let result = [];
+	for (let i = 0; i < length(pids || []); i++) {
+		let starttime = z2k_process_starttime(pids[i]);
+		if (starttime != null) push(result, { pid: pids[i], starttime: starttime });
+	}
+	return result;
+}
 function z2k_runtime_evidence(snapshot, readiness, activation) {
 	if (!object(snapshot) || !array(snapshot.runtimeAssets)) return fail('EINPUT', 'runtime snapshot is invalid');
-	let hashes = {}, pids = object(readiness) && array(readiness.pids) ? readiness.pids : [], pid = length(pids) ? pids[0] : null, starttime = z2k_process_starttime(pid);
+	let hashes = {}, pids = object(readiness) && array(readiness.pids) ? readiness.pids : [], pid = length(pids) ? pids[0] : null, starttime = z2k_process_starttime(pid), configHash = object(readiness) && readiness.activeConfigHash || config_sha256();
 	for (let i = 0; i < length(snapshot.runtimeAssets); i++) {
 		let item = snapshot.runtimeAssets[i], path = runtime_target_path(item.runtimeTarget), actual = path && regular(path) ? sha256(path) : null;
 		if (actual == null) return fail('EVERIFY', 'runtime evidence is missing', { id: item.id });
 		hashes[item.id] = actual;
 	}
-	if (activation && (pid == null || starttime == null)) return fail('EVERIFY', 'activation process generation evidence is missing');
-	let generation = pid != null && starttime != null ? digest_text(snapshot.snapshotId + '|' + pid + '|' + starttime + '|' + snapshot.compositionSnapshotId, 'z2m-z2k-generation') : null;
+	if (configHash == null) return fail('EVERIFY', 'active config hash evidence is missing');
+	if (pid == null || starttime == null) return fail('EVERIFY', 'process generation evidence is missing');
+	let currentProcess = { pid: pid, starttime: starttime }, previousProcesses = object(readiness) && array(readiness.previousProcesses) ? readiness.previousProcesses : [];
+	if (activation) {
+		for (let i = 0; i < length(previousProcesses); i++) if (previousProcesses[i].pid == currentProcess.pid && previousProcesses[i].starttime == currentProcess.starttime)
+			return fail('EVERIFY', 'activation process identity was not created by this activation', { pid: pid, starttime: starttime });
+	}
+	let runtimeIdentity = [];
+	for (let i = 0; i < length(snapshot.runtimeAssets); i++) push(runtimeIdentity, snapshot.runtimeAssets[i].id + '=' + hashes[snapshot.runtimeAssets[i].id]);
+	let generation = digest_text(snapshot.snapshotId + '|' + snapshot.compositionSnapshotId + '|' + configHash + '|' + join(runtimeIdentity, '|') + '|' + pid + '|' + starttime, 'z2m-z2k-generation');
+	if (generation == null) return fail('EVERIFY', 'process generation evidence could not be generated');
 	let luaInitIds = [];
 	for (let i = 0; i < length(snapshot.luaInit || []); i++) push(luaInitIds, snapshot.luaInit[i].id);
-	return { snapshotId: snapshot.snapshotId, queueReady: object(readiness) && readiness.ok === true, createdForActivation: activation === true,
-		pid: pid, processStarttime: starttime, processGeneration: generation, runtimeHashes: hashes,
+	return { snapshotId: snapshot.snapshotId, membershipDigest: snapshot.membershipDigest, queueReady: object(readiness) && readiness.ok === true, createdForActivation: activation === true,
+		pid: pid, processStarttime: starttime, processGeneration: generation, configHash: configHash, activeConfigHash: configHash, runtimeHashes: hashes,
+		previousProcesses: previousProcesses,
 		luaInitIds: luaInitIds, verified: true };
 }
 function z2k_materialized_evidence(snapshot, target) {
@@ -891,18 +912,19 @@ function z2k_materialized_evidence(snapshot, target) {
 		let item = target.removeTargets[i], path = runtime_target_path(item.runtimeTarget);
 		removalsPresent[item.id] = path != null && regular(path);
 	}
-	return { files: files, removalsPresent: removalsPresent };
+	return { snapshotId: snapshot.snapshotId, membershipDigest: snapshot.membershipDigest, files: files, removalsPresent: removalsPresent, configHash: config_sha256() };
 }
 function z2k_runtime_activate(target, listed, classification, root, diagnostics) {
-	let spec = z2k_runtime_spec(target, listed, classification, root);
-	if (!spec.ok) return spec;
-	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-registry ' + shell_quote(spec.path));
-	if (activated.rc != 0) return fail('ERUNTIME', 'Registry target could not be materialized into the active runtime.', { output: activated.out, spec: spec.path, activated: false });
+	let inputPath = '/tmp/z2m-runtime-candidate.' + time() + '.json', input = { preparedTarget: target, context: { observedRegistryRevision: listed.revision, phase: 'post-commit', committedAssetRevision: listed.revision } };
+	try { writefile(inputPath, sprintf('%J', input) + '\n'); } catch (e) { return fail('EWRITE', 'Runtime composition input could not be persisted.'); }
+	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-resolved candidate-materialize ' + shell_quote(inputPath));
+	try { unlink(inputPath); } catch (e) {}
+	if (activated.rc != 0) return fail('ERUNTIME', 'Canonical runtime composition could not be materialized into the active runtime.', { output: activated.out, input: inputPath, activated: false });
 	let restarted = z2k_runtime_restart('activation');
 	if (!restarted.ok) return { ok: false, error: restarted.error, activated: true, restart: restarted, postflight: { verified: false, reason: 'restart-failed' } };
 	let postflight = z2k_runtime_postflight(target, diagnostics, listed);
 	if (!postflight.ok) return { ok: false, error: postflight.error, activated: true, restart: restarted, postflight: postflight };
-	return { ok: true, activated: true, restart: restarted, postflight: postflight, spec: spec };
+	return { ok: true, activated: true, restart: restarted, postflight: postflight, input: inputPath };
 }
 function z2k_runtime_rollback() {
 	let restored = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --rollback-registry');
@@ -944,19 +966,18 @@ export const z2k_runtime_materialize_confirmed = function() {
 	let listed = asset_registry_list(null);
 	if (!listed.ok) return listed;
 	let authority = z2k_registry_installed_release(listed);
-	if (!authority || authority.confidence != 'confirmed' || !authority.value) return { ok: true, skipped: true, reason: 'no-confirmed-z2k-release' };
-	let classificationSnapshot = z2k_read_classification_snapshot();
-	if (classificationSnapshot == null) return fail('EVERIFY', 'Z2K classification mapping is unavailable or invalid.');
-	let target = z2k_runtime_confirmed_target(listed, classificationSnapshot.value, authority);
-	if (!target.ok) return target;
-	let root = make_stage_root();
-	if (root == null) return fail('ETARGET', 'resource staging directory is unavailable');
-	let spec = z2k_runtime_spec(target.target, listed, classificationSnapshot.value, root);
-	if (!spec.ok) { cleanup(root, []); return spec; }
-	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-registry ' + shell_quote(spec.path));
-	cleanup(root, []);
-	if (activated.rc != 0) return fail('ERUNTIME', 'Confirmed Z2K runtime materialization failed.', { output: activated.out, version: authority.value });
-	return { ok: true, skipped: false, version: authority.value, assets: length(target.target.assets), removed: length(target.target.removeTargets || []) };
+	if (!authority || authority.confidence != 'confirmed' || !authority.value)
+		return { ok: true, skipped: true, reason: 'no-confirmed-z2k-release' };
+	let resolved = resolveInstalled({ registry: listed });
+	if (!resolved.ok) return resolved;
+	if (resolved.lifecycleState == 'V1_VERIFIED_MEMBERSHIP' || resolved.compositionStatus != 'canonical')
+		return fail('RECONCILIATION_REQUIRED', 'Canonical Z2K composition is required before runtime materialization.');
+	let inputPath = '/tmp/z2m-runtime-installed.' + time() + '.json';
+	try { writefile(inputPath, '{}\n'); } catch (e) { return fail('EWRITE', 'Installed runtime composition input could not be persisted.'); }
+	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-resolved installed-materialize ' + shell_quote(inputPath));
+	try { unlink(inputPath); } catch (e) {}
+	if (activated.rc != 0) return fail('ERUNTIME', 'Confirmed Z2K runtime materialization failed.', { output: activated.out, snapshotId: resolved.snapshotId });
+	return { ok: true, skipped: false, version: resolved.lifecycleIdentity && resolved.lifecycleIdentity.release || null, snapshotId: resolved.snapshotId, assets: length(resolved.runtimeAssets || []), removed: 0 };
 };
 function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated) {
 	let pending = z2k_pending_load(), journal = pending == null || z2k_pending_write(pending, 'ROLLING_BACK');

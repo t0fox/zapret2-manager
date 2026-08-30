@@ -58,6 +58,7 @@ function runSync(sb, args = []) {
       Z2M_RUNTIME_BASE: bashPath(sb.base),
       Z2M_MANAGER_STATE_ROOT: bashPath(sb.stateRoot),
       Z2M_MANAGER_ETC_ROOT: bashPath(sb.etcRoot),
+      Z2M_PREFLIGHT_MANIFEST: bashPath(path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share', 'zapret2-manager', 'native-preflight.json')),
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
     },
     encoding: 'utf8', timeout: 240_000
@@ -116,6 +117,7 @@ test('refreshes an existing Manager-owned Lua sidecar from the package baseline'
       Z2M_RUNTIME_BASE: bashPath(sb.base),
       Z2M_MANAGER_STATE_ROOT: bashPath(sb.stateRoot),
       Z2M_MANAGER_ETC_ROOT: bashPath(sb.etcRoot),
+      Z2M_PREFLIGHT_MANIFEST: bashPath(path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share', 'zapret2-manager', 'native-preflight.json')),
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
     },
     encoding: 'utf8', timeout: 240_000

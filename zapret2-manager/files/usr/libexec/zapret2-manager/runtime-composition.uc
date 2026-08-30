@@ -293,10 +293,14 @@ function verify_file_set(snapshot, evidence) {
 function expected_lua_ids(snapshot) { let ids = []; for (let i = 0; array(snapshot.luaInit) && i < length(snapshot.luaInit); i++) push(ids, snapshot.luaInit[i].id); return ids; }
 function equal_array(left, right) { if (!array(left) || !array(right) || length(left) != length(right)) return false; for (let i = 0; i < length(left); i++) if (left[i] != right[i]) return false; return true; }
 function verify_process(snapshot, evidence, activation) {
-	if (!object(snapshot) || snapshot.ok !== true || !array(snapshot.luaInit)) return fail('EINPUT', 'process snapshot is invalid');
-	if (!object(evidence) || evidence.snapshotId != snapshot.snapshotId || evidence.queueReady !== true) return fail('EVERIFY', 'process evidence is not bound to the runtime snapshot');
+	if (!object(snapshot) || snapshot.ok !== true || !array(snapshot.luaInit) || (activation ? snapshot.lifecycleState != 'candidate' : snapshot.lifecycleState != 'installed')) return fail('EINPUT', 'process snapshot is invalid');
+	if (!object(evidence) || evidence.snapshotId != snapshot.snapshotId || evidence.queueReady !== true || evidence.membershipDigest != snapshot.membershipDigest) return fail('EVERIFY', 'process evidence is not bound to the runtime snapshot');
 	if (activation && evidence.createdForActivation !== true) return fail('EVERIFY', 'process predates this activation');
-	if (string(evidence.configHash) && object(snapshot.authority) && snapshot.authority.configHash != null && evidence.configHash != snapshot.authority.configHash) return fail('EVERIFY', 'active config hash does not match snapshot');
+	let configHash = evidence.activeConfigHash || evidence.configHash;
+	if (!string(configHash) || configHash != evidence.configHash) return fail('EVERIFY', 'active config hash evidence is missing or inconsistent');
+	if (object(snapshot.authority) && snapshot.authority.configHash != null && configHash != snapshot.authority.configHash) return fail('EVERIFY', 'active config hash does not match snapshot');
+	if (evidence.pid == null || evidence.processStarttime == null || !string(evidence.processGeneration)) return fail('EVERIFY', 'process identity or generation evidence is missing');
+	if (activation && array(evidence.previousProcesses)) for (let i = 0; i < length(evidence.previousProcesses); i++) if (evidence.previousProcesses[i].pid == evidence.pid && evidence.previousProcesses[i].starttime == evidence.processStarttime) return fail('EVERIFY', 'activation process identity predates this activation');
 	if (object(evidence.runtimeHashes)) for (let i = 0; i < length(snapshot.runtimeAssets); i++) if (evidence.runtimeHashes[snapshot.runtimeAssets[i].id] != snapshot.runtimeAssets[i].contentSha256) return fail('EVERIFY', 'process runtime hash does not match snapshot', { id: snapshot.runtimeAssets[i].id });
 	else return fail('EVERIFY', 'process runtime hashes are missing');
 	if (!equal_array(evidence.luaInitIds || evidence.luaInit || [], expected_lua_ids(snapshot))) return fail('EVERIFY', 'process Lua init order does not match snapshot');
@@ -305,8 +309,10 @@ function verify_process(snapshot, evidence, activation) {
 }
 
 export const verifyMaterialized = function(snapshot, evidence) {
+	if (!object(evidence) || evidence.snapshotId != snapshot.snapshotId || evidence.membershipDigest != snapshot.membershipDigest) return fail('EVERIFY', 'materialization evidence is not bound to the runtime snapshot');
 	let result = verify_file_set(snapshot, evidence || {});
 	if (!result.ok) return result;
+	if (!string(evidence.configHash)) return fail('EVERIFY', 'generated active config hash is missing');
 	let removals = object(snapshot.authority) && array(snapshot.authority.removeIds) ? snapshot.authority.removeIds : [];
 	for (let i = 0; i < length(removals); i++) if (object(evidence) && object(evidence.removalsPresent) && evidence.removalsPresent[removals[i]] === true) return fail('EVERIFY', 'candidate-declared removal is still present', { id: removals[i] });
 	return { ok: true, snapshotId: snapshot.snapshotId, membershipDigest: snapshot.membershipDigest };

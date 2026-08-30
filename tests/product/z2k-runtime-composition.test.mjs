@@ -186,6 +186,46 @@ test('expected closure is resolvable without runtime files, while materializatio
   assert.equal(invoke(`composition.verifyInstalledProcess(${JSON.stringify(resolved)}, ${JSON.stringify({ pid: 200, configHash: null, runtimeHashes: {} })})`).ok, false);
 });
 
+test('steady-state proof accepts a later PID but rejects stale runtime evidence', { skip: !HAS_UCODE }, () => {
+  const installed = invoke(`composition.resolveInstalled(${JSON.stringify(v2Fixture())})`);
+  const hash = HASH('q');
+  const evidence = {
+    snapshotId: installed.snapshotId,
+    membershipDigest: installed.membershipDigest,
+    queueReady: true,
+    pid: 200,
+    processStarttime: '2000',
+    processGeneration: 'generation-after-restart',
+    configHash: hash,
+    activeConfigHash: hash,
+    runtimeHashes: Object.fromEntries(installed.runtimeAssets.map(entry => [entry.id, entry.contentSha256])),
+    luaInitIds: installed.luaInit.map(entry => entry.id),
+  };
+  assert.equal(invoke(`composition.verifyInstalledProcess(${JSON.stringify(installed)}, ${JSON.stringify(evidence)})`).ok, true);
+  const stale = { ...evidence, runtimeHashes: { ...evidence.runtimeHashes, 'lua:alpha': HASH('stale') } };
+  assert.equal(invoke(`composition.verifyInstalledProcess(${JSON.stringify(installed)}, ${JSON.stringify(stale)})`).ok, false);
+});
+
+test('activation proof rejects an old PID generation even when argv and hashes look identical', { skip: !HAS_UCODE }, () => {
+  const candidate = invoke(`composition.resolveCandidate(${JSON.stringify(candidateFixture())})`);
+  const hash = HASH('q');
+  const evidence = {
+    snapshotId: candidate.snapshotId,
+    membershipDigest: candidate.membershipDigest,
+    queueReady: true,
+    createdForActivation: true,
+    pid: 100,
+    processStarttime: '1000',
+    processGeneration: 'generation-before-activation',
+    configHash: hash,
+    activeConfigHash: hash,
+    runtimeHashes: Object.fromEntries(candidate.runtimeAssets.map(entry => [entry.id, entry.contentSha256])),
+    luaInitIds: candidate.luaInit.map(entry => entry.id),
+    previousProcesses: [{ pid: 100, starttime: '1000' }],
+  };
+  assert.equal(invoke(`composition.verifyActivationProcess(${JSON.stringify(candidate)}, ${JSON.stringify(evidence)})`).ok, false);
+});
+
 test('activation and steady-state process proofs are separate lifecycle contracts', () => {
   const source = read(compositionPath);
   assert.match(source, /verifyActivationProcess/);
@@ -193,6 +233,9 @@ test('activation and steady-state process proofs are separate lifecycle contract
   assert.match(source, /verifyInstalledProcess/);
   assert.match(source, /steady|restart|reboot|starttime/i);
   assert.match(source, /configHash/);
+  assert.match(source, /activeConfigHash/);
+  assert.match(source, /previousProcesses/);
+  assert.match(source, /membershipDigest/);
   assert.match(source, /runtimeHashes/);
   assert.match(source, /luaInit/);
 });

@@ -19,6 +19,7 @@ sync_log() { printf '%s\n' "sync: $*" >> "$SYNC_LOG" 2>/dev/null || true; }
 # Root overrides exist for sandboxed testing; on-target defaults are canonical.
 
 SRC=${Z2M_RUNTIME_ASSETS_SRC:-/usr/share/zapret2-manager/runtime-assets}
+PACKAGE_ROOT=${Z2M_RUNTIME_PACKAGE_ROOT:-/usr/share/zapret2-manager}
 BASE=${Z2M_RUNTIME_BASE:-/opt/zapret2}
 STATE_ROOT=${Z2M_MANAGER_STATE_ROOT:-/etc/zapret2-manager/state}
 STATE_DIR="$STATE_ROOT/autocircular"
@@ -41,6 +42,7 @@ runtime_asset_mode() {
 runtime_target_rel() {
 	_target="$1"
 	case "$_target" in
+		/opt/zapret2/*) _rel="${_target#/opt/zapret2/}" ;;
 		/runtime-assets/bin/*) _rel="files/fake/${_target#/runtime-assets/bin/}" ;;
 		/runtime-assets/lua/*) _rel="lua/${_target#/runtime-assets/lua/}" ;;
 		/runtime-assets/lists/*) _rel="lists/${_target#/runtime-assets/lists/}" ;;
@@ -71,52 +73,49 @@ activation_restore() {
 	return 0
 }
 
-append_luaopt_if_present() {
-	_name="$1"
-	_path="$ZAPRET_BASE/lua/$_name"
-	if [ -f "$_path" ]; then
-		LUAOPT="$LUAOPT --lua-init=@\$ZAPRET_BASE/lua/$_name"
-	elif [ -f "$_path.gz" ]; then
-		LUAOPT="$LUAOPT --lua-init=@\$ZAPRET_BASE/lua/$_name.gz"
-	fi
+resolver_luaopt() {
+	_spec="$1"
+	[ -f "$_spec" ] || return 1
+	LUAOPT=''
+	_lua_count=0
+	while IFS='|' read -r _kind _id _type _entry_kind _source _target _sha _order; do
+		[ "$_kind" = LUA_INIT ] || continue
+		if [ "$_type" = lua ] && [ -z "$_entry_kind" ] && [ -z "$_target" ] && [ -z "$_sha" ] && [ -n "$_source" ]; then
+			_target=$_source; _source=''; _entry_kind=lua; _type=lifecycle-managed
+		fi
+		# Accept the pre-resolver seven-field handoff only for old direct
+		# lifecycle specs. New resolver output always carries both type and kind.
+		if [ -z "$_order" ] && printf '%s' "$_sha" | grep -Eq '^[0-9]+$'; then
+			_order=$_sha; _sha=$_target; _target=$_source; _source=$_entry_kind; _entry_kind=$_type; _type=lifecycle-managed
+		fi
+		[ "$_type" = lifecycle-managed ] || [ "$_type" = package-static ] || return 1
+		[ "$_entry_kind" = lua ] || return 1
+		runtime_target_rel "$_target" || return 1
+		case "$_target" in /runtime-assets/lua/*) : ;; *) return 1 ;; esac
+		LUAOPT="$LUAOPT --lua-init=@\$ZAPRET_BASE/$RUNTIME_TARGET_REL"
+		_lua_count=$((_lua_count + 1))
+	done < "$_spec"
+	[ "$_lua_count" -gt 0 ] || return 1
+	return 0
 }
 
-# The selected Registry target is the runtime source of truth.  In particular,
-# r-80.3 intentionally removes z2k-detectors.lua, so the init chain must not
-# keep a stale unconditional --lua-init reference to that path.  Build the
-# manager load order from files that exist in the active runtime while keeping
-# the wrapper ordering required by the strategy contract.
+# The resolver CLI is the only producer of the ordered init set. This helper
+# consumes its explicit LUA_INIT records; it never scans runtime directories,
+# appends a package list, or infers order from file presence.
 align_luaopt() {
+	_lua_spec="$1"
+	[ -f "$_lua_spec" ] || return 0
+	resolver_luaopt "$_lua_spec" || return 1
 	ZAPRET_BASE="$BASE"
 	for INIT in "$BASE/init.d/openwrt/zapret2" /etc/init.d/zapret2; do
 		[ -f "$INIT" ] || continue
 		grep -q '^LUAOPT=' "$INIT" || continue
-		LUAOPT=''
-		append_luaopt_if_present zapret-lib.lua
-		append_luaopt_if_present zapret-antidpi.lua
-		append_luaopt_if_present z2m-fake-rotate.lua
-		append_luaopt_if_present zapret-auto.lua
-		append_luaopt_if_present z2m-hostkey-policy.lua
-		append_luaopt_if_present z2m-autocircular-policy.lua
-		append_luaopt_if_present z2k-alert.lua
-		append_luaopt_if_present z2k-quic-silence.lua
-		append_luaopt_if_present z2k-fooling-ext.lua
-		append_luaopt_if_present z2k-range-rand.lua
-		append_luaopt_if_present z2k-modern-core.lua
-		append_luaopt_if_present z2k-detectors.lua
-		append_luaopt_if_present z2k-state-persist.lua
-		[ -n "$LUAOPT" ] || return 1
 		_tmp_init="${INIT}.z2m-align"
 		sed "s|^LUAOPT=.*|LUAOPT=\"$LUAOPT\"|" "$INIT" > "$_tmp_init"
 		chmod 0644 "$_tmp_init"
 		mv -f "$_tmp_init" "$INIT"
-		# Ensure canonical Z2M state path is visible to the upstream persistence layer.
-		if grep -q 'LUA_Z2K_STATE_PERSIST=' "$INIT" && ! grep -q 'LUA_Z2M_POLICY' "$INIT"; then
-			sed -i '/^LUA_Z2K_STATE_PERSIST=/i LUA_Z2M_POLICY="$ZAPRET_BASE\/lua\/z2m-autocircular-policy.lua"\n[ -f "$LUA_Z2M_POLICY" ] \&\& LUAOPT="$LUAOPT --lua-init=@$LUA_Z2M_POLICY"' "$INIT"
-		fi
 		if ! grep -q 'Z2K_STATE_DIR_OVERRIDE' "$INIT"; then
 			sed -i '/^LUAOPT=/i export Z2K_STATE_DIR_OVERRIDE=\/etc\/zapret2-manager\/state\/autocircular' "$INIT"
-			sed -i '/^LUA_Z2K_STATE_PERSIST=/i export Z2K_STATE_DIR_OVERRIDE=\/etc\/zapret2-manager\/state\/autocircular' "$INIT"
 		fi
 	done
 }
@@ -124,7 +123,7 @@ align_luaopt() {
 activation_rollback() {
 	_records="$ACTIVATION_SNAPSHOT"
 	_backup_dir="${ACTIVATION_SNAPSHOT}.files"
-	if activation_restore "$_records" "$_backup_dir" && align_luaopt; then
+	if activation_restore "$_records" "$_backup_dir"; then
 		printf '{"ok":true,"rolledBack":true}\n'
 		return 0
 	fi
@@ -142,15 +141,42 @@ activation() {
 	mkdir -p "$_stage" "$_backup_dir" || { rm -rf "$_tmp"; return 1; }
 	: > "$_records"
 	_index=0
-	while IFS='|' read -r _kind _id _type _source _target _sha _size; do
+	_lua_spec="$_tmp/lua-init"
+	: > "$_lua_spec"
+	while IFS='|' read -r _kind _id _type _entry_kind _source _target _sha _size; do
 		case "$_kind" in ''|'#') continue ;; esac
+		# Normalize the legacy seven-field direct spec before validation. It is
+		# retained only as a compatibility seam; resolver output is eight fields.
+		if [ "$_kind" = ASSET ] && [ -z "$_size" ] && printf '%s' "$_sha" | grep -Eq '^[0-9]+$'; then
+			_size=$_sha; _sha=$_target; _target=$_source; _source=$_entry_kind; _entry_kind=$_type; _type=lifecycle-managed
+		elif [ "$_kind" = REMOVE ] && [ -z "$_entry_kind" ] && [ -z "$_target" ] && [ -n "$_source" ]; then
+			_target=$_source; _source=''; _entry_kind=$_type; _type=lifecycle-managed
+		fi
+		if [ "$_kind" = SNAPSHOT ]; then
+			[ -n "$_id" ] && [ -n "$_type" ] && [ -n "$_entry_kind" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			continue
+		fi
+		if [ "$_kind" = LUA_INIT ]; then
+			printf 'LUA_INIT|%s|%s|%s|%s|%s|%s|%s\n' "$_id" "$_type" "$_entry_kind" "$_source" "$_target" "$_sha" "$_size" >> "$_lua_spec"
+			continue
+		fi
+		if [ "$_type" = lifecycle-managed ]; then
+			case "$_target" in /runtime-assets/*) : ;; *) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
+		elif [ "$_type" = package-static ]; then
+			case "$_source" in "$PACKAGE_ROOT"/*) : ;; *) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
+			case "$_target" in /opt/zapret2/*|/runtime-assets/*) : ;; *) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
+		else
+			rm -rf "$_tmp"; rm -f "$_records"; return 1
+		fi
 		runtime_target_rel "$_target" || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
 		_dest="$BASE/$RUNTIME_TARGET_REL"
 		if [ "$_kind" = ASSET ]; then
-			case "$_source" in
-				"$ASSET_ROOT"/*) : ;;
+			case "$_type" in
+				lifecycle-managed) case "$_source" in "$ASSET_ROOT"/*) : ;; *) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac ;;
+				package-static) case "$_source" in "$PACKAGE_ROOT"/*) : ;; *) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac ;;
 				*) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;;
 			esac
+			case "$_source" in *..*|*\\*) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
 			case "$_sha" in ''|*[!A-Fa-f0-9]*) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
 			[ "${#_sha}" -eq 64 ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
 			[ -f "$_source" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
@@ -162,6 +188,7 @@ activation() {
 			printf '%s|%s|%s|%s\n' ASSET "$_dest" "$_stage_file" "$_index" >> "$_tmp/plan"
 		else
 			[ "$_kind" = REMOVE ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
+			[ "$_type" = lifecycle-managed ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
 			printf '%s|%s|%s|%s\n' REMOVE "$_dest" "$_dest" "$_index" >> "$_tmp/plan"
 		fi
 		_index=$((_index + 1))
@@ -188,7 +215,7 @@ activation() {
 	# Publish each prepared file with rename semantics.  Fault injection is a
 	# test-only hook; the EXIT trap restores the snapshot on any failed commit.
 	committed=0
-	trap 'rc=$?; if [ "$rc" -ne 0 ]; then activation_restore "${ACTIVATION_SNAPSHOT}.new" "${ACTIVATION_SNAPSHOT}.files" || true; align_luaopt || true; fi; rm -rf "$_tmp"; rm -f "${ACTIVATION_SNAPSHOT}.new"; exit "$rc"' EXIT HUP INT TERM
+	trap 'rc=$?; if [ "$rc" -ne 0 ]; then activation_restore "${ACTIVATION_SNAPSHOT}.new" "${ACTIVATION_SNAPSHOT}.files" || true; fi; rm -rf "$_tmp"; rm -f "${ACTIVATION_SNAPSHOT}.new"; exit "$rc"' EXIT HUP INT TERM
 	while IFS='|' read -r _op _dest _payload _n; do
 		if [ "${Z2M_TEST_FAIL_AFTER:--1}" -ge 0 ] && [ "$_n" -ge "${Z2M_TEST_FAIL_AFTER:--1}" ]; then
 			return 1
@@ -203,17 +230,46 @@ activation() {
 			mv -f "$_tmp_dest" "$_dest"
 		fi
 		committed=$((_n + 1))
-	done < "$_tmp/plan"
-	align_luaopt || return 1
+		done < "$_tmp/plan"
+	if [ -s "$_lua_spec" ]; then
+		for INIT in "$BASE/init.d/openwrt/zapret2" /etc/init.d/zapret2; do
+			[ -f "$INIT" ] || continue
+			grep -q '^LUAOPT=' "$INIT" || continue
+			_init_backup="$_backup_dir/init-$committed"
+			cp "$INIT" "$_init_backup" || return 1
+			printf '%s|%s|1\n' "$INIT" "$_init_backup" >> "$_records"
+			committed=$((committed + 1))
+		done
+		align_luaopt "$_lua_spec" || return 1
+	fi
 	mv -f "$_records" "$ACTIVATION_SNAPSHOT"
 	trap - EXIT HUP INT TERM
 	rm -rf "$_tmp"
 	printf '{"ok":true,"activated":%s,"snapshot":"%s"}\n' "$committed" "$ACTIVATION_SNAPSHOT"
 }
 
+activate_resolved() {
+	_consumer="$1"
+	_input="$2"
+	_tmp="$(mktemp -d /tmp/z2m-z2k-resolve.XXXXXX 2>/dev/null)" || return 1
+	_spec="$_tmp/activation.tsv"
+	_ucode=${Z2M_UCODE_BIN:-/usr/bin/ucode}
+	_cli=${Z2M_RUNTIME_COMPOSITION_CLI:-/usr/libexec/zapret2-manager/runtime-composition-cli.uc}
+	"$_ucode" "$_cli" "$_consumer" "$_input" activation-tsv > "$_spec" || { rm -rf "$_tmp"; return 1; }
+	[ -s "$_spec" ] || { rm -rf "$_tmp"; return 1; }
+	activation "$_spec"
+	_rc=$?
+	rm -rf "$_tmp"
+	return "$_rc"
+}
+
 case "${1:-}" in
 	--activate-registry)
 		activation "${2:-}"
+		exit $?
+		;;
+	--activate-resolved)
+		activate_resolved "${2:-}" "${3:-}"
 		exit $?
 		;;
 	--rollback-registry)
@@ -262,12 +318,10 @@ if [ "$(id -u)" = "0" ]; then
 	chmod 0660 "$STATE_DIR/state.tsv"
 fi
 
-CORE_LUA='zapret-lib.lua zapret-antidpi.lua zapret-auto.lua zapret-obfs.lua zapret-pcap.lua zapret-tests.lua'
+PREFLIGHT_MANIFEST=${Z2M_PREFLIGHT_MANIFEST:-/usr/share/zapret2-manager/native-preflight.json}
 is_core_lua() {
-	for name in $CORE_LUA; do
-		[ "$1" = "$name" ] && return 0
-	done
-	return 1
+	[ -f "$PREFLIGHT_MANIFEST" ] || return 1
+	grep -Fq "/lua/$1\"" "$PREFLIGHT_MANIFEST"
 }
 
 # Z2K lifecycle Lua uses a reserved namespace in the package.  This is only a
@@ -396,11 +450,12 @@ case "${1:-}" in
 	;;
 '')
 	materialize
-	align_luaopt
+	# LuaOPT is changed only by a resolver-backed activation. Package baseline
+	# synchronization has no lifecycle snapshot and must not infer a load set.
 	exit 0
 	;;
 *)
-	printf 'usage: %s [--verify]\n' "$0" >&2
+	printf 'usage: %s [--verify|--activate-resolved consumer input]\n' "$0" >&2
 	exit 2
 	;;
 esac
