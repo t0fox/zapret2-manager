@@ -431,6 +431,33 @@ function changes_between(current, previous, map) {
 	return managed_change_set(known, sort_change_items(modifiedItems), sort_change_items(addedItems), sort_change_items(removedItems), now.unknown);
 }
 export const z2k_managed_delta = function(current, previous, map) { return changes_between(current, previous, map); };
+function target_plan_item(items, path) {
+	for (let i = 0; i < length(items || []); i++) if (items[i] && items[i].sourcePath == path) return items[i];
+	return null;
+}
+function target_plan_contains_path(paths, path) {
+	for (let i = 0; i < length(paths || []); i++) if (paths[i] == path) return true;
+	return false;
+}
+function device_changes_from_plan(targetPlan, membership) {
+	if (!object(targetPlan) || targetPlan.ok !== true || !object(membership)) return managed_change_set(false, [], [], [], []);
+	let modifiedItems = [], addedItems = [], planned = targetPlan.updateItems || [];
+	for (let i = 0; i < length(membership.assets || []); i++) {
+		let asset = membership.assets[i], planItem = target_plan_item(planned, asset.sourcePath);
+		// Keep compatibility with a planner result produced before updateItems existed;
+		// the canonical update path still comes from targetPlan.updates.
+		if (planItem == null && !target_plan_contains_path(targetPlan.updates, asset.sourcePath)) continue;
+		if (planItem == null) planItem = { currentSha256: null, targetSha256: asset.sha256, action: 'modified' };
+		let item = change_item(asset);
+		item.currentSha256 = planItem.currentSha256 || null;
+		item.targetSha256 = planItem.targetSha256 || asset.sha256;
+		if (planItem.action == 'added') push(addedItems, item); else push(modifiedItems, item);
+	}
+	return managed_change_set(true, sort_change_items(modifiedItems), sort_change_items(addedItems), [], []);
+}
+function change_payload(changeSet) {
+	return { known: changeSet.known, modified: changeSet.modified, added: changeSet.added, removed: changeSet.removed, modifiedPaths: changeSet.modifiedPaths, addedPaths: changeSet.addedPaths, removedPaths: changeSet.removedPaths, modifiedItems: changeSet.modifiedItems, addedItems: changeSet.addedItems, removedItems: changeSet.removedItems, compareContext: changeSet.compareContext, managedPaths: changeSet.managedPaths, unknown: changeSet.unknown };
+}
 function immutable_manifest_explanation(current, path, action) {
 	let entry = current && object(current.changes) ? current.changes[path] : null;
 	return object(entry) && entry.action == action && valid_summary(entry.summary) ? { summary: entry.summary, summarySource: 'immutable-manifest', explanation: { source: 'immutable-manifest', commitSha: null, commitSubject: null, excerpts: [entry.summary], excerptIndexes: [], fullMessageAvailable: false, relation: 'exact-path' } } : null;
@@ -526,22 +553,30 @@ export const z2k_version_details = function(version, options) {
 	if (parse_release(version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
 	let catalog = z2k_versions(); if (!catalog.ok) return catalog; let row = target_release(version, catalog.versions); if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.');
 	let emptyChanges = { known: false, modified: null, added: null, removed: null, changedPaths: [], upstreamChangedPaths: [], modifiedPaths: [], addedPaths: [], removedPaths: [], modifiedItems: [], addedItems: [], removedItems: [], managedPaths: [], unknown: [] };
-	let resolved = z2k_resolve_version(version); if (!resolved.ok) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: resolved.error && resolved.error.code || 'invalid-manifest', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'unknown', targetBlockingReasons: [], diagnostics: resolved.diagnostics || network_diagnostics('selected-tag') };
+	let resolved = z2k_resolve_version(version); if (!resolved.ok) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: resolved.error && resolved.error.code || 'invalid-manifest', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'unknown', targetBlockingReasons: [], diagnostics: resolved.diagnostics || network_diagnostics('selected-tag') };
 	row.commitSha = resolved.commitSha; row.tagSha = resolved.tagSha; row.publishedAt = resolved.publishedAt || row.publishedAt;
-	let checked = { ok: true, manifest: resolved.manifest, manifestSha256: resolved.manifestSha256 }, map = read_classification(), membership = managed_membership(checked.manifest, map); if (!object(membership) || membership.ok === false) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: membership && membership.error && membership.error.code || 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership && membership.error && membership.error.details && membership.error.details.unknownRelevantPaths || [] } };
-	if (length(membership.unknown)) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership.unknown } };
+	let checked = { ok: true, manifest: resolved.manifest, manifestSha256: resolved.manifestSha256 }, map = read_classification(), membership = managed_membership(checked.manifest, map); if (!object(membership) || membership.ok === false) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: membership && membership.error && membership.error.code || 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership && membership.error && membership.error.details && membership.error.details.unknownRelevantPaths || [] } };
+	if (length(membership.unknown)) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, changes: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership.unknown } };
 	let previous = null, previousVersion = null, installedVersion = installed_release(), operation = target_operation(version, installedVersion); for (let i = 0; i < length(catalog.versions); i++) if (catalog.versions[i].version == version && i + 1 < length(catalog.versions)) { previous = catalog.versions[i + 1]; previousVersion = previous.version; break; }
 	let previousManifest = null; if (previous != null && previous.installable === true) { let old = release_manifest(previous); if (old.ok) previousManifest = old.manifest; }
 	let installedRow = target_release(installedVersion, catalog.versions);
 	let installedManifest = null;
 	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
 	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [];
-	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), compareEvidence = null;
-	if (includeCompare && installChangeSet.known && installedRow != null && valid_sha(installedRow.commitSha) && valid_sha(row.commitSha) && lc(installedRow.commitSha) != lc(row.commitSha)) compareEvidence = fetch_compare_evidence(installedRow.commitSha, row.commitSha);
+	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), compareEvidence = null, installedCommit = installedRow && installedRow.commitSha;
+	// Catalog rows for annotated tags intentionally keep tagSha and defer commit
+	// resolution. Compare is independent from historical manifest availability,
+	// so resolve the installed identity here when the user explicitly requests it.
+	if (includeCompare && installedRow != null && !valid_sha(installedCommit) && valid_sha(installedRow.tagSha) && installedRow.objectType == 'tag') {
+		let resolvedInstalled = resolve_tag_commit(installedVersion, installedRow.tagSha, installedRow.objectType);
+		if (resolvedInstalled != null) installedCommit = resolvedInstalled.commitSha;
+	}
+	if (includeCompare && installedRow != null && valid_sha(installedCommit) && valid_sha(row.commitSha) && lc(installedCommit) != lc(row.commitSha)) compareEvidence = fetch_compare_evidence(installedCommit, row.commitSha);
 	installChangeSet = enrich_change_set(installChangeSet, checked.manifest, compareEvidence);
+	let deviceChangeSet = enrich_change_set(device_changes_from_plan(targetPlan, membership), checked.manifest, compareEvidence);
 	let body = manifest_body(checked.manifest, version) || (releaseChangeSet.known ? fallback_body(releaseChangeSet) : null);
-	let releaseChanges = { known: releaseChangeSet.known, modified: releaseChangeSet.modified, added: releaseChangeSet.added, removed: releaseChangeSet.removed, changedPaths: releaseChangeSet.changedPaths, upstreamChangedPaths: releaseChangeSet.upstreamChangedPaths, managedPaths: releaseChangeSet.managedPaths, unknown: releaseChangeSet.unknown }, installChanges = { known: installChangeSet.known, modified: installChangeSet.modified, added: installChangeSet.added, removed: installChangeSet.removed, modifiedPaths: installChangeSet.modifiedPaths, addedPaths: installChangeSet.addedPaths, removedPaths: installChangeSet.removedPaths, modifiedItems: installChangeSet.modifiedItems, addedItems: installChangeSet.addedItems, removedItems: installChangeSet.removedItems, compareContext: installChangeSet.compareContext, managedPaths: installChangeSet.managedPaths, unknown: installChangeSet.unknown };
-	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, releaseChanges: releaseChanges, installChanges: installChanges, changes: installChanges, compareUrl: previousVersion ? 'https://github.com/' + REPOSITORY + '/compare/' + previousVersion + '...' + version : null, compareDiagnostics: { requested: includeCompare, requestCount: COMPARE_REQUEST_COUNT, cache: includeCompare ? COMPARE_CACHE_STATE : 'not-requested' }, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets, diagnostics: network_diagnostics('selected-tag') };
+	let releaseChanges = { known: releaseChangeSet.known, modified: releaseChangeSet.modified, added: releaseChangeSet.added, removed: releaseChangeSet.removed, changedPaths: releaseChangeSet.changedPaths, upstreamChangedPaths: releaseChangeSet.upstreamChangedPaths, managedPaths: releaseChangeSet.managedPaths, unknown: releaseChangeSet.unknown }, deviceChanges = change_payload(deviceChangeSet), installChanges = deviceChanges, compareBase = installedVersion && installedVersion != version ? installedVersion : previousVersion;
+	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: true, unavailableReason: null, previousVersion: previousVersion, releaseChanges: releaseChanges, deviceChanges: deviceChanges, installChanges: installChanges, changes: deviceChanges, compareUrl: compareBase ? 'https://github.com/' + REPOSITORY + '/compare/' + compareBase + '...' + version : null, compareDiagnostics: { requested: includeCompare, requestCount: COMPARE_REQUEST_COUNT, cache: includeCompare ? COMPARE_CACHE_STATE : 'not-requested' }, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets, diagnostics: network_diagnostics('selected-tag') };
 };
 
 export const z2k_compare_versions = function(left, right) {

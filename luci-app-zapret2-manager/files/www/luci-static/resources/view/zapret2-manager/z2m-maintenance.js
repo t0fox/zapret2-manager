@@ -688,7 +688,7 @@ function z2kOperationLabel(operation, version) {
   return _('Действие недоступно');
 }
 function z2kChangeSummary(details) {
-  var changes = details && (details.installChanges || details.changes) || {};
+  var changes = details && (details.deviceChanges || details.installChanges || details.changes) || {};
   if (changes.known === false) return _('История установленной версии не подтверждена.');
   var parts = [];
   if (changes.modified) parts.push(_('Обновится') + ' ' + changes.modified);
@@ -1197,7 +1197,7 @@ function renderZ2KReleasePanel(ctx, component) {
   var transition = z2kTransition(component, selected, operation, targetRelease);
   var compare = selected.compareUrl ? E('a', { href: selected.compareUrl, target: '_blank', rel: 'noreferrer', 'class': 'z2m-z2k-release-compare' }, _('Сравнить upstream изменения ↗')) : null;
   var body = String(selected.releaseBody || '').trim();
-  var changes = selected.installChanges || selected.changes || {};
+  var changes = selected.deviceChanges || selected.installChanges || selected.changes || {};
   var changeCount = Number(changes.modified || 0) + Number(changes.added || 0) + Number(changes.removed || 0);
   var hasDeviceDetails = !unavailable && changes.known === true && (changeCount > 0 || operation === 'reinstall');
   var releaseHeadingId = 'z2m-z2k-release-heading';

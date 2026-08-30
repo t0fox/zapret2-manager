@@ -1540,6 +1540,12 @@ function unbindWorkspaceResize() {
   var resize = state.modalResize; if (!resize) return;
   document.removeEventListener('mousemove', resize.move); document.removeEventListener('mouseup', resize.up); if (resize.handle) resize.handle.removeEventListener('mousedown', resize.down); state.modalResize = null;
 }
+function cleanupStrategyEditorHeader(headerActions) {
+  if (!headerActions) return;
+  Array.prototype.slice.call(headerActions.children).forEach(function (child) {
+    if (child.classList.contains('editor-actions') || child.classList.contains('strategy-editor-inspector-toggle') || child.dataset.editorHeaderOwned === 'true') child.remove();
+  });
+}
 function bindWorkspaceResize(strategy) {
   unbindWorkspaceResize();
   var modal = state.root && state.root.querySelector('#strategy-modal .modal-content'); if (!modal) return;
@@ -1562,12 +1568,27 @@ function applyEditorWorkspaceClasses() {
   if (modal) modal.classList.toggle('is-maximized', !!state.editorMaximized);
   if (layout) layout.classList.toggle('sidebar-collapsed', !!state.editorSidebarCollapsed);
   var toggle = state.root && state.root.querySelector('[data-action="toggleEditorSidebar"]');
-  if (toggle) { toggle.textContent = state.editorSidebarCollapsed ? 'Показать подсказки' : 'Скрыть подсказки'; toggle.setAttribute('aria-expanded', state.editorSidebarCollapsed ? 'false' : 'true'); }
+  if (toggle) {
+    toggle.textContent = state.editorSidebarCollapsed ? 'Показать инспектор' : 'Скрыть инспектор';
+    toggle.setAttribute('aria-label', toggle.textContent);
+    toggle.setAttribute('aria-expanded', state.editorSidebarCollapsed ? 'false' : 'true');
+    toggle.setAttribute('aria-controls', 'editor-sidepanel');
+  }
   var maximize = state.root && state.root.querySelector('[data-action="toggleWorkspaceMaximize"]');
   if (maximize) { maximize.textContent = state.editorMaximized ? '⛶' : '⛶'; maximize.title = state.editorMaximized ? 'Восстановить размер' : 'Развернуть'; maximize.setAttribute('aria-label', maximize.title); }
 }
 function toggleWorkspaceMaximize() { state.editorMaximized = !state.editorMaximized; applyEditorWorkspaceClasses(); }
 function toggleEditorSidebar() { state.editorSidebarCollapsed = !state.editorSidebarCollapsed; applyEditorWorkspaceClasses(); }
+function toggleEditorPreview() {
+  var panel = state.root && state.root.querySelector('[data-editor-preview-panel]');
+  var output = panel && panel.querySelector('[data-editor-preview-host]');
+  var button = panel && panel.querySelector('[data-action="toggleEditorPreview"]');
+  if (!panel || !output || !button) return;
+  var collapsed = panel.classList.toggle('is-collapsed');
+  output.hidden = collapsed;
+  button.textContent = collapsed ? 'Развернуть' : 'Свернуть';
+  button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+}
 function scheduleAfterPaint(fn) {
   if (typeof window !== 'undefined' && window.requestAnimationFrame) {
     return window.requestAnimationFrame(function () { window.requestAnimationFrame(fn); });
@@ -1592,6 +1613,8 @@ function resetStrategyEditorRuntime() {
   state.editorMaximized = false;
   state.editorSidebarCollapsed = false;
   var modal = state.root && state.root.querySelector('#strategy-modal');
+  var header = modal && modal.querySelector('.modal-header');
+  cleanupStrategyEditorHeader(header && (header.querySelector('.modal-header-actions') || header));
   if (modal) modal.style.display = 'none';
   var body = state.root && state.root.querySelector('#modal-body');
   if (body) body.innerHTML = '';
@@ -1606,6 +1629,7 @@ function recoverStrategyEditorFailure(error) {
 function composeStrategyIdeLayout(body, headerActions) {
   var layout = body && body.querySelector('.strat-editor-layout');
   if (!layout) return null;
+  cleanupStrategyEditorHeader(headerActions);
   var main = layout.querySelector('.strat-editor-main');
   var side = layout.querySelector('.strat-editor-side');
   if (!main || !side) return layout;
@@ -1615,6 +1639,7 @@ function composeStrategyIdeLayout(body, headerActions) {
   var editorHost = body.querySelector('[data-editor-editor-host]');
   var validationHost = body.querySelector('[data-editor-validation-host]');
   var previewHost = body.querySelector('[data-editor-preview-host]');
+  var previewPanel = body.querySelector('[data-editor-preview-panel]');
   var actionsHost = body.querySelector('[data-editor-actions-host]');
   var provenance = main.querySelector('.strategy-editor-provenance');
   var codeHeader = main.querySelector('.strategy-editor-code-header');
@@ -1625,7 +1650,7 @@ function composeStrategyIdeLayout(body, headerActions) {
   sidebar.setAttribute('aria-label', 'Навигация стратегии');
   var sidebarTitle = document.createElement('div');
   sidebarTitle.className = 'strategy-editor-sidebar-title';
-  sidebarTitle.innerHTML = '<span class="strategy-editor-side-kicker">Стратегия</span><strong>Профили</strong>';
+  sidebarTitle.innerHTML = '<span class="strategy-editor-side-kicker">Стратегия</span>';
   sidebar.appendChild(sidebarTitle);
   if (provenance) sidebar.appendChild(provenance);
   if (fieldsHost) sidebar.appendChild(fieldsHost);
@@ -1646,8 +1671,13 @@ function composeStrategyIdeLayout(body, headerActions) {
   output.className = 'strategy-editor-workspace-output';
   output.setAttribute('data-editor-preview-workspace', 'true');
   output.setAttribute('aria-label', 'Проверка и превью');
+  var outputHeading = document.createElement('div');
+  outputHeading.className = 'strategy-editor-output-heading';
+  outputHeading.innerHTML = '<span class="strategy-editor-code-kicker">Результат</span><strong>Проверка и превью</strong>';
+  output.appendChild(outputHeading);
   if (validationHost) output.appendChild(validationHost);
-  if (previewHost) output.appendChild(previewHost);
+  if (previewPanel) output.appendChild(previewPanel);
+  else if (previewHost) output.appendChild(previewHost);
   workspace.appendChild(output);
   var inspector = document.createElement('aside');
   inspector.className = 'strat-editor-inspector';
@@ -1662,11 +1692,15 @@ function composeStrategyIdeLayout(body, headerActions) {
   status.setAttribute('data-editor-status', 'true');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  status.innerHTML = '<span data-editor-status-local>Локальная диагностика: —</span><span data-editor-status-validation>Проверка: не запускалась</span><span data-editor-status-profiles>Профили: —</span>';
-  if (actionsHost && headerActions) headerActions.insertBefore(actionsHost, headerActions.firstChild);
+  status.innerHTML = '<span data-editor-status-local>Проблемы: —</span><span data-editor-status-validation>○ Сервер не проверен</span><span data-editor-status-dirty>○ Черновик</span><span data-editor-status-profiles>Профили: —</span>';
+  if (actionsHost && headerActions) {
+    actionsHost.dataset.editorHeaderOwned = 'true';
+    headerActions.insertBefore(actionsHost, headerActions.firstChild);
+  }
   var inspectorToggle = inspector.querySelector('[data-action="toggleEditorSidebar"]');
   if (inspectorToggle) {
     inspectorToggle.classList.add('strategy-editor-inspector-toggle');
+    inspectorToggle.dataset.editorHeaderOwned = 'true';
     inspectorToggle.setAttribute('aria-controls', 'editor-sidepanel');
     var toggleAnchor = headerActions && (headerActions.querySelector('[data-action="toggleWorkspaceMaximize"]') || headerActions.querySelector('[data-action="closeModal"]'));
     if (headerActions && toggleAnchor) headerActions.insertBefore(inspectorToggle, toggleAnchor);
@@ -1676,7 +1710,16 @@ function composeStrategyIdeLayout(body, headerActions) {
   layout.replaceChildren(sidebar, workspace, inspector, status);
   return layout;
 }
-function closeModal() { if (!editorCloseAllowed()) return; clearEditorLoadingTimers(); unbindWorkspaceResize(); if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; } var modal = state.root && state.root.querySelector('#strategy-modal'); if (modal) modal.style.display = 'none'; state.editor = null; state.editorLoadingId = null; state.editorMaximized = false; }
+function closeModal() {
+  if (!editorCloseAllowed()) return;
+  clearEditorLoadingTimers(); unbindWorkspaceResize();
+  if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; }
+  var modal = state.root && state.root.querySelector('#strategy-modal');
+  var header = modal && modal.querySelector('.modal-header');
+  cleanupStrategyEditorHeader(header && (header.querySelector('.modal-header-actions') || header));
+  if (modal) modal.style.display = 'none';
+  state.editor = null; state.editorLoadingId = null; state.editorMaximized = false;
+}
 function closePreview() { var modal = state.root && state.root.querySelector('#preview-modal'); if (modal) modal.style.display = 'none'; state.preview = null; }
 function closeConfirm() { var modal = state.root && state.root.querySelector('#strategy-confirm-modal'); if (modal) modal.style.display = 'none'; }
 function renderEditorLoading() {
@@ -1761,6 +1804,59 @@ function collectEditor() {
     state.strategyEditor.flush();
   }
 }
+function clearEditorFieldErrors() {
+  if (!state.root) return;
+  Array.prototype.forEach.call(state.root.querySelectorAll('[data-editor-field-error]'), function (error) { error.remove(); });
+  Array.prototype.forEach.call(state.root.querySelectorAll('#strategy-modal input[aria-invalid="true"]'), function (input) {
+    input.removeAttribute('aria-invalid');
+    input.classList.remove('is-invalid');
+    if (input.getAttribute('aria-describedby') === input.id + '-error') input.removeAttribute('aria-describedby');
+  });
+}
+function markEditorFieldInvalid(input, message) {
+  if (!input) return;
+  input.setAttribute('aria-invalid', 'true');
+  input.classList.add('is-invalid');
+  var label = input.parentNode;
+  if (!label) return;
+  var errorId = input.id + '-error';
+  var error = label.querySelector('[data-editor-field-error]');
+  if (!error) {
+    error = input.ownerDocument.createElement('span');
+    error.className = 'strategy-editor-field-error';
+    error.dataset.editorFieldError = 'true';
+    label.appendChild(error);
+  }
+  error.id = errorId;
+  error.textContent = message;
+  input.setAttribute('aria-describedby', errorId);
+}
+function validateEditorForm(strategy) {
+  clearEditorFieldErrors();
+  var firstInvalid = null;
+  [['edit-id', strategy.id, 'Укажите ID стратегии'], ['edit-name', strategy.name, 'Укажите название стратегии']].forEach(function (item) {
+    var input = state.root && state.root.querySelector('#strategy-modal #' + item[0]);
+    if (text(item[1]).trim()) return;
+    markEditorFieldInvalid(input, item[2]);
+    if (!firstInvalid) firstInvalid = input;
+  });
+  if (!strategy.profiles.length) {
+    var profiles = state.root && state.root.querySelector('#strategy-modal [data-editor-profiles-host]');
+    if (profiles) {
+      var error = profiles.querySelector('[data-editor-field-error]');
+      if (!error) {
+        error = profiles.ownerDocument.createElement('p');
+        error.className = 'strategy-editor-field-error';
+        error.dataset.editorFieldError = 'true';
+        profiles.appendChild(error);
+      }
+      error.textContent = 'Добавьте хотя бы один профиль.';
+    }
+    if (!firstInvalid && profiles) firstInvalid = profiles.querySelector('button, input');
+  }
+  if (firstInvalid && typeof firstInvalid.focus === 'function') firstInvalid.focus();
+  return !firstInvalid;
+}
 function renderEditorForm() {
   if (!state.editor) return;
   state.editor.onSemanticChange = editorSemanticChange;
@@ -1777,8 +1873,9 @@ function renderEditorForm() {
   }
   var strategy = state.editor.strategy, header = modal && modal.querySelector('.modal-header');
   var headerActions = header && (header.querySelector('.modal-header-actions') || header);
+  cleanupStrategyEditorHeader(headerActions);
   var title = modal && modal.querySelector('.modal-title');
-  if (title) title.textContent = state.editor.mode === 'edit' ? 'Редактировать стратегию' : 'Стратегия';
+  if (title) title.textContent = state.editor.mode === 'edit' ? (text(strategy.name) || 'Редактировать стратегию') : 'Новая стратегия';
   if (header && !header.querySelector('[data-action="toggleWorkspaceMaximize"]')) {
     var maximize = document.createElement('button');
     maximize.type = 'button';
@@ -1790,7 +1887,7 @@ function renderEditorForm() {
     headerActions.insertBefore(maximize, headerActions.querySelector('[data-action="closeModal"]'));
   }
   try {
-    body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><section class="strategy-editor-section strategy-editor-details" aria-labelledby="strategy-editor-details-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-details-title">Основные данные</h4><p>Идентификатор и описание, которые видны в каталоге.</p></div><span class="strategy-editor-section-step">01</span></div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-visual-host" data-editor-visual-host></div></section><section class="strategy-editor-section strategy-editor-profile-section" aria-labelledby="strategy-editor-profiles-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-profiles-title">Профили и аргументы</h4><p>Выберите профиль, затем настройте его визуально или в коде.</p></div><span class="strategy-editor-section-step">02</span></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-header"><div><span class="strategy-editor-code-kicker">Рабочая область</span><h4>Аргументы nfqws2</h4></div><span class="strategy-editor-code-hint">profile.args — источник истины</span></div><div class="strategy-editor-code-pane" data-editor-editor-host></div></section><section class="strategy-editor-section strategy-editor-results-section" aria-labelledby="strategy-editor-results-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-results-title">Проверка и превью</h4><p>Локальная диагностика отображается сразу; серверная проверка обязательна перед применением.</p></div><span class="strategy-editor-section-step">03</span></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host aria-live="polite"></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host aria-live="polite" style="display:none"></div></section><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><div><span class="strategy-editor-side-kicker">Контекст</span><strong>Инспектор</strong></div><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть подсказки</button></div><section class="nfq-side-card token-help" aria-labelledby="strategy-editor-inspector-title"><h4 class="editor-side-title" id="strategy-editor-inspector-title">Подсказка по синтаксису</h4><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></section><section class="nfq-side-card strategy-editor-problems-card" data-editor-problems-host aria-live="polite"></section></aside></div>';
+    body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><section class="strategy-editor-section strategy-editor-details" aria-labelledby="strategy-editor-details-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-details-title">Основные данные</h4><p>Идентификатор и описание, которые видны в каталоге.</p></div><span class="strategy-editor-section-step">01</span></div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-visual-host" data-editor-visual-host></div></section><section class="strategy-editor-section strategy-editor-profile-section" aria-labelledby="strategy-editor-profiles-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-profiles-title">Профили</h4><p>Выберите профиль и настройте его параметры.</p></div><span class="strategy-editor-section-step">02</span></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-header"><div><span class="strategy-editor-code-kicker">Рабочая область</span><h4>Аргументы nfqws2</h4></div><span class="strategy-editor-code-hint">Аргументы активного профиля</span></div><div class="strategy-editor-code-pane" data-editor-editor-host></div></section><section class="strategy-editor-section strategy-editor-results-section" aria-labelledby="strategy-editor-results-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-results-title">Проверка и превью</h4><p>Локальные проблемы видны сразу; перед сохранением можно запустить серверную проверку.</p></div><span class="strategy-editor-section-step">03</span></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host aria-live="polite"></div><div class="strategy-editor-preview-panel" data-editor-preview-panel><div class="strategy-editor-preview-header"><div><span class="strategy-editor-code-kicker">Команда</span><strong>Превью выполнения</strong></div><div class="strategy-editor-preview-actions"><div data-editor-preview-actions-host></div><button class="btn btn-ghost btn-sm" type="button" data-action="toggleEditorPreview" aria-expanded="true">Свернуть</button></div></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host aria-live="polite" style="display:none"></div></div></section><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><div><span class="strategy-editor-side-kicker">Контекст</span><strong>Инспектор</strong></div><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть инспектор</button></div><section class="nfq-side-card token-help" aria-labelledby="strategy-editor-inspector-title"><h4 class="editor-side-title" id="strategy-editor-inspector-title">Подсказка по синтаксису</h4><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></section><section class="nfq-side-card strategy-editor-problems-card" data-editor-problems-host aria-live="polite"></section></aside></div>';
     var actionsHost = body.querySelector('[data-editor-actions-host]');
     composeStrategyIdeLayout(body, headerActions);
     state.editor.onSave = saveEditor;
@@ -1801,6 +1898,7 @@ function renderEditorForm() {
       editorHost: body.querySelector('[data-editor-editor-host]'),
       validationHost: body.querySelector('[data-editor-validation-host]'),
       previewHost: body.querySelector('[data-editor-preview-host]'),
+      previewActionsHost: body.querySelector('[data-editor-preview-actions-host]'),
       actionsHost: actionsHost,
       workspaceHeaderHost: body.querySelector('[data-editor-workspace-header]'),
       statusHost: body.querySelector('[data-editor-status]'),
@@ -1818,28 +1916,46 @@ function editorDraft() { collectEditor(); return strategyInput(state.editor.stra
 function editorSemanticChange() {
   if (!state.editor) return;
   refreshEditorValidation(state.editor, editorDraft());
+  renderEditorDocumentIdentity();
   renderEditorStatus();
+}
+function renderEditorDocumentIdentity() {
+  if (!state.editor || !state.root) return;
+  var modal = state.root.querySelector('#strategy-modal');
+  var title = modal && modal.querySelector('.modal-title');
+  var status = modal && modal.querySelector('[data-editor-document-status]');
+  var validation = editorValidationState(state.editor);
+  if (title) title.textContent = state.editor.mode === 'edit' ? (text(state.editor.strategy && state.editor.strategy.name) || 'Редактировать стратегию') : 'Новая стратегия';
+  if (status) {
+    status.textContent = state.editor.dirty ? 'Не сохранено' : validation.status === 'current' ? 'Проверено' : 'Черновик';
+    status.dataset.state = state.editor.dirty ? 'dirty' : validation.status;
+  }
 }
 function renderEditorStatus() {
   if (!state.editor || !state.root) return;
+  renderEditorDocumentIdentity();
   var host = state.root.querySelector('[data-editor-status]');
   if (!host) return;
   var profiles = array(state.editor.strategy && state.editor.strategy.profiles), localCount = 0;
   profiles.forEach(function (profile) { localCount += array(Nfqws2Ide.diagnostics(text(profile && profile.args))).length; });
   var validation = editorValidationState(state.editor), labels = {
-    'not-checked': 'Проверка: не запускалась',
-    validating: 'Проверка: выполняется…',
-    current: 'Проверка: актуальна',
-    outdated: 'Проверка: устарела — черновик изменён',
-    failed: 'Проверка: ошибка',
+    'not-checked': '○ Сервер не проверен',
+    validating: '◌ Серверная проверка…',
+    current: '● Проверка сервера актуальна',
+    outdated: '○ Требуется повторная проверка',
+    failed: '! Серверная проверка не пройдена',
   };
-  var active = profiles[state.strategyEditor && state.strategyEditor.getActiveIndex ? state.strategyEditor.getActiveIndex() : 0];
   var local = host.querySelector('[data-editor-status-local]');
   var validationNode = host.querySelector('[data-editor-status-validation]');
+  var dirtyNode = host.querySelector('[data-editor-status-dirty]');
   var profileNode = host.querySelector('[data-editor-status-profiles]');
-  if (local) local.textContent = localCount ? 'Локальная диагностика: ' + String(localCount) + ' проблем' : 'Локальная диагностика: OK';
+  if (local) local.textContent = localCount ? '⚠ Проблемы: ' + String(localCount) : 'Проблемы: 0';
   if (validationNode) validationNode.textContent = labels[validation.status] || labels['not-checked'];
-  if (profileNode) profileNode.textContent = 'Профили: ' + String(profiles.length) + (active ? ' · активен: ' + text(active.name || 'без имени') : '');
+  if (dirtyNode) {
+    dirtyNode.textContent = state.editor.dirty ? '● Не сохранено' : '○ Черновик';
+    dirtyNode.dataset.state = state.editor.dirty ? 'dirty' : 'clean';
+  }
+  if (profileNode) profileNode.textContent = 'Профили: ' + String(profiles.length);
   host.dataset.validationStatus = validation.status;
   host.dataset.localProblemCount = String(localCount);
 }
@@ -1990,7 +2106,7 @@ function saveEditor() {
   var editor = state.editor;
   collectEditor();
   var strategy = state.editor.strategy;
-  if (!strategy.id || !strategy.name || !strategy.profiles.length) { notify('err', 'Укажите ID, название и хотя бы один профиль'); return; }
+  if (!validateEditorForm(strategy)) { notify('err', 'Заполните обязательные поля перед сохранением'); return; }
   var localErrors = [];
   strategy.profiles.forEach(function (profile, index) { Nfqws2Ide.diagnostics(profile.args).forEach(function (item) { if (item.severity === 'error') localErrors.push('profiles[' + index + ']: ' + item.message); }); });
   if (localErrors.length) { notify('err', 'Исправьте ошибки IDE: ' + localErrors[0]); return; }
@@ -2032,6 +2148,7 @@ function onClick(event) {
   else if (action === 'retryEditorLoad') retryEditorLoad(id);
   else if (action === 'toggleWorkspaceMaximize') toggleWorkspaceMaximize();
   else if (action === 'toggleEditorSidebar') toggleEditorSidebar();
+  else if (action === 'toggleEditorPreview') toggleEditorPreview();
   else if (action === 'saveEditor') saveEditor();
   else if (action === 'editorValidate') validateEditor();
   else if (action === 'editorTest') testEditor();
@@ -2086,7 +2203,7 @@ function unbindEvents() { if (!state.root) return; state.root.removeEventListene
 function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
-  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div><div class="z2m-catalog-progress-timer" style="display:none"></div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><div class="modal-title-block"><span class="modal-eyebrow">Strategy IDE</span><h3 class="modal-title">Стратегия</h3></div><div class="modal-header-actions"><button class="modal-close" data-action="closeModal" aria-label="Закрыть редактор стратегии" title="Закрыть">×</button></div></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview" aria-label="Закрыть превью" title="Закрыть">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal" aria-label="Закрыть список выученных стратегий" title="Закрыть">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker" aria-label="Закрыть выбор стратегии" title="Закрыть">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div><div class="z2m-catalog-progress-timer" style="display:none"></div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><div class="modal-title-block"><span class="modal-eyebrow">Strategy IDE</span><h3 class="modal-title">Стратегия</h3><span class="editor-document-status" data-editor-document-status>Черновик</span></div><div class="modal-header-actions"><button class="modal-close" data-action="closeModal" aria-label="Закрыть редактор стратегии" title="Закрыть">×</button></div></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview" aria-label="Закрыть превью" title="Закрыть">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal" aria-label="Закрыть список выученных стратегий" title="Закрыть">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker" aria-label="Закрыть выбор стратегии" title="Закрыть">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
   var workspace = document.createElement('div');
   workspace.className = 'strategies-workspace';
   var firstWorkspaceNode = root.querySelector('.catalog-summary-card');

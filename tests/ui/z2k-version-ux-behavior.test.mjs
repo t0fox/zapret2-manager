@@ -9,10 +9,12 @@ const maintenancePath = path.join(root, 'luci-app-zapret2-manager/files/www/luci
 const modelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js');
 const apiPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 const presentationPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-update-presentation.js');
+const versionsPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
 const maintenanceSource = fs.readFileSync(maintenancePath, 'utf8');
 const modelSource = fs.readFileSync(modelPath, 'utf8');
 const apiSource = fs.readFileSync(apiPath, 'utf8');
 const presentationSource = fs.readFileSync(presentationPath, 'utf8');
+const versionsSource = fs.readFileSync(versionsPath, 'utf8');
 
 function vnode(tag, attrs, children) {
   const list = Array.isArray(children) ? children : children === undefined || children === null ? [] : [children];
@@ -534,4 +536,40 @@ test('structured evidence presentation does not fall back to a per-row flattened
   assert.match(maintenanceSource, /z2m-z2k-change-evidence-group/);
   assert.match(maintenanceSource, /fullMessageAvailable/);
   assert.doesNotMatch(maintenanceSource, /item\.summary \|\| z2kManagedChangeFallback/);
+});
+
+test('device plan remains visible when historical release manifest is unavailable', () => {
+  const internals = loadMaintenance();
+  const z2k = z2kRaw({
+    installedVersion: 'r-79.7',
+    selectedVersion: 'r-80.3',
+    installChanges: { known: false, modified: null, added: null, removed: null },
+    changes: { known: false, modified: null, added: null, removed: null },
+  });
+  z2k.selectedDetails.deviceChanges = {
+    known: true,
+    modified: 1,
+    added: 1,
+    removed: 0,
+    modifiedItems: [{ id: 'lua:z2k-state-persist', name: 'z2k-state-persist.lua', sourcePath: 'files/lua/z2k-state-persist.lua', type: 'lua' }],
+    addedItems: [{ id: 'blob:discord', name: 'discord.bin', sourcePath: 'files/fake/discord.bin', type: 'blob' }],
+    removedItems: [],
+  };
+  const ctx = makeContext(z2k);
+  renderState(internals, z2k);
+  internals.state.z2kDetailsExpanded = true;
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(rendered);
+
+  assert.match(text, /Что изменится на устройстве/);
+  assert.match(text, /z2k-state-persist\.lua/);
+  assert.match(text, /discord\.bin/);
+  assert.doesNotMatch(text, /История установленной версии не подтверждена/);
+});
+
+test('version details exposes canonical device plan and decouples compare from historical diff', () => {
+  assert.match(versionsSource, /targetPlan\.updateItems/);
+  assert.match(versionsSource, /deviceChanges:/);
+  assert.match(versionsSource, /includeCompare && installedRow != null/);
+  assert.doesNotMatch(versionsSource, /includeCompare && installChangeSet\.known && installedRow/);
 });

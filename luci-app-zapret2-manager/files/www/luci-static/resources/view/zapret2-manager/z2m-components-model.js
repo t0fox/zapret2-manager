@@ -256,6 +256,10 @@ function normalizeZ2kDetails(value) {
   var legacyChanges = value.changes || {};
   var releaseChanges = normalizeChanges(value.releaseChanges || legacyChanges);
   var installChanges = normalizeChanges(value.installChanges || value.changes || value.releaseChanges || {});
+  // deviceChanges is the canonical target-plan projection. Keep the older
+  // installChanges/changes fields as compatibility fallbacks for older RPC
+  // payloads, but never use release history as the preferred device source.
+  var deviceChanges = normalizeChanges(value.deviceChanges || value.installChanges || value.changes || {});
   var compareDiagnostics = value.compareDiagnostics && typeof value.compareDiagnostics === 'object' && !Array.isArray(value.compareDiagnostics)
     ? value.compareDiagnostics : null;
   return {
@@ -275,8 +279,9 @@ function normalizeZ2kDetails(value) {
     targetBlockingReasons: array(value.targetBlockingReasons),
     targetReviewDetails: array(value.targetReviewDetails),
     releaseChanges: releaseChanges,
+    deviceChanges: deviceChanges,
     installChanges: installChanges,
-    changes: installChanges,
+    changes: deviceChanges,
     compareUrl: first(value.compareUrl, null),
     compareDiagnostics: compareDiagnostics ? {
       requested: compareDiagnostics.requested === true,

@@ -56,11 +56,11 @@ test('UX hotfix source has maximize, collapsible context, profile collapse and s
   const page = read('z2m-strategies.js');
   const owner = read('z2m-strategy-editor.js');
   const css = read('z2m-ui.css');
-  for (const marker of ['toggleWorkspaceMaximize', 'toggleEditorSidebar', 'workspace-maximize', 'Скрыть подсказки'])
+  for (const marker of ['toggleWorkspaceMaximize', 'toggleEditorSidebar', 'workspace-maximize', 'Скрыть инспектор'])
     assert.match(page, new RegExp(marker));
-  for (const marker of ['strategy-editor-profile-tabs', 'add-profile', 'remove-profile', 'add-circular-step'])
+  for (const marker of ['strategy-editor-profile-list', 'add-profile', 'remove-profile', 'add-circular-step'])
     assert.match(owner, new RegExp(marker), marker);
-  for (const marker of ['strategy-modal.*display:flex', 'editor-footer.*position:sticky', 'strat-editor-main', 'strat-editor-side.*overflow', 'modal-content.*width:min\\(calc\\(100vw'])
+  for (const marker of ['strategy-modal.*display:flex', 'editor-footer.*position:sticky', 'strat-editor-main', 'strat-editor-inspector', 'overflow:auto', 'modal-content.*width:min\\(calc\\(100vw'])
     assert.match(css, new RegExp(marker));
 });
 

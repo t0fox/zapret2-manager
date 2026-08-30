@@ -159,9 +159,10 @@
     var ctx = contextFor(value, cursor), first = suggestions(ctx, []), item = first[0];
     if (!ctx) return { title: 'Справка по стратегии', text: 'Поставьте курсор на флаг или значение nfqws2.' };
     if (item) return { title: item.text, text: item.description || 'Допустимый элемент nfqws2/Z2K.', category: item.category, source: item.source || null };
-    if (ctx.type === 'subvalue') return { title: ctx.subkey, text: ctx.subkey === 'strategy' ? 'Выбор circular/autocircular стратегии; точная совместимость проверяется сервером.' : 'Значение параметра ' + ctx.subkey + ' в цепочке ' + ctx.functionName + ' проверяется сервером.' };
+    if (ctx.type === 'subvalue') return { title: ctx.subkey, text: ctx.subkey === 'strategy' ? 'Выбор circular/autocircular стратегии; совместимость проверит сервер.' : 'Значение параметра ' + ctx.subkey + ' в цепочке ' + ctx.functionName + ' проверит сервер.', category: 'Параметр цепочки' };
     if (ctx.type === 'file') return { title: 'Asset ' + ctx.fileType, text: 'Выберите файл из canonical Asset Registry; путь не вводится вручную.' };
-    return { title: ctx.flag || ctx.type, text: 'Значение проверяется серверным compiler/validation.' };
+    if (ctx.flag === '--lua-desync') return { title: ctx.flag, text: 'Цепочка Lua/Z2K desync и её параметры. Точное сочетание проверит сервер.', category: 'Lua-цепочка', source: 'nfqws2' };
+    return { title: ctx.flag || ctx.type, text: 'Точное значение проверит сервер перед сохранением.', category: ctx.type };
   }
   function workspaceBounds(viewport) {
     var w = viewport || {}, width = Number(w.width || 960), height = Number(w.height || 720), desktop = width >= 1200;
@@ -261,7 +262,7 @@
       }
     });
     if (fields.desync.length && !fields.hostlists.length && !fields.ipsets.length)
-      diagnostics.push({ severity: 'warn', path: 'fields.hostlists', code: 'missing-target', message: 'Desync не ограничен hostlist/ipset; серверная validation остаётся обязательной' });
+      diagnostics.push({ severity: 'warn', path: 'fields.hostlists', code: 'missing-target', message: 'Desync не ограничен hostlist/ipset; серверная проверка обязательна' });
     if (fields.protocols.indexOf('quic') >= 0) fields.protocols = fields.protocols.filter(function (protocol) { return protocol !== 'udp'; });
     ['tcp', 'udp'].forEach(function (proto) { fields.ports[proto].forEach(function (port) { if (!/^(?:\*|\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$/.test(port)) diagnostics.push({ severity: 'error', path: 'fields.ports.' + proto, code: 'invalid-port', message: 'Некорректный список портов: ' + port }); }); });
     var circular = fields.desync.filter(function (entry) { return entry.name === 'circular'; })[0] || null;

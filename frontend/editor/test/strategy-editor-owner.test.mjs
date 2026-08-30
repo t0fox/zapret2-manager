@@ -127,7 +127,7 @@ test('Strategy owner keeps profile lifecycle and circular edits on canonical pro
   assert.ok(addProfile, 'profile creation should remain available');
   addProfile.click();
   assert.equal(editorState.strategy.profiles.length, 2);
-  assert.equal(hosts.workspaceHeaderHost.querySelector('[data-workspace-profile-name]').textContent, 'Новый профиль');
+  assert.equal(hosts.workspaceHeaderHost.querySelector('[data-workspace-profile-name]').value, 'Новый профиль');
   const removeProfile = hosts.profilesHost.querySelector('[data-editor-action="remove-profile"]');
   assert.ok(removeProfile, 'profile removal should remain available');
   strategyEditor.destroy();
@@ -171,6 +171,37 @@ test('Strategy owner presents diagnostics for every profile without inventing ba
   const serverOnly = problemRows.find(row => row.textContent.includes('server-only detail'));
   assert.ok(serverOnly);
   assert.equal(serverOnly.tagName, 'DIV', 'message-only backend diagnostics must not fabricate a jump target');
+  strategyEditor.destroy();
+});
+
+test('Strategy owner disambiguates duplicate profile labels without changing canonical names', () => {
+  const loaded = loadOwner();
+  const { window } = loaded;
+  const hosts = {};
+  for (const name of ['fieldsHost', 'profilesHost', 'workspaceHeaderHost', 'editorHost', 'validationHost', 'previewHost', 'inspectorHost', 'problemsHost']) {
+    hosts[name] = window.document.createElement('div');
+    window.document.body.appendChild(hosts[name]);
+  }
+  const editorState = {
+    mode: 'edit',
+    viewByProfile: { 0: 'code', 1: 'code' },
+    strategy: {
+      id: 'duplicate-labels', name: 'Duplicate labels', description: '',
+      profiles: [
+        { id: 'p1', name: 'TLS', args: '--filter-tcp=443' },
+        { id: 'p2', name: 'TLS', args: '--filter-tcp=8443' },
+      ],
+    },
+  };
+  const strategyEditor = loaded.owner.create(null, editorState, hosts);
+
+  assert.deepEqual(
+    [...hosts.profilesHost.querySelectorAll('.strategy-editor-profile-button')].map(node => node.childNodes[0].textContent),
+    ['TLS · 1', 'TLS · 2'],
+  );
+  assert.deepEqual(editorState.strategy.profiles.map(profile => profile.name), ['TLS', 'TLS']);
+  strategyEditor.setBackendDiagnostics([{ profileIndex: 1, message: 'backend warning' }]);
+  assert.match(hosts.problemsHost.textContent, /TLS · 2/);
   strategyEditor.destroy();
 });
 

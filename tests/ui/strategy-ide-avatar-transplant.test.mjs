@@ -24,7 +24,7 @@ test('Strategy IDE hotfix keeps the Avatar surface while routing editor ownershi
     'editorPreviewRequest', 'strategyInput', 'strategyDiffHtml', 'StrategyEditor'
   ]) assert.match(PAGE, new RegExp(marker), marker);
   for (const marker of [
-    'CodeEditor', 'Nfqws2Editor', 'strategy-editor-profile-tabs', 'profile-toggle',
+    'CodeEditor', 'Nfqws2Editor', 'strategy-editor-profile-list', 'profile-toggle',
     'data-profile-name', 'editorAction', 'circularBuilder', 'setBackendDiagnostics'
   ]) assert.match(OWNER, new RegExp(marker), marker);
 

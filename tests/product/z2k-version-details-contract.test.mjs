@@ -38,7 +38,8 @@ test('release and install diffs are explicit and compare against different basel
 });
 
 test('release details expose immutable compare identity without leaking raw internals as copy', () => {
-  assert.match(source, /compareUrl:\s*previousVersion\s*\?/);
+  assert.match(source, /compareBase\s*=\s*installedVersion\s*&&\s*installedVersion\s*!=\s*version\s*\?\s*installedVersion\s*:\s*previousVersion/);
+  assert.match(source, /compareUrl:\s*compareBase\s*\?/);
   assert.match(source, /manifestSha256:\s*checked\.manifestSha256/);
   assert.match(source, /commitSha:\s*row\.commitSha/);
   assert.doesNotMatch(source, /releaseBody:\s*.*planToken/);
@@ -61,7 +62,9 @@ test('installChanges exposes grouped managed resource identities without replaci
   assert.match(source, /addedItems:/);
   assert.match(source, /removedItems:/);
   assert.match(source, /releaseChangeSet\.changedPaths/);
-  assert.match(source, /installChangeSet\.modifiedItems/);
+  assert.match(source, /deviceChangeSet/);
+  assert.match(source, /deviceChanges\s*=\s*change_payload\(deviceChangeSet\)/);
+  assert.match(source, /installChanges\s*=\s*deviceChanges/);
 });
 
 test('transient tag resolution cannot poison a usable immutable catalog cache', () => {

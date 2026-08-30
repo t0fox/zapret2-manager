@@ -29,19 +29,26 @@ function validate_manifest(value, rawSize) {
 }
 function classification() { let value = read_json(CLASSIFICATION); if (type(value) != 'object' || value == null || value.schema != 'zapret2-manager.z2k-integration.v1' || type(value.files) != 'array') return null; for (let i = 0; type(value.historicalFiles) == 'array' && i < length(value.historicalFiles); i++) push(value.files, value.historicalFiles[i]); return value; }
 function class_for(value, path) { for (let item in value.files) if (item.sourcePath == path) return item; return null; }
-function installedShaFor(path) {
+function registry_asset_for(path, assets) {
+	if (type(assets) != 'array') return null;
+	for (let i = 0; i < length(assets); i++) {
+		let asset = assets[i];
+		if (asset && asset.provenance && asset.provenance.sourcePath == path) return asset;
+		// Fallback: match the stable Lua ID used by the Registry for package assets.
+		let idFromPath = 'lua:' + substr(path, length('files/lua/'), length(path) - length('files/lua/') - 4);
+		if (asset && asset.id == idFromPath) return asset;
+	}
+	return null;
+}
+function registry_assets() {
 	try {
 		let listed = asset_registry_list(null);
-		if (!listed || !listed.ok || type(listed.assets) != 'array') return null;
-		for (let i = 0; i < length(listed.assets); i++) {
-			let a = listed.assets[i];
-			if (a.provenance && a.provenance.sourcePath == path) return a.contentSha256 || null;
-			// Fallback: match by id derived from sourcePath (e.g., files/lua/z2k-alert.lua -> lua:z2k-alert)
-			let idFromPath = 'lua:' + substr(path, length('files/lua/'), length(path) - length('files/lua/') - 4);
-			if (a.id == idFromPath) return a.contentSha256 || null;
-		}
-	} catch (e) {}
-	return null;
+		return listed && listed.ok && type(listed.assets) == 'array' ? listed.assets : null;
+	} catch (e) { return null; }
+}
+function installedShaFor(path, assets) {
+	let listed = assets || registry_assets(), asset = registry_asset_for(path, listed);
+	return asset && asset.contentSha256 || null;
 }
 function is_compatible_raw(raw) {
 	// Deprecated wrapper — use z2k-compat.uc as authority.
@@ -63,7 +70,13 @@ function sha256_file(path) {
 function review_policy(item) {
 	return item && item.reviewPolicy == 'advisory' ? 'advisory' : 'blocking';
 }
-function plan_result(manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons) {
+function update_items_for_paths(items, paths) {
+	let wanted = {}, result = [];
+	for (let i = 0; i < length(paths || []); i++) wanted[paths[i]] = true;
+	for (let i = 0; i < length(items || []); i++) if (items[i] && wanted[items[i].sourcePath]) push(result, items[i]);
+	return result;
+}
+function plan_result(manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons, updateItems) {
 	let updateState = length(updates) ? 'update-available' : 'current';
 	let attentionState = length(rebases) ? 'rebase-required' : length(blockingReviews) ? 'review-required' : length(advisoryReviews) ? 'review-advisory' : 'none';
 	let status = length(rebases) ? 'rebase-required' : length(blockingReviews) ? 'review-required' : length(updates) ? 'update-available' : 'current';
@@ -80,6 +93,7 @@ function plan_result(manifest, updates, rebases, reviews, advisoryReviews, block
 		blockingReviews: blockingReviews,
 		blockingReasons: blockingReasons,
 		reviewDetails: reviewDetails,
+		updateItems: updateItems || [],
 		manifest: manifest
 	};
 }
@@ -87,7 +101,7 @@ function plan(value) {
 	// PURE: deterministic from manifest + classification + registry. No network.
 	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
-	let updates = [], rebases = [], reviews = [], advisoryReviews = [], blockingReviews = [], reviewDetails = [], blockingReasons = [];
+	let updates = [], updateItems = [], rebases = [], reviews = [], advisoryReviews = [], blockingReviews = [], reviewDetails = [], blockingReasons = [], assets = registry_assets();
 	for (let path in keys(checked.manifest.files_sha256)) {
 		let digest = checked.manifest.files_sha256[path], item = class_for(map, path);
 		if (item == null) {
@@ -106,9 +120,13 @@ function plan(value) {
 			push(blockingReasons, detail);
 		}
 		else if (item.class == 'exact-managed') {
-			let installed = installedShaFor(path);
+			let installedAsset = registry_asset_for(path, assets), installed = installedAsset && installedAsset.contentSha256 || installedShaFor(path, assets);
 			let needsUpdate = (installed == null) || (installed != digest);
-			if (needsUpdate) push(updates, path);
+			if (needsUpdate) {
+				push(updates, path);
+				push(updateItems, { sourcePath: path, currentSha256: installedAsset && installedAsset.contentSha256 || null, targetSha256: digest, registryKnown: assets != null, present: installedAsset != null,
+					action: assets != null && installedAsset == null ? 'added' : 'modified' });
+			}
 		}
 		else if (item.class == 'watched' && item.basedOnSha256 != digest) {
 			let policy = review_policy(item), detail = { path: path, reason: 'watched-upstream-file-changed', policy: policy, message: policy == 'advisory' ? 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; изменение отмечено как advisory review.' : 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; требуется semantic review.' };
@@ -119,7 +137,7 @@ function plan(value) {
 		}
 		else if (item.class == 'ignored-platform' && false) { /* explicit no-op */ }
 	}
-	return plan_result(checked.manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons);
+	return plan_result(checked.manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons, updateItems);
 }
 function fetch_untrusted_manifest_once() {
 	let request = { sourceKey: 'z2k:necronicle/z2k:manifest:branch:z2k-enhanced', origin: 'raw-content', url: MANIFEST_URL, ttlSec: 900, maxBytes: MAX_MANIFEST,
@@ -163,7 +181,7 @@ export const z2k_upstream_check = function() {
 				let detail = { path: 'files/lua/z2k-state-persist.lua', reason: gate.error && gate.error.code || 'candidate-gate-failed', policy: 'blocking', message: 'Кандидат z2k-state-persist не прошёл проверку совместимости; требуется review.' };
 				let newDetails = []; for (let i = 0; i < length(checked.reviewDetails || []); i++) push(newDetails, checked.reviewDetails[i]); push(newDetails, detail);
 				let newReasons = []; for (let i = 0; i < length(checked.blockingReasons || []); i++) push(newReasons, checked.blockingReasons[i]); push(newReasons, detail);
-				checked = plan_result(checked.manifest, newUpdates, checked.rebases || [], newReviews, newAdvisory, newBlocking, newDetails, newReasons);
+				checked = plan_result(checked.manifest, newUpdates, checked.rebases || [], newReviews, newAdvisory, newBlocking, newDetails, newReasons, update_items_for_paths(checked.updateItems, newUpdates));
 			}
 		}
 		return { ok: true, status: checked.status, updateState: checked.updateState, attentionState: checked.attentionState, canApply: checked.canApply, updates: checked.updates, rebases: checked.rebases, reviews: checked.reviews, advisoryReviews: checked.advisoryReviews, blockingReviews: checked.blockingReviews, blockingReasons: checked.blockingReasons, release: checked.manifest.current, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, plan: checked };

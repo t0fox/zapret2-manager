@@ -54,12 +54,27 @@ return baseclass.extend({
     markHost(hosts.editorHost, 'editor');
     markHost(hosts.validationHost, 'validation');
     markHost(hosts.previewHost, 'preview');
+    markHost(hosts.previewActionsHost, 'preview-actions');
     markHost(hosts.actionsHost, 'actions');
     markHost(hosts.inspectorHost, 'inspector');
     markHost(hosts.problemsHost, 'problems');
 
     function profileId(profile, index) {
       return text(profile && (profile.id || 'profile-' + String(index + 1)));
+    }
+    function profileDisplayLabel(profile, index) {
+      var profiles = array(strategy.profiles);
+      var base = text(profile && (profile.name || profile.id)) || 'Профиль ' + String(index + 1);
+      var matching = profiles.filter(function (item, itemIndex) {
+        return (text(item && (item.name || item.id)) || 'Профиль ' + String(itemIndex + 1)) === base;
+      });
+      if (matching.length < 2) return base;
+      var occurrence = 0;
+      for (var i = 0; i <= index; i++) {
+        var itemBase = text(profiles[i] && (profiles[i].name || profiles[i].id)) || 'Профиль ' + String(i + 1);
+        if (itemBase === base) occurrence++;
+      }
+      return base + ' · ' + String(occurrence);
     }
     function profileIndex(id) {
       return array(strategy.profiles).findIndex(function (profile, index) {
@@ -95,6 +110,11 @@ return baseclass.extend({
     function backendProblemsForProfile(index) {
       return backendProblems.filter(function (problem) { return problem.profileIndex === index; });
     }
+    function readableProblemMessage(problem) {
+      return text(problem && problem.message)
+        .replace(/серверная\s+validation/gi, 'серверная проверка')
+        .replace(/server\s+compiler\/validation/gi, 'серверная проверка');
+    }
     function markDirty() {
       editorState.dirty = true;
       if (typeof editorState.onSemanticChange === 'function') editorState.onSemanticChange();
@@ -109,6 +129,12 @@ return baseclass.extend({
       clear(hosts.inspectorHost);
       hosts.inspectorHost.appendChild(element(document, 'strong', '', help.title || 'Справка по синтаксису'));
       hosts.inspectorHost.appendChild(element(document, 'p', '', help.text || 'Выберите флаг, значение или asset.'));
+      if (help.category || help.source) {
+        var metadata = element(document, 'div', 'strategy-editor-inspector-meta');
+        if (help.category) metadata.appendChild(element(document, 'span', '', text(help.category)));
+        if (help.source) metadata.appendChild(element(document, 'span', '', text(help.source)));
+        hosts.inspectorHost.appendChild(metadata);
+      }
     }
     function renderMetadata() {
       var fields = hosts.fieldsHost;
@@ -117,9 +143,13 @@ return baseclass.extend({
       var group = element(document, 'div', 'strategy-editor-metadata');
       var id = labelWithInput(document, 'ID стратегии', 'form-input', strategy.id);
       id.input.id = 'edit-id';
+      id.input.required = true;
+      id.input.setAttribute('aria-required', 'true');
       id.input.readOnly = editorState.mode === 'edit';
       var name = labelWithInput(document, 'Название', 'form-input', strategy.name);
       name.input.id = 'edit-name';
+      name.input.required = true;
+      name.input.setAttribute('aria-required', 'true');
       var description = labelWithInput(document, 'Описание', 'form-input', strategy.description);
       description.input.id = 'edit-desc';
       [id, name, description].forEach(function (field) {
@@ -140,8 +170,8 @@ return baseclass.extend({
       clear(host);
       if (workspaceHost && workspaceHost !== host) clear(workspaceHost);
       var heading = element(document, 'div', 'strategy-editor-profiles-heading');
-      heading.appendChild(element(document, 'h5', 'strategy-editor-section-title', 'Профили стратегии'));
-      var add = element(document, 'button', 'btn btn-ghost btn-sm', 'Добавить профиль');
+      heading.appendChild(element(document, 'h5', 'strategy-editor-section-title', 'Профили'));
+      var add = element(document, 'button', 'btn btn-ghost btn-sm', '+ Добавить');
       add.type = 'button';
       add.dataset.editorAction = 'add-profile';
       add.addEventListener('click', addProfile);
@@ -154,7 +184,7 @@ return baseclass.extend({
       array(strategy.profiles).forEach(function (profile, index) {
         var id = profileId(profile, index);
         var tab = element(document, 'div', 'strategy-editor-profile-item');
-        var button = element(document, 'button', 'btn btn-ghost btn-sm strategy-editor-profile-button' + (id === activeId ? ' is-active' : ''), profile.name || id);
+        var button = element(document, 'button', 'btn btn-ghost btn-sm strategy-editor-profile-button' + (id === activeId ? ' is-active' : ''), profileDisplayLabel(profile, index));
         button.type = 'button';
         button.setAttribute('role', 'tab');
         button.setAttribute('aria-selected', id === activeId ? 'true' : 'false');
@@ -185,16 +215,22 @@ return baseclass.extend({
       var activeHeader = element(document, 'div', 'strategy-editor-active-profile-header');
       activeHeader.setAttribute('data-editor-workspace-header', 'true');
       var activeLabel = element(document, 'span', 'strategy-editor-side-kicker', 'Активный профиль');
-      var activeName = element(document, 'strong', '', current ? (current.name || 'Профиль ' + String(activeIndex() + 1)) : 'Профиль не выбран');
-      activeName.setAttribute('data-workspace-profile-name', 'true');
       activeHeader.appendChild(activeLabel);
-      activeHeader.appendChild(activeName);
+      if (current) {
+        var activeName = element(document, 'input', 'form-input form-input-sm strategy-editor-active-profile-name');
+        activeName.type = 'text';
+        activeName.value = text(current.name || 'Профиль ' + String(activeIndex() + 1));
+        activeName.dataset.profileName = 'true';
+        activeName.setAttribute('data-workspace-profile-name', 'true');
+        activeName.setAttribute('aria-label', 'Имя активного профиля');
+        activeName.setAttribute('autocomplete', 'off');
+        activeName.addEventListener('input', function () { current.name = activeName.value; markDirty(); renderProfileTabs(); });
+        activeHeader.appendChild(activeName);
+      } else activeHeader.appendChild(element(document, 'strong', '', 'Профиль не выбран'));
       workspaceHost.appendChild(activeHeader);
       var modes = element(document, 'div', 'strategy-editor-mode-tabs');
-      var modesLabel = element(document, 'span', 'strategy-editor-mode-label', 'Редактор');
-      modes.appendChild(modesLabel);
       ['visual', 'code'].forEach(function (mode) {
-        var button = element(document, 'button', 'btn btn-ghost btn-sm' + (current && viewFor(current, activeIndex()) === mode ? ' is-active' : ''), mode === 'visual' ? 'Визуально' : 'Code');
+        var button = element(document, 'button', 'btn btn-ghost btn-sm' + (current && viewFor(current, activeIndex()) === mode ? ' is-active' : ''), mode === 'visual' ? 'Визуально' : 'Код');
         button.type = 'button';
         button.setAttribute('role', 'tab');
         button.setAttribute('aria-selected', current && viewFor(current, activeIndex()) === mode ? 'true' : 'false');
@@ -220,19 +256,10 @@ return baseclass.extend({
         enabled.setAttribute('data-workspace-profile-enabled', 'true');
         enabled.addEventListener('change', function () { current.enabled = enabled.checked; markDirty(); });
         var enabledLabel = element(document, 'label', 'strategy-editor-profile-enabled');
+        enabledLabel.setAttribute('title', 'Использовать профиль при применении стратегии');
         enabledLabel.appendChild(enabled);
         enabledLabel.appendChild(element(document, 'span', '', 'Профиль включён'));
         controls.appendChild(enabledLabel);
-        var nameField = element(document, 'label', 'strategy-editor-profile-name-field');
-        nameField.appendChild(element(document, 'span', 'strategy-editor-field-label', 'Имя профиля'));
-        var name = element(document, 'input', 'form-input form-input-sm');
-        name.type = 'text';
-        name.value = text(current.name || 'Профиль ' + String(activeIndex() + 1));
-        name.dataset.profileName = 'true';
-        name.setAttribute('aria-label', 'Имя активного профиля');
-        name.addEventListener('input', function () { current.name = name.value; markDirty(); });
-        nameField.appendChild(name);
-        controls.appendChild(nameField);
         workspaceHost.appendChild(controls);
       }
     }
@@ -318,7 +345,7 @@ return baseclass.extend({
         applyVisualEdits(profile, { circularSteps: next });
       });
       builder.appendChild(add);
-      builder.appendChild(element(document, 'div', 'form-hint', 'Порядок сохраняется в profile.args; серверная validation остаётся обязательной.'));
+      builder.appendChild(element(document, 'div', 'form-hint', 'Порядок сохраняется в аргументах профиля; совместимость проверит сервер.'));
       return builder;
     }
     function renderVisual() {
@@ -376,14 +403,19 @@ return baseclass.extend({
       problems.forEach(function (problem) {
         var canJump = Number.isFinite(problem.from) && Number.isFinite(problem.to) && handle;
         var row = element(document, canJump ? 'button' : 'div', 'strategy-editor-problem ' + problem.severity + (canJump ? ' is-interactive' : ' is-static'));
+        var profileLabel = problem.profileIndex !== undefined && strategy.profiles[problem.profileIndex]
+          ? profileDisplayLabel(strategy.profiles[problem.profileIndex], problem.profileIndex)
+          : null;
+        var problemMeta = profileLabel ? 'Профиль: ' + profileLabel : problem.source || 'Сервер';
+        var problemMessage = readableProblemMessage(problem);
         if (canJump) {
           row.type = 'button';
-          row.setAttribute('aria-label', 'Перейти к проблеме: ' + text(problem.message));
+          row.setAttribute('aria-label', 'Перейти к проблеме: ' + problemMeta + ' — ' + problemMessage);
         }
         row.dataset.source = problem.source || 'IDE';
         if (problem.profileIndex !== undefined) row.dataset.profileIndex = String(problem.profileIndex);
-        row.appendChild(element(document, 'b', '', problem.source || 'IDE'));
-        row.appendChild(element(document, 'span', '', ': ' + text(problem.message)));
+        row.appendChild(element(document, 'b', 'strategy-editor-problem-meta', problemMeta));
+        row.appendChild(element(document, 'span', 'strategy-editor-problem-message', problemMessage));
         if (canJump) {
           var jumpToProblem = function () {
             if (problem.profileIndex !== undefined && problem.profileIndex !== activeIndex()) switchProfile(profileId(strategy.profiles[problem.profileIndex], problem.profileIndex));
@@ -429,6 +461,7 @@ return baseclass.extend({
             current.args = value;
             markDirty();
             if (handle && handle.view) handle.setDiagnostics(nfqws2.lintSource(handle.view));
+            renderProfileTabs();
             renderVisual();
             renderProblems();
           },
@@ -461,6 +494,7 @@ return baseclass.extend({
         finally { syncSource = null; }
       }
       renderVisual();
+      renderProfileTabs();
       renderProblems();
       return true;
     }
@@ -488,20 +522,28 @@ return baseclass.extend({
     function renderActions() {
       if (!hosts.actionsHost) return;
       clear(hosts.actionsHost);
-      [['editorValidate', 'Проверить'], ['editorPreview', 'Показать превью'], ['saveEditor', editorState.mode === 'create' ? 'Создать стратегию' : 'Сохранить стратегию'], ['closeModal', 'Отмена']].forEach(function (item) {
+      if (hosts.previewActionsHost) clear(hosts.previewActionsHost);
+      [['editorValidate', 'Проверить'], ['saveEditor', editorState.mode === 'create' ? 'Создать стратегию' : 'Сохранить стратегию']].forEach(function (item) {
         var button = element(document, 'button', 'btn ' + (item[0] === 'saveEditor' ? 'btn-primary' : 'btn-ghost'), item[1]);
         button.type = 'button';
         button.dataset.action = item[0];
         if (item[0] === 'editorValidate' || item[0] === 'editorPreview' || item[0] === 'saveEditor') button.dataset.operation = item[0] === 'editorValidate' ? 'validate' : item[0] === 'editorPreview' ? 'preview' : 'save';
         hosts.actionsHost.appendChild(button);
       });
+      if (hosts.previewActionsHost) {
+        var preview = element(document, 'button', 'btn btn-ghost btn-sm', 'Показать превью');
+        preview.type = 'button';
+        preview.dataset.action = 'editorPreview';
+        preview.dataset.operation = 'preview';
+        hosts.previewActionsHost.appendChild(preview);
+      }
       if (ctx && ctx.api && ctx.api.strategies && ctx.api.strategies.test) {
         var testButton = element(document, 'button', 'btn btn-ghost', 'Тестировать');
         testButton.type = 'button';
         testButton.dataset.action = 'editorTest';
         hosts.actionsHost.insertBefore(testButton, hosts.actionsHost.lastChild);
       } else {
-        hosts.actionsHost.appendChild(element(document, 'span', 'ide-capability-note', 'Временный runtime-тест не предоставлен backend; сначала используйте «Проверить» и «Показать превью».'));
+        (hosts.previewActionsHost || hosts.actionsHost).appendChild(element(document, 'span', 'ide-capability-note', 'Временный тест недоступен; используйте проверку и превью.'));
       }
     }
     function render() {
@@ -589,6 +631,7 @@ return baseclass.extend({
       setValidation: function (value) { setText(hosts.validationHost, value); },
       setPreview: function (value) { setText(hosts.previewHost, value); },
       getActiveIndex: function () { return activeIndex(); },
+      getProfileDisplayLabels: function () { return array(strategy.profiles).map(profileDisplayLabel); },
       getHandle: function () { return handle; },
       destroy: function () {
         if (destroyed) return;
