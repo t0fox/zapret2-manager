@@ -122,10 +122,33 @@ test('CATALOG_PRIMARY_SUMMARY: catalog identity stays out of the primary strateg
   assert.doesNotMatch(page, /Пакетный baseline/);
 });
 
-test('DISCORD_RUNTIME_STATUS: active canonical Discord profile is recognized after reload', () => {
+test('DISCORD_RUNTIME_STATUS: live Discord status uses the current runtime signature', () => {
   const page = read('z2m-strategies.js');
   assert.match(page, /function discordRuntimeActive\(data\)/);
-  assert.match(page, /--filter-udp=19294-19344,50000-50100/);
+  assert.match(page, /serviceState/);
+  assert.match(page, /runtime\.present/);
+  assert.match(page, /50000-50100/);
   assert.match(page, /--filter-l7=discord,stun/);
+  assert.match(page, /discord_\(\?:udp\|voice\)/);
   assert.match(page, /discordRuntimeActive\(state\.data\)/);
+  assert.doesNotMatch(page, /--filter-udp=19294-19344,50000-50100/);
+  assert.doesNotMatch(page, /blob_stressozz_stun/);
+  assert.doesNotMatch(page, /state\.discordApplied/);
+});
+
+test('DISCORD_RUNTIME_STATUS: detector rejects stale config and stopped runtime evidence', () => {
+  const page = read('z2m-strategies.js');
+  const start = page.indexOf('function discordRuntimeActive');
+  const end = page.indexOf('\nfunction strategyProvenance', start);
+  const detector = new Function('statusValue', 'object', 'array', 'text', `${page.slice(start, end)}\nreturn discordRuntimeActive;`)(
+    (data) => data && data.status ? data.status.value || data.status : {},
+    (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {},
+    (value) => Array.isArray(value) ? value : [],
+    (value) => value === null || value === undefined ? '' : String(value),
+  );
+  const cmdline = '--filter-udp=50000-50100,1400 --filter-l7=discord,stun --lua-desync=circular:foo,key=discord_udp,hostkey=z2k_nohost_key';
+  const current = { status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline }] } } };
+  assert.equal(detector(current), true);
+  assert.equal(detector({ status: { serviceState: 'stopped', runtime: { present: true, instances: [{ cmdline }] } } }), false);
+  assert.equal(detector({ status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline: '--filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin' }] } } }), false);
 });

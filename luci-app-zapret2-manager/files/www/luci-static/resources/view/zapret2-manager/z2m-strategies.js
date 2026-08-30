@@ -110,12 +110,16 @@ function loadFullStrategy(strategy) {
   return ensureFullStrategy(strategy, fetchFullStrategy);
 }
 function discordRuntimeActive(data) {
-  var status = statusValue(data), instances = array(object(status.runtime).instances);
+  var status = statusValue(data), runtime = object(status.runtime);
+  if (status.serviceState !== 'running' || runtime.present !== true) return false;
+  var instances = array(runtime.instances);
   for (var i = 0; i < instances.length; i++) {
     var cmdline = text(instances[i] && instances[i].cmdline);
-    if (cmdline.indexOf('--filter-udp=19294-19344,50000-50100') >= 0 &&
-        cmdline.indexOf('--filter-l7=discord,stun') >= 0 &&
-        cmdline.indexOf('--blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin') >= 0) return true;
+    if (cmdline.indexOf('--filter-l7=discord,stun') < 0) continue;
+    if (!/--filter-udp=[^\s]*50000-50100(?:[,\s]|$)/.test(cmdline)) continue;
+    if (!/--lua-desync=circular:[^\s]*key=discord_(?:udp|voice)(?:[,\s]|$)/.test(cmdline)) continue;
+    if (cmdline.indexOf('hostkey=z2k_nohost_key') < 0) continue;
+    return true;
   }
   return false;
 }
@@ -763,7 +767,7 @@ function renderLearnedModal() {
   var discordState = (Model && typeof Model.extractDiscordVoiceState === 'function')
     ? Model.extractDiscordVoiceState(rawEntries, pools)
     : { key: 'discord_udp', host: 'nohost', strategy: 1, mode: 'auto', isFrozen: false, exists: false, isLive: false, runtimeKey: 'discord_udp' };
-  var isDiscordLive = (discordState && discordState.isLive) || discordRuntimeActive(state.data) || !!(state.discordApplied && state.discordApplied.ok === true);
+  var isDiscordLive = discordRuntimeActive(state.data);
   var liveRuntimeKey = discordState.runtimeKey || discordState.key || 'discord_udp';
   var discordPool = (Model && typeof Model.findLivePool === 'function')
     ? (Model.findLivePool(liveRuntimeKey, pools) || Model.findLivePool('discord_udp', pools) || Model.findLivePool('discord_voice', pools))
@@ -1163,26 +1167,57 @@ function stateSet(key, host, strategy, mode) {
   });
 }
 function enableDiscord() {
-  var api = state.ctx && state.ctx.api && state.ctx.api.strategy;
+  var api = state.ctx && state.ctx.api && state.ctx.api.strategies;
+  var source = strategyById(state.selectedId || (Model.identity(statusValue(state.data)) || {}).selectedId);
   if (state.pending || state.operationPending) return;
-  if (!api || !api.preview || !api.apply) { notify('err', 'Канонический Discord apply недоступен'); return; }
+  if (!api || !api.discordDonor || !api.get || !api.validate || !api.create || !api.apply || !api.delete) { notify('err', 'Канонический Discord apply недоступен'); return; }
+  if (!source) { notify('warn', 'Сначала выберите Strategy'); return; }
   state.pending = 'discord'; renderAll();
-  var idempotencyToken = 'discord-ui-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-  call(api.preview, {}).then(function (preview) {
-    if (!preview || preview.ok !== true) throw preview || new Error('Discord preview failed');
-    if (!preview.changeHash) throw new Error('Discord preview did not return a change identity');
-    return call(api.apply, { changeHash: preview.changeHash, idempotencyToken: idempotencyToken });
-  }).then(function (answer) {
-    if (!answer || answer.ok !== true) throw answer || new Error('Discord apply failed');
-    state.discordApplied = answer;
-    return refreshLearned().then(function () { return refreshData(true); }).then(function () {
-      if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
+  var created = null, applied = false, digest = catalogDigest(state.data);
+  Promise.all([call(api.get, { id: source.id }), call(api.discordDonor, {})]).then(function (answers) {
+    var raw = answers[0] && answers[0].strategy ? answers[0].strategy : answers[0];
+    var donor = answers[1];
+    if (!donor || donor.ok !== true || !Array.isArray(donor.profiles) || !donor.profiles.length) throw donor || new Error('Discord donor unavailable');
+    var full = Model.normalize(raw, statusValue(state.data), source.id);
+    var used = {};
+    array(full.profiles).forEach(function (profile) { used[profile.id] = true; });
+    var donorProfiles = donor.profiles.map(function (profile, index) {
+      var id = profile.id || 'discord-profile-' + String(index + 1);
+      if (used[id]) id += '-discord';
+      used[id] = true;
+      return { id: id, name: profile.name || 'Discord Voice / Video', args: profile.args, enabled: profile.enabled !== false };
     });
+    var draft = JSON.parse(JSON.stringify(full));
+    draft.id = source.id + '_discord';
+    draft.name = source.name + ' + Discord';
+    draft.origin = 'user'; draft.isBuiltin = false; draft.is_builtin = false;
+    draft.revision = 0;
+    draft.profiles = array(full.profiles).concat(donorProfiles);
+    draft.metadata = Object.assign({}, object(full.metadata), { provenance: Object.assign({}, strategyProvenance(full), { donor: donor.provenance || null }) });
+    if (strategyById(draft.id)) throw new Error('Пользовательская Discord Strategy уже существует.');
+    return call(api.validate, { strategy_data: strategyInput(draft), catalog_digest: digest, validate: true }).then(function (validation) {
+      if (!validation || validation.ok !== true) throw validation || new Error('Discord Strategy validation failed');
+      return draft;
+    });
+  }).then(function (draft) {
+    return call(api.create, { strategy: strategyInput(draft) }).then(function (answer) {
+      if (!answer || answer.ok === false) throw answer || new Error('Discord Strategy create failed');
+      created = answer.strategy || answer;
+      if (!created || !created.id) throw new Error('Discord Strategy create returned no identity');
+      return call(api.apply, { strategy_id: created.id, revision: Number(created.revision) || 1, catalog_digest: digest });
+    });
+  }).then(function (answer) {
+    if (!answer || answer.ok === false) throw answer || new Error('Discord Strategy apply failed');
+    applied = true;
+    state.selectedId = created.id;
+    if (state.ctx && state.ctx.invalidateCache) state.ctx.invalidateCache('strategies');
+    return refreshData(true);
   }).then(function () {
     state.pending = null; renderAll();
-    notify('ok', 'Discord обход включён в текущей стратегии');
+    notify('ok', 'Discord обход включён через каноническую Strategy API');
   }).catch(function (error) {
-    state.pending = null; renderAll(); notify('err', errorText(state.ctx, error));
+    var cleanup = created && !applied ? call(api.delete, { id: created.id, expectedRevision: Number(created.revision) || 1 }).catch(function () { return null; }) : Promise.resolve();
+    cleanup.then(function () { state.pending = null; renderAll(); notify('err', errorText(state.ctx, error)); });
   });
 }
 function excludeLearned(key, host, strategy) { stateSet(key, host, strategy, 'excluded'); }
