@@ -1023,7 +1023,7 @@ export const resource_center_recover_pending = function() {
 	let rollback = z2k_rollback_after_runtime_failure({ id: 'z2k-curated-lua' }, { committedAssetRevision: pending.committedAssetRevision }, { recovery: true, phase: pending.phase }, runtimeActivated);
 	if (!rollback.ok) return fail('ERECOVERY_REQUIRED', 'Z2K activation recovery could not prove safe compensation.', { rollback: rollback, phase: pending.phase });
 	return { ok: true, recovered: true, state: 'rolled-back', rollback: rollback };
-}
+};
 function z2k_target_summary(target) {
 	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), preparedAt: target.preparedAt };
 }

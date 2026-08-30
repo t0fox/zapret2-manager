@@ -12,8 +12,8 @@ function copy_array(value) { let result = []; for (let i = 0; type(value) == 'ar
 function parse_release(value) { return string(value) && match(value, /^r-[0-9]+(\.[0-9]+)?$/) ? value : null; }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
-function valid_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && !match(value, /[\x00\r\n]/); }
-function valid_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && !match(value, /[\x00\r\n]/); }
+function valid_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
+function valid_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function asset_by_id(assets, id) { for (let i = 0; i < length(assets || []); i++) if (assets[i] && assets[i].id == id) return assets[i]; return null; }
 function receipt_valid(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != 'z2k-curated-lua' || parse_release(receipt.version) == null || !valid_commit(receipt.sourceCommit) || type(receipt.assets) != 'array' || !length(receipt.assets)) return false;

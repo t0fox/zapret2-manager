@@ -130,29 +130,22 @@ test('SEMANTIC: excluded 5th-col survives load/write, get_record key pair, state
   assert.ok(reconCallIdx >= 0, 'upstream must contain pcall(reconcile_external_edits)');
   assert.ok(origCallIdx >= 0, 'upstream must contain pcall(orig_circular');
   assert.ok(reconCallIdx < origCallIdx, 'reconcile must be called BEFORE orig_circular (external edits authoritative)');
-  // Also sidecar must be loaded before upstream wraps, so that upstream is outer wrapper
-  // This is verified via strategy-runtime-assets-sync.sh LUAOPT order
+  // Also sidecar must be loaded before upstream wraps, so that upstream is outer wrapper.
+  // The runtime sync now receives the ordered LUA_INIT subset from the canonical
+  // resolver; it must not recreate the retired hand-copied LuaOPT sequence.
   const sync = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh');
-  const dynamicLuaopt = sync.includes('append_luaopt_if_present zapret-auto.lua');
-  const order = dynamicLuaopt ? sync : (sync.match(/LUAOPT="([^"]+)"/) || [])[1];
-  assert.ok(order, 'must have canonical LuaOPT order');
-  const idxSidecar = dynamicLuaopt
-    ? order.indexOf('append_luaopt_if_present z2m-autocircular-policy.lua')
-    : order.indexOf('z2m-autocircular-policy.lua');
-  const idxPersist = dynamicLuaopt
-    ? order.indexOf('append_luaopt_if_present z2k-state-persist.lua')
-    : order.indexOf('z2k-state-persist.lua');
-  const idxAuto = dynamicLuaopt
-    ? order.indexOf('append_luaopt_if_present zapret-auto.lua')
-    : order.indexOf('zapret-auto.lua');
-  assert.ok(idxAuto < idxSidecar && idxSidecar < idxPersist, 'load order must be zapret-auto -> sidecar -> state-persist (upstream outer)');
+  assert.match(sync, /runtime-composition-cli\.uc/);
+  assert.match(sync, /resolver_luaopt/);
+  assert.match(sync, /LUA_INIT/);
+  assert.doesNotMatch(sync, /append_luaopt_if_present\s+zapret-auto\.lua/,
+    'runtime Lua order must come from the resolver, not a static append list');
 });
 
 // --- 3. Refresh-state regression ---
 test('Refresh-state regression: resources_status is persisted CHECK_STATE, needs resources_check to refresh', () => {
   const ru = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
   assert.match(ru, /load_check_state/, 'resource_center_status must use load_check_state (persisted)');
-  assert.match(ru, /z2k_projection\(persisted\.signed\)/, 'status must project persisted signed');
+  assert.match(ru, /z2k_projection\(latestCheck\.signed\)/, 'status must project persisted signed');
   // Extract resource_center_status body to ensure it does NOT call live check directly
   const statusStart = ru.indexOf('export const resource_center_status');
   const checkStart = ru.indexOf('export const resource_center_check');

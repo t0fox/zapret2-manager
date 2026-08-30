@@ -29,8 +29,8 @@ function valid_release(value) { return string(value) && match(value, /^r-[0-9]+(
 function contains(arrayValue, wanted) { for (let i = 0; array(arrayValue) && i < length(arrayValue); i++) if (arrayValue[i] == wanted) return true; return false; }
 function valid_kind(value) { return contains(KINDS, value); }
 function valid_entry_type(value) { return contains(ENTRY_TYPES, value); }
-function safe_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && !match(value, /[\x00\r\n]/); }
-function safe_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && !match(value, /[\x00\r\n]/); }
+function safe_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
+function safe_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function entry_field(entry, name, fallback) { return object(entry) && entry[name] != null ? entry[name] : fallback; }
 
 function normalized_entry(raw, expectedType) {
@@ -103,16 +103,16 @@ function identity_authority(authority) {
 }
 
 function identity_entry(entry) {
-	return [entry.id, entry.owner, entry.role, entry.sourcePath, entry.runtimeTarget, entry.contentSha256,
-		entry.byteSize, entry.runtimeOrder == null ? '' : entry.runtimeOrder, entry.kind, entry.type,
-		entry.version || '', entry.sourceCommit || '', entry.manifestSha256 || '', entry.classificationSha256 || ''].join('|');
+	return entry.id + '|' + entry.owner + '|' + entry.role + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256
+		+ '|' + entry.byteSize + '|' + (entry.runtimeOrder == null ? '' : entry.runtimeOrder) + '|' + entry.kind + '|' + entry.type
+		+ '|' + (entry.version || '') + '|' + (entry.sourceCommit || '') + '|' + (entry.manifestSha256 || '') + '|' + (entry.classificationSha256 || '');
 }
 function identity_text(prefix, authority, entries, lua, removals) {
 	let rows = [], sortedEntries = sorted_copy(entries), sortedLua = sorted_copy(lua, sort_by_order), sortedRemovals = sorted_copy(removals || [], function(a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
 	for (let i = 0; i < length(sortedEntries); i++) push(rows, 'asset|' + identity_entry(sortedEntries[i]));
 	for (let i = 0; i < length(sortedLua); i++) push(rows, 'lua|' + identity_entry(sortedLua[i]));
 	for (let i = 0; i < length(sortedRemovals); i++) push(rows, 'remove|' + sortedRemovals[i]);
-	let text = prefix + '|' + (authority || '') + '|' + join(rows, '\n');
+	let text = prefix + '|' + (authority || '') + '|' + join('\n', rows);
 	return length(text) <= MAX_IDENTITY_BYTES ? text : null;
 }
 
@@ -241,7 +241,7 @@ export const resolveInstalled = function(input) {
 		if (!legacy.ok) return legacy;
 		return { ok: true, schemaVersion: 2, lifecycleState: 'V1_VERIFIED_MEMBERSHIP', state: 'V1_VERIFIED_MEMBERSHIP', compositionStatus: 'incomplete',
 			reconciliationRequired: true, receiptIdentity: receipt, observedRegistryRevision: listed.revision,
-			legacyMembership: legacy.recorded, runtimeAssets: undefined, luaInit: undefined, dependencyIndex: {}, scannerOverlay: scanner.entries,
+			legacyMembership: legacy.recorded, dependencyIndex: {}, scannerOverlay: scanner.entries,
 			blockingReasons: ['RECONCILIATION_REQUIRED'], reconciliation: { required: true, mode: 'same-release FRESH', operation: 'reinstall' },
 			authority: { kind: 'installed', release: receipt.version, sourceCommit: receipt.sourceCommit, receiptId: receipt.receiptId || null, observedRegistryRevision: listed.revision } };
 	}
@@ -301,8 +301,10 @@ function verify_process(snapshot, evidence, activation) {
 	if (object(snapshot.authority) && snapshot.authority.configHash != null && configHash != snapshot.authority.configHash) return fail('EVERIFY', 'active config hash does not match snapshot');
 	if (evidence.pid == null || evidence.processStarttime == null || !string(evidence.processGeneration)) return fail('EVERIFY', 'process identity or generation evidence is missing');
 	if (activation && array(evidence.previousProcesses)) for (let i = 0; i < length(evidence.previousProcesses); i++) if (evidence.previousProcesses[i].pid == evidence.pid && evidence.previousProcesses[i].starttime == evidence.processStarttime) return fail('EVERIFY', 'activation process identity predates this activation');
-	if (object(evidence.runtimeHashes)) for (let i = 0; i < length(snapshot.runtimeAssets); i++) if (evidence.runtimeHashes[snapshot.runtimeAssets[i].id] != snapshot.runtimeAssets[i].contentSha256) return fail('EVERIFY', 'process runtime hash does not match snapshot', { id: snapshot.runtimeAssets[i].id });
-	else return fail('EVERIFY', 'process runtime hashes are missing');
+	if (object(evidence.runtimeHashes)) {
+		for (let i = 0; i < length(snapshot.runtimeAssets); i++)
+			if (evidence.runtimeHashes[snapshot.runtimeAssets[i].id] != snapshot.runtimeAssets[i].contentSha256) return fail('EVERIFY', 'process runtime hash does not match snapshot', { id: snapshot.runtimeAssets[i].id });
+	} else return fail('EVERIFY', 'process runtime hashes are missing');
 	if (!equal_array(evidence.luaInitIds || evidence.luaInit || [], expected_lua_ids(snapshot))) return fail('EVERIFY', 'process Lua init order does not match snapshot');
 	if (activation && (evidence.processGeneration == null || evidence.processStarttime == null)) return fail('EVERIFY', 'activation process generation evidence is missing');
 	return { ok: true, snapshotId: snapshot.snapshotId, processPid: evidence.pid == null ? null : evidence.pid, historical: activation ? false : true };

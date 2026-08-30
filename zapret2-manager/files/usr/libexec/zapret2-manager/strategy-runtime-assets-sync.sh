@@ -349,8 +349,13 @@ fi
 
 PREFLIGHT_MANIFEST=${Z2M_PREFLIGHT_MANIFEST:-/usr/share/zapret2-manager/native-preflight.json}
 is_core_lua() {
-	[ -f "$PREFLIGHT_MANIFEST" ] || return 1
-	grep -Fq "/lua/$1\"" "$PREFLIGHT_MANIFEST"
+	# Official zapret Lua is package-static engine material. Keep an existing
+	# copy (including a router-local upgrade) without reintroducing a dynamic
+	# lifecycle Lua list into native-preflight.json.
+	case "$1" in
+		zapret-*.lua) return 0 ;;
+		*) return 1 ;;
+	esac
 }
 
 # Z2K lifecycle Lua uses a reserved namespace in the package.  This is only a

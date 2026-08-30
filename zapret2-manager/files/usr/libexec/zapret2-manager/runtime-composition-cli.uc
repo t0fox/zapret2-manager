@@ -1,4 +1,3 @@
-#!/usr/bin/ucode
 'use strict';
 
 // Bounded shell boundary for runtime-sync and proof consumers.  It never
@@ -32,7 +31,7 @@ function materialize_source(entry, listed) {
 	}
 	if (entry.type == 'package-static' && string(entry.packagePath)
 		&& substr(entry.packagePath, 0, length(PACKAGE_ROOT) + 1) == PACKAGE_ROOT + '/'
-		&& index(entry.packagePath, '..') < 0 && index(entry.packagePath, '\\') < 0) return entry.packagePath;
+		&& index(entry.packagePath, '..') < 0 && index(entry.packagePath, sprintf('%c', 92)) < 0) return entry.packagePath;
 	return null;
 }
 function emit_activation_tsv(result, includeScannerOverlay) {
@@ -53,7 +52,7 @@ function emit_activation_tsv(result, includeScannerOverlay) {
 		if (!object(entry) || entry.type != 'scanner-overlay') return fail('EINPUT', 'scanner overlay entry is not diagnostic-only');
 		push(lines, 'OVERLAY|' + entry.id + '|' + entry.type + '|' + entry.kind + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256 + '|' + entry.byteSize + '|' + (entry.runtimeOrder == null ? '' : entry.runtimeOrder));
 	}
-	return { ok: true, output: join(lines, '\n') + '\n' };
+	return { ok: true, output: join('\n', lines) + '\n' };
 }
 
 export const runtime_composition_cli_dispatch = function(consumer, input) {
@@ -83,11 +82,13 @@ function request_file(file) {
 	try { let value = json(raw); return object(value) ? value : {}; } catch (e) { return {}; }
 }
 function emit(value) { print(sprintf('%J', value) + '\n'); }
-let consumer = ARGV[0], result = runtime_composition_cli_dispatch(consumer, request_file(ARGV[1]));
-if (ARGV[2] == 'activation-tsv' && result && result.ok === true) {
-	let output = emit_activation_tsv(result, consumer == 'scanner');
-	if (output.ok) { print(output.output); exit(0); }
-	result = output;
+if (length(ARGV) > 0) {
+	let consumer = ARGV[0], result = runtime_composition_cli_dispatch(consumer, request_file(ARGV[1]));
+	if (ARGV[2] == 'activation-tsv' && result && result.ok === true) {
+		let output = emit_activation_tsv(result, consumer == 'scanner');
+		if (output.ok) { print(output.output); exit(0); }
+		result = output;
+	}
+	emit(result);
+	if (!result || result.ok !== true) exit(1);
 }
-emit(result);
-if (!result || result.ok !== true) exit(1);

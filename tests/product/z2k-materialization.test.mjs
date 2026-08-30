@@ -12,7 +12,8 @@ import { spawnSync } from 'node:child_process';
 // them into the live /opt/zapret2 roots and then VERIFY the installed copies
 // against the package baseline digests:
 //   - bin blobs  -> <base>/files/fake (+ <base>/bin compatibility link)
-//   - lua        -> <base>/lua  (upstream core Lua never downgraded)
+//   - package-static lua -> <base>/lua (upstream core Lua never downgraded)
+//   - lifecycle Z2K lua -> blocked until Registry-backed activation
 //   - lists      -> <base>/lists and <base>/ipset
 //
 // The script must accept root overrides for sandboxed testing while defaulting
@@ -80,9 +81,13 @@ test('materializes blobs, lua, lists into the live engine roots', () => {
     assert.equal(fs.existsSync(path.join(sb.base, 'files', 'fake', name)), true, `blob ${name} missing`);
     assert.equal(fs.existsSync(path.join(sb.base, 'bin')), true, 'compatibility bin link missing');
   }
-  for (const name of ['z2k-modern-core.lua', 'z2k-detectors.lua']) {
+  for (const name of ['zapret-lib.lua', 'custom_diag.lua'])
     assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), true, `${name} missing`);
-  }
+  for (const name of ['z2k-modern-core.lua', 'z2k-detectors.lua'])
+    assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), false, `${name} must wait for Registry-backed activation`);
+  const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
+  assert.equal(verdict.lifecycleState, 'blocked-unknown-authority');
+  assert.equal(verdict.blockedLifecycleAssets, 7);
   assert.equal(fs.existsSync(path.join(sb.base, 'lists', 'discord.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.base, 'ipset', 'discord.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.stateDir, 'state.tsv')), true);
@@ -139,7 +144,7 @@ test('--verify reports ok when installed copies match the baseline', () => {
 test('--verify fails closed on a modified installed copy', () => {
   const sb = sandbox();
   assert.equal(runSync(sb).status, 0);
-  fs.writeFileSync(path.join(sb.base, 'lua', 'z2k-modern-core.lua'), '-- tampered\n');
+  fs.writeFileSync(path.join(sb.base, 'lua', 'custom_diag.lua'), '-- tampered\n');
   const verify = runSync(sb, ['--verify']);
   assert.notEqual(verify.status, 0, 'tampered copy must not verify');
   const verdict = JSON.parse(verify.stdout.trim().split('\n').pop());

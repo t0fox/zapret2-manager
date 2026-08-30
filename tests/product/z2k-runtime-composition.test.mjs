@@ -43,7 +43,7 @@ function invokeCli(expression, env = {}) {
   return JSON.parse(result.stdout);
 }
 
-const HASH = value => value.repeat(64);
+const HASH = value => value.charCodeAt(0).toString(16).padStart(2, '0').repeat(32);
 const lifecycle = (id, kind, role, order, digest, sourcePath = `files/${kind}/${id.split(':')[1]}`) => ({
   id, owner: 'z2k-core', role, sourcePath, runtimeTarget: `/runtime-assets/${kind}/${id.split(':')[1]}`,
   contentSha256: HASH(digest), byteSize: order + 10, runtimeOrder: order,
@@ -69,7 +69,7 @@ function v2Fixture() {
     z2kMembership: membership, activatedAt: 100, activationEvidence: { pid: 100, starttime: 1 },
   };
   const assets = membership.map((entry, index) => ({
-    ...entry, path: `/etc/zapret2-manager/assets/${entry.id.replace(':', '/')}`,
+    ...entry, type: entry.kind, path: `/etc/zapret2-manager/assets/${entry.id.replace(':', '/')}`,
     ownership: 'manager', revision: index + 1,
     provenance: { kind: 'catalog/upstream', bundleId: 'z2k-curated-lua', source: 'necronicle/z2k',
       sourceCommit: 'c'.repeat(40), sourcePath: entry.sourcePath, version: 'r-80.3' },
@@ -201,7 +201,8 @@ test('steady-state proof accepts a later PID but rejects stale runtime evidence'
     runtimeHashes: Object.fromEntries(installed.runtimeAssets.map(entry => [entry.id, entry.contentSha256])),
     luaInitIds: installed.luaInit.map(entry => entry.id),
   };
-  assert.equal(invoke(`composition.verifyInstalledProcess(${JSON.stringify(installed)}, ${JSON.stringify(evidence)})`).ok, true);
+  const steady = invoke(`composition.verifyInstalledProcess(${JSON.stringify(installed)}, ${JSON.stringify(evidence)})`);
+  assert.equal(steady.ok, true, JSON.stringify(steady));
   const stale = { ...evidence, runtimeHashes: { ...evidence.runtimeHashes, 'lua:alpha': HASH('stale') } };
   assert.equal(invoke(`composition.verifyInstalledProcess(${JSON.stringify(installed)}, ${JSON.stringify(stale)})`).ok, false);
 });
