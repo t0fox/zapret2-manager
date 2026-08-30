@@ -88,6 +88,7 @@ var state = {
   z2kDetailsExpanded: false,
   z2kReleaseRefresh: null,
   z2kPrepared: null,
+  z2kPostMutationRefreshError: null,
   showAllBackups: false,
   componentLoadToken: 0,
   componentHydrationToken: null,
@@ -306,6 +307,10 @@ function rerender(ctx) {
   var next = render(ctx);
   ctx.root.replaceChildren(next);
 }
+function rerenderCurrent(ctx) {
+  if (ctx && typeof ctx.rerender === 'function') return ctx.rerender();
+  return rerender(ctx);
+}
 function refresh(ctx) {
   return ctx.refresh(ctx.route || 'system');
 }
@@ -336,6 +341,32 @@ function waitForZ2KUpdate(ctx, operationId) {
   var attempts = 0;
   function poll() {
     return checkedResult(ctx.api.resources.updateStatus({ operationId: operationId }), _('Состояние Z2K')).then(function (answer) {
+      var operation = state.componentOperation;
+      var nextOperation = operation ? Object.assign({}, operation) : null;
+      var projectionChanged = false;
+      if (nextOperation && answer && answer.phase !== undefined && nextOperation.phase !== answer.phase) {
+        nextOperation.phase = answer.phase;
+        projectionChanged = true;
+      } else if (nextOperation && answer && answer.state !== undefined && nextOperation.phase !== answer.state) {
+        nextOperation.phase = answer.state;
+        projectionChanged = true;
+      }
+      if (nextOperation && answer && Object.prototype.hasOwnProperty.call(answer, 'progress') && nextOperation.progress !== answer.progress) {
+        nextOperation.progress = answer.progress;
+        projectionChanged = true;
+      }
+      if (nextOperation && answer && Object.prototype.hasOwnProperty.call(answer, 'message') && nextOperation.message !== answer.message) {
+        nextOperation.message = answer.message;
+        projectionChanged = true;
+      }
+      if (nextOperation && answer && Array.isArray(answer.stages)) {
+        nextOperation.stages = answer.stages;
+        projectionChanged = true;
+      }
+      if (projectionChanged) {
+        state.componentOperation = nextOperation;
+        rerender(ctx);
+      }
       var phase = String(answer && answer.phase || answer && answer.state || '').toLowerCase();
       if ((answer && answer.finished === true) || phase === 'completed' || phase === 'failed') {
         var result = answer && answer.result || answer;
@@ -402,6 +433,7 @@ function componentStateLabel(component) {
     return _('Работает');
   }
   if (component.id === 'z2k-core') {
+    if (component.updateState === 'refresh-required') return _('Состояние не подтверждено');
     var attentionState = component.attentionState;
     var blockingReviews = Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
     var rebases = Array.isArray(component.rebases) ? component.rebases : [];
@@ -518,6 +550,57 @@ function refreshState(ctx) {
   state.componentOperation = null;
   rerender(ctx);
   return refresh(ctx).catch(function (error) {
+    showError(ctx, error);
+  });
+}
+function invalidateZ2KAfterMutation(targetRelease) {
+  state.z2kPrepared = null;
+  state.z2kCheck = null;
+  state.z2kDetails = null;
+  state.z2kDetailsCompared = false;
+  state.z2kDetailsLoading = false;
+  state.z2kDetailsLoadError = null;
+  state.z2kDetailsRequestId += 1;
+  state.z2kDetailsExpanded = false;
+  state.z2kPostMutationRefreshError = null;
+  if (targetRelease) state.z2kSelectedVersion = targetRelease;
+}
+function reloadZ2KSelectedDetails(ctx) {
+  // ctx.refresh() replaces the page context; never inspect ctx.data here because
+  // it is the pre-mutation snapshot. Re-read the selected release against the
+  // authoritative post-refresh state whenever the details pane is open.
+  if (state.z2kExpanded && state.z2kSelectedVersion)
+    loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, false);
+}
+function refreshZ2KAfterMutation(ctx, targetRelease) {
+  invalidateZ2KAfterMutation(targetRelease);
+  state.componentOperation = { kind: 'refresh', scope: 'z2k', targetVersion: targetRelease };
+  rerender(ctx);
+  state.componentOperation = null;
+  rerender(ctx);
+  return Promise.resolve().then(function () { return refresh(ctx); }).then(function () {
+    state.z2kPostMutationRefreshError = null;
+    reloadZ2KSelectedDetails(ctx);
+  }, function (error) {
+    state.componentOperation = null;
+    state.z2kPostMutationRefreshError = { code: 'z2k-post-mutation-refresh', cause: error };
+    rerenderCurrent(ctx);
+    showError(ctx, error);
+  });
+}
+function retryZ2KPostMutationRefresh(ctx) {
+  if (state.componentOperation) return;
+  state.z2kPostMutationRefreshError = null;
+  state.componentOperation = { kind: 'refresh', scope: 'z2k' };
+  rerender(ctx);
+  state.componentOperation = null;
+  rerender(ctx);
+  Promise.resolve().then(function () { return refresh(ctx); }).then(function () {
+    reloadZ2KSelectedDetails(ctx);
+  }, function (error) {
+    state.componentOperation = null;
+    state.z2kPostMutationRefreshError = { code: 'z2k-post-mutation-refresh', cause: error };
+    rerenderCurrent(ctx);
     showError(ctx, error);
   });
 }
@@ -645,14 +728,11 @@ function updateZ2K(ctx, component) {
           if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
           // Operation-specific success toast follows the prepared operation.
           ctx.shell.showToast(_('Z2K Core: ') + z2kOperationLabel(preparedOperation, preparedRelease) + '.', 'ok');
+          return refreshZ2KAfterMutation(ctx, preparedRelease);
         }).catch(function (error) {
-          showError(ctx, error);
-        }).then(function () {
           state.z2kPrepared = null;
           state.componentOperation = null;
           rerender(ctx);
-          return refresh(ctx);
-        }).catch(function (error) {
           showError(ctx, error);
         });
       }, 'primary');
@@ -840,6 +920,7 @@ function toggleEngine(ctx) {
   rerender(ctx);
 }
 function toggleZ2K(ctx) {
+  if (state.componentOperation) return;
   state.z2kExpanded = !state.z2kExpanded;
   if (state.z2kExpanded) state.engineExpanded = false;
   rerender(ctx);
@@ -1380,6 +1461,15 @@ function renderZ2KDetails(ctx, component) {
     ])
   ]);
 }
+function operationRenderOptions() {
+  var operation = state.componentOperation;
+  return {
+    phase: operationPhase(operation),
+    progress: operation && typeof operation.progress === 'number' ? operation.progress : null,
+    message: operation && operation.message || operationMessage(operation),
+    stages: operation && Array.isArray(operation.stages) ? operation.stages : []
+  };
+}
 function renderInlineOperation(ctx, component, opts) {
   var shell = ctx.shell;
   opts = opts || {};
@@ -1464,7 +1554,7 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
       E('div', { 'class': 'z2m-btnrow' }, primaryActions),
       E('div', { 'class': 'z2m-btnrow' }, [manageBtn])
     ]),
-    renderInlineOperation(ctx, component, isBusyFor(component.id) ? { phase: operationPhase(state.componentOperation), message: operationMessage(state.componentOperation) } : {}),
+    renderInlineOperation(ctx, component, isBusyFor(component.id) ? operationRenderOptions() : {}),
     renderEngineOperation(ctx, state.engineOperation),
     component.details && component.details.rebases && component.details.rebases.length ? E('p', { 'class': 'z2m-dim' }, _('Требуются rebase/review перед обновлением.')) : null
   ]);
@@ -1478,7 +1568,7 @@ function renderZ2KCard(ctx, component) {
   if (!state.z2kExpanded && z2kCanApply(component)) {
     primaryActions.unshift(shell.button(z2kUpdateActionLabel(component), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
   }
-  var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (state.z2kExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx), 'aria-expanded': state.z2kExpanded ? 'true' : 'false' }, [
+  var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (state.z2kExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx), disabled: isBusyFor('z2k-core') ? 'disabled' : null, 'aria-expanded': state.z2kExpanded ? 'true' : 'false' }, [
     _('Подробнее'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(state.z2kExpanded ? 'chevronUp' : 'chevronDown', { size: 12 }))
   ]);
   return E('article', { 'class': 'z2m-component-card z2m-component-card--z2k ' + component.health, 'data-component': component.id }, [
@@ -1501,8 +1591,17 @@ function renderZ2KCard(ctx, component) {
       E('div', { 'class': 'z2m-btnrow' }, primaryActions),
       E('div', { 'class': 'z2m-btnrow' }, [detailsBtn])
     ]),
-    renderInlineOperation(ctx, component, isBusyFor(component.id) ? { phase: operationPhase(state.componentOperation), message: operationMessage(state.componentOperation) } : {}),
+    renderInlineOperation(ctx, component, isBusyFor(component.id) ? operationRenderOptions() : {}),
   ]);
+}
+function renderZ2KPostMutationRefreshError(ctx) {
+  if (!state.z2kPostMutationRefreshError) return null;
+  return ctx.shell.statePanel({
+    title: _('Обновление завершено.'),
+    message: _('Не удалось подтвердить новое состояние.'),
+    kind: 'error',
+    actions: [ctx.shell.button(_('Обновить состояние'), 'sm', retryZ2KPostMutationRefresh.bind(null, ctx), !!state.componentOperation)]
+  });
 }
 function renderOptionalCard(ctx, opts) {
   var shell = ctx.shell;
@@ -1565,6 +1664,7 @@ function renderComponents(ctx, data) {
     : catalogEnvelope && catalogEnvelope.value !== undefined ? catalogEnvelope.value : resourceValue.catalog || resourceZ2K.catalog || {};
   var catalogState = catalogValue.remoteState || (catalogEnvelope ? 'not-loaded' : null);
   var catalogRows = Array.isArray(catalogValue.versions) ? catalogValue.versions : Array.isArray(catalogValue) ? catalogValue : [];
+  var postMutationRefreshFailed = !!state.z2kPostMutationRefreshError;
   if (catalogValue && catalogState !== 'not-loaded') {
     state.z2kCatalog = catalogValue;
     if (catalogRows.length && !state.z2kSelectedVersion) {
@@ -1580,8 +1680,10 @@ function renderComponents(ctx, data) {
       remoteState: catalogState,
       remoteAvailable: catalogValue.remoteAvailable,
       selectedVersion: state.z2kSelectedVersion || resourceZ2K.selectedVersion,
-      selectedDetails: state.z2kDetails || resourceZ2K.selectedDetails,
-      preparedTarget: state.z2kPrepared || resourceZ2K.preparedTarget
+      selectedDetails: postMutationRefreshFailed ? null : state.z2kDetails || resourceZ2K.selectedDetails,
+      preparedTarget: postMutationRefreshFailed ? null : state.z2kPrepared || resourceZ2K.preparedTarget,
+      updateState: postMutationRefreshFailed ? 'refresh-required' : resourceZ2K.updateState,
+      canApply: postMutationRefreshFailed ? false : resourceZ2K.canApply
     }),
     checkedAt: latestCanonicalTimestamp(
       payload.resources && payload.resources.value && payload.resources.value.checkedAt,
@@ -1596,6 +1698,7 @@ function renderComponents(ctx, data) {
   var summaryText = mandatorySummary(page);
   return E('div', { 'class': 'z2m-components-page' }, [
     hero,
+    renderZ2KPostMutationRefreshError(ctx),
     E('section', { 'class': 'z2m-components-section' }, [
       E('div', { 'class': 'z2m-components-section-head' }, [
         E('h2', {}, _('ОБЯЗАТЕЛЬНЫЕ КОМПОНЕНТЫ')),

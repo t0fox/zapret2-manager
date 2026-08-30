@@ -136,10 +136,13 @@ test('D successful Z2K update + context replacement ctx2 not busy', async () => 
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
   const updBody = src.slice(src.indexOf('function updateZ2K'), src.indexOf('function z2kCatalogRows'));
   assert.ok(updBody.includes('componentOperation'), 'updateZ2K must use componentOperation');
-  const hasClearBeforeRefresh = /componentOperation\s*=\s*null[\s\S]*?refresh\(ctx\)/.test(updBody);
+  const refreshStart = src.indexOf('function refreshZ2KAfterMutation');
+  const refreshEnd = src.indexOf('function retryZ2KPostMutationRefresh', refreshStart);
+  const refreshBody = src.slice(refreshStart, refreshEnd);
+  const hasClearBeforeRefresh = /componentOperation\s*=\s*null[\s\S]*?return refresh\(ctx\)/.test(refreshBody);
   assert.equal(hasClearBeforeRefresh, true, 'updateZ2K must clear before refresh');
-  const hasFinallyAfter = /refresh\(ctx\)[\s\S]*?finally[\s\S]*?componentOperation/.test(updBody);
-  assert.equal(hasFinallyAfter, false, 'updateZ2K must not have finally after refresh');
+  const hasPostRefreshOldContextRerender = /return refresh\(ctx\)[\s\S]*?rerender\(ctx\)/.test(refreshBody);
+  assert.equal(hasPostRefreshOldContextRerender, false, 'post-update refresh must not rerender the detached caller context');
 });
 
 test('E failed Z2K update not busy', async () => {

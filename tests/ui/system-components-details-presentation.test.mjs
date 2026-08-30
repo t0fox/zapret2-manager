@@ -428,6 +428,8 @@ test('Z2K update prepares the selected release and sends its target token to res
 
   internals.checkUpdates(ctx, 'z2k');
   await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(internals.state.z2kCheck.checkedAt, 200);
+  assert.equal(internals.state.z2kCheck.manifest.current, 'r-80.3');
   internals.updateZ2K(ctx, { updateState: 'update-available', canApply: true, selectedVersion: 'r-80.3', selectedDetails: { version: 'r-80.3', installable: true, operation: 'reinstall' } });
   await new Promise(resolve => setTimeout(resolve, 0));
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -435,8 +437,7 @@ test('Z2K update prepares the selected release and sends its target token to res
   modal.actions[1].attrs.click();
   await new Promise(resolve => setTimeout(resolve, 0));
 
-  assert.equal(internals.state.z2kCheck.checkedAt, 200);
-  assert.equal(internals.state.z2kCheck.manifest.current, 'r-80.3');
+  assert.equal(internals.state.z2kCheck, null, 'successful mutation must invalidate the pre-mutation check snapshot');
   assert.deepEqual(JSON.parse(JSON.stringify(prepareCalls)), [{ version: 'r-80.3' }]);
   assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-80.2', planToken: 'z2k-target-v2:test' }]);
 });

@@ -62,7 +62,7 @@ function loadModel() {
 function loadMaintenance() {
   const marker = '\nreturn baseclass.extend({';
   const end = maintenanceSource.lastIndexOf(marker);
-  return vm.runInNewContext(`(function () {\n${maintenanceSource.slice(0, end)}\nreturn { renderComponents, selectZ2KVersion, toggleZ2K, state };\n})()`, {
+  return vm.runInNewContext(`(function () {\n${maintenanceSource.slice(0, end)}\nreturn { renderComponents, selectZ2KVersion, toggleZ2K, updateZ2K, waitForZ2KUpdate, state };\n})()`, {
     baseclass: { extend: value => value },
     _: value => value,
     E: vnode,
@@ -136,7 +136,11 @@ function makeContext(z2k) {
     shell: {
       button: (label, kind, click, disabled, attrs) => vnode('button', { label, kind, click, disabled, ...(attrs || {}) }, label),
       panel: (title, body) => vnode('section', { class: 'z2m-panel' }, [title, body]),
-      statePanel: options => vnode('div', { class: 'z2m-state-panel' }, options && options.message || ''),
+      statePanel: options => vnode('div', { class: 'z2m-state-panel' }, [
+        options && options.title,
+        options && options.message,
+        options && options.actions,
+      ]),
       switchControl: () => vnode('input', {}, ''),
       format: { timestamp: value => value ? `ts:${value}` : '' },
       showToast() {},
@@ -783,4 +787,220 @@ test('version details exposes canonical device plan and decouples compare from h
   assert.match(versionsSource, /deviceChanges:/);
   assert.match(versionsSource, /includeCompare && installedRow != null/);
   assert.doesNotMatch(versionsSource, /includeCompare && installChangeSet\.known && installedRow/);
+});
+
+test('successful Z2K update invalidates stale details before authoritative refresh without page reload', async () => {
+  const internals = loadMaintenance();
+  const staleDetails = {
+    version: 'r-80.3',
+    releaseName: 'Z2K r-80.3',
+    releaseBody: 'До обновления',
+    installable: true,
+    operation: 'upgrade',
+    installedVersion: 'r-79.7',
+    deviceChanges: { known: true, modified: 1, added: 1, removed: 0 },
+  };
+  const authoritativeDetails = {
+    ...staleDetails,
+    releaseBody: 'После обновления',
+    operation: 'reinstall',
+    installedVersion: 'r-80.3',
+  };
+  const before = z2kRaw({
+    installedVersion: 'r-79.7',
+    selectedVersion: 'r-80.3',
+    selectedDetails: staleDetails,
+    updateState: 'update-available',
+  });
+  const after = z2kRaw({
+    installedVersion: 'r-80.3',
+    selectedVersion: 'r-80.3',
+    selectedDetails: null,
+    updateState: 'current',
+  });
+  const ctx = makeContext(before);
+  const mutationComponent = {
+    id: 'z2k-core',
+    runtimeHealth: 'ready',
+    health: 'ready',
+    compatibility: 'compatible',
+    updateState: 'update-available',
+    attentionState: 'none',
+    canApply: true,
+    selectedVersion: 'r-80.3',
+    selectedDetails: staleDetails,
+    installedRelease: { value: 'r-79.7' },
+    latestRelease: 'r-80.3',
+    availableRelease: 'r-80.3',
+    catalog: before.catalog,
+  };
+  let modal;
+  let refreshCalls = 0;
+  let detailCalls = 0;
+  ctx.shell.openModal = (title, message, actions) => { modal = { title, message, actions }; };
+  ctx.shell.closeModal = () => {};
+  ctx.api.normalizeError = error => error || {};
+  ctx.api.resources = {
+    versionDetails: request => {
+      detailCalls += 1;
+      assert.equal(request.version, 'r-80.3');
+      assert.equal(request.includeCompare, 'fallback');
+      return Promise.resolve(authoritativeDetails);
+    },
+    prepareVersion: () => Promise.resolve({
+      planToken: 'fresh-plan',
+      target: { targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-79.7' },
+    }),
+    update: () => Promise.resolve({ accepted: true, operationId: 'operation-1' }),
+    updateStatus: () => Promise.resolve({ phase: 'completed', result: { ok: true } }),
+  };
+  ctx.refresh = () => {
+    refreshCalls += 1;
+    ctx.data.components.resources.value.z2k = after;
+    return Promise.resolve();
+  };
+  internals.state.z2kSelectedVersion = 'r-80.3';
+  internals.state.z2kExpanded = true;
+  internals.state.z2kDetails = staleDetails;
+  internals.state.z2kDetailsCompared = true;
+  internals.state.z2kDetailsExpanded = true;
+  internals.state.z2kPrepared = { planToken: 'old-plan' };
+  internals.state.z2kCheck = { planToken: 'old-check' };
+
+  internals.updateZ2K(ctx, mutationComponent);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(modal, 'update must ask for confirmation after prepare');
+  modal.actions[1].attrs.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(refreshCalls, 1);
+  assert.equal(detailCalls, 1);
+  assert.equal(internals.state.z2kSelectedVersion, 'r-80.3');
+  assert.equal(internals.state.z2kDetails.releaseBody, 'После обновления');
+  assert.equal(internals.state.z2kDetailsCompared, false);
+  assert.equal(internals.state.z2kDetailsExpanded, false);
+  assert.equal(internals.state.z2kPrepared, null);
+  assert.equal(internals.state.z2kCheck, null);
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(rendered);
+  assert.match(text, /Установлено.*r-80\.3/);
+  assert.match(text, /Переустановить r-80\.3/);
+  assert.doesNotMatch(text, /Доступно обновление/);
+  assert.doesNotMatch(text, /Обновить до r-80\.3/);
+  assert.doesNotMatch(text, /До обновления/);
+});
+
+test('Z2K update does not restore stale details when authoritative post-update refresh fails', async () => {
+  const internals = loadMaintenance();
+  const staleDetails = {
+    version: 'r-80.3',
+    releaseName: 'Z2K r-80.3',
+    releaseBody: 'Старый снимок',
+    installable: true,
+    operation: 'upgrade',
+    installedVersion: 'r-79.7',
+  };
+  const before = z2kRaw({ installedVersion: 'r-79.7', selectedVersion: 'r-80.3', selectedDetails: staleDetails });
+  const ctx = makeContext(before);
+  let modal;
+  ctx.shell.openModal = (title, message, actions) => { modal = { title, message, actions }; };
+  ctx.shell.closeModal = () => {};
+  ctx.api.resources = {
+    prepareVersion: () => Promise.resolve({
+      planToken: 'fresh-plan',
+      target: { targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-79.7' },
+    }),
+    update: () => Promise.resolve({ accepted: true, operationId: 'operation-1' }),
+    updateStatus: () => Promise.resolve({ phase: 'completed', result: { ok: true } }),
+  };
+  ctx.refresh = () => Promise.reject({ code: 'ESTATUS', message: 'resources.status unavailable' });
+  const component = {
+    id: 'z2k-core',
+    runtimeHealth: 'ready',
+    compatibility: 'compatible',
+    updateState: 'update-available',
+    attentionState: 'none',
+    canApply: true,
+    selectedVersion: 'r-80.3',
+    selectedDetails: staleDetails,
+    installedRelease: { value: 'r-79.7' },
+    latestRelease: 'r-80.3',
+    availableRelease: 'r-80.3',
+    catalog: before.catalog,
+  };
+  internals.state.z2kExpanded = true;
+  internals.state.z2kSelectedVersion = 'r-80.3';
+  internals.state.z2kDetails = staleDetails;
+  internals.state.z2kDetailsCompared = true;
+  internals.state.z2kDetailsExpanded = true;
+
+  internals.updateZ2K(ctx, component);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  modal.actions[1].attrs.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(internals.state.z2kDetails, null);
+  const text = textOf(internals.renderComponents(ctx, ctx.data));
+  assert.match(text, /Обновление завершено/);
+  assert.match(text, /Не удалось подтвердить новое состояние/);
+  assert.match(text, /Обновить состояние/);
+  assert.doesNotMatch(text, /Старый снимок/);
+  assert.doesNotMatch(text, /Обновить до r-80\.3/);
+});
+
+test('Z2K operation status keeps backend progress projection visible while update is running', async () => {
+  const internals = loadMaintenance();
+  let resolveTerminal;
+  let statusCalls = 0;
+  const ctx = makeContext(z2kRaw({ installedVersion: 'r-79.7', selectedVersion: 'r-80.3' }));
+  ctx.api.resources = {
+    updateStatus: () => {
+      statusCalls += 1;
+      if (statusCalls === 1) return Promise.resolve({
+        phase: 'verifying',
+        progress: 42,
+        message: 'Проверяем файлы…',
+        stages: [
+          { id: 'download', label: 'Загрузка', state: 'done' },
+          { id: 'verify', label: 'Проверка файлов', state: 'running' },
+          { id: 'apply', label: 'Применение', state: 'pending' },
+        ],
+      });
+      return new Promise(resolve => { resolveTerminal = resolve; });
+    },
+  };
+  internals.state.componentOperation = {
+    kind: 'update',
+    scope: 'z2k',
+    targetVersion: 'r-80.3',
+  };
+
+  const first = internals.waitForZ2KUpdate(ctx, 'operation-1');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(internals.state.componentOperation.phase, 'verifying');
+  assert.equal(internals.state.componentOperation.progress, 42);
+  assert.equal(internals.state.componentOperation.message, 'Проверяем файлы…');
+  assert.deepEqual(internals.state.componentOperation.stages, [
+    { id: 'download', label: 'Загрузка', state: 'done' },
+    { id: 'verify', label: 'Проверка файлов', state: 'running' },
+    { id: 'apply', label: 'Применение', state: 'pending' },
+  ]);
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(rendered);
+  assert.match(text, /Проверяем файлы…/);
+  assert.match(text, /Проверка файлов/);
+  assert.match(text, /42%/);
+  const z2kButtons = findAll(z2kCard(rendered), node => node.tag === 'button');
+  assert.ok(z2kButtons.length > 0);
+  assert.ok(z2kButtons.every(button => button.attrs.disabled), 'Z2K actions must be disabled while update is running');
+
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  resolveTerminal({ phase: 'completed', result: { ok: true } });
+  await first;
 });
