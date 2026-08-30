@@ -324,6 +324,7 @@ function runtime_target_path(runtimeTarget) {
 }
 function runtime_source_safe(path) { return string(path) && substr(path, 0, length('/etc/zapret2-manager/assets/')) == '/etc/zapret2-manager/assets/' && index(path, '..') < 0 && index(path, '\\') < 0; }
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function z2k_target_asset_valid(item) {
 	return object(item) && string(item.sourcePath) && match(item.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
 		&& string(item.id) && (substr(item.id, 0, 4) == 'lua:' || substr(item.id, 0, 5) == 'blob:')
@@ -509,7 +510,7 @@ function z2k_canonical_target_assets(targetVersion, targetCommit, manifestSha256
 	return result;
 }
 function z2k_target_assets_with_sizes(assets, listed, targetCommit) {
-	if (type(assets) != 'array' || !length(assets) || !object(listed) || type(listed.assets) != 'array' || !valid_sha(targetCommit))
+	if (type(assets) != 'array' || !length(assets) || !object(listed) || type(listed.assets) != 'array' || !valid_commit(targetCommit))
 		return fail('EZ2K_INCOMPATIBLE', 'Z2K target size evidence is unavailable.');
 	let result = [], root = null, paths = [];
 	try {

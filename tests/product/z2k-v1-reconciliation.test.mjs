@@ -117,6 +117,12 @@ test('prepare fills missing target byte sizes from Registry or the existing immu
     'changed/new target bytes must use the existing immutable SHA-bound asset fetch');
   assert.match(helper, /sha256\(/,
     'downloaded target size evidence must remain SHA verified');
+  assert.match(coordinator, /function valid_commit\(value\)/,
+    'resource coordinator must own the commit identity validator it uses');
+  assert.match(helper, /valid_commit\(targetCommit\)/,
+    'target size evidence must validate the immutable commit locally');
+  assert.doesNotMatch(helper, /valid_sha\(targetCommit\)/,
+    'target size evidence must not call an undeclared validator from another module');
   assert.match(coordinator, /z2k_target_assets_with_sizes\(resolved\.assets/,
     'prepare must consume the size-evidenced target before canonical composition');
 });
