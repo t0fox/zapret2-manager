@@ -282,6 +282,35 @@ test('6f. normal package materialization cannot clobber selected lifecycle bytes
   assert.equal(fs.readFileSync(path.join(target, 'z2k-modern-core.lua'), 'utf8'), '-- selected Registry release\n');
 });
 
+test('6i. package synchronization cannot resurrect lifecycle Z2K without authority', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-package-resurrection-'));
+  const source = path.join(dir, 'package-assets', 'lua');
+  const runtime = path.join(dir, 'opt', 'zapret2');
+  fs.mkdirSync(source, { recursive: true });
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.mkdirSync(path.join(dir, 'etc'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'z2k-detectors.lua'), '-- package lifecycle bytes\n');
+
+  const result = spawnSync(shell, [shellPath(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'))], {
+    env: {
+      ...process.env,
+      Z2M_RUNTIME_ASSETS_SRC: shellPath(path.join(dir, 'package-assets')),
+      Z2M_RUNTIME_BASE: shellPath(runtime),
+      Z2M_MANAGER_STATE_ROOT: shellPath(path.join(dir, 'state')),
+      Z2M_MANAGER_ETC_ROOT: shellPath(path.join(dir, 'etc')),
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+    },
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(path.join(runtime, 'lua', 'z2k-detectors.lua')), false,
+    'package lifecycle bytes must not enter live runtime without a Registry authority');
+  const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
+  assert.equal(verdict.lifecycleState, 'blocked-unknown-authority', JSON.stringify(verdict));
+  assert.equal(verdict.blockedLifecycleAssets, 1, JSON.stringify(verdict));
+});
+
 test('7. receipt records and validates sourceCommit and sourcePath identity', () => {
   assert.match(registry, /sourceCommit/);
   assert.match(registry, /sourcePath/);

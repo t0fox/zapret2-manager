@@ -8,6 +8,8 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 const versions = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
 const registry = read('zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc');
 const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
+const upstream = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc');
+const composition = read('zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc');
 const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
 const model = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js');
 
@@ -131,4 +133,20 @@ test('selected fresh resolver reports bounded REST requests separately from raw 
   assert.match(versions, /contentSha256/);
   assert.match(versions, /restRequestCount: REST_REQUEST_COUNT/);
   assert.match(coordinator, /diagnostics: resolved\.diagnostics/);
+});
+
+test('metadata resolution has no direct-fetch bypass and mutation fetch remains SHA-bound', () => {
+  assert.doesNotMatch(composition, /(?:curl|wget|uclient-fetch)/i);
+  assert.doesNotMatch(versions, /(?:curl|wget|uclient-fetch)/i);
+  assert.match(upstream, /update_source\.update_source_fresh/);
+  const fetchStart = upstream.indexOf('function fetch_file');
+  assert.ok(fetchStart >= 0, 'immutable asset fetch helper must remain explicit');
+  const fetchBody = upstream.slice(fetchStart);
+  assert.match(fetchBody, /uclient-fetch/);
+  assert.match(fetchBody, /sha256|contentSha256/);
+  assert.doesNotMatch(upstream.slice(0, fetchStart), /uclient-fetch/);
+  const z2kApply = coordinator.slice(coordinator.indexOf('function z2k_apply_prepared'));
+  assert.match(z2kApply, /uclient-fetch/);
+  assert.match(z2kApply, /sha256\(path\)/);
+  assert.match(z2kApply, /fetched bytes SHA does not match prepared target/);
 });

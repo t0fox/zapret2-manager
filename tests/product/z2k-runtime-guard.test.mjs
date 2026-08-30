@@ -29,7 +29,8 @@ test('Z2K guard spans activation and both rollback branches with ownership-safe 
   const download = apply.indexOf('uclient-fetch');
   const registryApply = apply.indexOf('asset_registry_apply_bundle');
   const runtimeActivate = apply.indexOf('z2k_runtime_activate');
-  const runtimeFailure = apply.indexOf('z2k_rollback_after_runtime_failure');
+  const registryFailure = apply.indexOf('z2k_rollback_after_runtime_failure');
+  const runtimeFailure = apply.indexOf('z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtime.activated === true)', runtimeActivate);
   const release = apply.lastIndexOf('z2k_runtime_guard_finish');
 
   assert.ok(consume >= 0, 'prepared target must be consumed under the lifecycle lock');
@@ -37,6 +38,7 @@ test('Z2K guard spans activation and both rollback branches with ownership-safe 
   assert.ok(download > acquire, 'pause must cover downloads and materialization');
   assert.ok(registryApply > download, 'pause must cover Registry activation');
   assert.ok(runtimeActivate > registryApply, 'pause must cover runtime activation and readiness');
+  assert.ok(registryFailure > registryApply && registryFailure < runtimeActivate, 'Registry postflight rollback must happen before runtime activation');
   assert.ok(runtimeFailure > runtimeActivate, 'runtime rollback must happen before guard release');
   assert.ok(release > runtimeFailure, 'guard finish must happen after rollback or success');
   assert.match(source, /function z2k_runtime_guard_finish[\s\S]*z2k_runtime_guard_release\(guard\)[\s\S]*z2k_lifecycle_lock_release\(\)/);

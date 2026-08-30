@@ -26,6 +26,7 @@ STATE_DIR="$STATE_ROOT/autocircular"
 ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
 ASSET_ROOT=${Z2M_MANAGER_ASSET_ROOT:-/etc/zapret2-manager/assets}
 ACTIVATION_SNAPSHOT=${Z2M_RUNTIME_ACTIVATION_SNAPSHOT:-/etc/zapret2-manager/runtime-assets.snapshot}
+BLOCKED_LIFECYCLE_ASSETS=0
 
 runtime_asset_mode() {
 	case "$1" in
@@ -407,6 +408,10 @@ materialize() {
 	done
 	for _src in "$SRC"/lua/*; do
 		[ -f "$_src" ] || continue
+		if is_z2k_lifecycle_lua "${_src##*/}"; then
+			BLOCKED_LIFECYCLE_ASSETS=$((BLOCKED_LIFECYCLE_ASSETS + 1))
+			continue
+		fi
 		copy_if_missing_or_custom "$_src" "$BASE/lua/${_src##*/}"
 	done
 	for _src in "$SRC"/lists/*; do
@@ -441,6 +446,10 @@ verify() {
 	done
 	for _src in "$SRC"/lua/*; do
 		[ -f "$_src" ] || continue
+		if is_z2k_lifecycle_lua "${_src##*/}"; then
+			BLOCKED_LIFECYCLE_ASSETS=$((BLOCKED_LIFECYCLE_ASSETS + 1))
+			continue
+		fi
 		# Core upstream Lua files are engine-owned after a compatible install
 		# (their integrity is proven by the engine payload digest + capability
 		# proof, not by the manager baseline).
@@ -467,8 +476,8 @@ verify() {
 	[ "$count" -ge 1 ] || ok=0
 	ok_json=false
 	[ "$ok" = 1 ] && ok_json=true
-	printf '{"ok":%s,"files":[%s],"missing":[%s],"mismatched":[%s],"count":%s}\n' \
-		"$ok_json" "$files" "$missing" "$mismatched" "$count"
+	printf '{"ok":%s,"scope":"package-static","staticReady":%s,"lifecycleState":"blocked-unknown-authority","blockedLifecycleAssets":%s,"files":[%s],"missing":[%s],"mismatched":[%s],"count":%s}\n' \
+		"$ok_json" "$ok_json" "$BLOCKED_LIFECYCLE_ASSETS" "$files" "$missing" "$mismatched" "$count"
 	[ "$ok" = 1 ]
 }
 
@@ -478,8 +487,10 @@ case "${1:-}" in
 	;;
 '')
 	materialize
-	# LuaOPT is changed only by a resolver-backed activation. Package baseline
-	# synchronization has no lifecycle snapshot and must not infer a load set.
+	# Package synchronization has no lifecycle authority and must not copy or
+	# report lifecycle Z2K bytes as ready. A later Registry-backed activation is
+	# the only dynamic-ready path and owns its own exact closure.
+	printf '{"ok":true,"scope":"package-static","staticReady":true,"lifecycleState":"blocked-unknown-authority","blockedLifecycleAssets":%s}\n' "$BLOCKED_LIFECYCLE_ASSETS"
 	exit 0
 	;;
 *)

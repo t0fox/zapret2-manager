@@ -967,7 +967,8 @@ export const z2k_runtime_materialize_confirmed = function() {
 	if (!listed.ok) return listed;
 	let authority = z2k_registry_installed_release(listed);
 	if (!authority || authority.confidence != 'confirmed' || !authority.value)
-		return { ok: true, skipped: true, reason: 'no-confirmed-z2k-release' };
+		return { ok: true, state: 'blocked-unknown-authority', staticReady: true, lifecycleReady: false,
+			skipped: true, reason: 'no-confirmed-z2k-release' };
 	let resolved = resolveInstalled({ registry: listed });
 	if (!resolved.ok) return resolved;
 	if (resolved.lifecycleState == 'V1_VERIFIED_MEMBERSHIP' || resolved.compositionStatus != 'canonical')
@@ -977,7 +978,9 @@ export const z2k_runtime_materialize_confirmed = function() {
 	let activated = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --activate-resolved installed-materialize ' + shell_quote(inputPath));
 	try { unlink(inputPath); } catch (e) {}
 	if (activated.rc != 0) return fail('ERUNTIME', 'Confirmed Z2K runtime materialization failed.', { output: activated.out, snapshotId: resolved.snapshotId });
-	return { ok: true, skipped: false, version: resolved.lifecycleIdentity && resolved.lifecycleIdentity.release || null, snapshotId: resolved.snapshotId, assets: length(resolved.runtimeAssets || []), removed: 0 };
+	return { ok: true, state: 'dynamic-ready', staticReady: true, lifecycleReady: true, skipped: false,
+		version: resolved.lifecycleIdentity && resolved.lifecycleIdentity.release || null, snapshotId: resolved.snapshotId,
+		assets: length(resolved.runtimeAssets || []), removed: 0 };
 };
 function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated) {
 	let pending = z2k_pending_load(), journal = pending == null || z2k_pending_write(pending, 'ROLLING_BACK');
