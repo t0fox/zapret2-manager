@@ -11,6 +11,8 @@ const MAX_MANIFEST = 512 * 1024;
 const MAX_FILES = 512;
 const MAX_PATH = 256;
 
+function object(value) { return type(value) == 'object' && value != null; }
+function string(value) { return type(value) == 'string'; }
 function fail(code, message, details) { let value = { ok: false, error: { code: code, message: message } }; if (details != null) value.error.details = details; return value; }
 function run(command) { let p = popen(command + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
 function quote(value) { return type(value) == 'string' && index(value, "'") < 0 && index(value, '\n') < 0 && index(value, '\r') < 0 ? "'" + value + "'" : null; }
@@ -76,16 +78,16 @@ function update_items_for_paths(items, paths) {
 	for (let i = 0; i < length(items || []); i++) if (items[i] && wanted[items[i].sourcePath]) push(result, items[i]);
 	return result;
 }
-function plan_result(manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons, updateItems) {
-	let updateState = length(updates) ? 'update-available' : 'current';
+function plan_result(manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons, updateItems, removedItems) {
+	let pending = length(updates || []) + length(removedItems || []), updateState = pending > 0 ? 'update-available' : 'current';
 	let attentionState = length(rebases) ? 'rebase-required' : length(blockingReviews) ? 'review-required' : length(advisoryReviews) ? 'review-advisory' : 'none';
-	let status = length(rebases) ? 'rebase-required' : length(blockingReviews) ? 'review-required' : length(updates) ? 'update-available' : 'current';
+	let status = length(rebases) ? 'rebase-required' : length(blockingReviews) ? 'review-required' : pending > 0 ? 'update-available' : 'current';
 	return {
 		ok: true,
 		status: status,
 		updateState: updateState,
 		attentionState: attentionState,
-		canApply: length(updates) > 0 && length(rebases) == 0 && length(blockingReviews) == 0,
+		canApply: pending > 0 && length(rebases) == 0 && length(blockingReviews) == 0,
 		updates: updates,
 		rebases: rebases,
 		reviews: reviews,
@@ -94,6 +96,7 @@ function plan_result(manifest, updates, rebases, reviews, advisoryReviews, block
 		blockingReasons: blockingReasons,
 		reviewDetails: reviewDetails,
 		updateItems: updateItems || [],
+		removedItems: removedItems || [],
 		manifest: manifest
 	};
 }
@@ -101,7 +104,7 @@ function plan(value) {
 	// PURE: deterministic from manifest + classification + registry. No network.
 	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
-	let updates = [], updateItems = [], rebases = [], reviews = [], advisoryReviews = [], blockingReviews = [], reviewDetails = [], blockingReasons = [], assets = registry_assets();
+	let updates = [], updateItems = [], removedItems = [], targetPaths = {}, rebases = [], reviews = [], advisoryReviews = [], blockingReviews = [], reviewDetails = [], blockingReasons = [], assets = registry_assets();
 	for (let path in keys(checked.manifest.files_sha256)) {
 		let digest = checked.manifest.files_sha256[path], item = class_for(map, path);
 		if (item == null) {
@@ -120,6 +123,7 @@ function plan(value) {
 			push(blockingReasons, detail);
 		}
 		else if (item.class == 'exact-managed') {
+			targetPaths[path] = true;
 			let installedAsset = registry_asset_for(path, assets), installed = installedAsset && installedAsset.contentSha256 || installedShaFor(path, assets);
 			let needsUpdate = (installed == null) || (installed != digest);
 			if (needsUpdate) {
@@ -137,7 +141,21 @@ function plan(value) {
 		}
 		else if (item.class == 'ignored-platform' && false) { /* explicit no-op */ }
 	}
-	return plan_result(checked.manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons, updateItems);
+	// The Registry may still contain an exact-managed Z2K asset from an older
+	// release. It is a lifecycle removal when the selected target membership no
+	// longer contains its canonical source path. Package-baseline files are not
+	// Registry assets and therefore cannot become removals here.
+	for (let i = 0; type(assets) == 'array' && i < length(assets); i++) {
+		let asset = assets[i], provenance = asset && asset.provenance, sourcePath = provenance && provenance.sourcePath;
+		if (!object(provenance) || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua' || !string(sourcePath) || targetPaths[sourcePath]) continue;
+		let historical = class_for(map, sourcePath);
+		if (historical == null || historical.class != 'exact-managed' || !string(historical.runtimeTarget)) continue;
+		push(removedItems, { id: asset.id, type: asset.type, name: asset.name || historical.localName || asset.id, sourcePath: sourcePath, runtimeTarget: historical.runtimeTarget,
+			currentSha256: asset.contentSha256 || null, targetSha256: null, expectedRevision: asset.revision || 0, expectedByteSize: asset.byteSize || 0,
+			bundleId: provenance.bundleId, version: provenance.version || null, sourceCommit: provenance.sourceCommit || null });
+	}
+	sort(removedItems, function(a, b) { return a.sourcePath == b.sourcePath ? 0 : (a.sourcePath < b.sourcePath ? -1 : 1); });
+	return plan_result(checked.manifest, updates, rebases, reviews, advisoryReviews, blockingReviews, reviewDetails, blockingReasons, updateItems, removedItems);
 }
 function fetch_untrusted_manifest_once() {
 	let request = { sourceKey: 'z2k:necronicle/z2k:manifest:branch:z2k-enhanced', origin: 'raw-content', url: MANIFEST_URL, ttlSec: 900, maxBytes: MAX_MANIFEST,
@@ -181,10 +199,10 @@ export const z2k_upstream_check = function() {
 				let detail = { path: 'files/lua/z2k-state-persist.lua', reason: gate.error && gate.error.code || 'candidate-gate-failed', policy: 'blocking', message: 'Кандидат z2k-state-persist не прошёл проверку совместимости; требуется review.' };
 				let newDetails = []; for (let i = 0; i < length(checked.reviewDetails || []); i++) push(newDetails, checked.reviewDetails[i]); push(newDetails, detail);
 				let newReasons = []; for (let i = 0; i < length(checked.blockingReasons || []); i++) push(newReasons, checked.blockingReasons[i]); push(newReasons, detail);
-				checked = plan_result(checked.manifest, newUpdates, checked.rebases || [], newReviews, newAdvisory, newBlocking, newDetails, newReasons, update_items_for_paths(checked.updateItems, newUpdates));
+				checked = plan_result(checked.manifest, newUpdates, checked.rebases || [], newReviews, newAdvisory, newBlocking, newDetails, newReasons, update_items_for_paths(checked.updateItems, newUpdates), checked.removedItems || []);
 			}
 		}
-		return { ok: true, status: checked.status, updateState: checked.updateState, attentionState: checked.attentionState, canApply: checked.canApply, updates: checked.updates, rebases: checked.rebases, reviews: checked.reviews, advisoryReviews: checked.advisoryReviews, blockingReviews: checked.blockingReviews, blockingReasons: checked.blockingReasons, release: checked.manifest.current, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, manifestSha256: remote.contentSha256 || null, plan: checked };
+		return { ok: true, status: checked.status, updateState: checked.updateState, attentionState: checked.attentionState, canApply: checked.canApply, updates: checked.updates, removedItems: checked.removedItems || [], rebases: checked.rebases, reviews: checked.reviews, advisoryReviews: checked.advisoryReviews, blockingReviews: checked.blockingReviews, blockingReasons: checked.blockingReasons, release: checked.manifest.current, source: { repository: 'necronicle/z2k', branch: 'z2k-enhanced' }, trustMode: remote.trustMode, manifest: checked.manifest, manifestSha256: remote.contentSha256 || null, plan: checked };
 	}
 	return lastErr || fail('ESTALE', 'Z2K manifest/candidate race — retry limit exceeded');
 };

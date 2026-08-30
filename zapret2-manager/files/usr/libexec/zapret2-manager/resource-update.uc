@@ -169,7 +169,7 @@ function z2k_target_gate(manifest) {
 	let plan = z2k_upstream_plan(manifest);
 	if (!plan.ok) return plan;
 	if (length(plan.rebases || []) || length(plan.blockingReviews || [])) return fail('EZ2K_REVIEW_REQUIRED', 'Выбранный release требует проверки перед установкой.', { attentionState: plan.attentionState || 'review-required', blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [] });
-	return { ok: true, canApply: true, attentionState: plan.attentionState || 'none', blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [] };
+	return { ok: true, canApply: true, attentionState: plan.attentionState || 'none', blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [], plan: plan };
 }
 function state_label(state) { return ({ current: 'Актуально', update: 'Доступно обновление', missing: 'Не установлено', checking: 'Проверяем', unavailable: 'Источник недоступен', stale: 'Проверка устарела', error: 'Ошибка проверки', attention: 'Требуется внимание', unknown: 'Не проверено' })[state] || 'Требуется внимание'; }
 function plan_token(checkedAt, manifest) {
@@ -210,10 +210,10 @@ function source_rows(manifest, rows) {
 	return result;
 }
 function z2k_projection(signed) {
-	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, manifest: null, availableRelease: null };
+	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], removedItems: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, manifest: null, availableRelease: null };
 	let plan = object(signed.plan) ? signed.plan : {}, manifest = object(signed.manifest) ? signed.manifest : {};
 	let status = signed.status || 'unknown';
-	let updateState = signed.updateState || plan.updateState || (length(plan.updates || []) ? 'update-available' : status == 'unknown' ? 'unknown' : 'current');
+	let updateState = signed.updateState || plan.updateState || (length(plan.updates || []) + length(plan.removedItems || []) > 0 ? 'update-available' : status == 'unknown' ? 'unknown' : 'current');
 	let attentionState = signed.attentionState || plan.attentionState || (status == 'rebase-required' ? 'rebase-required' : status == 'review-required' ? 'review-required' : 'none');
 	return {
 		status: status,
@@ -221,6 +221,7 @@ function z2k_projection(signed) {
 		attentionState: attentionState,
 		canApply: signed.canApply === true || plan.canApply === true,
 		updates: plan.updates || [],
+		removedItems: plan.removedItems || [],
 		rebases: plan.rebases || [],
 		reviews: plan.reviews || [],
 		advisoryReviews: plan.advisoryReviews || [],
@@ -525,12 +526,27 @@ function save_check_state(signed, checkedAt, signedSources, token) {
 	let old = load_check_state(), payload = { schema: 2, latestCheck: { checkedAt: checkedAt, planToken: planToken, signed: signed, signedSources: signedSources }, preparedTarget: old && old.preparedTarget || null };
 	persist_check_state(payload);
 }
-function build_status(manifest, checkedAt) {
+function build_status(manifest, checkedAt, activeZ2KManifest) {
 	let listed = asset_registry_list(null); if (!listed.ok) return listed;
+	let activeZ2KPaths = null;
+	if (object(activeZ2KManifest) && object(activeZ2KManifest.files_sha256)) {
+		activeZ2KPaths = {};
+		for (let path in keys(activeZ2KManifest.files_sha256)) activeZ2KPaths[path] = true;
+	}
 	let rows = [], installed = [], seen = {};
 	for (let i = 0; i < length(manifest.bundles); i++) {
-		let sourceValue = source(manifest, manifest.bundles[i].sourceId), items = manifest.bundles[i].assets || [];
-		for (let j = 0; j < length(items); j++) { let item = items[j], row = row_for({ ...item, sourceId: manifest.bundles[i].sourceId, sourceCommit: manifest.bundles[i].sourceCommit }, listed.assets); push(rows, row); if (row.path != null) { row.provenance = sourceValue ? { source: sourceValue.label, repository: sourceValue.repository, commit: manifest.bundles[i].sourceCommit, sourcePath: item.sourcePath } : null; push(installed, row); } seen[item.id] = true; }
+		let bundle = manifest.bundles[i], sourceValue = source(manifest, bundle.sourceId), items = bundle.assets || [];
+		for (let j = 0; j < length(items); j++) {
+			let item = items[j];
+			// The package manifest is a bootstrap inventory, not the active Z2K
+			// membership. Once a valid checked target exists, do not project a
+			// historical package-only asset that the target intentionally removed.
+			if (bundle.sourceId == 'z2k-resources' && activeZ2KPaths != null && !activeZ2KPaths[item.sourcePath]) continue;
+			let row = row_for({ ...item, sourceId: bundle.sourceId, sourceCommit: bundle.sourceCommit }, listed.assets);
+			push(rows, row);
+			if (row.path != null) { row.provenance = sourceValue ? { source: sourceValue.label, repository: sourceValue.repository, commit: bundle.sourceCommit, sourcePath: item.sourcePath } : null; push(installed, row); }
+			seen[item.id] = true;
+		}
 	}
 	for (let i = 0; i < length(listed.assets); i++) if (!seen[listed.assets[i].id]) { let asset = listed.assets[i], row = { id: asset.id, type: asset.type, name: asset.name, path: asset.path, ownership: asset.ownership, packageBaseline: asset.ownership == 'package', revision: asset.revision, contentSha256: asset.contentSha256, byteSize: asset.byteSize, lastChecked: asset.lastChecked || null, lastUpdated: asset.lastUpdated || null, references: asset.references || [], state: asset.validation && asset.validation.status == 'passed' ? 'current' : 'attention', status: state_label(asset.validation && asset.validation.status == 'passed' ? 'current' : 'attention'), provenance: asset.provenance || null, safeToUpdate: asset.ownership != 'package' }; push(installed, row); }
 	let updates = [], byType = {}, consumers = {};
@@ -636,9 +652,13 @@ function z2k_target_membership_compatible(listed, targetAssets, classification) 
 	}
 	return { ok: true };
 }
-function z2k_target_removals(listed, targetAssets, classification) {
-	let targetById = {}, removeIds = [], targets = [];
+function z2k_target_removals(listed, targetAssets, classification, canonicalPlan) {
+	let targetById = {}, canonicalById = {}, removeIds = [], targets = [];
 	for (let i = 0; i < length(targetAssets || []); i++) targetById[targetAssets[i].id] = true;
+	for (let i = 0; object(canonicalPlan) && canonicalPlan.ok === true && i < length(canonicalPlan.removedItems || []); i++) {
+		let planned = canonicalPlan.removedItems[i];
+		if (object(planned) && string(planned.id) && string(planned.sourcePath)) canonicalById[planned.id] = planned.sourcePath;
+	}
 	for (let j = 0; j < length(listed && listed.assets || []); j++) {
 		let current = listed.assets[j], provenance = current && current.provenance;
 		if (!provenance || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua' || targetById[current.id]) continue;
@@ -648,6 +668,8 @@ function z2k_target_removals(listed, targetAssets, classification) {
 			|| type(current.revision) != 'int' || current.revision < 1 || !valid_digest(current.contentSha256) || type(current.byteSize) != 'int' || current.byteSize < 1
 			|| !object(provenance) || provenance.bundleId != 'z2k-curated-lua' || !string(provenance.version) || !string(provenance.sourceCommit) || !string(provenance.sourcePath) || provenance.sourcePath != historical.sourcePath)
 			return fail('EZ2K_INCOMPATIBLE', 'Z2K target removal descriptor is incomplete or inconsistent.', { id: current.id, sourcePath: provenance.sourcePath });
+		if (object(canonicalPlan) && canonicalPlan.ok === true && canonicalById[current.id] != provenance.sourcePath)
+			return fail('EZ2K_INCOMPATIBLE', 'Z2K canonical device plan and target removal mapping diverged.', { id: current.id, sourcePath: provenance.sourcePath });
 		push(removeIds, current.id);
 		push(targets, { id: current.id, type: current.type, sourcePath: provenance.sourcePath, runtimeTarget: historical.runtimeTarget,
 			expectedRevision: current.revision, expectedContentSha256: current.contentSha256, expectedByteSize: current.byteSize,
@@ -655,6 +677,8 @@ function z2k_target_removals(listed, targetAssets, classification) {
 	}
 	sort(removeIds);
 	sort(targets, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
+	if (object(canonicalPlan) && canonicalPlan.ok === true && length(removeIds) != length(canonicalPlan.removedItems || []))
+		return fail('EZ2K_INCOMPATIBLE', 'Z2K canonical device plan and target removal mapping diverged.', { planned: length(canonicalPlan.removedItems || []), mapped: length(removeIds) });
 	return { ok: true, ids: removeIds, targets: targets };
 }
 function same_removal_descriptors(left, right) {
@@ -844,7 +868,7 @@ function consume_prepared_target(expectedState, expectedTarget) {
 }
 function base64_decode(value) { if (!string(value) || length(value) > MAX_REQUEST_BYTES || !match(value, /^[A-Za-z0-9+\/=%]*$/)) return null; let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', buffer = 0, bits = 0; for (let i = 0; i < length(value); i++) { let c = substr(value, i, 1); if (c == '=') break; let n = index(alphabet, c); if (n < 0) return null; buffer = buffer * 64 + n; bits += 6; if (bits >= 8) { bits -= 8; out += chr((buffer >> bits) & 255); buffer = buffer & ((1 << bits) - 1); } } return out; }
 function z2k_unknown_plan(manifest) {
-	return { ok: true, status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], updateItems: [], manifest: manifest || null };
+	return { ok: true, status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], removedItems: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], updateItems: [], manifest: manifest || null };
 }
 function z2k_reconcile_after_mutation(target) {
 	let state = load_check_state(), latestCheck = state && state.latestCheck, signed = latestCheck && latestCheck.signed, plan = null;
@@ -856,12 +880,13 @@ function z2k_reconcile_after_mutation(target) {
 		signed.status = plan.status; signed.updateState = plan.updateState; signed.attentionState = plan.attentionState; signed.canApply = plan.canApply;
 		signed.updates = plan.updates; signed.rebases = plan.rebases; signed.reviews = plan.reviews; signed.advisoryReviews = plan.advisoryReviews;
 		signed.blockingReviews = plan.blockingReviews; signed.blockingReasons = plan.blockingReasons; signed.reviewDetails = plan.reviewDetails; signed.updateItems = plan.updateItems;
+		signed.removedItems = plan.removedItems || [];
 		signed.plan = plan;
 		let token = plan_token(latestCheck.checkedAt, signed.manifest); signed.planToken = token; latestCheck.planToken = token;
 	} else if (object(signed)) {
 		let unknown = z2k_unknown_plan(signed.manifest || null);
 		signed.status = 'unknown'; signed.updateState = 'unknown'; signed.attentionState = 'none'; signed.canApply = false;
-		signed.updates = []; signed.rebases = []; signed.reviews = []; signed.advisoryReviews = []; signed.blockingReviews = []; signed.blockingReasons = []; signed.reviewDetails = []; signed.updateItems = [];
+		signed.updates = []; signed.removedItems = []; signed.rebases = []; signed.reviews = []; signed.advisoryReviews = []; signed.blockingReviews = []; signed.blockingReasons = []; signed.reviewDetails = []; signed.updateItems = [];
 		signed.plan = unknown; signed.planToken = null; latestCheck.planToken = null;
 	} else latestCheck = null;
 	let saved = persist_check_state({ schema: 2, latestCheck: latestCheck, preparedTarget: null });
@@ -884,7 +909,8 @@ export const resource_center_prepare_version = function(request) {
 	if (classificationSnapshot == null) return fail('EZ2K_INCOMPATIBLE', 'Z2K classification mapping is unavailable or invalid.');
 	let membership = z2k_target_membership_compatible(listed, resolved.assets, classification); if (!membership.ok) return membership;
 	let targetGate = z2k_target_gate(resolved.manifest); if (!targetGate.ok) return targetGate;
-	let removals = z2k_target_removals(listed, resolved.assets, classification); if (!removals.ok) return removals;
+	let targetPlan = targetGate.plan; if (!object(targetPlan) || targetPlan.ok !== true) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical Z2K target plan.');
+	let removals = z2k_target_removals(listed, resolved.assets, classification, targetPlan); if (!removals.ok) return removals;
 	let conflicts = z2k_resource_conflicts(listed, removals.ids); if (!conflicts.ok) return conflicts;
 	let authority = z2k_registry_installed_release(listed), installed = authority && authority.value || null, operation = z2k_target_operation(version, installed), localFingerprint = z2k_local_fingerprint(resolved.assets, listed, removals.ids);
 	if (operation == null || localFingerprint == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
@@ -981,10 +1007,12 @@ export const resource_center_status = function () {
 	// the previous status (e.g., rebase-required) until an explicit resources_check
 	// An explicit check refreshes CHECK_STATE via save_check_state(). Do not make
 	// this live — that would add network I/O to every status poll.
-	let loaded = load_manifest(); if (!loaded.ok) return loaded; let answer = build_status(loaded.manifest, null);
+	let loaded = load_manifest(); if (!loaded.ok) return loaded;
+	let persisted = load_check_state(), latestCheck = persisted && persisted.latestCheck;
+	let activeZ2KManifest = latestCheck && latestCheck.signed && latestCheck.signed.ok === true ? latestCheck.signed.manifest : null;
+	let answer = build_status(loaded.manifest, null, activeZ2KManifest);
 	if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
-	let persisted = load_check_state(), latestCheck = persisted && persisted.latestCheck;
 	let remote = latestCheck ? z2k_projection(latestCheck.signed) : z2k_projection(null);
 	remote.local = local;
 	remote.checkedAt = latestCheck ? latestCheck.checkedAt : null;
@@ -1019,7 +1047,9 @@ export const resource_center_check = function () {
 	let loaded = load_manifest(); if (!loaded.ok) return loaded;
 	let signed = z2k_upstream_check();
 	let checkedAt = signed.ok === true ? time() : null;
-	let answer = build_status(loaded.manifest, checkedAt); if (!answer.ok) return answer;
+	let previous = load_check_state(), previousCheck = previous && previous.latestCheck;
+	let activeZ2KManifest = signed.ok === true ? signed.manifest : (previousCheck && previousCheck.signed && previousCheck.signed.ok === true ? previousCheck.signed.manifest : null);
+	let answer = build_status(loaded.manifest, checkedAt, activeZ2KManifest); if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
 	let remote = z2k_projection(signed);
 	remote.local = local;

@@ -44,8 +44,10 @@ test('E: device presentation reads deviceChanges, not release-history availabili
   assert.match(model, /releaseChanges/);
 });
 
-test('F: canonical device plan does not invent removals from release history', () => {
+test('F: canonical device plan reports lifecycle removals from Registry membership', () => {
   assert.match(upstream, /updates/);
-  assert.doesNotMatch(upstream, /removedItems.*files_sha256|push\(removedItems/);
-  assert.match(versions, /removedItems/);
+  assert.match(upstream, /removedItems/);
+  assert.match(upstream, /provenance\.bundleId != 'z2k-curated-lua'/);
+  assert.match(upstream, /targetPaths\[sourcePath\]/);
+  assert.match(versions, /targetPlan\.removedItems/);
 });

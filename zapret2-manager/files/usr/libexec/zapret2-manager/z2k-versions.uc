@@ -450,7 +450,7 @@ function target_plan_contains_path(paths, path) {
 }
 function device_changes_from_plan(targetPlan, membership) {
 	if (!object(targetPlan) || targetPlan.ok !== true || !object(membership)) return managed_change_set(false, [], [], [], []);
-	let modifiedItems = [], addedItems = [], planned = targetPlan.updateItems || [];
+	let modifiedItems = [], addedItems = [], removedItems = [], planned = targetPlan.updateItems || [];
 	for (let i = 0; i < length(membership.assets || []); i++) {
 		let asset = membership.assets[i], planItem = target_plan_item(planned, asset.sourcePath);
 		// Keep compatibility with a planner result produced before updateItems existed;
@@ -462,8 +462,17 @@ function device_changes_from_plan(targetPlan, membership) {
 		item.targetSha256 = planItem.targetSha256 || asset.sha256;
 		if (planItem.action == 'added') push(addedItems, item); else push(modifiedItems, item);
 	}
-	return managed_change_set(true, sort_change_items(modifiedItems), sort_change_items(addedItems), [], []);
+	for (let i = 0; i < length(targetPlan.removedItems || []); i++) {
+		let planItem = targetPlan.removedItems[i];
+		if (!object(planItem) || !string(planItem.sourcePath)) continue;
+		let item = change_item(planItem);
+		item.currentSha256 = planItem.currentSha256 || null;
+		item.targetSha256 = null;
+		push(removedItems, item);
+	}
+	return managed_change_set(true, sort_change_items(modifiedItems), sort_change_items(addedItems), sort_change_items(removedItems), []);
 }
+export const z2k_device_changes_from_plan = function(targetPlan, membership) { return device_changes_from_plan(targetPlan, membership); };
 function change_payload(changeSet) {
 	return { known: changeSet.known, modified: changeSet.modified, added: changeSet.added, removed: changeSet.removed, modifiedPaths: changeSet.modifiedPaths, addedPaths: changeSet.addedPaths, removedPaths: changeSet.removedPaths, modifiedItems: changeSet.modifiedItems, addedItems: changeSet.addedItems, removedItems: changeSet.removedItems, compareContext: changeSet.compareContext, managedPaths: changeSet.managedPaths, unknown: changeSet.unknown };
 }
