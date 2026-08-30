@@ -471,15 +471,21 @@
 .z2m-component-card-title h3{margin:0;font-size:15px;font-weight:600;line-height:1.25}
 .z2m-component-card-title p{margin:3px 0 0;color:var(--tx3);font-size:13px;line-height:1.45}
 .z2m-component-card .z2m-chip{align-self:flex-start;white-space:nowrap}
-.z2m-component-card-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
-.z2m-component-meta-row{display:grid;gap:2px}
+.z2m-component-card-meta{display:grid;gap:0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.z2m-component-meta-row{display:grid;grid-template-columns:minmax(120px,.72fr) minmax(0,1.28fr);gap:12px;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.055)}
+.z2m-component-meta-row:first-child{border-top:0}
 .z2m-component-meta-row span{color:var(--tx3);font-size:11px}
 .z2m-component-meta-row strong{color:var(--tx2);font-size:13px;font-weight:500;overflow-wrap:break-word;word-break:normal}
+.z2m-component-card>.z2m-state-panel{gap:4px;padding:10px 12px;border-style:solid;border-radius:6px}
+.z2m-component-card>.z2m-state-panel .z2m-state-title{font-size:12px}
+.z2m-component-card>.z2m-state-panel .z2m-state-message{font-size:11px;line-height:1.4}
 .z2m-component-card-actions{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
 .z2m-component-card-actions .z2m-btnrow{gap:8px}
 .z2m-btn-chevron{display:inline-flex;margin-left:4px;vertical-align:middle}
 .z2m-btn-chevron svg{display:block;width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .z2m-component-card--optional{opacity:.95}
+.z2m-components-section--optional .z2m-components-grid{align-items:start}
+.z2m-components-section--optional .z2m-component-card{align-self:start}
 .z2m-component-card--optional .z2m-chip.o{background:rgba(125,133,142,.12);border-color:var(--border2);color:var(--tx3)}
 .z2m-component-operation{display:grid;gap:10px;padding:12px;background:var(--panel2);border:1px solid var(--border);border-radius:6px}
 .z2m-op-header{display:flex;justify-content:space-between;align-items:center;gap:12px}
@@ -517,7 +523,6 @@
   .z2m-components-hero{flex-direction:column;align-items:stretch}
   .z2m-components-hero-meta{justify-items:start}
   .z2m-components-grid{grid-template-columns:1fr}
-  .z2m-component-card-meta{grid-template-columns:1fr}
 }
 @media(max-width:560px){
   .z2m-components-hero{padding:14px}
@@ -525,11 +530,10 @@
   .z2m-component-card{padding:14px}
 }
 
-/* Advanced toggle relocated from Settings to Components bottom — compact */
-.z2m-advanced-block { padding: 4px 0; }
-.z2m-advanced-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--border); margin-top: 8px; }
-.z2m-advanced-row strong { font-size: 13px; font-weight: 600; }
-.z2m-advanced-row p { margin: 2px 0 0; font-size: 12px; }
+/* Components keeps the advanced mode as one low-emphasis setting row. */
+.z2m-components-advanced-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 2px;border-top:1px solid var(--border)}
+.z2m-components-advanced-row strong{font-size:13px;font-weight:600}
+.z2m-components-advanced-row p{margin:2px 0 0;font-size:12px}
 
 /* Components details: one presentation layer, with facts and actions kept readable. */
 .z2m-components-page .z2m-component-details{display:grid;gap:20px;min-width:0;width:100%;box-sizing:border-box;padding:20px;background:var(--panel);border:1px solid var(--border);border-radius:8px}

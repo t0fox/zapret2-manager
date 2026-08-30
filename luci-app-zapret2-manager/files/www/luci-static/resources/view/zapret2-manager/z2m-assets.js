@@ -293,22 +293,20 @@ function render(ctx) {
       return E('section', { 'class': groupClass + ' z2m-resource-group-empty', 'data-group-id': group.id }, [
         E('div', { 'class': 'z2m-resource-group-main' }, [
           E('div', { 'class': 'z2m-resource-group-left' }, [
-            E('h2', {}, group.label),
             E('div', { 'class': 'z2m-resource-group-meta' }, _('Пользовательских ресурсов нет.'))
           ]),
           E('div', { 'class': 'z2m-resource-group-side' }, [
-            badge,
             ctx.shell.button(_('+ Добавить'), 'sm', openImport)
           ])
         ])
       ]);
     }
 
-    var titleRow = E('div', { 'class': 'z2m-resource-group-title' }, [E('h2', {}, group.label), badge]);
+    var titleRow = group.id === 'user' ? null : E('div', { 'class': 'z2m-resource-group-title' }, [E('h2', {}, group.label), badge]);
     var left = E('div', { 'class': 'z2m-resource-group-left' }, [
       titleRow,
       E('div', { 'class': 'z2m-resource-group-meta' }, metaLine)
-    ]);
+    ].filter(Boolean));
     var rightChildren = [];
     if (assets.length > 0) {
       rightChildren.push(ctx.shell.button(isExpanded ? _('Свернуть') : _('Развернуть'), 'sm', function () {
@@ -376,6 +374,16 @@ function render(ctx) {
     return E('section', { 'class': groupClass, 'data-group-id': group.id }, children);
   }
 
+  function renderGroupSection(group) {
+    var isStrategySource = group.id === 'avatar-strategy-catalog' || group.kind === 'strategy-catalog';
+    var sectionKind = isStrategySource ? 'source' : group.id === 'user' ? 'user' : 'managed';
+    var sectionLabel = isStrategySource ? _('Источники') : group.id === 'user' ? _('Мои ресурсы') : _('Управляемые ресурсы');
+    return E('section', { 'class': 'z2m-resource-section z2m-resource-section--' + sectionKind, 'data-resource-section': sectionKind }, [
+      E('div', { 'class': 'z2m-resource-section-head' }, [E('h2', {}, sectionLabel)]),
+      renderGroupCard(group)
+    ]);
+  }
+
   function openImport() {
     ctx.shell.openModal(_('Добавить ресурс'), E('div', {}, [
       importPanel(ctx, assetsData),
@@ -386,7 +394,7 @@ function render(ctx) {
   function renderBody() {
     var callout = renderUpdateCallout();
     var groupsToShow = filteredGroups();
-    var cards = groupsToShow.map(renderGroupCard);
+    var cards = groupsToShow.map(renderGroupSection);
     var empty = null;
     if (!cards.length) {
       empty = AvatarUi.state('empty', { title: _('Ничего не найдено'), body: _('Попробуйте изменить фильтр или поисковый запрос.') });
@@ -410,8 +418,6 @@ function render(ctx) {
     return E('div', { 'class': 'z2m-resource-groups' }, [].concat(callout ? [callout] : []).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
   }
 
-  var summaryMeta = E('span', { 'class': 'z2m-resource-head-meta' }, ResourcesModel.resourceCountText(summaryForRoute.total) + ' · ' + summaryForRoute.user + ' ' + _('пользовательских') + ' · ' + summaryForRoute.stateLabel);
-
   var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов…'), 'aria-label': _('Поиск ресурсов') });
   searchInput.addEventListener('input', function () { searchQuery = searchInput.value; body.replaceChildren(renderBody()); });
 
@@ -433,8 +439,7 @@ function render(ctx) {
   var header = E('div', { 'class': 'z2m-phead z2m-resource-head' }, [
       E('div', {}, [
         E('h1', {}, _('Ресурсы')),
-        E('p', {}, _('Файлы и данные, используемые Zapret2 Manager')),
-        summaryMeta
+        E('p', {}, _('Файлы и данные, используемые Zapret2 Manager'))
     ]),
     E('div', { 'class': 'sp' }, [addBtn, checkBtn])
   ]);

@@ -27,9 +27,10 @@ describe('Maintenance polish — Settings removal and Backup UX', () => {
     expect(maintenance).not.toContain("if (route === 'settings') return 'settings'");
   });
 
-  it('Advanced toggle is available on Components (not only Settings)', () => {
-    expect(maintenance).toContain('z2m-components-section--advanced');
-    expect(maintenance).toContain('Дополнительно');
+  it('Advanced toggle is available on Components as a simple row (not a separate section)', () => {
+    expect(maintenance).toContain('z2m-components-advanced-row');
+    expect(maintenance).not.toContain('z2m-components-section--advanced');
+    expect(maintenance).not.toContain('z2m-advanced-block');
     expect(maintenance).toContain('Расширенный режим');
     expect(maintenance).toContain('Показывать технические данные и диагностические поля.');
     // Must use existing store semantics
@@ -37,8 +38,8 @@ describe('Maintenance polish — Settings removal and Backup UX', () => {
     expect(maintenance).toContain('ctx.store.update');
     expect(maintenance).toContain('ui.advanced');
     // Must be inside renderComponents, not only renderSettings
-    const compSection = maintenance.slice(maintenance.indexOf('z2m-components-section--advanced') - 500, maintenance.indexOf('z2m-components-section--advanced') + 1500);
-    expect(compSection).toContain('switchControl');
+    const advancedRow = maintenance.slice(maintenance.indexOf('z2m-components-advanced-row') - 500, maintenance.indexOf('z2m-components-advanced-row') + 1000);
+    expect(advancedRow).toContain('switchControl');
   });
 
   it('Backup top card uses Создать резервную копию and Создать полную копию', () => {

@@ -56,5 +56,5 @@ test('Components uses readable sentence-case section headings', () => {
 });
 
 test('The shell cache-busts the updated visual assets', () => {
-  assert.match(shell, /components-resources-consistency-20260830/);
+  assert.match(shell, /components-resources-corrective-pass-20260830-r2/);
 });

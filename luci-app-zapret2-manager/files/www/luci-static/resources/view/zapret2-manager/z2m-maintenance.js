@@ -1004,7 +1004,6 @@ function renderHero(ctx, page) {
   var lastCheckLabel = formatLastCheck(shell, page.checkedAt);
   var heroKind = heroStatusKind(page);
   var heroLabel = heroStatusLabel(page);
-  var heroMessage = heroStatusMessage(page);
   var isReady = page.health.state === 'ready';
   return E('div', { 'class': 'z2m-components-hero' }, [
     E('div', { 'class': 'z2m-components-hero-main' }, [
@@ -1016,7 +1015,6 @@ function renderHero(ctx, page) {
         ]),
         E('div', { 'class': 'z2m-components-hero-stats' }, [
           E('span', { 'class': 'z2m-components-hero-ready' }, page.health.ready + ' / ' + page.health.total + ' ' + _('обязательных компонента работают')),
-          E('span', { 'class': 'z2m-dim' }, heroMessage),
           E('span', { 'class': 'z2m-components-hero-updates' }, updateSummary(page))
         ]),
         E('div', { 'class': 'z2m-components-hero-dots' }, page.components.map(function (c) {
@@ -1683,7 +1681,9 @@ function renderZ2KCard(ctx, component) {
   var metaRows = z2kMetaRows(component);
   var primaryActions = [shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))];
   if (!state.z2kExpanded && z2kCanApply(component)) {
-    primaryActions.unshift(shell.button(z2kUpdateActionLabel(component), 'primary sm', updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
+    var updateActionLabel = z2kUpdateActionLabel(component);
+    var updateActionClass = updateActionLabel.indexOf(_('Переустановить')) === 0 ? 'sm' : 'primary sm';
+    primaryActions.unshift(shell.button(updateActionLabel, updateActionClass, updateZ2K.bind(null, ctx, component), isBusyFor('z2k-core')));
   }
   var detailsBtn = E('button', { 'class': 'z2m-btn sm' + (state.z2kExpanded ? ' on' : ''), click: toggleZ2K.bind(null, ctx), disabled: isBusyFor('z2k-core') ? 'disabled' : null, 'aria-expanded': state.z2kExpanded ? 'true' : 'false' }, [
     _('Подробнее'), E('span', { 'class': 'z2m-btn-chevron' }, Icons.html(state.z2kExpanded ? 'chevronUp' : 'chevronDown', { size: 12 }))
@@ -1858,12 +1858,7 @@ function renderComponents(ctx, data) {
         })
       ])
     ]),
-    E('section', { 'class': 'z2m-components-section z2m-components-section--advanced' }, [
-      E('div', { 'class': 'z2m-components-section-head' }, [
-        E('h2', {}, _('Дополнительно')),
-        E('span', { 'class': 'z2m-dim' }, '')
-      ]),
-      E('div', { 'class': 'z2m-advanced-block' }, (function() {
+    (function() {
         var ui = object(ctx.store.get().ui || {});
         var advanced = ui.advanced === true;
         var toggle = ctx.shell.switchControl({
@@ -1874,15 +1869,14 @@ function renderComponents(ctx, data) {
             ctx.rerender();
           }
         });
-        return E('div', { 'class': 'z2m-advanced-row' }, [
+        return E('div', { 'class': 'z2m-components-advanced-row' }, [
           E('div', {}, [
             E('strong', {}, _('Расширенный режим')),
             E('p', { 'class': 'z2m-dim' }, _('Показывать технические данные и диагностические поля.'))
           ]),
           toggle
         ]);
-      })())
-    ])
+      })()
   ]);
 }
 

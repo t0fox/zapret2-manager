@@ -843,6 +843,30 @@ function consume_prepared_target(expectedState, expectedTarget) {
 	}
 }
 function base64_decode(value) { if (!string(value) || length(value) > MAX_REQUEST_BYTES || !match(value, /^[A-Za-z0-9+\/=%]*$/)) return null; let alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = '', buffer = 0, bits = 0; for (let i = 0; i < length(value); i++) { let c = substr(value, i, 1); if (c == '=') break; let n = index(alphabet, c); if (n < 0) return null; buffer = buffer * 64 + n; bits += 6; if (bits >= 8) { bits -= 8; out += chr((buffer >> bits) & 255); buffer = buffer & ((1 << bits) - 1); } } return out; }
+function z2k_unknown_plan(manifest) {
+	return { ok: true, status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], updateItems: [], manifest: manifest || null };
+}
+function z2k_reconcile_after_mutation(target) {
+	let state = load_check_state(), latestCheck = state && state.latestCheck, signed = latestCheck && latestCheck.signed, plan = null;
+	let reusable = object(target) && valid_digest(target.manifestSha256) && object(latestCheck) && object(signed) && signed.ok === true && object(signed.manifest) && signed.manifestSha256 == target.manifestSha256;
+	if (reusable) {
+		try { plan = z2k_upstream_plan(signed.manifest); } catch (e) { plan = null; }
+	}
+	if (plan && plan.ok === true) {
+		signed.status = plan.status; signed.updateState = plan.updateState; signed.attentionState = plan.attentionState; signed.canApply = plan.canApply;
+		signed.updates = plan.updates; signed.rebases = plan.rebases; signed.reviews = plan.reviews; signed.advisoryReviews = plan.advisoryReviews;
+		signed.blockingReviews = plan.blockingReviews; signed.blockingReasons = plan.blockingReasons; signed.reviewDetails = plan.reviewDetails; signed.updateItems = plan.updateItems;
+		signed.plan = plan;
+		let token = plan_token(latestCheck.checkedAt, signed.manifest); signed.planToken = token; latestCheck.planToken = token;
+	} else if (object(signed)) {
+		let unknown = z2k_unknown_plan(signed.manifest || null);
+		signed.status = 'unknown'; signed.updateState = 'unknown'; signed.attentionState = 'none'; signed.canApply = false;
+		signed.updates = []; signed.rebases = []; signed.reviews = []; signed.advisoryReviews = []; signed.blockingReviews = []; signed.blockingReasons = []; signed.reviewDetails = []; signed.updateItems = [];
+		signed.plan = unknown; signed.planToken = null; latestCheck.planToken = null;
+	} else latestCheck = null;
+	let saved = persist_check_state({ schema: 2, latestCheck: latestCheck, preparedTarget: null });
+	return { ok: saved, state: plan && plan.ok === true ? plan.updateState : 'unknown', reusedManifest: reusable && plan && plan.ok === true, preparedTarget: null };
+}
 function inline_bundle(request) {
 	let bundle = request.controlledBundle; if (!request.controlledTest || !object(bundle) || !string(bundle.bundleId) || substr(bundle.bundleId, 0, 11) != 'controlled-' || type(bundle.assets) != 'array' || !length(bundle.assets)) return null;
 	let root = make_stage_root(); if (root == null) return fail('ETARGET', 'resource staging directory is unavailable'); let paths = [], staged = [];
@@ -942,6 +966,9 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtime.activated === true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ERUNTIME' : 'EROLLBACK', rollback.ok ? 'Z2K runtime activation was rolled back; Registry state was restored.' : 'Z2K runtime activation failed and rollback could not be completed.', { runtime: runtime.error || null, rollback: rollback, diagnostics: diagnostics }));
 	}
+	let reconciled = z2k_reconcile_after_mutation(target);
+	diagnostics.postMutationCheckState = reconciled;
+	if (!reconciled.ok) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Z2K update completed, but its persisted status could not be reconciled; check the state before retrying.', { mutationCompleted: true, diagnostics: diagnostics }));
 	return z2k_runtime_guard_finish(guard, root, paths, { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: applied.revision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null });
 	} catch (e) {
 		return z2k_runtime_guard_finish(guard, root, paths, fail('EINTERNAL', 'Z2K lifecycle failed while the intentional runtime guard was active.', { detail: text(e), diagnostics: diagnostics }));
