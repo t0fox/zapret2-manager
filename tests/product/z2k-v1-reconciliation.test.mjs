@@ -91,6 +91,18 @@ test('same-release FRESH reconciliation requires exact v1 version/sourceCommit a
   assert.doesNotMatch(coordinator, /current.*classification.*historical|historical.*current.*classification/i);
 });
 
+test('same-release V1 reconciliation takes byte size from the Registry-backed membership', () => {
+  const coordinator = read(coordinatorPath);
+  const start = coordinator.indexOf('function z2k_v1_reconciliation_check');
+  const end = coordinator.indexOf('function z2k_registry_asset_type', start);
+  assert.ok(start >= 0 && end > start, 'V1 reconciliation helper must be present');
+  const reconciliation = coordinator.slice(start, end);
+  assert.match(reconciliation, /registry_asset\(listed\.assets, old\.id\)/,
+    'FRESH UPDATES.json does not carry byteSize; reconciliation must consult the validated Registry');
+  assert.match(reconciliation, /current\.byteSize/,
+    'V1 byte-size equality must be checked against the Registry-backed asset');
+});
+
 test('v1 migration reuses the normal candidate transaction instead of a second updater', { todo: 'Task 4 transaction slice' }, () => {
   const coordinator = read(coordinatorPath);
   for (const step of [

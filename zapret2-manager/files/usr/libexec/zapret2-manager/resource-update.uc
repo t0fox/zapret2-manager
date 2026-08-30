@@ -515,8 +515,14 @@ function z2k_v1_reconciliation_check(listed, resolved) {
 	let expected = {}, expectedCount = 0, seen = {};
 	for (let i = 0; i < length(resolved.assets || []); i++) { expected[resolved.assets[i].id] = resolved.assets[i]; expectedCount++; }
 	for (let i = 0; i < length(receipt.assets || []); i++) {
-		let old = receipt.assets[i], fresh = old && expected[old.id];
-		if (!object(old) || fresh == null || seen[old.id] || old.type != fresh.type || old.sourcePath != fresh.sourcePath || old.sha256 != fresh.sha256 || old.byteSize != fresh.byteSize)
+		let old = receipt.assets[i], fresh = old && expected[old.id], current = old && registry_asset(listed.assets, old.id), provenance = current && current.provenance;
+		// UPDATES.json is immutable evidence for identity and content, but it
+		// does not carry byte sizes. The already validated V1 receipt/Registry
+		// membership is the only trustworthy local size evidence available at
+		// this boundary; require it to agree with the FRESH target as well.
+		if (!object(old) || fresh == null || current == null || !object(provenance) || seen[old.id]
+			|| old.type != fresh.type || current.type != fresh.type || old.sourcePath != fresh.sourcePath || provenance.sourcePath != fresh.sourcePath
+			|| old.sha256 != fresh.sha256 || current.contentSha256 != fresh.sha256 || old.byteSize != current.byteSize)
 			return fail('RECONCILIATION_REQUIRED', 'V1 membership does not exactly match the FRESH same-release target.', { id: old && old.id || null });
 		seen[old.id] = true;
 	}
