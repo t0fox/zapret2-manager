@@ -78,6 +78,19 @@
       "contentSha256": "5d14c6f5a52c2ce20325b0d36f64d8f9d9c7f7be8a6ae1a6438a02dd5febe206",
       "byteSize": 2769,
       "runtimeOrder": 5
+    },
+    {
+      "id": "package:z2k-detectors",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/z2k-detectors.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-detectors.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-detectors.lua",
+      "contentSha256": "48f1faa21c5470a119d57a2b3461ce92e0359767d59b9e19f82f1552a203110d",
+      "byteSize": 86176,
+      "runtimeOrder": 6
     }
   ]
 }
