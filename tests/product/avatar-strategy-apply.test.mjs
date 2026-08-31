@@ -41,6 +41,13 @@ test('Strategy Apply invokes the OpenWrt init owner through rc.common', () => {
   assert.doesNotMatch(source, /run\(UPSTREAM_INIT \+ ' restart'\)/);
 });
 
+test('Strategy Apply sidecar carries bounded Strategy identity, not the full runtime snapshot', () => {
+  const source = fs.readFileSync(CLI, 'utf8');
+  const projection = source.slice(source.indexOf('function strategy_apply_projection'), source.indexOf('function strategy_apply_candidate'));
+  assert.match(source, /observedRegistryRevision|membershipDigest|compositionSnapshotId/);
+  assert.doesNotMatch(projection, /runtimeSnapshot\s*:/);
+});
+
 const environment = {
   listMode: 'none',
   paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },

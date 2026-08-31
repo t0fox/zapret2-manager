@@ -676,11 +676,6 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 		selected: {
 			id: resolved.id, origin: resolved.origin, revision: input.revision,
 			candidateSha256: candidate.digest
-		}, runtimeSnapshot: {
-			snapshotId: runtimeSnapshot.snapshotId,
-			compositionSnapshotId: runtimeSnapshot.compositionSnapshotId,
-			membershipDigest: runtimeSnapshot.membershipDigest,
-			observedRegistryRevision: runtimeSnapshot.observedRegistryRevision
 		}
 	};
 }
