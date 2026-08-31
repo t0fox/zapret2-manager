@@ -1299,7 +1299,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K materialization verification failed and was rolled back.' : 'Z2K materialization verification failed and rollback could not be completed.', { materialized: materialized.error, rollback: rollback, diagnostics: diagnostics }));
 	}
-	let activationEvidence = z2k_runtime_evidence(committedCandidate, runtime.restart, true), activationProof = activationEvidence.ok ? verifyActivationProcess(committedCandidate, activationEvidence) : activationEvidence;
+	let activationEvidence = z2k_runtime_evidence(committedCandidate, runtime.restart, true), activationProof = activationEvidence.verified === true ? verifyActivationProcess(committedCandidate, activationEvidence) : activationEvidence;
 	diagnostics.activationVerification = activationProof;
 	if (!activationProof.ok) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);

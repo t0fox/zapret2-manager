@@ -96,3 +96,10 @@ test('successful postflight promotes v2 identity and closes the pending journal'
   assert.match(coordinator, /ROLLED_BACK/);
   assert.match(coordinator, /unlink|pending.*null|clear.*pending/i);
 });
+
+test('generated activation evidence is passed through activation verification before finalization', () => {
+  const apply = functionBody(coordinator, 'function z2k_apply_prepared', 'export const resource_center_status');
+  assert.match(apply, /activationEvidence\s*=\s*z2k_runtime_evidence/);
+  assert.match(apply, /activationEvidence\.verified\s*===\s*true[\s\S]*verifyActivationProcess/);
+  assert.doesNotMatch(apply, /activationEvidence\.ok\s*\?\s*verifyActivationProcess/);
+});
