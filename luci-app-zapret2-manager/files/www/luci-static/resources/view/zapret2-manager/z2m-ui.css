@@ -3401,7 +3401,8 @@
 }
 
 #z2m-view-strategy #preview-modal .modal-content{width:min(900px,calc(100vw - 24px));max-height:min(88vh,860px);overflow:hidden;display:flex;flex-direction:column;overscroll-behavior:contain}
-#z2m-view-strategy #preview-modal .modal-body{min-height:0;overflow:auto;overscroll-behavior:contain}
+#z2m-view-strategy #preview-modal .modal-header{flex:0 0 auto}
+#z2m-view-strategy #preview-modal .modal-body{min-height:0;flex:1 1 auto;overflow:auto;overscroll-behavior:contain}
 #z2m-view-strategy .strategy-preview-primary-command{margin:0}
 #z2m-view-strategy .strategy-preview-command-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:10px}
 #z2m-view-strategy .strategy-preview-kicker{display:block;color:var(--tx3);font-size:10px;font-weight:700;letter-spacing:.12em;line-height:1.35;text-transform:uppercase}
@@ -3478,14 +3479,26 @@
 #z2m-view-strategy .strategy-preview-status-label{margin-bottom:4px;color:var(--tx3);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 #z2m-view-strategy .strategy-preview-status-card strong{display:block;color:var(--tx);font-size:13px;line-height:1.35}
 #z2m-view-strategy .strategy-preview-status-card small{display:block;margin-top:3px;color:var(--tx3);font-size:11px;line-height:1.4}
+#z2m-view-strategy .strategy-preview-validation-value{display:flex;align-items:center;gap:7px;min-width:0}
+#z2m-view-strategy .strategy-preview-validation-value strong{min-width:0}
+#z2m-view-strategy .strategy-preview-validation-indicator{display:inline-grid;place-items:center;width:18px;height:18px;flex:0 0 18px;border:1px solid currentColor;border-radius:50%;font-size:11px;line-height:1}
+#z2m-view-strategy .strategy-preview-validation-spinner{width:15px;height:15px;flex:0 0 15px;border:2px solid rgba(130,201,245,.28);border-top-color:#82c9f5;border-radius:50%;animation:z2m-preview-spin .8s linear infinite}
+#z2m-view-strategy .strategy-preview-validation-hint{margin:7px 0 0;color:var(--tx2);font-size:11px;line-height:1.4}
 #z2m-view-strategy .strategy-preview-list{margin-top:9px;border-top:1px solid var(--border)}
 #z2m-view-strategy .strategy-preview-list summary{display:flex;justify-content:space-between;gap:8px;padding:7px 0 0;color:var(--tx2);cursor:pointer;font-size:11px}
 #z2m-view-strategy .strategy-preview-list summary span{color:var(--tx3)}
-#z2m-view-strategy .strategy-preview-list ul{max-height:132px;margin:6px 0 0;padding:0 0 0 15px;overflow:auto;scrollbar-gutter:stable}
+#z2m-view-strategy .strategy-preview-list ul{max-height:132px;margin:6px 0 0;padding:6px 6px 6px 15px;overflow:auto;overflow-x:hidden;scrollbar-gutter:stable}
 #z2m-view-strategy .strategy-preview-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:12px;color:var(--tx2);font-size:11px;line-height:1.45}
 #z2m-view-strategy .strategy-preview-list li>span:first-child{min-width:0;overflow-wrap:anywhere}
 #z2m-view-strategy .strategy-preview-list li>span:last-child{white-space:nowrap;color:var(--tx3)}
 #z2m-view-strategy .strategy-preview-list li+li{margin-top:3px}
+#z2m-view-strategy .strategy-preview-dependency-item{grid-template-columns:minmax(0,1fr) max-content;gap:10px;padding:2px 0}
+#z2m-view-strategy .strategy-preview-dependency-reference{display:flex;align-items:baseline;gap:6px;min-width:0}
+#z2m-view-strategy .strategy-preview-dependency-kind{flex:0 0 auto;color:var(--tx3);font-size:10px;text-transform:lowercase}
+#z2m-view-strategy .strategy-preview-dependency-item code{min-width:0;color:var(--tx2);font:11px/1.4 "SFMono-Regular",Consolas,"Liberation Mono",monospace;overflow-wrap:anywhere}
+#z2m-view-strategy .strategy-preview-dependency-state{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:var(--green)!important;font-size:10px;font-weight:600}
+#z2m-view-strategy .strategy-preview-dependency-state[data-state="missing"]{color:#e7bd73!important}
+#z2m-view-strategy .strategy-preview-dependency-state span{display:inline-grid;place-items:center;width:14px;height:14px;border:1px solid currentColor;border-radius:50%;font-size:9px;line-height:1}
 #z2m-view-strategy .strategy-preview-missing{color:#e7bd73}
 #z2m-view-strategy .strategy-preview-mismatch{margin-top:10px;padding:8px 10px;border:1px solid #b7791f;border-radius:6px;color:#ffd08a;background:rgba(183,121,31,.12);font-size:11px;line-height:1.45}
 #z2m-view-strategy .strategy-preview-empty,#z2m-view-strategy .strategy-diff{margin:0;color:var(--tx3);font-size:11px;line-height:1.45}
@@ -3497,9 +3510,9 @@
 #z2m-view-strategy .strategy-preview-technical-fact span{display:block;color:var(--tx3);font-size:10px;line-height:1.3}
 #z2m-view-strategy .strategy-preview-technical-fact b{display:block;margin-top:3px;color:var(--tx);font-size:11px;line-height:1.35;overflow-wrap:anywhere}
 #z2m-view-strategy .strategy-preview-technical-raw{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
-#z2m-view-strategy .strategy-preview-technical-raw summary{font-size:11px}
+#z2m-view-strategy .strategy-preview-technical-raw summary{font-size:11px;color:var(--tx3)}
 #z2m-view-strategy .strategy-preview-technical-raw pre{max-height:180px;margin:8px 0 0;padding:9px;background:#121416;border:1px solid var(--border);border-radius:4px;color:var(--tx3);font:11px/1.45 "SFMono-Regular",Consolas,monospace;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere;scrollbar-gutter:stable}
-#z2m-view-strategy .strategy-preview-footer{position:static;flex:0 0 auto;margin:0;padding:12px 18px 14px;border-top:1px solid var(--border);background:var(--panel);z-index:auto}
+#z2m-view-strategy .strategy-preview-footer{position:static;flex:0 0 auto;margin:0;padding:12px 18px 14px;border-top:1px solid var(--border2);background:var(--panel2);box-shadow:0 -10px 20px rgba(0,0,0,.16)}
 #z2m-view-strategy .strategy-preview-profile summary:focus-visible,#z2m-view-strategy .strategy-preview-list summary:focus-visible,#z2m-view-strategy .strategy-preview-technical summary:focus-visible,#z2m-view-strategy .strategy-preview-technical-raw summary:focus-visible{outline:2px solid var(--accent,#3b9bd6);outline-offset:2px;border-radius:3px}
 @media(max-width:700px){
   #z2m-view-strategy .strategy-preview-command-heading{gap:10px}

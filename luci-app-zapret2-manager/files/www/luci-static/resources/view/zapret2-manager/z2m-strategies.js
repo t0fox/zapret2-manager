@@ -2150,6 +2150,21 @@ function previewCommandSection(answer, output, pending, commandId) {
   var readyMarkup = previewCommandOverview(answer) + '<details class="strategy-preview-raw"><summary>Показать полную команду</summary><pre' + id + ' class="log-viewer nfq-resizable strategy-preview-command" aria-label="Полная команда nfqws2">' + escapeHtml(command) + '</pre></details>';
   return '<section class="strategy-preview-primary-command" aria-labelledby="strategy-preview-command-title"><div class="strategy-preview-command-heading"><div><span class="strategy-preview-kicker">NFQWS2 · ТОЛЬКО ЧТЕНИЕ</span><h4 id="strategy-preview-command-title">Эффективная команда</h4><p>Фактическая проекция, которую сформировал сервер.</p></div><span class="strategy-preview-state ' + stateClass + '"' + (pending ? ' aria-live="polite"' : '') + '>' + stateIndicator + stateLabel + '</span></div>' + notice + commandMetaHtml + (pending ? pendingMarkup : failed ? errorMarkup : readyMarkup) + '</section>';
 }
+function previewDependencyRow(item, missing) {
+  item = object(item);
+  var kind = text(item.kind || item.type || 'asset');
+  var reference = text(item.id || item.name || item.reference || item.path || '—');
+  var unavailable = missing || item.available === false;
+  var status = unavailable ? 'missing' : 'available';
+  var label = unavailable ? 'Отсутствует' : 'Доступен';
+  return '<li class="strategy-preview-dependency-item" data-state="' + status + '"><span class="strategy-preview-dependency-reference"><span class="strategy-preview-dependency-kind">' + escapeHtml(kind) + '</span><code>' + escapeHtml(reference) + '</code></span><span class="strategy-preview-dependency-state" data-state="' + status + '"><span aria-hidden="true">' + (unavailable ? '!' : '✓') + '</span>' + label + '</span></li>';
+}
+function previewValidationHint(status) {
+  if (status === 'checking') return 'Нативный preflight выполняется…';
+  if (status === 'verified' || status === 'passed' || status === 'ok') return 'Нативный preflight завершён';
+  if (status === 'failed' || status === 'error') return 'Проверка завершена с ошибками';
+  return 'Проверка запускается кнопкой ниже';
+}
 function previewDetails(answer, strategy, validationPending) {
   var profiles = array(strategy && strategy.profiles).map(function (profile, index) {
     var parsed = ideProfile(profile), visual = parsed.visual || {};
@@ -2160,29 +2175,23 @@ function previewDetails(answer, strategy, validationPending) {
     return '<details class="strategy-preview-profile"><summary><span><b>' + escapeHtml(profile.name || 'Профиль ' + (index + 1)) + '</b><small>' + escapeHtml(enabled + ' · ' + protocols + ' · targets: ' + targets) + '</small></span><span class="strategy-preview-summary-action">Исходные аргументы</span></summary><pre>' + escapeHtml(args) + '</pre></details>';
   }).join('');
   var dependencies = object(answer && answer.dependencies);
-  var dependencyItems = array(dependencies.items).map(function (item) {
-    item = object(item);
-    var name = text(item.kind || item.type || 'asset') + ': ' + text(item.id || item.name || item.reference || item.path || '—');
-    return '<li><span>' + escapeHtml(name) + '</span><span>' + (item.available === false ? 'недоступен' : 'доступен') + '</span></li>';
-  }).join('');
-  var missingItems = array(dependencies.missing).map(function (item) {
-    item = object(item);
-    var name = text(item.kind || item.type || 'asset') + ': ' + text(item.id || item.name || item.reference || item.path || '—');
-    return '<li><span>' + escapeHtml(name) + '</span><span>отсутствует</span></li>';
-  }).join('');
+  var dependencyItems = array(dependencies.items).map(function (item) { return previewDependencyRow(item, false); }).join('');
+  var missingItems = array(dependencies.missing).map(function (item) { return previewDependencyRow(item, true); }).join('');
   var native = object(dependencies.nativeValidation);
   var dependencyStatus = dependencies.available === true ? 'доступны' : dependencies.available === false ? 'есть отсутствующие' : 'сервер не сообщил';
   var dependencyClass = previewStatusClass(dependencyStatus);
   var dependencyCount = array(dependencies.items).length;
   var missingCount = array(dependencies.missing).length;
-  var dependencyList = dependencyItems ? '<details class="strategy-preview-list"><summary>Показать зависимости <span>' + dependencyCount + '</span></summary><ul>' + dependencyItems + '</ul></details>' : '';
+  var dependencyList = dependencyItems ? '<details class="strategy-preview-list"><summary>Показать список <span>' + dependencyCount + '</span></summary><ul>' + dependencyItems + '</ul></details>' : '';
   var missingList = missingItems ? '<details class="strategy-preview-list strategy-preview-missing" open><summary>Отсутствуют <span>' + missingCount + '</span></summary><ul>' + missingItems + '</ul></details>' : '';
   var nativeStatus = validationPending ? 'Проверяется…' : native.status ? previewStatusLabel(native.status, 'Результат получен') : 'Не запускалась';
   var dependencyHtml = '<section class="strategy-preview-status-card ' + dependencyClass + '"><div class="strategy-preview-status-label">Зависимости</div><strong>' + escapeHtml(previewStatusLabel(dependencyStatus, 'Нет данных')) + '</strong><small>' + dependencyCount + ' проверенных' + (missingCount ? ' · ' + missingCount + ' отсутствует' : '') + '</small>' + dependencyList + missingList + '</section>';
   var validation = object(answer && answer.validation);
   var validationStatus = validationPending ? 'checking' : validation.status || 'not_checked';
   var validationClass = previewStatusClass(validationStatus);
-  var validationHtml = '<section class="strategy-preview-status-card ' + validationClass + '"><div class="strategy-preview-status-label">Серверная проверка</div><strong>' + escapeHtml(previewStatusLabel(validationStatus, 'Не запускалась')) + '</strong><small>Нативная проверка: ' + escapeHtml(nativeStatus) + '</small></section>';
+  var validationLabel = previewStatusLabel(validationStatus, 'Не запускалась');
+  var validationIndicator = validationStatus === 'checking' ? '<span class="strategy-preview-validation-spinner" aria-hidden="true"></span>' : '<span class="strategy-preview-validation-indicator" aria-hidden="true">' + (validationStatus === 'verified' || validationStatus === 'passed' || validationStatus === 'ok' ? '✓' : validationStatus === 'failed' || validationStatus === 'error' ? '!' : '·') + '</span>';
+  var validationHtml = '<section class="strategy-preview-status-card strategy-preview-validation-state ' + validationClass + '" data-state="' + escapeAttr(validationStatus) + '" role="status" aria-live="polite"><div class="strategy-preview-status-label">Серверная проверка</div><div class="strategy-preview-validation-value">' + validationIndicator + '<strong>' + escapeHtml(validationLabel) + '</strong></div><small>Нативная проверка: ' + escapeHtml(nativeStatus) + '</small><p class="strategy-preview-validation-hint">' + escapeHtml(previewValidationHint(validationStatus)) + '</p></section>';
   var expected = array(strategy && strategy.profiles).filter(function (profile) { return profile && profile.enabled !== false; }).length;
   var actualRaw = answer && answer.profilesCount != null ? answer.profilesCount : answer && answer.profiles_count;
   var actual = Number(actualRaw);
@@ -2200,7 +2209,7 @@ function previewDetails(answer, strategy, validationPending) {
     return '<div class="strategy-preview-technical-fact"><span>' + escapeHtml(fact[0]) + '</span><b>' + escapeHtml(fact[1]) + '</b></div>';
   }).join('');
   var technicalRaw = JSON.stringify({ effectiveArgv: effectiveArgv, dependencies: dependencies }, null, 2);
-  var technical = '<details class="strategy-preview-technical"><summary>Технические сведения</summary><div class="strategy-preview-technical-grid">' + technicalFactsHtml + '</div><details class="strategy-preview-technical-raw"><summary>Показать технический JSON</summary><pre>' + escapeHtml(technicalRaw) + '</pre></details></details>';
+  var technical = '<details class="strategy-preview-technical"><summary>Технические сведения</summary><div class="strategy-preview-technical-grid">' + technicalFactsHtml + '</div><details class="strategy-preview-technical-raw"><summary>JSON для диагностики</summary><pre aria-label="JSON для диагностики Preview">' + escapeHtml(technicalRaw) + '</pre></details></details>';
   return '<section class="strategy-preview-effective" aria-labelledby="strategy-preview-profiles-title"><div class="strategy-preview-section-heading"><div><span class="strategy-preview-kicker">СОСТАВ</span><h4 id="strategy-preview-profiles-title">Профили</h4></div><span class="strategy-preview-count">' + expected + '</span></div>' + (profiles || '<p class="strategy-preview-empty">Профили не заданы.</p>') + '</section>' + mismatch + '<div class="strategy-preview-status-grid">' + dependencyHtml + validationHtml + '</div>' + strategyDiffHtml(strategy) + technical;
 }
 function mergePreviewValidation(answer, checked) {
