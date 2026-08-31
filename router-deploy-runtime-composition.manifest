@@ -19,4 +19,3 @@ zapret2-manager/files/usr/libexec/zapret2-manager/service.uc|/usr/libexec/zapret
 zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc|/usr/libexec/zapret2-manager/discord-profile-cli.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/flowseal-combo.uc|/usr/libexec/zapret2-manager/flowseal-combo.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops.uc|/usr/libexec/zapret2-manager/strategies-ops.uc|0644
-zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua|/opt/zapret2/lua/z2k-state-persist.lua|0644

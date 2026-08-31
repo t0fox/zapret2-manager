@@ -30,7 +30,7 @@
 -- Test isolation: env overrides redirect state into a tmp dir for unit tests.
 local STATE_DIR_PRIMARY = os.getenv("Z2K_STATE_DIR_OVERRIDE")
                           or os.getenv("Z2K_AUTOCIRCULAR_DIR_OVERRIDE")
-                          or "/etc/zapret2-manager/state/autocircular"
+                          or "/opt/zapret2/extra_strats/cache/autocircular"
 local _fallback_base    = os.getenv("Z2K_AUTOCIRCULAR_FALLBACK_OVERRIDE")
                           or "/tmp"
 local STATE_FILE_PRIMARY  = STATE_DIR_PRIMARY .. "/state.tsv"
