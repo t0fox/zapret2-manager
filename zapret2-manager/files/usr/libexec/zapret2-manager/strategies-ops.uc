@@ -427,7 +427,14 @@ function state_save_rows(rows) {
 	let p = popen('mv -f ' + shell_escape(temporary) + ' ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
 	if (!p) return false;
 	p.read('all'); let rc = p.close();
-	return rc == 0;
+	if (rc != 0) return false;
+	// nfqws2 deliberately drops to daemon. The learned state is not secret;
+	// keep the single canonical file writable/readable by the daemon after the
+	// root-owned RPC atomically replaces it.
+	let permissions = popen('chgrp daemon ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null && chmod 0660 ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
+	if (!permissions) return false;
+	permissions.read('all');
+	return permissions.close() == 0;
 }
 
 function state_set(input) {
