@@ -974,7 +974,7 @@ function z2k_runtime_rollback() {
 	let restored = command('sh ' + shell_quote(RUNTIME_SYNC) + ' --rollback-registry');
 	if (restored.rc != 0) return fail('EROLLBACK', 'Active runtime rollback failed.', { output: restored.out });
 	let restarted = z2k_runtime_restart('rollback');
-	if (!restarted.ok) return restarted;
+	if (!restarted.ok) return { ok: false, restored: true, error: restarted.error || null, restart: restarted };
 	return { ok: true, restored: true, restart: restarted };
 }
 export const z2k_runtime_confirmed_target = function(listed, classification, authority) {
@@ -1064,6 +1064,14 @@ function z2k_rollback_registry_already_restored(pending, listed) {
 	if (expected == null) return state.state == 'unknown' && state.receipt == null;
 	return state.receipt != null && z2k_rollback_receipt_matches(expected, state.receipt);
 }
+function z2k_pending_legacy_reconciliation_eligible(pending, listed) {
+	if (!object(pending) || pending.phase != 'ROLLING_BACK' || !object(pending.rollbackIdentity)
+		|| !z2k_rollback_registry_already_restored(pending, listed)) return false;
+	let state = z2k_registry_receipt_state(listed), receipt = state && state.receipt;
+	return state && state.state == 'V1_VERIFIED_MEMBERSHIP' && object(receipt)
+		&& receipt.version == pending.targetVersion && receipt.sourceCommit == pending.targetCommit
+		&& receipt.schema == 'asset-activation-receipt.v1';
+}
 function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated) {
 	let pending = z2k_pending_load(), journal = pending == null || z2k_pending_write(pending, 'ROLLING_BACK');
 	let runtimeRollback = runtimeActivated ? z2k_runtime_rollback() : { ok: true, skipped: true };
@@ -1099,22 +1107,6 @@ function z2k_finalized_pending_matches(pending, listed) {
 		&& type(receipt.installedAuthorityRevision) == 'int'
 		&& receipt.installedAuthorityRevision <= listed.revision;
 }
-export const resource_center_recover_pending = function() {
-	let marker = stat(Z2K_PENDING_ACTIVATION);
-	if (marker == null) return { ok: true, recovered: false, state: 'none' };
-	let pending = z2k_pending_load();
-	if (pending == null) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is unreadable; refusing to infer recovery from runtime files.');
-	if (!z2k_pending_identity_valid(pending)) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is incomplete; refusing recovery.');
-	if (pending.phase == 'PREPARED') return z2k_pending_clear() ? { ok: true, recovered: true, state: 'prepared-cleared' } : fail('ERECOVERY_REQUIRED', 'Prepared Z2K activation evidence could not be closed.');
-	if (pending.phase == 'ROLLED_BACK') return z2k_pending_clear() ? { ok: true, recovered: true, state: 'rolled-back-cleared' } : fail('ERECOVERY_REQUIRED', 'Rolled-back Z2K activation evidence could not be closed.');
-	if (pending.phase == 'FINALIZED') return z2k_finalized_pending_matches(pending, asset_registry_list(null))
-		&& z2k_pending_clear() ? { ok: true, recovered: true, state: 'finalized-cleared' } : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence does not match the installed authority.');
-	if (pending.phase != 'COMMITTED' && pending.phase != 'MATERIALIZED' && pending.phase != 'PROCESS_VERIFIED' && pending.phase != 'ROLLING_BACK') return fail('ERECOVERY_REQUIRED', 'Unknown Z2K activation phase cannot be recovered safely.', { phase: pending.phase });
-	let runtimeActivated = pending.phase == 'MATERIALIZED' || pending.phase == 'PROCESS_VERIFIED' || pending.phase == 'ROLLING_BACK';
-	let rollback = z2k_rollback_after_runtime_failure({ id: 'z2k-curated-lua' }, { committedAssetRevision: pending.committedAssetRevision }, { recovery: true, phase: pending.phase }, runtimeActivated);
-	if (!rollback.ok) return fail('ERECOVERY_REQUIRED', 'Z2K activation recovery could not prove safe compensation.', { rollback: rollback, phase: pending.phase });
-	return { ok: true, recovered: true, state: 'rolled-back', rollback: rollback };
-};
 function z2k_target_summary(target) {
 	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), preparedAt: target.preparedAt };
 }
@@ -1433,4 +1425,39 @@ export const resource_center_update = function (request) {
 		if (answer.diagnostics.planned > 0 && answer.diagnostics.applied == 0 && answer.ok) { return { ok: false, error: { code: 'EVERIFY', message: 'Обновление не применено: ' + answer.diagnostics.planned + ' обновлений было запланировано, 0 установлено.', diagnostics: answer.diagnostics }, diagnostics: answer.diagnostics, pathUsed: diagPathUsed }; }
 	}
 	return answer;
+};
+
+function z2k_reconcile_legacy_pending(pending) {
+	// An exact restored V1 identity can be repaired by the supported same-release
+	// FRESH reconciliation. This establishes a new canonical v2 activation
+	// through the normal prepare/apply transaction; it never guesses composition.
+	let prepared = resource_center_prepare_version({ version: pending.targetVersion });
+	if (!prepared || prepared.ok !== true) return prepared || fail('ERECOVERY_REQUIRED', 'V1 reconciliation preparation failed.');
+	let target = z2k_target_from_state(load_check_state());
+	if (!target || target.targetVersion != pending.targetVersion || !string(target.planToken)) return fail('ERECOVERY_REQUIRED', 'V1 reconciliation did not persist a complete prepared target.');
+	let applied = resource_center_update({ confirm: true, bundleId: 'z2k-curated-lua', targetVersion: target.targetVersion,
+		planToken: target.planToken, operation: target.operation, installedVersion: target.previousVersion });
+	return applied && applied.ok === true ? applied : fail('ERECOVERY_REQUIRED', 'V1 reconciliation transaction did not complete safely.', { result: applied || null });
+}
+
+export const resource_center_recover_pending = function() {
+	let marker = stat(Z2K_PENDING_ACTIVATION);
+	if (marker == null) return { ok: true, recovered: false, state: 'none' };
+	let pending = z2k_pending_load();
+	if (pending == null) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is unreadable; refusing to infer recovery from runtime files.');
+	if (!z2k_pending_identity_valid(pending)) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is incomplete; refusing recovery.');
+	if (pending.phase == 'PREPARED') return z2k_pending_clear() ? { ok: true, recovered: true, state: 'prepared-cleared' } : fail('ERECOVERY_REQUIRED', 'Prepared Z2K activation evidence could not be closed.');
+	if (pending.phase == 'ROLLED_BACK') return z2k_pending_clear() ? { ok: true, recovered: true, state: 'rolled-back-cleared' } : fail('ERECOVERY_REQUIRED', 'Rolled-back Z2K activation evidence could not be closed.');
+	if (pending.phase == 'FINALIZED') return z2k_finalized_pending_matches(pending, asset_registry_list(null))
+		&& z2k_pending_clear() ? { ok: true, recovered: true, state: 'finalized-cleared' } : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence does not match the installed authority.');
+	if (pending.phase != 'COMMITTED' && pending.phase != 'MATERIALIZED' && pending.phase != 'PROCESS_VERIFIED' && pending.phase != 'ROLLING_BACK') return fail('ERECOVERY_REQUIRED', 'Unknown Z2K activation phase cannot be recovered safely.', { phase: pending.phase });
+	let runtimeActivated = pending.phase == 'MATERIALIZED' || pending.phase == 'PROCESS_VERIFIED' || pending.phase == 'ROLLING_BACK';
+	let rollback = z2k_rollback_after_runtime_failure({ id: 'z2k-curated-lua' }, { committedAssetRevision: pending.committedAssetRevision }, { recovery: true, phase: pending.phase }, runtimeActivated);
+	if (!rollback.ok && rollback.runtime && rollback.runtime.restored === true && z2k_pending_legacy_reconciliation_eligible(pending, asset_registry_list(null))) {
+		let reconciled = z2k_reconcile_legacy_pending(pending);
+		if (reconciled && reconciled.ok === true) return { ok: true, recovered: true, state: 'reconciled-v2', reconciliation: reconciled, rollback: rollback };
+		return fail('ERECOVERY_REQUIRED', 'V1 runtime recovery requires a same-release reconciliation, but the canonical transaction did not complete.', { rollback: rollback, reconciliation: reconciled || null });
+	}
+	if (!rollback.ok) return fail('ERECOVERY_REQUIRED', 'Z2K activation recovery could not prove safe compensation.', { rollback: rollback, phase: pending.phase });
+	return { ok: true, recovered: true, state: 'rolled-back', rollback: rollback };
 };

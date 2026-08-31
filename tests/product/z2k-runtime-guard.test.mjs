@@ -79,3 +79,20 @@ test('recovery does not consume the Registry rollback snapshot twice', () => {
   assert.match(source, /actual\.sourcePath\s*\|\|\s*provenance\.sourcePath/,
     'rollback identity must compare both Registry and v1 receipt source-path field locations');
 });
+
+test('ROLLING_BACK with an exact restored V1 identity resumes the canonical same-release reconciliation', () => {
+  assert.match(source, /function z2k_pending_legacy_reconciliation_eligible\s*\(/,
+    'recovery must have an explicit V1 reconciliation eligibility gate');
+  const recoveryStart = source.indexOf('export const resource_center_recover_pending');
+  const recovery = source.slice(recoveryStart);
+  const reconcileStart = source.indexOf('function z2k_reconcile_legacy_pending');
+  const reconcile = source.slice(reconcileStart, recoveryStart);
+  assert.match(recovery, /z2k_pending_legacy_reconciliation_eligible/);
+  assert.match(reconcile, /resource_center_prepare_version/,
+    'recovery must rebuild the target through authoritative preparation');
+  assert.match(reconcile, /resource_center_update/,
+    'recovery must reuse the normal same-release update transaction');
+  assert.match(reconcile, /fresh|FRESH/,
+    'V1 recovery must use a FRESH same-release resolution');
+  assert.match(recovery, /phase\s*==\s*['"]ROLLING_BACK['"]/);
+});
