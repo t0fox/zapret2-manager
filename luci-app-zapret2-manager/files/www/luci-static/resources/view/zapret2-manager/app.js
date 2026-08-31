@@ -142,7 +142,10 @@ return L.view.extend({
         data: data || {}, initial: initial || {},
         navigate: navigateTo,
         refresh: function (next) {
-          if (activeContext !== ctx) return Promise.resolve();
+          // A module repaint intentionally replaces its context after pending
+          // state is rendered. Keep refresh valid for that same live route,
+          // while still rejecting callbacks from a page the user left.
+          if (activeModule !== module || !activeContext || activeContext.route !== tab) return Promise.resolve();
           return activate(next || tab, true);
         },
         invalidateCache: function (target) {

@@ -7,7 +7,7 @@ var modalKeyHandler = null;
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head) return;
-  var revision = '?v=components-resources-corrective-pass-20260830-r5';
+  var revision = '?v=telegram-overview-polish-20260831-r1';
   var existing = document.getElementById(id);
   if (existing) {
     var expected = L.resource('view/zapret2-manager/' + filename) + revision;

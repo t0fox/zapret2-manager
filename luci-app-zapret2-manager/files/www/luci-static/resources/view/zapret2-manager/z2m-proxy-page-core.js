@@ -47,6 +47,8 @@ var state = {
   deferredTimer: null,
   deferredStartedToken: null,
   fullHealthRequested: false,
+  tgLifecycle: null,
+  tgHealthCheck: null,
   mountedLoadToken: null
 };
 
@@ -145,6 +147,16 @@ function scheduleDeferred(ctx, token, requestHealth) {
     var value = settled(result, ctx.api);
     if (job.keys) job.keys.forEach(function (key) { state.deferred[key] = value; });
     else state.deferred[job.key] = value;
+    if (job.key === 'health') {
+      state.tgHealthCheck = null;
+      if (state.busy === 'health') {
+        state.busy = null;
+        state.tgLifecycle = value.error ? {
+          status: 'error',
+          message: _('Не удалось подтвердить подключение Telegram.')
+        } : null;
+      }
+    }
     rerender();
   }
   var jobs = [];
@@ -240,15 +252,31 @@ function showErrorState(ctx, error, fallback) {
     kind: 'error'
   }), E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Сведения об ошибке')), E('code', {}, mapped.technical)])]);
 }
-function mutation(ctx, name, promise) {
+function rerenderProxy(ctx) {
+  if (ctx && typeof ctx.rerender === 'function') return ctx.rerender();
+  return null;
+}
+function mutation(ctx, name, run, pendingMessage) {
   if (state.busy) return Promise.resolve(null);
   state.busy = name;
-  return promise.then(function (answer) {
+  state.tgLifecycle = { status: 'pending', action: name, message: pendingMessage || _('Выполняем операцию…') };
+  rerenderProxy(ctx);
+  return Promise.resolve().then(function () {
+    return typeof run === 'function' ? run() : run;
+  }).then(function (answer) {
     if (!answer || answer.ok === false) throw answer && answer.error || answer || new Error(name);
-    state.busy = null;
-    return ctx.refresh('proxy').then(function () { return answer; });
+    state.tgLifecycle = { status: 'refreshing', action: name, message: _('Проверяем состояние…') };
+    rerenderProxy(ctx);
+    return ctx.refresh('proxy').then(function () {
+      state.busy = null;
+      state.tgLifecycle = null;
+      rerenderProxy(ctx);
+      return answer;
+    });
   }).catch(function (error) {
     state.busy = null;
+    state.tgLifecycle = { status: 'error', action: name, message: ProductUX.errorMessage(ctx.api.normalizeError(error)).message };
+    rerenderProxy(ctx);
     showError(ctx, error);
     return null;
   });
@@ -623,14 +651,44 @@ function reveal(ctx) {
       }).catch(showError.bind(null, ctx));
     }, false);
 }
-function lifecycle(ctx, method, label, message) {
+function lifecycle(ctx, method, label, message, pendingMessage) {
   confirm(ctx, label + '?', message, label, function () {
-    mutation(ctx, label, method());
+    mutation(ctx, label, method, pendingMessage);
   });
 }
+function lifecycleFeedback(operation) {
+  if (!operation) return null;
+  var pending = operation.status === 'pending' || operation.status === 'refreshing' || operation.status === 'checking';
+  var failed = operation.status === 'error';
+  return E('div', {
+    'class': 'z2m-component-operation z2m-proxy-lifecycle-feedback' + (failed ? ' error' : ''),
+    role: failed ? 'alert' : 'status',
+    'aria-live': failed ? 'assertive' : 'polite',
+    'aria-busy': pending ? 'true' : 'false'
+  }, compact([
+    E('div', { 'class': 'z2m-op-header' }, [
+      pending ? E('span', { 'class': 'spinner-inline z2m-op-spinner', 'aria-hidden': 'true' }) : E('span', { 'class': 'z2m-proxy-feedback-dot', 'aria-hidden': 'true' }),
+      E('strong', {}, operation.message)
+    ]),
+    pending ? E('div', { 'class': 'z2m-op-progress z2m-op-progress--indeterminate', role: 'progressbar', 'aria-label': _('Выполнение операции') }, E('div', { 'class': 'z2m-op-progress-bar' })) : null
+  ]));
+}
 function refreshWithHealth(ctx) {
+  if (state.busy) return Promise.resolve(null);
+  state.busy = 'health';
+  state.tgHealthCheck = { status: 'pending' };
+  state.tgLifecycle = { status: 'checking', action: 'health', message: _('Проверяем доступность Telegram…') };
   state.fullHealthRequested = true;
-  return ctx.refresh('proxy');
+  rerenderProxy(ctx);
+  return ctx.refresh('proxy').catch(function (error) {
+    if (state.busy !== 'health') return null;
+    state.busy = null;
+    state.tgHealthCheck = null;
+    state.tgLifecycle = { status: 'error', action: 'health', message: _('Не удалось обновить проверку Telegram.') };
+    rerenderProxy(ctx);
+    showError(ctx, error);
+    return null;
+  });
 }
 function providerStatus(data) {
   return object(data.providerStatus && data.providerStatus.value);
@@ -1196,25 +1254,31 @@ function statusPane(ctx, data, normalized) {
   var applied = object(cfg.applied || cfg.draft);
   var listener = array(raw.listeners)[0] || {};
   var update = activeUpdateState(data, pstatus);
+  var busyLabel = function (action, label, pending) {
+    return state.busy === action ? [E('span', { 'class': 'spinner-inline', 'aria-hidden': 'true' }), _(pending)] : label;
+  };
+  var busyAttrs = function (label) {
+    return { 'aria-busy': state.busy === label ? 'true' : null };
+  };
   var actions = [];
-  if (!normalized.process) actions.push(shell.button(_('Запустить'), 'primary sm', function () {
-    lifecycle(ctx, ctx.api.tg.product.start, _('Запустить'), _('Сервер проверит процесс и точный адрес слушателя после запуска.'));
-  }, !!state.busy));
-  if (normalized.process) actions.push(shell.button(_('Проверить'), 'primary sm', function () {
+  if (!normalized.process) actions.push(shell.button(busyLabel(_('Запустить'), _('Запустить'), _('Запускаем…')), 'primary sm', function () {
+    lifecycle(ctx, ctx.api.tg.product.start, _('Запустить'), _('Сервер проверит процесс и точный адрес слушателя после запуска.'), _('Запускаем Telegram Proxy…'));
+  }, !!state.busy, busyAttrs(_('Запустить'))));
+  if (normalized.process) actions.push(shell.button(busyLabel('health', _('Проверить'), _('Проверяем…')), 'primary sm', function () {
     return refreshWithHealth(ctx);
-  }, !!state.busy));
-  if (normalized.process) actions.push(shell.button(_('Перезапустить'), 'sm', function () {
-    lifecycle(ctx, ctx.api.tg.product.restart, _('Перезапустить'), _('Текущие подключения будут прерваны.'));
-  }, !!state.busy));
+  }, !!state.busy, busyAttrs('health')));
+  if (normalized.process) actions.push(shell.button(busyLabel(_('Перезапустить'), _('Перезапустить'), _('Перезапускаем…')), 'sm', function () {
+    lifecycle(ctx, ctx.api.tg.product.restart, _('Перезапустить'), _('Текущие подключения будут прерваны.'), _('Перезапускаем Telegram Proxy…'));
+  }, !!state.busy, busyAttrs(_('Перезапустить'))));
   actions.push(shell.button(_('Ссылка / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy));
   var secondaryActions = E('details', { 'class': 'z2m-proxy-overflow-menu' }, [
     E('summary', {}, _('Ещё')),
     E('div', { 'class': 'z2m-proxy-overflow-list' }, compact([
       normalized.process ? shell.button(_('Остановить'), 'danger sm', function () {
-        lifecycle(ctx, ctx.api.tg.product.stop, _('Остановить'), _('Telegram Proxy перестанет принимать подключения.'));
+        lifecycle(ctx, ctx.api.tg.product.stop, _('Остановить'), _('Telegram Proxy перестанет принимать подключения.'), _('Останавливаем Telegram Proxy…'));
       }, !!state.busy) : null,
       shell.button(_('Новая ссылка'), 'sm', function () {
-        lifecycle(ctx, ctx.api.proxy.secretRotate, _('Создать новую ссылку'), _('Старая ссылка перестанет работать; сервер проверит слушатель и выполнит откат при ошибке.'));
+        lifecycle(ctx, ctx.api.proxy.secretRotate, _('Создать новую ссылку'), _('Старая ссылка перестанет работать; сервер проверит слушатель и выполнит откат при ошибке.'), _('Создаём новую ссылку…'));
       }, !!state.busy),
       update.state === 'degraded' ? shell.button(_('Открыть компонент'), 'sm', function () {
         state.pane = 'component';
@@ -1257,21 +1321,32 @@ function statusPane(ctx, data, normalized) {
   var upstreamOk = normalized.outbound === true;
   var humanStatus = !localOk ? _('Не работает') : upstreamOk ? _('Работает') : _('Работает с ограничениями');
   var statusKind = !localOk ? 'r' : upstreamOk ? 'g' : 'o';
-  var statusMessage = !localOk ? _('Процесс Telegram Proxy не запущен или слушатель недоступен.') :
+  var healthPending = state.tgHealthCheck && state.tgHealthCheck.status === 'pending';
+  var lifecyclePending = state.tgLifecycle && (state.tgLifecycle.status === 'pending' || state.tgLifecycle.status === 'refreshing');
+  if (healthPending) {
+    humanStatus = _('Проверяем Telegram');
+    statusKind = 'o';
+  } else if (state.busy === _('Запустить')) {
+    humanStatus = _('Запускается');
+    statusKind = 'o';
+  }
+  var statusMessage = healthPending ? _('Проверяем доступность Telegram DC…') : state.busy === _('Запустить') ?
+    _('Сервис запускается. Проверяем процесс и слушатель после ответа сервера.') : !localOk ? _('Процесс Telegram Proxy не запущен или слушатель недоступен.') :
     upstreamOk ? _('Локальный слушатель и доступность Telegram DC подтверждены.') :
     _('Локальный прокси работает, но доступность Telegram DC пока не подтверждена.');
   function healthStep(row) {
+    var rowPending = row[0] === 'telegram' && healthPending;
     return E('div', { 'class': 'z2m-proxy-health-step ' + (row[2] ? 'ok' : 'warn') }, compact([
       E('span', {}, row[1]),
-      E('strong', {}, row[3]),
-      !row[2] && row[0] === 'telegram' ? shell.button(_('Проверить снова'), 'ghost sm', function () { return refreshWithHealth(ctx); }, !!state.busy) : null
+      E('strong', {}, rowPending ? _('Проверяем…') : row[3]),
+      !row[2] && row[0] === 'telegram' ? shell.button(rowPending ? [E('span', { 'class': 'spinner-inline', 'aria-hidden': 'true' }), _('Проверяем…')] : _('Проверить снова'), 'ghost sm', function () { return refreshWithHealth(ctx); }, !!state.busy, busyAttrs('health')) : null
     ]));
   }
   var listenerLabel = normalized.listener && listenerAddress ? display(listenerAddress) + ':' + display(listenerPort) : _('Не подтверждён');
   var health = [
     ['process', _('Процесс'), normalized.process, normalized.process ? _('Запущен') : _('Остановлен')],
     ['listener', _('Слушатель'), normalized.listener, listenerLabel],
-    ['telegram', _('Telegram'), upstreamOk, upstreamOk ? _('Подключение подтверждено') : _('Не подтверждено')]
+    ['telegram', _('Telegram'), upstreamOk && !healthPending, upstreamOk ? _('Подключение подтверждено') : _('Не подтверждено')]
   ];
   var serviceRows = [
     [_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion)],
@@ -1281,24 +1356,30 @@ function statusPane(ctx, data, normalized) {
   return E('div', { 'class': 'z2m-proxy-pane' }, [
     E('section', { 'class': 'z2m-panel z2m-proxy-status-panel' }, [
       E('div', { 'class': 'bd' }, [
-        E('div', { 'class': 'z2m-proxy-status-hero' }, [
-          E('div', { 'class': 'z2m-proxy-status-summary' }, [
-            E('div', { 'class': 'z2m-proxy-telegram-logo' }, E('img', { src: L.resource('view/zapret2-manager/icons/telegram.svg'), alt: 'Telegram' })),
-            E('div', {}, [
-              E('h3', { 'class': 'z2m-proxy-status-' + statusKind }, humanStatus),
-              E('p', { 'class': 'z2m-proxy-status-meta' }, activeProviderLabel(data, pstatus) + ' · ' + installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion) + ' · ' + (object(cfg.autostart).rcDEnabled ? _('Автозапуск включён') : _('Автозапуск выключен'))),
-              E('p', {}, statusMessage)
-            ])
+        E('div', { 'class': 'z2m-proxy-overview-lede' }, [
+          E('div', { 'class': 'z2m-proxy-status-hero' }, [
+            E('div', { 'class': 'z2m-proxy-status-summary' }, [
+              E('div', { 'class': 'z2m-proxy-telegram-logo' }, E('img', { src: L.resource('view/zapret2-manager/icons/telegram.svg'), alt: 'Telegram' })),
+              E('div', {}, [
+                E('h3', { 'class': 'z2m-proxy-status-' + statusKind }, humanStatus),
+                E('p', { 'class': 'z2m-proxy-status-meta' }, activeProviderLabel(data, pstatus) + ' · ' + installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion) + ' · ' + (object(cfg.autostart).rcDEnabled ? _('Автозапуск включён') : _('Автозапуск выключен'))),
+                E('p', { 'class': 'z2m-proxy-status-description' }, statusMessage)
+              ])
+            ]),
+            E('div', { 'class': 'z2m-btnrow z2m-proxy-lifecycle-actions' }, actions)
           ]),
-          E('div', { 'class': 'z2m-btnrow z2m-proxy-lifecycle-actions' }, actions)
+          lifecycleFeedback(state.tgLifecycle)
         ]),
         E('div', { 'class': 'z2m-proxy-status-section' }, [
-          E('h3', {}, _('Состояние')),
+          E('div', { 'class': 'z2m-proxy-status-section-head' }, [
+            E('h3', {}, _('Состояние')),
+            E('span', { 'class': 'z2m-dim' }, lifecyclePending || healthPending ? _('Проверка выполняется') : _('Локально и через Telegram DC'))
+          ]),
           E('div', { 'class': 'z2m-proxy-health-chain' }, health.map(healthStep))
         ]),
         E('div', { 'class': 'z2m-proxy-status-section' }, [
-          E('h3', {}, _('Сервис')),
-          E('div', { 'class': 'z2m-proxy-info-list' }, serviceRows.map(infoRow))
+          E('div', { 'class': 'z2m-proxy-status-section-head' }, [E('h3', {}, _('Сервис'))]),
+          E('div', { 'class': 'z2m-proxy-info-list z2m-proxy-service-facts' }, serviceRows.map(infoRow))
         ]),
         E('details', { 'class': 'z2m-proxy-technical' }, [
           E('summary', {}, _('Технические сведения')),
@@ -1819,6 +1900,8 @@ function unmount() {
   state.tgOperation = null;
   state.tgRetry = null;
   state.busy = null;
+  state.tgLifecycle = null;
+  state.tgHealthCheck = null;
   tgViewportLock(false);
 }
 
