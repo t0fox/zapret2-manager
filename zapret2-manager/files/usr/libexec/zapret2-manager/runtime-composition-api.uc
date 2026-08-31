@@ -19,11 +19,20 @@ function registry_asset(listed, id) {
 	for (let i = 0; listed && type(listed.assets) == 'array' && i < length(listed.assets); i++) if (listed.assets[i] && listed.assets[i].id == id) return listed.assets[i];
 	return null;
 }
+function registry_kind_matches(entry, asset) {
+	if (!asset || !string(asset.type) || !string(entry.kind)) return false;
+	// Registry `type` is the physical storage type.  Runtime `kind` is the
+	// consumer semantic: a catalog hostlist/ipset is often stored as a blob.
+	// Keep that distinction explicit instead of rejecting valid blob-backed
+	// list entries at the candidate -> materialization boundary.
+	return asset.type == entry.kind || (asset.type == 'blob'
+		&& (entry.kind == 'blob' || entry.kind == 'hostlist' || entry.kind == 'ipset'));
+}
 function materialize_source(entry, listed) {
 	if (entry.type == 'lifecycle-managed') {
 		let asset = registry_asset(listed, entry.id);
 		let provenance = asset && asset.provenance;
-		if (!asset || asset.ownership != 'manager' || asset.type != entry.kind || !object(provenance)
+		if (!asset || asset.ownership != 'manager' || !registry_kind_matches(entry, asset) || !object(provenance)
 			|| provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua'
 			|| provenance.sourcePath != entry.sourcePath || provenance.version != entry.version
 			|| provenance.sourceCommit != entry.sourceCommit || asset.contentSha256 != entry.contentSha256

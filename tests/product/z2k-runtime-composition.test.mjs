@@ -328,6 +328,45 @@ test('runtime CLI activation output resolves a lifecycle asset on the router UCo
   }
 });
 
+test('runtime CLI accepts semantic hostlist entries backed by Registry blob assets', { skip: !HAS_UCODE }, () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-runtime-cli-hostlist-'));
+  const assetPath = '/etc/zapret2-manager/assets/blob/list';
+  const registryPath = path.join(temp, 'asset-registry.json');
+  const contentSha256 = HASH('h');
+  fs.writeFileSync(registryPath, JSON.stringify({
+    schema: 1,
+    revision: 1,
+    assets: [{
+      schema: 1, type: 'blob', id: 'blob:list', name: 'list.txt', ownership: 'manager',
+      contentSha256, byteSize: 20, revision: 1, path: assetPath, references: [],
+      provenance: {
+        kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: 'c'.repeat(40),
+        sourcePath: 'files/lists/list.txt', bundleId: 'z2k-curated-lua', version: 'r-80.3',
+      },
+    }],
+    activationReceipts: [],
+  }));
+  const entry = {
+    id: 'blob:list', owner: 'z2k-core', role: 'dependency', kind: 'hostlist', type: 'lifecycle-managed',
+    sourcePath: 'files/lists/list.txt', runtimeTarget: '/runtime-assets/lists/list.txt',
+    contentSha256, byteSize: 20, version: 'r-80.3', sourceCommit: 'c'.repeat(40),
+    manifestSha256: HASH('m'), classificationSha256: HASH('c'),
+  };
+  try {
+    const result = invokeCli(`cli.runtime_composition_cli_activation_output(${JSON.stringify({
+      snapshotId: HASH('s'), compositionSnapshotId: HASH('p'), membershipDigest: HASH('x'),
+      runtimeAssets: [entry], luaInit: [], scannerOverlay: [],
+    })}, false)`, {
+      Z2M_UPDATE_SOURCE_TEST: '1',
+      Z2M_ASSET_REGISTRY_STATE: registryPath,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.match(result.output, /ASSET\|blob:list\|lifecycle-managed\|hostlist\|/);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test('runtime CLI direct UCode entry point is executable', { skip: !HAS_UCODE }, () => {
   const input = '/tmp/z2m-runtime-cli-test-' + process.pid + '.json';
   fs.writeFileSync(input, '{}', { mode: 0o600 });
