@@ -26,6 +26,10 @@ const Z2K_OPERATION_WORKER = '/usr/libexec/zapret2-manager/resource-update-worke
 const Z2K_PENDING_ACTIVATION = '/etc/zapret2-manager/z2k-pending-activation.json';
 const Z2K_RUNTIME_READY_TIMEOUT_MS = 12000;
 const Z2K_RUNTIME_READY_POLL_MS = 1000;
+// Package-static Lua is a verified prefix supplied by the package composition
+// descriptor.  Keep lifecycle Lua in a disjoint order range so the resolver's
+// deterministic sort cannot interleave the two ownership domains.
+const Z2K_PACKAGE_LUA_ORDER_BASE = 100;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -504,7 +508,7 @@ function z2k_canonical_target_assets(targetVersion, targetCommit, manifestSha256
 			contentSha256: lc(item.sha256), sha256: lc(item.sha256), byteSize: item.byteSize, kind: kind, type: 'lifecycle-managed', version: targetVersion,
 			sourceCommit: targetCommit, manifestSha256: manifestSha256, classificationSha256: classificationSha256,
 			dependencies: item.dependencies || [], references: item.references || [] };
-		if (role == 'lua-init') entry.runtimeOrder = item.runtimeOrder == null ? luaOrder : item.runtimeOrder;
+		if (role == 'lua-init') entry.runtimeOrder = item.runtimeOrder == null ? Z2K_PACKAGE_LUA_ORDER_BASE + luaOrder : Z2K_PACKAGE_LUA_ORDER_BASE + item.runtimeOrder;
 		if (kind == 'lua') luaOrder++;
 		push(result, entry);
 	}
@@ -1022,10 +1026,50 @@ export const z2k_runtime_materialize_confirmed = function() {
 		version: resolved.lifecycleIdentity && resolved.lifecycleIdentity.release || null, snapshotId: resolved.snapshotId,
 		assets: length(resolved.runtimeAssets || []), removed: 0 };
 };
+function z2k_rollback_asset_matches(expected, actual) {
+	if (!object(expected) || !object(actual) || expected.id != actual.id || expected.type != actual.type) return false;
+	let expectedSha = expected.sha256 || expected.contentSha256;
+	if (expectedSha != null && expectedSha != actual.contentSha256) return false;
+	if (expected.byteSize != null && expected.byteSize != actual.byteSize) return false;
+	if (expected.sourcePath != null) {
+		let provenance = object(actual.provenance) ? actual.provenance : {};
+		if (expected.sourcePath != provenance.sourcePath) return false;
+	}
+	return true;
+}
+function z2k_rollback_membership_matches(expected, actual) {
+	if (!array(expected) || !array(actual) || length(expected) != length(actual)) return false;
+	for (let i = 0; i < length(expected); i++) {
+		let found = null;
+		for (let j = 0; j < length(actual); j++) if (actual[j] && actual[j].id == expected[i].id) { found = actual[j]; break; }
+		if (!z2k_rollback_asset_matches(expected[i], found)) return false;
+	}
+	return true;
+}
+function z2k_rollback_receipt_matches(expected, actual) {
+	if (!object(expected) || !object(actual)) return false;
+	let keysToCompare = ['schema', 'bundleId', 'version', 'source', 'sourceCommit', 'manifestSha256', 'classificationSha256', 'membershipDigest', 'candidateSnapshotId', 'baseRegistryRevision', 'committedRegistryRevision', 'installedAuthorityRevision'];
+	for (let i = 0; i < length(keysToCompare); i++) {
+		let key = keysToCompare[i];
+		if (expected[key] != null && expected[key] != actual[key]) return false;
+	}
+	if (expected.schema == 'asset-activation-receipt.v1') return z2k_rollback_membership_matches(expected.assets, actual.assets);
+	if (expected.schema == 'asset-activation-receipt.v2') return z2k_rollback_membership_matches(expected.z2kMembership, actual.z2kMembership);
+	return false;
+}
+function z2k_rollback_registry_already_restored(pending, listed) {
+	if (!object(pending) || !object(pending.rollbackIdentity) || !object(listed) || listed.ok !== true
+		|| listed.revision != pending.rollbackIdentity.registryRevision) return false;
+	let expected = pending.rollbackIdentity.receipt || null, state = z2k_registry_receipt_state(listed);
+	if (expected == null) return state.state == 'unknown' && state.receipt == null;
+	return state.receipt != null && z2k_rollback_receipt_matches(expected, state.receipt);
+}
 function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated) {
 	let pending = z2k_pending_load(), journal = pending == null || z2k_pending_write(pending, 'ROLLING_BACK');
 	let runtimeRollback = runtimeActivated ? z2k_runtime_rollback() : { ok: true, skipped: true };
-	let registryRollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.committedAssetRevision || applied.revision });
+	let listed = asset_registry_list(null), alreadyRestored = z2k_rollback_registry_already_restored(pending, listed);
+	let registryRollback = alreadyRestored ? { ok: true, skipped: true, alreadyRestored: true, revision: listed.revision }
+		: asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.committedAssetRevision || applied.revision });
 	let okResult = journal && runtimeRollback.ok && registryRollback.ok;
 	if (okResult && pending != null) okResult = z2k_pending_write(pending, 'ROLLED_BACK') && z2k_pending_clear();
 	return { ok: okResult, runtime: runtimeRollback, registry: registryRollback, journal: journal };

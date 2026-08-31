@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "id": "package:zapret-lib",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/zapret-lib.lua",
+      "runtimeTarget": "/runtime-assets/lua/zapret-lib.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/zapret-lib.lua",
+      "contentSha256": "b272d207cca145a3b6174793b7d335489519f6d4299418ff2b870765cea24d5a",
+      "byteSize": 92721,
+      "runtimeOrder": 0
+    },
+    {
+      "id": "package:zapret-antidpi",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/zapret-antidpi.lua",
+      "runtimeTarget": "/runtime-assets/lua/zapret-antidpi.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/zapret-antidpi.lua",
+      "contentSha256": "31c9dd75b0bd55e98e5306293f2be81e9d2ecadcbbf9157394ff37dcff7dc85a",
+      "byteSize": 51782,
+      "runtimeOrder": 1
+    },
+    {
+      "id": "package:z2m-fake-rotate",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/z2m-fake-rotate.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2m-fake-rotate.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2m-fake-rotate.lua",
+      "contentSha256": "6ea84b434b6ab191afdb5177949425652fc3d014884bfa11dc7d0973c5a58dd9",
+      "byteSize": 3791,
+      "runtimeOrder": 2
+    },
+    {
+      "id": "package:zapret-auto",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/zapret-auto.lua",
+      "runtimeTarget": "/runtime-assets/lua/zapret-auto.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/zapret-auto.lua",
+      "contentSha256": "dcd9d1fa20213f5c4f3536363c789cbbec168f870a44f19689d5eaf292dfae2c",
+      "byteSize": 21923,
+      "runtimeOrder": 3
+    },
+    {
+      "id": "package:z2m-hostkey-policy",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/z2m-hostkey-policy.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2m-hostkey-policy.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2m-hostkey-policy.lua",
+      "contentSha256": "d22e2ceb8c4d592d36bfffaaf4542bc34ad6065e7dee1931a094b590a76ba72d",
+      "byteSize": 2961,
+      "runtimeOrder": 4
+    },
+    {
+      "id": "package:z2m-autocircular-policy",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/z2m-autocircular-policy.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2m-autocircular-policy.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2m-autocircular-policy.lua",
+      "contentSha256": "5d14c6f5a52c2ce20325b0d36f64d8f9d9c7f7be8a6ae1a6438a02dd5febe206",
+      "byteSize": 2769,
+      "runtimeOrder": 5
+    }
+  ]
+}

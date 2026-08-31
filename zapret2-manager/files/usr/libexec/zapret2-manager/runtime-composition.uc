@@ -5,12 +5,14 @@
 // runtime state.  Registry/receipt authority and a FRESH prepared target are
 // the only lifecycle inputs accepted by the two resolver entry points.
 import { asset_registry_list } from './asset-registry.uc';
+import { readfile } from 'fs';
 
 const BUNDLE_ID = 'z2k-curated-lua';
 const MAX_ENTRIES = 128;
 const MAX_IDENTITY_BYTES = 256 * 1024;
 const KINDS = ['lua', 'blob', 'hostlist', 'ipset', 'binary', 'config', 'other'];
 const ENTRY_TYPES = ['package-static', 'lifecycle-managed', 'bootstrap', 'scanner-overlay'];
+const PACKAGE_COMPOSITION = '/usr/share/zapret2-manager/runtime-composition-package.json';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -66,6 +68,21 @@ function normalize_entries(rawEntries, expectedType) {
 		push(entries, entry);
 	}
 	return { ok: true, entries: entries };
+}
+
+function package_static_entries() {
+	let path = PACKAGE_COMPOSITION;
+	if (getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && string(getenv('Z2M_RUNTIME_PACKAGE_COMPOSITION')))
+		path = getenv('Z2M_RUNTIME_PACKAGE_COMPOSITION');
+	let raw = null, value = null;
+	try { raw = readfile(path); value = raw == null ? null : json(raw); } catch (e) { value = null; }
+	if (!object(value) || value.schema != 1 || !array(value.entries)) return fail('EUNAVAILABLE', 'verified package runtime composition is unavailable');
+	return normalize_entries(value.entries, 'package-static');
+}
+
+function package_static_input(value) {
+	if (value != null) return normalize_entries(value, 'package-static');
+	return package_static_entries();
 }
 
 function sort_by_id(left, right) { return left.id == right.id ? 0 : (left.id < right.id ? -1 : 1); }
@@ -146,7 +163,7 @@ function remove_ids(value) {
 }
 
 function compose(state, authority, lifecycleEntries, staticEntries, scannerEntries, removals) {
-	let all = [], staticResult = normalize_entries(staticEntries || [], 'package-static');
+	let all = [], staticResult = package_static_input(staticEntries);
 	if (!staticResult.ok) return staticResult;
 	for (let i = 0; i < length(staticResult.entries); i++) push(all, staticResult.entries[i]);
 	for (let i = 0; i < length(lifecycleEntries || []); i++) push(all, lifecycleEntries[i]);
@@ -234,7 +251,7 @@ function input_registry(input) { return object(input) && object(input.registry) 
 export const resolveInstalled = function(input) {
 	let source = object(input) ? input : {}, listed = input_registry(source);
 	if (!object(listed) || listed.ok !== true || !integer(listed.revision)) return fail('EINCONSISTENT', 'Asset Registry is unavailable');
-	let receipt = source.receipt || latest_receipt(listed), staticBase = source.staticBase || [], scanner = scanner_overlay(source.scannerOverlay);
+	let receipt = source.receipt || latest_receipt(listed), staticBase = source.staticBase, scanner = scanner_overlay(source.scannerOverlay);
 	if (!scanner.ok) return scanner;
 	if (receipt && receipt.schema == 'asset-activation-receipt.v1') {
 		let legacy = v1_membership(receipt, listed);
@@ -272,7 +289,7 @@ export const resolveCandidate = function(preparedTarget, context) {
 		planToken: preparedTarget.planToken, baseRegistryRevision: preparedTarget.baseRegistryRevision,
 		observedRegistryRevision: current, committedAssetRevision: committed == null ? null : committed,
 		removeIds: removals.ids, contentIdentity: preparedTarget.contentIdentity || null, receiptIdentity: null };
-	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase || [], preparedTarget.scannerOverlay || [], removals.ids);
+	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase, preparedTarget.scannerOverlay || [], removals.ids);
 };
 
 function evidence_file(evidence, entry) {

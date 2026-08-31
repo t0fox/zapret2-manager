@@ -59,3 +59,19 @@ test('guard preserves a pre-existing pause and removes only its own pause', () =
   assert.match(release, /unlink\(Z2K_PAUSE_FILE\)/);
   assert.match(release, /stat\(Z2K_PAUSE_FILE\)/);
 });
+
+test('recovery does not consume the Registry rollback snapshot twice', () => {
+  const helperStart = source.indexOf('function z2k_rollback_registry_already_restored');
+  const rollbackStart = source.indexOf('function z2k_rollback_after_runtime_failure');
+  const rollback = source.slice(rollbackStart);
+  const alreadyRestored = rollback.indexOf('z2k_rollback_registry_already_restored');
+  const registryRollback = rollback.indexOf('asset_registry_rollback_bundle');
+  assert.ok(alreadyRestored >= 0, 'recovery must detect an already-restored Registry');
+  assert.ok(registryRollback > alreadyRestored,
+    'Registry rollback must run only after the already-restored check');
+  assert.ok(helperStart >= 0, 'already-restored helper must be defined');
+  const helper = source.slice(helperStart, rollbackStart);
+  assert.match(helper, /rollbackIdentity\.receipt/);
+  assert.match(helper, /rollbackIdentity\.registryRevision/);
+  assert.match(helper, /z2k_registry_receipt_state/);
+});

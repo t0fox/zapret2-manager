@@ -176,6 +176,46 @@ test('candidate resolution works before an installed receipt and binds all prepa
   assert.deepEqual(result.luaInit.map(entry => entry.id), ['lua:alpha']);
 });
 
+test('candidate and installed closures include verified package-static Lua before lifecycle Lua', { skip: !HAS_UCODE }, () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-composition-'));
+  const descriptor = path.join(temp, 'runtime-composition-package.json');
+  const packageEntries = [
+    {
+      id: 'package:zapret-auto', owner: 'package', role: 'lua-init', kind: 'lua', type: 'package-static',
+      sourcePath: 'files/lua/zapret-auto.lua', runtimeTarget: '/runtime-assets/lua/zapret-auto.lua',
+      packagePath: '/usr/share/zapret2-manager/runtime-assets/lua/zapret-auto.lua',
+      contentSha256: HASH('p'), byteSize: 10, runtimeOrder: 3,
+    },
+  ];
+  fs.writeFileSync(descriptor, JSON.stringify({ schema: 1, entries: packageEntries }));
+  const candidate = candidateFixture();
+  delete candidate.staticBase;
+  try {
+    const result = invoke(`composition.resolveCandidate(${JSON.stringify(candidate)})`, {
+      Z2M_UPDATE_SOURCE_TEST: '1',
+      Z2M_RUNTIME_PACKAGE_COMPOSITION: descriptor,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.luaInit.map(entry => entry.id), ['package:zapret-auto', 'lua:alpha']);
+    assert.equal(result.runtimeAssets.find(entry => entry.id === 'package:zapret-auto').type, 'package-static');
+    assert.equal(result.runtimeAssets.find(entry => entry.id === 'package:zapret-auto').owner, 'package');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('canonical target keeps lifecycle Lua after the verified package-static prefix', () => {
+  const coordinator = read(coordinatorPath);
+  const start = coordinator.indexOf('function z2k_canonical_target_assets');
+  const end = coordinator.indexOf('function z2k_target_assets_with_sizes', start);
+  assert.ok(start >= 0 && end > start, 'canonical target asset helper must be present');
+  const helper = coordinator.slice(start, end);
+  assert.match(helper, /PACKAGE_LUA_ORDER_BASE/,
+    'lifecycle Lua order must reserve the package-static Lua prefix');
+  assert.match(helper, /PACKAGE_LUA_ORDER_BASE\s*\+\s*luaOrder/,
+    'lifecycle Lua order must be offset after package-static entries');
+});
+
 test('candidate identity changes when order or content changes, while UI-independent input stays ignored', { skip: !HAS_UCODE }, () => {
   assert.ok(exists(compositionPath));
   const candidate = candidateFixture();
