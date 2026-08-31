@@ -1028,8 +1028,8 @@ export const z2k_runtime_materialize_confirmed = function() {
 };
 function z2k_rollback_asset_matches(expected, actual) {
 	if (!object(expected) || !object(actual) || expected.id != actual.id || expected.type != actual.type) return false;
-	let expectedSha = expected.sha256 || expected.contentSha256;
-	if (expectedSha != null && expectedSha != actual.contentSha256) return false;
+	let expectedSha = expected.sha256 || expected.contentSha256, actualSha = actual.contentSha256 || actual.sha256;
+	if (expectedSha != null && expectedSha != actualSha) return false;
 	if (expected.byteSize != null && expected.byteSize != actual.byteSize) return false;
 	if (expected.sourcePath != null) {
 		let provenance = object(actual.provenance) ? actual.provenance : {};
