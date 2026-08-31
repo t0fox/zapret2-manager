@@ -29,6 +29,7 @@ const Z2K_RUNTIME_READY_POLL_MS = 1000;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
+function array(value) { return type(value) == 'array'; }
 function text(value) { return value == null ? '' : '' + value; }
 function fail(code, message, extra) { let out = { ok: false, error: { code: code, message: message } }; for (let k in extra || {}) out.error[k] = extra[k]; return out; }
 function shell_quote(value) { let out = "'", raw = text(value); for (let i = 0; i < length(raw); i++) out += substr(raw, i, 1) == "'" ? "'\\''" : substr(raw, i, 1); return out + "'"; }
