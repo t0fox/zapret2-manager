@@ -129,7 +129,7 @@ start_service
     return path.join(root, absolutePath.slice(1));
   }
 
-  test('persistent creates only missing persistent roots at mode 0700', () => {
+  test('persistent creates only missing persistent roots with the daemon-traversable state parent', () => {
     const root = prefix();
     try {
       const run = invoke(root, 'persistent');
@@ -137,9 +137,15 @@ start_service
       for (const managed of persistent) {
         const stat = fs.lstatSync(target(root, managed));
         assert.ok(stat.isDirectory());
-        assert.equal(stat.mode & 0o7777, 0o700);
+        assert.equal(stat.mode & 0o7777, managed === persistent[0] ? 0o710 : 0o700);
         assert.equal(stat.uid, 0);
-        assert.equal(stat.gid, 0);
+        if (managed === persistent[0]) {
+          const group = spawnSync('getent', ['group', 'daemon'], { encoding: 'utf8' });
+          const daemonGid = group.status === 0 ? Number(group.stdout.split(':')[2]) : 1;
+          assert.equal(stat.gid, daemonGid);
+        } else {
+          assert.equal(stat.gid, 0);
+        }
       }
       assert.equal(fs.existsSync(target(root, runtime[0])), false);
       assert.equal(fs.existsSync(path.join(root, 'tmp/zapret2-manager')), false);
@@ -158,6 +164,23 @@ start_service
       for (const managed of runtime)
         assert.equal(fs.lstatSync(target(root, managed)).mode & 0o7777, 0o700);
       assert.equal(fs.existsSync(target(root, persistent[0])), false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('persistent migrates the known legacy state root without repairing other invalid roots', () => {
+    const root = prefix();
+    const stateRoot = target(root, persistent[0]);
+    try {
+      fs.mkdirSync(stateRoot, { mode: 0o700 });
+      fs.chmodSync(stateRoot, 0o700);
+      assert.equal(invoke(root, 'persistent').status, 0);
+      const migrated = fs.lstatSync(stateRoot);
+      assert.equal(migrated.mode & 0o7777, 0o710);
+      const group = spawnSync('getent', ['group', 'daemon'], { encoding: 'utf8' });
+      const daemonGid = group.status === 0 ? Number(group.stdout.split(':')[2]) : 1;
+      assert.equal(migrated.gid, daemonGid);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

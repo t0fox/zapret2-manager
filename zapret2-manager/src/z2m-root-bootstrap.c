@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,16 +34,43 @@ static int report_error(const char *operation, const char *path)
     return -1;
 }
 
-static int verify_directory(int fd, const char *path, mode_t required_mode,
-                            int exact_mode)
+static gid_t daemon_gid(void)
+{
+    struct group *daemon_group = getgrnam("daemon");
+    return daemon_group != NULL ? daemon_group->gr_gid : 1;
+}
+
+static int migrate_legacy_state_root(int fd, const char *path)
 {
     struct stat st;
+
+    if (fstat(fd, &st) < 0)
+        return report_error("fstat", path);
+    if (!S_ISDIR(st.st_mode) || st.st_uid != 0 || st.st_gid != 0 ||
+        (st.st_mode & 07777) != 0700)
+        return 0;
+    if (fchown(fd, 0, daemon_gid()) < 0 || fchmod(fd, 0710) < 0)
+        return report_error("legacy state migration", path);
+    return 0;
+}
+
+static int verify_directory(int fd, const char *path, mode_t required_mode,
+                            int exact_mode, int allow_daemon_group)
+{
+    struct stat st;
+    struct group *daemon_group;
+    gid_t expected_gid = 0;
     mode_t mode;
 
     if (fstat(fd, &st) < 0)
         return report_error("fstat", path);
+    if (allow_daemon_group) {
+        daemon_group = getgrnam("daemon");
+        expected_gid = daemon_group != NULL ? daemon_group->gr_gid : daemon_gid();
+    }
     mode = st.st_mode & 07777;
-    if (!S_ISDIR(st.st_mode) || st.st_uid != 0 || st.st_gid != 0 ||
+    if (!S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+        (allow_daemon_group ? st.st_gid != expected_gid : st.st_gid != 0) ||
         (exact_mode ? mode != required_mode : (mode & 0022) != 0)) {
         errno = EPERM;
         return report_error("policy verification", path);
@@ -115,7 +143,7 @@ static int open_verified_root(const char *logical_root)
     current_fd = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (current_fd < 0)
         return report_error("open", "/");
-    if (verify_directory(current_fd, "/", 0, 0) < 0) {
+    if (verify_directory(current_fd, "/", 0, 0, 0) < 0) {
         close(current_fd);
         return -1;
     }
@@ -125,6 +153,7 @@ static int open_verified_root(const char *logical_root)
         char *next = strtok_r(NULL, "/", &saveptr);
         int final_component = next == NULL;
         int next_fd;
+        int state_root;
         const char *logical_position_value;
         size_t used = strlen(traversed);
 
@@ -136,13 +165,24 @@ static int open_verified_root(const char *logical_root)
             return -1;
         }
         logical_position_value = logical_position(traversed, test_root);
+        state_root = strcmp(traversed, "/etc/zapret2-manager/state") == 0 ||
+                     (logical_position_value != NULL &&
+                      strcmp(logical_position_value,
+                             "/etc/zapret2-manager/state") == 0);
 
         next_fd = openat(current_fd, component,
                          O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
         if (next_fd < 0 && errno == ENOENT && logical_position_value != NULL &&
             may_create(logical_position_value, final_component)) {
-            if (mkdirat(current_fd, component, 0700) < 0) {
+            if (mkdirat(current_fd, component, state_root ? 0710 : 0700) < 0) {
                 report_error("mkdirat", logical_root);
+                close(current_fd);
+                return -1;
+            }
+            if (state_root &&
+                (fchownat(current_fd, component, 0, daemon_gid(), 0) < 0 ||
+                 fchmodat(current_fd, component, 0710, 0) < 0)) {
+                report_error("state ownership", logical_root);
                 close(current_fd);
                 return -1;
             }
@@ -156,17 +196,20 @@ static int open_verified_root(const char *logical_root)
         }
 
         if (verify_path_identity(current_fd, component, next_fd, logical_root) < 0 ||
+            (state_root && migrate_legacy_state_root(next_fd, logical_root) < 0) ||
             verify_directory(next_fd, logical_root,
                              strcmp(traversed, "/tmp") == 0 ||
                                      (logical_position_value != NULL &&
                                       strcmp(logical_position_value, "/tmp") == 0)
                                  ? 01777
+                                 : state_root ? 0710
                                  : 0700,
                              final_component || strcmp(traversed, "/tmp") == 0 ||
                                  (logical_position_value != NULL &&
                                   (strcmp(logical_position_value, "/tmp") == 0 ||
                                    strcmp(logical_position_value,
-                                          "/tmp/zapret2-manager") == 0))) < 0) {
+                                          "/tmp/zapret2-manager") == 0)),
+                             state_root) < 0) {
             close(next_fd);
             close(current_fd);
             return -1;

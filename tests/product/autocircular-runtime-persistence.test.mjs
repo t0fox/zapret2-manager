@@ -18,3 +18,10 @@ test('Autocircular control-plane writes keep state readable by nfqws2 daemon', (
   assert.match(source, /chgrp\s+daemon/);
   assert.match(source, /chmod\s+0660/);
 });
+
+test('Runtime sync keeps the protected state parent traversable and the leaf shared', () => {
+  const source = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'), 'utf8');
+  assert.match(source, /chown root:daemon[\s\S]*STATE_ROOT/);
+  assert.match(source, /chmod 0710[\s\S]*STATE_ROOT/);
+  assert.match(source, /chmod 0660[\s\S]*STATE_DIR\/state\.tsv/);
+});
