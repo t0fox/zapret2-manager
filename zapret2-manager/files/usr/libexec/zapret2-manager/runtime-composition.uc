@@ -197,6 +197,14 @@ function registry_z2k_assets(listed) {
 	}
 	return assets;
 }
+function physical_registry_type(entry) {
+	if (!object(entry) || !string(entry.kind) || !string(entry.id)) return null;
+	if (entry.kind == 'lua') return 'lua';
+	// The Registry stores blob:* bytes as blob even when composition gives
+	// them a semantic hostlist/ipset kind for runtime consumers.
+	if (substr(entry.id, 0, 5) == 'blob:') return 'blob';
+	return entry.kind;
+}
 function registry_match_membership(membership, listed, receipt) {
 	if (!array(membership) || !length(membership)) return fail('EINCONSISTENT', 'installed Z2K membership is missing');
 	let normalized = normalize_entries(membership, 'lifecycle-managed');
@@ -205,7 +213,7 @@ function registry_match_membership(membership, listed, receipt) {
 	for (let i = 0; i < length(current); i++) byId[current[i].id] = current[i];
 	for (let i = 0; i < length(normalized.entries); i++) {
 		let expected = normalized.entries[i], actual = byId[expected.id], provenance = actual && actual.provenance;
-		if (actual == null || seen[expected.id] || actual.type != expected.kind || actual.contentSha256 != expected.contentSha256 || actual.byteSize != expected.byteSize
+		if (actual == null || seen[expected.id] || actual.type != physical_registry_type(expected) || actual.contentSha256 != expected.contentSha256 || actual.byteSize != expected.byteSize
 			|| !object(provenance) || provenance.sourcePath != expected.sourcePath || provenance.version != expected.version
 			|| provenance.sourceCommit != expected.sourceCommit || provenance.bundleId != BUNDLE_ID) return fail('EINCONSISTENT', 'installed Z2K membership does not match Registry', { id: expected.id });
 		seen[expected.id] = true;

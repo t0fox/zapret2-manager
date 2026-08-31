@@ -119,6 +119,19 @@ test('installed authority revision remains distinct from later observed Registry
   assert.equal(result.observedRegistryRevision, 18);
 });
 
+test('installed resolver accepts semantic list kinds stored in the blob Registry namespace', { skip: !HAS_UCODE }, () => {
+  const fixture = v2Fixture();
+  const list = fixture.registry.assets.find(asset => asset.id === 'hostlist:gamma');
+  list.id = 'blob:gamma';
+  fixture.receipt.z2kMembership.find(entry => entry.id === 'hostlist:gamma').id = 'blob:gamma';
+  list.type = 'blob';
+  const result = invoke(`composition.resolveInstalled(${JSON.stringify({
+    registry: fixture.registry, receipt: fixture.receipt, staticBase: fixture.staticBase,
+  })})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.runtimeAssets.find(entry => entry.id === 'blob:gamma').kind, 'hostlist');
+});
+
 test('installed receipt with a future Registry revision fails closed', () => {
   const fixture = v2Fixture();
   fixture.registry.revision = 16;
