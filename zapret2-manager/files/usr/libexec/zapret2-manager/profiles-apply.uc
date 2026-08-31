@@ -558,7 +558,9 @@ export const profiles_projection_boundary = function(candidateHash) {
 	try { metadata = stat(path); } catch (e) { metadata = null; }
 	if (metadata == null || metadata.type != 'file' || readlink(path) != null
 		|| metadata.mode % 512 != 384 || type(metadata.size) != 'int' || metadata.size > 8192)
-		return err('identity', 'EINPUT', 'Strategy projection sidecar is not a private regular file');
+		return err('identity', 'EINPUT', 'Strategy projection sidecar is not a private regular file', {
+			path: path, metadata: metadata
+		});
 	let envelope = null;
 	try { envelope = json(readfile(path)); } catch (e) { envelope = null; }
 	if (type(envelope) != 'object' || envelope == null || envelope.schema != 1
