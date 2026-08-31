@@ -28,6 +28,20 @@ function run(cmd) {
 	return { out: out, rc: rc };
 }
 
+function shell_escape(s) {
+	let out = "'";
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		if (c == "'") out += "'\\''";
+		else out += c;
+	}
+	return out + "'";
+}
+
+function upstream_command(action) {
+	return 'sh /etc/rc.common ' + shell_escape(UPSTREAM_INIT) + ' ' + shell_escape(action);
+}
+
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
 	if (!p) return '';
@@ -194,7 +208,7 @@ function start() {
 	if (apply_nfqws2_enable(restored) == null)
 		return { ok: false, action: 'start', error: 'config write failed' };
 	let expectedConfigSha = config_sha256();
-	let r = run(UPSTREAM_INIT + ' start');
+	let r = run(upstream_command('start'));
 	if (r.rc == 0) {
 		let verification = verify_engine_runtime('start', expectedConfigSha);
 		if (!verification.ok) return runtime_failure('start', r, verification);
@@ -213,8 +227,8 @@ function stop() {
 	save_prev_enable(prev);
 	if (apply_nfqws2_enable(0) == null)
 		return { ok: false, action: 'stop', error: 'config write failed' };
-	if (PAUSE_STOPS_FW) run(UPSTREAM_INIT + ' stop_fw');
-	let r = run(UPSTREAM_INIT + ' stop');
+	if (PAUSE_STOPS_FW) run(upstream_command('stop_fw'));
+	let r = run(upstream_command('stop'));
 	if (r.rc == 0) capture_applied_hash();
 	schedule_rollback();
 	event('ui', 'pause', 'info',
@@ -228,7 +242,7 @@ function restart() {
 	set_paused(false);
 	snapshot_last_good();
 	let expectedConfigSha = config_sha256();
-	let r = run(UPSTREAM_INIT + ' restart');
+	let r = run(upstream_command('restart'));
 	if (r.rc == 0) {
 		let verification = verify_engine_runtime('restart', expectedConfigSha);
 		if (!verification.ok) return runtime_failure('restart', r, verification);
@@ -246,7 +260,7 @@ function restart_daemons() {
 	set_paused(false);
 	snapshot_last_good();
 	let expectedConfigSha = config_sha256();
-	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
+	let r = run(upstream_command('restart_daemons') + ' 2>/dev/null || ' + upstream_command('restart'));
 	if (r.rc == 0) {
 		let verification = verify_engine_runtime('restart_daemons', expectedConfigSha);
 		if (!verification.ok) return runtime_failure('restart_daemons', r, verification);
@@ -264,7 +278,7 @@ function debug(enabled) {
 	if (set_var(DAEMON_LOG_ENABLE, on ? '1' : '0') == null)
 		return { ok: false, action: 'debug', enabled: on, error: 'config write failed' };
 	let expectedConfigSha = config_sha256();
-	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
+	let r = run(upstream_command('restart_daemons') + ' 2>/dev/null || ' + upstream_command('restart'));
 	if (r.rc == 0) {
 		let verification = verify_engine_runtime('debug', expectedConfigSha);
 		if (!verification.ok) return runtime_failure('debug', r, verification);
@@ -275,7 +289,7 @@ function debug(enabled) {
 
 function start_fw() {
 	snapshot_last_good();
-	let r = run(UPSTREAM_INIT + ' start_fw');
+	let r = run(upstream_command('start_fw'));
 	schedule_rollback();
 	event('ui', 'config', 'info', 'start_fw rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'start_fw', rc: r.rc, out: r.out,
@@ -284,7 +298,7 @@ function start_fw() {
 
 function reload_ifsets() {
 	snapshot_last_good();
-	let r = run(UPSTREAM_INIT + ' reload_ifsets');
+	let r = run(upstream_command('reload_ifsets'));
 	schedule_rollback();
 	event('ui', 'config', 'info', 'reload_ifsets rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'reload_ifsets', rc: r.rc, out: r.out,
@@ -323,7 +337,7 @@ function rollback(force) {
 		if (!configRestored)
 			return { ok: false, action: 'rollback', code: 'EROLLBACK', error: 'exact config restore verification failed', configRestored: false };
 		try { unlink(PENDING); } catch (e) { }
-		let r = run(UPSTREAM_INIT + ' restart');
+		let r = run(upstream_command('restart'));
 		if (r.rc == 0) capture_applied_hash();
 		event('ui', 'rollback', 'crit', 'ROLLBACK exact snapshot restored rc=' + r.rc,
 			{ rc: r.rc, rollback_ttl: ROLLBACK_TTL, configRestored: configRestored });
@@ -413,7 +427,7 @@ function passthrough(enabled) {
 		st.passthrough = { enabled: false };
 		write_state(st);
 	}
-	let r = run(UPSTREAM_INIT + ' restart');
+	let r = run(upstream_command('restart'));
 	if (r.rc == 0) capture_applied_hash();
 	schedule_rollback();
 	event('ui', 'config', 'info', 'passthrough ' + (on ? 'ON' : 'OFF') + ' (profile=' +

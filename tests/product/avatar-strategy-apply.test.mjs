@@ -34,6 +34,13 @@ test('Strategy Apply source contract re-resolves installed authority immediately
   assert.match(source, /profiles_apply_candidate/);
 });
 
+test('Strategy Apply invokes the OpenWrt init owner through rc.common', () => {
+  const source = fs.readFileSync(APPLY, 'utf8');
+  assert.match(source, /function upstream_action\(action\)/);
+  assert.match(source, /sh \/etc\/rc\.common/);
+  assert.doesNotMatch(source, /run\(UPSTREAM_INIT \+ ' restart'\)/);
+});
+
 const environment = {
   listMode: 'none',
   paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },

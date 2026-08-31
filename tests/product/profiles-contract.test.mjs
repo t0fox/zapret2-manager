@@ -151,7 +151,7 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
   assertOrdered(transaction, [
     /snapshot_apply\(\)/,
     /set_vars?_cas\(/,
-    /run\(UPSTREAM_INIT \+ ' restart'\)/,
+    /upstream_action\('restart'\)/,
     /run\('sleep 2'\)/,
     /transaction_verify\(0,/,
   ]);
@@ -180,7 +180,7 @@ test('applied identity is committed only after verified apply and after verified
     'snapshot must not claim the pre-CAS state as successfully applied');
   assertOrdered(transaction, [
     /(?:set_var_cas\(OPT_VAR, dq_escape\(f\.candidate\), snap\.configSha256\)|set_vars_cas\(vars_map, snap\.configSha256\))/,
-    /run\(UPSTREAM_INIT \+ ' restart'\)/,
+    /upstream_action\('restart'\)/,
     /transaction_verify\(0,/,
     /commit_applied_identity/,
   ]);

@@ -30,6 +30,7 @@ const BLOBS = [
 function request(path) { try { let x = json(readfile(path)); return x.args || x; } catch (e) { return {}; } }
 function run(cmd) { let p = popen(cmd + ' 2>&1', 'r'); if (!p) return { out: '', rc: -1 }; let out = p.read('all') || ''; return { out: out, rc: p.close() }; }
 function shell_escape(s) { let out = "'"; for (let i = 0; i < length(s); i++) { let c = substr(s, i, 1); out += c == "'" ? "'\\''" : c; } return out + "'"; }
+function upstream_action(action) { return run('sh /etc/rc.common ' + shell_escape(UPSTREAM_INIT) + ' ' + shell_escape(action)); }
 function sha_text(text, path) { writefile(path, text); let r = run("sha256sum " + path + " | awk '{print $1}'"); return trim(r.out || ''); }
 function join_tokens(a) { let out = ''; for (let i = 0; i < length(a); i++) { if (!length(a[i] || '')) continue; if (length(out)) out += ' '; out += a[i]; } return out; }
 function append_all(a, b) { for (let x in b || []) push(a, x); return a; }
@@ -141,7 +142,7 @@ function all_candidates(input) {
 	}
 	return { ok: true, schema: loaded.doc.schema, source: loaded.doc.source, capture: loaded.doc.capture, candidates: out };
 }
-function restore_original(original) { let restored=restore_whole_file(PATHS.applied_conf,original),r=run(UPSTREAM_INIT+' restart');return{ok:restored!=null&&r.rc==0,restored:restored!=null,restartRc:r.rc}; }
+function restore_original(original) { let restored=restore_whole_file(PATHS.applied_conf,original),r=upstream_action('restart');return{ok:restored!=null&&r.rc==0,restored:restored!=null,restartRc:r.rc}; }
 function combo_apply(req) {
 	let state = strategy_state(); if (req.idempotencyToken && state.lastToken == req.idempotencyToken && state.lastResult) return state.lastResult;
 	let found=find_candidate(req.candidateId,true);if(!found.ok)return{ok:false,stage:'catalog',error:found.error};let c=found.candidate;

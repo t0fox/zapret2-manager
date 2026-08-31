@@ -38,6 +38,10 @@ function shell_escape(s) {
 	return out + "'";
 }
 
+function upstream_action(action) {
+	return run('sh /etc/rc.common ' + shell_escape(UPSTREAM_INIT) + ' ' + shell_escape(action));
+}
+
 function sha_text(text, path) {
 	writefile(path, text);
 	let r = run("sha256sum " + path + " | awk '{print $1}'");
@@ -155,7 +159,7 @@ function native_check(candidate) {
 function restore_original(original) {
 	let restored = restore_whole_file(PATHS.applied_conf, original);
 	try { unlink(LAST_APPLY); } catch (e) { }
-	let r = run(UPSTREAM_INIT + ' restart');
+	let r = upstream_action('restart');
 	return { ok: restored != null && r.rc == 0, restored: restored != null, restartRc: r.rc };
 }
 

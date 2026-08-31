@@ -88,6 +88,13 @@ function shell_escape(s) {
 	return out + "'";
 }
 
+// OpenWrt init scripts are owned by rc.common and are not required to have
+// the executable bit set. Keep this invocation boundary in one place so the
+// transaction and its rollback use the same upstream service owner.
+function upstream_action(action) {
+	return run('sh /etc/rc.common ' + shell_escape(UPSTREAM_INIT) + ' ' + shell_escape(action));
+}
+
 function err(stage, code, message, extra) {
 	let e = { ok: false, stage: stage, error: { code: code, message: message } };
 	if (extra != null) {
@@ -429,7 +436,7 @@ function transaction_cas(candidate, expectedHash, snapshot, injected) {
 
 function transaction_restart(attempt, injected) {
 	if (injected != null) return injected;
-	return run(UPSTREAM_INIT + ' restart');
+	return upstream_action('restart');
 }
 
 function verify_status(sj, q, allow_external_nfqws) {
@@ -689,7 +696,7 @@ function apply_candidate_pipeline(f) {
 	}
 
 	let restartHook = hook_value('transaction', 'restart');
-	let r = restartHook != null ? transaction_restart(0, restartHook) : run(UPSTREAM_INIT + ' restart');
+	let r = restartHook != null ? transaction_restart(0, restartHook) : upstream_action('restart');
 	run('sleep 2');
 	let verifyHook = hook_value('transaction', 'verify');
 	let verify = verifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, verifyHook)
@@ -715,7 +722,7 @@ function apply_candidate_pipeline(f) {
 			: restore_whole_file(PATHS.applied_conf, snap.configBytes);
 		if (snap.uciBytes != null) writefile(PATHS.uci_conf, snap.uciBytes);
 		let rollbackRestartHook = hook_value('transaction', 'restart');
-		let rr = rollbackRestartHook != null ? transaction_restart(1, rollbackRestartHook) : run(UPSTREAM_INIT + ' restart');
+		let rr = rollbackRestartHook != null ? transaction_restart(1, rollbackRestartHook) : upstream_action('restart');
 		run('sleep 2');
 		let rollbackVerifyHook = hook_value('transaction', 'verify');
 		let rollbackVerify = rollbackVerifyHook != null ? transaction_verify(1, f.allowExternalNfqws == true, rollbackVerifyHook)

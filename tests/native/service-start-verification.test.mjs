@@ -40,6 +40,13 @@ test('start and restart verify the live nfqws2 contract before committing identi
   }
 });
 
+test('engine actions invoke the OpenWrt init owner through rc.common', () => {
+  const text = source();
+  assert.match(text, /function upstream_command\(action\)/);
+  assert.match(text, /sh \/etc\/rc\.common/);
+  assert.doesNotMatch(text, /run\(UPSTREAM_INIT \+ '/);
+});
+
 test('status collector treats a table without NFQUEUE 300 rules as not ready', () => {
   const text = collector();
   assert.ok(text.includes("index(raw, 'queue num ' + NFQUEUE)"));
