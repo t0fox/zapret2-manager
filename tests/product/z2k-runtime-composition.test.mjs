@@ -385,3 +385,12 @@ test('runtime CLI direct UCode entry point is executable', { skip: !HAS_UCODE },
 test('runtime CLI postflight never resolves a candidate', { skip: !HAS_UCODE }, () => {
   assert.equal(invokeCli(`cli.runtime_composition_cli_dispatch('postflight', {snapshot:{lifecycleState:'candidate'}, evidence:{}})`).ok, false);
 });
+
+test('router UCode resolves the runtime process observer before restart uses it', () => {
+  const coordinator = read(coordinatorPath);
+  const helper = coordinator.indexOf('function z2k_runtime_processes(');
+  const restart = coordinator.indexOf('function z2k_runtime_restart(');
+  assert.ok(helper >= 0, 'runtime process observer must exist');
+  assert.ok(restart >= 0, 'runtime restart helper must exist');
+  assert.ok(helper < restart, 'router UCode does not hoist this helper; define it before the restart consumer');
+});
