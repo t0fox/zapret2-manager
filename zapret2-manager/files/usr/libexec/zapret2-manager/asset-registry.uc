@@ -478,6 +478,14 @@ export const asset_registry_apply_bundle = function(request) {
 	return { ok: true, bundleId: request.bundleId, version: request.version, updated: length(prepared), removed: length(removals), revision: state.revision, committedAssetRevision: state.revision, rollbackAvailable: true, receiptFinalized: false, postflight: { verified: true, assets: length(prepared), removed: length(removals) } };
 };
 
+function lifecycle_physical_type(entry) {
+	if (!object(entry) || !string(entry.kind) || !string(entry.id)) return null;
+	if (entry.kind == 'lua') return 'lua';
+	// Z2K keeps semantic hostlist/ipset roles in canonical composition, while
+	// blob:* is the physical Registry namespace used for their bytes.
+	if (substr(entry.id, 0, 5) == 'blob:') return 'blob';
+	return entry.kind;
+}
 function lifecycle_membership_matches(state, request) {
 	if (!object(request) || request.bundleId != 'z2k-curated-lua' || type(request.z2kMembership) != 'array' || !length(request.z2kMembership)) return fail('EINPUT', 'Z2K activation membership is required');
 	let current = [], byId = {}, seen = {};
@@ -489,7 +497,7 @@ function lifecycle_membership_matches(state, request) {
 	for (let i = 0; i < length(request.z2kMembership); i++) {
 		let expected = request.z2kMembership[i], actual = expected && byId[expected.id], provenance = actual && actual.provenance;
 		if (!object(expected) || seen[expected.id] || actual == null || expected.type != 'lifecycle-managed'
-			|| expected.kind != actual.type || expected.contentSha256 != actual.contentSha256 || expected.byteSize != actual.byteSize
+			|| lifecycle_physical_type(expected) != actual.type || expected.contentSha256 != actual.contentSha256 || expected.byteSize != actual.byteSize
 			|| expected.sourcePath != provenance.sourcePath || expected.version != request.version
 			|| expected.sourceCommit != request.sourceCommit || provenance.version != request.version
 			|| provenance.sourceCommit != request.sourceCommit || provenance.bundleId != request.bundleId) return fail('ESTALE', 'committed Registry membership does not equal the candidate', { id: expected && expected.id || null });

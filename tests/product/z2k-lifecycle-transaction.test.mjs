@@ -103,3 +103,10 @@ test('generated activation evidence is passed through activation verification be
   assert.match(apply, /activationEvidence\.verified\s*===\s*true[\s\S]*verifyActivationProcess/);
   assert.doesNotMatch(apply, /activationEvidence\.ok\s*\?\s*verifyActivationProcess/);
 });
+
+test('finalization maps semantic lifecycle kinds to physical Registry types', () => {
+  const membership = functionBody(registry, 'function lifecycle_membership_matches', 'export const asset_registry_finalize_activation');
+  assert.match(registry, /function lifecycle_physical_type[\s\S]*entry\.kind\s*==\s*'lua'[\s\S]*blob/);
+  assert.match(membership, /lifecycle_physical_type\(expected\)\s*!=\s*actual\.type/);
+  assert.doesNotMatch(membership, /expected\.kind\s*!=\s*actual\.type/);
+});
