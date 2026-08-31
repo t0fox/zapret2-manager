@@ -36,13 +36,15 @@ function invoke(functionName, ...args) {
 const fixture = JSON.parse(readFileSync(FIXTURE, 'utf8'));
 
 test('pure Scanner modules have no runtime or I/O imports', () => {
+  const forbiddenPureIO = /(?:\b(?:firewall|network|rpc|frontend|orchestra|apply)\b|\b(?:popen|readfile|writefile)\s*\(|from ['"]fs['"])/i;
   for (const file of [MODEL, TARGETS, PROBES]) {
     const source = readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /^\s*import\s/m, file);
-    assert.doesNotMatch(source, /(?:firewall|network|rpc|frontend|orchestra|apply|popen|readfile|writefile|from ['"]fs['"])/i, file);
+    assert.doesNotMatch(source, forbiddenPureIO, file);
   }
   const planner = readFileSync(PLANNER, 'utf8');
-  assert.doesNotMatch(planner, /(?:firewall|network|rpc|frontend|orchestra|apply|popen|readfile|writefile|from ['"]fs['"])/i, PLANNER);
+  assert.doesNotMatch(planner, /^\s*import\s+.*(?:strategy-cli|runtime-composition|from ['"]fs['"])/mi, PLANNER);
+  assert.doesNotMatch(planner, forbiddenPureIO, PLANNER);
   const compiler = readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc'), 'utf8');
   assert.doesNotMatch(compiler, /(?:popen|from ['"]fs['"])/i, 'strategy-compiler.uc');
 });

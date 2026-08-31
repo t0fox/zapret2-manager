@@ -2,6 +2,7 @@
 
 import { readfile } from 'fs';
 import { scanner_plan_build } from './scanner-planner.uc';
+import { strategy_runtime_environment } from './strategy-cli.uc';
 import { scanner_baseline_classify, scanner_tcp_classify, scanner_udp_classify, scanner_candidate_verdict } from './scanner-probes.uc';
 import { scanner_probe_adapter_baseline, scanner_probe_adapter_tcp, scanner_probe_adapter_staged, scanner_probe_adapter_udp } from './scanner-probe-adapter.uc';
 import { scanner_probe_execute } from './scanner-probe-executor.uc';
@@ -397,8 +398,12 @@ function persistable_plan(value) {
 function request_and_plan(input, seams) {
 	let checked = request_validate(input.request);
 	if (!checked.ok) return checked;
+	let runtimeEnvironment = null;
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') {
+		try { runtimeEnvironment = strategy_runtime_environment(); } catch (e) { runtimeEnvironment = null; }
+	}
 	let planned = null;
-	try { planned = scanner_plan_build(checked.value); } catch (e) { planned = null; }
+	try { planned = scanner_plan_build(checked.value, null, null, runtimeEnvironment); } catch (e) { planned = null; }
 	if (!planned || planned.ok !== true) {
 		let injected = seam(seams, 'plan');
 		planned = injected != null ? { ok: true, plan: injected } : null;

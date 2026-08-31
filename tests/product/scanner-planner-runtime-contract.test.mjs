@@ -14,8 +14,14 @@ test('production planner binds locally loaded authority once and keeps pure vali
   assert.match(source, /scanner_plan_build_server\(validated\.value, loaded\.catalog, listed\.strategies, profile,[\s\S]*compilerAuthority, true, true/);
   assert.match(source, /if \(!trustedServerAuthority && !authority_valid/);
   assert.match(source, /if \(!trustedServerAuthority && !user_records_valid/);
-  assert.match(source, /strategy_runtime_environment/,
-    'production planning must bind the live runtime compiler environment');
+  assert.match(source, /runtimeEnvironment/,
+    'pure planning must consume an already-bound live runtime compiler environment');
+  assert.doesNotMatch(source, /import\s+\{[^}]*strategy_runtime_environment[^}]*\}\s+from\s+['"]\.\/strategy-cli\.uc['"]/, 'pure planning must not import the Strategy runtime/I-O coordinator');
+  const worker = readFileSync(WORKER, 'utf8');
+  assert.match(worker, /strategy_runtime_environment/,
+    'Scanner coordinator must bind the live runtime compiler environment');
+  assert.match(worker, /scanner_plan_build\(checked\.value, null, null, runtimeEnvironment\)/,
+    'Scanner coordinator must pass the bound environment into pure planning');
   const strategyCli = readFileSync(join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc'), 'utf8');
   assert.match(strategyCli, /resolveInstalled/,
     'live Strategy runtime composition must use the canonical installed resolver');

@@ -8,7 +8,6 @@ import { avatar_tokenize } from './strategy-model.uc';
 import { strategy_catalog_read_index, strategy_catalog_materialize, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list } from './strategy-state.uc';
 import { strategy_candidate } from './strategy-compiler.uc';
-import { strategy_runtime_environment } from './strategy-cli.uc';
 import { scanner_compiler_authority } from './scanner-compiler-authority.uc';
 import { scanner_generator_policy, scanner_generator_records } from './scanner-generator.uc';
 
@@ -1167,7 +1166,7 @@ export const scanner_plan_build_synthetic_test = function(request, count) {
 };
 
 function scanner_plan_build_server(request, catalog, strategies, profile, compilerAuthority,
-		trustedServerAuthority, materializeCatalog, initialTimings) {
+		trustedServerAuthority, materializeCatalog, initialTimings, runtimeEnvironment) {
 	catalog.targetProfile = copy(profile);
 	// The explicit server-test seam may provide a bounded, server-owned
 	// compiler environment so planner tests can exercise dependency closure.
@@ -1176,7 +1175,7 @@ function scanner_plan_build_server(request, catalog, strategies, profile, compil
 		if (!is_object(catalog.compilerEnvironment)) catalog.compilerEnvironment = {};
 	}
 	else {
-		let runtime = strategy_runtime_environment();
+		let runtime = runtimeEnvironment;
 		if (!is_object(runtime) || runtime.ok != true || !is_object(runtime.environment))
 			return error_result('EDEPENDENCY', 'Scanner live runtime composition is unavailable.');
 		catalog.compilerEnvironment = copy(runtime.environment);
@@ -1203,7 +1202,7 @@ export const scanner_plan_build_server_test = function(request, catalog, strateg
 	return scanner_plan_build_server(request, copy(catalog), copy(strategies), copy(profile), compilerAuthority);
 };
 
-export const scanner_plan_build = function(request, catalogSnapshot, userStrategies) {
+export const scanner_plan_build = function(request, catalogSnapshot, userStrategies, runtimeEnvironment) {
 	if (catalogSnapshot != null || userStrategies != null)
 		return error_result('EINPUT', 'Caller-supplied Scanner authority is forbidden.');
 	let validated = request_normalize(request);
@@ -1223,5 +1222,5 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 	let compilerAuthority = scanner_compiler_authority();
 	if (compiler_digest(compilerAuthority) == null) return error_result('EVERIFY', 'Scanner compiler authority is unavailable.');
 	return scanner_plan_build_server(validated.value, loaded.catalog, listed.strategies, profile,
-		compilerAuthority, true, true, catalogTimings);
+		compilerAuthority, true, true, catalogTimings, runtimeEnvironment);
 };
