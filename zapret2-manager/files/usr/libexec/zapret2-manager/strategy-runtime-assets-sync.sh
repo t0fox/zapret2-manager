@@ -118,7 +118,14 @@ align_luaopt() {
 		if ! grep -q 'Z2K_STATE_DIR_OVERRIDE' "$INIT"; then
 			sed -i '/^LUAOPT=/i export Z2K_STATE_DIR_OVERRIDE=\/etc\/zapret2-manager\/state\/autocircular' "$INIT"
 		fi
-	done
+		# procd does not guarantee that an export from the init script shell is
+		# inherited by a supervised instance. Bind the canonical state path to
+		# each nfqws2 instance explicitly at the procd boundary.
+		if ! grep -q 'procd_set_param env Z2K_STATE_DIR_OVERRIDE' "$INIT"; then
+			sed -i '/^[[:space:]]*procd_set_param command \$2 \$3[[:space:]]*$/a\
+		procd_set_param env Z2K_STATE_DIR_OVERRIDE=\/etc\/zapret2-manager\/state\/autocircular' "$INIT"
+		fi
+	 done
 }
 
 activation_rollback() {

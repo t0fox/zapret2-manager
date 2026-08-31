@@ -13,7 +13,9 @@ const deploymentManifestPath = path.join(root, 'router-deploy-runtime-compositio
 test('Autocircular runtime accepts the canonical state path through the service environment', () => {
   const source = fs.readFileSync(persistPath, 'utf8');
   assert.match(source, /Z2K_STATE_DIR_OVERRIDE/);
-  assert.match(fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'), 'utf8'), /export Z2K_STATE_DIR_OVERRIDE=.*autocircular/);
+  const sync = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'), 'utf8');
+  assert.match(sync, /export Z2K_STATE_DIR_OVERRIDE=.*autocircular/);
+  assert.match(sync, /procd_set_param env Z2K_STATE_DIR_OVERRIDE=.*autocircular/);
 });
 
 test('Lifecycle-managed Lua remains pinned to its Registry baseline and is not direct-deployed', () => {
