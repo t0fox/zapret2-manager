@@ -62,7 +62,29 @@ test('Telegram Proxy first render is local-only and does not launch an upstream 
     'catalog, versions, and journal must be deferred behind the local bootstrap');
 });
 
-test('Telegram Proxy has generation guards and keeps explicit health as an opt-in path', () => {
+test('Telegram Proxy overview verifies upstream after the local first paint', async () => {
+  const module = makeModule();
+  const { api, calls, gates } = makeApi();
+  const done = module.load(ctxFor(api));
+  gates.tgStatus.resolve({ status: 'running', health: { route: {} } });
+  gates.capabilities.resolve({ supported: true });
+  gates.config.resolve({ applied: {}, appliedRevision: 1 });
+  gates.operation.resolve({});
+  await done;
+  assert.equal(calls.health, 0, 'health must remain out of the blocking first paint');
+  await flush();
+  gates.status.resolve({});
+  gates.catalog.resolve({});
+  gates.versions.resolve({});
+  gates.events.resolve({});
+  for (let i = 0; i < 10 && calls.health === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(calls.health, 1, 'overview reopen must schedule an upstream verification');
+
+  Object.values(gates).forEach(gate => gate.resolve({}));
+  await new Promise(resolve => setTimeout(resolve, 30));
+});
+
+test('Telegram Proxy has generation guards and keeps the explicit health action available', () => {
   assert.match(source, /loadToken|generation|requestGeneration/i,
     'late deferred results must be ignored after unmount or refresh');
   assert.match(source, /function .*health|proxy\.health|tg\.product\.health/,

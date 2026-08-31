@@ -136,6 +136,10 @@ function statusHealthEnvelope(statusEnvelope) {
 function scheduleDeferred(ctx, token, requestHealth) {
   if (!ctx || state.deferredStartedToken === token) return;
   state.deferredStartedToken = token;
+  if (requestHealth && !state.busy && !state.tgHealthCheck) {
+    state.tgHealthCheck = { status: 'pending' };
+    state.tgLifecycle = { status: 'checking', action: 'health', message: _('Проверяем доступность Telegram…') };
+  }
   function rerender() {
     if (token !== state.loadToken || !ctx || typeof ctx.rerender !== 'function') return;
     window.setTimeout(function () {
@@ -148,22 +152,20 @@ function scheduleDeferred(ctx, token, requestHealth) {
     if (job.keys) job.keys.forEach(function (key) { state.deferred[key] = value; });
     else state.deferred[job.key] = value;
     if (job.key === 'health') {
+      var healthWasPending = state.tgHealthCheck && state.tgHealthCheck.status === 'pending';
       state.tgHealthCheck = null;
-      if (state.busy === 'health') {
-        state.busy = null;
-        state.tgLifecycle = value.error ? {
+      if (healthWasPending || state.busy === 'health') {
+        if (state.busy === 'health') state.busy = null;
+        if (state.tgLifecycle && state.tgLifecycle.action === 'health') state.tgLifecycle = value.error ? {
           status: 'error',
+          action: 'health',
           message: _('Не удалось подтвердить подключение Telegram.')
         } : null;
       }
     }
     rerender();
   }
-  var jobs = [];
-  if (requestHealth) jobs.push({ key: 'health', label: _('состояния Telegram Proxy'), run: function () {
-    return explicitHealthRead(ctx);
-  } });
-  jobs.push(
+  var jobs = [
     { key: 'status', label: _('статуса proxy'), run: function () { return ctx.api.proxy.status(); } },
     { keys: ['providerCatalog', 'providerPreflight'], label: _('каталога Telegram Proxy'), run: function () {
       return ctx.api.tg.product.catalog();
@@ -174,7 +176,13 @@ function scheduleDeferred(ctx, token, requestHealth) {
     { key: 'events', label: _('журнала proxy'), run: function () {
       return edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 });
     } }
-  );
+  ];
+  // Keep the existing two-slot metadata scheduler predictable. Health is
+  // already visible as pending, and runs after the ordinary deferred reads
+  // instead of starving catalog/version/journal hydration.
+  if (requestHealth) jobs.push({ key: 'health', label: _('состояния Telegram Proxy'), run: function () {
+    return explicitHealthRead(ctx);
+  } });
   var next = 0, active = 0;
   function pump() {
     if (token !== state.loadToken) return;
@@ -198,7 +206,9 @@ function load(ctx) {
   state.deferred = {};
   if (state.deferredTimer) clearTimeout(state.deferredTimer);
   state.deferredTimer = null;
-  var requestHealth = state.fullHealthRequested === true;
+  // Keep the local bootstrap fast, then verify Telegram in the deferred pass
+  // on every Overview visit so a new tab never gets stuck on an old warning.
+  var requestHealth = true;
   state.fullHealthRequested = false;
   // tg_product_status is the canonical local aggregator. It already includes
   // proxy runtime/config health with upstream:false, so it is the sole source

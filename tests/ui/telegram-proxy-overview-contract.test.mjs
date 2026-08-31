@@ -32,6 +32,14 @@ test('Telegram health check has an explicit pending state and readable outcome',
   assert.match(UI, /aria-live['"]\s*:\s*['"]polite/);
 });
 
+test('automatic health completion clears its own pending lifecycle feedback', () => {
+  const scheduler = UI.slice(UI.indexOf('function scheduleDeferred('), UI.indexOf('\nfunction load(', UI.indexOf('function scheduleDeferred(')));
+  assert.match(scheduler, /var healthWasPending\s*=\s*state\.tgHealthCheck/,
+    'automatic health must own an explicit completion guard');
+  assert.match(scheduler, /healthWasPending\s*\|\|\s*state\.busy\s*===\s*['"]health['"]/,
+    'cleanup must not depend only on the explicit-button busy flag');
+});
+
 test('Telegram overview uses one compact three-step health chain', () => {
   assert.match(UI, /z2m-proxy-overview-lede/);
   assert.match(UI, /z2m-proxy-service-facts/);
