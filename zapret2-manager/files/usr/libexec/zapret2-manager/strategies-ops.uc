@@ -357,6 +357,38 @@ function pools_read() {
 	return { ok: true, pools: pools };
 }
 
+function state_save_rows(rows) {
+	let lines = [
+		'# z2k autocircular state (persisted circular nstrategy)',
+		'# key\thost\tstrategy\tts\tmode'
+	];
+	for (let row in rows) {
+		let k = safe_text(row.key);
+		let h = safe_text(row.host);
+		let s = safe_text(row.strategy);
+		let t = safe_text(row.ts) || '' + time();
+		let m = state_mode(row.mode);
+		if (m == null) m = 'auto';
+		if (length(k) && length(h) && length(s)) {
+			push(lines, k + '\t' + h + '\t' + s + '\t' + t + '\t' + m);
+		}
+	}
+	ensure_dir();
+	let temporary = LEARNED_PATH + '.tmp.' + time() + '.' + (++tmp_sequence);
+	try { writefile(temporary, join('\n', lines) + '\n'); } catch (e) { return false; }
+	let p = popen('mv -f ' + shell_escape(temporary) + ' ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
+	if (!p) return false;
+	p.read('all'); let rc = p.close();
+	if (rc != 0) return false;
+	// nfqws2 deliberately drops to daemon. The learned state is not secret;
+	// keep the single canonical file writable/readable by the daemon after the
+	// root-owned RPC atomically replaces it.
+	let permissions = popen('chgrp daemon ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null && chmod 0660 ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
+	if (!permissions) return false;
+	permissions.read('all');
+	return permissions.close() == 0;
+}
+
 function learned_state() {
 	let rows = learned_rows();
 	let pools_info = pools_read();
@@ -403,38 +435,6 @@ function learned_state() {
 	}
 
 	return { ok: true, source: LEARNED_PATH, entries: rows, summary: learned_summary(rows), empty: !length(rows), count: length(rows), pools: pools_info.pools || {} };
-}
-
-function state_save_rows(rows) {
-	let lines = [
-		'# z2k autocircular state (persisted circular nstrategy)',
-		'# key\thost\tstrategy\tts\tmode'
-	];
-	for (let row in rows) {
-		let k = safe_text(row.key);
-		let h = safe_text(row.host);
-		let s = safe_text(row.strategy);
-		let t = safe_text(row.ts) || '' + time();
-		let m = state_mode(row.mode);
-		if (m == null) m = 'auto';
-		if (length(k) && length(h) && length(s)) {
-			push(lines, k + '\t' + h + '\t' + s + '\t' + t + '\t' + m);
-		}
-	}
-	ensure_dir();
-	let temporary = LEARNED_PATH + '.tmp.' + time() + '.' + (++tmp_sequence);
-	try { writefile(temporary, join('\n', lines) + '\n'); } catch (e) { return false; }
-	let p = popen('mv -f ' + shell_escape(temporary) + ' ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
-	if (!p) return false;
-	p.read('all'); let rc = p.close();
-	if (rc != 0) return false;
-	// nfqws2 deliberately drops to daemon. The learned state is not secret;
-	// keep the single canonical file writable/readable by the daemon after the
-	// root-owned RPC atomically replaces it.
-	let permissions = popen('chgrp daemon ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null && chmod 0660 ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
-	if (!permissions) return false;
-	permissions.read('all');
-	return permissions.close() == 0;
 }
 
 function state_set(input) {

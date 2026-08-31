@@ -277,6 +277,33 @@ test('TEST 7: Out-of-bounds legacy state discord_voice 11 frozen safely resets t
 });
 
 // =========================================================================
+// TEST 7A — live UCode declaration-order regression
+// =========================================================================
+test('TEST 7A: live Discord key normalization returns state instead of failing UCode resolution', () => {
+  const catalogConfig = fs.readFileSync(z2kAllInOnePath, 'utf8');
+  const liveConfig = catalogConfig.replace(/key=discord_udp/, 'key=discord_voice');
+  const ops = createOpsSandbox({
+    '/opt/zapret2/config': liveConfig,
+    '/etc/zapret2-manager/state/autocircular/state.tsv': 'discord_udp\tnohost\t4\t1787150000\tauto\n'
+  });
+
+  // This is the same pool/state mismatch observed on the router.  The
+  // behavioral fixture must normalize the persisted key and preserve the row.
+  const state = ops.learned_state();
+  assert.equal(state.ok, true);
+  assert.equal(state.entries.length, 1);
+  assert.equal(state.entries[0].key, 'discord_voice');
+  assert.equal(state.entries[0].strategy, '4');
+
+  // The production target is UCode, whose function declarations are resolved
+  // in source order.  The JS VM above hoists declarations, so this explicit
+  // runtime contract catches the router-only failure that the VM would hide.
+  const source = fs.readFileSync(opsPath, 'utf8');
+  assert.ok(source.indexOf('function state_save_rows') < source.indexOf('function learned_state'),
+    'state_save_rows must be declared before learned_state for the UCode runtime');
+});
+
+// =========================================================================
 // TEST 8 — frontend live key extraction & 6 variants
 // =========================================================================
 test('TEST 8: Frontend Model extractDiscordVoiceState returns liveKey discord_udp and size 6', () => {
