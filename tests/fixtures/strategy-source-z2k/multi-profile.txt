@@ -1,0 +1,3 @@
+# A compact fixture preserving the real Z2K source line shape and the current
+# semantic contract used by Discord donor discovery.
+z2k_all_in_one ipv4 example.com : nfqws2 --new=TLS_HTTP --filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:key=rkn_tcp --new=QUIC --filter-udp=443 --filter-l7=quic --lua-desync=fake:payload=quic_initial:blob=quic5 --new=Discord --filter-udp=50000-50100,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=discord_ip_discovery,stun --lua-desync=circular:key=discord_udp:hostkey=z2k_nohost_key
