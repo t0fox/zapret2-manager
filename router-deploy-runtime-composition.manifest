@@ -13,3 +13,7 @@ zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh|/us
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh|/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh|0755
 zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry-runtime-sync.uc|/usr/libexec/zapret2-manager/asset-registry-runtime-sync.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc|/usr/libexec/zapret2-manager/z2k-installed-release.uc|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc|/usr/libexec/zapret2-manager/profiles-apply.uc|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/service.uc|/usr/libexec/zapret2-manager/service.uc|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc|/usr/libexec/zapret2-manager/discord-profile-cli.uc|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/flowseal-combo.uc|/usr/libexec/zapret2-manager/flowseal-combo.uc|0644
