@@ -11,6 +11,7 @@ const MAX_OUTPUT_BYTES = 512 * 1024;
 const CONSUMERS = ['candidate-materialize', 'installed-materialize', 'scanner', 'install-proof', 'postflight'];
 const PACKAGE_ROOT = getenv('Z2M_RUNTIME_PACKAGE_ROOT') || '/usr/share/zapret2-manager';
 function object(value) { return type(value) == 'object' && value != null; }
+function string(value) { return type(value) == 'string'; }
 function contains(values, wanted) { for (let i = 0; i < length(values); i++) if (values[i] == wanted) return true; return false; }
 function fail(code, message) { return { ok: false, error: { code: code, message: message } }; }
 function bounded(result) { if (length(sprintf('%J', result)) > MAX_OUTPUT_BYTES) return fail('E2BIG', 'runtime composition output is too large'); return result; }

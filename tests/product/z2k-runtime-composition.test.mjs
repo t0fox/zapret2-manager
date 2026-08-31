@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ucodeModulePattern, ucodeDiagnostic } from '../native/core/ucode-test-harness.mjs';
@@ -290,6 +291,41 @@ test('runtime CLI keeps candidate and installed materialization distinct and pos
   assert.match(api, /postflight/);
   assert.match(api, /verifyActivationProcess|verifyInstalledProcess/);
   assert.doesNotMatch(api, /lsdir|fallback.*list/i);
+});
+
+test('runtime CLI activation output resolves a lifecycle asset on the router UCode runtime', { skip: !HAS_UCODE }, () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-runtime-cli-materialize-'));
+  const assetPath = '/etc/zapret2-manager/assets/lua/alpha.lua';
+  const registryPath = path.join(temp, 'asset-registry.json');
+  const contentSha256 = HASH('a');
+  fs.writeFileSync(registryPath, JSON.stringify({
+    schema: 1,
+    revision: 1,
+    assets: [{
+      schema: 1, type: 'lua', id: 'lua:alpha', name: 'alpha.lua', ownership: 'manager',
+      contentSha256, byteSize: 20, revision: 1, path: assetPath, references: [],
+      provenance: {
+        kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: 'c'.repeat(40),
+        sourcePath: 'files/lua/alpha.lua', bundleId: 'z2k-curated-lua', version: 'r-80.3',
+      },
+    }],
+    activationReceipts: [],
+  }));
+  const entry = lifecycle('lua:alpha', 'lua', 'lua-init', 10, 'a', 'files/lua/alpha.lua');
+  try {
+    const result = invokeCli(`cli.runtime_composition_cli_activation_output(${JSON.stringify({
+      snapshotId: HASH('s'), compositionSnapshotId: HASH('p'), membershipDigest: HASH('x'),
+      runtimeAssets: [entry], luaInit: [entry], scannerOverlay: [],
+    })}, false)`, {
+      Z2M_UPDATE_SOURCE_TEST: '1',
+      Z2M_ASSET_REGISTRY_STATE: registryPath,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.match(result.output, /ASSET\|lua:alpha\|lifecycle-managed\|lua\|/);
+    assert.match(result.output, /LUA_INIT\|lua:alpha\|lifecycle-managed\|lua\|/);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test('runtime CLI direct UCode entry point is executable', { skip: !HAS_UCODE }, () => {
