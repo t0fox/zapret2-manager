@@ -13,9 +13,11 @@ test('Resource Center manifest is Z2M-owned and carries real source provenance',
   assert.equal(value.schema, 'zapret2-manager.resource-manifest.v1');
   assert.match(value.bundleId, /^[a-z][a-z0-9-]+$/);
   assert.match(value.generatedAt, /^2026-08-21T/);
-  assert.deepEqual(value.sources.map(source => source.id), ['avatar-strategy-catalog', 'z2k-resources', 'package-baseline']);
+  assert.deepEqual(value.sources.map(source => source.id), ['avatar-strategy-source', 'z2k-strategy-source', 'z2k-resources', 'package-baseline']);
   assert.equal(value.sources[0].repository, 'avatarDD/zapret-gui');
   assert.equal(value.sources[1].repository, 'necronicle/z2k');
+  assert.equal(value.sources[1].kind, 'strategy-catalog');
+  assert.equal(value.sources[2].kind, 'asset-bundle');
   for (const source of value.sources) {
     assert.match(source.commit, /^[0-9a-f]{40}$/);
     assert.ok(source.label);

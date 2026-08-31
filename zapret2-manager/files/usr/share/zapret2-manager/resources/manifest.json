@@ -5,13 +5,22 @@
   "generatedAt": "2026-08-21T00:00:00Z",
   "sources": [
     {
-      "id": "avatar-strategy-catalog",
+      "id": "avatar-strategy-source",
       "kind": "strategy-catalog",
-      "label": "Avatar Strategy Catalog",
+      "label": "Avatar Strategy Source",
       "repository": "avatarDD/zapret-gui",
       "commit": "f9dd3ea47a2239514f396a843b475c92c33f0b4c",
       "manifestPath": "catalogs/manifest.json",
       "status": "package-pinned"
+    },
+    {
+      "id": "z2k-strategy-source",
+      "kind": "strategy-catalog",
+      "label": "Z2K Strategy Source",
+      "repository": "necronicle/z2k",
+      "commit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2",
+      "manifestPath": "strats_new2.txt",
+      "status": "configured"
     },
     {
       "id": "z2k-resources",
