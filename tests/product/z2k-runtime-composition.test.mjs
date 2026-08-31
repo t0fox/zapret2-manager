@@ -388,9 +388,12 @@ test('runtime CLI postflight never resolves a candidate', { skip: !HAS_UCODE }, 
 
 test('router UCode resolves the runtime process observer before restart uses it', () => {
   const coordinator = read(coordinatorPath);
+  const starttime = coordinator.indexOf('function z2k_process_starttime(');
   const helper = coordinator.indexOf('function z2k_runtime_processes(');
   const restart = coordinator.indexOf('function z2k_runtime_restart(');
+  assert.ok(starttime >= 0, 'process starttime observer must exist');
   assert.ok(helper >= 0, 'runtime process observer must exist');
   assert.ok(restart >= 0, 'runtime restart helper must exist');
+  assert.ok(starttime < helper, 'router UCode does not hoist the process starttime dependency');
   assert.ok(helper < restart, 'router UCode does not hoist this helper; define it before the restart consumer');
 });

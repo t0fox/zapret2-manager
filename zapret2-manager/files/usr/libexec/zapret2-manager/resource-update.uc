@@ -826,6 +826,14 @@ function z2k_resource_conflicts(listed, removeIds) {
 	if (length(conflictingAssets)) return fail('EZ2K_RESOURCE_CONFLICT', 'Эта версия Z2K не может быть применена: удаляемые ресурсы используются другими компонентами.', { conflictingAssets: conflictingAssets });
 	return { ok: true };
 }
+function z2k_process_starttime(pid) {
+	if (type(pid) != 'int' || pid < 1) return null;
+	let raw = readfile('/proc/' + pid + '/stat');
+	if (!string(raw)) return null;
+	let close = rindex(raw, ')'); if (close < 0) return null;
+	let fields = split(trim(substr(raw, close + 1)), ' ');
+	return length(fields) > 20 && match(fields[19], /^[0-9]+$/) ? fields[19] : null;
+}
 function z2k_runtime_processes(pids) {
 	let result = [];
 	for (let i = 0; i < length(pids || []); i++) {
@@ -906,14 +914,6 @@ function z2k_runtime_postflight(target, diagnostics, listed) {
 	}
 	diagnostics.runtimePostflightMatched = matched;
 	return { ok: true, verified: true, matched: matched, removed: length(target.removeTargets || []) };
-}
-function z2k_process_starttime(pid) {
-	if (type(pid) != 'int' || pid < 1) return null;
-	let raw = readfile('/proc/' + pid + '/stat');
-	if (!string(raw)) return null;
-	let close = rindex(raw, ')'); if (close < 0) return null;
-	let fields = split(trim(substr(raw, close + 1)), ' ');
-	return length(fields) > 20 && match(fields[19], /^[0-9]+$/) ? fields[19] : null;
 }
 function z2k_runtime_evidence(snapshot, readiness, activation) {
 	if (!object(snapshot) || !array(snapshot.runtimeAssets)) return fail('EINPUT', 'runtime snapshot is invalid');
