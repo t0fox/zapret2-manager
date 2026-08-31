@@ -76,4 +76,6 @@ test('recovery does not consume the Registry rollback snapshot twice', () => {
   assert.match(helper, /z2k_registry_receipt_state/);
   assert.match(helper, /actual\.contentSha256\s*\|\|\s*actual\.sha256/,
     'rollback identity must compare both Registry and v1 receipt SHA field names');
+  assert.match(helper, /actual\.sourcePath\s*\|\|\s*provenance\.sourcePath/,
+    'rollback identity must compare both Registry and v1 receipt source-path field locations');
 });

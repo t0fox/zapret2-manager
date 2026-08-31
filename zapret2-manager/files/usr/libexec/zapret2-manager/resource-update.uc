@@ -1032,8 +1032,8 @@ function z2k_rollback_asset_matches(expected, actual) {
 	if (expectedSha != null && expectedSha != actualSha) return false;
 	if (expected.byteSize != null && expected.byteSize != actual.byteSize) return false;
 	if (expected.sourcePath != null) {
-		let provenance = object(actual.provenance) ? actual.provenance : {};
-		if (expected.sourcePath != provenance.sourcePath) return false;
+		let provenance = object(actual.provenance) ? actual.provenance : {}, actualPath = actual.sourcePath || provenance.sourcePath;
+		if (expected.sourcePath != actualPath) return false;
 	}
 	return true;
 }
