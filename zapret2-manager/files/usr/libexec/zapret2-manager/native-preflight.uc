@@ -168,6 +168,23 @@ function diagnostics(reason, code) {
 	return [{ severity: 'error', code: code, message: reason, tokenIndex: null, profileIndex: null }];
 }
 
+// Only the z2k_* TLS modifier family requires the retired/native Z2K TLS
+// capability. Stock nfqws2 modifiers such as rnd, rndsni, sni, and dupsid
+// are supported by the vanilla engine and must not be gated by this check.
+function requires_z2k_tls_mod(candidate) {
+	let tokenized = z2m_tokenize(candidate), tokens = tokenized && tokenized.tokens || [];
+	for (let i = 0; i < length(tokens); i++) {
+		let parts = split(tokens[i].value, ':');
+		for (let j = 0; j < length(parts); j++) {
+			if (substr(parts[j], 0, 8) == 'tls_mod=' && index(substr(parts[j], 8), 'z2k_') >= 0)
+				return true;
+		}
+	}
+	return false;
+}
+
+export { requires_z2k_tls_mod };
+
 export const native_preflight = function(candidate, runtimeComposition, strategyDependencies) {
 	let coverage = {
 		cliSyntax: 'not_checked',
@@ -215,15 +232,8 @@ export const native_preflight = function(candidate, runtimeComposition, strategy
 	let binCaps = probe_binary_capabilities(NFQWS2_BIN);
 	evidence.engineCapabilities = binCaps;
 
-	// Check if candidate requires z2k C capabilities
-	let requiresZ2kTlsMod = false;
-	let tokens = z2m_tokenize(candidate).tokens;
-	for (let i = 0; i < length(tokens); i++) {
-		let v = tokens[i].value;
-		if (index(v, 'tls_mod=') >= 0 || index(v, 'grease') >= 0 || index(v, 'alpn_flood') >= 0) {
-			requiresZ2kTlsMod = true;
-		}
-	}
+	// Check if candidate requires the z2k-prefixed TLS modifier family.
+	let requiresZ2kTlsMod = requires_z2k_tls_mod(candidate);
 
 	if (requiresZ2kTlsMod && !binCaps.Z2K_TLS_MOD) {
 		coverage.engineCapabilities = 'failed';

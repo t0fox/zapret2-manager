@@ -187,6 +187,53 @@ test('Preview normalizes server-side and returns command, argv, aliases, digest,
   assert.match(result.digest, /^[a-f0-9]{64}$/);
 });
 
+test('real large catalog Strategies keep full semantics while Preview stays bounded', () => {
+  for (const source of [
+    { id: 'z2k_autocircular_rkn', name: 'z2k RKN авто (50 стратегий)' },
+    { id: 'z2k_all_in_one', name: 'z2k всё-в-одном (TLS/HTTP + QUIC + Discord)' },
+  ]) {
+    const result = invoke('strategy_preview', {
+      strategy_id: source.id, revision: 0, catalog_digest: CATALOG_DIGEST,
+    }, context());
+    assert.equal(result.ok, true, `${source.name}: ${JSON.stringify(result)}`);
+    assert.equal(result.strategyId, source.id);
+    assert.equal(typeof result.strategyArgs, 'string');
+    assert.ok(result.strategyArgs.length > 0);
+    assert.equal(typeof result.effectiveCommand, 'string');
+    assert.ok(result.effectiveCommand.length > 0);
+    assert.ok(Array.isArray(result.effectiveArgv));
+    assert.ok(result.dependencies && typeof result.dependencies === 'object');
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= MAX_OUTPUT_BYTES,
+      `${source.name}: bounded response required`);
+    if (source.id === 'z2k_autocircular_rkn') {
+      assert.deepEqual(result.presentation, {
+        mode: 'compact',
+        canonicalComplete: true,
+        omittedAliases: ['args', 'fullCommand', 'fullArgv'],
+      });
+      assert.equal(result.args, undefined);
+      assert.equal(result.fullCommand, undefined);
+      assert.equal(result.fullArgv, undefined);
+      assert.match(result.strategyArgs, /strategy=50/);
+    } else {
+      assert.equal(result.args, result.strategyArgs);
+      assert.equal(result.fullCommand, result.effectiveCommand);
+      assert.deepEqual(result.fullArgv, result.effectiveArgv);
+    }
+  }
+});
+
+test('live blob inventory exposes both catalog stems and materialized filenames', () => {
+  const source = fs.readFileSync(CLI, 'utf8');
+  assert.match(source, /function add_live_blob_descriptor\(blobs, filename\)/);
+  assert.match(source, /for \(let fn in fakeFiles\) add_live_blob_descriptor\(liveBlobs, fn\)/);
+  assert.match(source, /blobs\[filename\] = \{ path: filename, present: true \}/);
+  assert.match(source, /substr\(filename, length\(filename\) - 4\) == '[.]bin'/);
+  assert.match(source, /blobs\[stem\] = \{ path: filename, present: true \}/);
+  assert.match(source, /liveBlobs\['tls_max_ru'\] = \{ path: 'tls_clienthello_max_ru\.bin'/);
+  assert.match(source, /for \(let lf in luaEntries\)\s+if \(is_string\(lf\) && length\(lf\)\) liveLua\[lf\] = \{ present: true \};/);
+});
+
 test('Preview only invokes native preflight when validate is true', () => {
   const pure = invoke('strategy_preview', { strategy_data: inlineStrategy() }, context());
   const checked = invoke('strategy_preview', { strategy_data: inlineStrategy(), validate: true }, context());
@@ -241,7 +288,7 @@ test('Validate rejection branches return the complete bounded contract projectio
 test('final Validate rejection projections stay within the hard serialized size bound', () => {
   const preflightArgs = [
     `--unknown-0=${'x'.repeat(117)}`,
-    ...Array.from({ length: 148 }, (_, index) => `--unknown-${index + 1}=${'x'.repeat(55)}`),
+    ...Array.from({ length: 148 }, (_, index) => `--unknown-${index + 1}=${'x'.repeat(180)}`),
   ].join(' ');
   const preflight = invoke('strategy_validate', {
     strategy_data: inlineStrategy({ id: 'p', profiles: [{ id: 'p1', args: preflightArgs }] }),

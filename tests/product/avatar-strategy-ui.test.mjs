@@ -9,6 +9,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8');
 const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js');
+const strategiesPreviewPage = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
+const strategiesPreviewCss = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css');
 const pageAdapter = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-page.js');
 const auto = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-auto.js');
 const runs = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-runs.js');
@@ -72,6 +74,66 @@ test('inline Preview and optional Validate send strategy_data while persisted Ap
   assert.match(page, /strategy_id/);
   assert.match(page, /catalog_digest/);
   assert.match(page, /expectedRevision|revision/);
+});
+
+test('Preview dialog keeps the command primary and exposes bounded accessible status sections', () => {
+  assert.match(strategiesPreviewPage, /function previewCommandSection\(answer, output, pending, commandId\)/);
+  assert.match(strategiesPreviewPage, /function previewCommandOverview\(answer\)/);
+  assert.match(strategiesPreviewPage, /strategy-preview-command-overview/);
+  assert.match(strategiesPreviewPage, /Показать полную команду/);
+  assert.match(strategiesPreviewPage, /<details class="strategy-preview-raw"><summary>Показать полную команду<\/summary>/);
+  assert.match(strategiesPreviewPage, /object\(answer && answer\.presentation\)\.mode === 'compact'/);
+  assert.match(strategiesPreviewPage, /aria-busy="true"/);
+  assert.match(strategiesPreviewPage, /Проверить стратегию/);
+  assert.match(strategiesPreviewPage, /class="strategy-preview-status-grid"/);
+  assert.match(strategiesPreviewPage, /strategy-preview-inline-spinner/);
+  assert.match(strategiesPreviewPage, /Исходные аргументы/);
+  assert.match(strategiesPreviewPage, /strategy-preview-technical-grid/);
+  assert.match(strategiesPreviewPage, /strategy-preview-technical-raw/);
+  assert.match(strategiesPreviewPage, /footer\.id = 'preview-footer'/);
+  assert.match(strategiesPreviewPage, /var footer = modal && modal\.querySelector\('#preview-footer'\)/);
+  assert.match(strategiesPreviewPage, /footer\.innerHTML =/);
+  const previewStart = strategiesPreviewCss.indexOf('#z2m-view-strategy #preview-modal');
+  const previewEnd = strategiesPreviewCss.indexOf('/* Focused visual review pass', previewStart);
+  const previewCss = strategiesPreviewCss.slice(previewStart, previewEnd < 0 ? undefined : previewEnd);
+  assert.match(previewCss, /#z2m-view-strategy #preview-modal \.modal-content\{[^}]*overflow:hidden/);
+  assert.match(previewCss, /\.strategy-preview-command\{[^}]*max-height:min\(42vh,390px\)/);
+  assert.match(previewCss, /\.strategy-preview-status-grid\{display:grid;grid-template-columns:repeat\(2/);
+  assert.match(previewCss, /@media\(prefers-reduced-motion:reduce\)/);
+  assert.match(previewCss, /@keyframes z2m-preview-spin/);
+  assert.match(previewCss, /\.strategy-preview-list ul\{[^}]*max-height:132px/);
+  assert.match(previewCss, /\.strategy-preview-list li\{[^}]*grid-template-columns:minmax\(0,1fr\) auto/);
+  assert.match(previewCss, /\.strategy-preview-footer\{[^}]*position:static/);
+  assert.doesNotMatch(previewCss, /\.strategy-preview-footer\{[^}]*margin:14px -18px -18px/);
+  assert.doesNotMatch(previewCss, /transition:all/);
+});
+
+test('server validation response refreshes the Preview status projection', () => {
+  assert.match(strategiesPreviewPage, /function previewDetails\(answer, strategy, validationPending\)/);
+  assert.match(strategiesPreviewPage, /validationPending \? 'checking'/);
+  assert.match(strategiesPreviewPage, /previewDetails\(answer, state\.preview\.strategy, state\.preview\.pending && state\.preview\.operation === 'validate'\)/);
+  assert.match(strategiesPreviewPage, /function mergePreviewValidation\(/);
+  assert.match(strategiesPreviewPage, /preview\.answer = mergePreviewValidation\(preview\.answer, answer\)/);
+});
+
+test('successful Strategy Apply adopts the fresh backend selection before rebuilding the list', () => {
+  const refreshStart = strategiesPreviewPage.indexOf('function refreshData(full)');
+  const refreshEnd = strategiesPreviewPage.indexOf('function formatCatalogDuration', refreshStart);
+  const refreshSource = strategiesPreviewPage.slice(refreshStart, refreshEnd);
+  assert.notEqual(refreshStart, -1, 'refreshData must exist');
+  assert.match(refreshSource, /var freshSelection = identity\(data\)\.selectedId;[\s\S]*state\.selectedId\s*=\s*freshSelection/);
+});
+
+test('background status refresh adopts a delayed post-Apply selection into the list projection', () => {
+  const refreshStart = strategiesPreviewPage.indexOf('function refreshData(full)');
+  const refreshEnd = strategiesPreviewPage.indexOf('function formatCatalogDuration', refreshStart);
+  const refreshSource = strategiesPreviewPage.slice(refreshStart, refreshEnd);
+  assert.match(refreshSource, /state\.data\.status = \{ value: results\[0\]\.value \|\| \{\} \};[\s\S]*var freshSelection = identity\(state\.data\)\.selectedId[\s\S]*state\.selectedId\s*=\s*freshSelection/);
+  assert.match(refreshSource, /state\.rows\s*=\s*buildRows\(state\.data\)/);
+});
+
+test('catalog Strategy Apply allows the bounded long-running runtime verification to finish', () => {
+  assert.match(api, /calls\.strategiesApply=rpc\.declare\(\{[^}]*timeout:\s*180/);
 });
 
 test('effective command and status drift are rendered from backend responses without client compilation', () => {

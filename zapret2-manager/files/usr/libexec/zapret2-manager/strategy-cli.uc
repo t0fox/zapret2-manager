@@ -303,14 +303,12 @@ function synthetic_environment_with_inputs(runtimeInputs) {
 	};
 	let fakeFiles = [];
 	try { fakeFiles = lsdir('/opt/zapret2/files/fake') || []; } catch (e) { fakeFiles = []; }
-	for (let fn in fakeFiles) {
-		if (!is_string(fn) || !length(fn)) continue;
-		liveBlobs[fn] = { path: fn, present: true };
-	}
+	for (let fn in fakeFiles) add_live_blob_descriptor(liveBlobs, fn);
 	liveBlobs['fake_default_tls'] = { present: true, safe: true };
 	liveBlobs['fake_default_http'] = { present: true, safe: true };
 	liveBlobs['fake_default_quic'] = { present: true, safe: true };
 	liveBlobs['tls_google'] = { path: 'tls_clienthello_www_google_com.bin', present: stat('/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin') != null, safe: true };
+	liveBlobs['tls_max_ru'] = { path: 'tls_clienthello_max_ru.bin', present: stat('/opt/zapret2/files/fake/tls_clienthello_max_ru.bin') != null, safe: true };
 	liveBlobs['quic_google'] = { path: 'quic_initial_www_google_com.bin', present: stat('/opt/zapret2/files/fake/quic_initial_www_google_com.bin') != null, safe: true };
 	liveBlobs['quic_dbankcloud'] = { path: 'quic_initial_dbankcloud_ru.bin', present: stat('/opt/zapret2/files/fake/quic_initial_dbankcloud_ru.bin') != null, safe: true };
 	liveBlobs['quic5'] = { path: 'quic_5.bin', present: stat('/opt/zapret2/files/fake/quic_5.bin') != null, safe: true };
@@ -333,6 +331,15 @@ function synthetic_runtime_inputs() {
 	// (blobs/lua/functions) with empty baseArgs so candidate compilation
 	// can proceed without authoritative live composition.
 	return synthetic_environment_with_inputs({ source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: [] });
+}
+
+function add_live_blob_descriptor(blobs, filename) {
+	if (!is_object(blobs) || !is_string(filename) || !length(filename)) return;
+	blobs[filename] = { path: filename, present: true };
+	if (length(filename) > 4 && substr(filename, length(filename) - 4) == '.bin') {
+		let stem = substr(filename, 0, length(filename) - 4);
+		if (blobs[stem] == null) blobs[stem] = { path: filename, present: true };
+	}
 }
 
 function live_runtime_inputs() {
@@ -385,14 +392,12 @@ function live_runtime_inputs() {
 	};
 	let fakeFiles = [];
 	try { fakeFiles = lsdir('/opt/zapret2/files/fake') || []; } catch (e) { fakeFiles = []; }
-	for (let fn in fakeFiles) {
-		if (!is_string(fn) || !length(fn)) continue;
-		liveBlobs[fn] = { path: fn, present: true };
-	}
+	for (let fn in fakeFiles) add_live_blob_descriptor(liveBlobs, fn);
 	liveBlobs['fake_default_tls'] = { present: true, safe: true };
 	liveBlobs['fake_default_http'] = { present: true, safe: true };
 	liveBlobs['fake_default_quic'] = { present: true, safe: true };
 	liveBlobs['tls_google'] = { path: 'tls_clienthello_www_google_com.bin', present: stat('/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin') != null, safe: true };
+	liveBlobs['tls_max_ru'] = { path: 'tls_clienthello_max_ru.bin', present: stat('/opt/zapret2/files/fake/tls_clienthello_max_ru.bin') != null, safe: true };
 	liveBlobs['quic_google'] = { path: 'quic_initial_www_google_com.bin', present: stat('/opt/zapret2/files/fake/quic_initial_www_google_com.bin') != null, safe: true };
 	liveBlobs['quic_dbankcloud'] = { path: 'quic_initial_dbankcloud_ru.bin', present: stat('/opt/zapret2/files/fake/quic_initial_dbankcloud_ru.bin') != null, safe: true };
 	liveBlobs['quic5'] = { path: 'quic_5.bin', present: stat('/opt/zapret2/files/fake/quic_5.bin') != null, safe: true };
@@ -566,27 +571,50 @@ function final_projection(value, fallback) {
 	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? value : fallback;
 }
 
-function candidate_projection(resolved, candidate, effective, validation, includeValidation) {
+function candidate_projection_base(resolved, candidate, effective, validation, includeValidation) {
 	let empty = candidate.profilesCount == 0;
 	let args = empty ? [] : candidate.strategyArgs;
-	if (!is_string(resolved.id) || length(resolved.id) > 128
-		|| !is_string(resolved.origin) || length(resolved.origin) > 32) return null;
-	if (!empty && (!is_string(args) || length(args) > MAX_OUTPUT_TEXT)) return null;
 	let effectiveValue = effective_projection(effective);
 	if (effectiveValue == null) return null;
 	let dependencies = dependencies_record(candidate.dependencies), dependencyText = serialize(dependencies);
 	if (dependencies == null || dependencyText == null || length(dependencyText) > MAX_DEPENDENCY_BYTES) return null;
 	let result = {
 		strategyId: bounded_identity(resolved.id, 128), origin: bounded_identity(resolved.origin, 32),
-		strategyArgs: args, args: args,
+		strategyArgs: args,
 		effectiveCommand: effectiveValue.effectiveCommand, effectiveArgv: effectiveValue.effectiveArgv,
-		fullCommand: effectiveValue.fullCommand, fullArgv: effectiveValue.fullArgv,
 		profiles_count: candidate.profilesCount, profilesCount: candidate.profilesCount,
 		dependencies: dependencies, digest: candidate.digest,
 		applicable: candidate.applicable == true
 	};
 	if (includeValidation == true) result.validation = validation;
 	return result;
+}
+
+function candidate_projection(resolved, candidate, effective, validation, includeValidation) {
+	let empty = candidate.profilesCount == 0;
+	let args = empty ? [] : candidate.strategyArgs;
+	if (!is_string(resolved.id) || length(resolved.id) > 128
+		|| !is_string(resolved.origin) || length(resolved.origin) > 32) return null;
+	if (!empty && (!is_string(args) || length(args) > MAX_OUTPUT_TEXT)) return null;
+	let result = candidate_projection_base(resolved, candidate, effective, validation, includeValidation);
+	if (result == null) return null;
+	result.args = args;
+	result.fullCommand = result.effectiveCommand;
+	result.fullArgv = copy_array(result.effectiveArgv, MAX_OUTPUT_ARRAY_ITEMS);
+	let encoded = serialize(result);
+	if (encoded != null && length(encoded) <= MAX_OUTPUT_BYTES) return result;
+
+	// Preserve every canonical executable field and dependencies, but omit only
+	// legacy aliases that duplicate those fields. This is a presentation shape,
+	// not a truncated candidate: Validate and Apply still use the full candidate.
+	let compact = candidate_projection_base(resolved, candidate, effective, validation, includeValidation);
+	if (compact == null) return null;
+	compact.presentation = {
+		mode: 'compact', canonicalComplete: true,
+		omittedAliases: ['args', 'fullCommand', 'fullArgv']
+	};
+	encoded = serialize(compact);
+	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? compact : null;
 }
 
 function validation_error(resolved, candidate, effective, validation, code, message) {

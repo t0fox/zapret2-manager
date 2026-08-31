@@ -1314,6 +1314,8 @@ function refreshData(full) {
       if (!state.disposed) {
         if (data.list && data.list.value) {
           state.data = data;
+          var freshSelection = identity(data).selectedId;
+          if (freshSelection) state.selectedId = freshSelection;
         } else if (state.data && state.data.list && state.data.list.value && data.list && data.list.error) {
           if (data.status) state.data.status = data.status;
           if (data.catalog) state.data.catalog = data.catalog;
@@ -1334,6 +1336,12 @@ function refreshData(full) {
   return Promise.allSettled(reads).then(function (results) {
     if (!state.disposed && results[0].status === 'fulfilled' && state.data) {
       state.data.status = { value: results[0].value || {} };
+      var freshSelection = identity(state.data).selectedId;
+      if (freshSelection) {
+        state.selectedId = freshSelection;
+        state.rows = buildRows(state.data);
+        renderFiltersAndList();
+      }
       renderActiveCard();
     }
   });
@@ -2044,17 +2052,112 @@ function validateEditor() {
 function strategyDiffHtml(strategy) {
   var active = state.rows.find(function (item) { return item.current || item.applied; });
   if (!active) return '<div class="strategy-diff">Нет активной стратегии для сравнения.</div>';
-  if (!isFullStrategy(active)) return '<div class="strategy-diff">Diff from active: полная активная стратегия ещё не загружена.</div>';
+  if (!isFullStrategy(active)) return '<div class="strategy-diff">Сравнение с активной: полная активная стратегия ещё не загружена.</div>';
   var left = clipboardText(active), right = clipboardText(strategy);
-  return '<div class="strategy-diff" data-diff-from-active="true"><b>Diff from active:</b> ' + (left === right ? 'нет изменений' : 'draft отличается от ' + escapeHtml(active.name)) + '</div>';
+  return '<div class="strategy-diff" data-diff-from-active="true"><b>Сравнение с активной:</b> ' + (left === right ? 'нет изменений' : 'черновик отличается от ' + escapeHtml(active.name)) + '</div>';
 }
-function previewDetails(answer, strategy) {
+function previewStatusClass(status) {
+  return status === 'ok' || status === 'verified' || status === 'доступны' ? 'is-ok' : status === 'error' || status === 'failed' || status === 'есть отсутствующие' ? 'is-warning' : 'is-neutral';
+}
+function previewStatusLabel(status, fallback) {
+  var labels = { verified: 'Подтверждена', passed: 'Пройдена', checking: 'Проверяется…', 'not_checked': 'Не запускалась', 'not-checked': 'Не запускалась', failed: 'Не пройдена' };
+  return labels[status] || text(status) || fallback;
+}
+function previewArgValue(token) {
+  var position = token.indexOf('=');
+  return position >= 0 ? token.slice(position + 1) : '';
+}
+function previewBasename(value) {
+  var parts = text(value).split('/');
+  return parts[parts.length - 1] || text(value);
+}
+function previewCommandItem(token, kind) {
+  var value = previewArgValue(token);
+  if (kind === 'lua') return { label: previewBasename(value), detail: value };
+  if (kind === 'resource') {
+    var separator = value.indexOf(':');
+    var name = separator >= 0 ? value.slice(0, separator) : value;
+    var path = separator >= 0 ? value.slice(separator + 1) : '';
+    return { label: name, detail: path ? previewBasename(path) : token.split('=')[0] };
+  }
+  if (kind === 'rule') {
+    var fields = value.split(':');
+    var operation = fields.shift() || 'правило';
+    var strategy = fields.filter(function (field) { return field.indexOf('strategy=') === 0; })[0];
+    var payload = fields.filter(function (field) { return field.indexOf('payload=') === 0; })[0];
+    return {
+      label: operation + (strategy ? ' · вариант ' + strategy.slice(9) : ''),
+      detail: payload ? payload.slice(8) : 'параметры desync'
+    };
+  }
+  var separator = token.indexOf('=');
+  return {
+    label: separator >= 0 ? token.slice(0, separator) : token,
+    detail: separator >= 0 ? value : 'без значения'
+  };
+}
+function previewCommandEntry(token, kind) {
+  var item = previewCommandItem(token, kind);
+  return '<li><span><b>' + escapeHtml(item.label) + '</b><small>' + escapeHtml(item.detail) + '</small></span></li>';
+}
+function previewCommandGroup(title, tokens, kind) {
+  if (!tokens.length) return '';
+  var previewCount = kind === 'rule' ? 3 : 2;
+  var preview = tokens.slice(0, previewCount).map(function (token) { return previewCommandEntry(token, kind); }).join('');
+  var rest = tokens.length > previewCount
+    ? '<details class="strategy-preview-command-list"><summary>Показать все <span>' + tokens.length + '</span></summary><ul>' + tokens.map(function (token) { return previewCommandEntry(token, kind); }).join('') + '</ul></details>'
+    : '';
+  return '<section class="strategy-preview-command-group"><div class="strategy-preview-command-group-heading"><span>' + escapeHtml(title) + '</span><strong>' + tokens.length + '</strong></div><ul class="strategy-preview-command-highlights">' + preview + '</ul>' + rest + '</section>';
+}
+function previewCommandSummaryItem(token) {
+  var item = previewCommandItem(token, 'global');
+  return item.label + (item.detail && item.detail !== 'без значения' ? '=' + item.detail : '');
+}
+function previewCommandOverview(answer) {
+  var argv = array(answer && answer.effectiveArgv).map(text).filter(Boolean);
+  if (!argv.length) return '';
+  var groups = { global: [], lua: [], resource: [], filter: [], rule: [], other: [] };
+  argv.slice(1).forEach(function (token) {
+    if (token.indexOf('--lua-init=') === 0) groups.lua.push(token);
+    else if (token.indexOf('--blob=') === 0 || token.indexOf('--hostlist=') === 0 || token.indexOf('--ipset=') === 0) groups.resource.push(token);
+    else if (token.indexOf('--lua-desync=') === 0) groups.rule.push(token);
+    else if (token.indexOf('--filter-') === 0 || token.indexOf('--payload=') === 0) groups.filter.push(token);
+    else if (token === '--new') groups.other.push(token);
+    else groups.global.push(token);
+  });
+  var executable = argv[0];
+  var globalSummary = groups.global.slice(0, 4).map(previewCommandSummaryItem).join(' · ');
+  var filterSummary = groups.filter.slice(0, 3).map(previewCommandSummaryItem).join(' · ');
+  return '<div class="strategy-preview-command-overview"><div class="strategy-preview-overview-heading"><div><span class="strategy-preview-kicker">РАЗБОР КОМАНДЫ</span><h4>Что будет запущено</h4></div><span class="strategy-preview-overview-count">' + Math.max(0, argv.length - 1) + ' параметров</span></div><div class="strategy-preview-command-facts"><div class="strategy-preview-command-fact strategy-preview-command-fact-wide"><span>Исполняемый файл</span><strong><code>' + escapeHtml(previewBasename(executable)) + '</code></strong><small>' + escapeHtml(executable) + '</small></div><div class="strategy-preview-command-fact"><span>Параметры запуска</span><strong>' + groups.global.length + '</strong><small>' + escapeHtml(globalSummary || 'нет дополнительных параметров') + '</small></div><div class="strategy-preview-command-fact"><span>Фильтры</span><strong>' + groups.filter.length + '</strong><small>' + escapeHtml(filterSummary || 'не заданы') + '</small></div></div><div class="strategy-preview-command-groups">' + previewCommandGroup('Lua init', groups.lua, 'lua') + previewCommandGroup('Ресурсы', groups.resource, 'resource') + previewCommandGroup('Правила обхода', groups.rule, 'rule') + (groups.other.length ? previewCommandGroup('Разделители профилей', groups.other, 'global') : '') + '</div></div>';
+}
+function previewCommandSection(answer, output, pending, commandId) {
+  var command = text(output);
+  var argvCount = Math.max(0, array(answer && answer.effectiveArgv).length - 1);
+  var compact = object(answer && answer.presentation).mode === 'compact';
+  var failed = answer && answer.ok === false;
+  var stateLabel = pending ? 'Загрузка' : failed ? 'Ошибка' : 'Готово';
+  var stateClass = pending ? 'is-loading' : failed ? 'is-warning' : 'is-ok';
+  var stateIndicator = pending ? '<span class="strategy-preview-inline-spinner" aria-hidden="true"></span>' : '';
+  var commandMeta = [];
+  if (argvCount) commandMeta.push(argvCount + ' ' + (argvCount === 1 ? 'аргумент' : argvCount < 5 ? 'аргумента' : 'аргументов'));
+  if (command) commandMeta.push('~' + Math.max(1, Math.ceil(command.length / 1024)) + ' KiB');
+  commandMeta.push('только чтение');
+  var notice = compact ? '<div class="strategy-preview-notice" role="status">Полная команда сохранена. Здесь показана структурированная сводка; повторяющиеся поля скрыты.</div>' : '';
+  var id = commandId ? ' id="' + escapeAttr(commandId) + '"' : '';
+  var commandMetaHtml = '<div class="strategy-preview-command-meta"><span>' + commandMeta.map(function (item) { return escapeHtml(item); }).join(' · ') + '</span></div>';
+  var pendingMarkup = '<div class="strategy-preview-command-loading" role="status" aria-live="polite" aria-busy="true"><span class="strategy-preview-inline-spinner" aria-hidden="true"></span><div><strong>Собираем команду</strong><small>Сервер строит эффективную проекцию выбранной стратегии…</small></div></div>';
+  var errorMarkup = '<div class="strategy-preview-command-error" role="alert"><strong>Не удалось построить Preview</strong><small>' + escapeHtml(command) + '</small></div>';
+  var readyMarkup = previewCommandOverview(answer) + '<details class="strategy-preview-raw"><summary>Показать полную команду</summary><pre' + id + ' class="log-viewer nfq-resizable strategy-preview-command" aria-label="Полная команда nfqws2">' + escapeHtml(command) + '</pre></details>';
+  return '<section class="strategy-preview-primary-command" aria-labelledby="strategy-preview-command-title"><div class="strategy-preview-command-heading"><div><span class="strategy-preview-kicker">NFQWS2 · ТОЛЬКО ЧТЕНИЕ</span><h4 id="strategy-preview-command-title">Эффективная команда</h4><p>Фактическая проекция, которую сформировал сервер.</p></div><span class="strategy-preview-state ' + stateClass + '"' + (pending ? ' aria-live="polite"' : '') + '>' + stateIndicator + stateLabel + '</span></div>' + notice + commandMetaHtml + (pending ? pendingMarkup : failed ? errorMarkup : readyMarkup) + '</section>';
+}
+function previewDetails(answer, strategy, validationPending) {
   var profiles = array(strategy && strategy.profiles).map(function (profile, index) {
     var parsed = ideProfile(profile), visual = parsed.visual || {};
     var protocols = array(visual.protocols).join(', ') || 'авто';
     var targets = [].concat(array(visual.hostlists), array(visual.ipsets)).join(', ') || 'не заданы';
-    var enabled = profile.enabled !== false ? 'включён' : 'выключен';
-    return '<div class="strategy-preview-profile"><b>' + escapeHtml(profile.name || 'Профиль ' + (index + 1)) + '</b><span>Статус: ' + enabled + ' · Протоколы: ' + escapeHtml(protocols) + ' · targets: ' + escapeHtml(targets) + '</span><pre>' + escapeHtml(text(profile.args)) + '</pre></div>';
+    var enabled = profile.enabled !== false ? 'Включён' : 'Выключен';
+    var args = text(profile.args);
+    return '<details class="strategy-preview-profile"><summary><span><b>' + escapeHtml(profile.name || 'Профиль ' + (index + 1)) + '</b><small>' + escapeHtml(enabled + ' · ' + protocols + ' · targets: ' + targets) + '</small></span><span class="strategy-preview-summary-action">Исходные аргументы</span></summary><pre>' + escapeHtml(args) + '</pre></details>';
   }).join('');
   var dependencies = object(answer && answer.dependencies);
   var dependencyItems = array(dependencies.items).map(function (item) {
@@ -2069,16 +2172,43 @@ function previewDetails(answer, strategy) {
   }).join('');
   var native = object(dependencies.nativeValidation);
   var dependencyStatus = dependencies.available === true ? 'доступны' : dependencies.available === false ? 'есть отсутствующие' : 'сервер не сообщил';
-  var dependencyHtml = '<section class="strategy-preview-dependencies"><h4>Dependencies</h4><div>Статус: ' + dependencyStatus + '</div>' + (dependencyItems ? '<ul>' + dependencyItems + '</ul>' : '') + (missingItems ? '<div class="strategy-preview-missing"><b>Отсутствуют:</b><ul>' + missingItems + '</ul></div>' : '') + (native.status ? '<div>Native validation: ' + escapeHtml(native.status) + '</div>' : '') + '</section>';
+  var dependencyClass = previewStatusClass(dependencyStatus);
+  var dependencyCount = array(dependencies.items).length;
+  var missingCount = array(dependencies.missing).length;
+  var dependencyList = dependencyItems ? '<details class="strategy-preview-list"><summary>Показать зависимости <span>' + dependencyCount + '</span></summary><ul>' + dependencyItems + '</ul></details>' : '';
+  var missingList = missingItems ? '<details class="strategy-preview-list strategy-preview-missing" open><summary>Отсутствуют <span>' + missingCount + '</span></summary><ul>' + missingItems + '</ul></details>' : '';
+  var nativeStatus = validationPending ? 'Проверяется…' : native.status ? previewStatusLabel(native.status, 'Результат получен') : 'Не запускалась';
+  var dependencyHtml = '<section class="strategy-preview-status-card ' + dependencyClass + '"><div class="strategy-preview-status-label">Зависимости</div><strong>' + escapeHtml(previewStatusLabel(dependencyStatus, 'Нет данных')) + '</strong><small>' + dependencyCount + ' проверенных' + (missingCount ? ' · ' + missingCount + ' отсутствует' : '') + '</small>' + dependencyList + missingList + '</section>';
   var validation = object(answer && answer.validation);
-  var validationHtml = '<section class="strategy-preview-validation"><h4>Validation</h4><div>' + escapeHtml(text(validation.status || 'не запускалась; доступна через Validate')) + '</div></section>';
+  var validationStatus = validationPending ? 'checking' : validation.status || 'not_checked';
+  var validationClass = previewStatusClass(validationStatus);
+  var validationHtml = '<section class="strategy-preview-status-card ' + validationClass + '"><div class="strategy-preview-status-label">Серверная проверка</div><strong>' + escapeHtml(previewStatusLabel(validationStatus, 'Не запускалась')) + '</strong><small>Нативная проверка: ' + escapeHtml(nativeStatus) + '</small></section>';
   var expected = array(strategy && strategy.profiles).filter(function (profile) { return profile && profile.enabled !== false; }).length;
   var actualRaw = answer && answer.profilesCount != null ? answer.profilesCount : answer && answer.profiles_count;
   var actual = Number(actualRaw);
   var mismatch = actualRaw != null && Number.isFinite(actual) && actual !== expected
-    ? '<div class="strategy-preview-mismatch" role="alert">Preview profile count mismatch: expected ' + expected + ', actual ' + actual + '</div>' : '';
-  var technical = '<details class="strategy-preview-technical"><summary>Технические сведения</summary><pre>' + escapeHtml(JSON.stringify({ effectiveArgv: answer && answer.effectiveArgv || [], dependencies: dependencies }, null, 2)) + '</pre></details>';
-  return '<section class="strategy-preview-effective"><h4>Effective strategy</h4>' + profiles + '</section>' + mismatch + dependencyHtml + validationHtml + strategyDiffHtml(strategy) + technical;
+    ? '<div class="strategy-preview-mismatch" role="alert">Количество профилей не совпадает: ожидалось ' + expected + ', получено ' + actual + '</div>' : '';
+  var effectiveArgv = array(answer && answer.effectiveArgv);
+  var presentationMode = object(answer && answer.presentation).mode === 'compact' ? 'Компактное' : 'Полное';
+  var technicalFacts = [
+    ['Аргументов команды', Math.max(0, effectiveArgv.length - 1)],
+    ['Зависимостей', dependencyCount],
+    ['Отсутствуют', missingCount],
+    ['Представление', presentationMode]
+  ];
+  var technicalFactsHtml = technicalFacts.map(function (fact) {
+    return '<div class="strategy-preview-technical-fact"><span>' + escapeHtml(fact[0]) + '</span><b>' + escapeHtml(fact[1]) + '</b></div>';
+  }).join('');
+  var technicalRaw = JSON.stringify({ effectiveArgv: effectiveArgv, dependencies: dependencies }, null, 2);
+  var technical = '<details class="strategy-preview-technical"><summary>Технические сведения</summary><div class="strategy-preview-technical-grid">' + technicalFactsHtml + '</div><details class="strategy-preview-technical-raw"><summary>Показать технический JSON</summary><pre>' + escapeHtml(technicalRaw) + '</pre></details></details>';
+  return '<section class="strategy-preview-effective" aria-labelledby="strategy-preview-profiles-title"><div class="strategy-preview-section-heading"><div><span class="strategy-preview-kicker">СОСТАВ</span><h4 id="strategy-preview-profiles-title">Профили</h4></div><span class="strategy-preview-count">' + expected + '</span></div>' + (profiles || '<p class="strategy-preview-empty">Профили не заданы.</p>') + '</section>' + mismatch + '<div class="strategy-preview-status-grid">' + dependencyHtml + validationHtml + '</div>' + strategyDiffHtml(strategy) + technical;
+}
+function mergePreviewValidation(answer, checked) {
+  var next = Object.assign({}, object(answer), object(checked));
+  if (checked && checked.dependencies) {
+    next.dependencies = Object.assign({}, object(answer && answer.dependencies), checked.dependencies);
+  }
+  return next;
 }
 function previewRequest(strategy, data, validate) { return { strategy_id: strategy.id, revision: Number(strategy.revision || 0), catalog_digest: catalogDigest(data), validate: validate === true }; }
 function editorPreviewRequest(strategy, data) {
@@ -2112,6 +2242,7 @@ function validatePreview() {
   preview.pending = true; preview.operation = 'validate'; preview.validation = 'Проверка…'; renderPreviewModal();
   call(state.ctx.api.strategies.validate, previewRequest(preview.strategy, state.data, true)).then(function (answer) {
     if (state.preview !== preview) return;
+    preview.answer = mergePreviewValidation(preview.answer, answer);
     preview.pending = false; preview.operation = null; preview.validation = answer && answer.ok === true ? 'Стратегия прошла проверку' : 'Стратегия не прошла проверку'; renderPreviewModal();
   }).catch(function (error) {
     if (state.preview !== preview) return;
@@ -2120,9 +2251,23 @@ function validatePreview() {
 }
 function renderPreviewModal() {
   if (!state.preview) return;
-  var body = state.root.querySelector('#preview-body'); if (!body) return;
+  var modal = state.root.querySelector('#preview-modal');
+  var body = state.root.querySelector('#preview-body');
+  var footer = modal && modal.querySelector('#preview-footer');
+  if (!footer && modal) {
+    var content = modal.querySelector('.modal-content');
+    if (content) {
+      footer = document.createElement('div');
+      footer.id = 'preview-footer';
+      footer.className = 'modal-footer strategy-preview-footer';
+      content.appendChild(footer);
+    }
+  }
+  if (!body || !footer) return;
   var pendingLabel = state.preview.operation === 'preview' ? 'Готовим превью…' : 'Проверяем…';
-  body.innerHTML = '<section class="strategy-preview-primary-command"><b>Effective command</b><pre id="preview-command" class="log-viewer nfq-resizable">' + escapeHtml(state.preview.output) + '</pre></section>' + (state.preview.answer && state.preview.strategy ? previewDetails(state.preview.answer, state.preview.strategy) : '') + (state.preview.validation ? '<div class="strategy-validation-result">' + escapeHtml(state.preview.validation) + '</div>' : '') + '<div class="editor-footer"><button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled aria-busy="true"' : '') + '>' + (state.preview.pending ? '<span class="btn-spinner" aria-hidden="true"></span><span>' + pendingLabel + '</span>' : 'Проверить') + '</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button></div>';
+  var answer = state.preview.answer;
+  body.innerHTML = previewCommandSection(answer, state.preview.output, state.preview.pending, 'preview-command') + (answer && state.preview.strategy ? previewDetails(answer, state.preview.strategy, state.preview.pending && state.preview.operation === 'validate') : '') + (state.preview.validation ? '<div class="strategy-validation-result" role="status" aria-live="polite">' + escapeHtml(state.preview.validation) + '</div>' : '');
+  footer.innerHTML = '<button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled aria-busy="true"' : '') + '>' + (state.preview.pending ? '<span class="btn-spinner" aria-hidden="true"></span><span>' + pendingLabel + '</span>' : 'Проверить стратегию') + '</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button>';
 }
 function previewEditor() {
   if (!state.editor || state.editor.operationPending) return;
@@ -2131,7 +2276,7 @@ function previewEditor() {
   var snapshot = freezeStrategySnapshot(cloneStrategy(editor.strategy));
   editor.operationPending = 'preview'; setEditorOperationBusy('preview', true); output.style.display = 'block'; output.textContent = 'Готовим превью…';
   call(state.ctx.api.strategies.preview, editorPreviewRequest(snapshot, state.data)).then(function (answer) {
-    if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.innerHTML = '<section class="strategy-preview-primary-command"><b>Effective command</b><pre>' + escapeHtml(previewOutput(state.ctx, answer)) + '</pre></section>' + previewDetails(answer, snapshot);
+    if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.innerHTML = previewCommandSection(answer, previewOutput(state.ctx, answer), false, null) + previewDetails(answer, snapshot);
   }).catch(function (error) {
     if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('preview', false); output.textContent = errorText(state.ctx, error);
   });

@@ -159,6 +159,12 @@ function strategyStorageEnv(storage) {
     Z2M_STRATEGY_DIR: storage.strategies,
     Z2M_STRATEGY_STATE: storage.state,
     Z2M_STRATEGY_EXTENSION_MANIFEST: storage.extensions,
+    Z2M_STRATEGY_LOCK: path.join(storage.root, 'strategy-state.lock'),
+    Z2M_STRATEGY_RECONCILIATION: path.join(storage.root, 'reconciliation.json'),
+    Z2M_STRATEGY_APPLY_UNCERTAIN: path.join(storage.root, 'apply-uncertain.json'),
+    Z2M_STRATEGY_APPLY_LASTGOOD: path.join(storage.root, 'last-good'),
+    Z2M_STRATEGY_APPLY_BLOCK: path.join(storage.root, 'last-good', 'apply-block.json'),
+    Z2M_STRATEGY_APPLY_LEASE: path.join(storage.root, 'last-good', 'apply-lease.json'),
   };
 }
 
