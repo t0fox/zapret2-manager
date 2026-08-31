@@ -560,9 +560,18 @@ export const profiles_projection_boundary = function(candidateHash) {
 		|| metadata.mode % 512 != 384 || type(metadata.size) != 'int' || metadata.size > 8192) {
 		let rawMetadata = null;
 		try { rawMetadata = readfile(path); } catch (e) { rawMetadata = null; }
+		let projectionShape = {};
+		try {
+			let decoded = json(rawMetadata), projected = decoded.projection;
+			for (let key in keys(projected || {})) {
+				let value = projected[key];
+				projectionShape[key] = type(value) == 'string' ? length(value) : length(sprintf('%J', value));
+			}
+		} catch (e) { projectionShape = null; }
 		return err('identity', 'EINPUT', 'Strategy projection sidecar is not a private regular file', {
 			path: path, metadata: metadata,
-			contentPrefix: rawMetadata == null ? null : substr(rawMetadata, 0, 512)
+			contentPrefix: rawMetadata == null ? null : substr(rawMetadata, 0, 512),
+			projectionShape: projectionShape
 		});
 	}
 	let envelope = null;
