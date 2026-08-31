@@ -1010,6 +1010,7 @@ function strategy_child_response(output, streamRc) {
 		try {
 			let parsed = json(body);
 			if (parsed != null && type(parsed) == 'object') {
+				parsed.ok = false;
 				parsed.childExitCode = childRc;
 				if (parsed.error == null) parsed.error = { code: 'ECHILD', message: 'Strategy child exited rc=' + childRc };
 				else {
