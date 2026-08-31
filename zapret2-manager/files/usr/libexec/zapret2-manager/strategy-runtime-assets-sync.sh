@@ -112,8 +112,12 @@ align_luaopt() {
 		[ -f "$INIT" ] || continue
 		grep -q '^LUAOPT=' "$INIT" || continue
 		_tmp_init="${INIT}.z2m-align"
+		_init_mode=0755
+		if [ -x "$INIT" ]; then
+			_init_mode=$(stat -c '%a' "$INIT" 2>/dev/null || printf '0755')
+		fi
 		sed "s|^LUAOPT=.*|LUAOPT=\"$LUAOPT\"|" "$INIT" > "$_tmp_init"
-		chmod 0644 "$_tmp_init"
+		chmod "$_init_mode" "$_tmp_init"
 		mv -f "$_tmp_init" "$INIT"
 		if ! grep -q 'Z2K_STATE_DIR_OVERRIDE' "$INIT"; then
 			sed -i '/^LUAOPT=/i export Z2K_STATE_DIR_OVERRIDE=\/etc\/zapret2-manager\/state\/autocircular' "$INIT"

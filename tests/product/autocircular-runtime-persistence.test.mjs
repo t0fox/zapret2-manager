@@ -40,3 +40,11 @@ test('Runtime sync keeps the protected state parent traversable and the leaf sha
   assert.match(source, /chmod 0710[\s\S]*STATE_ROOT/);
   assert.match(source, /chmod 0660[\s\S]*STATE_DIR\/state\.tsv/);
 });
+
+test('Runtime sync preserves an executable zapret2 init entry point when replacing LUAOPT', () => {
+  const source = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'), 'utf8');
+  assert.match(source, /_init_mode=0755/);
+  assert.match(source, /if \[ -x "\$INIT" \]/);
+  assert.match(source, /chmod "\$_init_mode" "\$_tmp_init"/);
+  assert.doesNotMatch(source, /chmod 0644 "\$_tmp_init"/);
+});
