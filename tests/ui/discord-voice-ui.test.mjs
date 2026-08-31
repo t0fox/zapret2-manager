@@ -8,6 +8,18 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const uiPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
 const modelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies-model.js');
 
+function activeDiscordData() {
+  return {
+    status: { value: {
+      serviceState: 'running',
+      runtime: {
+        present: true,
+        instances: [{ cmdline: '--filter-udp=50000-50100 --filter-l7=discord,stun --lua-desync=circular:key=discord_udp --lua-desync=z2k_noop:hostkey=z2k_nohost_key' }]
+      }
+    } }
+  };
+}
+
 function loadModel() {
   const source = fs.readFileSync(modelPath, 'utf8');
   return vm.runInNewContext(`(function () { ${source}\n })()`, {
@@ -149,6 +161,7 @@ test('TEST O: UI without live discord_voice renders inactive card with no mutati
 test('TEST P: UI with live discord_udp renders active card and picker with 6 variants', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
+    data: activeDiscordData(),
     learned: { entries: [], count: 0 },
     pools: {
       discord_udp: {
@@ -176,6 +189,7 @@ test('TEST P: UI with live discord_udp renders active card and picker with 6 var
 test('UI: renderLearnedModal renders Discord Voice card with frozen state (#4, Зафиксировано)', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
+    data: activeDiscordData(),
     learned: {
       entries: [
         { key: 'discord_udp', host: 'nohost', strategy: '4', ts: '1787150000', mode: 'frozen' },
@@ -492,6 +506,7 @@ test('TEST UI-4: Filter buttons contain Все, TLS, QUIC and do NOT contain Dis
 test('TEST UI-5: Discord active card uses "Текущий вариант" and "Выбрать вариант" terminology', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
+    data: activeDiscordData(),
     learned: {
       entries: [{ key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'auto' }]
     },
@@ -517,6 +532,7 @@ test('TEST UI-5: Discord active card uses "Текущий вариант" and "�
 test('TEST UI-6: Auto mode shows "Автоподбор" and button "Зафиксировать #1"', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
+    data: activeDiscordData(),
     learned: {
       entries: [{ key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'auto' }]
     },
@@ -543,6 +559,7 @@ test('TEST UI-6: Auto mode shows "Автоподбор" and button "Зафикс
 test('TEST UI-7: Frozen mode shows #7, "Зафиксировано", and button "Вернуть автоподбор"', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
+    data: activeDiscordData(),
     learned: {
       entries: [{ key: 'discord_voice', host: 'nohost', strategy: '7', ts: '1787150000', mode: 'frozen' }]
     },
@@ -586,6 +603,7 @@ test('TEST UI-9: Discord reset action sends key=discord_udp, host=nohost and lab
   let deletedPayload = null;
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
+    data: activeDiscordData(),
     learned: {
       entries: [{ key: 'discord_udp', host: 'nohost', strategy: '4', ts: '1787150000', mode: 'frozen' }]
     },

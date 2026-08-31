@@ -367,7 +367,11 @@ function extractDiscordVoiceState(entries, pools) {
   entries = array(entries);
   var livePool = findLivePool('discord_udp', pools) || findLivePool('discord_voice', pools);
   var isLive = !!livePool;
-  var liveKey = (livePool && (livePool.runtimeKey || livePool.key)) || 'discord_udp';
+  // The runtime API exposes `runtimeKey` when a legacy pool is still the
+  // materialized key.  A synthetic/older pool row without that provenance is
+  // only a Discord compatibility alias; keep the UI mutations on the
+  // canonical live key instead of leaking the alias into the DOM.
+  var liveKey = (livePool && livePool.runtimeKey) || 'discord_udp';
   var poolSize = livePool ? (livePool.size || 6) : 6;
 
   var found = null;

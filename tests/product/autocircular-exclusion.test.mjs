@@ -9,6 +9,7 @@ const opsPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manag
 const modelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies-model.js');
 const viewPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
 const persistPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua');
+const policyPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2m-autocircular-policy.lua');
 const donorPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile.uc');
 const cliPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
 const apiPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
@@ -111,10 +112,11 @@ test('learned UI exposes DPI exclusion and re-enable actions', () => {
 });
 
 test('Lua persistence contract recognizes excluded as a user mode and has a per-resource bypass gate', () => {
-  const lua = fs.readFileSync(persistPath, 'utf8');
-  assert.match(lua, /auto\|frozen\|excluded/);
-  assert.match(lua, /mode\s*==\s*["']excluded["']/);
-  assert.match(lua, /plan_clear\(desync\)/);
+  const persist = fs.readFileSync(persistPath, 'utf8');
+  const policy = fs.readFileSync(policyPath, 'utf8');
+  assert.match(persist, /\(mode ~= nil and mode ~= ""\) and mode or "auto"/, 'upstream persistence must preserve the fifth mode column');
+  assert.match(policy, /mode\s*==\s*["']excluded["']/);
+  assert.match(policy, /plan_clear\(desync\)/);
 });
 
 test('Discord enable uses the donor and normal Strategy lifecycle', () => {

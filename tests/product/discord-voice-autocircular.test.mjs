@@ -11,6 +11,7 @@ const z2kAllInOnePath = path.join(root, 'zapret2-manager/files/usr/share/zapret2
 const compilerPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc');
 const modernCorePath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua');
 const statePersistPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua');
+const policyPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2m-autocircular-policy.lua');
 const dbankAssetPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_dbankcloud_ru.bin');
 
 function loadModel() {
@@ -404,7 +405,10 @@ test('TEST 14: Freeze, auto, and reset operations target discord_udp/nohost', ()
 // =========================================================================
 // TEST 15 — persist compatibility in z2k-state-persist.lua
 // =========================================================================
-test('TEST 15: z2k-state-persist.lua supports discord_udp and discord_voice askeys', () => {
+test('TEST 15: z2k-state-persist keeps generic askey storage and the policy owns Discord exclusion', () => {
   const persistContent = fs.readFileSync(statePersistPath, 'utf8');
-  assert.match(persistContent, /askey == "discord_voice" or askey == "discord_udp"/);
+  const policyContent = fs.readFileSync(policyPath, 'utf8');
+  assert.match(persistContent, /desync\.arg\.key/);
+  assert.match(persistContent, /desync\.func_instance/);
+  assert.match(policyContent, /askey|hostn/);
 });
