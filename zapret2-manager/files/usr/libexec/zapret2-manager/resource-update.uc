@@ -243,9 +243,48 @@ function z2k_projection(signed) {
 		availableRelease: known_release(manifest.current)
 	};
 }
+function z2k_canonical_local_projection(listed, resolved) {
+	let evidence = z2k_materialized_evidence(resolved, { removeTargets: [] }), verification = verifyMaterialized(resolved, evidence), matched = 0, luaReady = 0;
+	for (let i = 0; i < length(resolved.runtimeAssets || []); i++) {
+		let expected = resolved.runtimeAssets[i], actual = evidence.files && evidence.files[expected.id];
+		if (object(actual) && actual.present === true && actual.sha256 == expected.contentSha256 && actual.byteSize == expected.byteSize) {
+			matched++;
+			if (expected.kind == 'lua' && expected.role == 'lua-init') luaReady++;
+		}
+	}
+	let authority = resolved.lifecycleIdentity || resolved.authority || {}, installedRelease = z2k_registry_installed_release(listed), checkedAt = null;
+	for (let i = 0; i < length(listed.assets || []); i++) {
+		let checked = listed.assets[i] && listed.assets[i].lastChecked;
+		if (checked != null && (checkedAt == null || checked > checkedAt)) checkedAt = checked;
+	}
+	let provenance = {
+		kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: authority.sourceCommit || null,
+		version: authority.release || null, bundleId: 'z2k-curated-lua'
+	};
+	return {
+		installed: authority.kind == 'installed' && string(authority.release),
+		integrity: verification.ok ? 'verified' : 'broken',
+		integrityOk: verification.ok === true,
+		lua: { ready: luaReady, total: length(resolved.luaInit || []) },
+		baselineMatched: matched,
+		runtimeMatched: matched,
+		runtimeAssets: resolved.runtimeAssets || [],
+		luaInit: resolved.luaInit || [],
+		compositionStatus: resolved.compositionStatus,
+		revision: resolved.observedRegistryRevision,
+		installedAuthorityRevision: resolved.installedAuthorityRevision || null,
+		commit: authority.sourceCommit || null,
+		provenance: provenance,
+		checkedAt: checkedAt,
+		installedRelease: installedRelease || { value: null, confidence: 'unknown', authority: null }
+	};
+}
+
 function z2k_local_projection(manifest) {
 	let listed = asset_registry_list(null);
 	if (!listed.ok) return { installed: false, integrity: 'broken', integrityOk: false, lua: { ready: 0, total: 0 }, baselineMatched: 0, revision: 0, commit: null, provenance: null, checkedAt: null, installedRelease: { value: null, confidence: 'unknown', authority: null } };
+	let resolved = resolveInstalled({ registry: listed });
+	if (resolved.ok && resolved.lifecycleState == 'installed' && resolved.compositionStatus == 'canonical') return z2k_canonical_local_projection(listed, resolved);
 	let want = {};
 	for (let i = 0; i < length(manifest.bundles); i++) if (manifest.bundles[i].sourceId == 'z2k-resources') {
 		let items = manifest.bundles[i].assets || [];

@@ -48,3 +48,24 @@ test('the persisted check carries the manifest identity needed for local post-mu
 	assert.ok(checkStart >= 0);
 	assert.match(upstream.slice(checkStart), /contentSha256/);
 });
+
+test('canonical v2 local projection verifies the resolved runtime closure, not the legacy package manifest', () => {
+	const start = resourceUpdate.indexOf('function z2k_canonical_local_projection');
+	const end = resourceUpdate.indexOf('function z2k_local_projection', start);
+	const projection = resourceUpdate.slice(start, end);
+
+	assert.ok(start >= 0 && end > start, 'local projection helper must exist');
+	const localStart = resourceUpdate.indexOf('function z2k_local_projection');
+	const localEnd = resourceUpdate.indexOf('function runtime_target_path', localStart);
+	const local = resourceUpdate.slice(localStart, localEnd);
+	assert.match(local, /resolveInstalled\(\{\s*registry:\s*listed\s*\}\)/,
+		'canonical v2 status must resolve the installed lifecycle authority');
+	assert.match(local, /compositionStatus\s*==\s*['"]canonical['"]/,
+		'canonical composition must have an explicit projection boundary');
+	assert.match(projection, /verifyMaterialized/,
+		'canonical local status must verify the resolved runtime closure');
+	assert.match(projection, /runtimeAssets/,
+		'canonical local status must retain the complete expected runtime closure');
+	assert.doesNotMatch(projection, /baselineMatched\s*===\s*total/,
+		'v2 canonical status must not use the legacy package-manifest count as integrity authority');
+});
