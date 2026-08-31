@@ -314,13 +314,15 @@ test('runtime CLI activation output resolves a lifecycle asset on the router UCo
   const entry = lifecycle('lua:alpha', 'lua', 'lua-init', 10, 'a', 'files/lua/alpha.lua');
   try {
     const result = invokeCli(`cli.runtime_composition_cli_activation_output(${JSON.stringify({
-      snapshotId: HASH('s'), compositionSnapshotId: HASH('p'), membershipDigest: HASH('x'),
+      snapshotId: HASH('s') + '|rows\nasset|newline', compositionSnapshotId: HASH('p') + '|composition\nrow', membershipDigest: HASH('x'),
       runtimeAssets: [entry], luaInit: [entry], scannerOverlay: [],
     })}, false)`, {
       Z2M_UPDATE_SOURCE_TEST: '1',
       Z2M_ASSET_REGISTRY_STATE: registryPath,
     });
     assert.equal(result.ok, true, JSON.stringify(result));
+    assert.match(result.output, /SNAPSHOT\|[^\n]*%0A/);
+    assert.equal(result.output.split('\n').some(line => line.startsWith('asset|')), false);
     assert.match(result.output, /ASSET\|lua:alpha\|lifecycle-managed\|lua\|/);
     assert.match(result.output, /LUA_INIT\|lua:alpha\|lifecycle-managed\|lua\|/);
   } finally {

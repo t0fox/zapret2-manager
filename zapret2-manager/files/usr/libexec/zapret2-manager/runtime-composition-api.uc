@@ -28,6 +28,18 @@ function registry_kind_matches(entry, asset) {
 	return asset.type == entry.kind || (asset.type == 'blob'
 		&& (entry.kind == 'blob' || entry.kind == 'hostlist' || entry.kind == 'ipset'));
 }
+function transport_field(value) {
+	let text = '' + value, out = '';
+	for (let i = 0; i < length(text); i++) {
+		let code = ord(substr(text, i, 1));
+		if (code == 37) out += '%25';
+		else if (code == 10) out += '%0A';
+		else if (code == 13) out += '%0D';
+		else if (code == 124) out += '%7C';
+		else out += substr(text, i, 1);
+	}
+	return out;
+}
 function materialize_source(entry, listed) {
 	if (entry.type == 'lifecycle-managed') {
 		let asset = registry_asset(listed, entry.id);
@@ -47,7 +59,10 @@ function materialize_source(entry, listed) {
 export const runtime_composition_cli_activation_output = function(result, includeScannerOverlay) {
 	let listed = asset_registry_list(null);
 	if (!listed.ok) return listed;
-	let lines = ['SNAPSHOT|' + result.snapshotId + '|' + result.compositionSnapshotId + '|' + result.membershipDigest];
+	// Snapshot identities intentionally contain the canonical identity rows,
+	// including newlines. Encode them before handing the values to the line-
+	// oriented shell protocol; otherwise identity rows are parsed as commands.
+	let lines = ['SNAPSHOT|' + transport_field(result.snapshotId) + '|' + transport_field(result.compositionSnapshotId) + '|' + transport_field(result.membershipDigest)];
 	for (let i = 0; i < length(result.runtimeAssets || []); i++) {
 		let entry = result.runtimeAssets[i], source = materialize_source(entry, listed);
 		if (source == null || !string(entry.runtimeTarget) || !string(entry.contentSha256) || type(entry.byteSize) != 'int') return fail('EVERIFY', 'runtime composition entry has no verified materialization source', { id: entry.id });
