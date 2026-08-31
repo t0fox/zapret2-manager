@@ -243,8 +243,24 @@ function z2k_projection(signed) {
 		availableRelease: known_release(manifest.current)
 	};
 }
+function z2k_canonical_runtime_path(runtimeTarget) {
+	if (!string(runtimeTarget)) return null;
+	let prefix = '/runtime-assets/', relative = substr(runtimeTarget, length(prefix));
+	if (substr(runtimeTarget, 0, length(prefix)) != prefix || !length(relative) || index(relative, '..') >= 0 || index(relative, '\\') >= 0 || !match(relative, /^[A-Za-z0-9._\/-]+$/)) return null;
+	if (substr(runtimeTarget, 0, length('/runtime-assets/bin/')) == '/runtime-assets/bin/') return RUNTIME_BASE + '/files/fake/' + substr(runtimeTarget, length('/runtime-assets/bin/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/lua/')) == '/runtime-assets/lua/') return RUNTIME_BASE + '/lua/' + substr(runtimeTarget, length('/runtime-assets/lua/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/lists/')) == '/runtime-assets/lists/') return RUNTIME_BASE + '/lists/' + substr(runtimeTarget, length('/runtime-assets/lists/'));
+	if (substr(runtimeTarget, 0, length('/runtime-assets/ipset/')) == '/runtime-assets/ipset/') return RUNTIME_BASE + '/ipset/' + substr(runtimeTarget, length('/runtime-assets/ipset/'));
+	return null;
+}
+
 function z2k_canonical_local_projection(listed, resolved) {
-	let evidence = z2k_materialized_evidence(resolved, { removeTargets: [] }), verification = verifyMaterialized(resolved, evidence), matched = 0, luaReady = 0;
+	let evidence = { snapshotId: resolved.snapshotId, membershipDigest: resolved.membershipDigest, files: {}, configHash: config_sha256() }, matched = 0, luaReady = 0;
+	for (let i = 0; i < length(resolved.runtimeAssets || []); i++) {
+		let expected = resolved.runtimeAssets[i], path = z2k_canonical_runtime_path(expected.runtimeTarget), present = path != null && regular(path);
+		evidence.files[expected.id] = { exists: present, present: present, sha256: present ? sha256(path) : null, byteSize: present ? stat(path).size : null, owner: expected.owner };
+	}
+	let verification = verifyMaterialized(resolved, evidence);
 	for (let i = 0; i < length(resolved.runtimeAssets || []); i++) {
 		let expected = resolved.runtimeAssets[i], actual = evidence.files && evidence.files[expected.id];
 		if (object(actual) && actual.present === true && actual.sha256 == expected.contentSha256 && actual.byteSize == expected.byteSize) {
