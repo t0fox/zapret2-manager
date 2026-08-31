@@ -557,10 +557,14 @@ export const profiles_projection_boundary = function(candidateHash) {
 	let metadata = null;
 	try { metadata = stat(path); } catch (e) { metadata = null; }
 	if (metadata == null || metadata.type != 'file' || readlink(path) != null
-		|| metadata.mode % 512 != 384 || type(metadata.size) != 'int' || metadata.size > 8192)
+		|| metadata.mode % 512 != 384 || type(metadata.size) != 'int' || metadata.size > 8192) {
+		let rawMetadata = null;
+		try { rawMetadata = readfile(path); } catch (e) { rawMetadata = null; }
 		return err('identity', 'EINPUT', 'Strategy projection sidecar is not a private regular file', {
-			path: path, metadata: metadata
+			path: path, metadata: metadata,
+			contentPrefix: rawMetadata == null ? null : substr(rawMetadata, 0, 512)
 		});
+	}
 	let envelope = null;
 	try { envelope = json(readfile(path)); } catch (e) { envelope = null; }
 	if (type(envelope) != 'object' || envelope == null || envelope.schema != 1
