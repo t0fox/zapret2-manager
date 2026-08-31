@@ -873,7 +873,7 @@ function z2k_runtime_spec(target, listed, classification, root) {
 function z2k_runtime_restart(stage) {
 	let operationStage = string(stage) && length(stage) ? stage : 'activation';
 	let before = z2k_runtime_observe(), previousProcesses = z2k_runtime_processes(before && before.pids);
-	let restarted = command('sh /etc/init.d/zapret2 restart');
+	let restarted = command('sh /etc/rc.common /etc/init.d/zapret2 restart');
 	if (restarted.rc != 0) return fail('ERUNTIME', 'Zapret2 service restart failed.', { stage: operationStage, output: restarted.out });
 	let configured = read_var('NFQWS2_ENABLE');
 	let readiness = z2k_runtime_readiness({

@@ -28,7 +28,7 @@ test('Z2K resource update is queued outside the bounded rpcd request and exposes
   assert.match(cli, /update-status/);
   assert.match(rpc, /resources_update_status/);
   assert.match(rpc, /let mode = parsed && parsed\.bundleId == 'z2k-curated-lua' \? 'update-async' : 'update'/);
-  assert.match(coordinator, /command\('sh \/etc\/init\.d\/zapret2 restart'\)/);
+  assert.match(coordinator, /command\('sh \/etc\/rc\.common \/etc\/init\.d\/zapret2 restart'\)/);
   assert.ok(acl.read.ubus['zapret2-manager'].includes('resources_update_status'));
 });
 

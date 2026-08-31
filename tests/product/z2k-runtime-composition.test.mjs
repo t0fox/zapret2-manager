@@ -406,3 +406,8 @@ test('router UCode defines runtime evidence type guards locally', () => {
   const array = coordinator.indexOf('function array(value)');
   assert.ok(evidence >= 0 && array >= 0 && array < evidence, 'runtime evidence must not depend on an unexported helper');
 });
+
+test('runtime activation invokes the rc.common dispatcher with the init script path', () => {
+  const coordinator = read(coordinatorPath);
+  assert.match(coordinator, /command\('sh \/etc\/rc\.common \/etc\/init\.d\/zapret2 restart'\)/);
+});
