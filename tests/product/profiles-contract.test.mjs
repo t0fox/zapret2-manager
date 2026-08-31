@@ -10,6 +10,7 @@ const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8')
 const constants = read('zapret2-manager/files/usr/libexec/zapret2-manager/constants.uc');
 const drafts = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-draft.uc');
 const apply = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const applyCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply-cli.uc');
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
 const statusCompatTest = read('tests/native/status-compat.test.mjs');
@@ -102,6 +103,11 @@ test('profiles preserve draft ownership and the shared transactional compiler', 
   assert.match(run, /pipeline_front\(\)/);
   assert.match(apply, /join\(' --new ', frags\)/);
   assert.match(apply, /set_var_cas/);
+});
+
+test('locked Strategy candidate adapter preserves the server-owned projection boundary', () => {
+  assert.match(applyCli, /profiles_projection_boundary/);
+  assert.match(applyCli, /boundary\.present \? boundary\.projection : null/);
 });
 
 test('draft mutations enforce the production single-profile structural validator before save', () => {
