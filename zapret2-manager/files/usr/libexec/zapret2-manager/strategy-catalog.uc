@@ -6,6 +6,7 @@
 
 import { readfile, readlink, stat, popen, writefile } from 'fs';
 import { avatar_tokenize, catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
+import { strategy_catalog_generation_read } from './strategy-catalog-generation.uc';
 
 const DEFAULT_ROOT = getenv('Z2M_STRATEGY_CATALOG_PACKAGE_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
 const MANAGED_ROOT = getenv('Z2M_STRATEGY_CATALOG_MANAGED_ROOT') || '/etc/zapret2-manager/catalog/avatar-active';
@@ -13,6 +14,7 @@ const MANAGED_PREVIOUS_ROOT = MANAGED_ROOT + '.previous';
 const MANAGED_PREVIOUS_NEW_ROOT = MANAGED_ROOT + '.previous.new';
 const READ_INDEX_PATH = getenv('Z2M_STRATEGY_CATALOG_INDEX_PATH') || '/etc/zapret2-manager/strategy-catalog-index.json';
 const ACTIVE_POINTER_PATH = getenv('Z2M_STRATEGY_CATALOG_ACTIVE_POINTER') || '/etc/zapret2-manager/catalog/active.json';
+const GENERATION_ROOT = getenv('Z2M_STRATEGY_CATALOG_GENERATION_ROOT') || '/etc/zapret2-manager/catalog';
 const DERIVED_CACHE_PREFIX = '/tmp/zapret2-manager/strategy-catalog.';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const PINNED_REPOSITORY = 'avatarDD/zapret-gui';
@@ -60,6 +62,83 @@ function read_active_pointer() {
 		|| pointer.verified != true || type(pointer.sourceCommit) != 'string'
 		|| !match(pointer.aggregateDigest || '', /^[0-9a-f]{64}$/)) return null;
 	return pointer;
+}
+
+function generation_pointer_present() {
+	let metadata = null, pointer = null;
+	try { metadata = stat(ACTIVE_POINTER_PATH); } catch (e) { return false; }
+	if (!metadata || metadata.type != 'file' || symlink_target(ACTIVE_POINTER_PATH) != null) return false;
+	try { pointer = json(readfile(ACTIVE_POINTER_PATH)); } catch (e) { return false; }
+	return is_object(pointer) && pointer.schema == 'z2m.strategy-active-generation.v1';
+}
+
+function generation_authority() {
+	let result = null;
+	try { result = strategy_catalog_generation_read(); } catch (e) { result = null; }
+	if (result != null && result.ok == true) return result;
+	return generation_pointer_present() ? (result || error_result('EINDEX_UNAVAILABLE', 'Strategy generation authority is unavailable')) : null;
+}
+
+function generation_protocols(entry) {
+	let protocols = entry && entry.capabilities && entry.capabilities.protocols;
+	if (type(protocols) == 'array' && length(protocols)) return protocols;
+	return [entry && entry.protocol == 'udp' ? 'udp' : 'tcp'];
+}
+
+function generation_entry(entry) {
+	if (!is_object(entry) || type(entry.canonicalId) != 'string' || entry.canonicalId == '') return null;
+	let result = {};
+	for (let key in entry) result[key] = entry[key];
+	result.id = entry.canonicalId;
+	result.source = entry.sourceId == 'user' ? 'user' : 'catalog';
+	result.sourceId = entry.sourceId;
+	result.is_builtin = entry.sourceId != 'user';
+	result.winner = true;
+	result.indexEntry = true;
+	result.protocol = generation_protocols(entry)[0];
+	result.sourceFile = entry.provenance && entry.provenance.sourcePath || null;
+	if (result.args == null && type(entry.profiles) == 'array') {
+		let args = [];
+		for (let profile in entry.profiles) {
+			if (length(args)) push(args, '--new');
+			if (type(profile.args) == 'string') push(args, profile.args);
+		}
+		result.args = join('\n', args);
+	}
+	return result;
+}
+
+function catalog_from_generation(index) {
+	if (!is_object(index) || type(index.entries) != 'array') return null;
+	let winners = {}, physicalEntries = [], winnerOrder = [], sets = { tcp: { quick: [], standard: [], full: [] }, udp: { quick: [], standard: [], full: [] } };
+	for (let entry in index.entries) {
+		let row = generation_entry(entry);
+		if (row == null || winners[row.id] != null) return null;
+		winners[row.id] = row; push(physicalEntries, row); push(winnerOrder, row.id);
+		let protocols = generation_protocols(entry);
+		for (let protocol in protocols) {
+			if (protocol != 'tcp' && protocol != 'udp') continue;
+			push(sets[protocol].full, row.id);
+			if (length(sets[protocol].standard) < 80) push(sets[protocol].standard, row.id);
+			if (length(sets[protocol].quick) < 30) push(sets[protocol].quick, row.id);
+		}
+	}
+	let sourceCommit = null, sourceRepository = 'z2m/unified-strategy-catalog';
+	for (let id in ['avatar', 'z2k']) {
+		if (index.sources[id] != null) {
+			sourceCommit = index.sources[id].sourceCommit;
+			break;
+		}
+	}
+	return { schema: index.schema, source: { repository: sourceRepository,
+		commit: substr(index.indexDigest, 0, 40), sourceCommit: sourceCommit },
+		aggregateDigest: index.indexDigest, aggregateDigestAlgorithm: 'sha256(v3-index-basis)',
+		physicalFileCount: length(index.sources), physicalEntryCount: length(physicalEntries),
+		uniqueStrategyIdCount: length(physicalEntries), duplicateIdGroupCount: 0,
+		levelEntryCounts: {}, protocolEntryCounts: { tcp: length(sets.tcp.full), udp: length(sets.udp.full) },
+		featuredIds: [], winnerOrder: winnerOrder, winners: winners, physicalEntries: physicalEntries,
+		sets: sets, tcp: sets.tcp, udp: sets.udp, manifestPath: 'generation:' + index.generationId,
+		generationId: index.generationId, sourceMap: index.sources, userRevision: index.userRevision };
 }
 
 function configured_root() { return getenv('Z2M_STRATEGY_CATALOG_ROOT') || null; }
@@ -892,6 +971,19 @@ export const strategy_catalog_resolve = function(options) {
 	options = is_object(options) ? options : {};
 	let packageRoot = options.packageRoot || DEFAULT_ROOT, managedRoot = options.managedRoot || MANAGED_ROOT;
 	let customCandidates = options.packageRoot != null || options.managedRoot != null;
+	if (!customCandidates && options.root == null) {
+		let generation = generation_authority();
+		if (generation != null) {
+			if (!generation.ok) return error_result('EINDEX_UNAVAILABLE', generation.error && generation.error.message || 'Strategy generation is unavailable');
+			let generatedCatalog = catalog_from_generation(generation.index);
+			if (generatedCatalog == null) return error_result('EINDEX_UNAVAILABLE', 'Strategy generation index is invalid');
+			let generated = { ok: true, root: GENERATION_ROOT, kind: 'generation',
+				sourceCommit: generatedCatalog.source.sourceCommit, aggregateDigest: generatedCatalog.aggregateDigest,
+				verified: true, fallbackUsed: false, verificationError: null, catalog: generatedCatalog };
+			activeResolution = generated;
+			return generated;
+		}
+	}
 	let explicit = options.root || (customCandidates ? null : configured_root());
 	if (explicit != null) {
 		// A single rpcd/ucode process serves many read requests.  Once an
@@ -1099,6 +1191,19 @@ export const strategy_catalog_materialize = function(ids, root) {
 	let resolved = root == null ? strategy_catalog_resolve() : null;
 	if (root == null && (!resolved || !resolved.ok)) return resolved || error_result('EVERIFY', 'verified catalog is unavailable');
 	let actualRoot = root == null ? resolved.root : root;
+	if (root == null && resolved.kind == 'generation') {
+		if (type(ids) != 'array' || length(ids) > 80)
+			return error_result('EINPUT', 'catalog materialization ids are bounded', 'ids');
+		let materialized = copy(resolved.catalog), seen = {};
+		for (let id in ids) {
+			if (type(id) != 'string' || id == '' || seen[id]) return error_result('EINPUT', 'catalog materialization ids must be unique strings', 'ids');
+			seen[id] = true;
+			if (!is_object(resolved.catalog.winners[id])) return error_result('ENOENT', 'strategy is not present in the catalog', id);
+			materialized.winners[id] = resolved.catalog.winners[id];
+		}
+		loaded = materialized; loadedRoot = actualRoot;
+		return { ok: true, catalog: materialized, materialized: length(ids), files: 0, generationId: resolved.catalog.generationId };
+	}
 	if (actualRoot != catalog_root() && getenv('Z2M_SCANNER_SERVER_TEST') != '1')
 		return error_result('EPATH', 'catalog root override is available only in server tests', 'root');
 	if (type(ids) != 'array' || length(ids) > 80)

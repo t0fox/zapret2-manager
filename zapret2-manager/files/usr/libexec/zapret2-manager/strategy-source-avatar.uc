@@ -65,9 +65,24 @@ function verified_catalog(input) {
 	return result.catalog;
 }
 
+function catalog_entries(catalog) {
+	let snapshot = { snapshotId: 'avatar-' + catalog.aggregateDigest,
+		sourceCommit: catalog.source && catalog.source.commit };
+	let entries = [];
+	for (let id in catalog.winnerOrder || []) {
+		let normalized = normalize_entry(catalog.winners[id], snapshot);
+		if (!normalized.ok) return normalized;
+		push(entries, normalized.entry);
+	}
+	return { ok: true, entries: entries, snapshotId: snapshot.snapshotId,
+		sourceCommit: snapshot.sourceCommit };
+}
+
 export const strategy_source_avatar_snapshot = function(input) {
 	let catalog = verified_catalog(input);
 	if (!object(catalog) || !object(catalog.source)) return catalog;
+	let listed = catalog_entries(catalog);
+	if (!object(listed) || listed.ok != true) return listed;
 	let snapshotId = 'avatar-' + catalog.aggregateDigest;
 	let snapshot = {
 		schema: SCHEMA,
@@ -78,6 +93,7 @@ export const strategy_source_avatar_snapshot = function(input) {
 		snapshotId: snapshotId,
 		entryCount: catalog.physicalEntryCount,
 		normalizedEntryCount: catalog.uniqueStrategyIdCount,
+		entries: listed.entries,
 		immutable: true
 	};
 	return { ok: true, snapshot: snapshot };
@@ -86,16 +102,10 @@ export const strategy_source_avatar_snapshot = function(input) {
 export const strategy_source_avatar_list = function(input) {
 	let catalog = verified_catalog(input);
 	if (!object(catalog) || !object(catalog.winners)) return catalog;
-	let snapshot = { snapshotId: 'avatar-' + catalog.aggregateDigest,
-		sourceCommit: catalog.source && catalog.source.commit };
-	let entries = [];
-	for (let id in catalog.winnerOrder || []) {
-		let normalized = normalize_entry(catalog.winners[id], snapshot);
-		if (!normalized.ok) return normalized;
-		push(entries, normalized.entry);
-	}
-	return { ok: true, source: strategy_source_avatar_info(), entries: entries,
-		snapshotId: snapshot.snapshotId, sourceCommit: snapshot.sourceCommit };
+	let listed = catalog_entries(catalog);
+	if (!listed.ok) return listed;
+	return { ok: true, source: strategy_source_avatar_info(), entries: listed.entries,
+		snapshotId: listed.snapshotId, sourceCommit: listed.sourceCommit };
 };
 
 export const strategy_source_avatar_normalize = function(entry) {
