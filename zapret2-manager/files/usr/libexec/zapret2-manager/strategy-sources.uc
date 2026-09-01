@@ -145,12 +145,6 @@ function source_config(config, id) {
 	return config.sources[id];
 }
 
-function source_projection(config, state, id) {
-	return { id: id, enabled: source_config(config, id).enabled,
-		currentSnapshotId: state.currentSnapshotId,
-		lastKnownGoodSnapshotId: state.lastKnownGoodSnapshotId, revision: state.revision };
-}
-
 function valid_snapshot(id, snapshot) {
 	return object(snapshot) && snapshot.schema == SNAPSHOT_SCHEMA && snapshot.sourceId == id
 		&& snapshot.repository == SOURCE_REPOSITORIES[id] && safe_snapshot_id(snapshot.snapshotId)
@@ -167,6 +161,19 @@ function read_current(id, state) {
 	if (result.missing || !valid_snapshot(id, result.value))
 		return error('ESTALE', 'Recorded current source snapshot is unavailable or invalid');
 	return { ok: true, snapshot: result.value };
+}
+
+function source_projection(config, state, id) {
+	let current = read_current(id, state), snapshot = current.ok ? current.snapshot : null;
+	return { id: id, enabled: source_config(config, id).enabled,
+		currentSnapshotId: state.currentSnapshotId,
+		lastKnownGoodSnapshotId: state.lastKnownGoodSnapshotId, revision: state.revision,
+		repository: SOURCE_REPOSITORIES[id], sourceCommit: snapshot && snapshot.sourceCommit || null,
+		contentDigest: snapshot && snapshot.contentDigest || null,
+		entryCount: snapshot && snapshot.entryCount || 0,
+		normalizedEntryCount: snapshot && snapshot.normalizedEntryCount || 0,
+		hasLkg: state.lastKnownGoodSnapshotId != null,
+		state: current.ok ? (snapshot == null ? 'missing' : 'current') : 'error' };
 }
 
 export const strategy_sources_get = function() {

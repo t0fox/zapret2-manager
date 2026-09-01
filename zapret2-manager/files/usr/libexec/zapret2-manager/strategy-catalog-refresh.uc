@@ -104,9 +104,39 @@ function user_entries() {
   return { revision: read.catalog.userRevision || 0, entries: entries };
 }
 
+function current_generation_sources(config) {
+	let generationSources = {}, sourceIds = [];
+	for (let id in ['avatar', 'z2k']) {
+		if (!config.sources[id] || config.sources[id].enabled != true) continue;
+		let current = current_source_row(id, true);
+		if (!current.ok) return current;
+		generationSources[id] = current.row;
+		push(sourceIds, id);
+	}
+	return { ok: true, sources: generationSources, sourceIds: sourceIds };
+}
+
+// Rebuild from the exact source activation authorities. This is deliberately
+// network-free and is used after a single-source refresh or enable/disable
+// mutation so UI state and the unified catalog cannot drift apart.
+export const catalog_refresh_rebuild = function() {
+	let config = null;
+	try { config = source_store.strategy_sources_get(); } catch (e) { config = null; }
+	if (!config || config.ok != true) return config || { ok: false, error: { code: 'EIO', message: 'Strategy source config is unavailable' } };
+	let input = current_generation_sources(config);
+	if (!input.ok) return input;
+	let users = user_entries();
+	let published = null;
+	try { published = strategy_catalog_generation_publish({ generatedAt: now(), sources: input.sources,
+		userRevision: users.revision, userEntries: users.entries }); }
+	catch (e) { published = { ok: false, error: { code: 'EINDEX', message: 'Strategy generation publication raised an exception' } }; }
+	return published && published.ok == true ? { ok: true, generationId: published.generationId,
+		indexDigest: published.indexDigest, sourceIds: input.sourceIds } : published;
+};
+
 export const catalog_refresh_status = function() {
   let s = state_load();
-  if (s == null) return { ok: true, state: 'idle', operationId: null, startedAt: null, finishedAt: null, result: null, error: null };
+  if (s == null) return { ok: true, state: 'idle', operationId: null, phase: null, phaseHistory: [], startedAt: null, finishedAt: null, result: null, error: null };
   // stale recovery
   if (s.state == 'running' && is_stale(s)) {
     s.state = 'error';
@@ -114,7 +144,7 @@ export const catalog_refresh_status = function() {
     s.finishedAt = now();
     state_save(s);
   }
-  return { ok: true, operationId: s.operationId, state: s.state, phase: s.phase || null, percent: s.percent || 0, startedAt: s.startedAt || null, finishedAt: s.finishedAt || null, result: s.result || null, error: s.error || null };
+  return { ok: true, operationId: s.operationId, state: s.state, phase: s.phase || null, phaseHistory: s.phaseHistory || [], percent: s.percent || 0, startedAt: s.startedAt || null, finishedAt: s.finishedAt || null, result: s.result || null, error: s.error || null };
 };
 
 export const catalog_refresh_start = function() {

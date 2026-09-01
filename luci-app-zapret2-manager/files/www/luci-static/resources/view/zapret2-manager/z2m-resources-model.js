@@ -130,6 +130,44 @@ function resourceCountText(count) {
 	return String(count) + ' ' + word;
 }
 
+var STRATEGY_SOURCE_DEFINITIONS = {
+	avatar: { label: 'Avatar', repository: 'avatarDD/zapret-gui', resourceId: 'avatar-strategy-source', canonicalPrefix: 'avatar:' },
+	z2k: { label: 'Z2K', repository: 'necronicle/z2k', resourceId: 'z2k-strategy-source', canonicalPrefix: 'z2k:' }
+};
+
+function buildStrategySourceCards(value) {
+	value = object(value);
+	var raw = object(value.sources), cards = [];
+	['avatar', 'z2k'].forEach(function (id) {
+		var definition = STRATEGY_SOURCE_DEFINITIONS[id], source = object(raw[id]);
+		var enabled = source.enabled === true;
+		var hasSnapshot = !!(text(source.currentSnapshotId) || text(source.lastKnownGoodSnapshotId));
+		var state = text(source.state) || (source.error ? 'error' : hasSnapshot ? 'current' : 'missing');
+		if (!enabled) state = 'disabled';
+		cards.push({
+			id: id,
+			label: text(source.label) || definition.label,
+			repository: text(source.repository) || definition.repository,
+			resourceId: definition.resourceId,
+			canonicalPrefix: definition.canonicalPrefix,
+			enabled: enabled,
+			state: state,
+			status: state === 'disabled' ? 'Отключён' : state === 'current' ? 'Актуально' : state === 'missing' ? 'Нет проверенного снимка' : 'Ошибка проверки',
+			revision: Number(source.revision) || 0,
+			configRevision: Number(object(value.config).revision) || 0,
+			currentSnapshotId: text(source.currentSnapshotId),
+			lastKnownGoodSnapshotId: text(source.lastKnownGoodSnapshotId),
+			hasLkg: source.hasLkg === true || !!text(source.lastKnownGoodSnapshotId),
+			sourceCommit: text(source.sourceCommit),
+			contentDigest: text(source.contentDigest),
+			entryCount: Number(source.entryCount) || 0,
+			normalizedEntryCount: Number(source.normalizedEntryCount) || 0,
+			raw: source
+		});
+	});
+	return cards;
+}
+
 function buildModel(resources, assets, opts) {
 	resources = object(resources);
 	assets = object(assets);
@@ -460,6 +498,7 @@ function shouldShowBadge(asset) {
 
 return baseclass.extend({
 	buildModel: buildModel,
+	buildStrategySourceCards: buildStrategySourceCards,
 	shouldShowBadge: shouldShowBadge,
 	severityRank: severityRank,
 	humanStateLabel: humanStateLabel,

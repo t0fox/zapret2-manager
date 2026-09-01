@@ -24,7 +24,7 @@
 
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
-import { catalog_refresh_start, catalog_refresh_status } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
+import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
 import { strategy_source_refresh } from '/usr/libexec/zapret2-manager/strategy-source-refresh.uc';
 import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
 import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
@@ -1154,13 +1154,27 @@ function strategy_source_edit_input(req) {
 function strategies_sources_get_method(req) { return strategy_sources.strategy_sources_get(); }
 function strategies_source_refresh_method(req) {
 	let id = strategy_source_id(req);
-	return id == null ? { ok: false, error: { code: 'EINPUT', message: 'sourceId is required' } } : strategy_source_refresh(id);
+	if (id == null) return { ok: false, error: { code: 'EINPUT', message: 'sourceId is required' } };
+	let refreshed = strategy_source_refresh(id);
+	if (!refreshed || refreshed.ok != true) return refreshed;
+	let rebuilt = catalog_refresh_rebuild();
+	if (!rebuilt || rebuilt.ok != true) return { ok: false, error: rebuilt && rebuilt.error || { code: 'EINDEX', message: 'Unified Strategy catalog could not be rebuilt' }, sourceRefresh: refreshed };
+	return { ok: true, sourceId: id, snapshot: refreshed.snapshot, generationId: rebuilt.generationId, indexDigest: rebuilt.indexDigest };
 }
 function strategies_source_set_enabled_method(req) {
 	let input = strategy_source_edit_input(req);
 	if (!input || input.sourceId == null || input.enabled == null || input.expectedRevision == null)
 		return { ok: false, error: { code: 'EINPUT', message: 'sourceId, enabled, and expectedRevision are required' } };
-	return strategy_sources.strategy_source_set_enabled(input.sourceId, input.enabled, input.expectedRevision);
+	if (input.enabled == true) {
+		let current = strategy_sources.strategy_source_current_snapshot(input.sourceId);
+		if (!current || current.ok != true || current.snapshot == null)
+			return { ok: false, error: { code: 'EUNAVAILABLE', message: 'Cannot enable a source without a verified LKG snapshot' } };
+	}
+	let changed = strategy_sources.strategy_source_set_enabled(input.sourceId, input.enabled, input.expectedRevision);
+	if (!changed || changed.ok != true) return changed;
+	let rebuilt = catalog_refresh_rebuild();
+	if (!rebuilt || rebuilt.ok != true) return { ok: false, error: rebuilt && rebuilt.error || { code: 'EINDEX', message: 'Unified Strategy catalog could not be rebuilt' }, config: changed.config, source: changed.source };
+	return { ok: true, config: changed.config, source: changed.source, generationId: rebuilt.generationId, indexDigest: rebuilt.indexDigest };
 }
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
 

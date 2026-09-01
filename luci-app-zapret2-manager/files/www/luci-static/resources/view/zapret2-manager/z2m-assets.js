@@ -48,7 +48,11 @@ function resourceErrorBody(ctx, error) {
 function routeLabel(type) { return type === 'hostlist' ? _('Hostlist workspace') : type === 'ipset' ? _('IP/CIDR workspace') : type === 'blob' ? _('Blob workspace') : type === 'lua' ? _('Lua workspace') : _('Resource workspace'); }
 
 function load(ctx) {
-  return Promise.all([ctx.api.resources.status().catch(function (error) { return { ok: false, error: ctx.api.normalizeError(error) }; }), ctx.api.assets.list().catch(function (error) { return { ok: false, error: ctx.api.normalizeError(error) }; })]).then(function (values) { return { value: { resources: values[0] || {}, assets: values[1] || {} } }; });
+  return Promise.all([
+    ctx.api.resources.status().catch(function (error) { return { ok: false, error: ctx.api.normalizeError(error) }; }),
+    ctx.api.assets.list().catch(function (error) { return { ok: false, error: ctx.api.normalizeError(error) }; }),
+    ctx.api.strategies.sourcesGet().catch(function (error) { return { ok: false, error: ctx.api.normalizeError(error) }; })
+  ]).then(function (values) { return { value: { resources: values[0] || {}, assets: values[1] || {}, strategySources: values[2] || {} } }; });
 }
 function metadata(asset) { var provenance = asset.provenance || {}, policy = management(asset); return E('dl', { 'class': 'z2m-asset-meta' }, [E('dt', {}, _('Владелец')), E('dd', {}, lifecycleManaged(asset) ? _('Управляется Z2K Core') : asset.ownership === 'package' ? _('Package / immutable') : text(asset.ownership, _('Manager'))), E('dt', {}, _('Версия')), E('dd', {}, text(provenance.version, '—')), E('dt', {}, _('Ревизия')), E('dd', {}, text(asset.revision, '—')), E('dt', {}, _('SHA-256')), E('dd', { 'class': 'mono' }, text(asset.contentSha256, '—')), E('dt', {}, _('Размер')), E('dd', {}, text(asset.byteSize, '0') + ' байт'), E('dt', {}, _('Управление')), E('dd', {}, lifecycleManaged(asset) ? _('Lifecycle: только через Компоненты') : policy.editable === true ? _('Workspace editable') : _('Только чтение')), E('dt', {}, _('Provenance')), E('dd', {}, text(provenance.kind, '—') + (provenance.source ? ' · ' + provenance.source : '')), E('dt', {}, _('Используется')), E('dd', {}, refs(asset).length ? refs(asset).map(function (ref) { return ref.consumer; }).join(', ') : _('нет ссылок'))]); }
 function detailModal(ctx, asset) { ctx.shell.openModal(_('Ресурс ' + text(asset.name || asset.id)), E('div', { 'class': 'z2m-resource-detail' }, [E('p', {}, [E('strong', {}, text(asset.name || asset.id)), E('span', { 'class': 'z2m-dim' }, ' · ' + label(asset.type))]), metadata(asset), E('details', {}, [E('summary', {}, _('Технические детали')), E('pre', {}, JSON.stringify(asset, null, 2))])]), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal)); }
@@ -167,6 +171,7 @@ function render(ctx) {
   var value = ctx.data && ctx.data.value || {};
   var resources = value.resources || {};
   var assetsData = value.assets && value.assets.assets || [];
+  var strategySources = value.strategySources || {};
   if (resources.error || resources.ok === false) {
     return E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' }, [
       ctx.shell.statePanel({ message: resources.error && resources.error.message || _('Не удалось загрузить центр ресурсов.'), kind: 'error' })
@@ -175,7 +180,8 @@ function render(ctx) {
   var advanced = !!(ctx.store && ctx.store.ui && ctx.store.ui.advanced);
   var model = ResourcesModel.buildModel(resources, { assets: assetsData }, { advanced: advanced });
   var summary = model.summary;
-  var allVisible = model.groups;
+  var allVisible = model.groups.filter(function (group) { return group.kind !== 'strategy-catalog'; });
+  var sourceCards = ResourcesModel.buildStrategySourceCards(strategySources);
   var hiddenGroups = model.hiddenGroups || [];
 
   var filter = 'all';
@@ -261,6 +267,82 @@ function render(ctx) {
       ].filter(Boolean)),
       ctx.shell.button(_('Подробнее'), 'sm', function () { ctx.navigate('components'); })
     ]);
+  }
+
+  function sourceStateBadge(card) {
+    var kind = card.state === 'current' ? 'good' : card.state === 'error' ? 'danger' : card.state === 'missing' ? 'warn' : 'muted';
+    return AvatarUi.statusBadge(card.state, { label: card.status, kind: kind });
+  }
+
+  function sourceError(error) {
+    var normalized = ctx.api.normalizeError(error);
+    return E('div', { 'class': 'warnbar' }, [E('strong', {}, _('Источники стратегий недоступны')), E('span', {}, ' · ' + normalized.message)]);
+  }
+
+  function refreshSource(card, button) {
+    button.disabled = true;
+    ctx.api.strategies.sourceRefresh(card.id).then(function (answer) {
+      if (!answer || answer.ok === false || answer.error) throw answer;
+      return ctx.refresh(ctx.route);
+    }).catch(function (error) {
+      ctx.shell.openModal(_('Источник не обновлён'), resourceErrorBody(ctx, error), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal));
+    }).then(function () { button.disabled = false; });
+  }
+
+  function toggleSource(card, button) {
+    var nextEnabled = !card.enabled;
+    AvatarUi.confirm({
+      title: nextEnabled ? _('Включить источник ' + card.label) : _('Отключить источник ' + card.label),
+      message: nextEnabled ? _('Проверенный снимок снова появится в каталоге. Применённая стратегия не изменится автоматически.') : _('Новые стратегии этого источника исчезнут из каталога. Уже применённая стратегия останется без изменений.'),
+      okLabel: nextEnabled ? _('Включить') : _('Отключить'),
+      className: nextEnabled ? '' : 'danger'
+    }).then(function (confirmed) {
+      if (!confirmed) return;
+      button.disabled = true;
+      return ctx.api.strategies.sourceSetEnabled(JSON.stringify({ sourceId: card.id, enabled: nextEnabled, expectedRevision: card.configRevision })).then(function (answer) {
+        if (!answer || answer.ok === false || answer.error) throw answer;
+        return ctx.refresh(ctx.route);
+      });
+    }).catch(function (error) {
+      if (!error) return;
+      ctx.shell.openModal(_('Источник не изменён'), resourceErrorBody(ctx, error), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal));
+    }).then(function () { button.disabled = false; });
+  }
+
+  function renderStrategySource(card) {
+    var refreshButton = ctx.shell.button(_('Обновить'), 'primary sm', function () { refreshSource(card, refreshButton); });
+    var toggleButton = ctx.shell.button(card.enabled ? _('Отключить') : _('Включить'), 'sm' + (card.enabled ? ' danger' : ''), function () { toggleSource(card, toggleButton); });
+    if (!card.configRevision || strategySources.ok === false) { refreshButton.disabled = true; toggleButton.disabled = true; }
+    var count = card.entryCount ? ResourcesModel.resourceCountText(card.entryCount) : _('Нет проверенного снимка');
+    if (card.normalizedEntryCount && card.normalizedEntryCount !== card.entryCount) count += ' · ' + card.normalizedEntryCount + _(' в объединённом каталоге');
+    var snapshot = card.currentSnapshotId || card.lastKnownGoodSnapshotId || '—';
+    return E('article', { 'class': 'z2m-strategy-source-card', 'data-strategy-source-id': card.id }, [
+      E('div', { 'class': 'z2m-strategy-source-card-head' }, [E('div', {}, [E('h3', {}, card.label), E('p', { 'class': 'z2m-dim mono' }, card.repository)]), sourceStateBadge(card)]),
+      E('dl', { 'class': 'z2m-strategy-source-meta' }, [
+        E('dt', {}, _('Стратегии')), E('dd', {}, count),
+        E('dt', {}, _('Ревизия')), E('dd', {}, 'r' + card.revision),
+        E('dt', {}, _('Снимок')), E('dd', { 'class': 'mono' }, snapshot)
+      ]),
+      E('p', { 'class': 'z2m-strategy-source-note' }, _('Не применять автоматически: источник обновляет каталог, но не меняет активную стратегию.')),
+      E('div', { 'class': 'z2m-page-actions z2m-strategy-source-actions' }, [refreshButton, toggleButton])
+    ]);
+  }
+
+  function renderStrategySources() {
+    var children = [E('div', { 'class': 'z2m-resource-section-head' }, [E('h2', {}, _('ИСТОЧНИКИ СТРАТЕГИЙ')), E('p', { 'class': 'z2m-dim' }, _('Отдельные проверяемые источники объединяются в один каталог стратегий.'))])];
+    if (strategySources.ok === false) children.push(sourceError(strategySources.error));
+    children.push(E('div', { 'class': 'z2m-strategy-sources-grid' }, sourceCards.map(renderStrategySource)));
+    var refreshAllButton = ctx.shell.button(_('Обновить все'), 'sm', function () {
+      refreshAllButton.disabled = true;
+      ctx.api.strategies.catalogRefreshStart().then(function (answer) {
+        if (!answer || answer.ok === false || answer.error) throw answer;
+        return ctx.refresh(ctx.route);
+      }).catch(function (error) {
+        ctx.shell.openModal(_('Источники не обновлены'), resourceErrorBody(ctx, error), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal));
+      }).then(function () { refreshAllButton.disabled = false; });
+    });
+    children.push(E('div', { 'class': 'z2m-strategy-source-footer' }, [refreshAllButton]));
+    return E('section', { 'class': 'z2m-resource-section z2m-resource-section--strategy-sources', 'data-resource-section': 'strategy-sources' }, children);
   }
 
   function renderGroupCard(group) {
@@ -416,7 +498,7 @@ function render(ctx) {
         ]);
       }
     }
-    return E('div', { 'class': 'z2m-resource-groups' }, [].concat(callout ? [callout] : []).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
+    return E('div', { 'class': 'z2m-resource-groups' }, [].concat([renderStrategySources()]).concat(callout ? [callout] : []).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
   }
 
   var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов…'), 'aria-label': _('Поиск ресурсов') });

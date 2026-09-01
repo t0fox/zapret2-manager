@@ -10,6 +10,7 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc');
 const GENERATION_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
+const SOURCES_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
@@ -121,4 +122,24 @@ test('source failure without an LKG is a bounded refresh error and publishes no 
   const generation = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
   assert.equal(generation.ok, false, JSON.stringify(generation));
   assert.equal(generation.error.code, 'ESTALE');
+});
+
+test('source enablement rebuilds the unified catalog from exact LKG snapshots without fetching', () => {
+  const root = sandbox('toggle');
+  seed(root);
+  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
+  assert.equal(first.state, 'completed', JSON.stringify(first));
+  const disabled = invoke(root, SOURCES_MODULE, 'strategy_source_set_enabled', ['z2k', false, 1]);
+  assert.equal(disabled.ok, true, JSON.stringify(disabled));
+  const rebuilt = invoke(root, MODULE, 'catalog_refresh_rebuild');
+  assert.equal(rebuilt.ok, true, JSON.stringify(rebuilt));
+  const afterDisable = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  assert.equal(afterDisable.index.sources.z2k, undefined);
+  assert.ok(afterDisable.index.sources.avatar);
+  const enabled = invoke(root, SOURCES_MODULE, 'strategy_source_set_enabled', ['z2k', true, 2]);
+  assert.equal(enabled.ok, true, JSON.stringify(enabled));
+  const reenabled = invoke(root, MODULE, 'catalog_refresh_rebuild');
+  assert.equal(reenabled.ok, true, JSON.stringify(reenabled));
+  const afterEnable = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  assert.ok(afterEnable.index.sources.z2k);
 });

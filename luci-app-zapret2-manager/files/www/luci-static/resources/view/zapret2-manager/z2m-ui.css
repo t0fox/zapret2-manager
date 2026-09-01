@@ -3379,6 +3379,28 @@
   #z2m-view-assets .z2m-resource-change-summary{display:grid;gap:5px}
 }
 
+/* Strategy sources: two bounded source controls before the managed Asset Registry. */
+#z2m-view-assets .z2m-resource-section--strategy-sources{gap:12px;padding:14px 16px;border-color:rgba(75,159,213,.28);background:rgba(75,159,213,.025)}
+#z2m-view-assets .z2m-resource-section--strategy-sources .z2m-resource-section-head{display:block;padding:0}
+#z2m-view-assets .z2m-resource-section--strategy-sources .z2m-resource-section-head h2{font-size:11px;color:var(--tx2)}
+#z2m-view-assets .z2m-resource-section--strategy-sources .z2m-resource-section-head p{margin:5px 0 0;color:var(--tx3);font-size:12px;line-height:1.45}
+#z2m-view-assets .z2m-strategy-sources-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#z2m-view-assets .z2m-strategy-source-card{display:grid;gap:10px;min-width:0;padding:13px;border:1px solid var(--border);border-radius:7px;background:var(--panel)}
+#z2m-view-assets .z2m-strategy-source-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+#z2m-view-assets .z2m-strategy-source-card h3{margin:0;color:var(--tx);font-size:14px;font-weight:600;line-height:1.3}
+#z2m-view-assets .z2m-strategy-source-card-head p{margin:4px 0 0;overflow-wrap:anywhere;font-size:11px}
+#z2m-view-assets .z2m-strategy-source-meta{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:0;font-size:12px;line-height:1.4}
+#z2m-view-assets .z2m-strategy-source-meta dt{color:var(--tx3)}
+#z2m-view-assets .z2m-strategy-source-meta dd{margin:0;min-width:0;overflow-wrap:anywhere;color:var(--tx2)}
+#z2m-view-assets .z2m-strategy-source-note{margin:0;color:var(--tx3);font-size:12px;line-height:1.45}
+#z2m-view-assets .z2m-strategy-source-actions{margin:0;padding-top:2px}
+#z2m-view-assets .z2m-strategy-source-footer{display:flex;justify-content:flex-end;padding-top:2px;border-top:1px solid var(--border)}
+@media(max-width:700px){
+  #z2m-view-assets .z2m-strategy-sources-grid{grid-template-columns:1fr}
+  #z2m-view-assets .z2m-strategy-source-actions{align-items:stretch;flex-direction:column}
+  #z2m-view-assets .z2m-strategy-source-actions .z2m-btn{width:100%;justify-content:center}
+}
+
 /* Shared CodeMirror 6 editor surface. Keep the editor measurable and scoped
  * so resource and strategy owners can update sibling panes without remounting. */
 .z2m-code-editor{display:flex;flex-direction:column;width:100%;min-width:0;height:100%;min-height:180px;overflow:hidden;border:1px solid var(--border);border-radius:6px;background:var(--panel)}
