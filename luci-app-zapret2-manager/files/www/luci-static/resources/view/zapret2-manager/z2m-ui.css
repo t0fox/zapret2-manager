@@ -1643,6 +1643,16 @@
 }
 .z2m-view#z2m-view-strategy .strategy-card-meta { display:block; margin:8px 0 0; }
 .z2m-view#z2m-view-strategy .strategy-card-meta-pills { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.z2m-view#z2m-view-strategy .strategy-source-filters { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 12px; }
+.z2m-view#z2m-view-strategy .strategy-source-filter { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:36px; padding:7px 11px; border:1px solid var(--border2); border-radius:6px; background:var(--raised); color:var(--tx2); cursor:pointer; font:inherit; font-size:12px; }
+.z2m-view#z2m-view-strategy .strategy-source-filter:hover { border-color:var(--blue); color:var(--tx); }
+.z2m-view#z2m-view-strategy .strategy-source-filter:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.z2m-view#z2m-view-strategy .strategy-source-filter.active { border-color:var(--blue); background:rgba(75,159,213,.14); color:var(--tx); }
+.z2m-view#z2m-view-strategy .strategy-source-filter-count { color:var(--tx3); font-variant-numeric:tabular-nums; }
+.z2m-view#z2m-view-strategy .strategy-source-badge { display:inline-flex; align-items:center; min-height:20px; padding:2px 7px; border:1px solid var(--border2); border-radius:999px; color:var(--tx2); font-size:11px; line-height:1.2; }
+.z2m-view#z2m-view-strategy .strategy-source-badge.source-avatar { border-color:rgba(75,159,213,.45); color:var(--blue); }
+.z2m-view#z2m-view-strategy .strategy-source-badge.source-z2k { border-color:rgba(93,185,132,.45); color:var(--green); }
+.z2m-view#z2m-view-strategy .strategy-source-badge.source-user { border-color:rgba(214,164,82,.45); color:var(--orange); }
 .z2m-view#z2m-view-strategy .strategy-meta-badge,
 .z2m-view#z2m-view-strategy .strategy-source {
   display:inline-flex;
@@ -3693,6 +3703,7 @@
 .z2m-app #z2m-view-strategy .strategies-workspace{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;align-items:start}
 .z2m-app #z2m-view-strategy .strategies-workspace>.catalog-summary-card,
 .z2m-app #z2m-view-strategy .strategies-workspace>.active-strategy-card,
+.z2m-app #z2m-view-strategy .strategies-workspace>#strategy-source-filters,
 .z2m-app #z2m-view-strategy .strategies-workspace>#strategies-list-host,
 .z2m-app #z2m-view-strategy .strategies-workspace>#strat-bulkbar{grid-column:1 / -1;min-width:0}
 .z2m-app #z2m-view-strategy .strategies-workspace>.strategy-ops-card{grid-column:span 6;min-width:0;margin-bottom:0}

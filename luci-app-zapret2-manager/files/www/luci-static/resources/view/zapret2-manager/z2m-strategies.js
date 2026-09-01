@@ -28,6 +28,7 @@ var FILTER_PRESETS = {
 };
 var state = {
   ctx: null, root: null, data: {}, rows: [], selectedId: null,
+  sourceFilter: 'all',
   pending: null, operationPending: null, editorLoadingId: null, editor: null, strategyEditor: null, preview: null, selectedIds: {},
   catalogProgress: null,
   detailLoading: {},
@@ -377,6 +378,26 @@ function buildRows(data) {
   var current = state.selectedId || identity(data).selectedId;
   return listValue(data).map(function (item) { return Model.normalize(item, statusValue(data), current); });
 }
+function sourceFilterRows() {
+  var selected = text(state.sourceFilter).toLowerCase();
+  if (selected === 'avatar' || selected === 'z2k' || selected === 'user')
+    return state.rows.filter(function (strategy) { return Model.sourceId(strategy) === selected; });
+  return state.rows;
+}
+function sourceFilterLabel(id) {
+  return ({ all: 'Все', avatar: 'Avatar', z2k: 'Z2K', user: 'Пользовательские' }[id] || 'Все');
+}
+function renderSourceFilters() {
+  var host = state.root && state.root.querySelector('#strategy-source-filters');
+  if (!host) return;
+  var ids = ['all', 'avatar', 'z2k', 'user'];
+  var counts = { all: state.rows.length, avatar: 0, z2k: 0, user: 0 };
+  state.rows.forEach(function (strategy) { var id = Model.sourceId(strategy); if (counts[id] !== undefined) counts[id]++; });
+  host.innerHTML = ids.map(function (id) {
+    var active = id === state.sourceFilter || (id === 'all' && ids.indexOf(state.sourceFilter) < 0);
+    return '<button type="button" class="strategy-source-filter' + (active ? ' active' : '') + '" data-action="setStrategySourceFilter" data-strategy-source="' + id + '" aria-pressed="' + (active ? 'true' : 'false') + '"><span>' + sourceFilterLabel(id) + '</span><span class="strategy-source-filter-count">' + counts[id] + '</span></button>';
+  }).join('');
+}
 function renderFiltersAndList() {
   var host = state.root && state.root.querySelector('#strategies-list-host');
   if (!host) return;
@@ -387,12 +408,12 @@ function renderFiltersAndList() {
     if (state.listUI) { state.listUI.destroy(); state.listUI = null; }
     return;
   }
-  if (state.listUI) { state.listUI.setItems(state.rows); return; }
+  if (state.listUI) { state.listUI.setItems(sourceFilterRows()); return; }
   var container = document.createElement('div');
   container.id = 'strategies-list';
   host.replaceChildren(container);
   state.listUI = ListUI.create({
-    container: container, items: state.rows, searchPlaceholder: 'Поиск по имени, автору, описанию, args...',
+    container: container, items: sourceFilterRows(), searchPlaceholder: 'Поиск по имени, автору, описанию, args...',
     searchFields: function (strategy) { return [strategy.name, strategy.description, strategy.author, strategy.id].concat(array(strategy.profiles).map(function (profile) { return profile.args; })); },
     filters: [
       { id: 'all', label: 'Все', test: function () { return true; } },
@@ -426,7 +447,10 @@ function strategyMeta(strategy) {
   if (!source && raw.indexOf('community') >= 0) source = 'Community';
   if (!source && raw.indexOf('custom') >= 0) source = 'Custom';
   if (!source && raw && !recommended && !caution) source = text(strategy.label);
+  var sourceId = Model.sourceId(strategy);
+  var sourceBadge = '<span class="strategy-source-badge source-' + escapeAttr(sourceId) + '">' + sourceFilterLabel(sourceId) + '</span>';
   return '<span class="strategy-card-meta-pills">' +
+    sourceBadge +
     (recommended ? '<span class="strategy-meta-badge recommended">Рекомендуемая</span>' : '') +
     (caution ? '<span class="strategy-meta-badge caution">Осторожно</span>' : '') +
     (source ? '<span class="strategy-source">Автор: ' + escapeHtml(source) + '</span>' : '') +
@@ -1296,6 +1320,7 @@ function renderAll() {
   state.rows = buildRows(state.data);
   renderCatalogSummary();
   renderActiveCard();
+  renderSourceFilters();
   renderFiltersAndList();
   renderBulkBar();
   renderOperationalCards();
@@ -2313,6 +2338,12 @@ function applyStrategy(id) { var strategy = strategyById(id); if (!strategy) ret
 function toggleFavorite(id) { var strategy = strategyById(id); if (!strategy) return; mutate('favorite', function () { return call(state.ctx.api.strategies.favorite, { id: id, favorite: !strategy.favorite, expectedRevision: stateRevision(state.data) }); }); }
 function deleteStrategy(id) { var strategy = strategyById(id); if (!strategy || strategy.isBuiltin) return; openConfirm('Удалить стратегию', 'Удалить «' + strategy.name + '»? Это действие нельзя отменить.', function () { mutate('delete', function () { return call(state.ctx.api.strategies.delete, { id: id, expectedRevision: strategy.revision }); }); }); }
 function selectStrategy(id) { state.selectedId = id; renderAll(); }
+function setStrategySourceFilter(id) {
+  id = text(id).toLowerCase();
+  state.sourceFilter = ['all', 'avatar', 'z2k', 'user'].indexOf(id) >= 0 ? id : 'all';
+  renderSourceFilters();
+  if (state.listUI) state.listUI.setItems(sourceFilterRows());
+}
 function clearSelection() { state.selectedIds = {}; renderBulkBar(); }
 function onClick(event) {
   var el = event.target.closest('[data-action]'); if (!el || !state.root.contains(el)) return;
@@ -2328,6 +2359,7 @@ function onClick(event) {
   else if (action === 'toggleFavorite') { event.stopPropagation(); toggleFavorite(id); }
   else if (action === 'deleteStrategy') deleteStrategy(id);
   else if (action === 'selectStrategy') selectStrategy(id);
+  else if (action === 'setStrategySourceFilter') setStrategySourceFilter(el.dataset.strategySource);
   else if (action === 'toggleDetails') toggleDetails(id);
   else if (action === 'showPreview') showPreview(id);
   else if (action === 'validatePreview') validatePreview();
@@ -2393,13 +2425,20 @@ function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
   var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div><div class="z2m-catalog-progress-timer" style="display:none"></div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><div class="modal-title-block"><span class="modal-eyebrow">Strategy IDE</span><h3 class="modal-title">Стратегия</h3><span class="editor-document-status" data-editor-document-status>Черновик</span></div><div class="modal-header-actions"><button class="modal-close" data-action="closeModal" aria-label="Закрыть редактор стратегии" title="Закрыть">×</button></div></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview" aria-label="Закрыть превью" title="Закрыть">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal" aria-label="Закрыть список выученных стратегий" title="Закрыть">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker" aria-label="Закрыть выбор стратегии" title="Закрыть">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var sourceFilterHost = document.createElement('div');
+  sourceFilterHost.id = 'strategy-source-filters';
+  sourceFilterHost.className = 'strategy-source-filters';
+  sourceFilterHost.setAttribute('role', 'group');
+  sourceFilterHost.setAttribute('aria-label', 'Источник стратегий');
+  var listHost = root.querySelector('#strategies-list-host');
+  if (listHost) listHost.parentNode.insertBefore(sourceFilterHost, listHost);
   var workspace = document.createElement('div');
   workspace.className = 'strategies-workspace';
   var firstWorkspaceNode = root.querySelector('.catalog-summary-card');
   if (firstWorkspaceNode) root.insertBefore(workspace, firstWorkspaceNode);
   var workspaceNodes = [root.querySelector('.catalog-summary-card'), root.querySelector('.active-strategy-card')]
     .concat(Array.prototype.slice.call(root.querySelectorAll('.strategy-ops-card')))
-    .concat([root.querySelector('#strategies-list-host'), root.querySelector('#strat-bulkbar')]);
+    .concat([root.querySelector('#strategy-source-filters'), root.querySelector('#strategies-list-host'), root.querySelector('#strat-bulkbar')]);
   workspaceNodes.forEach(function (node) { if (node) workspace.appendChild(node); });
   var pasteButton = root.querySelector('[data-action="pasteFromClipboard"]');
   if (pasteButton) pasteButton.innerHTML = svgIcon('clipboard', 14) + '<span>Вставить из буфера</span>';

@@ -115,6 +115,24 @@ function looksLikeStrategy(value) {
   var source = text(value);
   return /(^|\s)--(?:filter-|lua-desync=|payload=|hostlist=|ipset=|new(?:\s|$))/i.test(source);
 }
+function sourceId(value) {
+  value = object(value);
+  var metadata = object(value.metadata);
+  var provenance = object(value.provenance);
+  var metadataProvenance = object(metadata.provenance);
+  var candidate = text(value.sourceId || provenance.sourceId || metadata.sourceId || metadataProvenance.sourceId).toLowerCase();
+  var repository = text(provenance.repository || metadataProvenance.repository).toLowerCase();
+  var origin = text(value.origin).toLowerCase();
+  var canonicalId = text(value.canonicalId || value.id || value.strategyId).toLowerCase();
+
+  if (candidate === 'avatar' || candidate === 'avatar_builtin' || candidate === 'avatar-strategy-source' || repository.indexOf('avatardd/') === 0) return 'avatar';
+  if (candidate === 'z2k' || candidate === 'z2k-strategy-source' || repository.indexOf('necronicle/z2k') >= 0) return 'z2k';
+  if (candidate === 'user' || candidate === 'custom' || candidate === 'user-created' || origin === 'user' || origin === 'custom') return 'user';
+  if (canonicalId.indexOf('avatar:') === 0) return 'avatar';
+  if (canonicalId.indexOf('z2k:') === 0) return 'z2k';
+  if (value.is_builtin === true || value.isBuiltin === true || origin === 'builtin' || origin === 'avatar_builtin') return 'avatar';
+  return 'user';
+}
 function parseClipboardStrategies(value) {
   var source = text(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!source) return [];
@@ -229,10 +247,13 @@ function normalize(value, status, selectedId) {
   value = object(value);
   var ids = identity(status);
   var id = text(value.id || value.strategyId);
+  var canonicalId = text(value.canonicalId || id);
   var origin = text(value.origin) || (value.is_builtin === true ? 'avatar_builtin' : 'user');
   var metadata = object(value.metadata), label = text(value.label || metadata.label).toLowerCase();
   var result = {
     id: id,
+    canonicalId: canonicalId,
+    sourceId: sourceId(value),
     name: text(value.name || value.displayName) || id || 'Стратегия',
     description: text(value.description || metadata.description),
     author: text(value.author || metadata.author),
@@ -579,6 +600,7 @@ return baseclass.extend({
   extractDiscordVoiceState: extractDiscordVoiceState,
   filterDomainLearnedEntries: filterDomainLearnedEntries,
   normalize: normalize,
+  sourceId: sourceId,
   list: list,
   profiles: profiles,
   strategyProfileTags: strategyProfileTags,
