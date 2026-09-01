@@ -101,6 +101,6 @@ real-router acceptance (root@192.168.1.1 verified reachable).
 - [x] failed-health rollback sandbox test (ETGHEALTH -> restore_previous, state+config preserved)
 - [ ] reboot persistence check (enabled state) on router (requires root@192.168.1.1)
 - [x] LuCI Telegram page wiring to availableVersions[] UX (z2m-api + z2m-proxy-page-core checkUpdates map)
-- [x] CI gate registration for the new suite (clean-install-regression.yml includes tg-provider-transaction)
+- [x] Local test-suite coverage for the new transaction scenarios
 - [ ] real-router acceptance: Rust clean install / remove / Go / switch (target reachable, pending apk run with SDK)
 - [ ] browser acceptance across all v1 pages after TG changes (requires Playwright run on built LuCI)

@@ -11,7 +11,6 @@ const initScript = fs.readFileSync('zapret2-manager/files/etc/init.d/zapret2-man
 const nativeGate = fs.readFileSync('scripts/test/native.sh', 'utf8');
 const nativeRootGate = fs.existsSync('scripts/test/native-root.sh')
   ? fs.readFileSync('scripts/test/native-root.sh', 'utf8') : '';
-const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf8');
 const brokerEvidence = fs.readFileSync(
   'tests/native/core/native-helper-broker-exact-target-evidence.txt', 'utf8');
 const brokerRawTapPath = 'tests/native/core/native-helper-broker-exact-target.tap';
@@ -97,22 +96,6 @@ test('native gate and product subprocesses preserve configured ucode module path
   assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
     /ucodeDiagnostic\(\[UCODE_BIN, \.\.\.argv\], UCODE_MODULE_PATTERN\)/,
     'product failures must report exact argv, safe ucode env, and normalized module paths');
-});
-
-test('ucode module path normalizes the exact native workflow directory value', async () => {
-  const libraryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ucode-lib-'));
-  const moduleRoot = path.join(libraryRoot, 'ucode');
-  fs.mkdirSync(moduleRoot);
-  fs.writeFileSync(path.join(moduleRoot, 'fs.so'), '');
-  try {
-    const { ucodeModulePattern } = await import('./core/ucode-test-harness.mjs');
-    const workflowValue = /UCODE_MODULE_PATH:\s*\$\{\{ runner\.temp \}\}([^\n]+)/
-      .exec(nativeWorkflow)?.[1].trim();
-    assert.equal(workflowValue, '/ucode/lib/ucode');
-    assert.equal(ucodeModulePattern(moduleRoot, '/ignored'), path.join(moduleRoot, '*.so'));
-  } finally {
-    fs.rmSync(libraryRoot, { recursive: true, force: true });
-  }
 });
 
 test('ucode module path discovers modules in a library directory and its ucode child', async () => {
@@ -422,25 +405,10 @@ test('standalone runtime CLIs bootstrap managed roots and propagate failure', ()
   }
 });
 
-test('CI provisions pinned ucode and passes it to the shared native gate', () => {
-  assert.match(nativeWorkflow, /uses: actions\/checkout@v4\s+with:\s+fetch-depth:\s+0/,
-    'CI must fetch historical commits used by evidence provenance checks');
-  assert.match(nativeWorkflow, /v0\.0\.20250529/,
-    'CI must pin the tested ucode release');
-  assert.match(nativeWorkflow, /scripts\/test\/install-ucode\.sh/,
-    'CI must use the repository ucode installer');
-  assert.match(nativeWorkflow, /UCODE_BIN:/,
-    'CI must configure the ucode executable for the gate');
-  assert.match(nativeWorkflow, /UCODE_LIBRARY_PATH:/,
-    'CI must configure the ucode library path for the gate');
-  assert.match(nativeWorkflow, /UCODE_MODULE_PATH:/,
-    'CI must configure the ucode module path for the gate');
-});
-
-test('pinned ucode build enables the fs module required by production imports', () => {
+test('local pinned ucode build enables the fs module required by production imports', () => {
   const installer = fs.readFileSync('scripts/test/install-ucode.sh', 'utf8');
   assert.match(installer, /-DFS_SUPPORT=ON/,
-    'CI ucode must build fs.so because production modules import fs');
+    'test ucode must build fs.so because production modules import fs');
 });
 
 test('package declares every ucode module required by native helper transport', () => {

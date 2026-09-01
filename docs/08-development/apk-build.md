@@ -4,7 +4,7 @@ title: "Сборка APK"
 type: runbook
 status: current
 authority: release-engineering
-updated: 2026-08-22
+updated: 2026-09-02
 publish: true
 tags: [development, apk, release]
 code: [.github/workflows/apk-build.yml#OpenWrt APK build]
@@ -16,13 +16,13 @@ Release pipeline использует pinned OpenWrt SDK и должен выд�
 manager-пакета: `zapret2-manager`, `luci-app-zapret2-manager` и
 `zapret2-manager-full`, вместе с `build-manifest.json` и `SHA256SUMS`.
 
-Документация CI не объявляет реальную SDK-сборку успешной по наличию
-workflow-файла: нужны свежие artifact logs и verifier evidence. Public Quartz
-публикуется независимым workflow Quartz Pages по собственному push-триггеру
-на файлы public-docs pipeline; тяжёлый Knowledge CI запускается только
-вручную (`workflow_dispatch`) и деплой не гейтит.
+Единственный автоматизированный workflow репозитория —
+`.github/workflows/apk-build.yml`. Он запускается при push в `main` или вручную
+через `workflow_dispatch`, устанавливает зависимости SDK, собирает APK и
+проверяет manifest/checksums. Наличие workflow-файла само по себе не является
+доказательством успешной сборки: нужны свежие логи и verifier evidence.
 
-Каждый успешный push в `main` дополнительно публикует rolling prerelease
-`main-latest` с тремя APK, `build-manifest.json` и `SHA256SUMS`. Ассеты
+Каждый успешный push в `main` публикует rolling prerelease `main-latest` с тремя
+APK, `build-manifest.json` и `SHA256SUMS`. Ассеты
 скачиваются на роутер напрямую (`wget`) и ставятся через
 `apk add --allow-untrusted`; перед установкой сверяйте `SHA256SUMS`.

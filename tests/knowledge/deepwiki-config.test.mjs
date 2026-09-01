@@ -105,7 +105,7 @@ test('DeepWiki steering contains required pages, dangerous-area notes and author
 });
 
 test('explicit source anchors named by DeepWiki steering exist in the repository', async () => {
-  for (const basename of ['z2m-strategies.js', 'z2m-api.js', 'build-apk.sh', 'apk-build.yml', 'release-rc.yml']) {
+  for (const basename of ['z2m-strategies.js', 'z2m-api.js', 'build-apk.sh', 'apk-build.yml']) {
     assert.ok(await findBasename(repoRoot, basename), `missing source anchor: ${basename}`);
   }
 });

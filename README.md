@@ -41,7 +41,7 @@ scripts/release/build-apk.sh
 node scripts/release/verify-artifacts.mjs dist
 ```
 
-The generated `dist/` contains the three APKs, `build-manifest.json`, and `SHA256SUMS`. The same entrypoint runs in GitHub Actions on every push to `main`; explicit tags matching `v<version>-r<release>-rc<N>` publish immutable GitHub prereleases.
+The generated `dist/` contains the three APKs, `build-manifest.json`, and `SHA256SUMS`. The same entrypoint runs in the repository's sole GitHub Actions workflow on every push to `main` and can also be started manually; successful main builds publish the rolling `main-latest` prerelease.
 
 For downloaded files, install all three packages from the same GitHub Release:
 
@@ -72,7 +72,7 @@ For the native foundation on Linux with Node.js, a C compiler, `pkg-config`, jso
 scripts/test/native.sh
 ```
 
-Set `UCODE_BIN` and `UCODE_LIBRARY_PATH` when ucode is not installed under `/opt/ucode`. The native gate runs only `fs-helper.test.mjs` through `sudo`; all other native tests run as the invoking user.
+Set `UCODE_BIN` and `UCODE_LIBRARY_PATH` when ucode is not installed under `/opt/ucode`. The native test runner executes only `fs-helper.test.mjs` through `sudo`; all other native tests run as the invoking user.
 
 Source/host tests are not substitutes for OpenWrt SDK compilation, router validation, or browser/runtime evidence.
 
@@ -93,7 +93,7 @@ Knowledge tooling:
 - Build internal docs: `node scripts/docs.mjs build internal` (legacy `--internal` is supported).
 - Canonical outputs: `.artifacts/docs-public` and `.artifacts/docs-internal`; remove them with `node scripts/docs.mjs clean`.
 - Run knowledge validation: `node scripts/validate-knowledge.mjs`.
-- Public Pages uploads `.artifacts/docs-public` after the public leak smoke test.
+- Public documentation can be built locally into `.artifacts/docs-public`; publication is outside the repository's APK-only automation scope.
 
 ## Repository policy
 

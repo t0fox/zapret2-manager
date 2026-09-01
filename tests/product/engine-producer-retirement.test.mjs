@@ -66,13 +66,8 @@ test('producer implementation surfaces are physically deleted', () => {
 	}
 });
 
-test('CI cannot reach the retired producer', () => {
+test('the repository has no workflow surface for the retired producer', () => {
 	assert.equal(fs.existsSync(path.join(ROOT, '.github/workflows/engine-build.yml')), false);
-	const ci = read('.github/workflows/clean-install-regression.yml');
-	assert.doesNotMatch(ci, /engine-build\.yml|engine-producer-contract|engine-producer-build/,
-		'no CI reference to the retired pipeline');
-	assert.doesNotMatch(ci, /test_engine_patches_apply|engine-integration-identity/,
-		'retired native gates dropped from CI');
 });
 
 function walk(dir, skip) {

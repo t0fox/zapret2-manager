@@ -6,6 +6,13 @@ import test from 'node:test';
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
+test('APK is the only repository workflow', () => {
+  const workflows = fs.readdirSync(path.join(ROOT, '.github', 'workflows'))
+    .filter((entry) => entry.endsWith('.yml') || entry.endsWith('.yaml'))
+    .sort();
+  assert.deepEqual(workflows, ['apk-build.yml']);
+});
+
 test('main APK workflow builds artifacts and publishes the rolling prerelease', () => {
   const source = read('.github/workflows/apk-build.yml');
   assert.match(source, /branches:\s*\n\s*-\s*main/);
@@ -22,16 +29,4 @@ test('main APK workflow builds artifacts and publishes the rolling prerelease', 
   assert.match(source, /dist\/\*\.apk dist\/SHA256SUMS dist\/build-manifest\.json/);
   assert.match(source, /--prerelease/);
   assert.doesNotMatch(source, /release-rc/);
-});
-
-test('RC workflow is tag-bound, verifies the tag, and publishes immutable prereleases', () => {
-  const source = read('.github/workflows/release-rc.yml');
-  assert.match(source, /tags:\s*\n\s*-\s*['"]?v\*-r\*-rc\*['"]?/);
-  assert.match(source, /contents:\s*write/);
-  assert.match(source, /scripts\/release\/check-tag\.mjs/);
-  assert.match(source, /scripts\/release\/build-apk\.sh/);
-  assert.match(source, /scripts\/release\/verify-artifacts\.mjs/);
-  assert.match(source, /--verify-tag/);
-  assert.match(source, /--prerelease/);
-  assert.doesNotMatch(source, /--clobber/);
 });

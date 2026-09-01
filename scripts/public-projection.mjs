@@ -100,7 +100,7 @@ const CODE_EVIDENCE = {
   'docs/08-development/z2k-avatar-integration.md': [{ path: 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc', start: 15, end: 20, symbol: 'AUTHORITY_MARKER', why: 'Scanner planner фиксирует Avatar repository/commit и verified catalog digest.' }],
   'docs/08-development/resource-asset-model.md': [{ path: 'zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc', start: 201, end: 214, symbol: 'asset_registry_import', why: 'Typed asset import нормализует content, provenance и digest перед registry commit.' }],
   'docs/08-development/api-rpc.md': [{ path: 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', start: 1168, end: 1182, symbol: 'strategies_apply', why: 'UBUS методы объявляют bounded edit payload и отдельные read/edit actions.' }],
-  'docs/08-development/apk-build.md': [{ path: '.github/workflows/knowledge-ci.yml', start: 1, end: 35, symbol: 'Knowledge CI', why: 'Документация публикуется только после проверок и artifact upload; runtime APK build остаётся отдельным workflow.' }],
+  'docs/08-development/apk-build.md': [{ path: '.github/workflows/apk-build.yml', start: 1, end: 44, symbol: 'OpenWrt APK build', why: 'Единственный автоматизированный workflow собирает три manager APK, проверяет manifest/checksums и публикует rolling main-latest artifact.' }],
   'docs/07-decisions/index.md': [{ path: 'docs/07-decisions/adr-005-strategy-apply-authority.md', start: 1, end: 35, symbol: 'Strategy Apply authority', why: 'ADR фиксирует owner boundary между Scanner result и permanent Strategy Apply.' }],
 }
 

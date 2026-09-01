@@ -202,13 +202,13 @@
       "parent": "OpenWrt Packaging and Release Engineering"
     },
     {
-      "title": "GitHub Actions and RC Releases",
-      "purpose": "Explain .github/workflows/apk-build.yml and .github/workflows/release-rc.yml, main build artifacts, RC tag contract and release boundaries.",
+      "title": "APK Build Workflow",
+      "purpose": "Explain .github/workflows/apk-build.yml, main build artifacts, rolling main-latest publication and release boundaries.",
       "parent": "OpenWrt Packaging and Release Engineering"
     },
     {
       "title": "Testing and Verification",
-      "purpose": "Explain test families, architecture/contract tests, native gates, knowledge CI, release verification, what tests prove, and what still requires router/hardware evidence.",
+      "purpose": "Explain test families, architecture/contract tests, local native checks, release verification, what tests prove, and what still requires router/hardware evidence.",
       "parent": null
     },
     {

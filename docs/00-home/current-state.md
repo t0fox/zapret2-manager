@@ -4,7 +4,7 @@ title: "Current State"
 type: home
 status: live
 authority: evidence
-updated: 2026-08-22
+updated: 2026-09-02
 publish: false
 tags: [state, baseline, vault]
 ---
@@ -44,24 +44,24 @@ not create duplicate product lifecycles.
 
 The repository contains the pinned OpenWrt SDK release contract and the three
 manager package definitions: `zapret2-manager`,
-`luci-app-zapret2-manager`, and `zapret2-manager-full`. Main-push build and RC
-workflow definitions are present. A release is not considered ready until a
+`luci-app-zapret2-manager`, and `zapret2-manager-full`. The only automated
+workflow is the main APK build. A release is not considered ready until a
 fresh real SDK build produces exactly those three APKs plus
 `build-manifest.json` and `SHA256SUMS`, and the artifact verifier passes. No
 stable release or RC is implied by source/workflow presence alone.
 
 ## Active workstreams
 
-- Documentation inventory, canonical routing, validator, and Quartz Pages
-  deployment hardening.
-- Release Engineering: real OpenWrt SDK build, artifact manifest/checksum
-  verification, and RC workflow evidence.
+- Documentation inventory, canonical routing, validator, and local Quartz
+  tooling.
+- Release Engineering: real OpenWrt SDK build and artifact
+  manifest/checksum verification.
 - Product/runtime acceptance: router and browser evidence remains separate from
   host-only source tests.
 
 ## Known blockers and evidence boundaries
 
-Fresh validator/build output and GitHub Actions logs outrank this note. A local
+Fresh validator/build output and APK workflow logs outrank this note. A local
 source test is not proof of OpenWrt SDK packaging or router E2E behavior. A
 router update is not proof of a public release artifact. Any missing evidence
 must remain explicitly marked NOT_RUN or NOT_YET_RUN in the relevant report.
