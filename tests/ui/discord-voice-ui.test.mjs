@@ -73,6 +73,7 @@ function loadUI(mockState = {}) {
         if (sel === '#strat-picker-body') return domNodes.get('strat-picker-body') || null;
         if (sel === '#learned-modal') return domNodes.get('learned-modal') || null;
         if (sel === '#strat-picker-modal') return domNodes.get('strat-picker-modal') || null;
+        if (sel === '#active-strategy-info') return domNodes.get('active-strategy-info') || null;
         if (sel === '.learned-modal-search') return domNodes.get('learned-modal-search') || null;
         return null;
       },
@@ -88,8 +89,11 @@ function loadUI(mockState = {}) {
   learnedModal.id = 'learned-modal';
   const learnedModalBody = createElement('div');
   learnedModalBody.id = 'learned-modal-body';
+  const activeStrategyInfo = createElement('div');
+  activeStrategyInfo.id = 'active-strategy-info';
   domNodes.set('learned-modal', learnedModal);
   domNodes.set('learned-modal-body', learnedModalBody);
+  domNodes.set('active-strategy-info', activeStrategyInfo);
 
   const stratPickerModal = createElement('div');
   stratPickerModal.id = 'strat-picker-modal';
@@ -103,6 +107,7 @@ function loadUI(mockState = {}) {
     if (sel === '#strat-picker-body') return stratPickerBody;
     if (sel === '#learned-modal') return learnedModal;
     if (sel === '#strat-picker-modal') return stratPickerModal;
+    if (sel === '#active-strategy-info') return activeStrategyInfo;
     return null;
   };
 
@@ -184,6 +189,34 @@ test('TEST P: UI with live discord_udp renders active card and picker with 6 var
   assert.match(bodyHtml, /data-action="openStratPicker"[^>]*data-key="discord_udp"[^>]*data-host="nohost"/, 'Must have strategy picker button with live key');
   assert.match(bodyHtml, /data-action="toggleStateFreeze"[^>]*data-key="discord_udp"[^>]*data-host="nohost"/, 'Must have freeze toggle button');
   assert.match(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_udp"/, 'Must have reset button');
+});
+
+test('UI: active Discord projects canonical source and owning Strategy', () => {
+  const Model = loadModel();
+  const data = activeDiscordData();
+  const { ui, domNodes } = loadUI({
+    data,
+    learned: { entries: [], count: 0 },
+    pools: { discord_udp: { key: 'discord_udp', protocol: 'STUN', size: 6, strategies: [] } }
+  });
+  const active = Model.normalize({
+    id: 'z2k:all-in-one',
+    name: 'z2k всё-в-одном',
+    origin: 'avatar_builtin',
+    sourceId: 'z2k',
+    profiles: [{ id: 'discord', name: 'Discord', args: '--filter-udp=50000-50100 --filter-l7=discord,stun --lua-desync=circular:key=discord_udp' }]
+  }, data.status.value, 'z2k:all-in-one');
+  active.current = true;
+  active.applied = true;
+  ui.state.rows = [active];
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Активно|Автоподбор/i, 'Active Discord card must show a live status');
+  assert.match(bodyHtml, /Источник:\s*<b>Z2K<\/b>/i, 'Active Discord card must show canonical source');
+  assert.match(bodyHtml, /Стратегия:\s*<b>z2k всё-в-одном<\/b>/i, 'Active Discord card must show owning Strategy');
+  assert.doesNotMatch(bodyHtml, /Включить Discord/i, 'Active Discord card must not offer enable action');
 });
 
 test('UI: renderLearnedModal renders Discord Voice card with frozen state (#4, Зафиксировано)', () => {

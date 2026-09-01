@@ -778,7 +778,7 @@ function backup_create_method(req) { return cli_edit_action(BACKUP_CLI, 'create'
 // orchestra method wrappers (after cli_action — ucode does not hoist)
 function orchestra_capabilities_method(req) { return cli_action(ORCH_CLI, 'capabilities'); }
 function discord_profile_preview_method(req) { return cli_action(DISCORD_CLI, 'preview'); }
-function discord_profile_apply_method(req) { return cli_edit_action(DISCORD_CLI, 'apply', req, 'discord-profile'); }
+function discord_profile_apply_method(req) { return { ok: false, error: { code: 'EDEPRECATED', message: 'Discord must be enabled through the canonical Strategy lifecycle.' } }; }
 function discord_profile_rollback_method(req) { return cli_action(DISCORD_CLI, 'rollback'); }
 function discord_profile_restore_previous_method(req) { return cli_action(DISCORD_CLI, 'restore_previous'); }
 function orchestra_status_method(req) { return cli_action(ORCH_CLI, 'status'); }
@@ -1094,12 +1094,12 @@ function strategy_edit_action(mode, req) {
 
 function strategy_noarg_action(mode) { return strategy_edit_action(mode, { edit: '{}' }); }
 function strategy_read_input(mode, req) {
-	if (mode != 'get') return {};
+	if (mode != 'get' && mode != 'discord_donor') return {};
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
 	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
 	if (type(edit) != 'string' || length(edit) > STRATEGY_MAX_REQUEST_BYTES)
-		return { ok: false, error: { code: 'EINPUT', message: 'missing or oversized Strategy read request' } };
+		return mode == 'discord_donor' && edit == null ? {} : { ok: false, error: { code: 'EINPUT', message: 'missing or oversized Strategy read request' } };
 	let value = null;
 	try { value = json(edit); } catch (e) { return { ok: false, error: { code: 'EINPUT', message: 'Strategy read request is malformed' } }; }
 	return value != null && type(value) == 'object' && value.args != null ? value.args : value;
@@ -1448,7 +1448,7 @@ return {
 		strategies_list:   { call: function (req) { return strategies_list_method(req); } },
 		strategies_recommendations: { call: function (req) { return strategies_recommendations_method(req); } },
 		strategies_get:    { args: { edit: 'string' }, call: function (req) { return strategies_get_method(req); } },
-		strategies_discord_donor: { call: function (req) { return strategies_discord_donor_method(req); } },
+		strategies_discord_donor: { args: { edit: 'string' }, call: function (req) { return strategies_discord_donor_method(req); } },
 		strategies_create: { args: { edit: 'string' }, call: function (req) { return strategies_create_method(req); } },
 		strategies_update: { args: { edit: 'string' }, call: function (req) { return strategies_update_method(req); } },
 		strategies_delete: { args: { edit: 'string' }, call: function (req) { return strategies_delete_method(req); } },

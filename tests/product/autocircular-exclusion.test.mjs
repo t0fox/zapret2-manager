@@ -12,6 +12,7 @@ const persistPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-man
 const policyPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2m-autocircular-policy.lua');
 const donorPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile.uc');
 const cliPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const legacyCliPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc');
 const apiPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 
 function loadModel() {
@@ -122,22 +123,30 @@ test('Lua persistence contract recognizes excluded as a user mode and has a per-
 test('Discord enable uses the donor and normal Strategy lifecycle', () => {
   const donor = fs.readFileSync(donorPath, 'utf8');
   const cli = fs.readFileSync(cliPath, 'utf8');
+  const legacyCli = fs.readFileSync(legacyCliPath, 'utf8');
   const api = fs.readFileSync(apiPath, 'utf8');
   assert.match(donor, /export const discord_autocircular_donor/);
   assert.match(donor, /key=discord_udp/);
   assert.match(donor, /hostkey=z2k_nohost_key/);
   assert.match(cli, /mode == 'discord_donor'/);
+  assert.doesNotMatch(legacyCli, /profiles_apply_candidate/);
+  assert.match(legacyCli, /EDEPRECATED/);
   assert.match(api, /strategiesDiscordDonor/);
   const view = fs.readFileSync(viewPath, 'utf8');
   const enable = view.slice(view.indexOf('function enableDiscord'), view.indexOf('function excludeLearned'));
   assert.match(enable, /api\.discordDonor/);
   assert.match(enable, /api\.get/);
+  assert.match(enable, /api\.preview/);
   assert.match(enable, /api\.validate/);
   assert.match(enable, /api\.create/);
   assert.match(enable, /api\.apply/);
   assert.match(enable, /api\.delete/);
   assert.match(enable, /state\.selectedId\s*=\s*created\.id/);
-  assert.doesNotMatch(enable, /api\.preview/);
   assert.doesNotMatch(enable, /changeHash/);
   assert.doesNotMatch(enable, /idempotencyToken/);
+  assert.doesNotMatch(donor, /z2k_all_in_one/);
+  assert.doesNotMatch(donor, /avatar-catalog/);
+  assert.match(donor, /canonicalStrategyId/);
+  assert.match(donor, /sourceSnapshotId/);
+  assert.match(donor, /donorProfileDigest/);
 });

@@ -1133,6 +1133,18 @@ export const strategy_catalog_read_index = function(root) {
 };
 
 export const strategy_catalog_write_read_index = function(root) {
+	// Once the unified generation authority exists, the legacy compact index
+	// must never rewrite the shared active pointer with the old schema. The
+	// legacy CLI remains a bounded fallback for installs where migration could
+	// not complete and no generation pointer is present.
+	if (root == null) {
+		let generation = generation_authority();
+		if (generation != null) {
+			if (!generation.ok) return generation;
+			return { ok: true, digest: generation.index.indexDigest,
+				written: true, generationId: generation.index.generationId };
+		}
+	}
 	let result = load_catalog(root == null ? catalog_root() : root, true);
 	if (!result.ok) return result;
 	let actualRoot = root == null ? catalog_root() : root;

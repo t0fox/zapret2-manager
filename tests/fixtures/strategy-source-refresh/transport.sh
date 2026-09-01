@@ -30,7 +30,9 @@ case "$url" in
 		fi
 		;;
 	*raw.githubusercontent.com/necronicle/z2k/*/strats_new2.txt)
-		if [ "$mode" = "v2" ]; then
+		if [ "$mode" = "z2k-invalid" ]; then
+			printf '%s\n' 'not a valid z2k strategy corpus' > "$out"
+		elif [ "$mode" = "v2" ]; then
 			cp "$root/tests/fixtures/strategy-source-z2k/multi-profile.txt" "$out"
 		else
 			cp "$root/tests/fixtures/strategy-source-z2k/strats_new2.txt" "$out"

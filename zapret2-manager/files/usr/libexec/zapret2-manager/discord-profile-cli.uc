@@ -3,16 +3,10 @@
 
 import { readfile, writefile, stat, popen, mkdir, unlink } from 'fs';
 import { discord_preview, discord_apply, discord_rollback, discord_restore_previous } from './discord-profile.uc';
-import { read_var, set_var, restore_whole_file } from './apply.uc';
-import { PATHS } from './constants.uc';
 import { z2m_tokenize } from './profiles.uc';
-import { profiles_apply_candidate } from './profiles-apply.uc';
 
 const COMBOS = '/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json';
 const NFQWS2 = '/opt/zapret2/nfq2/nfqws2';
-const UPSTREAM_INIT = '/etc/init.d/zapret2';
-const LASTGOOD_CONFIG = '/tmp/zapret2-manager/last-good/config';
-const JOURNAL = '/tmp/zapret2-manager/flowseal-combo-operation.json';
 const STRATEGY_STATE = '/etc/zapret2-manager/orchestra-strategy-state.json';
 const OVERRIDES = '/etc/zapret2-manager/orchestra-overrides.json';
 const EXCLUDE_HOSTLIST = '/opt/zapret2/ipset/zapret-hosts-user-exclude.txt';
@@ -30,7 +24,6 @@ const BLOBS = [
 function request(path) { try { let x = json(readfile(path)); return x.args || x; } catch (e) { return {}; } }
 function run(cmd) { let p = popen(cmd + ' 2>&1', 'r'); if (!p) return { out: '', rc: -1 }; let out = p.read('all') || ''; return { out: out, rc: p.close() }; }
 function shell_escape(s) { let out = "'"; for (let i = 0; i < length(s); i++) { let c = substr(s, i, 1); out += c == "'" ? "'\\''" : c; } return out + "'"; }
-function upstream_action(action) { return run('sh /etc/rc.common ' + shell_escape(UPSTREAM_INIT) + ' ' + shell_escape(action)); }
 function sha_text(text, path) { writefile(path, text); let r = run("sha256sum " + path + " | awk '{print $1}'"); return trim(r.out || ''); }
 function join_tokens(a) { let out = ''; for (let i = 0; i < length(a); i++) { if (!length(a[i] || '')) continue; if (length(out)) out += ' '; out += a[i]; } return out; }
 function append_all(a, b) { for (let x in b || []) push(a, x); return a; }
@@ -142,21 +135,8 @@ function all_candidates(input) {
 	}
 	return { ok: true, schema: loaded.doc.schema, source: loaded.doc.source, capture: loaded.doc.capture, candidates: out };
 }
-function restore_original(original) { let restored=restore_whole_file(PATHS.applied_conf,original),r=upstream_action('restart');return{ok:restored!=null&&r.rc==0,restored:restored!=null,restartRc:r.rc}; }
 function combo_apply(req) {
-	let state = strategy_state(); if (req.idempotencyToken && state.lastToken == req.idempotencyToken && state.lastResult) return state.lastResult;
-	let found=find_candidate(req.candidateId,true);if(!found.ok)return{ok:false,stage:'catalog',error:found.error};let c=found.candidate;
-	if(req.expectedDigest!=null&&req.expectedDigest!=c.digest)return{ok:false,stage:'catalog',error:'candidate digest changed',expected:req.expectedDigest,actual:c.digest};
-	let preflight=candidate_preflight(c,req,true);if(!preflight.ok)return{ok:false,stage:'preflight',applicable:false,error:{code:preflight.validationCode,message:preflight.validationMessage},requiredFiles:preflight.requiredFiles||null,native:preflight.native||null};
-	let files=preflight.requiredFiles,native=preflight.native;
-	let original=readfile(PATHS.applied_conf);if(original==null)return{ok:false,stage:'snapshot',error:'applied config unavailable'};let candidateSha256=sha_text(c.opt,'/tmp/z2m-flowseal-candidate.sha');
-	if(set_var('NFQWS2_PORTS_TCP',c.tcpPorts)==null||read_var('NFQWS2_PORTS_TCP')!=c.tcpPorts){let rb=restore_original(original);return{ok:false,stage:'write-tcp',rolledBack:rb.ok,rollback:rb};}
-	if(set_var('NFQWS2_PORTS_UDP',c.udpPorts)==null||read_var('NFQWS2_PORTS_UDP')!=c.udpPorts){let rb=restore_original(original);return{ok:false,stage:'write-udp',rolledBack:rb.ok,rollback:rb};}
-	let applied=profiles_apply_candidate(c.opt,candidateSha256);if(!applied.ok){let rb=restore_original(original);return{ok:false,stage:'apply',operation:applied,rolledBack:rb.ok,rollback:rb};}
-	try{mkdir('/tmp/zapret2-manager/last-good');writefile(LASTGOOD_CONFIG,original);}catch(e){let rb=restore_original(original);return{ok:false,stage:'snapshot-finalize',rolledBack:rb.ok,rollback:rb};}
-	let operationId='flowseal-op-'+time()+'-'+substr(candidateSha256,0,12),result={ok:true,operationId:operationId,candidate:{managerId:c.managerId,name:c.name,digest:c.digest,composedDigest:c.composedDigest,tcpPorts:c.tcpPorts,udpPorts:c.udpPorts,profileCount:c.profileCount,overrideCount:c.overrideCount,source:c.source},native:native,requiredFiles:files,operation:applied,rollbackAvailable:true};
-	try{writefile(JOURNAL,sprintf('%J',{operationId:operationId,candidateId:c.managerId,digest:c.digest,status:'applied',appliedAt:time()})+'\n');}catch(e){}
-	state.previous=state.active;state.active={candidateId:c.managerId,name:c.name,digest:c.digest,composedDigest:c.composedDigest,appliedAt:time(),operationId:operationId,overrideRevision:overrides_state().revision};state.lastToken=req.idempotencyToken||null;state.lastResult=result;atomic_json(STRATEGY_STATE,state);return result;
+	return { ok: false, error: { code: 'EDEPRECATED', message: 'Discord must be enabled through the canonical Strategy lifecycle.' } };
 }
 function override_list() { let x=overrides_state(); return {ok:true,schema:x.schema,revision:x.revision,rules:x.rules}; }
 function reapply_after_override(req, oldState, nextState) {

@@ -22,6 +22,15 @@ function copy(value) {
 	try { return json(sprintf('%J', value)); } catch (e) { return null; }
 }
 function canonical_id(upstreamId) { return 'avatar:' + upstreamId; }
+function discord_capability(strategy) {
+	for (let profile in strategy && strategy.profiles || []) {
+		let args = profile && profile.args || '';
+		if (index(args, 'key=discord_udp') >= 0 && index(args, 'hostkey=z2k_nohost_key') >= 0
+			&& index(args, '--filter-udp=') >= 0 && index(args, '--filter-l7=discord') >= 0
+			&& index(args, '--lua-desync=circular') >= 0) return true;
+	}
+	return false;
+}
 
 export const strategy_source_avatar_info = function() {
 	return { sourceId: SOURCE_ID, canonicalPrefix: 'avatar:', repository: REPOSITORY };
@@ -49,7 +58,7 @@ function normalize_entry(entry, snapshot) {
 	out.description = strategy.description;
 	out.profiles = strategy.profiles;
 	out.capabilities = { autocircular: strategy.circular == true || strategy.isCircular == true,
-		discordUdp: false, protocols: [out.protocol == 'udp' ? 'udp' : 'tcp'] };
+		discordUdp: discord_capability(strategy), protocols: [out.protocol == 'udp' ? 'udp' : 'tcp'] };
 	out.requirements = { engine: 'nfqws2' };
 	out.provenance = {
 		repository: REPOSITORY,

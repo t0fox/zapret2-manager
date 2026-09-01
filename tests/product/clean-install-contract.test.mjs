@@ -8,8 +8,9 @@ import path from 'node:path';
 //
 // The Manager APK must leave a freshly installed router in a verified running
 // state WITHOUT reboot:
-//   persistent bootstrap -> strategy state seed -> compact catalog index
-//   (idempotent, written-checked, never silently swallowed) -> rpcd reload ->
+//   persistent bootstrap -> strategy state seed -> source-generation migration
+//   -> legacy compact catalog index fallback (idempotent, written-checked,
+//   never silently swallowed) -> rpcd reload ->
 //   enable AND start -> procd/helperd/socket evidence -> bounded status_fast proof.
 //
 // This is a static source contract test: it parses the actual postinst recipe
@@ -58,6 +59,11 @@ test('manager postinst builds the catalog index idempotently without pre-deletio
   assert.match(body, /written/, 'CLI output written flag must be checked (ok:true+written:false is failure)');
   assert.doesNotMatch(body, /index-cli\.uc[^\n]*\|\|[[:space:]]*true/,
     'swallowing index build failure with || true is forbidden');
+  assertOrder(body, [
+    ['source-generation migration', 'strategy-catalog-migration-cli.uc'],
+    ['legacy index fallback', 'strategy-catalog-index-cli.uc'],
+  ]);
+  assert.match(body, /migration-required/, 'migration failure must remain explicitly observable');
 });
 
 test('manager postinst enables AND starts the service with runtime verification', () => {

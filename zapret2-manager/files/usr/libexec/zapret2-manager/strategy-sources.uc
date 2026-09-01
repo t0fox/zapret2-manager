@@ -228,6 +228,10 @@ export const strategy_source_install_verified_snapshot = function(id, prepared) 
 	if (!valid_snapshot(id, snapshot)) return error('EVERIFY', 'Prepared source snapshot failed immutable identity validation');
 	let state = load_state(id);
 	if (!state.ok) return state;
+	// Deterministic failure seam for native/product tests only. It is gated by
+	// the existing test contract and is not exposed through RPC or UI.
+	if (getenv('Z2M_STRATEGY_SOURCE_TEST') == '1' && getenv('Z2M_STRATEGY_SOURCE_INSTALL_FAIL') == id)
+		return error('EWRITE', 'Injected source snapshot installation failure', id);
 	let path = snapshot_path(id, snapshot.snapshotId);
 	if (!atomic_write(path, sprintf('%J', snapshot))) return error('EIO', 'Verified source snapshot could not be stored');
 	let next = copy(state.state);

@@ -54,6 +54,25 @@ test('Avatar refresh validates accepted metadata and preserves the complete loca
   assert.equal(result.snapshot.immutable, true);
 });
 
+test('Avatar fetch and verification failures fail closed before a source snapshot exists', () => {
+  const fetchRoot = sandbox('avatar-fetch-fail');
+  const fetchFailed = invoke(fetchRoot, 'strategy_source_refresh', ['avatar'], { Z2M_FIXTURE_MODE: 'avatar-error' });
+  assert.equal(fetchFailed.ok, false, JSON.stringify(fetchFailed));
+  assert.equal(fetchFailed.error.code, 'ENETWORK');
+  assert.equal(invoke(fetchRoot, 'strategy_source_current_snapshot', ['avatar']).snapshot, null);
+
+  const verifyRoot = sandbox('avatar-verify-fail');
+  const corrupted = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-avatar-refresh-corrupt-'));
+  fs.cpSync(path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar'), corrupted, { recursive: true });
+  fs.appendFileSync(path.join(corrupted, 'advanced/http80_blockcheckw.txt'), '\n# invalid refresh evidence\n');
+  const verifyFailed = invoke(verifyRoot, 'strategy_source_refresh', ['avatar'], {
+    Z2M_FIXTURE_MODE: 'ok', Z2M_STRATEGY_AVATAR_PACKAGE_ROOT: corrupted,
+  });
+  assert.equal(verifyFailed.ok, false, JSON.stringify(verifyFailed));
+  assert.equal(verifyFailed.error.code, 'EDIGEST');
+  assert.equal(invoke(verifyRoot, 'strategy_source_current_snapshot', ['avatar']).snapshot, null);
+});
+
 test('Z2K refresh binds exact revision and raw content to a verified immutable snapshot', () => {
   const root = sandbox('z2k');
   const result = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'ok' });
@@ -63,6 +82,24 @@ test('Z2K refresh binds exact revision and raw content to a verified immutable s
   assert.equal(result.snapshot.sourcePath, 'strats_new2.txt');
   assert.match(result.snapshot.contentDigest, /^[0-9a-f]{64}$/);
   assert.ok(result.snapshot.entries.length >= 3);
+});
+
+test('Z2K verification and snapshot installation failures preserve the prior LKG', () => {
+  const verifyRoot = sandbox('z2k-verify-fail');
+  const verifyFailed = invoke(verifyRoot, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'z2k-invalid' });
+  assert.equal(verifyFailed.ok, false, JSON.stringify(verifyFailed));
+  assert.equal(verifyFailed.error.code, 'EVERIFY');
+
+  const installRoot = sandbox('z2k-install-fail');
+  const first = invoke(installRoot, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'ok' });
+  assert.equal(first.ok, true, JSON.stringify(first));
+  const failed = invoke(installRoot, 'strategy_source_refresh', ['z2k'], {
+    Z2M_FIXTURE_MODE: 'v2', Z2M_STRATEGY_SOURCE_TEST: '1', Z2M_STRATEGY_SOURCE_INSTALL_FAIL: 'z2k',
+  });
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  assert.equal(failed.error.code, 'EWRITE');
+  const current = invoke(installRoot, 'strategy_source_current_snapshot', ['z2k']);
+  assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
 });
 
 test('refresh failure keeps the previous LKG and source reads remain network-free', () => {

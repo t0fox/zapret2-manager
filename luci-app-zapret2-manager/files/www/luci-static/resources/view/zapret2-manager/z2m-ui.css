@@ -935,6 +935,8 @@
 #z2m-view-strategy .active-strategy-name { font-size:15px; }
 #z2m-view-strategy .active-strategy-meta { gap:8px; margin-top:7px; }
 #z2m-view-strategy .active-strategy-meta .badge { padding:2px 8px; font-size:11px; line-height:18px; }
+#z2m-view-strategy .active-strategy-projection { display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:7px; color:var(--tx3); font-size:11px; }
+#z2m-view-strategy .active-strategy-projection span { min-width:0; overflow-wrap:anywhere; }
 
 /* P03-V FINDING-003: restore donor-like card hierarchy and turn LuCI
  * controls into quiet, readable list controls. */
@@ -1505,6 +1507,15 @@
   padding-top: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+.discord-voice-projection {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--tx3, #94a3b8);
+  font-size: 12px;
+}
+.discord-voice-projection b { color: var(--tx2, #cbd5e1); font-weight: 600; }
 .discord-voice-strat {
   display: flex;
   flex-direction: column;
@@ -1653,6 +1664,15 @@
 .z2m-view#z2m-view-strategy .strategy-source-badge.source-avatar { border-color:rgba(75,159,213,.45); color:var(--blue); }
 .z2m-view#z2m-view-strategy .strategy-source-badge.source-z2k { border-color:rgba(93,185,132,.45); color:var(--green); }
 .z2m-view#z2m-view-strategy .strategy-source-badge.source-user { border-color:rgba(214,164,82,.45); color:var(--orange); }
+.z2m-view#z2m-view-strategy .strategy-donor-filters { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0 12px; }
+.z2m-view#z2m-view-strategy .strategy-donor-list { display:grid; gap:8px; max-height:52vh; overflow:auto; overscroll-behavior:contain; }
+.z2m-view#z2m-view-strategy .strategy-donor-option { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; padding:12px 14px; border:1px solid var(--border2); border-radius:8px; background:var(--raised); color:var(--tx); text-align:left; cursor:pointer; font:inherit; }
+.z2m-view#z2m-view-strategy .strategy-donor-option:hover:not(:disabled) { border-color:var(--blue); background:rgba(75,159,213,.08); }
+.z2m-view#z2m-view-strategy .strategy-donor-option:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.z2m-view#z2m-view-strategy .strategy-donor-option:disabled { cursor:not-allowed; opacity:.55; }
+.z2m-view#z2m-view-strategy .strategy-donor-option-main { display:grid; gap:3px; min-width:0; }
+.z2m-view#z2m-view-strategy .strategy-donor-option-main>span { color:var(--tx3); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.z2m-view#z2m-view-strategy .strategy-donor-option-meta { flex:none; color:var(--green); font-size:12px; }
 .z2m-view#z2m-view-strategy .strategy-meta-badge,
 .z2m-view#z2m-view-strategy .strategy-source {
   display:inline-flex;

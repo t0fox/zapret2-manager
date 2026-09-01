@@ -8,6 +8,7 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
+const CATALOG_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
@@ -16,7 +17,11 @@ const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] :
 const rootFor = (label) => `/tmp/z2m-strategy-generation-${process.pid}-${label}-${Date.now()}`;
 
 function invoke(functionName, args = [], root, extraEnv = {}) {
-  const source = `import * as mod from ${JSON.stringify(MODULE)}; print(sprintf('%J', mod.${functionName}(${args.map(JSON.stringify).join(', ')})));`;
+  return invokeModule(MODULE, functionName, args, root, extraEnv);
+}
+
+function invokeModule(module, functionName, args = [], root, extraEnv = {}) {
+  const source = `import * as mod from ${JSON.stringify(module)}; print(sprintf('%J', mod.${functionName}(${args.map(JSON.stringify).join(', ')})));`;
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
@@ -100,6 +105,41 @@ test('published generation survives a fresh process read and publication failure
   const after = invoke('strategy_catalog_generation_read', [], root);
   assert.equal(after.ok, true, JSON.stringify(after));
   assert.equal(after.index.generationId, initial.index.generationId);
+});
+
+test('generation, index, and final pointer publication failures leave the old authority readable', () => {
+  for (const phase of ['generation', 'index', 'pointer']) {
+    const root = rootFor(`fail-${phase}`);
+    const first = invoke('strategy_catalog_generation_publish', [{
+      generatedAt: 1788200010, sources: { avatar: source('avatar', 'avatar-old') }, userRevision: 1,
+    }], root);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const failed = invoke('strategy_catalog_generation_publish', [{
+      generatedAt: 1788200011, sources: { z2k: source('z2k', 'z2k-new') }, userRevision: 2,
+    }], root, { Z2M_STRATEGY_GENERATION_FAIL_PHASE: phase });
+    assert.equal(failed.ok, false, `${phase}: ${JSON.stringify(failed)}`);
+    const afterRestart = invoke('strategy_catalog_generation_read', [], root);
+    assert.equal(afterRestart.ok, true, `${phase}: ${JSON.stringify(afterRestart)}`);
+    assert.equal(afterRestart.index.generationId, first.generationId);
+  }
+});
+
+test('legacy index repair becomes a no-op after v3 generation publication', () => {
+  const root = rootFor('legacy-noop');
+  const first = invoke('strategy_catalog_generation_publish', [{
+    generatedAt: 1788200012, sources: { avatar: source('avatar', 'avatar-active') }, userRevision: 1,
+  }], root);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  const repair = invokeModule(CATALOG_MODULE, 'strategy_catalog_write_read_index', [], root, {
+    Z2M_STRATEGY_CATALOG_PACKAGE_ROOT: path.join(ROOT, 'missing-legacy-package'),
+    Z2M_STRATEGY_CATALOG_MANAGED_ROOT: path.join(ROOT, 'missing-legacy-managed'),
+  });
+  assert.equal(repair.ok, true, JSON.stringify(repair));
+  assert.equal(repair.written, true);
+  assert.equal(repair.generationId, first.generationId);
+  const after = invoke('strategy_catalog_generation_read', [], root);
+  assert.equal(after.ok, true, JSON.stringify(after));
+  assert.equal(after.index.generationId, first.generationId);
 });
 
 test('generation build failure leaves the previous active generation untouched', () => {

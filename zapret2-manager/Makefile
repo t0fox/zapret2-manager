@@ -95,10 +95,10 @@ define Package/zapret2-manager/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
 # Clean-install lifecycle (no reboot): persistent roots, then strategy state,
-# then compact catalog read index, then rpcd reload, then enable AND start,
-# then runtime evidence. Load-bearing steps must fail loudly; only the index
-# build degrades to an explicit repair marker because the Manager itself has
-# to come up.
+# then one-way source-generation migration, then the legacy compact catalog
+# fallback if migration cannot complete, then rpcd reload, enable AND start,
+# then runtime evidence. Migration failures remain visible and never replace
+# the verified legacy authority with a partial generation.
 /usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
 if [ ! -e /etc/zapret2-manager/strategies ] && [ ! -L /etc/zapret2-manager/strategies ]; then
   install -d -o root -g root -m 0700 /etc/zapret2-manager/strategies || exit $$?
@@ -108,13 +108,27 @@ if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-mana
     | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/strategy-state.json || exit $$?
 fi
 rm -f /etc/zapret2-manager/catalog/repair-required
+migration_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-migration-cli.uc 2>/dev/null)"
+migration_ok=0
+case "$$migration_out" in
+  *'"ok": true'*|*'"ok":true'*) migration_ok=1; rm -f /etc/zapret2-manager/catalog/migration-required ;;
+  *)
+    mkdir -p /etc/zapret2-manager/catalog
+    : > /etc/zapret2-manager/catalog/migration-required
+    logger -t zapret2-manager -p daemon.err "strategy catalog source migration unavailable; retaining verified legacy catalog"
+    ;;
+esac
 index_ok=0
-for attempt in 1 2; do
-  index_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-index-cli.uc 2>/dev/null)"
-  case "$$index_out" in
-    *'"written": true'*|*'"written":true'*) index_ok=1; break ;;
-  esac
-done
+if [ "$$migration_ok" -eq 1 ]; then
+  index_ok=1
+else
+  for attempt in 1 2; do
+    index_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-index-cli.uc 2>/dev/null)"
+    case "$$index_out" in
+      *'"written": true'*|*'"written":true'*) index_ok=1; break ;;
+    esac
+  done
+fi
 if [ "$$index_ok" -ne 1 ]; then
   mkdir -p /etc/zapret2-manager/catalog
   : > /etc/zapret2-manager/catalog/repair-required

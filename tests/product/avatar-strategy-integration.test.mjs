@@ -17,6 +17,9 @@ const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/s
 const RPC_PRODUCT_STUB_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-integration-products-'));
 const DNS_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'dns-product.uc');
 const TG_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'tg-product.uc');
+const CATALOG_REFRESH_PATH = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc');
+const SOURCE_REFRESH_PATH = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
+const SOURCES_PATH = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
 const stubProductModule = names => names.map(name => `export const ${name} = function () { return { ok: true }; };`).join('\n') + '\n';
 fs.writeFileSync(DNS_PRODUCT_PATH, stubProductModule([
   'dns_product_get', 'dns_product_providers', 'dns_product_status', 'dns_product_preview',
@@ -350,6 +353,12 @@ function rpcSignatureSource(method, request) {
   return read(RPC)
     .replace("import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';",
       `import { strategy_cli_dispatch } from ${JSON.stringify(CLI)};`)
+    .replace("from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';",
+      `from ${JSON.stringify(CATALOG_REFRESH_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/strategy-source-refresh.uc';",
+      `from ${JSON.stringify(SOURCE_REFRESH_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/strategy-sources.uc';",
+      `from ${JSON.stringify(SOURCES_PATH)};`)
     .replace("from '/usr/libexec/zapret2-manager/dns-product.uc';",
       `from ${JSON.stringify(DNS_PRODUCT_PATH)};`)
     .replace("from '/usr/libexec/zapret2-manager/tg-product.uc';",

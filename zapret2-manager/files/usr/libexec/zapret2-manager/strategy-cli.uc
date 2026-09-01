@@ -836,8 +836,13 @@ export const strategy_apply = function(input, context) {
 	if (applied.ok != true) {
 		return strategy_apply_finish(applied, begun.operationNonce, projection);
 	}
+	// Return the exact identity projection committed by the transaction state
+	// writer.  Keeping this response identical to persisted `selected` avoids
+	// making callers reconstruct source provenance from a second authority.
 	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: input.revision,
-		candidateSha256: candidate.digest };
+		candidateSha256: candidate.digest, canonicalStrategyId: projection.selected.canonicalStrategyId,
+		sourceId: projection.selected.sourceId, sourceSnapshotId: projection.selected.sourceSnapshotId,
+		sourceCommit: projection.selected.sourceCommit, strategyDigest: projection.selected.strategyDigest };
 	return strategy_apply_finish(applied, begun.operationNonce, projection);
 };
 
@@ -1208,8 +1213,11 @@ function strategy_catalog_reload_request() {
 	catch (e) { return error_result('EVERIFY', 'verified Avatar catalog reload failed'); }
 }
 
-function strategy_discord_donor_request() {
-	try { return discord_autocircular_donor(); }
+function strategy_discord_donor_request(input) {
+	let filter = is_object(input) ? input.sourceFilter : null;
+	if (filter != null && filter != 'all' && filter != 'avatar' && filter != 'z2k')
+		return error_result('EINPUT', 'Discord donor sourceFilter is invalid');
+	try { return discord_autocircular_donor(filter); }
 	catch (e) { return error_result('EVERIFY', 'verified Discord donor could not be loaded'); }
 }
 
@@ -1262,7 +1270,7 @@ function dispatch_result(mode, input, context, testContext) {
 	if (mode == 'list') return strategy_list();
 	if (mode == 'recommendations') return strategy_recommendations();
 	if (mode == 'get') return strategy_get(input);
-	if (mode == 'discord_donor') return strategy_discord_donor_request();
+	if (mode == 'discord_donor') return strategy_discord_donor_request(input);
 	if (mode == 'create') return strategy_state['strategy_' + 'user_create'](input);
 	if (mode == 'update') return strategy_state['strategy_' + 'user_update'](input);
 	if (mode == 'delete') return strategy_state['strategy_' + 'user_delete'](input);

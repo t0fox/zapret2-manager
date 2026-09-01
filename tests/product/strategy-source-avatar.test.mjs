@@ -58,6 +58,7 @@ test('Avatar entries are namespaced without changing upstream identity or winner
   assert.equal(entry.upstreamId, 'z2k_all_in_one');
   assert.equal(entry.winner, true);
   assert.equal(entry.provenance.repository, 'avatarDD/zapret-gui');
+  assert.equal(entry.capabilities.discordUdp, true, 'Avatar donor discovery must use profile semantics');
 });
 
 test('Avatar adapter rejects foreign provenance instead of inventing Avatar ownership', () => {

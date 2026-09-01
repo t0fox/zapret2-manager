@@ -13,6 +13,12 @@ const RPC = readFileSync(path.join(ROOT,
   'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
 const CLI_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const CATALOG_REFRESH_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc');
+const SOURCE_REFRESH_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
+const SOURCES_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
 // This test exercises the strategy RPC wrapper.  The real product facades are
 // intentionally not loaded here: they pull OpenWrt-only modules such as
 // `uci`, while the pinned CI ucode runtime is a host-side test interpreter.
@@ -101,6 +107,12 @@ function rpcSignatureSource(method, request) {
       `const STRATEGY_CLI = ${JSON.stringify(CLI_PATH)};`)
     .replace("import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';",
       `import { strategy_cli_dispatch } from ${JSON.stringify(CLI_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';",
+      `from ${JSON.stringify(CATALOG_REFRESH_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/strategy-source-refresh.uc';",
+      `from ${JSON.stringify(SOURCE_REFRESH_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/strategy-sources.uc';",
+      `from ${JSON.stringify(SOURCES_PATH)};`)
     .replace("from '/usr/libexec/zapret2-manager/dns-product.uc';",
       `from ${JSON.stringify(DNS_PRODUCT_PATH)};`)
     .replace("from '/usr/libexec/zapret2-manager/tg-product.uc';",
