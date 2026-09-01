@@ -16,8 +16,8 @@ const AVATAR_REPOSITORY = 'avatarDD/zapret-gui';
 const Z2K_REPOSITORY = 'necronicle/z2k';
 const AVATAR_METADATA_URL = 'https://api.github.com/repos/avatarDD/zapret-gui/commits?path=catalogs/manifest.json&per_page=1';
 const Z2K_METADATA_URL = 'https://api.github.com/repos/necronicle/z2k/commits?path=strats_new2.txt&per_page=1';
-const AVATAR_PACKAGE_ROOT = getenv('Z2M_STRATEGY_AVATAR_PACKAGE_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
 const MAX_CONTENT = 4 * 1024 * 1024;
+const MAX_ARCHIVE = 16 * 1024 * 1024;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -83,7 +83,7 @@ function content_digest(value) {
 	let digest = trim(result.output);
 	return result.rc == 0 && valid_digest(digest) ? digest : null;
 }
-function fetch_exact(url) {
+function fetch_file(url) {
 	if (!string(url) || !match(url, /^https:\/\//)) return error('EINPUT', 'Source content URL is invalid');
 	let file = private_tempfile();
 	if (file == null) return error('EIO', 'Private source staging is unavailable');
@@ -92,12 +92,54 @@ function fetch_exact(url) {
 		result = run('sh ' + quote(transport) + ' ' + quote(url) + ' ' + quote(file));
 	else
 		result = run('uclient-fetch -q -T 30 -O ' + quote(file) + ' ' + quote(url));
-	let info = null, raw = null;
-	try { info = stat(file); raw = info != null && info.type == 'file' && info.size >= 1 && info.size <= MAX_CONTENT ? readfile(file) : null; }
-	catch (e) { raw = null; }
-	try { unlink(file); } catch (e) { }
-	if (result.rc != 0 || !string(raw)) return error('ENETWORK', 'Exact source content is unavailable');
+	let info = null;
+	try { info = stat(file); } catch (e) { info = null; }
+	if (result.rc != 0 || info == null || info.type != 'file' || info.size < 1 || info.size > MAX_ARCHIVE)
+		{ try { unlink(file); } catch (e) { } return error('ENETWORK', 'Exact source content is unavailable'); }
+	return { ok: true, path: file, size: info.size };
+}
+function fetch_exact(url) {
+	let fetched = fetch_file(url);
+	if (!fetched.ok) return fetched;
+	let raw = null;
+	try { raw = fetched.size <= MAX_CONTENT ? readfile(fetched.path) : null; } catch (e) { raw = null; }
+	try { unlink(fetched.path); } catch (e) { }
+	if (!string(raw)) return error('ENETWORK', 'Exact source content is unavailable');
 	return { ok: true, content: raw, contentDigest: content_digest(raw) };
+}
+function cleanup_staging(path) {
+	if (!string(path) || !match(path, /^\/tmp\/z2m-avatar-refresh\.[A-Za-z0-9]+$/)) return;
+	run('rm -rf ' + quote(path));
+}
+function extract_avatar_archive(archive) {
+	if (!object(archive) || !string(archive.path)) return error('EINPUT', 'Avatar source archive is missing');
+	let staging = run('umask 077; mktemp -d /tmp/z2m-avatar-refresh.XXXXXX');
+	let root = trim(staging.output || '');
+	if (staging.rc != 0 || !match(root, /^\/tmp\/z2m-avatar-refresh\.[A-Za-z0-9]+$/))
+		return error('EIO', 'Avatar source extraction staging is unavailable');
+	let listed = run('tar -tzf ' + quote(archive.path));
+	if (listed.rc != 0) { cleanup_staging(root); return error('EVERIFY', 'Avatar source archive is malformed'); }
+	for (let item in split(listed.output || '', '\n')) {
+		item = trim(item);
+		if (item == '') continue;
+		if (substr(item, 0, 1) == '/' || index(item, '../') >= 0 || index(item, '/..') >= 0
+			|| item == '..' || index(item, '\\') >= 0) {
+			cleanup_staging(root);
+			return error('EVERIFY', 'Avatar source archive contains an unsafe path');
+		}
+	}
+	let extracted = run('tar -xzf ' + quote(archive.path) + ' -C ' + quote(root));
+	try { unlink(archive.path); } catch (e) { }
+	if (extracted.rc != 0) { cleanup_staging(root); return error('EVERIFY', 'Avatar source archive extraction failed'); }
+	let found = run('find ' + quote(root) + ' -type f -path ' + quote('*/catalogs/manifest.json') + ' -print -quit');
+	let manifest = trim(found.output || '');
+	let expectedPrefix = root + '/';
+	if (found.rc != 0 || !string(manifest) || index(manifest, expectedPrefix) != 0) {
+		cleanup_staging(root);
+		return error('EVERIFY', 'Avatar source archive does not contain a complete catalogs tree');
+	}
+	let catalogRoot = substr(manifest, 0, rindex(manifest, '/'));
+	return { ok: true, root: catalogRoot, staging: root };
 }
 function install(id, snapshot) {
 	let result = sources.strategy_source_install_verified_snapshot(id, { verified: true, snapshot: snapshot });
@@ -110,7 +152,13 @@ export const strategy_source_refresh = function(id) {
 	if (!checked.ok) return checked;
 	let sourceCommit = checked.metadata.sourceCommit, prepared, snapshot;
 	if (id == 'avatar') {
-		prepared = avatar_source.strategy_source_avatar_snapshot({ root: AVATAR_PACKAGE_ROOT });
+		let archive = fetch_file('https://github.com/' + AVATAR_REPOSITORY + '/archive/' + sourceCommit + '.tar.gz');
+		if (!archive.ok) return archive;
+		let extracted = extract_avatar_archive(archive);
+		if (!extracted.ok) return extracted;
+		try { prepared = avatar_source.strategy_source_avatar_snapshot({ root: extracted.root }); }
+		catch (e) { prepared = error('EVERIFY', 'Avatar source snapshot verification failed'); }
+		cleanup_staging(extracted.staging);
 		if (!prepared.ok) return error(prepared.error && prepared.error.code || 'EVERIFY', 'Avatar source snapshot verification failed');
 		snapshot = prepared.snapshot;
 		if (snapshot.sourceCommit != sourceCommit)

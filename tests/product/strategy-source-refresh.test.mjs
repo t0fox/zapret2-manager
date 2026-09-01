@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
@@ -14,9 +15,32 @@ const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.spl
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 const TRANSPORT = path.join(ROOT, 'tests/fixtures/strategy-source-refresh/transport.sh');
+const AVATAR_PACKAGE_ROOT = path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 
 function sandbox(label) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `z2m-source-refresh-${label}-`));
+}
+
+function avatarFixture(commit, corrupt = false) {
+  const root = sandbox(`avatar-fixture-${commit.slice(0, 6)}`);
+  fs.cpSync(AVATAR_PACKAGE_ROOT, root, { recursive: true });
+  const relative = 'advanced/http80_blockcheckw.txt';
+  const file = path.join(root, relative);
+  fs.appendFileSync(file, `\n# exact upstream fixture ${commit}\n`);
+  const manifestPath = path.join(root, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.source.commit = commit;
+  if (!corrupt) {
+    const content = fs.readFileSync(file);
+    const item = manifest.files.find(candidate => candidate.path === relative);
+    item.byteSize = content.length;
+    item.sha256 = crypto.createHash('sha256').update(content).digest('hex');
+    const aggregate = manifest.files.slice().sort((left, right) => left.path.localeCompare(right.path))
+      .map(candidate => `${candidate.sha256}  catalogs/${candidate.path}\n`).join('');
+    manifest.aggregateDigest = crypto.createHash('sha256').update(aggregate).digest('hex');
+  }
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  return root;
 }
 
 function invoke(root, functionName, args = [], extraEnv = {}) {
@@ -71,6 +95,54 @@ test('Avatar fetch and verification failures fail closed before a source snapsho
   assert.equal(verifyFailed.ok, false, JSON.stringify(verifyFailed));
   assert.equal(verifyFailed.error.code, 'EDIGEST');
   assert.equal(invoke(verifyRoot, 'strategy_source_current_snapshot', ['avatar']).snapshot, null);
+});
+
+test('Avatar refresh acquires the complete exact upstream revision instead of reusing the package baseline', () => {
+  const root = sandbox('avatar-exact');
+  const first = invoke(root, 'strategy_source_refresh', ['avatar'], { Z2M_FIXTURE_MODE: 'ok' });
+  const nextCommit = '1111111111111111111111111111111111111111';
+  const fixture = avatarFixture(nextCommit);
+  const refreshed = invoke(root, 'strategy_source_refresh', ['avatar'], {
+    Z2M_FIXTURE_MODE: 'avatar-v2', Z2M_AVATAR_FIXTURE_ROOT: fixture,
+  });
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(refreshed.ok, true, JSON.stringify(refreshed));
+  assert.equal(refreshed.snapshot.sourceCommit, nextCommit);
+  assert.notEqual(refreshed.snapshot.snapshotId, first.snapshot.snapshotId);
+});
+
+test('Avatar mismatched content fails closed and retains the prior LKG', () => {
+  const root = sandbox('avatar-mismatch-lkg');
+  const first = invoke(root, 'strategy_source_refresh', ['avatar'], { Z2M_FIXTURE_MODE: 'ok' });
+  const nextCommit = '2222222222222222222222222222222222222222';
+  const fixture = avatarFixture(nextCommit, true);
+  const failed = invoke(root, 'strategy_source_refresh', ['avatar'], {
+    Z2M_FIXTURE_MODE: 'avatar-corrupt', Z2M_AVATAR_FIXTURE_ROOT: fixture,
+  });
+  const current = invoke(root, 'strategy_source_current_snapshot', ['avatar']);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
+});
+
+test('Avatar network failure retains the prior LKG', () => {
+  const root = sandbox('avatar-network-lkg');
+  const first = invoke(root, 'strategy_source_refresh', ['avatar'], { Z2M_FIXTURE_MODE: 'ok' });
+  const failed = invoke(root, 'strategy_source_refresh', ['avatar'], { Z2M_FIXTURE_MODE: 'avatar-error' });
+  const current = invoke(root, 'strategy_source_current_snapshot', ['avatar']);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
+});
+
+test('Avatar source reads stay network-free after a verified snapshot exists', () => {
+  const root = sandbox('avatar-read-no-network');
+  const first = invoke(root, 'strategy_source_refresh', ['avatar'], { Z2M_FIXTURE_MODE: 'ok' });
+  const current = invoke(root, 'strategy_source_current_snapshot', ['avatar'], { Z2M_FIXTURE_MODE: 'error' });
+  const listed = invoke(root, 'strategy_source_get', ['avatar'], { Z2M_FIXTURE_MODE: 'error' });
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
+  assert.equal(listed.source.currentSnapshotId, first.snapshot.snapshotId);
 });
 
 test('Z2K refresh binds exact revision and raw content to a verified immutable snapshot', () => {

@@ -540,11 +540,13 @@ function resolve_strategy(input, currentCatalog) {
 		if (input.revision != 0) return error_result('ECONFLICT', 'catalog Strategy revision is stale');
 		let strategy = catalog_entry_to_strategy(entry);
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
-		strategy.origin = 'avatar_builtin';
 		let sourceId = strategy.sourceId || (starts_with(input.strategy_id, 'z2k:') ? 'z2k' : 'avatar');
+		strategy.sourceId = sourceId;
+		let sourceOrigin = sourceId == 'z2k' ? 'z2k_builtin' : 'avatar_builtin';
+		strategy.origin = sourceOrigin;
 		let sourceSnapshotId = strategy.sourceSnapshotId || sourceId + '-' + currentCatalog.aggregateDigest;
 		let sourceCommit = strategy.sourceCommit || currentCatalog.source && (currentCatalog.source.sourceCommit || currentCatalog.source.commit) || null;
-		return { ok: true, strategy: strategy, id: input.strategy_id, origin: 'avatar_builtin',
+		return { ok: true, strategy: strategy, id: input.strategy_id, origin: sourceOrigin,
 			sourceId: sourceId, canonicalStrategyId: strategy.canonicalId || input.strategy_id,
 			sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit };
 	}
@@ -1054,7 +1056,16 @@ function catalog_strategy(entry) {
 	if (is_object(entry) && entry.indexEntry == true) strategy = entry;
 	else try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
 	if (!is_object(strategy)) return null;
-	strategy.origin = 'avatar_builtin';
+	let sourceId = strategy.sourceId || 'avatar';
+	strategy.sourceId = sourceId;
+	if (sourceId == 'user') {
+		// User entries may be embedded in the active generation. Preserve their
+		// mutable identity instead of projecting every generation row as Avatar.
+		strategy.origin = 'user';
+		strategy.is_builtin = false;
+		return strategy;
+	}
+	strategy.origin = sourceId == 'z2k' ? 'z2k_builtin' : 'avatar_builtin';
 	strategy.is_builtin = true;
 	strategy.revision = 0;
 	return strategy;
@@ -1110,13 +1121,20 @@ function wire_strategy(strategy, current, selection, compact) {
 	} else {
 		for (let key in strategy) result[key] = strategy[key];
 	}
+	// Legacy user records predate explicit source provenance. Normalize their
+	// transport identity at the canonical Strategy boundary so source filters
+	// count every user entry without rewriting the persisted record.
+	if (result.origin == 'user') {
+		result.sourceId = 'user';
+		if (result.canonicalId == null) result.canonicalId = result.id;
+	}
 	let selected = selection && selection.selected;
 	let revision = type(result.revision) == 'int' ? result.revision : 0;
 	result.revision = revision;
 	result.is_active = is_object(selected) && selected.id == result.id
 		&& selected.origin == result.origin && selected.revision == revision;
 	result.is_favorite = type(selection.favorites) == 'array' && index(selection.favorites, result.id) >= 0;
-	result.metadata = result.origin == 'avatar_builtin'
+	result.metadata = (result.origin == 'avatar_builtin' || result.origin == 'z2k_builtin')
 		? catalog_wire_metadata(result, current, compact) : (is_object(result.metadata) ? result.metadata : {});
 	return result;
 }
@@ -1133,17 +1151,23 @@ function strategy_list() {
 	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
 		return error_result('EIO', 'Strategy favorites state is unavailable');
 	let strategies = [];
+	let generatedIds = {};
 	let order = is_object(current.winners) && type(current.winnerOrder) == 'array'
 		? current.winnerOrder : keys(current.winners || {});
 	for (let id in order) {
 		let strategy = catalog_strategy(current.winners[id]);
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
+		generatedIds[strategy.id] = true;
 		push(strategies, wire_strategy_for_list(strategy, current, selection));
 	}
 	let users = null;
 	try { users = strategy_user_list(); } catch (e) { users = null; }
 	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
-	for (let strategy in users.strategies) push(strategies, wire_strategy_for_list(strategy, current, selection));
+	// A published generation can already contain the user projection. Keep the
+	// direct state reader only for user records that are newer than that
+	// projection, and never emit the same canonical ID twice.
+	for (let strategy in users.strategies)
+		if (!generatedIds[strategy.id]) push(strategies, wire_strategy_for_list(strategy, current, selection));
 	return bounded_strategy_response({ ok: true, strategies: strategies,
 		state: { revision: selection.revision, favorites: selection.favorites },
 		favoritesRevision: selection.revision }, 'Strategy list', MAX_STRATEGY_LIST_RESPONSE_BYTES);
@@ -1186,6 +1210,15 @@ function strategy_get(input) {
 	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
 	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
 		return error_result('EIO', 'Strategy favorites state is unavailable');
+	// The active generation is the normal read authority. This also avoids
+	// letting an older user-file projection shadow a published generation row.
+	let generated = is_object(current.winners) ? current.winners[input.id] : null;
+	if (generated != null) {
+		let generatedStrategy = catalog_strategy(generated);
+		return generatedStrategy == null
+			? error_result('EVERIFY', 'catalog Strategy normalization failed')
+			: bounded_strategy_response({ ok: true, strategy: wire_strategy(generatedStrategy, current, selection) }, 'Strategy detail');
+	}
 	let user = null;
 	try { user = strategy_user_get_readonly({ id: input.id }); } catch (e) { user = null; }
 	if (is_object(user) && user.ok == true)
