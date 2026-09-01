@@ -57,9 +57,21 @@ function svgIcon(name, size, extraClass) {
 function healthServiceIcon(id) {
   return Icons.html('service:' + text(id).toLowerCase(), { size: 18, className: 'healthcheck-service-icon', strokeWidth: 1.8, fallback: 'activity' });
 }
-function unwrap(value) { value = object(value); return object(value.value || value); }
+function unwrap(value) {
+  if (Array.isArray(value)) {
+    // LuCI/rpcd adapters may return a raw list or a JSON-RPC tuple. Keep the
+    // array intact instead of passing it through object(), which deliberately
+    // rejects arrays for ordinary model objects.
+    if (value.length > 1 && value[0] === 0) return unwrap(value[1]);
+    return value;
+  }
+  value = object(value);
+  if (value.value !== undefined && value.value !== value) return unwrap(value.value);
+  return value;
+}
 function listValue(data) {
   var value = unwrap(data && data.list);
+  if (Array.isArray(value)) return value;
   return array(value.strategies || value.items || value.list);
 }
 function catalogDigest(data) {
@@ -288,7 +300,7 @@ var ListUI = {
     var cfg = Object.assign({ items: [], pageSize: 80, filters: [], groupBy: null,
       groupLabel: function (value) { return value; }, renderItem: function () { return ''; },
       searchFields: function () { return []; }, renderEmpty: function () { return '<div class="list-ui-empty">Ничего не найдено</div>'; },
-      countLabel: function (visible, total) { return visible + ' из ' + total; }, storageKey: null
+      countLabel: function (visible, total) { return visible + ' из ' + total; }, filterLabel: null, storageKey: null
     }, options || {});
     var root = cfg.container, items = array(cfg.items).slice(), visibleCount = cfg.pageSize;
     var saved = {};
@@ -363,7 +375,7 @@ var ListUI = {
     input.addEventListener('input', onInput); clear.addEventListener('click', onClear); filters.addEventListener('click', onFilter); body.addEventListener('click', onBody); moreButton.addEventListener('click', onMore);
     listeners.push([input, 'input', onInput], [clear, 'click', onClear], [filters, 'click', onFilter], [body, 'click', onBody], [moreButton, 'click', onMore]);
     function filterButton(item) { return '<button type="button" class="btn btn-ghost btn-sm list-ui-filter' + (item.id === filterId ? ' active' : '') + '" data-filter-id="' + escapeAttr(item.id) + '">' + (item.icon ? svgIcon(item.icon, 13) : '') + '<span>' + escapeHtml(item.label) + '</span></button>'; }
-    filters.innerHTML = '<div class="list-ui-filter-primary">' + cfg.filters.filter(function (item) { return !item.extension; }).map(filterButton).join('') + '</div>' + (cfg.filters.some(function (item) { return item.extension; }) ? '<div class="list-ui-filter-secondary"><span>Дополнительно</span>' + cfg.filters.filter(function (item) { return item.extension; }).map(filterButton).join('') + '</div>' : '');
+    filters.innerHTML = '<div class="list-ui-filter-primary">' + (cfg.filterLabel ? '<span class="list-ui-filter-label">' + escapeHtml(cfg.filterLabel) + '</span>' : '') + cfg.filters.filter(function (item) { return !item.extension; }).map(filterButton).join('') + '</div>' + (cfg.filters.some(function (item) { return item.extension; }) ? '<div class="list-ui-filter-secondary"><span>Дополнительно</span>' + cfg.filters.filter(function (item) { return item.extension; }).map(filterButton).join('') + '</div>' : '');
     refresh();
     return {
       setItems: function (next) { items = array(next).slice(); visibleCount = cfg.pageSize; refresh(); },
@@ -393,10 +405,11 @@ function renderSourceFilters() {
   var ids = ['all', 'avatar', 'z2k', 'user'];
   var counts = { all: state.rows.length, avatar: 0, z2k: 0, user: 0 };
   state.rows.forEach(function (strategy) { var id = Model.sourceId(strategy); if (counts[id] !== undefined) counts[id]++; });
-  host.innerHTML = ids.map(function (id) {
+  var buttons = ids.map(function (id) {
     var active = id === state.sourceFilter || (id === 'all' && ids.indexOf(state.sourceFilter) < 0);
     return '<button type="button" class="strategy-source-filter' + (active ? ' active' : '') + '" data-action="setStrategySourceFilter" data-strategy-source="' + id + '" aria-pressed="' + (active ? 'true' : 'false') + '"><span>' + sourceFilterLabel(id) + '</span><span class="strategy-source-filter-count">' + counts[id] + '</span></button>';
   }).join('');
+  host.innerHTML = '<div class="strategy-filter-row"><span class="strategy-filter-label">Источник</span><div class="strategy-source-filter-options" role="group" aria-label="Источник стратегий">' + buttons + '</div></div>';
 }
 function renderFiltersAndList() {
   var host = state.root && state.root.querySelector('#strategies-list-host');
@@ -424,6 +437,7 @@ function renderFiltersAndList() {
       { id: 'builtin', label: 'Встроенные', test: function (strategy) { return strategy.isBuiltin; } },
       { id: 'user', label: 'Пользовательские', test: function (strategy) { return !strategy.isBuiltin; } }
     ],
+    filterLabel: 'Тип',
     groupBy: function (strategy) { return (strategy.protocol || 'other').toLowerCase(); },
     groupLabel: function (group) { return ({ tcp: 'TCP', udp: 'UDP / QUIC', http: 'HTTP', tls: 'TLS', other: 'Прочее' }[group] || String(group).toUpperCase()); },
     renderItem: renderStrategyCard,
@@ -2534,17 +2548,22 @@ function render(ctx) {
   var sourceFilterHost = document.createElement('div');
   sourceFilterHost.id = 'strategy-source-filters';
   sourceFilterHost.className = 'strategy-source-filters';
-  sourceFilterHost.setAttribute('role', 'group');
-  sourceFilterHost.setAttribute('aria-label', 'Источник стратегий');
   var listHost = root.querySelector('#strategies-list-host');
-  if (listHost) listHost.parentNode.insertBefore(sourceFilterHost, listHost);
+  var filterSurface = document.createElement('div');
+  filterSurface.id = 'strategy-filters-surface';
+  filterSurface.className = 'strategy-filters-surface';
+  if (listHost) {
+    listHost.parentNode.insertBefore(filterSurface, listHost);
+    filterSurface.appendChild(sourceFilterHost);
+    filterSurface.appendChild(listHost);
+  }
   var workspace = document.createElement('div');
   workspace.className = 'strategies-workspace';
   var firstWorkspaceNode = root.querySelector('.catalog-summary-card');
   if (firstWorkspaceNode) root.insertBefore(workspace, firstWorkspaceNode);
   var workspaceNodes = [root.querySelector('.catalog-summary-card'), root.querySelector('.active-strategy-card')]
     .concat(Array.prototype.slice.call(root.querySelectorAll('.strategy-ops-card')))
-    .concat([root.querySelector('#strategy-source-filters'), root.querySelector('#strategies-list-host'), root.querySelector('#strat-bulkbar')]);
+    .concat([root.querySelector('#strategy-filters-surface'), root.querySelector('#strat-bulkbar')]);
   workspaceNodes.forEach(function (node) { if (node) workspace.appendChild(node); });
   var pasteButton = root.querySelector('[data-action="pasteFromClipboard"]');
   if (pasteButton) pasteButton.innerHTML = svgIcon('clipboard', 14) + '<span>Вставить из буфера</span>';

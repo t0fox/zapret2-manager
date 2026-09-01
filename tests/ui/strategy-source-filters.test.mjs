@@ -36,6 +36,10 @@ test('Strategies exposes independent source filters and source badges without ch
   assert.match(page, /Пользовательские/);
   assert.match(page, /data-strategy-source/);
   assert.match(page, /strategy\.id/);
+  assert.match(page, /strategy-filters-surface/);
+  assert.match(page, /strategy-filter-label.*Источник/);
+  assert.match(page, /filterLabel: 'Тип'/);
+  assert.match(page, /Array\.isArray\(value\)/);
   assert.match(model, /canonicalId/);
   assert.match(model, /sourceId/);
   assert.doesNotMatch(page, /sourceFilter.*strategies\.apply/);
