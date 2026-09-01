@@ -66,3 +66,9 @@ test('header state mapping tolerates the status-fast payload shape', () => {
   const runtimeState = readFileSync(path.join(path.dirname(APP), 'z2m-runtime-state.js'), 'utf8');
   assert.match(runtimeState, /runtimeSummary/, 'runtime state mapping must consume runtimeSummary');
 });
+
+test('global header refreshes from status_fast after lifecycle actions', () => {
+  assert.match(source, /function scheduleHeaderStatusRefresh\(\)/);
+  assert.match(source, /Api\.service\.statusFast\(\)\.then/);
+  assert.match(source, /updateHeaderStatus\(\{ status: \{ value: data \} \}\)/);
+});

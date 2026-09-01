@@ -871,14 +871,14 @@ test('Strategy CLI executable dispatches a fixed catalog mode through the reques
   }
 });
 
-test('Preview and Validate retain inline Strategy input while Apply requires persisted identity', () => {
+test('Preview and Validate retain inline Strategy input while Apply accepts only verified transient compositions', () => {
   assert.match(CLI, /if \(mode == 'preview'\) return strategy_preview\(input, context\)/);
   assert.match(CLI, /if \(mode == 'validate'\) return strategy_validate\(input, context\)/);
   assert.match(CLI, /if \(mode == 'apply'\) \{[\s\S]*return strategy_apply\(input, context\)/);
   assert.match(CLI, /input_shape\(input, true\)/);
   const dispatch = CLI.slice(CLI.indexOf('function dispatch_result'), CLI.indexOf('export const strategy_cli_dispatch'));
   assert.match(dispatch, /mode == 'apply'[\s\S]*input_shape\(input, true\)/);
-  assert.match(CLI, /if \(requireSource == true && !hasId\)/);
+  assert.match(CLI, /transient_composition_valid/);
 });
 
 test('Strategy CLI uses separate service catalog and Orchestra adapters', () => {

@@ -149,6 +149,8 @@ test('DISCORD_RUNTIME_STATUS: detector rejects stale config and stopped runtime 
   const cmdline = '--filter-udp=50000-50100,1400 --filter-l7=discord,stun --lua-desync=circular:foo:key=discord_udp:nld=2:hostkey=z2k_nohost_key';
   const current = { status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline }] } } };
   assert.equal(detector(current), true);
+  const deployedCmdline = '--filter-udp=50000-50099,1400 --filter-l7=discord,stun --lua-desync=circular:foo:key=discord_voice:nld=2:hostkey=z2k_nohost_key';
+  assert.equal(detector({ status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline: deployedCmdline }] } } }), true);
   assert.equal(detector({ status: { serviceState: 'stopped', runtime: { present: true, instances: [{ cmdline }] } } }), false);
   assert.equal(detector({ status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline: '--filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin' }] } } }), false);
 });

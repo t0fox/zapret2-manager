@@ -129,6 +129,7 @@ return L.view.extend({
     var tabs = Shell.primaryNavigation(Navigation, tabFromHash(), navigateTo);
     var appRoot = null;
     var headerStatus = null;
+    var headerStatusTimer = null;
 
     function setContentBusy(busy) {
       content.classList.toggle('z2m-refreshing', busy === true);
@@ -279,6 +280,18 @@ return L.view.extend({
       if (next && headerStatus.parentNode) headerStatus.replaceWith(next);
       headerStatus = next;
     }
+    function scheduleHeaderStatusRefresh() {
+      if (headerStatusTimer) window.clearTimeout(headerStatusTimer);
+      headerStatusTimer = window.setTimeout(function pollHeaderStatus() {
+        headerStatusTimer = null;
+        if (!appRoot || !document.body.contains(appRoot)) return;
+        Api.service.statusFast().then(function (data) {
+          updateHeaderStatus({ status: { value: data } });
+        }).catch(function () {
+          // Keep the last known header state on a transient status poll failure.
+        }).then(scheduleHeaderStatusRefresh);
+      }, 5000);
+    }
 
     var initialTab = tabFromHash();
     if (hashHandler) window.removeEventListener('hashchange', hashHandler);
@@ -305,6 +318,7 @@ return L.view.extend({
     if (storeUnsubscribe) storeUnsubscribe();
     storeUnsubscribe = store.subscribe(renderState);
     renderState();
+    scheduleHeaderStatusRefresh();
     Promise.resolve().then(function () { activate(initialTab); });
     return appRoot;
   },

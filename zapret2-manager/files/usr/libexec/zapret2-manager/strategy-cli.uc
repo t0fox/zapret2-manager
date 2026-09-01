@@ -104,6 +104,11 @@ function safe_id(value) {
 	return is_string(value) && length(value) > 0 && length(value) <= 128
 		&& index(value, chr(0)) < 0 && index(value, '/') < 0 && index(value, '..') < 0;
 }
+function safe_strategy_id(value) {
+	return is_string(value) && length(value) > 0 && length(value) <= 128
+		&& index(value, chr(0)) < 0 && index(value, '/') < 0 && index(value, '..') < 0
+		&& match(value, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/) && value != '.' && value != '..';
+}
 
 function copy_array(value, limit) {
 	let result = [];
@@ -483,6 +488,24 @@ function catalog() {
 	return loaded.catalog;
 }
 
+// A Discord composition is intentionally transient: it may be compiled and
+// applied from the canonical source identity, but it must never be accepted as
+// an arbitrary client-composed Apply candidate or written to strategies/.
+function transient_composition_valid(strategy) {
+	if (!is_object(strategy) || !safe_strategy_id(strategy.id)
+		|| !safe_strategy_id(strategy.canonicalId) || strategy.id != strategy.canonicalId
+		|| (strategy.sourceId != 'avatar' && strategy.sourceId != 'z2k')
+		|| strategy.origin != 'derived' || strategy.is_builtin != false
+		|| type(strategy.profiles) != 'array') return false;
+	let metadata = strategy.metadata, provenance = is_object(metadata) ? metadata.provenance : null;
+	let donor = is_object(provenance) ? provenance.donor : null;
+	return is_object(metadata) && is_object(provenance) && provenance.composition == 'discord'
+		&& is_object(donor) && safe_strategy_id(donor.canonicalStrategyId)
+		&& (donor.sourceId == 'avatar' || donor.sourceId == 'z2k')
+		&& is_string(donor.sourceSnapshotId) && is_string(donor.sourceCommit)
+		&& digest(donor.donorProfileDigest);
+}
+
 function input_shape(input, requireSource) {
 	if (!is_object(input)) return error_result('EINPUT', 'Strategy request must be an object');
 	let forbidden = ['candidate', 'command', 'argv', 'effectiveCommand', 'effectiveArgv', 'strategyArgs', 'args',
@@ -497,7 +520,7 @@ function input_shape(input, requireSource) {
 	if ((hasId ? 1 : 0) + (hasData ? 1 : 0) != 1)
 		return error_result('EINPUT', 'exactly one Strategy source is required', 'strategy_id');
 	if (hasId) {
-		if (!safe_id(input.strategy_id) || !is_integer(input.revision) || !digest(input.catalog_digest))
+		if (!safe_strategy_id(input.strategy_id) || !is_integer(input.revision) || !digest(input.catalog_digest))
 			return error_result('EINPUT', 'persisted Strategy source requires bounded id, revision, and catalog digest');
 	} else {
 		if (!is_object(input.strategy_data) || type(input.strategy_data) == 'array')
@@ -508,7 +531,8 @@ function input_shape(input, requireSource) {
 		if (input.catalog_digest != null && !digest(input.catalog_digest))
 			return error_result('EINPUT', 'catalog_digest must be a SHA-256 digest', 'catalog_digest');
 	}
-	if (requireSource == true && !hasId) return error_result('EINPUT', 'this operation requires persisted Strategy identity');
+	if (requireSource == true && !hasId && !transient_composition_valid(input.strategy_data))
+		return error_result('EINPUT', 'Apply requires a canonical Strategy identity or a verified transient composition');
 	return { ok: true, hasId: hasId };
 }
 
@@ -550,8 +574,22 @@ function resolve_strategy(input, currentCatalog) {
 			sourceId: sourceId, canonicalStrategyId: strategy.canonicalId || input.strategy_id,
 			sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit };
 	}
-	return { ok: true, strategy: input.strategy_data, id: input.strategy_data.id, origin: 'inline',
-		sourceId: 'user', canonicalStrategyId: input.strategy_data.canonicalId || input.strategy_data.id,
+	let inline = input.strategy_data, sourceId = inline.sourceId;
+	if (transient_composition_valid(inline)) {
+		let baseEntry = is_object(currentCatalog.winners) ? currentCatalog.winners[inline.canonicalId] : null;
+		if (!is_object(baseEntry) || baseEntry.sourceId != sourceId)
+			return error_result('EVERIFY', 'Transient composition base Strategy is not in the verified catalog');
+		let base = null;
+		try { base = catalog_entry_to_strategy(baseEntry); } catch (e) { base = null; }
+		if (!is_object(base)) return error_result('EVERIFY', 'Transient composition base Strategy could not be normalized');
+		let sourceOrigin = sourceId == 'z2k' ? 'z2k_builtin' : 'avatar_builtin';
+		return { ok: true, strategy: inline, id: inline.id, origin: sourceOrigin,
+			sourceId: sourceId, canonicalStrategyId: inline.canonicalId,
+			sourceSnapshotId: base.sourceSnapshotId || sourceId + '-' + currentCatalog.aggregateDigest,
+			sourceCommit: base.sourceCommit || currentCatalog.source && (currentCatalog.source.sourceCommit || currentCatalog.source.commit) || null };
+	}
+	return { ok: true, strategy: inline, id: inline.id, origin: 'inline',
+		sourceId: 'user', canonicalStrategyId: inline.canonicalId || inline.id,
 		sourceSnapshotId: null, sourceCommit: null };
 }
 
@@ -712,7 +750,7 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 	return {
 		candidateSha256: candidate.digest,
 		callerContext: 'strategy_apply', operationNonce: selection.operationNonce,
-		strategyId: resolved.id, strategyOrigin: resolved.origin, strategyRevision: input.revision,
+		strategyId: resolved.id, strategyOrigin: resolved.origin, strategyRevision: input.revision == null ? 0 : input.revision,
 		catalogDigest: input.catalog_digest,
 		expectedRevision: selection.revision,
 		selectionRevision: selection.revision, expectedSelected: selection.selected,
@@ -720,7 +758,7 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 		expectedConfigSha256: configHash,
 		previousSelected: selection.selected,
 		selected: {
-			id: resolved.id, origin: resolved.origin, revision: input.revision,
+			id: resolved.id, origin: resolved.origin, revision: input.revision == null ? 0 : input.revision,
 			candidateSha256: candidate.digest, canonicalStrategyId: canonicalStrategyId,
 			sourceId: sourceId, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
 			strategyDigest: candidate.digest
@@ -785,7 +823,9 @@ export const strategy_apply = function(input, context) {
 	try { oldConfigSha256 = profiles_config_hash(); oldCandidateSha256 = profiles_candidate_hash(); }
 	catch (e) { oldConfigSha256 = null; oldCandidateSha256 = null; }
 	let begun = null;
-	try { begun = strategy_apply_begin({ strategyId: input.strategy_id, strategyRevision: input.revision, catalogDigest: input.catalog_digest,
+	let requestStrategyId = shape.hasId ? input.strategy_id : input.strategy_data.id;
+	let requestRevision = shape.hasId ? input.revision : 0;
+	try { begun = strategy_apply_begin({ strategyId: requestStrategyId, strategyRevision: requestRevision, catalogDigest: input.catalog_digest,
 		oldConfigSha256: oldConfigSha256, oldCandidateSha256: oldCandidateSha256 }); }
 	catch (e) { begun = null; }
 	if (!is_object(begun) || begun.ok != true)
@@ -841,7 +881,7 @@ export const strategy_apply = function(input, context) {
 	// Return the exact identity projection committed by the transaction state
 	// writer.  Keeping this response identical to persisted `selected` avoids
 	// making callers reconstruct source provenance from a second authority.
-	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: input.revision,
+	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: requestRevision,
 		candidateSha256: candidate.digest, canonicalStrategyId: projection.selected.canonicalStrategyId,
 		sourceId: projection.selected.sourceId, sourceSnapshotId: projection.selected.sourceSnapshotId,
 		sourceCommit: projection.selected.sourceCommit, strategyDigest: projection.selected.strategyDigest };
@@ -1066,7 +1106,7 @@ function catalog_strategy(entry) {
 		return strategy;
 	}
 	strategy.origin = sourceId == 'z2k' ? 'z2k_builtin' : 'avatar_builtin';
-	strategy.is_builtin = true;
+	strategy.is_builtin = strategy.is_builtin === true;
 	strategy.revision = 0;
 	return strategy;
 }
@@ -1107,7 +1147,8 @@ function wire_strategy(strategy, current, selection, compact) {
 	if (compact == true) {
 		for (let key in ['id', 'name', 'description', 'is_builtin', 'source', 'level',
 			'label', 'author', 'protocol', 'featured', 'origin', 'revision', 'canonicalId', 'sourceId',
-			'sourceSnapshotId', 'sourceCommit', 'contentDigest'])
+			'sourceSnapshotId', 'sourceCommit', 'contentDigest', 'poolKey', 'entryKind',
+			'strategyNumber', 'aggregateId'])
 			if (strategy[key] != null) result[key] = key == 'description'
 				? bounded_text(strategy[key], 256) : strategy[key];
 		result.profiles = [];
@@ -1203,7 +1244,7 @@ function strategy_recommendations() {
 }
 
 function strategy_get(input) {
-	if (!is_object(input) || !safe_id(input.id)) return error_result('EINPUT', 'Strategy get requires a safe id');
+	if (!is_object(input) || !safe_strategy_id(input.id)) return error_result('EINPUT', 'Strategy get requires a safe id');
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
 	let selection = null;

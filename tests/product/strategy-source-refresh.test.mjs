@@ -151,9 +151,20 @@ test('Z2K refresh binds exact revision and raw content to a verified immutable s
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.metadata.sourceCommit, 'a'.repeat(40));
   assert.equal(result.snapshot.sourceCommit, 'a'.repeat(40));
-  assert.equal(result.snapshot.sourcePath, 'strats_new2.txt');
+  assert.equal(result.snapshot.sourcePath, 'strats_new2.txt+quic_strats.ini');
   assert.match(result.snapshot.contentDigest, /^[0-9a-f]{64}$/);
   assert.ok(result.snapshot.entries.length >= 3);
+});
+
+test('Z2K refresh stages strats_new2.txt and quic_strats.ini from one exact revision', () => {
+  const root = sandbox('z2k-two-files');
+  const result = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'two-files' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.snapshot.sourceCommit, 'd'.repeat(40));
+  assert.match(result.snapshot.stratsNew2Digest, /^[0-9a-f]{64}$/);
+  assert.match(result.snapshot.quicStratsDigest, /^[0-9a-f]{64}$/);
+  assert.ok(result.snapshot.entries.some((entry) => entry.canonicalId === 'z2k:yt_quic_strat_1'));
+  assert.ok(result.snapshot.entries.some((entry) => entry.canonicalId === 'z2k:discord_udp_strat_1'));
 });
 
 test('Z2K verification and snapshot installation failures preserve the prior LKG', () => {

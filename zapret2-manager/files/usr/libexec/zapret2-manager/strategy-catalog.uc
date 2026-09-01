@@ -92,7 +92,7 @@ function generation_entry(entry) {
 	result.id = entry.canonicalId;
 	result.source = entry.sourceId == 'user' ? 'user' : 'catalog';
 	result.sourceId = entry.sourceId;
-	result.is_builtin = entry.sourceId != 'user';
+	result.is_builtin = entry.is_builtin === true;
 	result.winner = true;
 	result.indexEntry = true;
 	result.protocol = generation_protocols(entry)[0];

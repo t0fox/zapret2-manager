@@ -108,3 +108,11 @@ test('production Discord donor has no hardcoded Strategy or competing runtime ke
   assert.match(source, /key=discord_udp/);
   assert.doesNotMatch(source, /discord_voice.*(?:key|runtime)/i);
 });
+
+test('Discord donor returns compiler-compatible blob paths', () => {
+  const source = fs.readFileSync(DISCORD, 'utf8');
+  assert.match(source, /let donorArgs = '--blob=quic_dbankcloud:@bin\/quic_initial_dbankcloud_ru\.bin ' \+ args/);
+  assert.match(source, /let nativeArgs = '--blob=quic_dbankcloud:' \+ blobPath/);
+  assert.match(source, /let native = native_check\(nativeArgs\)/);
+  assert.doesNotMatch(source, /quic_dbankcloud:@'\s*\+\s*blobPath/);
+});

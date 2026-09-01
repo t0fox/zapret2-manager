@@ -423,7 +423,8 @@ function user_input_valid(strategy, require_profiles) {
 	if (!load_catalog_ids()) return false;
 	let metadata = exists(strategy, 'metadata') ? strategy.metadata : {};
 	if (!metadata_valid(metadata)) return false;
-	if (strategy.is_builtin == true || builtin_id(strategy.id) || strategy.origin == 'avatar_builtin' || strategy.origin == 'catalog') return false;
+	if (strategy.is_builtin == true || builtin_id(strategy.id) || strategy.origin == 'avatar_builtin'
+		|| strategy.origin == 'z2k_builtin' || strategy.origin == 'catalog') return false;
 	if (catalog_id(strategy.id) || strategy.is_extension == true || extension_id(strategy.id) || strategy.origin == 'extension') return false;
 	for (let profile in strategy.profiles) if (!profile_valid(profile)) return false;
 	return model_validate(strategy, 'structural').ok;
@@ -470,14 +471,14 @@ function identity_verified(id, origin) {
 		let result = read_document(path_for(id));
 		return result.ok && record_valid(result.value) && result.value.id == id;
 	}
-	if (origin == 'avatar_builtin') return catalog_id(id);
+	if (origin == 'avatar_builtin' || origin == 'z2k_builtin') return catalog_id(id);
 	if (origin == 'extension') return extension_id(id);
 	return false;
 }
 
 function selected_valid(value) {
 	return value == null || (selection_provenance_valid(value) &&
-		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
+		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension') &&
 		integer(value.revision) && sha256(value.candidateSha256) && identity_verified(value.id, value.origin));
 }
 
@@ -491,7 +492,7 @@ function state_valid(value) {
 
 function selected_readonly_valid(value) {
 	return value == null || (selection_provenance_valid(value) &&
-		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
+		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension') &&
 		integer(value.revision) && sha256(value.candidateSha256));
 }
 
@@ -615,7 +616,7 @@ export const strategy_user_create = function(input) {
 	return locked(function() {
 		let strategy = is_object(input) ? input.strategy : null;
 		if (!user_input_valid(strategy, true)) {
-			if (strategy != null && (strategy.is_builtin == true || builtin_id(strategy.id) || catalog_id(strategy.id) || strategy.origin == 'avatar_builtin' || strategy.origin == 'catalog' ||
+			if (strategy != null && (strategy.is_builtin == true || builtin_id(strategy.id) || catalog_id(strategy.id) || strategy.origin == 'avatar_builtin' || strategy.origin == 'z2k_builtin' || strategy.origin == 'catalog' ||
 				strategy.is_extension == true || extension_id(strategy.id) || strategy.origin == 'extension'))
 				return error('ECONFLICT', 'Builtin Strategies are immutable.');
 			return error('EINPUT', 'User Strategy input is invalid.');
@@ -891,7 +892,7 @@ export const strategy_apply_revalidate = function(input) {
 		if (current.ok) {
 			if (current.strategy.revision != input.strategyRevision || input.strategyOrigin != 'user')
 				return error('ECONFLICT', 'Strategy revision changed before config mutation.');
-		} else if (!(input.strategyRevision == 0 && input.strategyOrigin == 'avatar_builtin' && catalog_id(input.strategyId))) {
+		} else if (!(input.strategyRevision == 0 && (input.strategyOrigin == 'avatar_builtin' || input.strategyOrigin == 'z2k_builtin') && catalog_id(input.strategyId))) {
 			return error('ECONFLICT', 'Strategy identity changed before config mutation.');
 		}
 		let state = read_state();
@@ -1016,7 +1017,7 @@ function selection_authoritative(value) {
 		let current = read_user(value.id);
 		return current.ok && current.strategy.revision == value.revision;
 	}
-	return value.revision == 0 && (value.origin == 'avatar_builtin' ? catalog_id(value.id) : extension_id(value.id));
+	return value.revision == 0 && ((value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin') ? catalog_id(value.id) : extension_id(value.id));
 }
 
 function selection_exact_authoritative(active, expected) {

@@ -48,6 +48,19 @@ test('Strategy Apply sidecar carries bounded Strategy identity, not the full run
   assert.doesNotMatch(projection, /runtimeSnapshot\s*:/);
 });
 
+test('Strategy Apply revalidation accepts both canonical catalog origins', () => {
+  const source = fs.readFileSync(STATE, 'utf8');
+  assert.match(source, /input\.strategyOrigin == 'avatar_builtin'\s*\|\|\s*input\.strategyOrigin == 'z2k_builtin'/);
+  assert.match(source, /value\.origin == 'avatar_builtin'\s*\|\|\s*value\.origin == 'z2k_builtin'/);
+});
+
+test('transient Strategy Apply projection persists a canonical revision for inline compositions', () => {
+  const source = fs.readFileSync(CLI, 'utf8');
+  const projection = source.slice(source.indexOf('function strategy_apply_projection'), source.indexOf('function strategy_apply_candidate'));
+  assert.match(projection, /strategyRevision:\s*input\.revision == null \? 0 : input\.revision/);
+  assert.match(projection, /id:\s*resolved\.id, origin:\s*resolved\.origin, revision:\s*input\.revision == null \? 0 : input\.revision/);
+});
+
 const environment = {
   listMode: 'none',
   paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
@@ -455,7 +468,11 @@ test('strategy_apply executes a successful transaction through the injected cand
     strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
   })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: hook });
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.deepEqual(result.strategy, { id: record.id, origin: 'user', revision: record.revision, candidateSha256: CANDIDATE_HASH });
+  assert.deepEqual(result.strategy, {
+    id: record.id, origin: 'user', revision: record.revision, candidateSha256: CANDIDATE_HASH,
+    canonicalStrategyId: record.id, sourceId: 'user',
+    sourceSnapshotId: `user-${CANDIDATE_HASH}`, sourceCommit: null, strategyDigest: CANDIDATE_HASH,
+  });
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_LEASE), false);
 }));

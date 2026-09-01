@@ -40,7 +40,9 @@ case "$url" in
 		fi
 		;;
 	*api.github.com/repos/necronicle/z2k/commits*)
-		if [ "$mode" = "v2" ]; then
+		if [ "$mode" = "two-files" ]; then
+			printf '%s\n' '[{"sha":"dddddddddddddddddddddddddddddddddddddddd"}]' > "$out"
+		elif [ "$mode" = "v2" ]; then
 			printf '%s\n' '[{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]' > "$out"
 		elif [ "$mode" = "mismatch" ]; then
 			printf '[{"sha":"cccccccccccccccccccccccccccccccccccccccc","contentSha256":"%064d"}]\n' 0 > "$out"
@@ -56,6 +58,9 @@ case "$url" in
 		else
 			cp "$root/tests/fixtures/strategy-source-z2k/strats_new2.txt" "$out"
 		fi
+		;;
+	*raw.githubusercontent.com/necronicle/z2k/*/quic_strats.ini)
+		cp "$root/tests/fixtures/strategy-source-z2k/quic_strats.ini" "$out"
 		;;
 	*)
 		exit 1

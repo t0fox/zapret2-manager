@@ -248,18 +248,24 @@ function normalize(value, status, selectedId) {
   var ids = identity(status);
   var id = text(value.id || value.strategyId);
   var canonicalId = text(value.canonicalId || id);
-  var origin = text(value.origin) || (value.is_builtin === true ? 'avatar_builtin' : 'user');
+  var resolvedSourceId = sourceId(value);
+  var origin = text(value.origin) || (value.is_builtin === true ? 'avatar_builtin' :
+    resolvedSourceId === 'z2k' ? 'z2k_builtin' : resolvedSourceId === 'avatar' ? 'avatar_builtin' : 'user');
   var metadata = object(value.metadata), label = text(value.label || metadata.label).toLowerCase();
   var result = {
     id: id,
     canonicalId: canonicalId,
-    sourceId: sourceId(value),
+    sourceId: resolvedSourceId,
+    poolKey: text(value.poolKey || metadata.poolKey),
+    entryKind: text(value.entryKind || metadata.entryKind),
+    strategyNumber: value.strategyNumber !== undefined ? value.strategyNumber : metadata.strategyNumber,
+    aggregateId: text(value.aggregateId || metadata.aggregateId),
     name: text(value.name || value.displayName) || id || 'Стратегия',
     description: text(value.description || metadata.description),
     author: text(value.author || metadata.author),
     protocol: text(value.protocol || metadata.protocol),
     origin: origin,
-    isBuiltin: value.is_builtin === true || value.isBuiltin === true || origin === 'avatar_builtin' || origin === 'builtin',
+    isBuiltin: value.is_builtin === true || value.isBuiltin === true || origin === 'builtin',
     revision: value.revision,
     favorite: value.favorite === true || value.is_favorite === true,
     label: label,

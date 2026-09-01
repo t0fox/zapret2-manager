@@ -66,6 +66,45 @@ test('Z2K parser derives Discord semantics from profile args and retains multi-p
   assert.notEqual(allInOne.provenance.repository, 'avatarDD/zapret-gui');
 });
 
+test('Z2K parser exposes aggregate pools and every numbered TCP slot without dropping common args', () => {
+  const result = invoke('strategy_source_z2k_parse', [readFixture('strats_new2.txt'), { sourceCommit: 'e'.repeat(40) }]);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const aggregate = result.entries.find((entry) => entry.upstreamId === 'manual_autocircular_rkn');
+  assert.ok(aggregate);
+  assert.equal(aggregate.entryKind, 'aggregate');
+  const slots = result.entries.filter((entry) => entry.poolKey === 'rkn_tcp' && entry.entryKind === 'slot');
+  assert.ok(slots.length >= 5);
+  assert.deepEqual(slots.map((entry) => entry.strategyNumber), [...new Set(slots.map((entry) => entry.strategyNumber))].sort((a, b) => a - b));
+  const first = slots.find((entry) => entry.strategyNumber === 1);
+  assert.ok(first);
+  assert.equal(first.canonicalId, 'z2k:rkn_tcp_strat_1');
+  assert.match(first.profiles[0].args, /--filter-tcp=443/);
+  assert.match(first.profiles[0].args, /--filter-l7=tls/);
+  assert.match(first.profiles[0].args, /--lua-desync=circular/);
+  assert.match(first.profiles[0].args, /strategy=1/);
+  assert.doesNotMatch(first.profiles[0].args, /strategy=2/);
+});
+
+test('Z2K parser imports quic_strats.ini aggregates and fixed slots with explicit Discord adaptation', () => {
+  const result = invoke('strategy_source_z2k_parse_files', [{
+    'strats_new2.txt': readFixture('strats_new2.txt'),
+    'quic_strats.ini': readFixture('quic_strats.ini'),
+  }, { sourceCommit: 'f'.repeat(40) }]);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const yt = result.entries.find((entry) => entry.upstreamId === 'yt_quic_autocircular' && entry.entryKind === 'aggregate');
+  assert.ok(yt);
+  assert.equal(yt.poolKey, 'yt_quic');
+  assert.ok(result.entries.some((entry) => entry.canonicalId === 'z2k:yt_quic_strat_1'));
+  const discord = result.entries.find((entry) => entry.upstreamId === 'discord_voice_autocircular' && entry.entryKind === 'aggregate');
+  assert.ok(discord);
+  assert.equal(discord.poolKey, 'discord_udp');
+  assert.equal(discord.capabilities.discordUdp, true);
+  assert.equal(discord.provenance.legacyRuntimeKey, 'discord_voice');
+  assert.match(discord.args, /key=discord_udp/);
+  assert.doesNotMatch(discord.args, /key=discord_voice/);
+  assert.ok(result.entries.some((entry) => entry.canonicalId === 'z2k:discord_udp_strat_1'));
+});
+
 test('malformed Z2K input is not usable and does not produce partial entries', () => {
   const result = invoke('strategy_source_z2k_parse', [readFixture('malformed.txt'), { sourceCommit: 'c'.repeat(40) }]);
   assert.equal(result.ok, false, JSON.stringify(result));
@@ -86,6 +125,23 @@ test('Z2K snapshot identity binds revision, exact content digest, order, and ent
   assert.match(first.snapshot.snapshotId, /^z2k-[0-9a-f]{64}$/);
   assert.equal(first.snapshot.normalizedEntryCount, first.snapshot.entries.length);
   assert.equal(first.snapshot.immutable, true);
+});
+
+test('Z2K snapshot identity binds both exact source files', () => {
+  const files = {
+    'strats_new2.txt': readFixture('strats_new2.txt'),
+    'quic_strats.ini': readFixture('quic_strats.ini'),
+  };
+  const first = invoke('strategy_source_z2k_prepare_snapshot', [{ files, sourceCommit: '1'.repeat(40) }]);
+  const changed = invoke('strategy_source_z2k_prepare_snapshot', [{
+    files: { ...files, 'quic_strats.ini': files['quic_strats.ini'] + '\n# changed\n' },
+    sourceCommit: '1'.repeat(40),
+  }]);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(changed.ok, true, JSON.stringify(changed));
+  assert.match(first.snapshot.stratsNew2Digest, /^[0-9a-f]{64}$/);
+  assert.match(first.snapshot.quicStratsDigest, /^[0-9a-f]{64}$/);
+  assert.notEqual(changed.snapshot.snapshotId, first.snapshot.snapshotId);
 });
 
 test('Z2K adapter rejects Avatar provenance and preserves canonical source separation', () => {

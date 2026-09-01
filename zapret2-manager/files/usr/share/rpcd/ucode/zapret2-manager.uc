@@ -24,7 +24,7 @@
 
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
-import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
+import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild, catalog_source_set_enabled } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
 import { strategy_source_refresh } from '/usr/libexec/zapret2-manager/strategy-source-refresh.uc';
 import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
 import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
@@ -1170,11 +1170,7 @@ function strategies_source_set_enabled_method(req) {
 		if (!current || current.ok != true || current.snapshot == null)
 			return { ok: false, error: { code: 'EUNAVAILABLE', message: 'Cannot enable a source without a verified LKG snapshot' } };
 	}
-	let changed = strategy_sources.strategy_source_set_enabled(input.sourceId, input.enabled, input.expectedRevision);
-	if (!changed || changed.ok != true) return changed;
-	let rebuilt = catalog_refresh_rebuild();
-	if (!rebuilt || rebuilt.ok != true) return { ok: false, error: rebuilt && rebuilt.error || { code: 'EINDEX', message: 'Unified Strategy catalog could not be rebuilt' }, config: changed.config, source: changed.source };
-	return { ok: true, config: changed.config, source: changed.source, generationId: rebuilt.generationId, indexDigest: rebuilt.indexDigest };
+	return catalog_source_set_enabled(input.sourceId, input.enabled, input.expectedRevision);
 }
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
 

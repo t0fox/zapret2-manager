@@ -213,11 +213,56 @@ export const strategy_source_set_enabled = function(id, enabled, expectedRevisio
 	return { ok: true, config: next, source: source_projection(next, state.state, id) };
 };
 
+export const strategy_sources_restore_config = function(config, expectedRevision) {
+	if (!valid_config(config) || type(expectedRevision) != 'int')
+		return error('EINPUT', 'A valid source config and expected revision are required');
+	let loaded = load_config();
+	if (!loaded.ok) return loaded;
+	if (loaded.config.revision != expectedRevision)
+		return error('ESTALE', 'Strategy source config changed during rollback');
+	if (!atomic_write(CONFIG_PATH, sprintf('%J', config)))
+		return error('EIO', 'Strategy source config rollback could not be published');
+	return { ok: true, config: copy(config) };
+};
+
 export const strategy_source_current_snapshot = function(id) {
 	if (!known_source(id)) return error('EINPUT', 'Unknown strategy source', 'sourceId');
 	let state = load_state(id);
 	if (!state.ok) return state;
 	return read_current(id, state.state);
+};
+
+// Restore the source activation authority after a catalog transaction that
+// could not publish its generation. Snapshot files are immutable; only the
+// pointer state is rolled back, so the failed candidate remains harmless and
+// can be garbage-collected by a later maintenance pass.
+export const strategy_source_restore_activation = function(id, activation) {
+	if (!known_source(id) || !object(activation))
+		return error('EINPUT', 'Source activation rollback requires sourceId and activation');
+	let state = load_state(id);
+	if (!state.ok) return state;
+	let currentId = activation.currentSnapshotId == null ? null : activation.currentSnapshotId;
+	let lkgId = activation.lastKnownGoodSnapshotId == null ? null : activation.lastKnownGoodSnapshotId;
+	if ((currentId != null && !safe_snapshot_id(currentId)) || (lkgId != null && !safe_snapshot_id(lkgId)))
+		return error('EINPUT', 'Source activation rollback contains an unsafe snapshot id');
+	if (currentId != null) {
+		let current = read_json(snapshot_path(id, currentId));
+		if (!current.ok || current.missing || !valid_snapshot(id, current.value))
+			return error('ESTALE', 'Source activation rollback snapshot is unavailable');
+	}
+	if (lkgId != null) {
+		let lkg = read_json(snapshot_path(id, lkgId));
+		if (!lkg.ok || lkg.missing || !valid_snapshot(id, lkg.value))
+			return error('ESTALE', 'Source activation rollback LKG snapshot is unavailable');
+	}
+	let next = copy(state.state);
+	next.currentSnapshotId = currentId;
+	next.lastKnownGoodSnapshotId = lkgId;
+	next.revision++;
+	if (!atomic_write(state_path(id), sprintf('%J', next)))
+		return error('EIO', 'Source activation rollback could not be published');
+	return { ok: true, source: { id: id, currentSnapshotId: currentId,
+		lastKnownGoodSnapshotId: lkgId, revision: next.revision } };
 };
 
 export const strategy_source_install_verified_snapshot = function(id, prepared) {

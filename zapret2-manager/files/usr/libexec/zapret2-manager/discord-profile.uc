@@ -96,8 +96,9 @@ function donor_record(entry, strategy, profile, profileIndex, catalog) {
 		|| index(args, '--filter-l7=discord') < 0) return null;
 	let blobPath = '/opt/zapret2/files/fake/quic_initial_dbankcloud_ru.bin';
 	let files = [{ path: blobPath, present: !!stat(blobPath), blobName: 'quic_dbankcloud' }];
-	let donorArgs = '--blob=quic_dbankcloud:@' + blobPath + ' ' + args;
-	let native = native_check(donorArgs);
+	let donorArgs = '--blob=quic_dbankcloud:@bin/quic_initial_dbankcloud_ru.bin ' + args;
+	let nativeArgs = '--blob=quic_dbankcloud:' + blobPath + ' ' + args;
+	let native = native_check(nativeArgs);
 	let profileDigest = sha_text(args, '/tmp/z2m-discord-profile.sha');
 	let provenance = copy_object(entry.provenance || strategy.provenance);
 	let sourceProfile = type(entry.profiles) == 'array' ? entry.profiles[profileIndex] : null;

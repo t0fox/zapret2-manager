@@ -129,7 +129,7 @@ function discordRuntimeActive(data) {
   for (var i = 0; i < instances.length; i++) {
     var cmdline = text(instances[i] && instances[i].cmdline);
     if (cmdline.indexOf('--filter-l7=discord,stun') < 0) continue;
-    if (!/--filter-udp=[^\s]*50000-50100(?:[,\s]|$)/.test(cmdline)) continue;
+    if (!/--filter-udp=[^\s]*(?:50000-50099|50000-50100)(?:[,\s]|$)/.test(cmdline)) continue;
     if (!/--lua-desync=circular:[^\s]*key=discord_(?:udp|voice)(?:[,\s:]|$)/.test(cmdline)) continue;
     if (cmdline.indexOf('hostkey=z2k_nohost_key') < 0) continue;
     return true;
@@ -163,17 +163,22 @@ function stateRevision(data) {
   revision = Number(revision);
   return isNaN(revision) || revision < 0 ? 0 : revision;
 }
-function strategyInput(strategy) {
+function strategyInput(strategy, transientComposition) {
   var metadata = { description: strategy.description, author: strategy.author, protocol: strategy.protocol };
   var provenance = strategyProvenance(strategy);
   if (Object.keys(provenance).length) metadata.provenance = provenance;
-  return {
+  var result = {
     id: strategy.id, name: strategy.name, origin: strategy.origin,
     is_builtin: strategy.isBuiltin, metadata: metadata,
     profiles: array(strategy.profiles).map(function (profile) {
       return { id: profile.id, name: profile.name, args: profile.args, enabled: profile.enabled !== false };
     })
   };
+  if (transientComposition === true) {
+    result.canonicalId = strategy.canonicalId || strategy.id;
+    result.sourceId = strategy.sourceId;
+  }
+  return result;
 }
 function editorDraftFingerprint(draft) {
   draft = object(draft);
@@ -342,10 +347,11 @@ var ListUI = {
       count.textContent = cfg.countLabel(shown.length, items.length) + (isFiltered ? ' (отфильтровано из ' + items.length + ')' : '');
       if (!filtered.length) body.innerHTML = cfg.renderEmpty(search, filterId);
       else if (cfg.groupBy) {
-        var groups = {};
+        var groups = {}, groupTotals = {};
+        filtered.forEach(function (item) { var id = String(cfg.groupBy(item) || 'other'); groupTotals[id] = (groupTotals[id] || 0) + 1; });
         shown.forEach(function (item) { var id = String(cfg.groupBy(item) || 'other'); (groups[id] || (groups[id] = [])).push(item); });
         body.innerHTML = Object.keys(groups).map(function (id) {
-          return '<div class="list-ui-group ' + (collapsed[id] ? 'collapsed' : '') + '"><button type="button" class="list-ui-group-header" data-list-ui-group="' + escapeAttr(id) + '">' + svgIcon('chevronDown', 14, 'list-ui-group-chevron') + '<b>' + escapeHtml(cfg.groupLabel(id)) + '</b><span>' + groups[id].length + '</span></button><div class="list-ui-group-body">' + groups[id].map(cfg.renderItem).join('') + '</div></div>';
+          return '<div class="list-ui-group ' + (collapsed[id] ? 'collapsed' : '') + '"><button type="button" class="list-ui-group-header" data-list-ui-group="' + escapeAttr(id) + '">' + svgIcon('chevronDown', 14, 'list-ui-group-chevron') + '<b>' + escapeHtml(cfg.groupLabel(id)) + '</b><span>' + groupTotals[id] + '</span></button><div class="list-ui-group-body">' + groups[id].map(cfg.renderItem).join('') + '</div></div>';
         }).join('');
       } else body.innerHTML = shown.map(cfg.renderItem).join('');
       more.style.display = shown.length < filtered.length ? '' : 'none';
@@ -410,7 +416,7 @@ function strategySourceId(value) {
   return text(value.origin).toLowerCase() === 'user' || value.is_builtin === false ? 'user' : '';
 }
 function sourceFilterLabel(id) {
-  return ({ all: 'Все', avatar: 'Avatar', z2k: 'Z2K', user: 'Пользовательские' }[id] || 'Все');
+  return ({ all: 'Все источники', avatar: 'Avatar', z2k: 'Z2K', user: 'Пользовательские' }[id] || 'Все источники');
 }
 function renderSourceFilters() {
   var host = state.root && state.root.querySelector('#strategy-source-filters');
@@ -439,20 +445,33 @@ function renderFiltersAndList() {
   container.id = 'strategies-list';
   host.replaceChildren(container);
   state.listUI = ListUI.create({
-    container: container, items: sourceFilterRows(), searchPlaceholder: 'Поиск по имени, автору, описанию, args...',
+    container: container, items: sourceFilterRows(), searchPlaceholder: 'Поиск по имени, автору, описанию, args…',
     searchFields: function (strategy) { return [strategy.name, strategy.description, strategy.author, strategy.id].concat(array(strategy.profiles).map(function (profile) { return profile.args; })); },
     filters: [
-      { id: 'all', label: 'Все', test: function () { return true; } },
+      { id: 'all', label: 'Все типы', test: function () { return true; } },
       { id: 'circular', label: 'Авто (circular)', icon: 'refresh', test: function (strategy) { return strategy.circular; } },
       { id: 'favorite', label: 'Избранное', icon: 'star', test: function (strategy) { return strategy.favorite; } },
       { id: 'featured', label: 'Витрина', extension: true, icon: 'star', test: function (strategy) { return strategy.featured; } },
       { id: 'recommended', label: 'Рекомендуемые', test: function (strategy) { return strategy.recommended; } },
       { id: 'builtin', label: 'Встроенные', test: function (strategy) { return strategy.isBuiltin; } },
-      { id: 'user', label: 'Пользовательские', test: function (strategy) { return !strategy.isBuiltin; } }
+      { id: 'user', label: 'Пользовательские', test: function (strategy) { return strategy.origin === 'user'; } }
     ],
-    filterLabel: 'Тип',
-    groupBy: function (strategy) { return (strategy.protocol || 'other').toLowerCase(); },
-    groupLabel: function (group) { return ({ tcp: 'TCP', udp: 'UDP / QUIC', http: 'HTTP', tls: 'TLS', other: 'Прочее' }[group] || String(group).toUpperCase()); },
+    filterLabel: 'Тип стратегии',
+    groupBy: function (strategy) {
+      if (strategy.sourceId === 'z2k' && strategy.poolKey) return 'z2k:' + String(strategy.poolKey).toLowerCase();
+      return (strategy.protocol || 'other').toLowerCase();
+    },
+    groupLabel: function (group) {
+      var labels = {
+        rkn_tcp: 'RKN TCP', yt_tcp: 'YouTube TCP', gv_tcp: 'Google Video TCP',
+        yt_quic: 'YouTube QUIC', discord_udp: 'Discord UDP'
+      };
+      if (String(group).indexOf('z2k:') === 0) {
+        var pool = String(group).slice(4);
+        return 'Z2K · ' + (labels[pool] || pool.replace(/[_-]+/g, ' ').replace(/\b\w/g, function (letter) { return letter.toUpperCase(); }));
+      }
+      return ({ tcp: 'TCP', udp: 'UDP / QUIC', http: 'HTTP', tls: 'TLS', other: 'Прочее' }[group] || String(group).toUpperCase());
+    },
     renderItem: renderStrategyCard,
     renderEmpty: function (query, filter) { return '<div class="list-ui-empty">' + (query ? 'По запросу «' + escapeHtml(query) + '» ничего не найдено' : filter === 'favorite' ? 'Нет избранных стратегий' : 'Стратегии не найдены') + '</div>'; },
     countLabel: function (visible, total) { return visible + ' из ' + total + ' стратегий'; },
@@ -500,7 +519,7 @@ function renderStrategyCard(strategy) {
       ? '<button class="btn btn-primary btn-sm" type="button" disabled aria-busy="true"><span class="btn-spinner" aria-hidden="true"></span><span>Применяем…</span></button>'
       : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Применить эту стратегию">' + svgIcon('play', 14) + '<span>Применить</span></button>';
   return '<div class="strategy-card compact' + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
-    '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" aria-label="Выбрать стратегию для объединения" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
+    '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" aria-label="Выбрать стратегию для объединения" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
     '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap" id="strategy-details-' + escapeAttr(strategy.id) + '" data-details-loaded="' + (args ? 'true' : 'false') + '">' + args + '</div><div class="strategy-card-actions"><div class="strategy-card-primary-actions">' + actions + '</div><div class="strategy-card-secondary-actions">' +
     '<button class="strategy-card-toggle" data-action="toggleDetails" data-strategy-id="' + escapeAttr(strategy.id) + '" data-list-ui-toggle type="button" aria-expanded="false" aria-controls="strategy-details-' + escapeAttr(strategy.id) + '" title="Показать настройки стратегии">' + svgIcon('chevronDown', 12) + '<span class="strategy-card-toggle-label">Подробнее</span></button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Показать эффективную команду nfqws2">' + svgIcon('terminal', 14) + '<span>Превью</span></button>' +
     '<details class="strategy-card-menu"><summary class="strategy-card-menu-trigger btn btn-ghost btn-sm">' + svgIcon('chevronUp', 12, 'strategy-card-menu-chevron') + '<span>Ещё</span></summary><div class="strategy-card-menu-panel"><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Скопировать команду nfqws2">' + svgIcon('clipboard', 14) + '<span>Скопировать команду</span></button>' + (cardPending === 'duplicate' ? '<button class="btn btn-ghost btn-sm" type="button" disabled aria-busy="true"><span class="btn-spinner" aria-hidden="true"></span><span>Создаём копию…</span></button>' : '<button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Создать пользовательскую копию">' + svgIcon('copy', 14) + '<span>Создать копию</span></button>') +
@@ -783,8 +802,8 @@ function openStratPicker(key, host, currentStrategy, mode) {
   var modal = state.root && state.root.querySelector('#strat-picker-modal');
   if (modal) modal.style.display = 'flex';
 }
-function openDiscordDonorPicker(source, raw, donors, digest) {
-  state.discordDonorPicker = { source: source, raw: raw, donors: donors, digest: digest, filter: 'all' };
+function openDiscordDonorPicker(source, raw, donors, digest, discoveryError) {
+  state.discordDonorPicker = { source: source, raw: raw, donors: donors, digest: digest, filter: 'all', discoveryError: discoveryError || null };
   state.stratPicker = { kind: 'discord-donor' };
   renderStratPickerModal();
   var modal = state.root && state.root.querySelector('#strat-picker-modal');
@@ -821,9 +840,14 @@ function renderStratPickerModal() {
       var index = picker.donors.indexOf(donor), sourceLabel = sourceFilterLabel(donor.sourceId);
       return '<button type="button" class="strategy-donor-option" data-action="selectDiscordDonor" data-donor-index="' + index + '"' + (donor.ok !== true ? ' disabled' : '') + '>' +
         '<span class="strategy-donor-option-main"><strong>' + escapeHtml(donor.strategyName || donor.canonicalStrategyId) + '</strong><span>' + escapeHtml(sourceLabel) + ' · ' + escapeHtml(donor.donorProfileId || 'Discord') + '</span></span>' +
-        '<span class="strategy-donor-option-meta">' + (donor.ok === true ? 'Готово' : 'Недоступно') + '</span></button>';
+        '<span class="strategy-donor-option-meta">' + escapeHtml(discordDonorStatus(donor)) + '</span></button>';
     }).join('');
-    body.innerHTML = '<div class="strat-picker-context"><strong>Добавить Discord в текущую стратегию</strong><span class="text-muted">Выберите проверенный совместимый источник. Текущие профили сохранятся.</span></div>' +
+    var ready = donors.some(function (donor) { return donor.ok === true; });
+    var context = ready
+      ? 'Выберите проверенный совместимый источник. Текущие профили сохранятся.'
+      : 'Совместимые доноры найдены, но проверка зависимостей или nfqws2 не пройдена. Исправьте указанную причину и повторите проверку.';
+    var discoveryError = picker.discoveryError && (picker.discoveryError.message || picker.discoveryError.code);
+    body.innerHTML = '<div class="strat-picker-context"><strong>Добавить Discord в текущую стратегию</strong><span class="text-muted">' + escapeHtml(context) + '</span>' + (discoveryError ? '<span class="text-muted">Проверка: ' + escapeHtml(discoveryError) + '</span>' : '') + '</div>' +
       '<div class="strategy-donor-filters" role="tablist" aria-label="Источник Discord стратегии">' + tabs + '</div>' +
       (items ? '<div id="strategy-donor-panel" class="strategy-donor-list" role="tabpanel" tabindex="0">' + items + '</div>' : '<p id="strategy-donor-panel" class="text-muted" role="tabpanel">Совместимые доноры для этого источника не найдены.</p>') +
       '<div class="editor-footer" style="margin-top:16px"><button type="button" class="btn btn-ghost" data-action="closeStratPicker">Отмена</button></div>';
@@ -872,6 +896,14 @@ function setDiscordDonorFilter(filter) {
   if (!state.discordDonorPicker) return;
   state.discordDonorPicker.filter = ['all', 'avatar', 'z2k'].indexOf(filter) >= 0 ? filter : 'all';
   renderStratPickerModal();
+}
+function discordDonorStatus(donor) {
+  if (!donor || donor.ok === true) return 'Готово';
+  var files = donor.requiredFiles && Array.isArray(donor.requiredFiles.files) ? donor.requiredFiles.files : [];
+  var missing = files.filter(function (file) { return file.present !== true; }).map(function (file) { return file.blobName || file.path || 'файл'; });
+  if (missing.length) return 'Нет: ' + missing.join(', ');
+  if (donor.native && donor.native.status && donor.native.status !== 'passed') return 'nfqws2: ' + donor.native.status;
+  return 'Проверка не пройдена';
 }
 function selectDiscordDonor(index) {
   var picker = state.discordDonorPicker, donor = picker && picker.donors[Number(index)];
@@ -1302,27 +1334,30 @@ function hasDiscordProfile(strategy) {
       args.indexOf('hostkey=z2k_nohost_key') >= 0 && args.indexOf('--filter-udp=') >= 0 && args.indexOf('--filter-l7=discord') >= 0;
   });
 }
+function discordDonorSourceFilter(strategy) {
+  var sourceId = text(strategy && strategy.sourceId).toLowerCase();
+  return sourceId === 'avatar' || sourceId === 'z2k' ? sourceId : 'all';
+}
 function enableDiscord() {
   var api = state.ctx && state.ctx.api && state.ctx.api.strategies;
   var source = strategyById(state.selectedId || (Model.identity(statusValue(state.data)) || {}).selectedId);
   if (state.pending || state.operationPending) return;
-  if (!api || !api.discordDonor || !api.get || !api.preview || !api.validate || !api.create || !api.apply || !api.delete) { notify('err', 'Канонический Discord apply недоступен'); return; }
+  if (!api || !api.discordDonor || !api.get || !api.preview || !api.validate || !api.apply) { notify('err', 'Канонический Discord apply недоступен'); return; }
   if (!source) { notify('warn', 'Сначала выберите Strategy'); return; }
   state.pending = 'discord'; renderAll();
   var digest = catalogDigest(state.data);
-  Promise.all([call(api.get, { id: source.id }), call(api.discordDonor, { sourceFilter: 'all' })]).then(function (answers) {
+  Promise.all([call(api.get, { id: source.id }), call(api.discordDonor, { sourceFilter: discordDonorSourceFilter(source) })]).then(function (answers) {
     var raw = answers[0] && answers[0].strategy ? answers[0].strategy : answers[0];
-    var discovery = answers[1], donors = discovery && Array.isArray(discovery.donors) ? discovery.donors.filter(function (donor) { return donor.ok === true; }) : [];
+    var discovery = answers[1], donors = discovery && Array.isArray(discovery.donors) ? discovery.donors.slice() : [];
     if (!donors.length && discovery && discovery.ok === true && Array.isArray(discovery.profiles) && discovery.profiles.length) donors = [discovery];
     if (!discovery || !donors.length) throw discovery || new Error('Discord donor unavailable');
-    openDiscordDonorPicker(source, raw, donors, digest);
+    openDiscordDonorPicker(source, raw, donors, digest, discovery.error);
   }).catch(function (error) {
     state.pending = null; renderAll(); notify('err', errorText(state.ctx, error));
   });
 }
 function startDiscordMerge(source, raw, donor, digest) {
   var api = state.ctx && state.ctx.api && state.ctx.api.strategies;
-  var created = null, applied = false;
   state.pending = 'discord'; renderAll();
   var full = Model.normalize(raw, statusValue(state.data), source.id);
   if (hasDiscordProfile(full)) {
@@ -1337,42 +1372,37 @@ function startDiscordMerge(source, raw, donor, digest) {
     return { id: id, name: profile.name || 'Discord Voice / Video', args: profile.args, enabled: profile.enabled !== false };
   });
   var draft = JSON.parse(JSON.stringify(full));
-  draft.id = source.id + '_discord';
+  // Keep the canonical base identity. The composed profiles are sent only in
+  // strategy_data for this Apply and are never persisted as a user Strategy.
+  draft.id = source.id;
+  draft.canonicalId = source.canonicalId || source.id;
+  draft.sourceId = source.sourceId;
   draft.name = source.name + ' + Discord';
-  draft.origin = 'user'; draft.isBuiltin = false; draft.is_builtin = false;
+  draft.origin = 'derived'; draft.isBuiltin = false; draft.is_builtin = false;
   draft.revision = 0;
   draft.profiles = array(full.profiles).concat(donorProfiles);
-  draft.metadata = Object.assign({}, object(full.metadata), { provenance: Object.assign({}, strategyProvenance(full), {
+  draft.metadata = Object.assign({}, object(full.metadata), { provenance: Object.assign({}, strategyProvenance(full), { composition: 'discord',
     donor: { canonicalStrategyId: donor.canonicalStrategyId, sourceId: donor.sourceId,
       sourceSnapshotId: donor.sourceSnapshotId, sourceCommit: donor.sourceCommit,
       donorProfileId: donor.donorProfileId, donorProfileDigest: donor.donorProfileDigest }
   }) });
-  if (strategyById(draft.id)) {
-    state.pending = null; renderAll(); notify('err', 'Пользовательская Discord Strategy уже существует.'); return;
-  }
-  call(api.preview, { strategy_data: strategyInput(draft), catalog_digest: digest, validate: false }).then(function (preview) {
+  var transient = strategyInput(draft, true);
+  call(api.preview, { strategy_data: transient, catalog_digest: digest, validate: false }).then(function (preview) {
     if (!preview || preview.ok !== true) throw preview || new Error('Discord Strategy preview failed');
-    return call(api.validate, { strategy_data: strategyInput(draft), catalog_digest: digest, validate: true });
+    return call(api.validate, { strategy_data: transient, catalog_digest: digest, validate: true });
   }).then(function (validation) {
     if (!validation || validation.ok !== true) throw validation || new Error('Discord Strategy validation failed');
-    return call(api.create, { strategy: strategyInput(draft) });
-  }).then(function (answer) {
-    if (!answer || answer.ok === false) throw answer || new Error('Discord Strategy create failed');
-    created = answer.strategy || answer;
-    if (!created || !created.id) throw new Error('Discord Strategy create returned no identity');
-    return call(api.apply, { strategy_id: created.id, revision: Number(created.revision) || 1, catalog_digest: digest });
+    return call(api.apply, { strategy_data: transient, catalog_digest: digest, validate: true });
   }).then(function (answer) {
     if (!answer || answer.ok === false) throw answer || new Error('Discord Strategy apply failed');
-    applied = true;
-    state.selectedId = created.id;
+    state.selectedId = source.id;
     if (state.ctx && state.ctx.invalidateCache) state.ctx.invalidateCache('strategies');
     return refreshData(true);
   }).then(function () {
     state.pending = null; renderAll();
     notify('ok', 'Discord обход включён через каноническую Strategy API');
   }).catch(function (error) {
-    var cleanup = created && !applied ? call(api.delete, { id: created.id, expectedRevision: Number(created.revision) || 1 }).catch(function () { return null; }) : Promise.resolve();
-    cleanup.then(function () { state.pending = null; renderAll(); notify('err', errorText(state.ctx, error)); });
+    state.pending = null; renderAll(); notify('err', errorText(state.ctx, error));
   });
 }
 function excludeLearned(key, host, strategy) { stateSet(key, host, strategy, 'excluded'); }

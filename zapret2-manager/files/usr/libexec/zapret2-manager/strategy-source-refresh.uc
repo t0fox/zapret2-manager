@@ -14,8 +14,8 @@ import { private_tempfile } from './core/private-temp.uc';
 
 const AVATAR_REPOSITORY = 'avatarDD/zapret-gui';
 const Z2K_REPOSITORY = 'necronicle/z2k';
-const AVATAR_METADATA_URL = 'https://api.github.com/repos/avatarDD/zapret-gui/commits?path=catalogs/manifest.json&per_page=1';
-const Z2K_METADATA_URL = 'https://api.github.com/repos/necronicle/z2k/commits?path=strats_new2.txt&per_page=1';
+const AVATAR_METADATA_URL = 'https://api.github.com/repos/avatarDD/zapret-gui/commits?path=catalogs&per_page=1';
+const Z2K_METADATA_URL = 'https://api.github.com/repos/necronicle/z2k/commits?per_page=1';
 const MAX_CONTENT = 4 * 1024 * 1024;
 const MAX_ARCHIVE = 16 * 1024 * 1024;
 
@@ -165,13 +165,17 @@ export const strategy_source_refresh = function(id) {
 			return error('ESTALE', 'Avatar metadata revision does not match its verified complete snapshot');
 		snapshot.published = true;
 	} else {
-		let url = 'https://raw.githubusercontent.com/' + Z2K_REPOSITORY + '/' + sourceCommit + '/strats_new2.txt';
-		let fetched = fetch_exact(url);
+		let files = {}, stratsUrl = 'https://raw.githubusercontent.com/' + Z2K_REPOSITORY + '/' + sourceCommit + '/strats_new2.txt';
+		let quicUrl = 'https://raw.githubusercontent.com/' + Z2K_REPOSITORY + '/' + sourceCommit + '/quic_strats.ini';
+		let fetched = fetch_exact(stratsUrl);
 		if (!fetched.ok) return fetched;
 		if (checked.metadata.contentSha256 != null && fetched.contentDigest != checked.metadata.contentSha256)
 			return error('ESTALE', 'Z2K content digest does not match accepted source metadata');
-		prepared = z2k_source.strategy_source_z2k_prepare_snapshot({ content: fetched.content,
-			sourceCommit: sourceCommit, sourcePath: 'strats_new2.txt' });
+		files['strats_new2.txt'] = fetched.content;
+		let quic = fetch_exact(quicUrl);
+		if (!quic.ok) return quic;
+		files['quic_strats.ini'] = quic.content;
+		prepared = z2k_source.strategy_source_z2k_prepare_snapshot({ files: files, sourceCommit: sourceCommit });
 		if (!prepared.ok) return error(prepared.error && prepared.error.code || 'EVERIFY', 'Z2K source snapshot verification failed');
 		snapshot = prepared.snapshot;
 		snapshot.published = true;

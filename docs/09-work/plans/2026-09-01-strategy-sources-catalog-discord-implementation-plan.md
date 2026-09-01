@@ -2,9 +2,9 @@
 id: plan-strategy-sources-catalog-discord
 title: "Multi-Source Strategy Catalog + Discord Implementation Plan"
 type: plan
-status: planned
+status: completed
 authority: approved-spec
-updated: 2026-09-01
+updated: 2026-09-02
 publish: false
 tags: [plan, strategy, catalog, discord, z2k]
 ---
@@ -1233,7 +1233,30 @@ After Discord Apply:
 
 ---
 
-# 22. Final Gate
+# 22. Execution Evidence (2026-09-02)
+
+The implementation was completed directly on `main`. The attached plan's
+agent-oriented wording was not used as an instruction because the user
+explicitly required main-only, no-agent execution.
+
+Router/browser evidence, using the built-in Codex browser and one-button LuCI
+login only:
+
+- Avatar snapshot: `avatar-5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1`, commit `8c44df2bed98872d1348db053623ee6bf2902408`, 1836 source entries / 732 normalized strategies.
+- Z2K snapshot: `z2k-3022c28905a1fb90fa987a7c42f6005a4053599b4a721bbce04b9d79923e0a50`, commit `3d6bdad8c2c23e25cbae847c3e29f5401c2e5d23`, 120 strategies from two source files.
+- Live filters: All 854, Avatar 732, Z2K 120, User 2. Canonical source badges remain visible.
+- Disable/re-enable Z2K: source config revision 1 → 2 → 3; unified generations were published for both transitions; nfqws2 PID stayed `29268` and the active Discord runtime did not change.
+- Discord donor picker: compatible Z2K donor `discord_voice_autocircular / strategy 1` was selected; Preview and Validate passed, including CLI/Lua/blob/runtime/execution-plan gates; normal Apply committed two profiles.
+- Final runtime: service `running`, NFQUEUE 300 registered with matching owner, rules present, and Discord arguments include `50000-50099`, `--filter-l7=discord,stun`, `key=discord_udp`, and `hostkey=z2k_nohost_key`.
+- Built-in browser after Apply and source re-enable: top status `работает`; Discord Voice / Video shows source Z2K, strategy `manual_autocircular_rkn`, active auto variant `QUIC Morph v2`, with no false “Включить Discord” state.
+- Reboot acceptance had already been completed before the final no-reboot instruction; no additional reboot was performed during this corrective fix.
+
+Focused fresh gates: Avatar Apply 32/32, source/catalog suites 30/30,
+Strategy RPC + Discord suites 50/50, UI shell/filter suite 10/10, and the
+targeted learned-runtime detector 2/2. `node --check` and `git diff --check`
+are required again immediately before the final push.
+
+# 23. Final Gate
 
 Invoke:
 
@@ -1326,5 +1349,4 @@ If any required row is unproven, overall status stays `WORKING`; continue engine
 - Discord hardcoding/provenance defect and second-writer risk are both covered.
 - Real-router acceptance includes refresh, filters, source disable, reboot, Discord active detection and Discord Apply.
 - No unrelated product redesign is included.
-
 
