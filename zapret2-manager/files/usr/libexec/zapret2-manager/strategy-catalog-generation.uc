@@ -108,6 +108,17 @@ function valid_entry(entry, sourceId, snapshotId) {
 		&& valid_commit(entry.sourceCommit) && type(entry.profiles) == 'array'
 		&& object(entry.provenance) && entry.provenance.sourceId == sourceId;
 }
+function entry_problem(entry, sourceId, snapshotId) {
+	if (!object(entry)) return 'entry is not an object';
+	if (!string(entry.canonicalId) || length(entry.canonicalId) == 0) return 'canonicalId';
+	if (entry.sourceId != sourceId) return 'sourceId';
+	if (!string(entry.upstreamId)) return 'upstreamId';
+	if (entry.sourceSnapshotId != snapshotId) return 'sourceSnapshotId';
+	if (!valid_commit(entry.sourceCommit)) return 'sourceCommit';
+	if (type(entry.profiles) != 'array') return 'profiles';
+	if (!object(entry.provenance) || entry.provenance.sourceId != sourceId) return 'provenance';
+	return null;
+}
 function source_input(input, id) {
 	if (!object(input.sources)) return null;
 	return input.sources[id] || null;
@@ -126,7 +137,8 @@ function append_source(index, seen, input, id) {
 		entryCount: snapshot.entryCount, normalizedEntryCount: snapshot.normalizedEntryCount
 	};
 	for (let entry in snapshot.entries) {
-		if (!valid_entry(entry, id, snapshot.snapshotId)) return error('EVERIFY', 'Source entry provenance is invalid', id);
+		let problem = entry_problem(entry, id, snapshot.snapshotId);
+		if (problem != null) return error('EVERIFY', 'Source entry provenance is invalid: ' + problem, id);
 		if (seen[entry.canonicalId]) return error('EDUPLICATE', 'Canonical Strategy ID is duplicated', entry.canonicalId);
 		seen[entry.canonicalId] = true;
 		push(index.entries, copy(entry));

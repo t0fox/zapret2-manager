@@ -7,7 +7,13 @@ mode="${Z2M_FIXTURE_MODE:-ok}"
 root="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
 
 if [ "$mode" = "error" ]; then
-	 exit 1
+	exit 1
+fi
+if [ "$mode" = "avatar-error" ] && echo "$url" | grep -q 'avatarDD/zapret-gui'; then
+	exit 1
+fi
+if [ "$mode" = "z2k-error" ] && echo "$url" | grep -q 'necronicle/z2k'; then
+	exit 1
 fi
 
 case "$url" in

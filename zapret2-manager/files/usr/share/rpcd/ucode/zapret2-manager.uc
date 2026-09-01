@@ -25,6 +25,8 @@
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
 import { catalog_refresh_start, catalog_refresh_status } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
+import { strategy_source_refresh } from '/usr/libexec/zapret2-manager/strategy-source-refresh.uc';
+import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
 import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
@@ -1134,6 +1136,32 @@ function strategies_catalog_refresh_status_method(req) {
   let out = p.read('all') || ''; p.close();
   try { let v = json(out); return v || { ok: false, error: { code: 'EIO', message: 'refresh status no output' } }; } catch(e) { return { ok: false, error: { code: 'EIO', message: 'refresh status malformed' } }; }
 }
+function strategy_source_id(req) {
+	let id = null;
+	try { if (req && req.args && req.args.sourceId != null) id = req.args.sourceId; } catch (e) { }
+	if (id == null) { try { if (req && req.sourceId != null) id = req.sourceId; } catch (e) { } }
+	return id;
+}
+function strategy_source_edit_input(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) == 'object' && edit != null) return edit;
+	if (type(edit) != 'string') return null;
+	try { let parsed = json(edit); return type(parsed) == 'object' && parsed != null ? parsed : null; }
+	catch (e) { return null; }
+}
+function strategies_sources_get_method(req) { return strategy_sources.strategy_sources_get(); }
+function strategies_source_refresh_method(req) {
+	let id = strategy_source_id(req);
+	return id == null ? { ok: false, error: { code: 'EINPUT', message: 'sourceId is required' } } : strategy_source_refresh(id);
+}
+function strategies_source_set_enabled_method(req) {
+	let input = strategy_source_edit_input(req);
+	if (!input || input.sourceId == null || input.enabled == null || input.expectedRevision == null)
+		return { ok: false, error: { code: 'EINPUT', message: 'sourceId, enabled, and expectedRevision are required' } };
+	return strategy_sources.strategy_source_set_enabled(input.sourceId, input.enabled, input.expectedRevision);
+}
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
 
 // ---- Strategies Operations & Autocircular State (5-column state.tsv) ----------
@@ -1419,6 +1447,9 @@ return {
 		strategies_catalog_reload: { call: function (req) { return strategies_catalog_reload_method(req); } },
 		strategies_catalog_refresh_start: { call: function (req) { return strategies_catalog_refresh_start_method(req); } },
 		strategies_catalog_refresh_status: { call: function (req) { return strategies_catalog_refresh_status_method(req); } },
+		strategies_sources_get: { call: function (req) { return strategies_sources_get_method(req); } },
+		strategies_source_refresh: { args: { sourceId: 'string' }, call: function (req) { return strategies_source_refresh_method(req); } },
+		strategies_source_set_enabled: { args: { edit: 'string' }, call: function (req) { return strategies_source_set_enabled_method(req); } },
 		strategies_catalog_update: { args: { edit: 'string' }, call: function (req) { return strategies_catalog_update_method(req); } },
 		strategies_import_profiles: { args: { edit: 'string' }, call: function (req) { return strategies_import_profiles_method(req); } },
 		strategies_state:  { call: function (req) { return strategies_state_method(req); } },

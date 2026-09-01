@@ -112,6 +112,7 @@ function normalize_record(id, args, metadata) {
 	let derivedCapabilities = capabilities(args);
 	let entry = {
 		id: 'z2k:' + id, canonicalId: 'z2k:' + id, sourceId: SOURCE_ID, upstreamId: id,
+		sourceCommit: sourceCommit, sourcePath: sourcePath,
 		name: id, description: 'Z2K Strategy ' + id, args: args, profiles: profiles,
 		capabilities: derivedCapabilities,
 		autocircular: derivedCapabilities.autocircular,

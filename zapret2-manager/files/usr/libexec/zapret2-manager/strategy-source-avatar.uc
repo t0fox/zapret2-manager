@@ -43,6 +43,14 @@ function normalize_entry(entry, snapshot) {
 	out.id = out.canonicalId;
 	out.sourceSnapshotId = snapshot && snapshot.snapshotId || out.sourceSnapshotId || null;
 	out.sourceCommit = snapshot && snapshot.sourceCommit || out.sourceCommit || null;
+	let strategy = catalog_entry_to_strategy(out);
+	if (strategy == null) return error('EVERIFY', 'Avatar source entry could not be converted to Strategy', 'id');
+	out.name = strategy.name;
+	out.description = strategy.description;
+	out.profiles = strategy.profiles;
+	out.capabilities = { autocircular: strategy.circular == true || strategy.isCircular == true,
+		discordUdp: false, protocols: [out.protocol == 'udp' ? 'udp' : 'tcp'] };
+	out.requirements = { engine: 'nfqws2' };
 	out.provenance = {
 		repository: REPOSITORY,
 		sourceId: SOURCE_ID,

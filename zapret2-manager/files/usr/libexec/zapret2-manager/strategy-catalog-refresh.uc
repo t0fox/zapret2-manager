@@ -1,8 +1,11 @@
 'use strict';
 import { readfile, writefile, stat, unlink, mkdir, popen, readlink } from 'fs';
-import { strategy_catalog_resolve, strategy_catalog_write_read_index } from './strategy-catalog.uc';
+import { strategy_catalog_read_index } from './strategy-catalog.uc';
+import { strategy_catalog_generation_publish, strategy_catalog_generation_read } from './strategy-catalog-generation.uc';
+import * as source_refresh from './strategy-source-refresh.uc';
+import * as source_store from './strategy-sources.uc';
 
-const STATE_PATH = '/tmp/zapret2-manager/catalog-refresh.json';
+const STATE_PATH = getenv('Z2M_STRATEGY_CATALOG_REFRESH_STATE_PATH') || '/tmp/zapret2-manager/catalog-refresh.json';
 const STATE_TMP = STATE_PATH + '.tmp';
 const STALE_SECONDS = 300;
 const MAX_STATE_BYTES = 64 * 1024;
@@ -45,6 +48,61 @@ function is_stale(state) {
 function make_id() {
   return 'cat-refresh-' + now() + '-' + sprintf('%08x', time() % 100000000);
 }
+function phase(state, name, percent) {
+	let wasQueued = state.phase == 'queued';
+	state.phase = name;
+	state.percent = percent;
+	state.heartbeatAt = now();
+	if (type(state.phaseHistory) != 'array') state.phaseHistory = wasQueued ? ['queued'] : [];
+  if (!length(state.phaseHistory) || state.phaseHistory[length(state.phaseHistory) - 1] != name)
+    push(state.phaseHistory, name);
+  state_save(state);
+}
+function failure(state, result) {
+  state.state = 'error';
+  state.error = result && result.error ? result.error : { code: 'EUNAVAILABLE', message: 'Strategy source refresh failed' };
+  state.finishedAt = now();
+  state.heartbeatAt = state.finishedAt;
+  state_save(state);
+  return state;
+}
+function completed(state, result) {
+  state.state = 'completed';
+  phase(state, 'done', 100);
+  state.finishedAt = now();
+  state.result = result;
+  state.error = null;
+  state_save(state);
+  return state;
+}
+function current_source_row(id, enabled) {
+  let current = null;
+  try { current = source_store.strategy_source_current_snapshot(id); } catch (e) { current = null; }
+  if (!current || current.ok != true || current.snapshot == null)
+    return { ok: false, error: current && current.error || { code: 'EUNAVAILABLE', message: 'Enabled strategy source has no current LKG snapshot' } };
+  return { ok: true, row: { enabled: enabled == true, currentSnapshotId: current.snapshot.snapshotId, snapshot: current.snapshot } };
+}
+function refresh_source(state, id, enabled, fetchPercent, verifyPercent) {
+  phase(state, id + '-fetch', fetchPercent);
+  let refreshed = null;
+  try { refreshed = source_refresh.strategy_source_refresh(id); }
+  catch (e) { refreshed = { ok: false, error: { code: 'EUNAVAILABLE', message: 'Strategy source refresh raised an exception' } }; }
+  phase(state, id + '-verify', verifyPercent);
+  let fallback = refreshed && refreshed.ok == true ? null : refreshed && refreshed.error || { code: 'EUNAVAILABLE', message: 'Strategy source refresh failed' };
+  let row = current_source_row(id, enabled);
+  if (!row.ok) return { ok: false, error: fallback || row.error };
+	return { ok: true, row: row.row, mode: fallback == null ? 'fresh' : 'lkg', error: fallback,
+		transport: refreshed && refreshed.metadataTransport || null };
+}
+function user_entries() {
+  let read = null;
+  try { read = strategy_catalog_read_index(null); } catch (e) { read = null; }
+  if (!read || read.ok != true || !read.catalog) return { revision: 0, entries: [] };
+  let entries = [], physical = read.catalog.physicalEntries || [];
+  for (let entry in physical)
+    if (entry && entry.sourceId == 'user') push(entries, entry);
+  return { revision: read.catalog.userRevision || 0, entries: entries };
+}
 
 export const catalog_refresh_status = function() {
   let s = state_load();
@@ -82,7 +140,8 @@ export const catalog_refresh_start = function() {
     finishedAt: null,
     result: null,
     error: null,
-    pid: null
+    pid: null,
+    phaseHistory: ['queued']
   };
   if (!state_save(rec)) return { ok: false, error: { code: 'EIO', message: 'Could not persist refresh operation' } };
   // launch worker via dedicated CLI in background — avoids inline `require("fs")` bug
@@ -99,39 +158,39 @@ export const catalog_refresh_start = function() {
 export const catalog_refresh_worker_run = function() {
   let s = state_load();
   if (s == null) return { ok: false, error: { code: 'ENOENT', message: 'No refresh operation' } };
-  s.phase = 'verifying';
-  s.percent = 15;
-  s.heartbeatAt = now();
-  state_save(s);
-  let r = strategy_catalog_resolve({forceVerify: true});
-  if (!r || r.ok != true) {
-    s.state = 'error';
-    s.error = r && r.error ? r.error : { code: 'EVERIFY', message: 'forceVerify failed' };
-    s.finishedAt = now();
-    state_save(s);
-    return s;
+  let config = null;
+  try { config = source_store.strategy_sources_get(); } catch (e) { config = null; }
+  if (!config || config.ok != true) return failure(s, config);
+  let generationSources = {}, sourceSnapshots = {}, enabledCount = 0, freshCount = 0;
+  for (let id in ['avatar', 'z2k']) {
+    let enabled = config.sources[id] && config.sources[id].enabled == true;
+    if (!enabled) continue;
+    enabledCount++;
+    let refreshed = refresh_source(s, id, enabled, id == 'avatar' ? 15 : 35, id == 'avatar' ? 25 : 45);
+    if (!refreshed.ok) return failure(s, refreshed);
+		generationSources[id] = refreshed.row;
+		sourceSnapshots[id] = { mode: refreshed.mode, snapshotId: refreshed.row.currentSnapshotId,
+		  sourceCommit: refreshed.row.snapshot.sourceCommit, error: refreshed.error, transport: refreshed.transport };
+    if (refreshed.mode == 'fresh') freshCount++;
   }
-  s.phase = 'indexing';
-  s.percent = 60;
-  s.heartbeatAt = now();
-  state_save(s);
-  let w = strategy_catalog_write_read_index(null);
-  s.phase = 'activating';
-  s.percent = 80;
-  s.heartbeatAt = now();
-  state_save(s);
-  if (!w || w.ok != true || w.written != true) {
-    s.state = 'error';
-    s.error = w && w.error ? w.error : { code: 'EINDEX', message: 'index rebuild failed' };
-    s.finishedAt = now();
-    state_save(s);
-    return s;
+  let active = null;
+  try { active = strategy_catalog_generation_read(); } catch (e) { active = null; }
+  if (enabledCount > 0 && freshCount == 0) {
+    if (!active || active.ok != true)
+      return failure(s, { ok: false, error: { code: 'EUNAVAILABLE', message: 'No enabled strategy source has a usable LKG and no active generation exists' } });
+    return completed(s, { ok: true, preserved: true, generationId: active.index.generationId,
+      sourceSnapshots: sourceSnapshots });
   }
-  s.state = 'completed';
-  s.phase = 'done';
-  s.percent = 100;
-  s.finishedAt = now();
-  s.result = { ok: true, digest: r.aggregateDigest, root: r.root };
-  state_save(s);
-  return s;
+  phase(s, 'merge', 60);
+  let users = user_entries();
+  phase(s, 'indexing', 75);
+  let published = null;
+  try {
+    published = strategy_catalog_generation_publish({ generatedAt: now(), sources: generationSources,
+      userRevision: users.revision, userEntries: users.entries });
+  } catch (e) { published = { ok: false, error: { code: 'EINDEX', message: 'Strategy generation publication raised an exception' } }; }
+  phase(s, 'activating', 90);
+  if (!published || published.ok != true) return failure(s, published);
+  return completed(s, { ok: true, generationId: published.generationId, indexDigest: published.indexDigest,
+    sourceSnapshots: sourceSnapshots });
 };
