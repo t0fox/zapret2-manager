@@ -196,6 +196,12 @@ function profile_identity(tokens, index) {
 }
 
 function copy_catalog_provenance(strategy, entry) {
+	if (entry.canonicalId != null) strategy.canonicalId = entry.canonicalId;
+	if (entry.sourceId != null) strategy.sourceId = entry.sourceId;
+	if (entry.sourceSnapshotId != null) strategy.sourceSnapshotId = entry.sourceSnapshotId;
+	if (entry.sourceCommit != null) strategy.sourceCommit = entry.sourceCommit;
+	if (entry.contentDigest != null) strategy.contentDigest = entry.contentDigest;
+	if (entry.provenance != null) strategy.provenance = entry.provenance;
 	if (entry.sourceFile != null) strategy.sourceFile = entry.sourceFile;
 	if (entry.sourceOrdinal != null) strategy.sourceOrdinal = entry.sourceOrdinal;
 	if (entry.cacheKey != null) strategy.cacheKey = entry.cacheKey;

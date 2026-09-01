@@ -83,6 +83,19 @@ test('package-created empty state is immediately usable without overwriting it o
   });
 }));
 
+test('selection persists immutable canonical source provenance alongside legacy apply identity', () => storage((env) => {
+  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env).ok, true);
+  const selected = {
+    id: 'user-one', origin: 'user', revision: 1, candidateSha256: hash,
+    canonicalStrategyId: 'user-one', sourceId: 'user', sourceSnapshotId: 'user-' + hash,
+    sourceCommit: null, strategyDigest: hash,
+  };
+  const set = invoke(`state.strategy_selection_set({expectedRevision:0,selected:${JSON.stringify(selected)}})`, env);
+  assert.equal(set.ok, true, JSON.stringify(set));
+  assert.deepEqual(set.state.selected, selected);
+  assert.deepEqual(invoke('state.strategy_selection_get()', env).selected, selected);
+}));
+
 test('stale Strategy revision is rejected without changing the file', () => storage((env, root, strategies) => {
   const created = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
   assert.equal(created.ok, true);

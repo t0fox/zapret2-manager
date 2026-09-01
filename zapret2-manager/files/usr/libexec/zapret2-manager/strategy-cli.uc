@@ -525,9 +525,14 @@ function resolve_strategy(input, currentCatalog) {
 		if (is_object(user) && user.ok == true) {
 			if (!is_object(user.strategy) || user.strategy.revision != input.revision)
 				return error_result('ECONFLICT', 'Strategy revision is stale');
-			return { ok: true, strategy: user.strategy, id: input.strategy_id, origin: 'user' };
+			return { ok: true, strategy: user.strategy, id: input.strategy_id, origin: 'user',
+				sourceId: 'user', canonicalStrategyId: input.strategy_id, sourceSnapshotId: null, sourceCommit: null };
 		}
-		if (is_object(user) && user.error && user.error.code != 'ENOENT')
+		// Namespaced catalog IDs (avatar:/z2k:) are intentionally not valid
+		// user-record IDs. The readonly user lookup reports EINPUT for those
+		// values, which must fall through to the verified catalog authority.
+		if (is_object(user) && user.error && user.error.code != 'ENOENT'
+			&& !(starts_with(input.strategy_id, 'avatar:') || starts_with(input.strategy_id, 'z2k:')))
 			return error_result(user.error.code, user.error.message);
 		let entry = is_object(currentCatalog.winners) ? currentCatalog.winners[input.strategy_id] : null;
 		if (entry == null)
@@ -536,9 +541,16 @@ function resolve_strategy(input, currentCatalog) {
 		let strategy = catalog_entry_to_strategy(entry);
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
 		strategy.origin = 'avatar_builtin';
-		return { ok: true, strategy: strategy, id: input.strategy_id, origin: 'avatar_builtin' };
+		let sourceId = strategy.sourceId || (starts_with(input.strategy_id, 'z2k:') ? 'z2k' : 'avatar');
+		let sourceSnapshotId = strategy.sourceSnapshotId || sourceId + '-' + currentCatalog.aggregateDigest;
+		let sourceCommit = strategy.sourceCommit || currentCatalog.source && (currentCatalog.source.sourceCommit || currentCatalog.source.commit) || null;
+		return { ok: true, strategy: strategy, id: input.strategy_id, origin: 'avatar_builtin',
+			sourceId: sourceId, canonicalStrategyId: strategy.canonicalId || input.strategy_id,
+			sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit };
 	}
-	return { ok: true, strategy: input.strategy_data, id: input.strategy_data.id, origin: 'inline' };
+	return { ok: true, strategy: input.strategy_data, id: input.strategy_data.id, origin: 'inline',
+		sourceId: 'user', canonicalStrategyId: input.strategy_data.canonicalId || input.strategy_data.id,
+		sourceSnapshotId: null, sourceCommit: null };
 }
 
 function complete_validation(value) {
@@ -691,6 +703,10 @@ export const strategy_validate = function(input, context) {
 };
 
 function strategy_apply_projection(resolved, input, candidate, selection, configHash, runtimeSnapshot) {
+	let sourceId = resolved.sourceId || (resolved.origin == 'user' || resolved.origin == 'inline' ? 'user' : 'avatar');
+	let sourceSnapshotId = resolved.sourceSnapshotId || sourceId + '-' + candidate.digest;
+	let sourceCommit = resolved.sourceCommit || null;
+	let canonicalStrategyId = resolved.canonicalStrategyId || resolved.strategy.canonicalId || resolved.id;
 	return {
 		candidateSha256: candidate.digest,
 		callerContext: 'strategy_apply', operationNonce: selection.operationNonce,
@@ -703,7 +719,9 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 		previousSelected: selection.selected,
 		selected: {
 			id: resolved.id, origin: resolved.origin, revision: input.revision,
-			candidateSha256: candidate.digest
+			candidateSha256: candidate.digest, canonicalStrategyId: canonicalStrategyId,
+			sourceId: sourceId, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
+			strategyDigest: candidate.digest
 		}
 	};
 }
@@ -1049,6 +1067,8 @@ function catalog_wire_metadata(strategy, current, compact) {
 	metadata.provenance = {
 		source: current.source, aggregateDigest: current.aggregateDigest,
 		aggregateDigestAlgorithm: current.aggregateDigestAlgorithm || null,
+		sourceId: strategy.sourceId || null, sourceSnapshotId: strategy.sourceSnapshotId || null,
+		sourceCommit: strategy.sourceCommit || current.source && (current.source.sourceCommit || current.source.commit) || null,
 		sourceFile: strategy.sourceFile || null, sourceOrdinal: strategy.sourceOrdinal || null,
 		cacheKey: strategy.cacheKey || null, cacheOrdinal: strategy.cacheOrdinal || null,
 		duplicateGroup: strategy.duplicateGroup || null, effectiveOrdinal: strategy.effectiveOrdinal || null,
@@ -1070,7 +1090,8 @@ function wire_strategy(strategy, current, selection, compact) {
 	let result = {};
 	if (compact == true) {
 		for (let key in ['id', 'name', 'description', 'is_builtin', 'source', 'level',
-			'label', 'author', 'protocol', 'featured', 'origin', 'revision'])
+			'label', 'author', 'protocol', 'featured', 'origin', 'revision', 'canonicalId', 'sourceId',
+			'sourceSnapshotId', 'sourceCommit', 'contentDigest'])
 			if (strategy[key] != null) result[key] = key == 'description'
 				? bounded_text(strategy[key], 256) : strategy[key];
 		result.profiles = [];

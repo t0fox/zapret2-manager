@@ -203,6 +203,27 @@ test('catalog conversion copies metadata and physical provenance without rewriti
   });
 });
 
+test('catalog conversion preserves canonical source snapshot identity for Apply', () => {
+  const result = model('catalog_entry_to_strategy', catalogEntry({
+    id: 'z2k_all_in_one',
+    canonicalId: 'z2k:z2k_all_in_one',
+    sourceId: 'z2k',
+    sourceSnapshotId: 'z2k-snapshot-1',
+    sourceCommit: 'a'.repeat(40),
+    contentDigest: 'b'.repeat(64),
+    provenance: { repository: 'necronicle/z2k', sourcePath: 'strats_new2.txt', sourceId: 'z2k' },
+  }));
+  assert.equal(result.id, 'z2k_all_in_one');
+  assert.equal(result.canonicalId, 'z2k:z2k_all_in_one');
+  assert.equal(result.sourceId, 'z2k');
+  assert.equal(result.sourceSnapshotId, 'z2k-snapshot-1');
+  assert.equal(result.sourceCommit, 'a'.repeat(40));
+  assert.equal(result.contentDigest, 'b'.repeat(64));
+  assert.deepEqual(result.provenance, {
+    repository: 'necronicle/z2k', sourcePath: 'strats_new2.txt', sourceId: 'z2k',
+  });
+});
+
 test('catalog conversion preserves preset Blob and Lua references and does not filter user input', () => {
   const result = model('catalog_entry_to_strategy', catalogEntry({
     args: "--wf-tcp=inline --blob=tls_google:@bin/tls_clienthello.bin --lua-desync=fake:blob=tls_google --unknown=keep",

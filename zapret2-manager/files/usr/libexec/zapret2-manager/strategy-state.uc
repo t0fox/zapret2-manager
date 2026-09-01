@@ -50,6 +50,12 @@ function safe_id(value) {
 	return substr(value, -5) != '.json';
 }
 
+function safe_strategy_id(value) {
+	return is_string(value) && length(value) > 0 && length(value) <= MAX_ID
+		&& index(value, chr(0)) < 0 && index(value, '/') < 0 && index(value, '..') < 0
+		&& match(value, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/) && value != '.' && value != '..';
+}
+
 function builtin_id(id) {
 	return is_string(id) && (match(id, /^z2k_/) && substr(id, -5) != '_copy' || match(id, /^builtin([._-]|$)/));
 }
@@ -407,6 +413,31 @@ function record_valid(value) {
 
 function state_default() { return { schema: 1, revision: 0, favorites: [], selected: null }; }
 
+function selection_provenance_valid(value) {
+	let hasProvenance = exists(value, 'canonicalStrategyId') || exists(value, 'sourceId')
+		|| exists(value, 'sourceSnapshotId') || exists(value, 'sourceCommit') || exists(value, 'strategyDigest');
+	if (!hasProvenance) return exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256']);
+	if (!exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256', 'canonicalStrategyId',
+		'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'])) return false;
+	if (!safe_strategy_id(value.canonicalStrategyId) || value.canonicalStrategyId != value.id
+		|| (value.sourceId != 'avatar' && value.sourceId != 'z2k' && value.sourceId != 'user')
+		|| !safe_strategy_id(value.sourceSnapshotId) || (value.sourceCommit != null
+			&& (!is_string(value.sourceCommit) || !match(value.sourceCommit, /^[a-f0-9]{7,40}$/)))
+		|| !sha256(value.strategyDigest)) return false;
+	return true;
+}
+
+function selection_copy(value) {
+	if (value == null) return null;
+	let result = {
+		id: value.id, origin: value.origin, revision: value.revision,
+		candidateSha256: value.candidateSha256
+	};
+	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'])
+		if (exists(value, key)) result[key] = value[key];
+	return result;
+}
+
 function identity_verified(id, origin) {
 	if (origin == 'user') {
 		let result = read_document(path_for(id));
@@ -418,8 +449,8 @@ function identity_verified(id, origin) {
 }
 
 function selected_valid(value) {
-	return value == null || (exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256']) &&
-		safe_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
+	return value == null || (selection_provenance_valid(value) &&
+		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
 		integer(value.revision) && sha256(value.candidateSha256) && identity_verified(value.id, value.origin));
 }
 
@@ -427,13 +458,13 @@ function state_valid(value) {
 	if (!exact_fields(value, ['schema', 'revision', 'favorites', 'selected']) || value.schema !== 1 ||
 		!integer(value.revision) || type(value.favorites) != 'array' || !selected_valid(value.selected)) return false;
 	let seen = {};
-	for (let id in value.favorites) if (!safe_id(id) || seen[id]) return false; else seen[id] = true;
+	for (let id in value.favorites) if (!safe_strategy_id(id) || seen[id]) return false; else seen[id] = true;
 	return true;
 }
 
 function selected_readonly_valid(value) {
-	return value == null || (exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256']) &&
-		safe_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
+	return value == null || (selection_provenance_valid(value) &&
+		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
 		integer(value.revision) && sha256(value.candidateSha256));
 }
 
@@ -441,7 +472,7 @@ function state_readonly_valid(value) {
 	if (!exact_fields(value, ['schema', 'revision', 'favorites', 'selected']) || value.schema !== 1 ||
 		!integer(value.revision) || type(value.favorites) != 'array' || !selected_readonly_valid(value.selected)) return false;
 	let seen = {};
-	for (let id in value.favorites) if (!safe_id(id) || seen[id]) return false; else seen[id] = true;
+	for (let id in value.favorites) if (!safe_strategy_id(id) || seen[id]) return false; else seen[id] = true;
 	return true;
 }
 
@@ -647,7 +678,7 @@ export const strategy_duplicate = function(input) {
 export const strategy_favorite = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !integer(input.expectedRevision)) return error('EINPUT', 'Favorite mutation requires expectedRevision.');
-		if (input.id != null && !safe_id(input.id)) return error('EINPUT', 'Favorite identity is unsafe.');
+		if (input.id != null && !safe_strategy_id(input.id)) return error('EINPUT', 'Favorite identity is unsafe.');
 		if (input.id != null && input.favorite != true && input.favorite != false)
 			return error('EINPUT', 'Favorite mutation requires a boolean favorite value.');
 		if (!load_catalog_ids()) return error('EVERIFY', 'Verified catalog is unavailable.');
@@ -684,7 +715,7 @@ export const strategy_selection_set = function(input) {
 		let selected = input.selected;
 		if (selected != null) {
 			if (!selected_valid(selected)) return error('EINPUT', 'Selection identity is invalid.');
-			selected = { id: selected.id, origin: selected.origin, revision: selected.revision, candidateSha256: selected.candidateSha256 };
+			selected = selection_copy(selected);
 		}
 		return state_mutate(input.expectedRevision, function(next) { next.selected = selected; return next; });
 	});
@@ -694,7 +725,7 @@ function apply_block_valid(value) {
 	return is_object(value) && exact_fields(value, ['schema', 'marker', 'nonce', 'state', 'strategyId', 'strategyRevision', 'catalogDigest', 'createdAt', 'oldConfigSha256', 'oldCandidateSha256', 'oldSelected'])
 		&& value.schema === 1 && value.marker == APPLY_BLOCK_MARKER
 		&& bounded_string(value.nonce, 256) && value.state == 'pending'
-		&& safe_id(value.strategyId) && integer(value.strategyRevision)
+		&& safe_strategy_id(value.strategyId) && integer(value.strategyRevision)
 		&& sha256(value.catalogDigest) && integer(value.createdAt)
 		&& (value.oldConfigSha256 == null || sha256(value.oldConfigSha256))
 		&& (value.oldCandidateSha256 == null || sha256(value.oldCandidateSha256))
@@ -732,7 +763,7 @@ export const strategy_apply_guard_status = function() {
 
 export const strategy_apply_begin = function(input) {
 	return locked(function() {
-		if (!is_object(input) || !safe_id(input.strategyId) || !integer(input.strategyRevision) || !sha256(input.catalogDigest))
+		if (!is_object(input) || !safe_strategy_id(input.strategyId) || !integer(input.strategyRevision) || !sha256(input.catalogDigest))
 			return error('EINPUT', 'Strategy Apply lease identity is invalid.');
 		if ((input.oldConfigSha256 != null && !sha256(input.oldConfigSha256))
 			|| (input.oldCandidateSha256 != null && !sha256(input.oldCandidateSha256)))
@@ -745,7 +776,7 @@ export const strategy_apply_begin = function(input) {
 		let current = read_user(input.strategyId);
 		if (current.ok) {
 			if (current.strategy.revision != input.strategyRevision) return error('ECONFLICT', 'Strategy revision is stale.');
-		} else if (!(current.error && current.error.code == 'ENOENT' && input.strategyRevision == 0 && catalog_id(input.strategyId))) {
+		} else if (!(input.strategyRevision == 0 && catalog_id(input.strategyId))) {
 			return current;
 		}
 		let selection = read_state();
@@ -787,13 +818,6 @@ export const strategy_apply_end = function(input) {
 	}, input && input.applyNonce);
 };
 
-function selection_copy(value) {
-	return value == null ? null : {
-		id: value.id, origin: value.origin, revision: value.revision,
-		candidateSha256: value.candidateSha256
-	};
-}
-
 // Apply commits only the narrow selected identity projection. Config bytes
 // remain owned by profiles-apply.uc and are never written here.
 export const strategy_selection_apply = function(input) {
@@ -819,13 +843,16 @@ function apply_uncertain_identity(value) {
 
 function same_selection(left, right) {
 	if (left == null || right == null) return left == right;
-	return left.id == right.id && left.origin == right.origin
-		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
+	if (left.id != right.id || left.origin != right.origin || left.revision != right.revision
+		|| left.candidateSha256 != right.candidateSha256) return false;
+	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'])
+		if (left[key] != right[key]) return false;
+	return true;
 }
 
 export const strategy_apply_revalidate = function(input) {
 	return locked(function() {
-		if (!is_object(input) || !safe_id(input.strategyId) || !integer(input.strategyRevision)
+		if (!is_object(input) || !safe_strategy_id(input.strategyId) || !integer(input.strategyRevision)
 			|| !sha256(input.catalogDigest) || !integer(input.selectionRevision)
 			|| !apply_uncertain_identity(input.expectedSelected))
 			return error('EINPUT', 'Strategy Apply revalidation identity is invalid.');
@@ -835,8 +862,7 @@ export const strategy_apply_revalidate = function(input) {
 		if (current.ok) {
 			if (current.strategy.revision != input.strategyRevision || input.strategyOrigin != 'user')
 				return error('ECONFLICT', 'Strategy revision changed before config mutation.');
-		} else if (!(current.error && current.error.code == 'ENOENT' && input.strategyRevision == 0
-			&& input.strategyOrigin == 'avatar_builtin' && catalog_id(input.strategyId))) {
+		} else if (!(input.strategyRevision == 0 && input.strategyOrigin == 'avatar_builtin' && catalog_id(input.strategyId))) {
 			return error('ECONFLICT', 'Strategy identity changed before config mutation.');
 		}
 		let state = read_state();
@@ -1054,7 +1080,7 @@ export const strategy_apply_reconcile = function(input) {
 
 export const strategy_reconcile_record = function(input) {
 	return locked(function() {
-		if (!is_object(input) || !safe_id(input.id) || !sha256(input.hash) || !bounded_string(input.reason, 128)) return error('EINPUT', 'Reconciliation record is invalid.');
+		if (!is_object(input) || !safe_strategy_id(input.id) || !sha256(input.hash) || !bounded_string(input.reason, 128)) return error('EINPUT', 'Reconciliation record is invalid.');
 		let record = { id: input.id, hash: input.hash, reason: input.reason };
 		let write = atomic_write(RECONCILE_PATH, { schema: 1, id: record.id, hash: record.hash, reason: record.reason }, true);
 		return write.ok ? { ok: true, record: record } : write;
@@ -1064,7 +1090,7 @@ export const strategy_reconcile_record = function(input) {
 export const strategy_reconcile_get = function() {
 	let result = read_document(RECONCILE_PATH);
 	if (result.missing) return { ok: true, record: null };
-	if (!result.ok || !is_object(result.value) || result.value.schema !== 1 || !safe_id(result.value.id) || !sha256(result.value.hash) || !bounded_string(result.value.reason, 128))
+	if (!result.ok || !is_object(result.value) || result.value.schema !== 1 || !safe_strategy_id(result.value.id) || !sha256(result.value.hash) || !bounded_string(result.value.reason, 128))
 		return error('EINPUT', 'Reconciliation record is invalid.');
 	return { ok: true, record: { id: result.value.id, hash: result.value.hash, reason: result.value.reason } };
 };
@@ -1072,7 +1098,7 @@ export const strategy_reconcile_get = function() {
 export const strategy_reconcile_get_readonly = function() {
 	let result = read_document_readonly(RECONCILE_PATH);
 	if (result.missing) return { ok: true, record: null };
-	if (!result.ok || !is_object(result.value) || result.value.schema !== 1 || !safe_id(result.value.id) || !sha256(result.value.hash) || !bounded_string(result.value.reason, 128))
+	if (!result.ok || !is_object(result.value) || result.value.schema !== 1 || !safe_strategy_id(result.value.id) || !sha256(result.value.hash) || !bounded_string(result.value.reason, 128))
 		return error('EINPUT', 'Reconciliation record is invalid.');
 	return { ok: true, record: { id: result.value.id, hash: result.value.hash, reason: result.value.reason } };
 };

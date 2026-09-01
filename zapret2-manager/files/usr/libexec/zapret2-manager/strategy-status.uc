@@ -49,13 +49,22 @@ function volatile_uncertain(value) {
 }
 
 function public_fields(value) {
- return {
+  let result = {
    id: value.id, name: value.name, origin: value.origin, revision: value.revision,
    digest: value.digest, candidateSha256: value.candidateSha256,
    configSha256: value.configSha256, appliedConfigSha256: value.appliedConfigSha256,
    match: value.match, drift: value.drift, availability: value.availability,
-  uncertain: value.uncertain
- };
+   uncertain: value.uncertain
+  };
+  if (value.canonicalStrategyId != null || value.sourceId != null || value.sourceSnapshotId != null
+   || value.sourceCommit != null || value.strategyDigest != null) {
+   result.canonicalStrategyId = value.canonicalStrategyId;
+   result.sourceId = value.sourceId;
+   result.sourceSnapshotId = value.sourceSnapshotId;
+   result.sourceCommit = value.sourceCommit;
+   result.strategyDigest = value.strategyDigest;
+  }
+  return result;
 }
 
 export const derive_strategy_status = function(selectedState, current, runtime, volatile) {
@@ -65,9 +74,14 @@ export const derive_strategy_status = function(selectedState, current, runtime, 
  volatile = volatile || {};
  let selected = selectedState.selected;
  let identity = identity_from(selected, selectedState.identity);
- let base = {
-  id: selected && selected.id || null,
-  name: selected ? (identity.name || selected.id) : null,
+  let base = {
+   id: selected && selected.id || null,
+   canonicalStrategyId: selected && (selected.canonicalStrategyId || selected.id) || null,
+   sourceId: selected && selected.sourceId || null,
+   sourceSnapshotId: selected && selected.sourceSnapshotId || null,
+   sourceCommit: selected && selected.sourceCommit || null,
+   strategyDigest: selected && selected.strategyDigest || null,
+   name: selected ? (identity.name || selected.id) : null,
   origin: selected && selected.origin || null,
   revision: selected ? selected.revision : null,
    digest: selected ? (selectedState.digest || current.catalogDigest || null) : null,
