@@ -15,6 +15,8 @@ const CLI_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
 const CATALOG_REFRESH_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc');
+const GENERATION_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
 const SOURCE_REFRESH_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
 const SOURCES_PATH = path.join(ROOT,
@@ -715,6 +717,66 @@ test('Strategy list returns durable ordered favorites state separately from Stra
     });
     assert.deepEqual(result.state, { revision: 7, favorites: ['z2k_all_in_one', 'user-one'] });
     assert.equal(result.strategies.find(strategy => strategy.id === 'z2k_all_in_one').revision, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Strategy list resolves legacy persisted catalog identities after namespace migration', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-legacy-state-'));
+  const catalog = path.join(root, 'catalog');
+  const strategies = path.join(root, 'strategies');
+  const state = path.join(root, 'strategy-state.json');
+  fs.mkdirSync(strategies, { mode: 0o700 });
+  fs.chmodSync(root, 0o700);
+  fs.chmodSync(strategies, 0o700);
+  fs.writeFileSync(state, JSON.stringify({ schema: 1, revision: 29,
+    favorites: ['z2k_all_in_one'], selected: {
+      id: 'z2k_all_in_one', origin: 'avatar_builtin', revision: 0,
+      candidateSha256: 'a'.repeat(64),
+    } }), { mode: 0o600 });
+  const snapshotId = 'avatar-legacy-state';
+  const sourceCommit = 'b'.repeat(40);
+  const entry = {
+    canonicalId: 'avatar:z2k_all_in_one', sourceId: 'avatar', upstreamId: 'z2k_all_in_one',
+    sourceSnapshotId: snapshotId, sourceCommit, name: 'z2k_all_in_one',
+    description: 'Legacy identity compatibility fixture',
+    profiles: [{ id: 'profile-1', name: 'Profile 1', enabled: true, args: '--filter-tcp=443' }],
+    capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
+    requirements: { engine: 'nfqws2' },
+    provenance: { repository: 'avatarDD/zapret-gui', sourceId: 'avatar', sourceCommit },
+  };
+  const source = {
+    enabled: true, currentSnapshotId: snapshotId,
+    snapshot: {
+      schema: 'z2m.strategy-source-snapshot.v1', sourceId: 'avatar',
+      repository: 'avatarDD/zapret-gui', sourceCommit,
+      contentDigest: 'c'.repeat(64), snapshotId, entryCount: 1,
+      normalizedEntryCount: 1, immutable: true, published: true, entries: [entry],
+    },
+  };
+  try {
+    const generationInput = {
+      generatedAt: 1788201000, sources: { avatar: source }, userRevision: 29,
+    };
+    const published = invokeUcode(
+      `import { strategy_catalog_generation_publish } from ${JSON.stringify(GENERATION_PATH)}; print(sprintf('%J', strategy_catalog_generation_publish(${JSON.stringify(generationInput)})));`,
+      { Z2M_STRATEGY_CATALOG_GENERATION_ROOT: catalog });
+    assert.equal(published.ok, true, JSON.stringify(published));
+    const selection = invokeUcode(
+      `import { strategy_selection_get } from ${JSON.stringify(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc'))}; print(sprintf('%J', strategy_selection_get()));`,
+      { Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
+        Z2M_STRATEGY_STATE: state, Z2M_STRATEGY_CATALOG_GENERATION_ROOT: catalog });
+    assert.equal(selection.ok, true, JSON.stringify(selection));
+    const result = invokeValues('strategy_cli_dispatch', ['list', {}], {
+      Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
+      Z2M_STRATEGY_STATE: state, Z2M_STRATEGY_CATALOG_GENERATION_ROOT: catalog,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.state, { revision: 29, favorites: ['avatar:z2k_all_in_one'] });
+    const strategy = result.strategies.find(item => item.id === 'avatar:z2k_all_in_one');
+    assert.equal(strategy.is_active, true);
+    assert.equal(strategy.is_favorite, true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

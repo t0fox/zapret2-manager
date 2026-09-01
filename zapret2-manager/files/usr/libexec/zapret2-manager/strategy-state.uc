@@ -100,6 +100,33 @@ function load_extension_ids() {
 }
 
 function catalog_id(id) { return load_catalog_ids() && catalog_ids[id] == true; }
+function canonical_catalog_id(id, origin) {
+	if (!safe_strategy_id(id) || catalog_id(id)) return id;
+	// The unified catalog namespaces source identities, while pre-migration
+	// state stored Avatar catalog IDs without a source prefix. Resolve those
+	// legacy IDs for reads without mutating the state file or guessing an ID
+	// that is absent from the verified catalog.
+	let prefixes = origin == 'avatar_builtin' ? ['avatar:', 'z2k:'] : ['avatar:', 'z2k:'];
+	for (let prefix in prefixes) {
+		let candidate = prefix + id;
+		if (catalog_id(candidate)) return candidate;
+	}
+	return id;
+}
+function canonicalize_state(value) {
+	if (!is_object(value)) return value;
+	let result = null;
+	try { result = json(sprintf('%J', value)); } catch (e) { return null; }
+	let selected = result && result.selected;
+	if (is_object(selected)) selected.id = canonical_catalog_id(selected.id, selected.origin);
+	let favorites = [], seen = {};
+	for (let id in result.favorites || []) {
+		let canonical = canonical_catalog_id(id, 'avatar_builtin');
+		if (!seen[canonical]) { seen[canonical] = true; push(favorites, canonical); }
+	}
+	result.favorites = favorites;
+	return result;
+}
 function extension_id(id) { return load_extension_ids() && extension_ids[id] == true; }
 function protected_id(id) { return catalog_id(id) || extension_id(id); }
 
@@ -481,8 +508,9 @@ function read_state_readonly() {
 	if (result.missing) return { ok: true, state: state_default(), absent: true };
 	if (!result.ok) return result;
 	if (result.empty) return { ok: true, state: state_default(), absent: true };
-	if (!state_readonly_valid(result.value)) return error('EINPUT', 'Strategy state schema is invalid.');
-	return { ok: true, state: result.value, absent: false };
+	let state = canonicalize_state(result.value);
+	if (!state_readonly_valid(state)) return error('EINPUT', 'Strategy state schema is invalid.');
+	return { ok: true, state: state, absent: false };
 }
 
 function read_state() {
@@ -490,8 +518,9 @@ function read_state() {
 	if (result.missing) return { ok: true, state: state_default(), raw: null, hash: null, absent: true };
 	if (!result.ok) return result;
 	if (result.empty) return { ok: true, state: state_default(), raw: '', hash: null, absent: true };
-	if (!state_valid(result.value)) return error('EINPUT', 'Strategy state schema is invalid.');
-	return { ok: true, state: result.value, raw: result.raw, hash: result.hash, absent: false };
+	let state = canonicalize_state(result.value);
+	if (!state_valid(state)) return error('EINPUT', 'Strategy state schema is invalid.');
+	return { ok: true, state: state, raw: result.raw, hash: result.hash, absent: false };
 }
 
 function write_state(current, next, expected) {
