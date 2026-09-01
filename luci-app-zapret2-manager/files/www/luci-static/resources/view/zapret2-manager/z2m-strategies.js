@@ -393,8 +393,21 @@ function buildRows(data) {
 function sourceFilterRows() {
   var selected = text(state.sourceFilter).toLowerCase();
   if (selected === 'avatar' || selected === 'z2k' || selected === 'user')
-    return state.rows.filter(function (strategy) { return Model.sourceId(strategy) === selected; });
+    return state.rows.filter(function (strategy) { return strategySourceId(strategy) === selected; });
   return state.rows;
+}
+function strategySourceId(value) {
+  if (Model && typeof Model.sourceId === 'function') return Model.sourceId(value);
+  // Keep the page compatible with a LuCI module cache that still serves a
+  // pre-source-filter model export. The canonical identity remains the
+  // server-provided sourceId/provenance; this is only a bounded read fallback.
+  value = object(value);
+  var metadata = object(value.metadata), provenance = object(value.provenance), metadataProvenance = object(metadata.provenance);
+  var explicit = text(value.sourceId || provenance.sourceId || metadata.sourceId || metadataProvenance.sourceId).toLowerCase();
+  if (explicit === 'avatar' || explicit === 'z2k' || explicit === 'user') return explicit;
+  var canonical = text(value.canonicalId || value.id || value.strategyId).toLowerCase();
+  if (canonical.indexOf('avatar:') === 0 || canonical.indexOf('z2k:') === 0) return canonical.split(':')[0];
+  return text(value.origin).toLowerCase() === 'user' || value.is_builtin === false ? 'user' : '';
 }
 function sourceFilterLabel(id) {
   return ({ all: 'Все', avatar: 'Avatar', z2k: 'Z2K', user: 'Пользовательские' }[id] || 'Все');
@@ -404,7 +417,7 @@ function renderSourceFilters() {
   if (!host) return;
   var ids = ['all', 'avatar', 'z2k', 'user'];
   var counts = { all: state.rows.length, avatar: 0, z2k: 0, user: 0 };
-  state.rows.forEach(function (strategy) { var id = Model.sourceId(strategy); if (counts[id] !== undefined) counts[id]++; });
+  state.rows.forEach(function (strategy) { var id = strategySourceId(strategy); if (counts[id] !== undefined) counts[id]++; });
   var buttons = ids.map(function (id) {
     var active = id === state.sourceFilter || (id === 'all' && ids.indexOf(state.sourceFilter) < 0);
     return '<button type="button" class="strategy-source-filter' + (active ? ' active' : '') + '" data-action="setStrategySourceFilter" data-strategy-source="' + id + '" aria-pressed="' + (active ? 'true' : 'false') + '"><span>' + sourceFilterLabel(id) + '</span><span class="strategy-source-filter-count">' + counts[id] + '</span></button>';
@@ -461,7 +474,7 @@ function strategyMeta(strategy) {
   if (!source && raw.indexOf('community') >= 0) source = 'Community';
   if (!source && raw.indexOf('custom') >= 0) source = 'Custom';
   if (!source && raw && !recommended && !caution) source = text(strategy.label);
-  var sourceId = Model.sourceId(strategy);
+  var sourceId = strategySourceId(strategy);
   var sourceBadge = '<span class="strategy-source-badge source-' + escapeAttr(sourceId) + '">' + sourceFilterLabel(sourceId) + '</span>';
   return '<span class="strategy-card-meta-pills">' +
     sourceBadge +
@@ -501,7 +514,7 @@ function explicitStrategySource(strategy) {
   var explicit = text(strategy.sourceId || provenance.sourceId || metadata.sourceId || metadataProvenance.sourceId);
   var canonical = text(strategy.canonicalId || strategy.id || strategy.strategyId).toLowerCase();
   if (!explicit && (canonical.indexOf('avatar:') === 0 || canonical.indexOf('z2k:') === 0)) explicit = canonical.split(':')[0];
-  return explicit ? Model.sourceId(strategy) : '';
+  return explicit ? strategySourceId(strategy) : '';
 }
 function activeStrategyProjection() {
   var active = state.rows.find(function (strategy) { return strategy.current || strategy.applied; });
