@@ -24,8 +24,7 @@
 
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
-import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild, catalog_source_set_enabled } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
-import { strategy_source_refresh } from '/usr/libexec/zapret2-manager/strategy-source-refresh.uc';
+import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild, catalog_refresh_source, catalog_source_set_enabled } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
 import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
 import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
@@ -1155,11 +1154,7 @@ function strategies_sources_get_method(req) { return strategy_sources.strategy_s
 function strategies_source_refresh_method(req) {
 	let id = strategy_source_id(req);
 	if (id == null) return { ok: false, error: { code: 'EINPUT', message: 'sourceId is required' } };
-	let refreshed = strategy_source_refresh(id);
-	if (!refreshed || refreshed.ok != true) return refreshed;
-	let rebuilt = catalog_refresh_rebuild();
-	if (!rebuilt || rebuilt.ok != true) return { ok: false, error: rebuilt && rebuilt.error || { code: 'EINDEX', message: 'Unified Strategy catalog could not be rebuilt' }, sourceRefresh: refreshed };
-	return { ok: true, sourceId: id, snapshot: refreshed.snapshot, generationId: rebuilt.generationId, indexDigest: rebuilt.indexDigest };
+	return catalog_refresh_source(id);
 }
 function strategies_source_set_enabled_method(req) {
 	let input = strategy_source_edit_input(req);

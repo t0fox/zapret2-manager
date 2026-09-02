@@ -145,13 +145,35 @@ function source_config(config, id) {
 	return config.sources[id];
 }
 
+function contains(value, needle) {
+	if (type(value) != 'array') return false;
+	for (let item in value) if (item == needle) return true;
+	return false;
+}
+function valid_z2k_snapshot(snapshot) {
+	if (!object(snapshot) || type(snapshot.sourceFiles) != 'array'
+		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
+		|| !object(snapshot.allInOne) || snapshot.allInOne.canonicalId != 'z2k:z2k_all_in_one'
+		|| !string(snapshot.allInOne.digest) || !match(snapshot.allInOne.digest, /^[0-9a-f]{64}$/)
+		|| type(snapshot.allInOne.profileCount) != 'int' || snapshot.allInOne.profileCount < 1
+		|| type(snapshot.entries) != 'array') return false;
+	for (let entry in snapshot.entries) {
+		if (object(entry) && entry.canonicalId == snapshot.allInOne.canonicalId
+			&& entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
+			&& entry.entryKind == 'all-in-one' && entry.usable == true
+			&& type(entry.profiles) == 'array' && length(entry.profiles) == snapshot.allInOne.profileCount)
+			return true;
+	}
+	return false;
+}
+
 function valid_snapshot(id, snapshot) {
 	return object(snapshot) && snapshot.schema == SNAPSHOT_SCHEMA && snapshot.sourceId == id
 		&& snapshot.repository == SOURCE_REPOSITORIES[id] && safe_snapshot_id(snapshot.snapshotId)
 		&& string(snapshot.sourceCommit) && match(snapshot.sourceCommit, /^[0-9a-f]{7,40}$/)
 		&& string(snapshot.contentDigest) && match(snapshot.contentDigest, /^[0-9a-f]{64}$/)
 		&& integer(snapshot.entryCount) && integer(snapshot.normalizedEntryCount)
-		&& snapshot.immutable == true;
+		&& snapshot.immutable == true && (id != 'z2k' || valid_z2k_snapshot(snapshot));
 }
 
 function read_current(id, state) {

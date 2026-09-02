@@ -14,8 +14,9 @@ import { private_tempfile } from './core/private-temp.uc';
 
 const AVATAR_REPOSITORY = 'avatarDD/zapret-gui';
 const Z2K_REPOSITORY = 'necronicle/z2k';
+const Z2K_BRANCH = 'z2k-enhanced';
 const AVATAR_METADATA_URL = 'https://api.github.com/repos/avatarDD/zapret-gui/commits?path=catalogs&per_page=1';
-const Z2K_METADATA_URL = 'https://api.github.com/repos/necronicle/z2k/commits?per_page=1';
+const Z2K_METADATA_URL = 'https://api.github.com/repos/necronicle/z2k/commits?sha=' + Z2K_BRANCH + '&per_page=1';
 const MAX_CONTENT = 4 * 1024 * 1024;
 const MAX_ARCHIVE = 16 * 1024 * 1024;
 
@@ -59,7 +60,8 @@ function metadata_request(id) {
 			let record = first(value);
 			let revision = record.sha;
 			if (revision == null) revision = record.sourceCommit;
-			return { sourceCommit: revision, contentSha256: valid_digest(record.contentSha256) ? record.contentSha256 : null };
+			return { sourceCommit: revision, branch: id == 'z2k' ? Z2K_BRANCH : null,
+				contentSha256: valid_digest(record.contentSha256) ? record.contentSha256 : null };
 		}
 	};
 }
@@ -146,7 +148,7 @@ function install(id, snapshot) {
 	return result.ok ? result : error(result.error && result.error.code || 'EWRITE', result.error && result.error.message || 'Source snapshot installation failed');
 }
 
-export const strategy_source_refresh = function(id) {
+function prepare_refresh(id) {
 	if (id != 'avatar' && id != 'z2k') return error('EINPUT', 'Unknown strategy source');
 	let checked = metadata(id);
 	if (!checked.ok) return checked;
@@ -178,13 +180,28 @@ export const strategy_source_refresh = function(id) {
 		prepared = z2k_source.strategy_source_z2k_prepare_snapshot({ files: files, sourceCommit: sourceCommit });
 		if (!prepared.ok) return error(prepared.error && prepared.error.code || 'EVERIFY', 'Z2K source snapshot verification failed');
 		snapshot = prepared.snapshot;
+		if (snapshot.sourceBranch != Z2K_BRANCH)
+			return error('EPROVENANCE', 'Z2K source snapshot is not bound to the accepted upstream branch');
 		snapshot.published = true;
 	}
-	let installed = install(id, snapshot);
-	if (!installed.ok) return installed;
 	return { ok: true, sourceId: id, metadata: checked.metadata, snapshot: snapshot,
-		idempotent: installed.source.currentSnapshotId == snapshot.snapshotId,
 		metadataTransport: checked.transport };
+};
+
+// The catalog refresh coordinator uses this prepare-only boundary so a source
+// cannot advance current/LKG before the candidate generation is publishable.
+export const strategy_source_refresh_prepare = prepare_refresh;
+
+// Kept for the direct source RPC and older callers. Validation (including the
+// generated Z2K All-in-One) is completed before this compatibility activation.
+export const strategy_source_refresh = function(id) {
+	let prepared = prepare_refresh(id);
+	if (!prepared.ok) return prepared;
+	let installed = install(id, prepared.snapshot);
+	if (!installed.ok) return installed;
+	return { ok: true, sourceId: id, metadata: prepared.metadata, snapshot: prepared.snapshot,
+		idempotent: installed.source.currentSnapshotId == prepared.snapshot.snapshotId,
+		metadataTransport: prepared.metadataTransport };
 };
 
 export const strategy_source_get = sources.strategy_source_get;

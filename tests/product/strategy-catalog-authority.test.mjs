@@ -110,13 +110,27 @@ test('normal Strategy reads preserve the source-specific origin of v3 catalog en
     sourceSnapshotId: 'z2k-s1', sourceCommit: 'a'.repeat(40), name: 'Shared',
     profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443' }],
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
+    is_builtin: false,
+    requirements: { engine: 'nfqws2' },
+    provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40) },
+  };
+  const allInOneEntry = {
+    canonicalId: 'z2k:z2k_all_in_one', sourceId: 'z2k', upstreamId: 'z2k_all_in_one',
+    sourceSnapshotId: 'z2k-s1', sourceCommit: 'a'.repeat(40), name: 'z2k всё-в-одном',
+    entryKind: 'all-in-one', usable: true,
+    is_builtin: false,
+    profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+    capabilities: { autocircular: true, discordUdp: true, protocols: ['tcp', 'udp'] },
     requirements: { engine: 'nfqws2' },
     provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40) },
   };
   const snapshot = {
     schema: 'z2m.strategy-source-snapshot.v1', sourceId: 'z2k', repository: 'necronicle/z2k',
     sourceCommit: 'a'.repeat(40), contentDigest: 'b'.repeat(64), snapshotId: 'z2k-s1',
-    entryCount: 1, normalizedEntryCount: 1, immutable: true, published: true, entries: [entry],
+    sourceFiles: ['strats_new2.txt', 'quic_strats.ini'],
+    allInOne: { canonicalId: 'z2k:z2k_all_in_one', digest: 'c'.repeat(64), profileCount: 1 },
+    entryCount: 2, normalizedEntryCount: 2, immutable: true, published: true,
+    entries: [entry, allInOneEntry],
   };
   const env = {
     Z2M_STRATEGY_CATALOG_GENERATION_ROOT: catalog,
@@ -135,6 +149,7 @@ test('normal Strategy reads preserve the source-specific origin of v3 catalog en
     const listed = invokeModule(CLI, `mod.strategy_cli_dispatch('list', {})`, env);
     const strategy = listed.strategies.find(item => item.id === 'z2k:shared');
     assert.equal(strategy.origin, 'z2k_builtin');
+    assert.equal(strategy.is_builtin, false);
     assert.equal(strategy.sourceId, 'z2k');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -163,15 +178,35 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
     sourceSnapshotId: snapshotId, sourceCommit: commit, name: id,
     profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443' }],
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
+    ...(sourceId === 'z2k' ? { is_builtin: false } : {}),
     requirements: { engine: 'nfqws2' },
     provenance: { repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId, sourceCommit: commit },
   });
-  const makeSnapshot = (sourceId, snapshotId, entry) => ({
-    schema: 'z2m.strategy-source-snapshot.v1', sourceId,
-    repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k',
-    sourceCommit: commit, contentDigest: sourceId === 'avatar' ? 'b'.repeat(64) : 'c'.repeat(64),
-    snapshotId, entryCount: 1, normalizedEntryCount: 1, immutable: true, published: true, entries: [entry],
-  });
+  const makeSnapshot = (sourceId, snapshotId, entry) => {
+    const snapshot = {
+      schema: 'z2m.strategy-source-snapshot.v1', sourceId,
+      repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k',
+      sourceCommit: commit, contentDigest: sourceId === 'avatar' ? 'b'.repeat(64) : 'c'.repeat(64),
+      snapshotId, entryCount: 1, normalizedEntryCount: 1, immutable: true, published: true, entries: [entry],
+    };
+    if (sourceId === 'z2k') {
+      snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+      snapshot.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'd'.repeat(64), profileCount: 1 };
+      snapshot.entryCount = 2;
+      snapshot.normalizedEntryCount = 2;
+      snapshot.entries.push({
+        canonicalId: 'z2k:z2k_all_in_one', sourceId: 'z2k', upstreamId: 'z2k_all_in_one',
+        sourceSnapshotId: snapshotId, sourceCommit: commit, name: 'z2k всё-в-одном',
+        entryKind: 'all-in-one', usable: true, pinned: true,
+        is_builtin: false,
+        profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+        capabilities: { autocircular: true, discordUdp: true, protocols: ['tcp', 'udp'] },
+        requirements: { engine: 'nfqws2' },
+        provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: commit },
+      });
+    }
+    return snapshot;
+  };
   const avatar = makeEntry('avatar', 'avatar-s1', 'legacy-independent');
   const z2k = makeEntry('z2k', 'z2k-s1', 'canonical-independent');
   const env = {
@@ -200,7 +235,10 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
     const before = invokeModule(CLI, `mod.strategy_cli_dispatch('list', {})`, env);
     assert.equal(before.ok, true, JSON.stringify(before));
     const beforeIds = before.strategies.map(item => item.id);
-    assert.deepEqual(beforeIds, ['avatar:legacy-independent', 'legacy-user', 'z2k:canonical-independent']);
+    assert.deepEqual(beforeIds, ['avatar:legacy-independent', 'legacy-user', 'z2k:canonical-independent', 'z2k:z2k_all_in_one']);
+    const allInOne = before.strategies.find(item => item.id === 'z2k:z2k_all_in_one');
+    assert.equal(allInOne.is_builtin, false);
+    assert.equal(allInOne.pinned, true);
     const legacyWire = before.strategies.find(item => item.id === 'legacy-user');
     assert.equal(legacyWire.sourceId, 'user');
     assert.equal(legacyWire.origin, 'user');
@@ -218,7 +256,7 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
     const after = invokeModule(CLI, `mod.strategy_cli_dispatch('list', {})`, env);
     assert.equal(after.ok, true, JSON.stringify(after));
     assert.deepEqual(after.strategies.map(item => item.id), beforeIds);
-    assert.deepEqual(after.strategies.map(item => item.sourceId), ['avatar', 'user', 'z2k']);
+    assert.deepEqual(after.strategies.map(item => item.sourceId), ['avatar', 'user', 'z2k', 'z2k']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

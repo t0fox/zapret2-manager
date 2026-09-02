@@ -18,6 +18,10 @@ const readFixture = (name) => fs.readFileSync(path.join(FIXTURE_ROOT, name), 'ut
 
 function invoke(functionName, args = [], extraEnv = {}) {
   const source = `import * as mod from ${JSON.stringify(MODULE)}; print(sprintf('%J', mod.${functionName}(${args.map(JSON.stringify).join(', ')})));`;
+  return invokeSource(source, extraEnv);
+}
+
+function invokeSource(source, extraEnv = {}) {
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
@@ -27,6 +31,16 @@ function invoke(functionName, args = [], extraEnv = {}) {
   assert.equal(result.status, 0,
     `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
   return JSON.parse(result.stdout);
+}
+
+function composeFixture(extraIni = '') {
+  const files = {
+    'strats_new2.txt': readFixture('strats_new2.txt'),
+    'quic_strats.ini': readFixture('quic_strats.ini') + extraIni,
+  };
+  const filesJson = JSON.stringify(files);
+  const commit = '1'.repeat(40);
+  return invokeSource(`import * as mod from ${JSON.stringify(MODULE)}; let parsed = mod.strategy_source_z2k_parse_files(${filesJson}, { sourceCommit: ${JSON.stringify(commit)} }); print(sprintf('%J', mod.strategy_source_z2k_compose_all_in_one(parsed.entries, { sourceCommit: ${JSON.stringify(commit)} })));`);
 }
 
 test('Z2K adapter declares the canonical source identity', () => {
@@ -105,14 +119,68 @@ test('Z2K parser imports quic_strats.ini aggregates and fixed slots with explici
   assert.ok(result.entries.some((entry) => entry.canonicalId === 'z2k:discord_udp_strat_1'));
 });
 
+test('Z2K composer generates a deterministic direct-source All-in-One from current pools', () => {
+  const first = composeFixture();
+  const second = composeFixture();
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.deepEqual(second, first);
+  assert.equal(first.entry.canonicalId, 'z2k:z2k_all_in_one');
+  assert.equal(first.entry.name, 'z2k всё-в-одном');
+  assert.equal(first.entry.sourceId, 'z2k');
+  assert.equal(first.entry.entryKind, 'all-in-one');
+  assert.equal(first.entry.profiles.length, 5);
+  assert.deepEqual(first.entry.composition.order, ['rkn_tcp', 'yt_tcp', 'gv_tcp', 'yt_quic', 'discord_udp']);
+  assert.equal(first.entry.composition.families[3].protocol, 'udp');
+  assert.equal(first.entry.composition.families[3].ports, '443');
+  assert.equal(first.entry.composition.families[3].l7, 'quic');
+  assert.deepEqual(first.entry.capabilities.protocols, ['tcp', 'udp']);
+  assert.equal(first.entry.capabilities.discordUdp, true);
+  assert.ok(first.entry.requirements.luaFunctions.includes('circular'));
+  assert.ok(first.entry.requirements.blobs.includes('quic_dbankcloud'));
+  assert.match(first.entry.provenance.adaptation, /discord_voice/);
+  assert.match(first.entry.provenance.compositions[0], /yt_quic queue scoped/);
+  assert.match(first.entry.profiles[0].args, /--filter-tcp=/);
+  assert.match(first.entry.profiles[3].args, /--filter-udp=443/);
+  assert.match(first.entry.profiles[3].args, /--filter-l7=quic/);
+  assert.match(first.entry.profiles[4].args, /--filter-l7=discord,stun/);
+});
+
+test('Z2K composer fails closed when an exact snapshot contains an unknown pool family', () => {
+  const extraIni = '\n[mystery_autocircular]\nargs=--filter-udp=9999 --lua-desync=circular:key=future_family\n';
+  const filesJson = JSON.stringify({
+    'strats_new2.txt': readFixture('strats_new2.txt'),
+    'quic_strats.ini': readFixture('quic_strats.ini') + extraIni,
+  });
+  const composed = invokeSource(`import * as mod from ${JSON.stringify(MODULE)}; let parsed = mod.strategy_source_z2k_parse_files(${filesJson}, { sourceCommit: ${JSON.stringify('2'.repeat(40))} }); print(sprintf('%J', mod.strategy_source_z2k_compose_all_in_one(parsed.entries, { sourceCommit: ${JSON.stringify('2'.repeat(40))} })));`);
+  assert.equal(composed.ok, false, JSON.stringify(composed));
+  assert.equal(composed.error.code, 'EUNSUPPORTED');
+});
+
+test('Z2K composer rejects a non-443 explicit YouTube QUIC queue', () => {
+  const files = {
+    'strats_new2.txt': readFixture('strats_new2.txt'),
+    'quic_strats.ini': readFixture('quic_strats.ini').replace(
+      'args=--in-range=a', 'args=--filter-udp=9999 --in-range=a'
+    ),
+  };
+  const commit = '3'.repeat(40);
+  const composed = invokeSource(`import * as mod from ${JSON.stringify(MODULE)}; let parsed = mod.strategy_source_z2k_parse_files(${JSON.stringify(files)}, { sourceCommit: ${JSON.stringify(commit)} }); print(sprintf('%J', mod.strategy_source_z2k_compose_all_in_one(parsed.entries, { sourceCommit: ${JSON.stringify(commit)} })));`);
+  assert.equal(composed.ok, false, JSON.stringify(composed));
+  assert.equal(composed.error.code, 'EUNSUPPORTED');
+  assert.equal(composed.error.path, 'filter-udp');
+});
+
 test('malformed Z2K input is not usable and does not produce partial entries', () => {
   const result = invoke('strategy_source_z2k_parse', [readFixture('malformed.txt'), { sourceCommit: 'c'.repeat(40) }]);
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.error.code, 'EVERIFY');
 });
 
-test('Z2K snapshot identity binds revision, exact content digest, order, and entry count', () => {
-  const input = { content: readFixture('strats_new2.txt'), sourceCommit: 'd'.repeat(40), sourcePath: 'strats_new2.txt' };
+test('Z2K snapshot identity binds both exact files, revision, order, and entry count', () => {
+  const input = { files: {
+    'strats_new2.txt': readFixture('strats_new2.txt'),
+    'quic_strats.ini': readFixture('quic_strats.ini'),
+  }, sourceCommit: 'd'.repeat(40) };
   const first = invoke('strategy_source_z2k_prepare_snapshot', [input]);
   const second = invoke('strategy_source_z2k_prepare_snapshot', [input]);
   assert.equal(first.ok, true, JSON.stringify(first));
@@ -122,6 +190,8 @@ test('Z2K snapshot identity binds revision, exact content digest, order, and ent
   assert.equal(first.snapshot.repository, 'necronicle/z2k');
   assert.equal(first.snapshot.sourceCommit, 'd'.repeat(40));
   assert.match(first.snapshot.contentDigest, /^[0-9a-f]{64}$/);
+  assert.equal(first.snapshot.sourceFiles.length, 2);
+  assert.equal(first.snapshot.allInOne.canonicalId, 'z2k:z2k_all_in_one');
   assert.match(first.snapshot.snapshotId, /^z2k-[0-9a-f]{64}$/);
   assert.equal(first.snapshot.normalizedEntryCount, first.snapshot.entries.length);
   assert.equal(first.snapshot.immutable, true);

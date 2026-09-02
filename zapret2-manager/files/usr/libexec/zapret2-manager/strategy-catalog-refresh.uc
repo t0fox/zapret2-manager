@@ -216,11 +216,13 @@ function failure_with_rollback(state, result, activations) {
 function refresh_source(state, id, enabled, fetchPercent, verifyPercent) {
   phase(state, id + '-fetch', fetchPercent);
   let refreshed = null;
-  try { refreshed = source_refresh.strategy_source_refresh(id); }
+  try { refreshed = source_refresh.strategy_source_refresh_prepare(id); }
   catch (e) { refreshed = { ok: false, error: { code: 'EUNAVAILABLE', message: 'Strategy source refresh raised an exception' } }; }
   phase(state, id + '-verify', verifyPercent);
   let fallback = refreshed && refreshed.ok == true ? null : refreshed && refreshed.error || { code: 'EUNAVAILABLE', message: 'Strategy source refresh failed' };
-  let row = current_source_row(id, enabled);
+  let row = refreshed && refreshed.ok == true && refreshed.snapshot
+    ? { ok: true, row: { enabled: enabled == true, currentSnapshotId: refreshed.snapshot.snapshotId, snapshot: refreshed.snapshot } }
+    : current_source_row(id, enabled);
   if (!row.ok) return { ok: false, error: fallback || row.error };
 	return { ok: true, row: row.row, mode: fallback == null ? 'fresh' : 'lkg', error: fallback,
 		transport: refreshed && refreshed.metadataTransport || null };
@@ -263,6 +265,77 @@ export const catalog_refresh_rebuild = function() {
 	catch (e) { published = { ok: false, error: { code: 'EINDEX', message: 'Strategy generation publication raised an exception' } }; }
 	return published && published.ok == true ? { ok: true, generationId: published.generationId,
 		indexDigest: published.indexDigest, sourceIds: input.sourceIds } : published;
+};
+
+// Synchronous single-source refresh used by the RPC boundary. The source
+// adapter only prepares a private candidate; this coordinator is the sole
+// path that can activate it and publish the generation that refers to it.
+export const catalog_refresh_source = function(id) {
+	if (id != 'avatar' && id != 'z2k') return { ok: false, error: { code: 'EINPUT', message: 'Unknown strategy source' } };
+	let before = null;
+	try { before = source_store.strategy_sources_get(); } catch (e) { before = null; }
+	if (!before || before.ok != true) return before || { ok: false, error: { code: 'EIO', message: 'Strategy source config is unavailable' } };
+	let existing = state_load();
+	if (existing && existing.transaction) {
+		if (existing.state == 'running' && !is_stale(existing))
+			return { ok: false, error: { code: 'EBUSY', message: 'Another catalog transaction is running' }, operationId: existing.operationId };
+		existing = recover_transaction(existing);
+		if (existing.transaction) return { ok: false, error: existing.error || { code: 'ERECOVERY', message: 'Catalog transaction recovery is required' } };
+	}
+	if (existing && existing.state == 'running' && !is_stale(existing))
+		return { ok: false, error: { code: 'EBUSY', message: 'Catalog refresh already running' }, operationId: existing.operationId };
+	let transaction = { kind: 'source-refresh', phase: 'staged', previousActivations: source_activations(before), desiredSources: {} };
+	let state = new_transaction_state(transaction, id + '-staged');
+	if (!state_save(state)) return { ok: false, error: { code: 'EIO', message: 'Could not persist source transaction journal' } };
+	phase(state, id + '-fetch', 20);
+	let prepared = null;
+	try { prepared = source_refresh.strategy_source_refresh_prepare(id); }
+	catch (e) { prepared = { ok: false, error: { code: 'EUNAVAILABLE', message: 'Strategy source refresh raised an exception' } }; }
+	phase(state, id + '-verify', 40);
+	if (!prepared || prepared.ok != true) {
+		let failed = finish_transaction_error(state, prepared);
+		return { ok: false, error: failed.error, operationId: failed.operationId, state: failed };
+	}
+	let generationSources = {}, sourceSnapshots = {};
+	for (let sourceId in ['avatar', 'z2k']) {
+		if (!before.config.sources[sourceId] || before.config.sources[sourceId].enabled != true) continue;
+		let row = sourceId == id
+			? { ok: true, row: { enabled: true, currentSnapshotId: prepared.snapshot.snapshotId, snapshot: prepared.snapshot } }
+			: current_source_row(sourceId, true);
+		if (!row.ok) {
+			let failed = finish_transaction_error(state, row);
+			return { ok: false, error: failed.error, operationId: failed.operationId, state: failed };
+		}
+		generationSources[sourceId] = row.row;
+	}
+	// A disabled source can still be refreshed and stored as the new LKG, but
+	// it must not silently enter the active generation.
+	sourceSnapshots[id] = { mode: 'fresh', snapshotId: prepared.snapshot.snapshotId,
+		sourceCommit: prepared.snapshot.sourceCommit, error: null, transport: prepared.metadataTransport || null };
+	state.transaction.desiredSources = desired_sources(before.config, generationSources);
+	state.transaction.phase = 'publishing';
+	transaction_checkpoint(state, state.transaction, 'merge', 60);
+	let activated = null;
+	try { activated = source_store.strategy_source_install_verified_snapshot(id, { verified: true, snapshot: prepared.snapshot }); }
+	catch (e) { activated = { ok: false, error: { code: 'EWRITE', message: 'Source snapshot activation raised an exception' } }; }
+	if (!activated || activated.ok != true) {
+		let failed = failure_with_rollback(state, activated, state.transaction.previousActivations);
+		return { ok: false, error: failed.error, operationId: failed.operationId, state: failed };
+	}
+	let users = user_entries();
+	phase(state, 'indexing', 75);
+	let published = null;
+	try { published = strategy_catalog_generation_publish({ generatedAt: now(), sources: generationSources,
+		userRevision: users.revision, userEntries: users.entries }); }
+	catch (e) { published = { ok: false, error: { code: 'EINDEX', message: 'Strategy generation publication raised an exception' } }; }
+	if (!published || published.ok != true) {
+		let failed = failure_with_rollback(state, published, state.transaction.previousActivations);
+		return { ok: false, error: failed.error, operationId: failed.operationId, state: failed };
+	}
+	let result = { ok: true, sourceId: id, snapshot: prepared.snapshot,
+		generationId: published.generationId, indexDigest: published.indexDigest, sourceSnapshots: sourceSnapshots };
+	completed(state, result);
+	return result;
 };
 
 // Canonical enable/disable transaction for RPC/UI callers. The source config
@@ -414,12 +487,26 @@ export const catalog_refresh_worker_run = function() {
 	phase(s, 'merge', 60);
   let users = user_entries();
   phase(s, 'indexing', 75);
+	// Candidate snapshots are still private at this point. Activate them only
+	// after every enabled source has parsed and the candidate generation input is
+	// complete; the transaction journal lets recovery roll these pointers back
+	// if publication is interrupted before the generation pointer is committed.
+	phase(s, 'activating', 85);
+	for (let id in ['avatar', 'z2k']) {
+		let candidate = sourceSnapshots[id];
+		if (!candidate || candidate.mode != 'fresh') continue;
+		let activation = null;
+		try { activation = source_store.strategy_source_install_verified_snapshot(id, { verified: true, snapshot: generationSources[id].snapshot }); }
+		catch (e) { activation = { ok: false, error: { code: 'EWRITE', message: 'Source snapshot activation raised an exception' } }; }
+		if (!activation || activation.ok != true)
+			return failure_with_rollback(s, activation, previousActivations);
+	}
   let published = null;
   try {
     published = strategy_catalog_generation_publish({ generatedAt: now(), sources: generationSources,
       userRevision: users.revision, userEntries: users.entries });
   } catch (e) { published = { ok: false, error: { code: 'EINDEX', message: 'Strategy generation publication raised an exception' } }; }
-  phase(s, 'activating', 90);
+	phase(s, 'activating', 90);
 	if (!published || published.ok != true) return failure_with_rollback(s, published, previousActivations);
   return completed(s, { ok: true, generationId: published.generationId, indexDigest: published.indexDigest,
     sourceSnapshots: sourceSnapshots });

@@ -49,14 +49,30 @@ function entry(sourceId, upstreamId, snapshotId) {
   };
 }
 
+function allInOneEntry(snapshotId) {
+  return {
+    ...entry('z2k', 'z2k_all_in_one', snapshotId),
+    canonicalId: 'z2k:z2k_all_in_one',
+    name: 'z2k всё-в-одном',
+    entryKind: 'all-in-one', poolKey: 'all-in-one', pinned: true, usable: true,
+    profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+  };
+}
+
 function source(sourceId, snapshotId, enabled = true, published = true, upstreamId = 'shared') {
+  const entries = [entry(sourceId, upstreamId, snapshotId)];
+  if (sourceId === 'z2k') entries.push(allInOneEntry(snapshotId));
   const snapshot = {
     schema: 'z2m.strategy-source-snapshot.v1', sourceId,
     repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k',
     sourceCommit: 'a'.repeat(40), contentDigest: sourceId === 'avatar' ? 'b'.repeat(64) : 'c'.repeat(64),
-    snapshotId, entryCount: 1, normalizedEntryCount: 1, immutable: true,
-    published, entries: [entry(sourceId, upstreamId, snapshotId)],
+    snapshotId, entryCount: entries.length, normalizedEntryCount: entries.length, immutable: true,
+    published, entries,
   };
+  if (sourceId === 'z2k') {
+    snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+    snapshot.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'd'.repeat(64), profileCount: 1 };
+  }
   return { enabled, currentSnapshotId: snapshotId, snapshot };
 }
 
@@ -70,7 +86,7 @@ test('Avatar and Z2K are merged into one v3 index without collapsing shared upst
   assert.equal(result.candidate.index.schema, 'z2m.strategy-read-index.v3');
   assert.equal(result.candidate.index.sources.avatar.snapshotId, 'avatar-s1');
   assert.equal(result.candidate.index.sources.z2k.snapshotId, 'z2k-s1');
-  assert.deepEqual(result.candidate.index.entries.map(item => item.canonicalId).sort(), ['avatar:shared', 'z2k:shared']);
+  assert.deepEqual(result.candidate.index.entries.map(item => item.canonicalId).sort(), ['avatar:shared', 'z2k:shared', 'z2k:z2k_all_in_one']);
   assert.equal(result.candidate.index.userRevision, 7);
   assert.match(result.candidate.index.indexDigest, /^[0-9a-f]{64}$/);
 });

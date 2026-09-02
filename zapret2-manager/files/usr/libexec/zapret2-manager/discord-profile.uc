@@ -65,11 +65,12 @@ function build_candidate(current, records) {
 	return { candidate: trim_ws(candidate), sections: sections };
 }
 function native_check(candidate) {
-	if (!stat(NFQWS2)) return { status: 'unavailable', rc: -1, output: 'nfqws2 missing' };
+	if (!stat(NFQWS2)) return { status: 'unavailable', diagnosticClass: 'MISSING_EXECUTABLE', rc: -1, output: 'nfqws2 missing' };
 	let model = z2m_tokenize(candidate), cmd = shell_escape(NFQWS2) + ' --dry-run --qnum=30999';
 	for (let t in model.tokens) cmd += ' ' + shell_escape(t.value);
 	let r = run(cmd);
-	return { status: r.rc == 0 ? 'passed' : 'rejected', rc: r.rc, output: trim_ws(r.out) };
+	return { status: r.rc == 0 ? 'passed' : 'rejected',
+		diagnosticClass: r.rc == 0 ? 'NATIVE_OK' : 'NATIVE_REJECT', rc: r.rc, output: trim_ws(r.out) };
 }
 
 function source_allowed(sourceId, filter) {
@@ -102,8 +103,18 @@ function donor_record(entry, strategy, profile, profileIndex, catalog) {
 	let profileDigest = sha_text(args, '/tmp/z2m-discord-profile.sha');
 	let provenance = copy_object(entry.provenance || strategy.provenance);
 	let sourceProfile = type(entry.profiles) == 'array' ? entry.profiles[profileIndex] : null;
+	let rejectionReason = files[0].present ? (native.status == 'passed' ? null
+		: native.status == 'unavailable' ? 'MISSING_EXECUTABLE' : 'NATIVE_REJECT') : 'MISSING_BLOB';
+	let diagnostics = {
+		classification: rejectionReason,
+		requiredFiles: { ok: files[0].present, files: files },
+		requiredDependencies: { engine: NFQWS2, lua: LUA, blobs: ['quic_dbankcloud'] },
+		native: native, provenance: provenance
+	};
 	return {
 		ok: files[0].present && native.status == 'passed',
+		rejectionReason: rejectionReason,
+		diagnostics: diagnostics,
 		canonicalStrategyId: entry.canonicalId || strategy.canonicalId || strategy.id,
 		sourceId: sourceId,
 		sourceSnapshotId: entry.sourceSnapshotId || source.snapshotId,
@@ -149,7 +160,8 @@ export const discord_autocircular_donor = function(sourceFilter) {
 	for (let donor in donors) if (donor.ok == true) { usable = donor; break; }
 	if (usable == null)
 		return { ok: false, sourceFilter: sourceFilter || 'all', donors: donors,
-			error: { code: 'EUNAVAILABLE', message: 'no verified Discord donor passed dependency and native checks' } };
+			diagnostics: { classification: length(donors) > 0 ? donors[0].rejectionReason : 'NO_SEMANTIC_DONOR', donors: donors },
+		error: { code: 'EUNAVAILABLE', message: 'no verified Discord donor passed dependency and native checks' } };
 	let result = copy_object(usable);
 	result.ok = true;
 	result.sourceFilter = sourceFilter || 'all';

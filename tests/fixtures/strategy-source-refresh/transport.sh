@@ -44,6 +44,8 @@ case "$url" in
 			printf '%s\n' '[{"sha":"dddddddddddddddddddddddddddddddddddddddd"}]' > "$out"
 		elif [ "$mode" = "v2" ]; then
 			printf '%s\n' '[{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]' > "$out"
+		elif [ "$mode" = "z2k-incomplete" ]; then
+			printf '%s\n' '[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}]' > "$out"
 		elif [ "$mode" = "mismatch" ]; then
 			printf '[{"sha":"cccccccccccccccccccccccccccccccccccccccc","contentSha256":"%064d"}]\n' 0 > "$out"
 		else
@@ -54,13 +56,17 @@ case "$url" in
 		if [ "$mode" = "z2k-invalid" ]; then
 			printf '%s\n' 'not a valid z2k strategy corpus' > "$out"
 		elif [ "$mode" = "v2" ]; then
-			cp "$root/tests/fixtures/strategy-source-z2k/multi-profile.txt" "$out"
+			cp "$root/tests/fixtures/strategy-source-z2k/strats_new2.txt" "$out"
+			printf '%s\n' '# exact v2 revision fixture' >> "$out"
 		else
 			cp "$root/tests/fixtures/strategy-source-z2k/strats_new2.txt" "$out"
 		fi
 		;;
 	*raw.githubusercontent.com/necronicle/z2k/*/quic_strats.ini)
 		cp "$root/tests/fixtures/strategy-source-z2k/quic_strats.ini" "$out"
+		if [ "$mode" = "z2k-incomplete" ]; then
+			printf '%s\n' '[mystery_autocircular]' 'args=--filter-udp=9999 --lua-desync=circular:key=future_family' >> "$out"
+		fi
 		;;
 	*)
 		exit 1

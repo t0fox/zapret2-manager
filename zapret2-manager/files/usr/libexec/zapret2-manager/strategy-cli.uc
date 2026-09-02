@@ -1146,7 +1146,7 @@ function wire_strategy(strategy, current, selection, compact) {
 	let result = {};
 	if (compact == true) {
 		for (let key in ['id', 'name', 'description', 'is_builtin', 'source', 'level',
-			'label', 'author', 'protocol', 'featured', 'origin', 'revision', 'canonicalId', 'sourceId',
+			'label', 'author', 'protocol', 'featured', 'recommended', 'pinned', 'origin', 'revision', 'canonicalId', 'sourceId',
 			'sourceSnapshotId', 'sourceCommit', 'contentDigest', 'poolKey', 'entryKind',
 			'strategyNumber', 'aggregateId'])
 			if (strategy[key] != null) result[key] = key == 'description'

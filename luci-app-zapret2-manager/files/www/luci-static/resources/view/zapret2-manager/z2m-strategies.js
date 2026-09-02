@@ -398,22 +398,28 @@ function buildRows(data) {
 }
 function sourceFilterRows() {
   var selected = text(state.sourceFilter).toLowerCase();
-  if (selected === 'avatar' || selected === 'z2k' || selected === 'user')
-    return state.rows.filter(function (strategy) { return strategySourceId(strategy) === selected; });
-  return state.rows;
+  var rows = selected === 'avatar' || selected === 'z2k' || selected === 'user'
+    ? state.rows.filter(function (strategy) { return strategySourceId(strategy) === selected; })
+    : state.rows.slice();
+  if (selected === 'z2k') rows.sort(function (left, right) {
+    if (!!left.pinned !== !!right.pinned) return left.pinned ? -1 : 1;
+    return text(left.canonicalId || left.id).localeCompare(text(right.canonicalId || right.id));
+  });
+  return rows;
 }
 function strategySourceId(value) {
   if (Model && typeof Model.sourceId === 'function') return Model.sourceId(value);
   // Keep the page compatible with a LuCI module cache that still serves a
   // pre-source-filter model export. The canonical identity remains the
   // server-provided sourceId/provenance; this is only a bounded read fallback.
+  var strategy = value;
   value = object(value);
   var metadata = object(value.metadata), provenance = object(value.provenance), metadataProvenance = object(metadata.provenance);
   var explicit = text(value.sourceId || provenance.sourceId || metadata.sourceId || metadataProvenance.sourceId).toLowerCase();
   if (explicit === 'avatar' || explicit === 'z2k' || explicit === 'user') return explicit;
   var canonical = text(value.canonicalId || value.id || value.strategyId).toLowerCase();
   if (canonical.indexOf('avatar:') === 0 || canonical.indexOf('z2k:') === 0) return canonical.split(':')[0];
-  return text(value.origin).toLowerCase() === 'user' || value.is_builtin === false ? 'user' : '';
+  return (strategy && strategy.origin === 'user') || explicit === 'user' ? 'user' : '';
 }
 function sourceFilterLabel(id) {
   return ({ all: 'Все источники', avatar: 'Avatar', z2k: 'Z2K', user: 'Пользовательские' }[id] || 'Все источники');
@@ -454,7 +460,6 @@ function renderFiltersAndList() {
       { id: 'featured', label: 'Витрина', extension: true, icon: 'star', test: function (strategy) { return strategy.featured; } },
       { id: 'recommended', label: 'Рекомендуемые', test: function (strategy) { return strategy.recommended; } },
       { id: 'builtin', label: 'Встроенные', test: function (strategy) { return strategy.isBuiltin; } },
-      { id: 'user', label: 'Пользовательские', test: function (strategy) { return strategy.origin === 'user'; } }
     ],
     filterLabel: 'Тип стратегии',
     groupBy: function (strategy) {
@@ -497,6 +502,7 @@ function strategyMeta(strategy) {
   var sourceBadge = '<span class="strategy-source-badge source-' + escapeAttr(sourceId) + '">' + sourceFilterLabel(sourceId) + '</span>';
   return '<span class="strategy-card-meta-pills">' +
     sourceBadge +
+    (strategy.pinned && sourceId === 'z2k' ? '<span class="strategy-meta-badge z2k-all-in-one-marker">Основная</span>' : '') +
     (recommended ? '<span class="strategy-meta-badge recommended">Рекомендуемая</span>' : '') +
     (caution ? '<span class="strategy-meta-badge caution">Осторожно</span>' : '') +
     (source ? '<span class="strategy-source">Автор: ' + escapeHtml(source) + '</span>' : '') +
@@ -518,7 +524,7 @@ function renderStrategyCard(strategy) {
     : cardPending === 'apply'
       ? '<button class="btn btn-primary btn-sm" type="button" disabled aria-busy="true"><span class="btn-spinner" aria-hidden="true"></span><span>Применяем…</span></button>'
       : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Применить эту стратегию">' + svgIcon('play', 14) + '<span>Применить</span></button>';
-  return '<div class="strategy-card compact' + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
+  return '<div class="strategy-card compact' + (strategy.pinned && strategy.sourceId === 'z2k' ? ' z2k-all-in-one' : '') + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
     '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" aria-label="Выбрать стратегию для объединения" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
     '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap" id="strategy-details-' + escapeAttr(strategy.id) + '" data-details-loaded="' + (args ? 'true' : 'false') + '">' + args + '</div><div class="strategy-card-actions"><div class="strategy-card-primary-actions">' + actions + '</div><div class="strategy-card-secondary-actions">' +
     '<button class="strategy-card-toggle" data-action="toggleDetails" data-strategy-id="' + escapeAttr(strategy.id) + '" data-list-ui-toggle type="button" aria-expanded="false" aria-controls="strategy-details-' + escapeAttr(strategy.id) + '" title="Показать настройки стратегии">' + svgIcon('chevronDown', 12) + '<span class="strategy-card-toggle-label">Подробнее</span></button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Показать эффективную команду nfqws2">' + svgIcon('terminal', 14) + '<span>Превью</span></button>' +

@@ -32,12 +32,25 @@ function invoke(functionName, args = [], root) {
   return JSON.parse(result.stdout);
 }
 
-const snapshot = (sourceId = 'avatar', id = `${sourceId}-snapshot-1`) => ({
-  schema: 'z2m.strategy-source-snapshot.v1', sourceId,
-  repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k',
-  sourceCommit: 'a'.repeat(40), contentDigest: 'b'.repeat(64),
-  snapshotId: id, entryCount: 1, normalizedEntryCount: 1, immutable: true,
-});
+const snapshot = (sourceId = 'avatar', id = `${sourceId}-snapshot-1`) => {
+  const result = {
+    schema: 'z2m.strategy-source-snapshot.v1', sourceId,
+    repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k',
+    sourceCommit: 'a'.repeat(40), contentDigest: 'b'.repeat(64),
+    snapshotId: id, entryCount: sourceId === 'z2k' ? 1 : 0,
+    normalizedEntryCount: sourceId === 'z2k' ? 1 : 0, immutable: true,
+  };
+  if (sourceId === 'z2k') {
+    result.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+    result.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'c'.repeat(64), profileCount: 1 };
+    result.entries = [{
+      canonicalId: 'z2k:z2k_all_in_one', sourceId: 'z2k', upstreamId: 'z2k_all_in_one',
+      sourceSnapshotId: id, sourceCommit: 'a'.repeat(40), entryKind: 'all-in-one', usable: true,
+      profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+    }];
+  }
+  return result;
+};
 
 test('both strategy sources are enabled by default and receive durable state', () => {
   const root = rootFor('defaults');

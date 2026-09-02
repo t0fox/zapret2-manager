@@ -13,6 +13,9 @@ const SCHEMA = 'z2m.strategy-source-snapshot.v1';
 const MAX_CONTENT = 4 * 1024 * 1024;
 const STRATS_FILE = 'strats_new2.txt';
 const QUIC_FILE = 'quic_strats.ini';
+const ALL_IN_ONE_ID = 'z2k_all_in_one';
+const ALL_IN_ONE_NAME = 'z2k всё-в-одном';
+const SUPPORTED_POOL_ORDER = ['rkn_tcp', 'yt_tcp', 'gv_tcp', 'yt_quic', 'discord_udp'];
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -61,6 +64,52 @@ function tokens(value) {
 	return out;
 }
 function has(value, needle) { return string(value) && index(value, needle) >= 0; }
+function push_unique(result, value) {
+	if (!string(value) || value == '') return;
+	for (let item in result) if (item == value) return;
+	push(result, value);
+}
+function supported_pool(value) {
+	for (let pool in SUPPORTED_POOL_ORDER) if (pool == value) return true;
+	return false;
+}
+function option_value(args, prefix) {
+	let values = tokens(args);
+	if (values == null) return null;
+	for (let value in values) if (starts(value, prefix)) return substr(value, length(prefix));
+	return null;
+}
+function requirements_from_args(args) {
+	let luaFunctions = [], blobs = [], values = tokens(args);
+	if (values == null) return { engine: 'nfqws2', luaFunctions: [], blobs: [] };
+	for (let value in values) {
+		if (starts(value, '--blob=')) {
+			let name = split(substr(value, 7), ':')[0];
+			if (!starts(name, '0x')) push_unique(blobs, name);
+		}
+		if (!starts(value, '--lua-desync=')) continue;
+		let fields = split(substr(value, 13), ':');
+		if (length(fields) > 0) push_unique(luaFunctions, fields[0]);
+		for (let field in fields) if (starts(field, 'blob=')) {
+			let name = substr(field, 5);
+			if (!starts(name, '0x')) push_unique(blobs, name);
+		}
+	}
+	return { engine: 'nfqws2', luaFunctions: luaFunctions, blobs: blobs };
+}
+function routing_descriptor(args, headerParts, poolKey) {
+	let udp = option_value(args, '--filter-udp='), tcp = option_value(args, '--filter-tcp=');
+	return {
+		family: poolKey,
+		addressFamily: headerParts && headerParts[1] || null,
+		upstreamTarget: headerParts && headerParts[2] || null,
+		protocol: udp != null ? 'udp' : 'tcp',
+		ports: udp != null ? udp : tcp,
+		l7: option_value(args, '--filter-l7='),
+		filterSemantics: udp != null ? 'ports-and-l7' : 'ports-and-l7',
+		precedence: ['profile-order', 'l7', 'ports']
+	};
+}
 function source_path(metadata, fallback) { return metadata.sourcePath || fallback; }
 function pool_key(id, args, explicit) {
 	if (explicit != null && explicit != '') {
@@ -99,6 +148,9 @@ function strategy_tokens(args) {
 	for (let token in values) {
 		if (!starts(token, '--lua-desync=')) { push(common, token); continue; }
 		let number = strategy_number(token);
+		let hasStrategy = false;
+		for (let field in split(token, ':')) if (starts(field, 'strategy=')) hasStrategy = true;
+		if (hasStrategy && number == null) return null;
 		if (number == null || starts(token, '--lua-desync=circular')) {
 			push(common, token);
 			continue;
@@ -184,7 +236,7 @@ function normalize_record(id, args, metadata) {
 		capabilities: derivedCapabilities,
 		autocircular: derivedCapabilities.autocircular,
 		discordUdp: derivedCapabilities.discordUdp,
-		requirements: { engine: 'nfqws2', luaFunctions: [], blobs: [] },
+		requirements: requirements_from_args(args),
 		usable: true,
 		provenance: { repository: REPOSITORY, sourceId: SOURCE_ID, sourceCommit: sourceCommit,
 			sourcePath: sourcePath, kind: 'strategy-catalog' }
@@ -208,6 +260,7 @@ function slot_entries(aggregate, metadata, poolKey, legacyKey) {
 		if (!normalized.ok) return normalized;
 		let entry = decorate_entry(normalized.entry, aggregate.upstreamId, poolKey, 'slot', strategyNumber, legacyKey);
 		entry.provenance.aggregateId = aggregate.canonicalId;
+		if (aggregate.provenance.adaptation != null) entry.provenance.adaptation = aggregate.provenance.adaptation;
 		push(result, entry);
 	}
 	return { ok: true, entries: result };
@@ -247,6 +300,11 @@ export const strategy_source_z2k_parse = function(content, metadata) {
 			if (!normalized.ok) return normalized;
 		}
 		let aggregate = decorate_entry(normalized.entry, parts[0], poolKey, 'aggregate', null, null);
+		aggregate.routing = routing_descriptor(aggregate.args, parts, poolKey);
+		if (adapted != args) {
+			aggregate.provenance.adaptation = 'key=discord_voice normalized to key=discord_udp for Z2M canonical detector';
+			aggregate.semanticAdaptation = { from: 'discord_voice', to: 'discord_udp', scope: 'state-namespace', safe: true };
+		}
 		push(entries, aggregate);
 		let slots = slot_entries(aggregate, { sourceCommit: metadata.sourceCommit, sourcePath: source_path(metadata, STRATS_FILE) }, poolKey, null);
 		if (!slots.ok) return slots;
@@ -293,6 +351,11 @@ function parse_ini(content, metadata) {
 		normalized.entry.description = section.desc || normalized.entry.description;
 		let legacyKey = section.id == 'discord_voice_autocircular' ? 'discord_voice' : null;
 		let aggregate = decorate_entry(normalized.entry, section.id, poolKey, 'aggregate', null, legacyKey);
+		aggregate.routing = routing_descriptor(aggregate.args, [], poolKey);
+		if (adapted != section.args) {
+			aggregate.provenance.adaptation = 'key=discord_voice normalized to key=discord_udp for Z2M canonical detector';
+			aggregate.semanticAdaptation = { from: 'discord_voice', to: 'discord_udp', scope: 'state-namespace', safe: true };
+		}
 		push(entries, aggregate);
 		let slots = slot_entries(aggregate, { sourceCommit: metadata.sourceCommit, sourcePath: QUIC_FILE }, poolKey, legacyKey);
 		if (!slots.ok) return slots;
@@ -323,6 +386,113 @@ export const strategy_source_z2k_parse_files = function(files, metadata) {
 	return { ok: true, source: strategy_source_z2k_info(), entries: entries };
 };
 
+function compose_queue_args(args, poolKey) {
+	if (poolKey != 'yt_quic')
+		return { args: args, adaptation: null };
+	let udp = option_value(args, '--filter-udp='), l7 = option_value(args, '--filter-l7=');
+	if (udp != null && udp != '443')
+		return { error: { code: 'EUNSUPPORTED', message: 'YT QUIC profile has an explicit non-443 UDP filter', path: 'filter-udp' } };
+	if (l7 != null && l7 != 'quic')
+		return { error: { code: 'EUNSUPPORTED', message: 'YT QUIC profile has an explicit non-QUIC L7 filter', path: 'filter-l7' } };
+	if (udp == '443' && l7 == 'quic') return { args: args, adaptation: null };
+	// The upstream QUIC queue is intentionally implicit.  Z2M's unified
+	// process needs an explicit queue boundary so it cannot catch unrelated
+	// UDP traffic when this profile is joined with Discord.
+	let prefix = udp == null ? '--filter-udp=443 ' : '';
+	if (l7 == null) prefix += '--filter-l7=quic ';
+	return { args: prefix + args,
+		adaptation: 'yt_quic queue scoped to explicit UDP/443 + QUIC filters for the unified Z2M process' };
+}
+function compose_profiles(entry, label, poolKey, adaptations) {
+	let profiles = [];
+	if (type(entry.profiles) == 'array' && length(entry.profiles) > 0) {
+		for (let i = 0; i < length(entry.profiles); i++) {
+			let profile = entry.profiles[i];
+			if (!object(profile) || !string(profile.args) || profile.args == '') return null;
+			let scoped = compose_queue_args(profile.args, poolKey);
+			if (scoped.error != null) return { ok: false, error: scoped.error };
+			if (scoped.adaptation != null) push_unique(adaptations, scoped.adaptation);
+			push(profiles, { id: 'all-in-one-' + label + '-' + (i + 1), name: label, enabled: true,
+				protocol: scoped.args && (has(scoped.args, '--filter-udp=') ? 'udp' : 'tcp'), args: scoped.args });
+		}
+	} else if (string(entry.args) && entry.args != '') {
+		let scoped = compose_queue_args(entry.args, poolKey);
+		if (scoped.error != null) return { ok: false, error: scoped.error };
+		if (scoped.adaptation != null) push_unique(adaptations, scoped.adaptation);
+		push(profiles, { id: 'all-in-one-' + label, name: label, enabled: true,
+			protocol: has(scoped.args, '--filter-udp=') ? 'udp' : 'tcp', args: scoped.args });
+	} else return null;
+	return profiles;
+}
+
+function composition_digest(value) {
+	let encoded = null;
+	try { encoded = sprintf('%J', value); } catch (e) { encoded = null; }
+	return encoded == null ? null : digest(encoded);
+}
+
+export const strategy_source_z2k_compose_all_in_one = function(entries, metadata) {
+	metadata = object(metadata) ? metadata : {};
+	if (type(entries) != 'array' || length(entries) == 0)
+		return error('EINPUT', 'Z2K composition requires normalized entries', 'entries');
+	if (!valid_commit(metadata.sourceCommit))
+		return error('EPROVENANCE', 'Z2K composition requires the exact source commit', 'sourceCommit');
+	let pools = {}, unknown = [];
+	for (let entry in entries) {
+		if (!object(entry) || entry.sourceId != SOURCE_ID || entry.entryKind != 'aggregate') continue;
+		let pool = entry.poolKey;
+		if (pool == null || !supported_pool(pool)) {
+			if (pool != null) push_unique(unknown, pool);
+			continue;
+		}
+		if (pools[pool] != null) return error('EDUPLICATE', 'Z2K source contains duplicate aggregate pool', pool);
+		if (entry.usable !== true) return error('EVERIFY', 'Z2K aggregate pool is not usable', pool);
+		pools[pool] = entry;
+	}
+	if (length(unknown) > 0)
+		return error('EUNSUPPORTED', 'Z2K source contains an unknown required pool family: ' + join(', ', unknown), 'poolKey');
+	let missing = [];
+	for (let pool in SUPPORTED_POOL_ORDER) if (pools[pool] == null) push(missing, pool);
+	if (length(missing) > 0)
+		return error('ECOMPOSITION', 'Z2K All-in-One is incomplete; required pool family is missing: ' + join(', ', missing), 'poolKey');
+	let profiles = [], order = [], routing = [], argsParts = [], adaptations = [], requirements = { engine: 'nfqws2', luaFunctions: [], blobs: [] };
+	for (let pool in SUPPORTED_POOL_ORDER) {
+		let entry = pools[pool], familyProfiles = compose_profiles(entry, pool, pool, adaptations);
+		if (familyProfiles && familyProfiles.ok === false) return familyProfiles;
+		if (familyProfiles == null || length(familyProfiles) == 0)
+			return error('ECOMPOSITION', 'Z2K All-in-One cannot materialize pool profiles', pool);
+		for (let profile in familyProfiles) {
+			push(profiles, profile);
+			push(argsParts, profile.args);
+		}
+		push(order, pool);
+		push(routing, routing_descriptor(familyProfiles[0].args, [], pool));
+		for (let fn in entry.requirements && entry.requirements.luaFunctions || []) push_unique(requirements.luaFunctions, fn);
+		for (let blob in entry.requirements && entry.requirements.blobs || []) push_unique(requirements.blobs, blob);
+	}
+	let args = join(' --new ', argsParts), generatedFrom = [];
+	for (let pool in order) push(generatedFrom, pools[pool].canonicalId);
+	let provenance = {
+		repository: REPOSITORY, sourceId: SOURCE_ID, sourceCommit: metadata.sourceCommit,
+		sourcePath: STRATS_FILE + '+' + QUIC_FILE, kind: 'strategy-catalog-generated',
+		generatedFrom: generatedFrom,
+		adaptation: 'key=discord_voice normalized to key=discord_udp for Z2M canonical detector',
+		compositions: adaptations
+	};
+	let entry = {
+		id: 'z2k:' + ALL_IN_ONE_ID, canonicalId: 'z2k:' + ALL_IN_ONE_ID, sourceId: SOURCE_ID,
+		upstreamId: ALL_IN_ONE_ID, sourceCommit: metadata.sourceCommit,
+		sourcePath: STRATS_FILE + '+' + QUIC_FILE, name: ALL_IN_ONE_NAME,
+		description: 'Собрано из текущих проверенных Z2K pool: TCP RKN/YouTube/GoogleVideo и UDP YouTube/Discord.',
+		args: args, profiles: profiles, capabilities: { autocircular: true, discordUdp: true, protocols: ['tcp', 'udp'] },
+		autocircular: true, discordUdp: true, is_builtin: false, requirements: requirements, usable: true,
+		featured: true, recommended: true, pinned: true, entryKind: 'all-in-one', poolKey: 'all-in-one',
+		composition: { order: order, families: routing, overlapPolicy: 'explicit-profile-order',
+			preservesFilters: true, noImplicitCatchAll: true, adaptations: adaptations }, provenance: provenance
+	};
+	return { ok: true, entry: entry, digest: composition_digest(entry) };
+};
+
 export const strategy_source_z2k_normalize = function(entry) {
 	if (!object(entry) || entry.sourceId != SOURCE_ID
 		|| (object(entry.provenance) && entry.provenance.repository != REPOSITORY))
@@ -337,20 +507,22 @@ export const strategy_source_z2k_normalize = function(entry) {
 export const strategy_source_z2k_prepare_snapshot = function(input) {
 	if (!object(input)) return error('EINPUT', 'Z2K snapshot input is required', 'input');
 	let files = object(input.files) ? input.files : null;
-	let parsed = files
-		? strategy_source_z2k_parse_files(files, { sourceCommit: input.sourceCommit })
-		: string(input.content) ? strategy_source_z2k_parse(input.content, {
-			sourceCommit: input.sourceCommit, sourcePath: input.sourcePath || STRATS_FILE
-		}) : error('EINPUT', 'Z2K snapshot content is required', 'content');
+	if (!files) return error('EINPUT', 'Z2K snapshot requires both exact source files', 'files');
+	let parsed = strategy_source_z2k_parse_files(files, { sourceCommit: input.sourceCommit });
 	if (!parsed.ok) return parsed;
-	let stratsNew2Digest = files ? digest(files[STRATS_FILE]) : digest(input.content);
-	let quicStratsDigest = files ? digest(files[QUIC_FILE]) : null;
-	if (!stratsNew2Digest || (files && !quicStratsDigest)) return error('EDIGEST', 'Z2K corpus content digest could not be computed');
-	let identityText = files ? STRATS_FILE + '\n' + stratsNew2Digest + '\n' + QUIC_FILE + '\n' + quicStratsDigest : input.content;
+	let stratsNew2Digest = digest(files[STRATS_FILE]);
+	let quicStratsDigest = digest(files[QUIC_FILE]);
+	if (!stratsNew2Digest || !quicStratsDigest) return error('EDIGEST', 'Z2K corpus content digest could not be computed');
+	let identityText = STRATS_FILE + '\n' + stratsNew2Digest + '\n' + QUIC_FILE + '\n' + quicStratsDigest;
 	let contentDigest = digest(identityText);
 	if (!contentDigest) return error('EDIGEST', 'Z2K corpus content digest could not be computed');
+	let composed = strategy_source_z2k_compose_all_in_one(parsed.entries, { sourceCommit: input.sourceCommit });
+	if (!composed.ok) return composed;
+	let parsedEntries = [];
+	for (let item in parsed.entries) push(parsedEntries, item);
+	push(parsedEntries, composed.entry);
 	let entries = [], entryDigests = [];
-	for (let entry in parsed.entries) {
+	for (let entry in parsedEntries) {
 		let normalized = copy(entry);
 		normalized.sourceSnapshotId = 'z2k-' + contentDigest;
 		push(entries, normalized);
@@ -360,13 +532,20 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 	}
 	let orderedDigest = digest(join('\n', entryDigests));
 	if (!orderedDigest) return error('EDIGEST', 'Z2K normalized entry order digest could not be computed');
+	let allInOne = null;
+	for (let normalized in entries) if (normalized.canonicalId == 'z2k:' + ALL_IN_ONE_ID) allInOne = normalized;
+	let allInOneDigest = composition_digest(allInOne);
+	if (!allInOne || !allInOneDigest) return error('EDIGEST', 'Z2K All-in-One identity could not be computed');
 	return { ok: true, snapshot: {
 		schema: SCHEMA, sourceId: SOURCE_ID, repository: REPOSITORY,
-		sourceCommit: input.sourceCommit, sourcePath: files ? STRATS_FILE + '+' + QUIC_FILE : input.sourcePath || STRATS_FILE,
+		sourceCommit: input.sourceCommit, sourcePath: STRATS_FILE + '+' + QUIC_FILE,
+		sourceFiles: [STRATS_FILE, QUIC_FILE], sourceBranch: 'z2k-enhanced',
 		contentDigest: contentDigest, stratsNew2Digest: stratsNew2Digest, quicStratsDigest: quicStratsDigest,
-		sourceFiles: files ? [STRATS_FILE, QUIC_FILE] : [STRATS_FILE], snapshotId: 'z2k-' + contentDigest,
+		snapshotId: 'z2k-' + contentDigest,
 		entryDigests: entryDigests, normalizedEntriesDigest: orderedDigest,
 		entryCount: length(entries), normalizedEntryCount: length(entries), entries: entries,
+		allInOne: { canonicalId: allInOne.canonicalId, digest: allInOneDigest,
+			profileCount: length(allInOne.profiles), order: allInOne.composition.order },
 		immutable: true
 	} };
 };

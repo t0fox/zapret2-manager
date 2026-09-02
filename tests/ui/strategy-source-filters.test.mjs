@@ -54,6 +54,7 @@ test('Strategies exposes independent source filters and source badges without ch
   assert.match(page, /filterLabel: 'Тип стратегии'/);
   assert.match(page, /Все типы/);
   assert.match(page, /strategy\.origin === 'user'/);
+  assert.doesNotMatch(page, /value\.is_builtin === false/);
   assert.doesNotMatch(page, /test: function \(strategy\) \{ return !strategy\.isBuiltin; \}/);
   assert.match(page, /strategy_data: transient/);
   assert.match(page, /composition: 'discord'/);

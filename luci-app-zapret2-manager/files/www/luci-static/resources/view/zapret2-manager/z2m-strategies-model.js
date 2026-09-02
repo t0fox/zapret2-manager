@@ -271,6 +271,7 @@ function normalize(value, status, selectedId) {
     label: label,
     recommended: label === 'recommended' || /^recommended/.test(label),
     featured: value.featured === true || metadata.featured === true,
+    pinned: value.pinned === true || metadata.pinned === true,
     circular: isCircularStrategy(value),
     availability: value.availability,
     profiles: profiles(value)

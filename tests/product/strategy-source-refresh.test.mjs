@@ -185,6 +185,17 @@ test('Z2K verification and snapshot installation failures preserve the prior LKG
   assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
 });
 
+test('Z2K raw-valid but incomplete composition fails closed and preserves the prior LKG', () => {
+  const root = sandbox('z2k-incomplete');
+  const first = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'ok' });
+  const failed = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'z2k-incomplete' });
+  const current = invoke(root, 'strategy_source_current_snapshot', ['z2k']);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  assert.equal(failed.error.code, 'EUNSUPPORTED');
+  assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
+});
+
 test('refresh failure keeps the previous LKG and source reads remain network-free', () => {
   const root = sandbox('lkg');
   const first = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'ok' });

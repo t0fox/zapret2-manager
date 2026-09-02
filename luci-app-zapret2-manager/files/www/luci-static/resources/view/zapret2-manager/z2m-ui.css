@@ -1063,6 +1063,8 @@
 .z2m-view#z2m-view-strategy .list-ui-group-header{padding:9px 12px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.025);}
 .z2m-view#z2m-view-strategy .list-ui-group-header:hover{background:rgba(255,255,255,.045);border-color:var(--border2);}
 .z2m-view#z2m-view-strategy .strategy-card-actions{background:transparent;}
+.z2m-view#z2m-view-strategy .strategy-card.z2k-all-in-one{border-color:rgba(75,159,213,.42);}
+.z2m-view#z2m-view-strategy .z2k-all-in-one-marker{color:var(--blue);}
 .z2m-view#z2m-view-strategy .strategy-card-toggle{border:1px solid var(--border2);background:var(--raised);color:var(--tx);border-radius:5px;}
 .z2m-view#z2m-view-strategy .list-ui-search-input{padding-right:36px;}
 .z2m-view#z2m-view-strategy .list-ui-search-clear{top:50%;right:5px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;transform:translateY(-50%);border:0;border-radius:6px;color:var(--tx2);background:transparent;}

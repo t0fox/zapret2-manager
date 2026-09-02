@@ -94,13 +94,34 @@ function safe_id(value) {
 }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{7,40}$/); }
+function contains(value, needle) {
+	if (type(value) != 'array') return false;
+	for (let item in value) if (item == needle) return true;
+	return false;
+}
+function valid_z2k_snapshot(snapshot) {
+	if (!object(snapshot) || type(snapshot.sourceFiles) != 'array'
+		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
+		|| !object(snapshot.allInOne) || snapshot.allInOne.canonicalId != 'z2k:z2k_all_in_one'
+		|| !valid_digest(snapshot.allInOne.digest) || type(snapshot.allInOne.profileCount) != 'int'
+		|| snapshot.allInOne.profileCount < 1 || type(snapshot.entries) != 'array') return false;
+	for (let entry in snapshot.entries) {
+		if (object(entry) && entry.canonicalId == snapshot.allInOne.canonicalId
+			&& entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
+			&& entry.entryKind == 'all-in-one' && entry.usable == true
+			&& type(entry.profiles) == 'array' && length(entry.profiles) == snapshot.allInOne.profileCount)
+			return true;
+	}
+	return false;
+}
 function valid_source_snapshot(id, snapshot) {
 	return object(snapshot) && snapshot.schema == 'z2m.strategy-source-snapshot.v1'
 		&& snapshot.sourceId == id && snapshot.repository == SOURCE_REPOSITORIES[id]
 		&& safe_id(snapshot.snapshotId) && valid_commit(snapshot.sourceCommit)
 		&& valid_digest(snapshot.contentDigest) && integer(snapshot.entryCount)
 		&& integer(snapshot.normalizedEntryCount) && snapshot.immutable == true
-		&& snapshot.published != false && type(snapshot.entries) == 'array';
+		&& snapshot.published != false && type(snapshot.entries) == 'array'
+		&& (id != 'z2k' || valid_z2k_snapshot(snapshot));
 }
 function valid_entry(entry, sourceId, snapshotId) {
 	return object(entry) && string(entry.canonicalId) && length(entry.canonicalId) > 0

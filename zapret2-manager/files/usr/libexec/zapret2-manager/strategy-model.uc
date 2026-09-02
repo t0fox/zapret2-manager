@@ -254,7 +254,7 @@ export const catalog_entry_to_strategy = function(entry) {
 		description: catalog_field(entry, 'description', ''),
 		type: length(profiles) > 1 ? 'combined' : 'single',
 		version: 1,
-		is_builtin: true,
+		is_builtin: entry.is_builtin === false ? false : true,
 		source: 'catalog',
 		level: entry.level == null ? '' : entry.level,
 		label: catalog_field(entry, 'label', ''),
@@ -264,6 +264,10 @@ export const catalog_entry_to_strategy = function(entry) {
 		blobs: copy_values(catalog_field(entry, 'blobs', [])),
 		profiles: profiles
 	};
+	let recommended = catalog_field(entry, 'recommended', null);
+	let pinned = catalog_field(entry, 'pinned', null);
+	if (recommended != null) strategy.recommended = recommended;
+	if (pinned != null) strategy.pinned = pinned;
 	copy_catalog_provenance(strategy, entry);
 
 	let normalized = strategy_normalize(strategy);

@@ -177,7 +177,7 @@ return baseclass.extend({
       add.addEventListener('click', addProfile);
       heading.appendChild(add);
       host.appendChild(heading);
-      var tabs = element(document, 'div', 'strategy-editor-profile-list');
+          var tabs = element(document, 'div', 'strategy-editor-profile-list strategy-editor-profile-tabs');
       tabs.setAttribute('data-editor-profile-list', 'true');
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', 'Профили стратегии');

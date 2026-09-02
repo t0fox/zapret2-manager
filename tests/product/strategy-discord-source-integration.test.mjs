@@ -44,13 +44,18 @@ function entry(sourceId, snapshotId, commit, name, discord) {
 }
 
 function source(sourceId, snapshotId, commit, entries) {
-  return {
+  const result = {
     schema: 'z2m.strategy-source-snapshot.v1',
     sourceId, repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k',
     sourceCommit: commit, contentDigest: sourceId === 'avatar' ? 'b'.repeat(64) : 'c'.repeat(64),
     snapshotId, entryCount: entries.length, normalizedEntryCount: entries.length,
     immutable: true, published: true, entries,
   };
+  if (sourceId === 'z2k') {
+    result.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+    result.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'e'.repeat(64), profileCount: 1 };
+  }
+  return result;
 }
 
 test('Discord donor discovery is semantic, source-filterable, and provenance-complete', () => {
@@ -60,6 +65,8 @@ test('Discord donor discovery is semantic, source-filterable, and provenance-com
   const z2kEntries = [
     entry('z2k', 'z2k-s1', z2kCommit, 'shared-display', true),
     entry('z2k', 'z2k-s1', z2kCommit, 'tls-only', false),
+    { ...entry('z2k', 'z2k-s1', z2kCommit, 'z2k_all_in_one', false),
+      canonicalId: 'z2k:z2k_all_in_one', entryKind: 'all-in-one', poolKey: 'all-in-one', usable: true },
   ];
   const env = { Z2M_STRATEGY_CATALOG_GENERATION_ROOT: root };
   try {
@@ -85,6 +92,9 @@ test('Discord donor discovery is semantic, source-filterable, and provenance-com
       assert.match(donor.donorProfileDigest, /^[a-f0-9]{64}$/);
       assert.deepEqual(donor.semantic, { key: 'discord_udp', host: 'nohost', protocol: 'STUN', hostkey: 'z2k_nohost_key' });
       assert.deepEqual(donor.requiredDependencies.blobs, ['quic_dbankcloud']);
+      assert.equal(donor.rejectionReason, 'MISSING_BLOB');
+      assert.equal(donor.diagnostics.classification, 'MISSING_BLOB');
+      assert.deepEqual(donor.diagnostics.requiredDependencies.blobs, ['quic_dbankcloud']);
       assert.equal(donor.provenance.sourceId, donor.sourceId);
       assert.equal(donor.provenance.sourceCommit, donor.sourceCommit);
     }

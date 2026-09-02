@@ -166,6 +166,29 @@ test('generation publication failure rolls fresh source activation back with the
   assert.equal(generation.index.generationId, first.result.generationId);
 });
 
+test('single-source RPC coordinator stages before activation and rolls back on publication failure', () => {
+  const root = sandbox('single-source-transaction');
+  seed(root);
+  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
+  assert.equal(first.state, 'completed', JSON.stringify(first));
+  const before = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
+  const beforeGeneration = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  const failed = invoke(root, MODULE, 'catalog_refresh_source', ['z2k'], 'v2', {
+    Z2M_STRATEGY_GENERATION_FAIL_PHASE: 'pointer',
+  });
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  const afterFailure = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
+  const generationAfterFailure = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  assert.equal(afterFailure.source.currentSnapshotId, before.source.currentSnapshotId);
+  assert.equal(generationAfterFailure.index.generationId, beforeGeneration.index.generationId);
+
+  const succeeded = invoke(root, MODULE, 'catalog_refresh_source', ['z2k'], 'v2');
+  assert.equal(succeeded.ok, true, JSON.stringify(succeeded));
+  assert.notEqual(succeeded.snapshot.snapshotId, before.source.currentSnapshotId);
+  const afterSuccess = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
+  assert.equal(afterSuccess.source.currentSnapshotId, succeeded.snapshot.snapshotId);
+});
+
 test('source enablement transaction restores config when generation publication fails', () => {
   const root = sandbox('toggle-transaction');
   seed(root);
