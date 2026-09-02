@@ -43,7 +43,8 @@ After the final Apply, `status_fast` reported:
 
 - `strategyStatus.id=z2k:z2k_all_in_one`, `origin=z2k_builtin`, `revision=0`;
 - `runtimeSummary.status=running`, reason `process-and-nfqueue-confirmed`;
-- exactly one `nfqws2` process, PID 15912, `identityVerified=true`;
+- final stability sample: exactly one `nfqws2` process, PID 10400,
+  `identityVerified=true`;
 - NFQUEUE 300 registered, owner matches PID 15912, no owner conflict, rules present;
 - 13 Lua-init arguments loaded;
 - active argv contains all five Z2K pool filters, including UDP/443 QUIC and
