@@ -12,85 +12,85 @@
 
 **Управляй `zapret2` на OpenWrt через единый LuCI-интерфейс — без ручной сборки разрозненных сценариев вокруг движка.**
 
-[**📦 Скачать `main-latest`**](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
+[**Скачать `main-latest`**](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
 &nbsp;·&nbsp;
-[**📖 Руководства**](./docs/04-guides/index.md)
+[**Руководства**](./docs/04-guides/index.md)
 &nbsp;·&nbsp;
-[**🧭 Текущее состояние**](./docs/00-home/current-state.md)
+[**Текущее состояние**](./docs/00-home/current-state.md)
 &nbsp;·&nbsp;
-[**🐛 Issues**](https://github.com/t0fox/zapret2-manager/issues)
+[**Issues**](https://github.com/t0fox/zapret2-manager/issues)
 
 </div>
 
 ---
 
-## ✨ Что такое zapret2.manager
+## Что такое zapret2.manager
 
 **zapret2.manager (Z2M)** — слой управления `zapret2` для OpenWrt: backend, LuCI-интерфейс и набор согласованных lifecycle-процессов для стратегий, компонентов, DNS, прокси и диагностики.
 
 Главная идея проекта — не просто «запустить `nfqws2`», а дать пользователю **единое место управления** с понятными состояниями, проверками и безопасным применением изменений.
 
 > [!NOTE]
-> **Zapret2 Engine** и **Z2K Core** — обязательная системная основа Z2M.  
+> **Zapret2 Engine** и **Z2K Core** — обязательная системная основа Z2M.
 > **Telegram Proxy** и **WARP / MASQUE** — отдельные опциональные продукты и не входят в обязательный runtime manager'а.
 
-## 🧩 Возможности
+## Возможности
 
-| | Возможность | Что делает |
-|:--:|---|---|
-| 🧠 | **Стратегии** | Постоянный lifecycle **Preview → Validate → Apply** для изменений обхода |
-| 🔎 | **Scanner** | Ищет кандидатов и передаёт результат обратно в Strategy вместо обхода общего lifecycle |
-| 🧱 | **Компоненты** | Управляет состоянием **Zapret2 Engine** и **Z2K Core** |
-| 🌐 | **Сервисы и домены** | Управляет целями, для которых применяются правила и стратегии |
-| 📦 | **Ресурсы** | Работает с каталогами и low-level assets, используемыми runtime |
-| 🧭 | **DNS** | Интегрируется в существующий DNS-path OpenWrt без второго resident DNS daemon |
-| ✈️ | **Telegram Proxy** | Отдельный provider lifecycle: установка, переключение, обновление и диагностика |
-| 🛰️ | **WARP / MASQUE** | Опциональная proxy/routing-поверхность со своей зоной ответственности |
-| 📊 | **Мониторинг и журнал** | Показывает runtime-состояние, события и диагностическую информацию |
-| 💾 | **Резервные копии** | Поддерживает отдельный системный workflow для backup/restore |
-| ⚙️ | **Настройки** | Централизует системные параметры manager'а |
+| Возможность | Что делает |
+|---|---|
+| **Стратегии** | Постоянный lifecycle **Preview → Validate → Apply** для изменений обхода |
+| **Scanner** | Ищет кандидатов и передаёт результат обратно в Strategy вместо обхода общего lifecycle |
+| **Компоненты** | Управляет состоянием **Zapret2 Engine** и **Z2K Core** |
+| **Сервисы и домены** | Управляет целями, для которых применяются правила и стратегии |
+| **Ресурсы** | Работает с каталогами и low-level assets, используемыми runtime |
+| **DNS** | Интегрируется в существующий DNS-path OpenWrt без второго resident DNS daemon |
+| **Telegram Proxy** | Отдельный provider lifecycle: установка, переключение, обновление и диагностика |
+| **WARP / MASQUE** | Опциональная proxy/routing-поверхность со своей зоной ответственности |
+| **Мониторинг и журнал** | Показывает runtime-состояние, события и диагностическую информацию |
+| **Резервные копии** | Поддерживает отдельный системный workflow для backup/restore |
+| **Настройки** | Централизует системные параметры manager'а |
 
-## 🗺 Интерфейс
+## Интерфейс
 
 Каноническая навигация Z2M разделена по пользовательским задачам:
 
 ```text
-🏠 Главная
+Главная
 
-🛡 Обход DPI
+Обход DPI
    ├─ Управление
    ├─ Стратегии
    └─ Scanner
 
-🔀 Proxy / Routing
+Proxy / Routing
    ├─ WARP / MASQUE
    └─ Telegram Proxy
 
-🗂 Списки и данные
+Списки и данные
    ├─ Сервисы и домены
    ├─ Ресурсы
    └─ DNS
 
-📊 Диагностика
+Диагностика
    ├─ Мониторинг
    └─ Журнал
 
-⚙️ Система
+Система
    ├─ Компоненты
    ├─ Резервные копии
    └─ Настройки
 ```
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
 ### 1. Скачай один набор APK
 
 Используй файлы **из одного и того же** GitHub Release:
 
-👉 **[`main-latest` — rolling build текущего `main`](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)**
+**[`main-latest` — rolling build текущего `main`](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)**
 
 > [!IMPORTANT]
-> `main-latest` — **prerelease / rolling build**, а не обещание стабильного релиза.  
+> `main-latest` — **prerelease / rolling build**, а не обещание стабильного релиза.
 > Перед установкой сверяй `SHA256SUMS` и не смешивай APK из разных сборок.
 
 ### 2. Установи пакеты на роутере
@@ -109,7 +109,7 @@ apk add --allow-untrusted \
 | `zapret2-manager-full` | Target-specific meta-package для manager + LuCI |
 
 > [!TIP]
-> **Zapret2 Engine** устанавливается отдельно через **Система → Компоненты**.  
+> **Zapret2 Engine** устанавливается отдельно через **Система → Компоненты**.
 > **Telegram Proxy** устанавливается отдельно через **Proxy / Routing → Telegram Proxy**.
 
 ### 3. Открой LuCI
@@ -128,7 +128,7 @@ apk add --allow-untrusted \
 Preview → Validate → Apply
 ```
 
-## 🧠 Как это устроено
+## Как это устроено
 
 ### Runtime ownership
 
@@ -158,22 +158,22 @@ flowchart LR
 
 Scanner не создаёт второй путь постоянного применения изменений: его результат возвращается в общий Strategy lifecycle.
 
-## 🏗 Системная модель
+## Системная модель
 
 | Компонент | Роль | Обязательный |
 |---|---|:--:|
-| **zapret2.manager** | Production runtime owner / coordinator | ✅ |
-| **Zapret2 Engine** | Базовый anti-DPI engine | ✅ |
-| **Z2K Core** | Интеграционный/runtime foundation manager'а | ✅ |
+| **zapret2.manager** | Production runtime owner / coordinator | Да |
+| **Zapret2 Engine** | Базовый anti-DPI engine | Да |
+| **Z2K Core** | Интеграционный/runtime foundation manager'а | Да |
 | **Avatar Catalog** | Источник стратегий/ресурсов и donor reference | — |
-| **Telegram Proxy** | Отдельный optional product | ❌ |
-| **WARP / MASQUE** | Отдельный optional proxy/routing product | ❌ |
+| **Telegram Proxy** | Отдельный optional product | Нет |
+| **WARP / MASQUE** | Отдельный optional proxy/routing product | Нет |
 
 > [!WARNING]
-> **Avatar** не является системным компонентом Z2M и не должен становиться вторым runtime writer'ом.  
+> **Avatar** не является системным компонентом Z2M и не должен становиться вторым runtime writer'ом.
 > Low-level Z2K assets также не образуют отдельный пользовательский продукт «Z2K Resources».
 
-## 📦 Release model
+## Release model
 
 Текущий reproducible release contract закреплён за:
 
@@ -206,7 +206,7 @@ SHA256SUMS
 ---
 
 <details>
-<summary><strong>🛠 Для разработчиков</strong></summary>
+<summary><strong>Для разработчиков</strong></summary>
 
 <br>
 
@@ -288,37 +288,37 @@ node scripts/validate-knowledge.mjs
 - временные audit/debug outputs;
 - одноразовые debugging scripts.
 
-Исторические планы и reports — это evidence, а не источник истины для текущего runtime.  
+Исторические планы и reports — это evidence, а не источник истины для текущего runtime.
 Текущий код, тесты и свежая runtime evidence имеют приоритет.
 
 </details>
 
-## 📚 Документация
+## Документация
 
 | Раздел | Ссылка |
 |---|---|
-| 🚀 Руководства | [`docs/04-guides`](./docs/04-guides/index.md) |
-| 🧭 Текущее состояние | [`docs/00-home/current-state.md`](./docs/00-home/current-state.md) |
-| 🧱 Архитектура | [`docs/02-architecture`](./docs/02-architecture/) |
-| 📜 Контракты | [`docs/04-contracts`](./docs/04-contracts/) |
-| 🔬 Research | [`docs/10-research`](./docs/10-research/) |
-| 🧰 Operations | [`docs/11-operations`](./docs/11-operations/) |
+| Руководства | [`docs/04-guides`](./docs/04-guides/index.md) |
+| Текущее состояние | [`docs/00-home/current-state.md`](./docs/00-home/current-state.md) |
+| Архитектура | [`docs/02-architecture`](./docs/02-architecture/) |
+| Контракты | [`docs/04-contracts`](./docs/04-contracts/) |
+| Research | [`docs/10-research`](./docs/10-research/) |
+| Operations | [`docs/11-operations`](./docs/11-operations/) |
 
-## 🔗 Upstream
+## Upstream
 
 - **[`bol-van/zapret2`](https://github.com/bol-van/zapret2)** — anti-DPI engine, вокруг которого строится runtime Z2M.
 - **[OpenWrt](https://openwrt.org/)** — целевая router platform.
 - **[LuCI](https://github.com/openwrt/luci)** — web UI framework OpenWrt.
 
-## 🤝 Участие в разработке
+## Участие в разработке
 
 Нашёл баг или хочешь предложить улучшение?
 
-- 🐛 [Создай Issue](https://github.com/t0fox/zapret2-manager/issues)
-- 🔧 Перед изменениями посмотри текущие contracts и architecture notes
-- ✅ Для runtime-изменений прикладывай проверяемую evidence, а не только host-only результат
+- [Создай Issue](https://github.com/t0fox/zapret2-manager/issues)
+- Перед изменениями посмотри текущие contracts и architecture notes
+- Для runtime-изменений прикладывай проверяемую evidence, а не только host-only результат
 
-## 📜 Лицензия
+## Лицензия
 
 Проект распространяется по лицензии **MIT**. См. [`LICENSE`](./LICENSE).
 
