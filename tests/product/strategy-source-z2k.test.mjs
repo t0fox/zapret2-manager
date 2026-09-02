@@ -119,6 +119,34 @@ test('Z2K parser imports quic_strats.ini aggregates and fixed slots with explici
   assert.ok(result.entries.some((entry) => entry.canonicalId === 'z2k:discord_udp_strat_1'));
 });
 
+test('Z2K parser canonicalizes the upstream Discord definition to the official STUN runtime flow', () => {
+  const upstreamShape = readFixture('quic_strats.ini').replace(
+    '--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=discord_ip_discovery,stun --lua-desync=circular:key=discord_voice:hostkey=z2k_nohost_key',
+    '--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --in-range=-d100 --out-range=-d100 --payload=quic_initial,discord_ip_discovery --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_voice:nld=2:hostkey=z2k_nohost_key'
+  );
+  const result = invoke('strategy_source_z2k_parse_files', [{
+    'strats_new2.txt': readFixture('strats_new2.txt'),
+    'quic_strats.ini': upstreamShape,
+  }, { sourceCommit: '9'.repeat(40) }]);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const discord = result.entries.find((entry) => entry.upstreamId === 'discord_voice_autocircular' && entry.entryKind === 'aggregate');
+  assert.ok(discord);
+  assert.match(discord.args, /--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344/);
+  assert.doesNotMatch(discord.args, /--in-range=-d100/);
+  assert.match(discord.args, /--out-range=-d4/);
+  assert.match(discord.args, /--payload=discord_ip_discovery,stun/);
+  assert.match(discord.args, /key=discord_udp:nld=2:hostkey=z2k_nohost_key/);
+  assert.match(discord.args, /blob=active_discord_udp:repeats=6:strategy=1/);
+  assert.match(discord.args, /blob=quic_dbankcloud:repeats=6:strategy=6/);
+  assert.match(discord.args, /blob=quic_dbankcloud:repeats=5:strategy=9/);
+  assert.doesNotMatch(discord.args, /z2k_quic_morph_v2/);
+  assert.deepEqual(result.entries
+    .filter((entry) => entry.poolKey === 'discord_udp' && entry.entryKind === 'slot')
+    .map((entry) => entry.strategyNumber), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.ok(discord.requirements.blobs.includes('active_discord_udp'));
+  assert.match(discord.provenance.adaptation, /official Discord STUN runtime flow/);
+});
+
 test('Z2K composer generates a deterministic direct-source All-in-One from current pools', () => {
   const first = composeFixture();
   const second = composeFixture();
@@ -137,7 +165,7 @@ test('Z2K composer generates a deterministic direct-source All-in-One from curre
   assert.equal(first.entry.capabilities.discordUdp, true);
   assert.ok(first.entry.requirements.luaFunctions.includes('circular'));
   assert.ok(first.entry.requirements.blobs.includes('quic_dbankcloud'));
-  assert.match(first.entry.provenance.adaptation, /discord_voice/);
+  assert.match(first.entry.provenance.adaptation, /official Discord STUN runtime flow/);
   assert.match(first.entry.provenance.compositions[0], /yt_quic queue scoped/);
   assert.match(first.entry.profiles[0].args, /--filter-tcp=/);
   assert.match(first.entry.profiles[3].args, /--filter-udp=443/);

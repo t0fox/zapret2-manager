@@ -17,6 +17,31 @@ const ALL_IN_ONE_ID = 'z2k_all_in_one';
 const ALL_IN_ONE_NAME = 'z2k всё-в-одном';
 const SUPPORTED_POOL_ORDER = ['rkn_tcp', 'yt_tcp', 'gv_tcp', 'yt_quic', 'discord_udp'];
 
+// The upstream QUIC catalog contains an older experimental Discord arm. The
+// production z2k flow is defined by config_official.sh in the same revision:
+// STUN/IP-discovery only, tight d4 cutoff, hostless canonical key, and the
+// nine proven candidates below. Keep this normalization source-bound and
+// provenance-visible so a refresh cannot silently reintroduce the broken arm.
+const DISCORD_OFFICIAL_ARGS = '--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344 '
+  + '--filter-l7=discord,stun --out-range=-d4 --payload=discord_ip_discovery,stun '
+  + '--lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_udp:nld=2:hostkey=z2k_nohost_key '
+  + '--lua-desync=fake:payload=all:blob=active_discord_udp:repeats=6:strategy=1 '
+  + '--lua-desync=fake:payload=all:blob=active_discord_udp:repeats=5:strategy=2 '
+  + '--lua-desync=fake:payload=discord_ip_discovery:blob=stun:repeats=3:strategy=3 '
+  + '--lua-desync=fake:payload=all:blob=active_discord_udp:repeats=3:strategy=3 '
+  + '--lua-desync=fake:payload=discord_ip_discovery:blob=stun:repeats=10:strategy=4 '
+  + '--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=10:strategy=4 '
+  + '--lua-desync=fake:payload=discord_ip_discovery:blob=stun:repeats=3:strategy=5 '
+  + '--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=3:strategy=5 '
+  + '--lua-desync=fake:payload=discord_ip_discovery:blob=stun:repeats=6:strategy=6 '
+  + '--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:strategy=6 '
+  + '--lua-desync=fake:payload=discord_ip_discovery:blob=stun:repeats=6:strategy=7 '
+  + '--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:ip_autottl=-2,3-20:strategy=7 '
+  + '--lua-desync=fake:payload=discord_ip_discovery:blob=stun:repeats=4:strategy=8 '
+  + '--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=4:strategy=8 '
+  + '--lua-desync=fake:payload=discord_ip_discovery:blob=stun:repeats=5:strategy=9 '
+  + '--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=5:strategy=9';
+
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function starts(value, prefix) { return string(value) && length(value) >= length(prefix) && substr(value, 0, length(prefix)) == prefix; }
@@ -131,8 +156,12 @@ function pool_key(id, args, explicit) {
 	return null;
 }
 function adapt_args(args, poolKey) {
-	if (poolKey != 'discord_udp' || !has(args, 'key=discord_voice')) return args;
-	return join('key=discord_udp', split(args, 'key=discord_voice'));
+	if (poolKey != 'discord_udp') return args;
+	if (has(args, '--in-range=-d100') || has(args, '--out-range=-d100')
+		|| has(args, '--payload=quic_initial,discord_ip_discovery')
+		|| has(args, '--filter-udp=50000-50099')) return DISCORD_OFFICIAL_ARGS;
+	if (has(args, 'key=discord_voice')) return join('key=discord_udp', split(args, 'key=discord_voice'));
+	return args;
 }
 function strategy_number(token) {
 	if (!starts(token, '--lua-desync=')) return null;
@@ -302,7 +331,7 @@ export const strategy_source_z2k_parse = function(content, metadata) {
 		let aggregate = decorate_entry(normalized.entry, parts[0], poolKey, 'aggregate', null, null);
 		aggregate.routing = routing_descriptor(aggregate.args, parts, poolKey);
 		if (adapted != args) {
-			aggregate.provenance.adaptation = 'key=discord_voice normalized to key=discord_udp for Z2M canonical detector';
+			aggregate.provenance.adaptation = 'key=discord_voice normalized to key=discord_udp and upstream Discord arm normalized to official Discord STUN runtime flow';
 			aggregate.semanticAdaptation = { from: 'discord_voice', to: 'discord_udp', scope: 'state-namespace', safe: true };
 		}
 		push(entries, aggregate);
@@ -353,7 +382,7 @@ function parse_ini(content, metadata) {
 		let aggregate = decorate_entry(normalized.entry, section.id, poolKey, 'aggregate', null, legacyKey);
 		aggregate.routing = routing_descriptor(aggregate.args, [], poolKey);
 		if (adapted != section.args) {
-			aggregate.provenance.adaptation = 'key=discord_voice normalized to key=discord_udp for Z2M canonical detector';
+			aggregate.provenance.adaptation = 'key=discord_voice normalized to key=discord_udp and upstream Discord arm normalized to official Discord STUN runtime flow';
 			aggregate.semanticAdaptation = { from: 'discord_voice', to: 'discord_udp', scope: 'state-namespace', safe: true };
 		}
 		push(entries, aggregate);
@@ -476,7 +505,7 @@ export const strategy_source_z2k_compose_all_in_one = function(entries, metadata
 		repository: REPOSITORY, sourceId: SOURCE_ID, sourceCommit: metadata.sourceCommit,
 		sourcePath: STRATS_FILE + '+' + QUIC_FILE, kind: 'strategy-catalog-generated',
 		generatedFrom: generatedFrom,
-		adaptation: 'key=discord_voice normalized to key=discord_udp for Z2M canonical detector',
+		adaptation: 'key=discord_voice normalized to key=discord_udp and upstream Discord arm normalized to official Discord STUN runtime flow',
 		compositions: adaptations
 	};
 	let entry = {
