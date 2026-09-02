@@ -5,6 +5,8 @@ url="$1"
 out="$2"
 mode="${Z2M_FIXTURE_MODE:-ok}"
 root="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
+z2k_fixture="$root/tests/fixtures/z2k-official-compiler/a7fa893ae79e91accffb7aec8652519e36c82689"
+[ -n "${Z2M_FIXTURE_TRANSPORT_LOG:-}" ] && printf '%s\n' "$url" >> "$Z2M_FIXTURE_TRANSPORT_LOG"
 
 if [ "$mode" = "error" ]; then
 	exit 1
@@ -56,17 +58,24 @@ case "$url" in
 		if [ "$mode" = "z2k-invalid" ]; then
 			printf '%s\n' 'not a valid z2k strategy corpus' > "$out"
 		elif [ "$mode" = "v2" ]; then
-			cp "$root/tests/fixtures/strategy-source-z2k/strats_new2.txt" "$out"
+			cp "$z2k_fixture/strats_new2.txt" "$out"
 			printf '%s\n' '# exact v2 revision fixture' >> "$out"
 		else
-			cp "$root/tests/fixtures/strategy-source-z2k/strats_new2.txt" "$out"
+			cp "$z2k_fixture/strats_new2.txt" "$out"
 		fi
 		;;
 	*raw.githubusercontent.com/necronicle/z2k/*/quic_strats.ini)
-		cp "$root/tests/fixtures/strategy-source-z2k/quic_strats.ini" "$out"
-		if [ "$mode" = "z2k-incomplete" ]; then
-			printf '%s\n' '[mystery_autocircular]' 'args=--filter-udp=9999 --lua-desync=circular:key=future_family' >> "$out"
-		fi
+		cp "$z2k_fixture/quic_strats.ini" "$out"
+		;;
+	*raw.githubusercontent.com/necronicle/z2k/*/lib/utils.sh)
+		cp "$z2k_fixture/lib/utils.sh" "$out"
+		;;
+	*raw.githubusercontent.com/necronicle/z2k/*/lib/strategies.sh)
+		cp "$z2k_fixture/lib/strategies.sh" "$out"
+		;;
+	*raw.githubusercontent.com/necronicle/z2k/*/lib/config_official.sh)
+		[ "$mode" = "z2k-incomplete" ] && exit 1
+		cp "$z2k_fixture/lib/config_official.sh" "$out"
 		;;
 	*)
 		exit 1

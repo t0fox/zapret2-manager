@@ -10,6 +10,7 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
+const HARNESS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compile.sh');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
@@ -57,6 +58,8 @@ function invoke(root, functionName, args = [], extraEnv = {}) {
       Z2M_UPDATE_SOURCE_LOCK_ROOT: path.join(root, 'metadata-locks'),
       Z2M_UPDATE_SOURCE_TRANSPORT: TRANSPORT,
       Z2M_STRATEGY_SOURCE_CONTENT_TRANSPORT: TRANSPORT,
+      Z2M_Z2K_OFFICIAL_COMPILE_HARNESS: HARNESS,
+      Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '0',
       Z2M_STRATEGY_AVATAR_PACKAGE_ROOT: path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar'),
       Z2M_UPDATE_SOURCE_TEST: '1',
       ...extraEnv,
@@ -151,27 +154,33 @@ test('Z2K refresh binds exact revision and raw content to a verified immutable s
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.metadata.sourceCommit, 'a'.repeat(40));
   assert.equal(result.snapshot.sourceCommit, 'a'.repeat(40));
-  assert.equal(result.snapshot.sourcePath, 'strats_new2.txt+quic_strats.ini');
+  assert.equal(result.snapshot.sourcePath, 'official:generate_nfqws2_opt_from_strategies');
   assert.match(result.snapshot.contentDigest, /^[0-9a-f]{64}$/);
-  assert.ok(result.snapshot.entries.length >= 3);
+  assert.equal(result.snapshot.sourceFiles.length, 5);
+  assert.equal(Object.keys(result.snapshot.fileSha256).length, 5);
+  assert.equal(result.snapshot.allInOne.profileCount, 7);
+  assert.equal(result.snapshot.entries.length, 1);
+  assert.match(result.snapshot.compilerSnapshotDigest, /^[0-9a-f]{64}$/);
+  assert.match(result.snapshot.nfqws2OptSha256, /^[0-9a-f]{64}$/);
 });
 
-test('Z2K refresh stages strats_new2.txt and quic_strats.ini from one exact revision', () => {
+test('Z2K refresh fetches every compiler file from one exact revision', () => {
   const root = sandbox('z2k-two-files');
-  const result = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'two-files' });
+  const log = path.join(root, 'transport.log');
+  const result = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'two-files', Z2M_FIXTURE_TRANSPORT_LOG: log });
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.snapshot.sourceCommit, 'd'.repeat(40));
-  assert.match(result.snapshot.stratsNew2Digest, /^[0-9a-f]{64}$/);
-  assert.match(result.snapshot.quicStratsDigest, /^[0-9a-f]{64}$/);
-  assert.ok(result.snapshot.entries.some((entry) => entry.canonicalId === 'z2k:yt_quic_strat_1'));
-  assert.ok(result.snapshot.entries.some((entry) => entry.canonicalId === 'z2k:discord_udp_strat_1'));
+  assert.deepEqual(result.snapshot.sourceFiles, ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh']);
+  const rawUrls = fs.readFileSync(log, 'utf8').trim().split('\n').filter((url) => url.includes('raw.githubusercontent.com/necronicle/z2k/'));
+  assert.deepEqual(rawUrls, result.snapshot.sourceFiles.map((relative) => `https://raw.githubusercontent.com/necronicle/z2k/${'d'.repeat(40)}/${relative}`));
 });
 
 test('Z2K verification and snapshot installation failures preserve the prior LKG', () => {
   const verifyRoot = sandbox('z2k-verify-fail');
   const verifyFailed = invoke(verifyRoot, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'z2k-invalid' });
   assert.equal(verifyFailed.ok, false, JSON.stringify(verifyFailed));
-  assert.equal(verifyFailed.error.code, 'EVERIFY');
+  assert.equal(verifyFailed.error.code, 'ECOMPILE');
+  assert.equal(verifyFailed.error.phase, 'compile');
 
   const installRoot = sandbox('z2k-install-fail');
   const first = invoke(installRoot, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'ok' });
@@ -185,15 +194,26 @@ test('Z2K verification and snapshot installation failures preserve the prior LKG
   assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
 });
 
-test('Z2K raw-valid but incomplete composition fails closed and preserves the prior LKG', () => {
+test('Z2K incomplete compiler snapshot fails closed and preserves the prior LKG', () => {
   const root = sandbox('z2k-incomplete');
   const first = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'ok' });
   const failed = invoke(root, 'strategy_source_refresh', ['z2k'], { Z2M_FIXTURE_MODE: 'z2k-incomplete' });
   const current = invoke(root, 'strategy_source_current_snapshot', ['z2k']);
   assert.equal(first.ok, true, JSON.stringify(first));
   assert.equal(failed.ok, false, JSON.stringify(failed));
-  assert.equal(failed.error.code, 'EUNSUPPORTED');
+  assert.equal(failed.error.code, 'ENETWORK');
   assert.equal(current.snapshot.snapshotId, first.snapshot.snapshotId);
+});
+
+test('Z2K native preflight failure rejects the candidate before source activation', () => {
+  const root = sandbox('z2k-native-fail');
+  const failed = invoke(root, 'strategy_source_refresh', ['z2k'], {
+    Z2M_FIXTURE_MODE: 'ok', Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '1',
+  });
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  assert.equal(failed.error.code, 'EPREFLIGHT');
+  const current = invoke(root, 'strategy_source_current_snapshot', ['z2k']);
+  assert.equal(current.snapshot, null);
 });
 
 test('refresh failure keeps the previous LKG and source reads remain network-free', () => {

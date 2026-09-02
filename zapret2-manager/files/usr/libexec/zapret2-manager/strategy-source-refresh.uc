@@ -9,6 +9,8 @@ import { popen, readfile, stat, unlink, writefile } from 'fs';
 import * as update_source from './update-source.uc';
 import * as avatar_source from './strategy-source-avatar.uc';
 import * as z2k_source from './strategy-source-z2k.uc';
+import * as z2k_compiler from './z2k-official-compiler.uc';
+import { native_preflight } from './native-preflight.uc';
 import * as sources from './strategy-sources.uc';
 import { private_tempfile } from './core/private-temp.uc';
 
@@ -19,6 +21,13 @@ const AVATAR_METADATA_URL = 'https://api.github.com/repos/avatarDD/zapret-gui/co
 const Z2K_METADATA_URL = 'https://api.github.com/repos/necronicle/z2k/commits?sha=' + Z2K_BRANCH + '&per_page=1';
 const MAX_CONTENT = 4 * 1024 * 1024;
 const MAX_ARCHIVE = 16 * 1024 * 1024;
+const Z2K_COMPILER_FILES = [
+	'strats_new2.txt',
+	'quic_strats.ini',
+	'lib/utils.sh',
+	'lib/strategies.sh',
+	'lib/config_official.sh'
+];
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -113,6 +122,19 @@ function cleanup_staging(path) {
 	if (!string(path) || !match(path, /^\/tmp\/z2m-avatar-refresh\.[A-Za-z0-9]+$/)) return;
 	run('rm -rf ' + quote(path));
 }
+function validate_z2k_candidate(snapshot) {
+	if (getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0')
+		return { ok: true, validation: { status: 'not_checked', reason: 'test-only native validation bypass' } };
+	let entry = snapshot && snapshot.entries && snapshot.entries[0];
+	if (!object(entry) || !string(entry.args) || entry.args == '')
+		return error('EPREFLIGHT', 'Z2K candidate has no compiled Strategy arguments');
+	let result = null;
+	try { result = native_preflight(entry.args); }
+	catch (e) { result = null; }
+	if (!object(result) || result.status != 'verified')
+		return { ok: false, error: { code: 'EPREFLIGHT', message: 'Z2K candidate failed native preflight before publication', details: result || null } };
+	return { ok: true, validation: result };
+}
 function extract_avatar_archive(archive) {
 	if (!object(archive) || !string(archive.path)) return error('EINPUT', 'Avatar source archive is missing');
 	let staging = run('umask 077; mktemp -d /tmp/z2m-avatar-refresh.XXXXXX');
@@ -167,21 +189,39 @@ function prepare_refresh(id) {
 			return error('ESTALE', 'Avatar metadata revision does not match its verified complete snapshot');
 		snapshot.published = true;
 	} else {
-		let files = {}, stratsUrl = 'https://raw.githubusercontent.com/' + Z2K_REPOSITORY + '/' + sourceCommit + '/strats_new2.txt';
-		let quicUrl = 'https://raw.githubusercontent.com/' + Z2K_REPOSITORY + '/' + sourceCommit + '/quic_strats.ini';
-		let fetched = fetch_exact(stratsUrl);
-		if (!fetched.ok) return fetched;
-		if (checked.metadata.contentSha256 != null && fetched.contentDigest != checked.metadata.contentSha256)
+		let files = {}, fileSha256 = {};
+		for (let relative in Z2K_COMPILER_FILES) {
+			let url = 'https://raw.githubusercontent.com/' + Z2K_REPOSITORY + '/' + sourceCommit + '/' + relative;
+			let fetched = fetch_exact(url);
+			if (!fetched.ok) return fetched;
+			if (fetched.contentDigest == null) return error('EDIGEST', 'Z2K compiler source digest could not be computed');
+			files[relative] = fetched.content;
+			fileSha256[relative] = fetched.contentDigest;
+		}
+		// GitHub's legacy metadata hook may carry a digest for the original
+		// strategy corpus. Keep that check, but never let it replace the complete
+		// same-commit compiler manifest above.
+		if (checked.metadata.contentSha256 != null && fileSha256['strats_new2.txt'] != checked.metadata.contentSha256)
 			return error('ESTALE', 'Z2K content digest does not match accepted source metadata');
-		files['strats_new2.txt'] = fetched.content;
-		let quic = fetch_exact(quicUrl);
-		if (!quic.ok) return quic;
-		files['quic_strats.ini'] = quic.content;
-		prepared = z2k_source.strategy_source_z2k_prepare_snapshot({ files: files, sourceCommit: sourceCommit });
+		let compilerSnapshot = { repository: Z2K_REPOSITORY, sourceCommit: sourceCommit,
+			files: files, fileSha256: fileSha256 };
+		let compiled = null;
+		try { compiled = z2k_compiler.z2k_official_compile(compilerSnapshot); }
+		catch (e) { return error('ECOMPILE', 'Z2K official compiler invocation failed'); }
+		if (!compiled.ok) return { ok: false, error: { code: compiled.error && compiled.error.code || 'EVERIFY',
+			message: 'Z2K official compiler rejected the verified source snapshot',
+			phase: compiled.error && compiled.error.phase || 'compile', details: compiled.error || null } };
+		try { prepared = z2k_source.strategy_source_z2k_prepare_snapshot({ compiler: compiled,
+			sourceCommit: sourceCommit, sourceFiles: Z2K_COMPILER_FILES, fileSha256: fileSha256 }); }
+		catch (e) { return error('EVERIFY', 'Z2K source snapshot verification failed'); }
 		if (!prepared.ok) return error(prepared.error && prepared.error.code || 'EVERIFY', 'Z2K source snapshot verification failed');
 		snapshot = prepared.snapshot;
 		if (snapshot.sourceBranch != Z2K_BRANCH)
 			return error('EPROVENANCE', 'Z2K source snapshot is not bound to the accepted upstream branch');
+		let native = validate_z2k_candidate(snapshot);
+		if (!native.ok) return native;
+		snapshot.nativeValidation = native.validation;
+		if (snapshot.entries[0]) snapshot.entries[0].nativeValidation = native.validation;
 		snapshot.published = true;
 	}
 	return { ok: true, sourceId: id, metadata: checked.metadata, snapshot: snapshot,

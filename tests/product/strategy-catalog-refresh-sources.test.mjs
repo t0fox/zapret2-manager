@@ -16,6 +16,7 @@ const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.spl
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 const TRANSPORT = path.join(ROOT, 'tests/fixtures/strategy-source-refresh/transport.sh');
+const HARNESS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compile.sh');
 
 function sandbox(label) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `z2m-catalog-refresh-${label}-`));
@@ -33,6 +34,8 @@ function environment(root, mode = 'ok', extraEnv = {}) {
     Z2M_UPDATE_SOURCE_LOCK_ROOT: path.join(root, 'metadata-locks'),
     Z2M_UPDATE_SOURCE_TRANSPORT: TRANSPORT,
     Z2M_STRATEGY_SOURCE_CONTENT_TRANSPORT: TRANSPORT,
+    Z2M_Z2K_OFFICIAL_COMPILE_HARNESS: HARNESS,
+    Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '0',
     Z2M_STRATEGY_AVATAR_PACKAGE_ROOT: path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar'),
     Z2M_UPDATE_SOURCE_TEST: '1',
     Z2M_FIXTURE_MODE: mode,

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -8,247 +10,144 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-z2k.uc');
-const FIXTURE_ROOT = path.join(ROOT, 'tests/fixtures/strategy-source-z2k');
+const COMPILER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compiler.uc');
+const HARNESS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compile.sh');
+const FIXTURE_ROOT = path.join(ROOT, 'tests/fixtures/z2k-official-compiler/a7fa893ae79e91accffb7aec8652519e36c82689');
+const FILES = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
+const COMMIT = 'a7fa893ae79e91accffb7aec8652519e36c82689';
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 
-const readFixture = (name) => fs.readFileSync(path.join(FIXTURE_ROOT, name), 'utf8');
-
-function invoke(functionName, args = [], extraEnv = {}) {
-  const source = `import * as mod from ${JSON.stringify(MODULE)}; print(sprintf('%J', mod.${functionName}(${args.map(JSON.stringify).join(', ')})));`;
-  return invokeSource(source, extraEnv);
+function fixtureSnapshot() {
+  const files = {};
+  for (const relative of FILES) files[relative] = fs.readFileSync(path.join(FIXTURE_ROOT, relative), 'utf8');
+  const fileSha256 = {};
+  for (const relative of FILES) fileSha256[relative] = crypto.createHash('sha256').update(files[relative]).digest('hex');
+  return { repository: 'necronicle/z2k', sourceCommit: COMMIT, files, fileSha256 };
 }
 
-function invokeSource(source, extraEnv = {}) {
+function invoke(module, functionName, args = [], extraEnv = {}) {
+  const encodedArgs = args.map(JSON.stringify).join(', ');
+  let requestPath = null;
+  let call = encodedArgs;
+  let prelude = "";
+  if (encodedArgs.length > 12_000) {
+    requestPath = path.join(os.tmpdir(), `z2m-z2k-source-request-${process.pid}-${Date.now()}.json`);
+    fs.writeFileSync(requestPath, JSON.stringify(args), { mode: 0o600 });
+    prelude = `let __args = json(readfile(${JSON.stringify(requestPath)})); `;
+    call = args.map((_, index) => `__args[${index}]`).join(', ');
+  }
+  const source = `import { readfile } from 'fs'; import * as mod from ${JSON.stringify(module)}; ${prelude}print(sprintf('%J', mod.${functionName}(${call})));`;
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
-  const result = spawnSync(UCODE_BIN, argv, {
-    cwd: ROOT,
-    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...extraEnv },
-    encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
-  });
-  assert.equal(result.status, 0,
-    `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
-  return JSON.parse(result.stdout);
+  try {
+    const result = spawnSync(UCODE_BIN, argv, {
+      cwd: ROOT,
+      env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', Z2M_Z2K_OFFICIAL_COMPILE_HARNESS: HARNESS, ...extraEnv },
+      encoding: 'utf8', timeout: 60_000, maxBuffer: 20 * 1024 * 1024,
+    });
+    assert.equal(result.status, 0, `${result.error || ''}\n${result.stderr || result.stdout}\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
+    return JSON.parse(result.stdout);
+  } finally {
+    if (requestPath) fs.rmSync(requestPath, { force: true });
+  }
 }
 
-function composeFixture(extraIni = '') {
-  const files = {
-    'strats_new2.txt': readFixture('strats_new2.txt'),
-    'quic_strats.ini': readFixture('quic_strats.ini') + extraIni,
-  };
-  const filesJson = JSON.stringify(files);
-  const commit = '1'.repeat(40);
-  return invokeSource(`import * as mod from ${JSON.stringify(MODULE)}; let parsed = mod.strategy_source_z2k_parse_files(${filesJson}, { sourceCommit: ${JSON.stringify(commit)} }); print(sprintf('%J', mod.strategy_source_z2k_compose_all_in_one(parsed.entries, { sourceCommit: ${JSON.stringify(commit)} })));`);
+function compile() {
+  const compilerResult = invoke(COMPILER, 'z2k_official_compile', [fixtureSnapshot()]);
+  assert.equal(compilerResult.ok, true, JSON.stringify(compilerResult));
+  return compilerResult;
 }
 
-test('Z2K adapter declares the canonical source identity', () => {
-  assert.deepEqual(invoke('strategy_source_z2k_info'), {
-    sourceId: 'z2k',
-    canonicalPrefix: 'z2k:',
-    repository: 'necronicle/z2k',
+function imported(extra = {}) {
+  return invoke(MODULE, 'strategy_source_z2k_import_compiled', [compile(), { sourceCommit: COMMIT, ...extra }]);
+}
+
+test('Z2K adapter exposes official compiler authority, not a pool catalog', () => {
+  const result = invoke(MODULE, 'strategy_source_z2k_info');
+  assert.deepEqual(result, {
+    sourceId: 'z2k', canonicalPrefix: 'z2k:', repository: 'necronicle/z2k',
+    compiler: 'official:generate_nfqws2_opt_from_strategies', templates: 'disabled',
   });
 });
 
-test('real strats_new2 records retain upstream IDs and become namespaced entries', () => {
-  const result = invoke('strategy_source_z2k_parse', [readFixture('strats_new2.txt'), { sourceCommit: 'a'.repeat(40) }]);
+test('flat official output imports every ordered profile, including profiles beyond five pools', () => {
+  const result = imported();
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.ok(result.entries.length >= 3);
-  const rkn = result.entries.find((entry) => entry.upstreamId === 'manual_autocircular_rkn');
-  assert.ok(rkn);
-  assert.equal(rkn.canonicalId, 'z2k:manual_autocircular_rkn');
-  assert.equal(rkn.sourceId, 'z2k');
-  assert.equal(rkn.autocircular, true);
-  assert.equal(rkn.provenance.repository, 'necronicle/z2k');
-  assert.equal(rkn.provenance.sourcePath, 'strats_new2.txt');
+  const entry = result.entry;
+  assert.equal(entry.canonicalId, 'z2k:z2k_all_in_one');
+  assert.equal(entry.entryKind, 'all-in-one');
+  assert.equal(entry.profiles.length, 7);
+  assert.deepEqual(entry.profiles.map((profile) => profile.officialProfileIndex), [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(entry.composition.profileOrder, entry.profiles.map((profile) => profile.id));
+  assert.equal(entry.provenance.compilerSnapshotDigest.length, 64);
+  assert.equal(entry.provenance.nfqws2OptSha256.length, 64);
+  assert.match(entry.profiles[4].officialArgs, /--filter-l7=discord,stun/);
+  assert.match(entry.profiles[4].officialArgs, /--out-range=-d4/);
+  assert.match(entry.profiles[4].officialArgs, /--payload=discord_ip_discovery,stun/);
+  assert.match(entry.profiles[4].officialArgs, /udp_in=1:udp_out=4:key=discord_udp:nld=2:hostkey=z2k_nohost_key/);
+  assert.match(entry.profiles[5].officialArgs, /--filter-tcp=80/);
+  assert.match(entry.profiles[6].officialArgs, /--filter-tcp=5222/);
 });
 
-test('Z2K parser derives Discord semantics from profile args and retains multi-profile entries', () => {
-  const result = invoke('strategy_source_z2k_parse', [readFixture('multi-profile.txt'), { sourceCommit: 'b'.repeat(40) }]);
+test('resource rebinding changes only allowlisted infrastructure references', () => {
+  const result = imported();
   assert.equal(result.ok, true, JSON.stringify(result));
-  const allInOne = result.entries.find((entry) => entry.upstreamId === 'z2k_all_in_one');
-  assert.ok(allInOne);
-  assert.equal(allInOne.canonicalId, 'z2k:z2k_all_in_one');
-  assert.equal(allInOne.profiles.length, 3);
-  assert.deepEqual(allInOne.capabilities, {
-    autocircular: true,
-    discordUdp: true,
-    protocols: ['tcp', 'udp'],
-  });
-  assert.equal(allInOne.provenance.repository, 'necronicle/z2k');
-  assert.notEqual(allInOne.provenance.repository, 'avatarDD/zapret-gui');
+  const entry = result.entry;
+  assert.ok(entry.resourceBindings.some((binding) => binding.from === '/runtime-assets/lists/whitelist.txt'));
+  assert.ok(entry.resourceBindings.some((binding) => binding.from === '/runtime-assets/lists/discovered-domains.txt'));
+  assert.equal(entry.profiles[0].officialArgs.includes('/runtime-assets/lists/extra_strats/TCP/RKN/List.txt'), true);
+  assert.equal(entry.profiles[0].args.includes('/runtime-assets/lists/extra_strats/TCP/RKN/List.txt'), true);
+  assert.equal(entry.profiles[0].args.includes('/tmp/z2m-z2k-compile.'), false);
+  assert.equal(entry.profiles[0].args.includes('/etc/zapret2-manager/lists/whitelist.txt'), true);
+  const stripResources = (value) => value.replaceAll(/\/runtime-assets\/lists\/[^ ]+|\/etc\/zapret2-manager\/lists\/[^ ]+/g, '<resource>');
+  assert.equal(stripResources(entry.profiles[4].args), stripResources(entry.profiles[4].officialArgs));
 });
 
-test('Z2K parser exposes aggregate pools and every numbered TCP slot without dropping common args', () => {
-  const result = invoke('strategy_source_z2k_parse', [readFixture('strats_new2.txt'), { sourceCommit: 'e'.repeat(40) }]);
-  assert.equal(result.ok, true, JSON.stringify(result));
-  const aggregate = result.entries.find((entry) => entry.upstreamId === 'manual_autocircular_rkn');
-  assert.ok(aggregate);
-  assert.equal(aggregate.entryKind, 'aggregate');
-  const slots = result.entries.filter((entry) => entry.poolKey === 'rkn_tcp' && entry.entryKind === 'slot');
-  assert.ok(slots.length >= 5);
-  assert.deepEqual(slots.map((entry) => entry.strategyNumber), [...new Set(slots.map((entry) => entry.strategyNumber))].sort((a, b) => a - b));
-  const first = slots.find((entry) => entry.strategyNumber === 1);
-  assert.ok(first);
-  assert.equal(first.canonicalId, 'z2k:rkn_tcp_strat_1');
-  assert.match(first.profiles[0].args, /--filter-tcp=443/);
-  assert.match(first.profiles[0].args, /--filter-l7=tls/);
-  assert.match(first.profiles[0].args, /--lua-desync=circular/);
-  assert.match(first.profiles[0].args, /strategy=1/);
-  assert.doesNotMatch(first.profiles[0].args, /strategy=2/);
+test('unknown temporary/logical resource paths fail closed without semantic fallback', () => {
+  const compiler = compile();
+  const nfqws2Opt = compiler.nfqws2Opt + ' --new --filter-tcp=443 --hostlist=/runtime-assets/lists/not-allowlisted.txt --payload=tls_client_hello';
+  compiler.nfqws2Opt = nfqws2Opt;
+  compiler.nfqws2OptSha256 = crypto.createHash('sha256').update(nfqws2Opt).digest('hex');
+  const result = invoke(MODULE, 'strategy_source_z2k_import_compiled', [compiler, { sourceCommit: COMMIT }]);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'ERESOURCE');
 });
 
-test('Z2K parser imports quic_strats.ini aggregates and fixed slots with explicit Discord adaptation', () => {
-  const result = invoke('strategy_source_z2k_parse_files', [{
-    'strats_new2.txt': readFixture('strats_new2.txt'),
-    'quic_strats.ini': readFixture('quic_strats.ini'),
-  }, { sourceCommit: 'f'.repeat(40) }]);
-  assert.equal(result.ok, true, JSON.stringify(result));
-  const yt = result.entries.find((entry) => entry.upstreamId === 'yt_quic_autocircular' && entry.entryKind === 'aggregate');
-  assert.ok(yt);
-  assert.equal(yt.poolKey, 'yt_quic');
-  assert.ok(result.entries.some((entry) => entry.canonicalId === 'z2k:yt_quic_strat_1'));
-  const discord = result.entries.find((entry) => entry.upstreamId === 'discord_voice_autocircular' && entry.entryKind === 'aggregate');
-  assert.ok(discord);
-  assert.equal(discord.poolKey, 'discord_udp');
-  assert.equal(discord.capabilities.discordUdp, true);
-  assert.equal(discord.provenance.legacyRuntimeKey, 'discord_voice');
-  assert.match(discord.args, /key=discord_udp/);
-  assert.doesNotMatch(discord.args, /key=discord_voice/);
-  assert.ok(result.entries.some((entry) => entry.canonicalId === 'z2k:discord_udp_strat_1'));
+test('unavailable durable resources fail closed before the official entry is published', () => {
+  const result = imported({ resourceBindings: {
+    '/runtime-assets/lists/extra_strats/TCP/RKN/List.txt': { available: false },
+  } });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'ERESOURCE');
 });
 
-test('Z2K parser canonicalizes the upstream Discord definition to the official STUN runtime flow', () => {
-  const upstreamShape = readFixture('quic_strats.ini').replace(
-    '--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=discord_ip_discovery,stun --lua-desync=circular:key=discord_voice:hostkey=z2k_nohost_key',
-    '--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --in-range=-d100 --out-range=-d100 --payload=quic_initial,discord_ip_discovery --lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_voice:nld=2:hostkey=z2k_nohost_key'
-  );
-  const result = invoke('strategy_source_z2k_parse_files', [{
-    'strats_new2.txt': readFixture('strats_new2.txt'),
-    'quic_strats.ini': upstreamShape,
-  }, { sourceCommit: '9'.repeat(40) }]);
-  assert.equal(result.ok, true, JSON.stringify(result));
-  const discord = result.entries.find((entry) => entry.upstreamId === 'discord_voice_autocircular' && entry.entryKind === 'aggregate');
-  assert.ok(discord);
-  assert.match(discord.args, /--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344/);
-  assert.doesNotMatch(discord.args, /--in-range=-d100/);
-  assert.match(discord.args, /--out-range=-d4/);
-  assert.match(discord.args, /--payload=discord_ip_discovery,stun/);
-  assert.match(discord.args, /key=discord_udp:nld=2:hostkey=z2k_nohost_key/);
-  assert.match(discord.args, /blob=active_discord_udp:repeats=6:strategy=1/);
-  assert.match(discord.args, /blob=quic_dbankcloud:repeats=6:strategy=6/);
-  assert.match(discord.args, /blob=quic_dbankcloud:repeats=5:strategy=9/);
-  assert.doesNotMatch(discord.args, /z2k_quic_morph_v2/);
-  assert.deepEqual(result.entries
-    .filter((entry) => entry.poolKey === 'discord_udp' && entry.entryKind === 'slot')
-    .map((entry) => entry.strategyNumber), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  assert.ok(discord.requirements.blobs.includes('active_discord_udp'));
-  assert.match(discord.provenance.adaptation, /official Discord STUN runtime flow/);
+test('snapshot identity records all compiler files and official output provenance', () => {
+  const compiler = compile();
+  const snapshot = invoke(MODULE, 'strategy_source_z2k_prepare_snapshot', [{
+    compiler,
+    sourceCommit: COMMIT,
+    sourceFiles: FILES,
+    fileSha256: fixtureSnapshot().fileSha256,
+  }]);
+  assert.equal(snapshot.ok, true, JSON.stringify(snapshot));
+  assert.equal(snapshot.snapshot.sourceFiles.length, 5);
+  assert.deepEqual(snapshot.snapshot.sourceFiles, FILES);
+  assert.equal(snapshot.snapshot.entryCount, 1);
+  assert.equal(snapshot.snapshot.normalizedEntryCount, 1);
+  assert.equal(snapshot.snapshot.allInOne.profileCount, 7);
+  assert.equal(snapshot.snapshot.entries[0].sourceSnapshotId, snapshot.snapshot.snapshotId);
+  assert.equal(snapshot.snapshot.entries[0].provenance.kind, 'strategy-catalog-import');
+  assert.equal(snapshot.snapshot.immutable, true);
 });
 
-test('Z2K composer generates a deterministic direct-source All-in-One from current pools', () => {
-  const first = composeFixture();
-  const second = composeFixture();
-  assert.equal(first.ok, true, JSON.stringify(first));
-  assert.deepEqual(second, first);
-  assert.equal(first.entry.canonicalId, 'z2k:z2k_all_in_one');
-  assert.equal(first.entry.name, 'z2k всё-в-одном');
-  assert.equal(first.entry.sourceId, 'z2k');
-  assert.equal(first.entry.entryKind, 'all-in-one');
-  assert.equal(first.entry.profiles.length, 5);
-  assert.deepEqual(first.entry.composition.order, ['rkn_tcp', 'yt_tcp', 'gv_tcp', 'yt_quic', 'discord_udp']);
-  assert.equal(first.entry.composition.families[3].protocol, 'udp');
-  assert.equal(first.entry.composition.families[3].ports, '443');
-  assert.equal(first.entry.composition.families[3].l7, 'quic');
-  assert.deepEqual(first.entry.capabilities.protocols, ['tcp', 'udp']);
-  assert.equal(first.entry.capabilities.discordUdp, true);
-  assert.ok(first.entry.requirements.luaFunctions.includes('circular'));
-  assert.ok(first.entry.requirements.blobs.includes('quic_dbankcloud'));
-  assert.match(first.entry.provenance.adaptation, /official Discord STUN runtime flow/);
-  assert.match(first.entry.provenance.compositions[0], /yt_quic queue scoped/);
-  assert.match(first.entry.profiles[0].args, /--filter-tcp=/);
-  assert.match(first.entry.profiles[3].args, /--filter-udp=443/);
-  assert.match(first.entry.profiles[3].args, /--filter-l7=quic/);
-  assert.match(first.entry.profiles[4].args, /--filter-l7=discord,stun/);
-});
-
-test('Z2K composer fails closed when an exact snapshot contains an unknown pool family', () => {
-  const extraIni = '\n[mystery_autocircular]\nargs=--filter-udp=9999 --lua-desync=circular:key=future_family\n';
-  const filesJson = JSON.stringify({
-    'strats_new2.txt': readFixture('strats_new2.txt'),
-    'quic_strats.ini': readFixture('quic_strats.ini') + extraIni,
-  });
-  const composed = invokeSource(`import * as mod from ${JSON.stringify(MODULE)}; let parsed = mod.strategy_source_z2k_parse_files(${filesJson}, { sourceCommit: ${JSON.stringify('2'.repeat(40))} }); print(sprintf('%J', mod.strategy_source_z2k_compose_all_in_one(parsed.entries, { sourceCommit: ${JSON.stringify('2'.repeat(40))} })));`);
-  assert.equal(composed.ok, false, JSON.stringify(composed));
-  assert.equal(composed.error.code, 'EUNSUPPORTED');
-});
-
-test('Z2K composer rejects a non-443 explicit YouTube QUIC queue', () => {
-  const files = {
-    'strats_new2.txt': readFixture('strats_new2.txt'),
-    'quic_strats.ini': readFixture('quic_strats.ini').replace(
-      'args=--in-range=a', 'args=--filter-udp=9999 --in-range=a'
-    ),
-  };
-  const commit = '3'.repeat(40);
-  const composed = invokeSource(`import * as mod from ${JSON.stringify(MODULE)}; let parsed = mod.strategy_source_z2k_parse_files(${JSON.stringify(files)}, { sourceCommit: ${JSON.stringify(commit)} }); print(sprintf('%J', mod.strategy_source_z2k_compose_all_in_one(parsed.entries, { sourceCommit: ${JSON.stringify(commit)} })));`);
-  assert.equal(composed.ok, false, JSON.stringify(composed));
-  assert.equal(composed.error.code, 'EUNSUPPORTED');
-  assert.equal(composed.error.path, 'filter-udp');
-});
-
-test('malformed Z2K input is not usable and does not produce partial entries', () => {
-  const result = invoke('strategy_source_z2k_parse', [readFixture('malformed.txt'), { sourceCommit: 'c'.repeat(40) }]);
+test('legacy hand-composed entries are rejected as semantic authority', () => {
+  const result = invoke(MODULE, 'strategy_source_z2k_normalize', [{
+    id: 'z2k:manual', sourceId: 'z2k', upstreamId: 'manual',
+    entryKind: 'aggregate', profiles: [], args: '--filter-tcp=443',
+    provenance: { repository: 'necronicle/z2k' },
+  }]);
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.error.code, 'EVERIFY');
-});
-
-test('Z2K snapshot identity binds both exact files, revision, order, and entry count', () => {
-  const input = { files: {
-    'strats_new2.txt': readFixture('strats_new2.txt'),
-    'quic_strats.ini': readFixture('quic_strats.ini'),
-  }, sourceCommit: 'd'.repeat(40) };
-  const first = invoke('strategy_source_z2k_prepare_snapshot', [input]);
-  const second = invoke('strategy_source_z2k_prepare_snapshot', [input]);
-  assert.equal(first.ok, true, JSON.stringify(first));
-  assert.deepEqual(second.snapshot, first.snapshot);
-  assert.equal(first.snapshot.schema, 'z2m.strategy-source-snapshot.v1');
-  assert.equal(first.snapshot.sourceId, 'z2k');
-  assert.equal(first.snapshot.repository, 'necronicle/z2k');
-  assert.equal(first.snapshot.sourceCommit, 'd'.repeat(40));
-  assert.match(first.snapshot.contentDigest, /^[0-9a-f]{64}$/);
-  assert.equal(first.snapshot.sourceFiles.length, 2);
-  assert.equal(first.snapshot.allInOne.canonicalId, 'z2k:z2k_all_in_one');
-  assert.match(first.snapshot.snapshotId, /^z2k-[0-9a-f]{64}$/);
-  assert.equal(first.snapshot.normalizedEntryCount, first.snapshot.entries.length);
-  assert.equal(first.snapshot.immutable, true);
-});
-
-test('Z2K snapshot identity binds both exact source files', () => {
-  const files = {
-    'strats_new2.txt': readFixture('strats_new2.txt'),
-    'quic_strats.ini': readFixture('quic_strats.ini'),
-  };
-  const first = invoke('strategy_source_z2k_prepare_snapshot', [{ files, sourceCommit: '1'.repeat(40) }]);
-  const changed = invoke('strategy_source_z2k_prepare_snapshot', [{
-    files: { ...files, 'quic_strats.ini': files['quic_strats.ini'] + '\n# changed\n' },
-    sourceCommit: '1'.repeat(40),
-  }]);
-  assert.equal(first.ok, true, JSON.stringify(first));
-  assert.equal(changed.ok, true, JSON.stringify(changed));
-  assert.match(first.snapshot.stratsNew2Digest, /^[0-9a-f]{64}$/);
-  assert.match(first.snapshot.quicStratsDigest, /^[0-9a-f]{64}$/);
-  assert.notEqual(changed.snapshot.snapshotId, first.snapshot.snapshotId);
-});
-
-test('Z2K adapter rejects Avatar provenance and preserves canonical source separation', () => {
-  const result = invoke('strategy_source_z2k_normalize', [{
-    id: 'avatar:shared',
-    sourceId: 'avatar',
-    upstreamId: 'shared',
-    provenance: { repository: 'avatarDD/zapret-gui' },
-  }]);
-  assert.equal(result.ok, false, JSON.stringify(result));
-  assert.equal(result.error.code, 'EPROVENANCE');
 });

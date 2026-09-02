@@ -15,9 +15,11 @@ const SNAPSHOT_SCHEMA = 'z2m.strategy-source-snapshot.v1';
 const MAX_BYTES = 8 * 1024 * 1024;
 const SOURCE_IDS = ['avatar', 'z2k'];
 const SOURCE_REPOSITORIES = { avatar: 'avatarDD/zapret-gui', z2k: 'necronicle/z2k' };
+const OFFICIAL_Z2K_SOURCE_PATH = 'official:generate_nfqws2_opt_from_strategies';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
+function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function integer(value) { return type(value) == 'int' && value >= 0; }
 function error(code, message, path) {
 	let result = { ok: false, error: { code: code, message: message } };
@@ -150,6 +152,15 @@ function contains(value, needle) {
 	for (let item in value) if (item == needle) return true;
 	return false;
 }
+function valid_official_z2k_provenance(snapshot) {
+	if (snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || !valid_digest(snapshot.compilerSnapshotDigest)
+		|| !valid_digest(snapshot.nfqws2OptSha256) || type(snapshot.fileSha256) != 'object'
+		|| type(snapshot.sourceFiles) != 'array' || length(snapshot.sourceFiles) != 5
+		|| snapshot.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1') return false;
+	for (let relative in ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'])
+		if (!contains(snapshot.sourceFiles, relative) || !valid_digest(snapshot.fileSha256[relative])) return false;
+	return true;
+}
 function valid_z2k_snapshot(snapshot) {
 	if (!object(snapshot) || type(snapshot.sourceFiles) != 'array'
 		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
@@ -157,10 +168,14 @@ function valid_z2k_snapshot(snapshot) {
 		|| !string(snapshot.allInOne.digest) || !match(snapshot.allInOne.digest, /^[0-9a-f]{64}$/)
 		|| type(snapshot.allInOne.profileCount) != 'int' || snapshot.allInOne.profileCount < 1
 		|| type(snapshot.entries) != 'array') return false;
+	if (snapshot.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && !valid_official_z2k_provenance(snapshot)) return false;
 	for (let entry in snapshot.entries) {
 		if (object(entry) && entry.canonicalId == snapshot.allInOne.canonicalId
 			&& entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
 			&& entry.entryKind == 'all-in-one' && entry.usable == true
+			&& (snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || (object(entry.provenance)
+				&& entry.provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
+				&& string(entry.officialNfqws2Opt)))
 			&& type(entry.profiles) == 'array' && length(entry.profiles) == snapshot.allInOne.profileCount)
 			return true;
 	}
