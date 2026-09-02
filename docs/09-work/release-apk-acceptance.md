@@ -11,11 +11,13 @@ tags: [release, apk, openwrt, acceptance]
 
 # OpenWrt APK Release Acceptance
 
-This checklist applies to a single RC release. All three APKs and the two verification files must come from the same GitHub Release.
+This checklist applies to a single RC release. The one release asset is a
+bundle containing all three APKs and the two verification files from the same
+build.
 
 ## Package and checksum gate
 
-1. Download `zapret2-manager`, `luci-app-zapret2-manager`, `zapret2-manager-full`, `SHA256SUMS`, and `build-manifest.json` from one RC release.
+1. Download the single `zapret2-manager-<version>-<target>.tar.zst` asset from one RC release and extract it.
 2. Run `sha256sum -c SHA256SUMS`.
 3. Install the complete package set:
 

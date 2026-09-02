@@ -13,7 +13,7 @@ code: [.github/workflows/apk-build.yml#OpenWrt APK build]
 # Сборка APK
 
 Release pipeline использует pinned OpenWrt SDK и должен выдавать ровно три
-manager-пакета: `zapret2-manager`, `luci-app-zapret2-manager` и
+проверяемых manager-пакета: `zapret2-manager`, `luci-app-zapret2-manager` и
 `zapret2-manager-full`, вместе с `build-manifest.json` и `SHA256SUMS`.
 
 Единственный автоматизированный workflow репозитория —
@@ -22,7 +22,7 @@ manager-пакета: `zapret2-manager`, `luci-app-zapret2-manager` и
 проверяет manifest/checksums. Наличие workflow-файла само по себе не является
 доказательством успешной сборки: нужны свежие логи и verifier evidence.
 
-Каждый успешный push в `main` публикует rolling prerelease `main-latest` с тремя
-APK, `build-manifest.json` и `SHA256SUMS`. Ассеты
-скачиваются на роутер напрямую (`wget`) и ставятся через
-`apk add --allow-untrusted`; перед установкой сверяйте `SHA256SUMS`.
+Каждый успешный push в `main` публикует rolling prerelease `main-latest` с одним
+архивом `tar.zst`. Внутри находятся три APK и два файла проверки; после
+скачивания архив распаковывается, затем выполняются `sha256sum -c
+SHA256SUMS` и `apk add --allow-untrusted` для всех трёх APK.

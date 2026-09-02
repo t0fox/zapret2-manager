@@ -44,6 +44,23 @@ jobs:
       - name: Verify release artifacts
         run: node scripts/release/verify-artifacts.mjs dist
 
+      - name: Pack single prerelease asset
+        id: bundle
+        run: |
+          set -eu
+          bundle_name=$(node --input-type=module -e '
+            import fs from "node:fs";
+            const manifest = JSON.parse(fs.readFileSync("dist/build-manifest.json", "utf8"));
+            console.log(`zapret2-manager-${manifest.package.version}-r${manifest.package.release}-${manifest.openwrt.subtarget}.tar.zst`);
+          ')
+          (
+            cd dist
+            tar --sort=name --numeric-owner --owner=0 --group=0 --mtime='UTC 1970-01-01' \
+              -cf - *.apk SHA256SUMS build-manifest.json
+          ) | zstd -T0 -19 -c > "dist/$bundle_name"
+          test -s "dist/$bundle_name"
+          printf 'name=%s\n' "$bundle_name" >> "$GITHUB_OUTPUT"
+
       - name: Write artifact summary
         if: always()
         run: |
@@ -69,7 +86,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: z2m-apk-${{ github.sha }}
-          path: dist/*
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS
+            dist/build-manifest.json
           if-no-files-found: error
           retention-days: 14
 
@@ -78,12 +98,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: main-latest
+          BUNDLE_NAME: ${{ steps.bundle.outputs.name }}
         run: |
-          NOTES=$(printf 'Rolling build of main at %s.\n\nInstall on the router:\n\n    wget <asset URL>\n    apk add --allow-untrusted ./zapret2-manager-*.apk ./luci-app-zapret2-manager-*.apk\n\nVerify checksums against SHA256SUMS before installing.' "$GITHUB_SHA")
+          NOTES=$(printf 'Rolling build of main at %s.\n\nDownload the single release asset, extract it, verify SHA256SUMS, then install the three APKs together:\n\n    tar --zstd -xf %s\n    sha256sum -c SHA256SUMS\n    apk add --allow-untrusted ./zapret2-manager-*.apk ./luci-app-zapret2-manager-*.apk ./zapret2-manager-full-*.apk' "$GITHUB_SHA" "$BUNDLE_NAME")
           gh release delete "$TAG" --yes --cleanup-tag || true
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Latest main build" \
             --notes "$NOTES" \
-            dist/*.apk dist/SHA256SUMS dist/build-manifest.json
+            "dist/$BUNDLE_NAME"

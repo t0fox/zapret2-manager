@@ -47,8 +47,9 @@ manager package definitions: `zapret2-manager`,
 `luci-app-zapret2-manager`, and `zapret2-manager-full`. The only automated
 workflow is the main APK build. A release is not considered ready until a
 fresh real SDK build produces exactly those three APKs plus
-`build-manifest.json` and `SHA256SUMS`, and the artifact verifier passes. No
-stable release or RC is implied by source/workflow presence alone.
+`build-manifest.json` and `SHA256SUMS`, and the artifact verifier passes. The
+rolling prerelease publishes those five verified files as one `tar.zst` bundle.
+No stable release or RC is implied by source/workflow presence alone.
 
 ## Active workstreams
 
