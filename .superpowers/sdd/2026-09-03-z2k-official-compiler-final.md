@@ -9,6 +9,8 @@ Execution plan: `H:/down/z2k-official-compiler-plan-and-agent-prompt.md`
 
 - Implementation commit: `88c454b2` (`feat: compile Z2K strategies with pinned official generator`).
 - The commit was pushed with `git push origin main`.
+- Release delivery commit: `c4874835` (`ci: publish APKs as one prerelease bundle`).
+- `HEAD` and `origin/main` are both `c48748355fe99a7664c659a1512d503ce68a6302`.
 - No router mutation, browser mutation, traffic acceptance, or reboot was performed.
 - No agent or worktree was used; implementation stayed in the shared `main` checkout.
 
@@ -47,15 +49,17 @@ runtime; no unchanged test was rerun during final delivery:
 
 ## APK gate
 
-The APK gate is not PASS. The repository release script was attempted, but the
-WSL environment could not resolve the OpenWrt feed host after its bounded
-retries and the SDK on the Windows-mounted checkout hit the case-sensitive
-filesystem prerequisite. An isolated ext4 SDK retry with exact local feed
-commits and a verified `json-c`/`libmd` input reached package work, but the SDK
-failed at `libfakeroot: connect: Connection refused`; targeted retries then
-expanded into the SDK's kernel-module graph and were stopped. No valid product
-APK was produced, and no source release script was changed to conceal the
-environment failure.
+The first post-delivery GitHub Actions run passed all release gates:
 
-This is an infrastructure/build-host limitation, not evidence that the
-compiler implementation or focused source tests passed an APK build.
+- Run `33687761349` for commit `c48748355fe99a7664c659a1512d503ce68a6302`:
+  `success` in `21m24s`.
+- Release contract tests, real OpenWrt SDK package build, artifact verifier,
+  single-asset bundling, upload, and prerelease publication all passed.
+- `main-latest` is a prerelease with exactly one asset:
+  `zapret2-manager-0.1.0-r154-filogic.tar.zst`.
+- Extracting that asset produced the three APKs, `build-manifest.json`, and
+  `SHA256SUMS`; all four checksum entries passed with `sha256sum -c`.
+
+The earlier WSL-only SDK attempts remain environment diagnostics and are not
+used as release evidence. No source release script was changed to conceal
+those failures.
