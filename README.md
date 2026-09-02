@@ -304,11 +304,21 @@ node scripts/validate-knowledge.mjs
 | Research | [`docs/10-research`](./docs/10-research/) |
 | Operations | [`docs/11-operations`](./docs/11-operations/) |
 
-## Upstream
+## Связанные проекты
 
-- **[`bol-van/zapret2`](https://github.com/bol-van/zapret2)** — anti-DPI engine, вокруг которого строится runtime Z2M.
-- **[OpenWrt](https://openwrt.org/)** — целевая router platform.
-- **[LuCI](https://github.com/openwrt/luci)** — web UI framework OpenWrt.
+zapret2.manager развивается в экосистеме `zapret2` и использует внешние проекты как upstream, reference или отдельные интегрируемые компоненты. Они не становятся частью Z2M автоматически и сохраняют собственные лицензии, авторство и lifecycle.
+
+| Проект | Связь с zapret2.manager |
+|---|---|
+| **[`bol-van/zapret2`](https://github.com/bol-van/zapret2)** | Базовый anti-DPI engine, вокруг которого строится runtime Z2M |
+| **[`necronicle/z2k`](https://github.com/necronicle/z2k)** | Важный reference для работы с zapret2 на роутере: autocircular-стратегии, persistent state, эксплуатационные сценарии и подходы к интеграции |
+| **[`avatarDD/zapret-gui`](https://github.com/avatarDD/zapret-gui)** | UX и strategy/resource reference для Keenetic/OpenWrt; отдельные проверенные идеи используются как donor, но `zapret-gui` не является runtime-компонентом Z2M |
+| **[`valnesfjord/tg-ws-proxy-rs`](https://github.com/valnesfjord/tg-ws-proxy-rs)** | Rust-реализация Telegram MTProto WebSocket Bridge Proxy; используется как один из опциональных Telegram Proxy providers со своим lifecycle |
+| **[OpenWrt](https://openwrt.org/)** | Целевая router platform |
+| **[LuCI](https://github.com/openwrt/luci)** | Web UI framework OpenWrt |
+
+> [!NOTE]
+> Упоминание проекта в этой таблице означает конкретную связь с экосистемой Z2M, а не владение его кодом или автоматическое включение в поставку zapret2.manager.
 
 ## Участие в разработке
 
