@@ -1,4 +1,4 @@
-# zapret2-manager
+# zapret2.manager
 
 OpenWrt management stack for zapret2 with a LuCI frontend and a native helper foundation.
 
