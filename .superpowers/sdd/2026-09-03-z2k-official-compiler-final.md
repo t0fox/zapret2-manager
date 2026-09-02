@@ -10,7 +10,9 @@ Execution plan: `H:/down/z2k-official-compiler-plan-and-agent-prompt.md`
 - Implementation commit: `88c454b2` (`feat: compile Z2K strategies with pinned official generator`).
 - The commit was pushed with `git push origin main`.
 - Release delivery commit: `c4874835` (`ci: publish APKs as one prerelease bundle`).
-- `HEAD` and `origin/main` are both `c48748355fe99a7664c659a1512d503ce68a6302`.
+- The latest code-bearing `main` validation before this evidence-only refresh
+  was commit `dca8f2ba4045bd36ce4882f09146c4cac0a92ea2`; the dynamic
+  `HEAD`/`origin/main` equality check remains authoritative after each push.
 - No router mutation, browser mutation, traffic acceptance, or reboot was performed.
 - No agent or worktree was used; implementation stayed in the shared `main` checkout.
 
@@ -49,10 +51,11 @@ runtime; no unchanged test was rerun during final delivery:
 
 ## APK gate
 
-The first post-delivery GitHub Actions run passed all release gates:
+The post-delivery GitHub Actions runs passed all release gates. The latest
+code-bearing validation before this evidence-only refresh was:
 
-- Run `33687761349` for commit `c48748355fe99a7664c659a1512d503ce68a6302`:
-  `success` in `21m24s`.
+- Run `33691772602` for commit
+  `dca8f2ba4045bd36ce4882f09146c4cac0a92ea2`: `success` in `24m09s`.
 - Release contract tests, real OpenWrt SDK package build, artifact verifier,
   single-asset bundling, upload, and prerelease publication all passed.
 - `main-latest` is a prerelease with exactly one asset:
