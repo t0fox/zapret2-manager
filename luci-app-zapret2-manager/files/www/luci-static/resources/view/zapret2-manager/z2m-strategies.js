@@ -2323,23 +2323,26 @@ function previewCommandOverview(answer) {
   return '<div class="strategy-preview-command-overview"><div class="strategy-preview-overview-heading"><div><span class="strategy-preview-kicker">РАЗБОР КОМАНДЫ</span><h4>Что будет запущено</h4></div><span class="strategy-preview-overview-count">' + Math.max(0, argv.length - 1) + ' параметров</span></div><div class="strategy-preview-command-facts"><div class="strategy-preview-command-fact strategy-preview-command-fact-wide"><span>Исполняемый файл</span><strong><code>' + escapeHtml(previewBasename(executable)) + '</code></strong><small>' + escapeHtml(executable) + '</small></div><div class="strategy-preview-command-fact"><span>Параметры запуска</span><strong>' + groups.global.length + '</strong><small>' + escapeHtml(globalSummary || 'нет дополнительных параметров') + '</small></div><div class="strategy-preview-command-fact"><span>Фильтры</span><strong>' + groups.filter.length + '</strong><small>' + escapeHtml(filterSummary || 'не заданы') + '</small></div></div><div class="strategy-preview-command-groups">' + previewCommandGroup('Lua init', groups.lua, 'lua') + previewCommandGroup('Ресурсы', groups.resource, 'resource') + previewCommandGroup('Правила обхода', groups.rule, 'rule') + (groups.other.length ? previewCommandGroup('Разделители профилей', groups.other, 'global') : '') + '</div></div>';
 }
 function previewCommandSection(answer, output, pending, commandId) {
-  var command = text(output);
+  var command = answer && answer.ok === true ? text(output) : '';
   var argvCount = Math.max(0, array(answer && answer.effectiveArgv).length - 1);
   var compact = object(answer && answer.presentation).mode === 'compact';
   var failed = answer && answer.ok === false;
+  if (!pending && !answer) failed = true;
+  if (!pending && answer && answer.ok === true && !command) failed = true;
   var stateLabel = pending ? 'Загрузка' : failed ? 'Ошибка' : 'Готово';
   var stateClass = pending ? 'is-loading' : failed ? 'is-warning' : 'is-ok';
   var stateIndicator = pending ? '<span class="strategy-preview-inline-spinner" aria-hidden="true"></span>' : '';
   var commandMeta = [];
   if (argvCount) commandMeta.push(argvCount + ' ' + (argvCount === 1 ? 'аргумент' : argvCount < 5 ? 'аргумента' : 'аргументов'));
-  if (command) commandMeta.push('~' + Math.max(1, Math.ceil(command.length / 1024)) + ' KiB');
+  if (answer && answer.ok === true && command) commandMeta.push('~' + Math.max(1, Math.ceil(command.length / 1024)) + ' KiB');
   commandMeta.push('только чтение');
   var notice = compact ? '<div class="strategy-preview-notice" role="status">Полная команда сохранена. Здесь показана структурированная сводка; повторяющиеся поля скрыты.</div>' : '';
   var id = commandId ? ' id="' + escapeAttr(commandId) + '"' : '';
   var commandMetaHtml = '<div class="strategy-preview-command-meta"><span>' + commandMeta.map(function (item) { return escapeHtml(item); }).join(' · ') + '</span></div>';
   var pendingMarkup = '<div class="strategy-preview-command-loading" role="status" aria-live="polite" aria-busy="true"><span class="strategy-preview-inline-spinner" aria-hidden="true"></span><div><strong>Собираем команду</strong><small>Сервер строит эффективную проекцию выбранной стратегии…</small></div></div>';
-  var errorMarkup = '<div class="strategy-preview-command-error" role="alert"><strong>Не удалось построить Preview</strong><small>' + escapeHtml(command) + '</small></div>';
-  var readyMarkup = previewCommandOverview(answer) + '<details class="strategy-preview-raw"><summary>Показать полную команду</summary><pre' + id + ' class="log-viewer nfq-resizable strategy-preview-command" aria-label="Полная команда nfqws2">' + escapeHtml(command) + '</pre></details>';
+  var errorDetail = text(output) || (answer && answer.error && text(answer.error.message)) || 'Сервис не вернул команду';
+  var errorMarkup = '<div class="strategy-preview-command-error" role="alert"><strong>Не удалось построить Preview</strong><small>' + escapeHtml(errorDetail) + '</small></div>';
+  var readyMarkup = previewCommandOverview(answer) + '<details class="strategy-preview-raw" open><summary>Полная команда nfqws2</summary><pre' + id + ' class="log-viewer nfq-resizable strategy-preview-command" aria-label="Полная команда nfqws2">' + escapeHtml(command) + '</pre></details>';
   return '<section class="strategy-preview-primary-command" aria-labelledby="strategy-preview-command-title"><div class="strategy-preview-command-heading"><div><span class="strategy-preview-kicker">NFQWS2 · ТОЛЬКО ЧТЕНИЕ</span><h4 id="strategy-preview-command-title">Эффективная команда</h4><p>Фактическая проекция, которую сформировал сервер.</p></div><span class="strategy-preview-state ' + stateClass + '"' + (pending ? ' aria-live="polite"' : '') + '>' + stateIndicator + stateLabel + '</span></div>' + notice + commandMetaHtml + (pending ? pendingMarkup : failed ? errorMarkup : readyMarkup) + '</section>';
 }
 function previewDependencyRow(item, missing) {
@@ -2467,7 +2470,7 @@ function renderPreviewModal() {
   if (!body || !footer) return;
   var pendingLabel = state.preview.operation === 'preview' ? 'Готовим превью…' : 'Проверяем…';
   var answer = state.preview.answer;
-  body.innerHTML = previewCommandSection(answer, state.preview.output, state.preview.pending, 'preview-command') + (answer && state.preview.strategy ? previewDetails(answer, state.preview.strategy, state.preview.pending && state.preview.operation === 'validate') : '') + (state.preview.validation ? '<div class="strategy-validation-result" role="status" aria-live="polite">' + escapeHtml(state.preview.validation) + '</div>' : '');
+  body.innerHTML = previewCommandSection(answer, state.preview.output, state.preview.pending, 'preview-command') + (answer && answer.ok === true && state.preview.strategy ? previewDetails(answer, state.preview.strategy, state.preview.pending && state.preview.operation === 'validate') : '') + (state.preview.validation ? '<div class="strategy-validation-result" role="status" aria-live="polite">' + escapeHtml(state.preview.validation) + '</div>' : '');
   footer.innerHTML = '<button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled aria-busy="true"' : '') + '>' + (state.preview.pending ? '<span class="btn-spinner" aria-hidden="true"></span><span>' + pendingLabel + '</span>' : 'Проверить стратегию') + '</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button>';
 }
 function previewEditor() {

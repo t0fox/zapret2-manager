@@ -118,3 +118,25 @@ test('resources.update uses a bounded operation-specific transport timeout inste
   assert.equal(requests[0].body[0].params[2], 'resources_update');
   assert.deepEqual(JSON.parse(requests[0].body[0].params[3].edit), JSON.parse(edit));
 });
+
+test('strategy Preview uses a real transport timeout instead of rpc.declare options', async () => {
+  const requests = [];
+  const { api } = loadApi(requests);
+  const edit = JSON.stringify({
+    strategy_id: 'z2k:z2k_all_in_one',
+    revision: 0,
+    catalog_digest: 'a'.repeat(64),
+    validate: false,
+  });
+
+  const result = await api.strategies.preview(edit);
+
+  assert.deepEqual(result, { ok: true, applied: 1 });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.timeout, 60000);
+  assert.equal(requests[0].options.nobatch, true);
+  assert.equal(requests[0].body[0].params[0], 'session-id');
+  assert.equal(requests[0].body[0].params[1], 'zapret2-manager');
+  assert.equal(requests[0].body[0].params[2], 'strategies_preview');
+  assert.equal(requests[0].body[0].params[3].edit, edit);
+});

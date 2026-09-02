@@ -18,7 +18,7 @@ const UCODE_MODULE_PATTERN = ucodeModulePattern(
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 const MAX_OUTPUT_BYTES = 65536;
 const MAX_OUTPUT_ARG_BYTES = 4096;
-const MAX_OUTPUT_ARRAY_ITEMS = 256;
+const MAX_OUTPUT_ARRAY_ITEMS = 512;
 
 const environment = {
   listMode: 'none',

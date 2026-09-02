@@ -36,8 +36,11 @@ const MAX_DIAGNOSTICS = 32;
 const MAX_DEPENDENCIES = 256;
 const MAX_OUTPUT_BYTES = 65536;
 const MAX_OUTPUT_TEXT = 32768;
+// Generated Z2K All-in-One commands can exceed a normal profile's raw args
+// limit while still fitting inside the bounded RPC response.
+const MAX_EFFECTIVE_COMMAND_TEXT = MAX_OUTPUT_BYTES;
 const MAX_OUTPUT_ARG_BYTES = 4096;
-const MAX_OUTPUT_ARRAY_ITEMS = 256;
+const MAX_OUTPUT_ARRAY_ITEMS = 512;
 const MAX_DEPENDENCY_TEXT = 256;
 const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
@@ -208,7 +211,7 @@ function effective_projection(value) {
 	if (!is_object(value)) return null;
 	let argv = bounded_string_array(value.effectiveArgv);
 	if (argv == null || !is_string(value.effectiveCommand)
-		|| length(value.effectiveCommand) > MAX_OUTPUT_TEXT) return null;
+		|| length(value.effectiveCommand) > MAX_EFFECTIVE_COMMAND_TEXT) return null;
 	return {
 		effectiveCommand: value.effectiveCommand,
 		effectiveArgv: argv,
@@ -368,6 +371,10 @@ function live_runtime_inputs() {
 	if (!is_object(tokenized) || type(tokenized.tokens) != 'array') return error_result('EUNAVAILABLE', 'authoritative applied Strategy options are malformed');
 	let configured = [];
 	for (let token in tokenized.tokens || []) if (is_object(token) && is_string(token.value)) push(configured, token.value);
+	let composition = runtime_composition_for_apply();
+	if (!runtime_snapshot_valid(composition)) return runtime_snapshot_error(composition);
+	let luaInit = composition_lua_inputs(composition), hostlists = [];
+	if (luaInit == null) return error_result('ESTALE', 'installed runtime composition Lua closure is invalid');
 	let used = [], baseArgs = [];
 	for (let i = 0; i < length(configured); i++) used[i] = false;
 	for (let i = 1; i < length(found[0]); i++) {
@@ -375,12 +382,15 @@ function live_runtime_inputs() {
 		for (let j = 0; j < length(configured); j++)
 			if (!used[j] && configured[j] == found[0][i]) { matched = j; break; }
 		if (matched >= 0) used[matched] = true;
-		else push(baseArgs, found[0][i]);
+		else {
+			// Lua-init is owned by the installed runtime composition below. The
+			// process argv is only a compatibility observation and may use a
+			// different spelling (for example @/path), so never copy Lua-init
+			// entries into baseArgs where the canonical closure is authoritative.
+			let processArg = found[0][i];
+			if (!starts_with(processArg, '--lua-init=')) push(baseArgs, processArg);
+		}
 	}
-	let composition = runtime_composition_for_apply();
-	if (!runtime_snapshot_valid(composition)) return runtime_snapshot_error(composition);
-	let luaInit = composition_lua_inputs(composition), hostlists = [];
-	if (luaInit == null) return error_result('ESTALE', 'installed runtime composition Lua closure is invalid');
 	for (let value in configured)
 		if (starts_with(value, '--hostlist=')) push(hostlists, substr(value, 11));
 	if (length(baseArgs) + length(luaInit) + length(hostlists) == 0 && length(configured) == 0)
@@ -666,7 +676,26 @@ function candidate_projection(resolved, candidate, effective, validation, includ
 		omittedAliases: ['args', 'fullCommand', 'fullArgv']
 	};
 	encoded = serialize(compact);
-	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? compact : null;
+	if (encoded != null && length(encoded) <= MAX_OUTPUT_BYTES) return compact;
+
+	// A large generated command legitimately duplicates the raw strategy args
+	// and effective argv in the compatibility projection. Preserve the complete
+	// server-owned command/argv and admission metadata, omitting only fields the
+	// Preview UI does not consume.
+	let minimal = {
+		strategyId: bounded_identity(resolved.id, 128), origin: bounded_identity(resolved.origin, 32),
+		effectiveCommand: effective.effectiveCommand, effectiveArgv: effective.effectiveArgv,
+		profiles_count: candidate.profilesCount, profilesCount: candidate.profilesCount,
+		dependencies: dependencies_record(candidate.dependencies), digest: candidate.digest,
+		applicable: candidate.applicable == true,
+		presentation: {
+			mode: 'compact', canonicalComplete: true,
+			omittedFields: ['strategyArgs', 'args', 'fullCommand', 'fullArgv']
+		}
+	};
+	if (includeValidation == true) minimal.validation = validation;
+	encoded = serialize(minimal);
+	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? minimal : null;
 }
 
 function validation_error(resolved, candidate, effective, validation, code, message) {
