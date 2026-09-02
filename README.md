@@ -1,49 +1,99 @@
-# zapret2.manager
+<div align="center">
 
-OpenWrt management stack for zapret2 with a LuCI frontend and a native helper foundation.
+<img src="./assets/brand/readme-hero.svg" alt="zapret2.manager" width="100%">
 
-## Current repository scope
+<br>
 
-`main` contains the current runtime source, release/build contracts, tests, and the Project Knowledge Vault. Historical material under `docs/09-work`, `docs/99-archive`, `.superpowers`, and old plans/reports is evidence only; current source code and tests outrank it for runtime behavior.
+[![APK build](https://github.com/t0fox/zapret2-manager/actions/workflows/apk-build.yml/badge.svg?branch=main)](https://github.com/t0fox/zapret2-manager/actions/workflows/apk-build.yml)
+[![main-latest](https://img.shields.io/badge/release-main--latest-6d5dfc?logo=github&logoColor=white)](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
+[![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12.5-00B5E2?logo=openwrt&logoColor=white)](https://openwrt.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](./LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/t0fox/zapret2-manager?label=updated)](https://github.com/t0fox/zapret2-manager/commits/main)
 
-### Architecture authority
+**Управляй `zapret2` на OpenWrt через единый LuCI-интерфейс — без ручной сборки разрозненных сценариев вокруг движка.**
 
-- **zapret2-manager (Z2M)** is the production runtime owner/coordinator.
-- **Zapret2 Engine** and **Z2K Core** are the two mandatory System Components.
-- **Avatar** is a Strategy/resource catalog authority and UX donor where verified, not a System Component or runtime writer.
-- **Telegram Proxy** and **WARP / MASQUE** are optional products with their own lifecycle/ownership boundaries.
-- **Strategy** owns permanent Preview → Validate → Apply. **Scanner** produces temporary evidence/candidates and hands permanent changes back to Strategy.
-- Production traffic ownership is one persistent `nfqws2` instance on **NFQUEUE 300**. DNS follows the existing `dnsmasq` ownership path rather than creating a second resident DNS daemon.
-- Resource Center / Asset Registry represent data and assets. Low-level Z2K assets do not create a separate user product called “Z2K Resources”.
+[**📦 Скачать `main-latest`**](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
+&nbsp;·&nbsp;
+[**📖 Руководства**](./docs/04-guides/index.md)
+&nbsp;·&nbsp;
+[**🧭 Текущее состояние**](./docs/00-home/current-state.md)
+&nbsp;·&nbsp;
+[**🐛 Issues**](https://github.com/t0fox/zapret2-manager/issues)
 
-### Packages
+</div>
 
-- `zapret2-manager` — backend package. It contains the ucode/shell runtime and builds the native `z2m-core-helper` with the OpenWrt target toolchain.
-- `luci-app-zapret2-manager` — LuCI JavaScript frontend.
-- `zapret2-manager-full` — target-specific meta-package for backend + LuCI. The zapret2 engine and Telegram proxy remain optional.
-- `tg-ws-proxy-rs` / `tg-ws-proxy-go` — optional Telegram proxy providers.
+---
 
-## Native foundation
+## ✨ Что такое zapret2.manager
 
-`zapret2-manager/src/z2m-core-helper/` contains the current native filesystem/helper foundation and protocol manifest. The implemented foundation includes bounded protocol parsing, descriptor-relative filesystem access, private directory creation, SHA-256 reads, and atomic writes.
+**zapret2.manager (Z2M)** — слой управления `zapret2` для OpenWrt: backend, LuCI-интерфейс и набор согласованных lifecycle-процессов для стратегий, компонентов, DNS, прокси и диагностики.
 
-The current compatibility contracts are:
+Главная идея проекта — не просто «запустить `nfqws2`», а дать пользователю **единое место управления** с понятными состояниями, проверками и безопасным применением изменений.
 
-- `docs/04-contracts/native-backend-v1.md`
-- `docs/04-contracts/z2m-canonical-json-v1.md`
+> [!NOTE]
+> **Zapret2 Engine** и **Z2K Core** — обязательная системная основа Z2M.  
+> **Telegram Proxy** и **WARP / MASQUE** — отдельные опциональные продукты и не входят в обязательный runtime manager'а.
 
-## Build
+## 🧩 Возможности
 
-The reproducible release build is pinned to the OpenWrt 25.12.5 `mediatek/filogic` SDK and builds exactly the three manager packages. The canonical local entrypoint is:
+| | Возможность | Что делает |
+|:--:|---|---|
+| 🧠 | **Стратегии** | Постоянный lifecycle **Preview → Validate → Apply** для изменений обхода |
+| 🔎 | **Scanner** | Ищет кандидатов и передаёт результат обратно в Strategy вместо обхода общего lifecycle |
+| 🧱 | **Компоненты** | Управляет состоянием **Zapret2 Engine** и **Z2K Core** |
+| 🌐 | **Сервисы и домены** | Управляет целями, для которых применяются правила и стратегии |
+| 📦 | **Ресурсы** | Работает с каталогами и low-level assets, используемыми runtime |
+| 🧭 | **DNS** | Интегрируется в существующий DNS-path OpenWrt без второго resident DNS daemon |
+| ✈️ | **Telegram Proxy** | Отдельный provider lifecycle: установка, переключение, обновление и диагностика |
+| 🛰️ | **WARP / MASQUE** | Опциональная proxy/routing-поверхность со своей зоной ответственности |
+| 📊 | **Мониторинг и журнал** | Показывает runtime-состояние, события и диагностическую информацию |
+| 💾 | **Резервные копии** | Поддерживает отдельный системный workflow для backup/restore |
+| ⚙️ | **Настройки** | Централизует системные параметры manager'а |
 
-```sh
-scripts/release/build-apk.sh
-node scripts/release/verify-artifacts.mjs dist
+## 🗺 Интерфейс
+
+Каноническая навигация Z2M разделена по пользовательским задачам:
+
+```text
+🏠 Главная
+
+🛡 Обход DPI
+   ├─ Управление
+   ├─ Стратегии
+   └─ Scanner
+
+🔀 Proxy / Routing
+   ├─ WARP / MASQUE
+   └─ Telegram Proxy
+
+🗂 Списки и данные
+   ├─ Сервисы и домены
+   ├─ Ресурсы
+   └─ DNS
+
+📊 Диагностика
+   ├─ Мониторинг
+   └─ Журнал
+
+⚙️ Система
+   ├─ Компоненты
+   ├─ Резервные копии
+   └─ Настройки
 ```
 
-The generated `dist/` contains the three APKs, `build-manifest.json`, and `SHA256SUMS`. The same entrypoint runs in the repository's sole GitHub Actions workflow on every push to `main` and can also be started manually; successful main builds publish the rolling `main-latest` prerelease.
+## 🚀 Быстрый старт
 
-For downloaded files, install all three packages from the same GitHub Release:
+### 1. Скачай один набор APK
+
+Используй файлы **из одного и того же** GitHub Release:
+
+👉 **[`main-latest` — rolling build текущего `main`](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)**
+
+> [!IMPORTANT]
+> `main-latest` — **prerelease / rolling build**, а не обещание стабильного релиза.  
+> Перед установкой сверяй `SHA256SUMS` и не смешивай APK из разных сборок.
+
+### 2. Установи пакеты на роутере
 
 ```sh
 apk add --allow-untrusted \
@@ -52,9 +102,124 @@ apk add --allow-untrusted \
   ./zapret2-manager-full-<version>.apk
 ```
 
-`zapret2-manager` is the backend, `luci-app-zapret2-manager` is the LuCI UI, and `zapret2-manager-full` is the `mediatek/filogic` convenience meta-package. The zapret2 engine is installed separately from System → Components. Telegram Proxy is installed separately from Proxy and Routing → Telegram Proxy; neither is bundled in these APKs. APK signing and a custom feed are intentionally out of scope.
+| Пакет | Назначение |
+|---|---|
+| `zapret2-manager` | Backend: ucode/shell runtime + native `z2m-core-helper` |
+| `luci-app-zapret2-manager` | LuCI JavaScript frontend |
+| `zapret2-manager-full` | Target-specific meta-package для manager + LuCI |
 
-Typical SDK target:
+> [!TIP]
+> **Zapret2 Engine** устанавливается отдельно через **Система → Компоненты**.  
+> **Telegram Proxy** устанавливается отдельно через **Proxy / Routing → Telegram Proxy**.
+
+### 3. Открой LuCI
+
+После установки открой веб-интерфейс OpenWrt и перейди в **zapret2.manager**.
+
+Дальше логичный первый маршрут:
+
+```text
+Система → Компоненты
+        ↓
+проверить Zapret2 Engine + Z2K Core
+        ↓
+Обход DPI → Стратегии
+        ↓
+Preview → Validate → Apply
+```
+
+## 🧠 Как это устроено
+
+### Runtime ownership
+
+```mermaid
+flowchart TD
+    UI["LuCI · zapret2.manager"] --> Z2M["Z2M runtime owner / coordinator"]
+    Z2M --> ENGINE["Zapret2 Engine"]
+    Z2M --> Z2K["Z2K Core"]
+    ENGINE --> NFQ["nfqws2"]
+    NFQ --> Q["NFQUEUE 300"]
+    Q --> TRAFFIC["Production traffic"]
+    Z2M --> DNS["Existing dnsmasq ownership path"]
+```
+
+**Z2M остаётся единственным production runtime owner'ом.** Production traffic обслуживается одним постоянным `nfqws2` на **NFQUEUE 300**, а DNS следует существующему `dnsmasq` ownership path.
+
+### Strategy workflow
+
+```mermaid
+flowchart LR
+    SCAN["Scanner"] -->|"candidate / evidence"| STRATEGY["Strategy"]
+    STRATEGY --> PREVIEW["Preview"]
+    PREVIEW --> VALIDATE["Validate"]
+    VALIDATE --> APPLY["Apply"]
+    APPLY --> RUNTIME["Runtime"]
+```
+
+Scanner не создаёт второй путь постоянного применения изменений: его результат возвращается в общий Strategy lifecycle.
+
+## 🏗 Системная модель
+
+| Компонент | Роль | Обязательный |
+|---|---|:--:|
+| **zapret2.manager** | Production runtime owner / coordinator | ✅ |
+| **Zapret2 Engine** | Базовый anti-DPI engine | ✅ |
+| **Z2K Core** | Интеграционный/runtime foundation manager'а | ✅ |
+| **Avatar Catalog** | Источник стратегий/ресурсов и donor reference | — |
+| **Telegram Proxy** | Отдельный optional product | ❌ |
+| **WARP / MASQUE** | Отдельный optional proxy/routing product | ❌ |
+
+> [!WARNING]
+> **Avatar** не является системным компонентом Z2M и не должен становиться вторым runtime writer'ом.  
+> Low-level Z2K assets также не образуют отдельный пользовательский продукт «Z2K Resources».
+
+## 📦 Release model
+
+Текущий reproducible release contract закреплён за:
+
+| Параметр | Значение |
+|---|---|
+| OpenWrt | **25.12.5** |
+| Target | **`mediatek/filogic`** |
+| Формат пакетов | **APK** |
+| Rolling release | **`main-latest`** |
+| Проверка | `build-manifest.json` + `SHA256SUMS` |
+
+Сборка должна выпускать ровно три manager-пакета:
+
+```text
+zapret2-manager-<version>.apk
+luci-app-zapret2-manager-<version>.apk
+zapret2-manager-full-<version>.apk
+```
+
+Плюс:
+
+```text
+build-manifest.json
+SHA256SUMS
+```
+
+> [!CAUTION]
+> Наличие исходников или успешного host-теста само по себе **не доказывает** готовность OpenWrt-пакета, router E2E или публичного релиза.
+
+---
+
+<details>
+<summary><strong>🛠 Для разработчиков</strong></summary>
+
+<br>
+
+### Сборка
+
+Канонический локальный release entrypoint:
+
+```sh
+scripts/release/build-apk.sh
+node scripts/release/verify-artifacts.mjs dist
+```
+
+Типичная точечная сборка через SDK:
 
 ```sh
 make package/zapret2-manager/compile V=s
@@ -62,45 +227,109 @@ make package/luci-app-zapret2-manager/compile V=s
 make package/zapret2-manager-full/compile V=s
 ```
 
-## Tests
+### Native foundation
 
-The repository keeps focused test families for the current implementation, including native/helper contracts, knowledge/docs projection, release contracts, product/UI behavior, and architecture invariants. Run the relevant family for the area being changed.
+`zapret2-manager/src/z2m-core-helper/` содержит native filesystem/helper foundation и protocol manifest.
 
-For the native foundation on Linux with Node.js, a C compiler, `pkg-config`, json-c development files, ucode, and passwordless `sudo` for the root-policy helper test:
+Ключевые контракты:
+
+- [`native-backend-v1.md`](./docs/04-contracts/native-backend-v1.md)
+- [`z2m-canonical-json-v1.md`](./docs/04-contracts/z2m-canonical-json-v1.md)
+
+### Тесты
+
+Для native foundation на Linux:
 
 ```sh
 scripts/test/native.sh
 ```
 
-Set `UCODE_BIN` and `UCODE_LIBRARY_PATH` when ucode is not installed under `/opt/ucode`. The native test runner executes only `fs-helper.test.mjs` through `sudo`; all other native tests run as the invoking user.
+Нужны Node.js, C compiler, `pkg-config`, json-c development files, ucode и passwordless `sudo` для root-policy helper test.
 
-Source/host tests are not substitutes for OpenWrt SDK compilation, router validation, or browser/runtime evidence.
+Если ucode установлен не в `/opt/ucode`, укажи:
 
-## Documentation
+```sh
+export UCODE_BIN=/path/to/ucode
+export UCODE_LIBRARY_PATH=/path/to/ucode/libs
+```
 
-Documentation has three deliberate responsibility levels:
+Host/source tests **не заменяют**:
 
-- **User documentation — Quartz / GitHub Pages.** Installation, first start, actual LuCI navigation, page behavior, statuses/buttons, basic configuration, and supported platform/release information.
-- **Technical/code documentation — DeepWiki.** Architecture, subsystem internals, source relationships, data flows, RPC/backend contracts, Strategy/Scanner/Engine/Z2K internals, assets, DNS/proxy lifecycle, and release engineering. Generation is steered by `.devin/wiki.json`; the public DeepWiki URL is added here only after indexing is verified.
-- **Internal knowledge vault — `docs/`.** Contracts, ADRs, work evidence, research, parity evidence, AI/agent operating material, and historical records remain preserved even when DeepWiki covers the code-centric explanation.
+- реальную сборку OpenWrt SDK;
+- router validation;
+- browser/runtime evidence.
 
-Knowledge tooling:
+### Документация
 
-- Open repository root as Obsidian vault.
-- Verify and bootstrap the pinned Quartz checkout: `node scripts/docs.mjs verify`.
-- Serve the internal vault with hot reload: `scripts/docs.ps1 serve` or `scripts/docs.sh serve`.
-- Build public docs: `node scripts/docs.mjs build public` (legacy `--public --production` is supported).
-- Build internal docs: `node scripts/docs.mjs build internal` (legacy `--internal` is supported).
-- Canonical outputs: `.artifacts/docs-public` and `.artifacts/docs-internal`; remove them with `node scripts/docs.mjs clean`.
-- Run knowledge validation: `node scripts/validate-knowledge.mjs`.
-- Public documentation can be built locally into `.artifacts/docs-public`; publication is outside the repository's APK-only automation scope.
+Проект разделяет документацию на три уровня:
 
-## Repository policy
+| Уровень | Для чего |
+|---|---|
+| **User docs** | Установка, первый запуск, LuCI navigation, статусы и базовая настройка |
+| **DeepWiki** | Архитектура, data flows, RPC/backend contracts и code-centric internals |
+| **`docs/` vault** | ADR, contracts, evidence, research, AI/agent operating material и история |
 
-Do not commit generated APK/IPK files, build directories, screenshots, agent state, temporary audit output, or one-off debugging scripts. `.gitignore` covers the common generated paths.
+Полезные команды:
 
-Preserve durable contracts and evidence in the knowledge vault. Do not treat historical plans/reports as proof of current runtime behavior.
+```sh
+node scripts/docs.mjs verify
+node scripts/docs.mjs build public
+node scripts/docs.mjs build internal
+node scripts/validate-knowledge.mjs
+```
 
-## License
+### Repository policy
 
-MIT. See `LICENSE`.
+Не коммить:
+
+- APK/IPK и build directories;
+- screenshots;
+- agent state;
+- временные audit/debug outputs;
+- одноразовые debugging scripts.
+
+Исторические планы и reports — это evidence, а не источник истины для текущего runtime.  
+Текущий код, тесты и свежая runtime evidence имеют приоритет.
+
+</details>
+
+## 📚 Документация
+
+| Раздел | Ссылка |
+|---|---|
+| 🚀 Руководства | [`docs/04-guides`](./docs/04-guides/index.md) |
+| 🧭 Текущее состояние | [`docs/00-home/current-state.md`](./docs/00-home/current-state.md) |
+| 🧱 Архитектура | [`docs/02-architecture`](./docs/02-architecture/) |
+| 📜 Контракты | [`docs/04-contracts`](./docs/04-contracts/) |
+| 🔬 Research | [`docs/10-research`](./docs/10-research/) |
+| 🧰 Operations | [`docs/11-operations`](./docs/11-operations/) |
+
+## 🔗 Upstream
+
+- **[`bol-van/zapret2`](https://github.com/bol-van/zapret2)** — anti-DPI engine, вокруг которого строится runtime Z2M.
+- **[OpenWrt](https://openwrt.org/)** — целевая router platform.
+- **[LuCI](https://github.com/openwrt/luci)** — web UI framework OpenWrt.
+
+## 🤝 Участие в разработке
+
+Нашёл баг или хочешь предложить улучшение?
+
+- 🐛 [Создай Issue](https://github.com/t0fox/zapret2-manager/issues)
+- 🔧 Перед изменениями посмотри текущие contracts и architecture notes
+- ✅ Для runtime-изменений прикладывай проверяемую evidence, а не только host-only результат
+
+## 📜 Лицензия
+
+Проект распространяется по лицензии **MIT**. См. [`LICENSE`](./LICENSE).
+
+---
+
+<div align="center">
+
+<img src="./assets/brand/zapret2-manager-mark.svg" alt="zapret2.manager Passage mark" width="64">
+
+**zapret2.manager**
+
+<sub>OpenWrt · zapret2 · LuCI</sub>
+
+</div>

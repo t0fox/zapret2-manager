@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">zapret2.manager — Passage mark</title>
+  <desc id="desc">Two solid panels separated by an offset passage, based on the Passage B2 concept.</desc>
+  <defs>
+    <linearGradient id="bg" x1="14" y1="10" x2="84" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4f7cff"/>
+      <stop offset="0.48" stop-color="#5b4ce6"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="18" y1="14" x2="78" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="88" height="88" rx="22" fill="url(#bg)"/>
+  <path d="M22 19h24v17l-10 12 10 12v17H22a6 6 0 0 1-6-6V25a6 6 0 0 1 6-6Z" fill="url(#shine)"/>
+  <path d="M74 19H50v15l10 12-10 12v19h24a6 6 0 0 0 6-6V25a6 6 0 0 0-6-6Z" fill="url(#shine)"/>
+</svg>
