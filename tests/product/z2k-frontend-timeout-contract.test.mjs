@@ -140,3 +140,36 @@ test('strategy Preview uses a real transport timeout instead of rpc.declare opti
   assert.equal(requests[0].body[0].params[2], 'strategies_preview');
   assert.equal(requests[0].body[0].params[3].edit, edit);
 });
+
+test('strategy List uses a bounded read transport for the large catalog', async () => {
+  const requests = [];
+  const { api } = loadApi(requests);
+
+  const result = await api.strategies.list();
+
+  assert.deepEqual(result, { ok: true, applied: 1 });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.timeout, 60000);
+  assert.equal(requests[0].options.nobatch, true);
+  assert.equal(requests[0].body[0].params[2], 'strategies_list');
+  assert.equal(JSON.stringify(requests[0].body[0].params[3]), '{}');
+});
+
+test('strategy Apply uses the long mutation transport and preserves the edit envelope', async () => {
+  const requests = [];
+  const { api } = loadApi(requests);
+  const edit = JSON.stringify({
+    strategy_id: 'z2k:z2k_all_in_one',
+    revision: 0,
+    catalog_digest: 'b'.repeat(64),
+  });
+
+  const result = await api.strategies.apply(edit);
+
+  assert.deepEqual(result, { ok: true, applied: 1 });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.timeout, 180000);
+  assert.equal(requests[0].options.nobatch, true);
+  assert.equal(requests[0].body[0].params[2], 'strategies_apply');
+  assert.equal(requests[0].body[0].params[3].edit, edit);
+});

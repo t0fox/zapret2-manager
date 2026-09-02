@@ -21,16 +21,22 @@ const profilesWorkflow = read('luci-app-zapret2-manager/files/www/luci-static/re
 
 test('Strategy API declares the canonical catalog, editor, preview, apply, and import RPCs', () => {
   for (const method of [
-    'strategies_list', 'strategies_get', 'strategies_create', 'strategies_update',
+    'strategies_create', 'strategies_update',
     'strategies_delete', 'strategies_duplicate', 'strategies_favorite',
-    'strategies_preview', 'strategies_validate', 'strategies_apply',
     'strategies_catalog_status', 'strategies_catalog_reload', 'strategies_import_profiles',
   ]) assert.match(api, new RegExp(`method:'${method}'`), method);
+  assert.match(api, /z2kStrategyList/);
+  for (const method of ['strategies_get', 'strategies_preview', 'strategies_validate'])
+    assert.match(api, new RegExp(`'${method}'`), method);
+  assert.match(api, /z2kLongMutation\('strategies_apply'/);
   for (const method of [
-    'strategiesGet', 'strategiesCreate', 'strategiesUpdate', 'strategiesDelete',
-    'strategiesDuplicate', 'strategiesFavorite', 'strategiesPreview',
-    'strategiesValidate', 'strategiesApply', 'strategiesImportProfiles',
+    'strategiesCreate', 'strategiesUpdate', 'strategiesDelete',
+    'strategiesDuplicate', 'strategiesFavorite', 'strategiesImportProfiles',
   ]) assert.match(api, new RegExp(`\\b${method}:rpc\\.declare`), method);
+  assert.match(api, /strategiesGet:z2kStrategyRead\.bind\(null, 'strategies_get'\)/);
+  assert.match(api, /strategiesPreview:z2kStrategyRead\.bind\(null, 'strategies_preview'\)/);
+  assert.match(api, /strategiesValidate:z2kStrategyRead\.bind\(null, 'strategies_validate'\)/);
+  assert.match(api, /strategiesApply:z2kStrategyApply/);
   assert.match(api, /strategies:\{[\s\S]*strategiesList/);
 });
 
@@ -80,8 +86,8 @@ test('Preview dialog keeps the command primary and exposes bounded accessible st
   assert.match(strategiesPreviewPage, /function previewCommandSection\(answer, output, pending, commandId\)/);
   assert.match(strategiesPreviewPage, /function previewCommandOverview\(answer\)/);
   assert.match(strategiesPreviewPage, /strategy-preview-command-overview/);
-  assert.match(strategiesPreviewPage, /Показать полную команду/);
-  assert.match(strategiesPreviewPage, /<details class="strategy-preview-raw"><summary>Показать полную команду<\/summary>/);
+  assert.match(strategiesPreviewPage, /Полная команда nfqws2/);
+  assert.match(strategiesPreviewPage, /<details class="strategy-preview-raw" open><summary>Полная команда nfqws2<\/summary>/);
   assert.match(strategiesPreviewPage, /object\(answer && answer\.presentation\)\.mode === 'compact'/);
   assert.match(strategiesPreviewPage, /aria-busy="true"/);
   assert.match(strategiesPreviewPage, /Проверить стратегию/);
@@ -132,8 +138,9 @@ test('background status refresh adopts a delayed post-Apply selection into the l
   assert.match(refreshSource, /state\.rows\s*=\s*buildRows\(state\.data\)/);
 });
 
-test('catalog Strategy Apply allows the bounded long-running runtime verification to finish', () => {
-  assert.match(api, /calls\.strategiesApply=rpc\.declare\(\{[^}]*timeout:\s*180/);
+test('catalog Strategy Apply uses the bounded long-running transport', () => {
+  assert.match(api, /function z2kStrategyApply\(value\)/);
+  assert.match(api, /z2kLongMutation\('strategies_apply', \{ edit: value \}\)/);
 });
 
 test('effective command and status drift are rendered from backend responses without client compilation', () => {
