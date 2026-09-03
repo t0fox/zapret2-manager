@@ -57,6 +57,12 @@ runtime_target_rel() {
 	return 0
 }
 
+normalize_runtime_directories() {
+	for _root in "$BASE/files" "$BASE/lua" "$BASE/lists" "$BASE/ipset"; do
+		find "$_root" -type d -exec chmod 0755 {} \; 2>/dev/null || true
+	done
+}
+
 activation_restore() {
 	_records="$1"
 	_backup_dir="$2"
@@ -281,6 +287,7 @@ activation() {
 		done < "$_overlay_spec"
 	fi
 	mv -f "$_records" "$ACTIVATION_SNAPSHOT"
+	normalize_runtime_directories
 	trap - EXIT HUP INT TERM
 	rm -rf "$_tmp"
 	printf '{"ok":true,"activated":%s,"snapshot":"%s"}\n' "$committed" "$ACTIVATION_SNAPSHOT"
@@ -330,7 +337,8 @@ ensure_dir "$BASE/lists"
 ensure_dir "$BASE/ipset"
 # nfqws2 drops privileges to nobody before reading Lua/blobs: keep the
 # runtime asset directories world-traversable regardless of caller umask.
-chmod 0755 "$BASE" "$BASE/files" "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset" 2>/dev/null || true
+normalize_runtime_directories
+chmod 0755 "$BASE" 2>/dev/null || true
 [ -e "$BASE/bin" ] || ln -s "$BASE/files/fake" "$BASE/bin"
 # The official Z2K compiler always wires the discovered-domain hostlist into
 # its flat output. Keep that dynamic, engine-owned input present even before

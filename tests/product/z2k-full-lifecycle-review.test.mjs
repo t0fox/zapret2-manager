@@ -46,6 +46,12 @@ test('4. the existing sync bridge accepts an authoritative registry target spec'
   assert.match(sync, /sha256/);
 });
 
+test('4c. runtime activation keeps nested asset directories traversable after umask', () => {
+    assert.match(sync, /normalize_runtime_directories\(\)/);
+  assert.match(sync, /find "\$_root" -type d -exec chmod 0755/);
+  assert.match(sync, /mv -f "\$_records" "\$ACTIVATION_SNAPSHOT"[\s\S]*normalize_runtime_directories/);
+});
+
 test('4a. confirmed Registry rematerialization uses the installed resolver boundary', () => {
   assert.match(runtimeSyncAdapter, /z2k_runtime_materialize_confirmed/);
   assert.match(ru, /--activate-resolved installed-materialize/);
