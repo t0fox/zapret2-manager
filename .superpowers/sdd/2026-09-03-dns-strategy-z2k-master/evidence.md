@@ -87,6 +87,14 @@ Pinned APK build (`bash scripts/release/build-apk.sh`)
   `Could not resolve host: git.openwrt.org`; the SDK prerequisite also failed
   `case-sensitive-fs` on `/mnt/g`. No `FORCE=1` override was used, so no APK
   artifact or artifact-verifier evidence was claimed.
+
+Two additional bounded package-only diagnostics used existing local SDK caches
+and were not treated as release evidence. A minimal-config probe avoided the
+device-wide `uboot-mediatek` graph but reached a missing `json-c` source and
+the host DNS timeout. A second probe using the older cache's completed
+dependency stamps reached virtual-kernel packaging and failed with
+`libfakeroot: connect: Connection refused` in the relocated SDK environment.
+No package artifact was promoted or claimed from either probe.
 ```
 
 The full all-tests WSL run was completed before the final Z2K validator and
