@@ -37,6 +37,9 @@ request to work on `main` is the governing checkout instruction.
   the selected immutable source revision. Resource status exposes runtime,
   available-upstream, current-Strategy, candidate-Strategy, and coherence
   fields without refreshing or applying automatically.
+- The package postinst now verifies that a successful source migration really
+  left `/etc/zapret2-manager/catalog/strategy-catalog-index.json`; otherwise it
+  falls back to the bounded legacy index repair path.
 - Maintenance UI preserves the existing dense visual language and surfaces the
   dependency/coherence facts in an explicit technical disclosure. The four
   required design skills were applied before UI edits: Emil design engineering,
@@ -64,13 +67,19 @@ The earlier Windows-only DNS/product run had four expected UCode skips; the
 same UCode-backed catalog cases are now covered by the WSL run above.
 
 Z2K static/lifecycle scoped suite
+=> tests=29, pass=29, fail=0, skipped=0 (official compiler and source adapters).
+
+Z2K catalog generation / authority / migration / refresh suite (WSL UCode)
 => tests=29, pass=29, fail=0, skipped=0.
 
 Exact revision / dependency / target-gate contracts
-=> tests=20, pass=20, fail=0.
+=> tests=38, pass=38, fail=0.
 
 Release contract suite
 => tests=8, pass=8, fail=0.
+
+Package postinst / read-index contract
+=> tests=2, pass=2, fail=0.
 
 Pinned APK build (`bash scripts/release/build-apk.sh`)
 => exit 1 after the script's 3 bounded feed attempts. The SDK archive was
@@ -79,6 +88,15 @@ Pinned APK build (`bash scripts/release/build-apk.sh`)
   `case-sensitive-fs` on `/mnt/g`. No `FORCE=1` override was used, so no APK
   artifact or artifact-verifier evidence was claimed.
 ```
+
+The full all-tests WSL run was completed before the final Z2K validator and
+fixture follow-up and is therefore retained as a diagnostic, not as the final
+gate: `tests=2366, pass=2054, fail=304, skipped=4, todo=4, RC=1`. Its failures
+included WSL/native baseline failures, three UI files unable to import the
+uninstalled `vitest` package, and the Z2K catalog fixture/validator mismatch
+that the affected-scope rerun above subsequently corrected. The complete suite
+was not rerun after those follow-up changes; affected-scope evidence is green,
+but the full-suite status remains `NOT_GREEN`.
 
 ## Known host boundary
 
@@ -123,7 +141,10 @@ The implementation commits on `main` are:
 
 - `1b167426b3bda7b4657569ba9718fd88bc0daafa` — DNS / Strategy / Z2K slices;
 - `ca251453` — UCode-compatible DNS catalog fix;
-- `0e7aefa1` — scoped OpenWrt feed package installation and release contract.
+- `0e7aefa1` — scoped OpenWrt feed package installation and release contract;
+- `1cf6f0be` — Z2K test-only native gate alignment and package index warm-up
+  verification;
+- `ed502342` — acceptance evidence refresh.
 
 They remain subject to final package build/artifact verification and the
 router/browser acceptance boundary above. The pinned build's last observed
@@ -131,4 +152,4 @@ result was exit 1 after the three bounded feed attempts because OpenWrt feeds
 could not resolve and `/mnt/g` failed the SDK case-sensitive-filesystem
 prerequisite; the later feed-scope patch has only static contract evidence so
 far. No GREEN/READY claim is made for package artifacts or unexecuted router
-gates.
+gates. The current branch also has no push or package artifact delivery yet.
