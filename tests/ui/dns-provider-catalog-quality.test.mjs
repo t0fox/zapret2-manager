@@ -35,6 +35,9 @@ test('provider error normalization preserves backend action boundaries', () => {
 test('provider catalog layout keeps touch-safe actions and responsive editor geometry', () => {
   assert.match(css, /z2m-provider-catalog-summary[\s\S]*min-height:44px/);
   assert.match(css, /z2m-provider-editor-actions \.z2m-btn[\s\S]*min-height:44px/);
+  assert.match(css, /z2m-provider-groups[\s\S]*container-type:\s*inline-size/);
+  assert.match(css, /@container dns-provider-list \(max-width:980px\)/);
+  assert.match(css, /z2m-provider-actions[\s\S]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(css, /@media\(max-width:430px\)/);
   assert.match(css, /prefers-reduced-motion:reduce/);
 });
