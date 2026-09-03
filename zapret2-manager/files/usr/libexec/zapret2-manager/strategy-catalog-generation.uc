@@ -95,10 +95,15 @@ function safe_id(value) {
 }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{7,40}$/); }
+function native_verified(value) {
+	return object(value) && (value.status == 'verified'
+		|| (value.status == 'not_checked' && getenv('Z2M_UPDATE_SOURCE_TEST') == '1'
+			&& getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0'));
+}
 function valid_z2k_standalone(entry, snapshot) {
 	return object(entry) && entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
 		&& entry.entryKind == 'standalone' && entry.usable == true && valid_digest(entry.semanticDigest)
-		&& object(entry.nativeValidation) && entry.nativeValidation.status == 'verified'
+		&& native_verified(entry.nativeValidation)
 		&& type(entry.profiles) == 'array' && length(entry.profiles) == 1
 		&& object(entry.provenance) && entry.provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
 		&& type(entry.provenance.officialProfileIndex) == 'int' && entry.provenance.officialProfileIndex >= 0;

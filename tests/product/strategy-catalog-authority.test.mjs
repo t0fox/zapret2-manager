@@ -112,7 +112,10 @@ test('normal Strategy reads preserve the source-specific origin of v3 catalog en
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
     is_builtin: false,
     requirements: { engine: 'nfqws2' },
-    provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40) },
+    entryKind: 'standalone', usable: true, semanticDigest: 'e'.repeat(64),
+    nativeValidation: { status: 'verified' },
+    provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40),
+      compilerSnapshotDigest: 'f'.repeat(64), officialProfileIndex: 0 },
   };
   const allInOneEntry = {
     canonicalId: 'z2k:z2k_all_in_one', sourceId: 'z2k', upstreamId: 'z2k_all_in_one',
@@ -128,6 +131,7 @@ test('normal Strategy reads preserve the source-specific origin of v3 catalog en
     schema: 'z2m.strategy-source-snapshot.v1', sourceId: 'z2k', repository: 'necronicle/z2k',
     sourceCommit: 'a'.repeat(40), contentDigest: 'b'.repeat(64), snapshotId: 'z2k-s1',
     sourceFiles: ['strats_new2.txt', 'quic_strats.ini'],
+    compilerSnapshotDigest: 'f'.repeat(64),
     allInOne: { canonicalId: 'z2k:z2k_all_in_one', digest: 'c'.repeat(64), profileCount: 1 },
     entryCount: 2, normalizedEntryCount: 2, immutable: true, published: true,
     entries: [entry, allInOneEntry],
@@ -180,7 +184,12 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
     ...(sourceId === 'z2k' ? { is_builtin: false } : {}),
     requirements: { engine: 'nfqws2' },
-    provenance: { repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId, sourceCommit: commit },
+    ...(sourceId === 'z2k' ? {
+      entryKind: 'standalone', usable: true, semanticDigest: 'e'.repeat(64),
+      nativeValidation: { status: 'verified' },
+    } : {}),
+    provenance: { repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId, sourceCommit: commit,
+      ...(sourceId === 'z2k' ? { compilerSnapshotDigest: 'f'.repeat(64), officialProfileIndex: 0 } : {}) },
   });
   const makeSnapshot = (sourceId, snapshotId, entry) => {
     const snapshot = {
@@ -191,6 +200,7 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
     };
     if (sourceId === 'z2k') {
       snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+      snapshot.compilerSnapshotDigest = 'f'.repeat(64);
       snapshot.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'd'.repeat(64), profileCount: 1 };
       snapshot.entryCount = 2;
       snapshot.normalizedEntryCount = 2;

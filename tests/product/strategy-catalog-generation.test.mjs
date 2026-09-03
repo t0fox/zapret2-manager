@@ -99,6 +99,28 @@ test('Avatar and Z2K are merged into one v3 index without collapsing shared upst
   assert.match(result.candidate.index.indexDigest, /^[0-9a-f]{64}$/);
 });
 
+test('test-only native preflight bypass accepts not_checked Z2K standalones only in the explicit test mode', () => {
+  const root = rootFor('test-bypass');
+  const row = source('z2k', 'z2k-test-bypass');
+  const snapshot = row.snapshot;
+  snapshot.sourcePath = 'official:generate_nfqws2_opt_from_strategies';
+  snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
+  snapshot.fileSha256 = Object.fromEntries(snapshot.sourceFiles.map(name => [name, 'f'.repeat(64)]));
+  snapshot.compilerSchema = 'z2m.z2k-official-compiler-snapshot.v1';
+  snapshot.nfqws2OptSha256 = 'e'.repeat(64);
+  snapshot.entries[0].nativeValidation = { status: 'not_checked' };
+  snapshot.entries[1].officialNfqws2Opt = '--filter-tcp=443';
+  const allowed = invoke('strategy_catalog_generation_build', [{
+    generatedAt: 1788200000, sources: { z2k: row }, userRevision: 0,
+  }], root, { Z2M_UPDATE_SOURCE_TEST: '1', Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '0' });
+  assert.equal(allowed.ok, true, JSON.stringify(allowed));
+  const rejected = invoke('strategy_catalog_generation_build', [{
+    generatedAt: 1788200001, sources: { z2k: row }, userRevision: 0,
+  }], root, { Z2M_UPDATE_SOURCE_TEST: '1', Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '1' });
+  assert.equal(rejected.ok, false, JSON.stringify(rejected));
+  assert.equal(rejected.error.code, 'ESTALE');
+});
+
 test('disabled and unpublished source snapshots never enter the candidate index', () => {
   const root = rootFor('gates');
   const result = invoke('strategy_catalog_generation_build', [{

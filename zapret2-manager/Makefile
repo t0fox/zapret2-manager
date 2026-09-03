@@ -110,6 +110,7 @@ fi
 rm -f /etc/zapret2-manager/catalog/repair-required
 migration_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-migration-cli.uc 2>/dev/null)"
 migration_ok=0
+index_path=/etc/zapret2-manager/catalog/strategy-catalog-index.json
 case "$$migration_out" in
   *'"ok": true'*|*'"ok":true'*) migration_ok=1; rm -f /etc/zapret2-manager/catalog/migration-required ;;
   *)
@@ -118,6 +119,12 @@ case "$$migration_out" in
     logger -t zapret2-manager -p daemon.err "strategy catalog source migration unavailable; retaining verified legacy catalog"
     ;;
 esac
+# Migration is only a successful warm-up when the compact persistent index
+# was actually published. Fall back to the bounded legacy index repair if the
+# source-generation path returned success without leaving that artifact.
+if [ "$$migration_ok" -eq 1 ] && [ ! -f "$$index_path" ]; then
+  migration_ok=0
+fi
 index_ok=0
 if [ "$$migration_ok" -eq 1 ]; then
   index_ok=1
