@@ -10,6 +10,7 @@ var GROUPS = [
   {
     id: 'home',
     label: _('Главная'),
+    icon: 'dashboard',
     hideSecondary: true,
     items: [
       { id: 'dashboard', label: _('Главная') }
@@ -18,6 +19,7 @@ var GROUPS = [
   {
     id: 'dpi',
     label: _('Обход DPI'),
+    icon: 'shield-check',
     items: [
       { id: 'control', label: _('Управление') },
       { id: 'strategies', label: _('Стратегии') },
@@ -27,6 +29,7 @@ var GROUPS = [
   {
     id: 'routing',
     label: _('Прокси и маршрутизация'),
+    icon: 'route',
     items: [
       { id: 'unified-routing', label: _('Единая маршрутизация'), hidden: true },
       { id: 'warp', label: _('WARP / MASQUE') },
@@ -36,6 +39,7 @@ var GROUPS = [
   {
     id: 'data',
     label: _('Списки и данные'),
+    icon: 'database',
     items: [
       { id: 'services', label: _('Сервисы и домены') },
       { id: 'resources', label: _('Ресурсы') },
@@ -45,6 +49,7 @@ var GROUPS = [
   {
     id: 'diagnostics',
     label: _('Диагностика'),
+    icon: 'activity',
     items: [
       { id: 'diagnostics', label: _('Диагностика'), hidden: true },
       { id: 'monitor', label: _('Мониторинг') },
@@ -54,6 +59,7 @@ var GROUPS = [
   {
     id: 'system',
     label: _('Система'),
+    icon: 'settings',
     items: [
       { id: 'system', label: _('Система'), hidden: true },
       { id: 'components', label: _('Компоненты') },

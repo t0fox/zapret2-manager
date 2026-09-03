@@ -2,12 +2,13 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-format as Format';
 'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
+'require view.zapret2-manager.z2m-icons as Icons';
 
 var modalKeyHandler = null;
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head) return;
-  var revision = '?v=header-branding-20260903-r1';
+  var revision = '?v=header-branding-20260903-r1-primary-navigation-20260903-r1';
   var existing = document.getElementById(id);
   if (existing) {
     var expected = L.resource('view/zapret2-manager/' + filename) + revision;
@@ -134,21 +135,44 @@ function primaryNavigation(model, activeId, onSelect, attrs) {
       role: 'tablist',
       'aria-label': _('Разделы Zapret 2 Manager')
     });
+    var activePrimary = null;
     groups.forEach(function (group) {
       var target = (group.items || []).filter(function (item) { return item.hidden !== true; })[0];
       if (!target) return;
       var selected = group.id === activeGroup.id;
+      var icon = group.icon ? Icons.node(group.icon, { size: 16, className: 'z2m-primary-nav-icon' }) : null;
+      var label = E('span', { 'class': 'z2m-nav-label' }, Format.text(group.label));
       var node = E('button', {
         type: 'button',
         role: 'tab',
         'class': selected ? 'on' : '',
         'aria-selected': selected ? 'true' : 'false',
         'aria-controls': 'z2m-secondary-nav',
+        tabindex: selected ? '0' : '-1',
         'data-nav-group': group.id
-      }, Format.text(group.label));
+      }, icon ? [icon, label] : [label]);
       node.addEventListener('click', function () {
+        Array.from(primary.querySelectorAll('button[role="tab"]')).forEach(function (tab) {
+          var isSelected = tab === node;
+          tab.classList.toggle('on', isSelected);
+          tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+          tab.setAttribute('tabindex', isSelected ? '0' : '-1');
+        });
         if (typeof onSelect === 'function') onSelect(target.id, target);
       });
+      node.addEventListener('keydown', function (event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+        var tabs = Array.from(primary.querySelectorAll('button[role="tab"]:not([disabled])'));
+        var index = tabs.indexOf(node);
+        if (!tabs.length || index < 0) return;
+        if (event.key === 'Home') index = 0;
+        else if (event.key === 'End') index = tabs.length - 1;
+        else index = (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+        event.preventDefault();
+        tabs[index].focus();
+        tabs[index].click();
+      });
+      if (selected) activePrimary = node;
       primary.appendChild(node);
     });
 
@@ -194,6 +218,10 @@ function primaryNavigation(model, activeId, onSelect, attrs) {
       });
     }
     host.replaceChildren.apply(host, secondary ? [primary, secondary] : [primary]);
+    if (activePrimary && typeof activePrimary.scrollIntoView === 'function') {
+      var schedule = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : function (callback) { setTimeout(callback, 0); };
+      schedule(function () { activePrimary.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+    }
   }
 
   host.setActive = function (route) { render(model.normalize(route)); };
