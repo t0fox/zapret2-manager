@@ -140,6 +140,12 @@ function read_json(path) {
 	try { return { ok: true, absent: false, value: json(raw) }; }
 	catch (e) { return { ok: false, absent: false, value: null }; }
 }
+function merge_fields(base, patch) {
+	let result = copy(base) || {};
+	if (!object(patch)) return result;
+	for (let key in patch) if (EDITABLE_FIELDS[key]) result[key] = copy(patch[key]);
+	return result;
+}
 function load_baseline() {
 	let result = read_json(BASELINE_PATH);
 	if (!result.ok || result.absent || !object(result.value) || result.value.schema != PROVIDER_SCHEMA || type(result.value.providers) != 'array')
@@ -184,15 +190,9 @@ function load_overlay(baseline) {
 	if (length(errors)) return error('ESTATE', 'DNS provider overlay failed validation', { errors: errors, path: OVERLAY_PATH });
 	return { ok: true, state: state };
 }
-function merge_fields(base, patch) {
-	let result = copy(base) || {};
-	if (!object(patch)) return result;
-	for (let key in patch) if (EDITABLE_FIELDS[key]) result[key] = copy(patch[key]);
-	return result;
-}
 function editable_record(provider) {
 	let result = {};
-	for (let key in EDITABLE_FIELDS) if (provider[key] !== undefined) result[key] = copy(provider[key]);
+	for (let key in EDITABLE_FIELDS) if (exists(provider, key)) result[key] = copy(provider[key]);
 	return result;
 }
 function effective_builtin(provider, patch, revision) {
@@ -245,7 +245,7 @@ function normalized_custom(input, id, previous) {
 	result.id = id;
 	if (result.category == null) result.category = 'Пользовательские';
 	if (result.ipv6 == null) result.ipv6 = [];
-	if (result.doh === undefined) result.doh = null;
+	if (!exists(result, 'doh')) result.doh = null;
 	if (result.provenance == null) result.provenance = [{ kind: 'user', source: 'dns-provider-overlay' }];
 	return result;
 }
@@ -264,14 +264,15 @@ function stable_custom_id(input) {
 	let value = object(input) && type(input.id) == 'string' ? trim(input.id) : '';
 	if (substr(value, 0, 5) == 'user:') return valid_id(value, true) ? value : null;
 	if (value == '') value = type(input.name) == 'string' ? trim(input.name) : '';
-	let slug = '';
+	let slug = '', non_ascii = false;
 	for (let i = 0; i < length(value); i++) {
 		let c = substr(value, i, 1);
+		if (ord(c) > 127) non_ascii = true;
 		if (match(c, /^[A-Za-z0-9]$/)) slug += lc(c);
 		else if (length(slug) && substr(slug, -1) != '-') slug += '-';
 	}
 	while (substr(slug, -1) == '-') slug = substr(slug, 0, length(slug) - 1);
-	if (length(slug) < 2) {
+	if (non_ascii || length(slug) < 2) {
 		if (value == '') return null;
 		slug = 'dns-' + stable_name_suffix(value);
 	}
