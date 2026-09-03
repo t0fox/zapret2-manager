@@ -129,7 +129,7 @@ function active_dnsmasq() { let raw = run("ubus call service list '{\"name\":\"d
 function uci_snapshot(active) { let c = uci.cursor(); if (!c.load('dhcp')) return null; let s = c.get_all('dhcp', active.section); if (!s || s['.type'] != 'dnsmasq') return null; return { server: copy(s.server), address: copy(s.address), confdir: copy(s.confdir) }; }
 function ownership(current, previous, desired) { let old = {}, external = [], present = {}, managed = [], satisfied = [], resulting = []; for (let i = 0; i < length(previous || []); i++) old[previous[i]] = true; for (let j = 0; j < length(current || []); j++) if (!old[current[j]]) { push(external, current[j]); present[current[j]] = true; } for (let k = 0; k < length(desired || []); k++) { if (present[desired[k]]) push(satisfied, desired[k]); else push(managed, desired[k]); } for (let n = 0; n < length(external); n++) push(resulting, external[n]); for (let m = 0; m < length(managed); m++) push(resulting, managed[m]); return { externalEntries: external, managedServerEntries: managed, externallySatisfiedEntries: satisfied, resultingEntries: resulting }; }
 function address_domain(entry) { let parts = split(entry || '', '/'); return length(parts) > 2 ? lc(parts[1]) : ''; }
-function address_ownership(current, previous, desired) { let own = ownership(current, previous, desired), conflicts = []; for (let i = 0; i < length(desired || []); i++) { let domain = address_domain(desired[i]); for (let j = 0; j < length(own.externalEntries || []); j++) if (address_domain(own.externalEntries[j]) == domain && own.externalEntries[j] != desired[i]) push(conflicts, { domain: domain, managed: desired[i], external: own.externalEntries[j] }); } own.conflicts = conflicts; return own; }
+function address_ownership(current, previous, desired) { let own = ownership(current, previous, desired), conflicts = []; for (let i = 0; i < length(desired || []); i++) { let domain = address_domain(desired[i]); for (let j = 0; j < length(own.externalEntries || []); j++) if (address_domain(own.externalEntries[j]) == domain && own.externalEntries[j] != desired[i]) push(conflicts, { domain: domain, managed: desired[i], external: own.externalEntries[j] }); } own.managedAddressEntries = own.managedServerEntries; own.externallySatisfiedAddressEntries = own.externallySatisfiedEntries; own.resultingAddressEntries = own.resultingEntries; own.conflicts = conflicts; return own; }
 function dedupe(values) { let out = [], seen = {}; for (let i = 0; i < length(values || []); i++) { let value = trim(values[i] || ''); if (valid_ip(value) && !seen[value]) { seen[value] = true; push(out, value); } } return out; }
 function tiktok_system_resolvers() {
 	let out = [], sources = [TIKTOK_RESOLVER_STATE, TIKTOK_RESOLVER_FALLBACK];
@@ -202,7 +202,8 @@ function unlock(op) { try { let l = json(readfile(LOCK_FILE)); if (l && l.operat
 function valid_operation(op) { return type(op) == 'string' && match(op, /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/); }
 function legacy_tiktok_managed_addresses(state, current) {
 	let previous = copy(state.applied && state.applied.managedAddressEntries || []);
-	if (length(previous) || !state.tiktokAuto || (state.tiktokAuto.managed !== true && state.tiktokAuto.legacyManagedAddressMigration !== true)) return { entries: previous, ambiguous: false };
+	let auto = state.tiktokAuto || {}, removedByRecovery = auto.lastFailover && auto.lastFailover.action == 'removed-owned-override';
+	if (length(previous) || !state.tiktokAuto || (auto.managed !== true && auto.legacyManagedAddressMigration !== true && !removedByRecovery)) return { entries: previous, ambiguous: false };
 	let matches = [];
 	for (let i = 0; i < length(current || []); i++) if (address_domain(current[i]) == TIKTOK_AUTO_HOST) push(matches, current[i]);
 	return { entries: length(matches) == 1 ? matches : [], ambiguous: length(matches) > 1 };
@@ -361,6 +362,7 @@ export const service_dns_tiktok_check = function(req) {
 		}
 		auto.lastProbe = tiktok_probe_record(nowValue, 'system-wan-domain-resolution+target-probe', { resolutionStatus: snapshot.status, resolverOwner: snapshot.resolverOwner, candidates: snapshot.candidates, observations: [currentObservation] });
 		if (auto.recoveryCount >= TIKTOK_RECOVERY_THRESHOLD) {
+			if (auto.managed === true && !(state.applied && length(state.applied.managedAddressEntries || []))) auto.legacyManagedAddressMigration = true;
 			auto.selectedIp = null;
 			auto.selectedCandidate = null;
 			auto.latencyMs = null;

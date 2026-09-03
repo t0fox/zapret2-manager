@@ -123,6 +123,7 @@ test('TikTok address ownership preserves external entries and only replaces its 
   const owner = fs.readFileSync(OWNER, 'utf8');
   assert.match(owner, /managedAddressEntries|address_ownership/);
   assert.match(owner, /tiktok_apply_override_if_needed/);
+  assert.match(owner, /resultingAddressEntries/);
   assert.match(worker, /previous.*address|external.*address|managed.*address/i);
 });
 
