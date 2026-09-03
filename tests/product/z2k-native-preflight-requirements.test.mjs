@@ -24,3 +24,10 @@ test('the catalog all-in-one preset uses stock TLS modifiers', () => {
 	assert.match(catalog, /tls_mod=rnd,dupsid/);
 	assert.doesNotMatch(catalog, /tls_mod=[^\s:]*z2k_/);
 });
+
+test('native preflight binds canonical runtime references before invoking nfqws2', () => {
+	assert.match(PREFLIGHT_SOURCE, /function runtime_argument_token\(value\)/);
+	assert.match(PREFLIGHT_SOURCE, /--hostlist-exclude-domains=/);
+	assert.match(PREFLIGHT_SOURCE, /--blob=/);
+	assert.match(PREFLIGHT_SOURCE, /runtime_argument_token\(tokens\[i\]\.value\)/);
+});

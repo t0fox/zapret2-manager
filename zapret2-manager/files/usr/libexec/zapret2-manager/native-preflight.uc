@@ -77,6 +77,33 @@ function runtime_target_path(target) {
 	return null;
 }
 
+function runtime_argument_token(value) {
+	if (type(value) != 'string') return value;
+	let prefixes = [
+		'--hostlist=', '--hostlist-exclude=', '--hostlist-exclude-domains=',
+		'--ipset=', '--ipset-exclude=', '--lua-init='
+	];
+	for (let prefix in prefixes) if (substr(value, 0, length(prefix)) == prefix) {
+		let reference = substr(value, length(prefix)), sigil = '';
+		if (prefix == '--lua-init=' && substr(reference, 0, 1) == '@') {
+			sigil = '@'; reference = substr(reference, 1);
+		}
+		let target = runtime_target_path(reference);
+		return target == null ? value : prefix + sigil + target;
+	}
+	if (substr(value, 0, length('--blob=')) == '--blob=') {
+		let raw = substr(value, length('--blob=')), marker = index(raw, ':');
+		if (marker >= 0) {
+			let source = substr(raw, marker + 1), markerPrefix = substr(source, 0, 1);
+			if (markerPrefix == '@' || markerPrefix == '+') {
+				let target = runtime_target_path(substr(source, 1));
+				if (target != null) return '--blob=' + substr(raw, 0, marker + 1) + markerPrefix + target;
+			}
+		}
+	}
+	return value;
+}
+
 function runtime_composition_snapshot(input) {
 	let value = input;
 	if (type(value) != 'object' || value == null) {
@@ -160,7 +187,7 @@ function command_for(candidate, mode, luaFiles) {
 	let cmd = 'cd /opt/zapret2 && ' + shell_escape(NFQWS2_BIN) + ' ' + mode + ' --qnum=30999';
 	for (let i = 0; i < length(luaFiles); i++)
 		cmd += ' --lua-init=' + shell_escape('@' + luaFiles[i]);
-	for (let i = 0; i < length(tokens); i++) cmd += ' ' + shell_escape(tokens[i].value);
+	for (let i = 0; i < length(tokens); i++) cmd += ' ' + shell_escape(runtime_argument_token(tokens[i].value));
 	return cmd;
 }
 
