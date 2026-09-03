@@ -159,7 +159,7 @@ function plan(value) {
 			}
 		}
 		else if (klass == 'watched' && item.basedOnSha256 != digest) {
-			let policy = review_policy(item), detail = { path: path, reason: 'watched-upstream-file-changed', policy: policy, message: policy == 'advisory' ? 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; изменение отмечено как advisory review.' : 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; требуется semantic review.' };
+			let policy = review_policy(item), detail = { path: path, reason: 'watched-upstream-file-changed', policy: policy, message: policy == 'advisory' ? 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; изменение отмечено как advisory review.' : 'Наблюдаемый upstream-файл изменился; Z2M не устанавливает его автоматически; требуется явная policy review.' };
 			push(reviews, path);
 			push(reviewDetails, detail);
 			if (policy == 'advisory') push(advisoryReviews, path);

@@ -142,10 +142,10 @@ test('SEMANTIC: excluded 5th-col survives load/write, get_record key pair, state
 });
 
 // --- 3. Refresh-state regression ---
-test('Refresh-state regression: resources_status is persisted CHECK_STATE, needs resources_check to refresh', () => {
+test('Refresh-state regression: resources_status is persisted CHECK_STATE and re-projects it through current policy', () => {
   const ru = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
   assert.match(ru, /load_check_state/, 'resource_center_status must use load_check_state (persisted)');
-  assert.match(ru, /z2k_projection\(latestCheck\.signed\)/, 'status must project persisted signed');
+  assert.match(ru, /z2k_projection\(latestCheck\.signed,\s*true\)/, 'status must project persisted signed through current pure policy');
   // Extract resource_center_status body to ensure it does NOT call live check directly
   const statusStart = ru.indexOf('export const resource_center_status');
   const checkStart = ru.indexOf('export const resource_center_check');
@@ -157,6 +157,5 @@ test('Refresh-state regression: resources_status is persisted CHECK_STATE, needs
   assert.match(checkBody, /z2k_upstream_check\s*\(\)/, 'check must call live z2k_upstream_check');
   assert.match(ru, /save_check_state/, 'check must save_check_state');
   assert.match(ru, /CHECK_STATE = '\/etc\/zapret2-manager\/resource-source-check\.json'/, 'CHECK_STATE path must be documented');
-  // This behavior is intentional: stale projection until explicit check. Document it.
-  // The test locks this in so the stale-projection diagnosis is not rediscovered.
+  assert.match(ru, /refreshPlan === true[\s\S]*z2k_upstream_plan/, 'status policy refresh must remain pure and local');
 });

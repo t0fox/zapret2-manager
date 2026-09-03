@@ -6,7 +6,7 @@ import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const SRC = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc'), 'utf8');
 
-test('REGRESSION: resource_center_status stays network-free', () => {
+test('REGRESSION: resource_center_status stays network-free while re-projecting the saved manifest', () => {
   const idxStatus = SRC.indexOf('resource_center_status');
   const idxCheck = SRC.indexOf('resource_center_check');
   assert.ok(idxStatus >= 0 && idxCheck > idxStatus, 'both functions must exist');
@@ -14,6 +14,8 @@ test('REGRESSION: resource_center_status stays network-free', () => {
   assert.doesNotMatch(statusBody, /z2k_upstream_check\s*\(/, 'status must not call upstream check');
   assert.doesNotMatch(statusBody, /uclient-fetch/, 'status must not fetch');
   assert.doesNotMatch(statusBody, /fetch_untrusted/, 'status must not fetch untrusted manifest');
+  assert.match(statusBody, /z2k_projection\(latestCheck\.signed,\s*true\)/, 'status must re-project the saved manifest through the current pure planner');
+  assert.match(SRC, /canApply:\s*refreshPlan === true \? plan\.canApply === true/, 'fresh policy blockers must override stale canApply evidence');
 });
 
 test('REGRESSION: resource_center_status exposes local Z2K evidence (lua ready/total, integrity, version)', () => {

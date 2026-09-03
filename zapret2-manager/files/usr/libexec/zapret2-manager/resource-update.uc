@@ -220,17 +220,31 @@ function source_rows(manifest, rows) {
 	}
 	return result;
 }
-function z2k_projection(signed) {
+function z2k_projection(signed, refreshPlan) {
 	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], removedItems: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], unknownUnconsumed: [], compilerInputs: [], dependencyGraph: null, dependencyClosure: null, runtimeBundleDigest: null, strategyCount: null, planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, sourceCommit: null, manifestRevision: null, candidateStrategyRevision: null, manifest: null, availableRelease: null };
 	let plan = object(signed.plan) ? signed.plan : {}, manifest = object(signed.manifest) ? signed.manifest : {};
+	// CHECK_STATE is durable evidence, but its plan was produced by the
+	// policy that was installed at check time. Re-project status through the
+	// current pure planner so a package-side policy change is visible without
+	// network I/O. The explicit check path keeps its enriched plan (including
+	// candidate compatibility gates) by leaving refreshPlan false there.
+	if (refreshPlan === true && object(signed.manifest)) {
+		try {
+			let current = z2k_upstream_plan(signed.manifest);
+			if (current && current.ok === true) plan = current;
+		} catch (e) { /* retain the last valid persisted plan */ }
+	}
 	let status = signed.status || 'unknown';
+	if (refreshPlan === true && plan && plan.status) status = plan.status;
 	let updateState = signed.updateState || plan.updateState || (length(plan.updates || []) + length(plan.removedItems || []) > 0 ? 'update-available' : status == 'unknown' ? 'unknown' : 'current');
+	if (refreshPlan === true && plan && plan.updateState) updateState = plan.updateState;
 	let attentionState = signed.attentionState || plan.attentionState || (status == 'rebase-required' ? 'rebase-required' : status == 'review-required' ? 'review-required' : 'none');
+	if (refreshPlan === true && plan && plan.attentionState) attentionState = plan.attentionState;
 	return {
 		status: status,
 		updateState: updateState,
 		attentionState: attentionState,
-		canApply: signed.canApply === true || plan.canApply === true,
+		canApply: refreshPlan === true ? plan.canApply === true : signed.canApply === true || plan.canApply === true,
 		updates: plan.updates || [],
 		removedItems: plan.removedItems || [],
 		rebases: plan.rebases || [],
@@ -1477,19 +1491,18 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	}
 }
 export const resource_center_status = function () {
-	// STALE-PROJECTION REGRESSION GUARD (see tests/product/z2k-candidate-compatibility.test.mjs):
-	// This returns the PERSISTED CHECK_STATE (/etc/zapret2-manager/resource-source-check.json),
-	// NOT a live fetch. After a sidecar migration or manifest change, it may still show
-	// the previous status (e.g., rebase-required) until an explicit resources_check
-	// An explicit check refreshes CHECK_STATE via save_check_state(). Do not make
-	// this live — that would add network I/O to every status poll.
+	// CHECK_STATE remains the source of the last network check and manifest, but
+	// the saved manifest is re-projected through the current pure planner below.
+	// This keeps status network-free while making installed policy changes visible
+	// without waiting for another upstream fetch. An explicit resources_check still
+	// refreshes CHECK_STATE via save_check_state().
 	let loaded = load_manifest(); if (!loaded.ok) return loaded;
 	let persisted = load_check_state(), latestCheck = persisted && persisted.latestCheck;
 	let activeZ2KManifest = latestCheck && latestCheck.signed && latestCheck.signed.ok === true ? latestCheck.signed.manifest : null;
 	let answer = build_status(loaded.manifest, null, activeZ2KManifest);
 	if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
-	let remote = latestCheck ? z2k_projection(latestCheck.signed) : z2k_projection(null);
+	let remote = latestCheck ? z2k_projection(latestCheck.signed, true) : z2k_projection(null);
 	remote.local = local;
 	remote.coherence = strategy_coherence(local, remote);
 	remote.checkedAt = latestCheck ? latestCheck.checkedAt : null;
