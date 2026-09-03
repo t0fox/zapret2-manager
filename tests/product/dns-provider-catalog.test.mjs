@@ -124,6 +124,15 @@ test('provider product save rejects an unknown non-empty identity instead of cre
   assert.match(source, /if\s*\(!provider\)\s*return\s+error\(['"]ENOENT['"]/);
 });
 
+test('provider facade keeps a parsed RPC edit object instead of dereferencing missing value', () => {
+  const source = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dns-product.uc', 'utf8');
+  const start = source.indexOf('function provider_input');
+  const end = source.indexOf('\n}', start) + 2;
+  const helper = source.slice(start, end);
+  assert.match(helper, /if\s*\(!object\(input\)\)\s*return\s+\{\}/);
+  assert.match(helper, /exists\(input,\s*['"]value['"]\)/);
+});
+
 test('custom provider IDs remain stable for names without ASCII characters', { skip: !HAS_UCODE }, () => {
   const f = fixture();
   const env = { Z2M_DNS_PROVIDER_BASELINE: f.baseline, Z2M_DNS_PROVIDER_OVERLAY: f.overlay };

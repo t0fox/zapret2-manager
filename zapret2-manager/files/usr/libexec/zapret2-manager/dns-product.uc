@@ -50,7 +50,8 @@ export const dns_product_providers = function() {
 
 function provider_input(req) {
 	let input = request_value(req);
-	return object(input.value) ? input.value : input;
+	if (!object(input)) return {};
+	return exists(input, 'value') && object(input.value) ? input.value : input;
 }
 
 function add_provider_reference(references, reference) {
