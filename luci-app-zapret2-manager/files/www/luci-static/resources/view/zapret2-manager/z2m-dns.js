@@ -22,7 +22,7 @@ var state = {
   serviceApplyBusy: false, manualApplyBusy: false, globalApplyBusy: false,
   globalDraft: null, globalBaseline: null, globalProviders: [],
   providerBusy: {}, providerResults: {}, providerErrors: {},
-  providerEditor: null, providerEditorBusy: false, providerEditorError: null, providerEditorFieldErrors: {},
+  providerEditor: null, providerEditorBusy: false, providerEditorDirty: false, providerEditorError: null, providerEditorFieldErrors: {},
   providerBatch: { total: 0, completed: 0, working: 0, failed: 0 },
   allProvidersBusy: false, benchRunning: false,
   dnsCheck: null,
@@ -763,6 +763,47 @@ function render(ctx) {
     function providerText(value) {
       return String(value == null ? '' : value).split(/[\n,]+/).map(function (item) { return item.trim(); }).filter(Boolean).join('\n');
     }
+    function validProviderIPv4(value) {
+      var parts = String(value || '').split('.');
+      return parts.length === 4 && parts.every(function (part) {
+        return /^[0-9]+$/.test(part) && part.length > 0 && part.length <= 3 && (part.length === 1 || part.charAt(0) !== '0') && Number(part) <= 255;
+      });
+    }
+    function validProviderIPv6(value) {
+      value = String(value || '');
+      if (value.length < 2 || value.length > 45 || value.indexOf('.') >= 0 || !/^[0-9a-f:]+$/i.test(value)) return false;
+      var marker = value.indexOf('::');
+      if (marker >= 0) {
+        if (value.indexOf('::', marker + 2) >= 0) return false;
+        var left = value.slice(0, marker), right = value.slice(marker + 2), count = 0;
+        if (left) {
+          var leftParts = left.split(':');
+          if (leftParts.some(function (part) { return !/^[0-9a-f]{1,4}$/i.test(part); })) return false;
+          count += leftParts.length;
+        }
+        if (right) {
+          var rightParts = right.split(':');
+          if (rightParts.some(function (part) { return !/^[0-9a-f]{1,4}$/i.test(part); })) return false;
+          count += rightParts.length;
+        }
+        return count < 8;
+      }
+      var parts = value.split(':');
+      return parts.length === 8 && parts.every(function (part) { return /^[0-9a-f]{1,4}$/i.test(part); });
+    }
+    function providerClientFieldError(field, value) {
+      if (field === 'ipv4') {
+        var ipv4 = providerText(value).split('\n').filter(Boolean);
+        if (!ipv4.length) return _('Добавьте хотя бы один IPv4-адрес.');
+        for (var i = 0; i < ipv4.length; i++) if (!validProviderIPv4(ipv4[i])) return _('Некорректный IPv4-адрес: ') + ipv4[i];
+      }
+      if (field === 'ipv6') {
+        var ipv6 = providerText(value).split('\n').filter(Boolean);
+        for (var j = 0; j < ipv6.length; j++) if (!validProviderIPv6(ipv6[j])) return _('Некорректный IPv6-адрес: ') + ipv6[j];
+      }
+      if (field === 'doh' && String(value || '').trim() && !/^https:\/\//i.test(String(value).trim())) return _('DoH endpoint должен начинаться с https://.');
+      return '';
+    }
     function providerField(label, control, hint, field) {
       var fieldError = field && state.providerEditorFieldErrors[field];
       if (fieldError && control.setAttribute) {
@@ -836,28 +877,68 @@ function render(ctx) {
       var editor = state.providerEditor;
       if (!editor) return null;
       var provider = editor.provider || {}, isCustom = provider.origin === 'custom' || editor.mode === 'new';
-      var idInput = E('input', { type: 'text', name: 'id', autocomplete: 'off', 'class': 'z2m-input', value: provider.id || '', placeholder: 'user:my-dns', disabled: editor.mode !== 'new' ? 'disabled' : undefined, 'aria-label': _('Стабильный ID провайдера') });
       var nameInput = E('input', { type: 'text', name: 'name', autocomplete: 'off', 'class': 'z2m-input', value: provider.name || '', maxlength: '160', 'aria-label': _('Название провайдера') });
       var categoryInput = E('select', { name: 'category', 'class': 'z2m-select', 'aria-label': _('Категория провайдера') });
       PROVIDER_CATEGORIES.forEach(function (category) { categoryInput.appendChild(E('option', { value: category, selected: (provider.category || (isCustom ? 'Пользовательские' : 'Популярные')) === category ? 'selected' : undefined }, category)); });
       var ipv4Input = E('textarea', { name: 'ipv4', 'class': 'z2m-input z2m-provider-editor-textarea', rows: '3', placeholder: '1.1.1.1\n1.0.0.1', 'aria-label': _('IPv4-адреса') }, providerText(asArray(provider.ipv4)));
       var ipv6Input = E('textarea', { name: 'ipv6', 'class': 'z2m-input z2m-provider-editor-textarea', rows: '3', placeholder: '2606:4700:4700::1111', 'aria-label': _('IPv6-адреса') }, providerText(asArray(provider.ipv6)));
       var dohInput = E('input', { type: 'url', name: 'doh', autocomplete: 'url', 'class': 'z2m-input', value: provider.doh || '', placeholder: 'https://resolver.example/dns-query', 'aria-label': _('DoH endpoint') });
-      var notesInput = E('textarea', { name: 'notes', 'class': 'z2m-input z2m-provider-editor-textarea', rows: '3', maxlength: '4096', placeholder: _('Короткая заметка о провайдере'), 'aria-label': _('Заметки') }, provider.notes || '');
-      var close = shell.button(_('Отмена'), 'sm', function () { state.providerEditor = null; state.providerEditorError = null; state.providerEditorFieldErrors = {}; redraw(); });
-      var save = shell.button(_('Сохранить провайдера'), 'primary sm', function () {
+      var notesInput = E('textarea', { name: 'notes', 'class': 'z2m-input z2m-provider-editor-textarea', rows: '2', maxlength: '4096', placeholder: _('Короткая заметка о провайдере'), 'aria-label': _('Заметки') }, provider.notes || '');
+      var dirtyStatus = E('span', { 'class': 'z2m-provider-editor-status', 'aria-live': 'polite' }, state.providerEditorDirty ? shell.chip(_('Есть несохранённые изменения'), 'o', true) : null);
+      function markDirty() {
+        state.providerEditorDirty = true;
+        dirtyStatus.replaceChildren(shell.chip(_('Есть несохранённые изменения'), 'o', true));
+      }
+      function syncEditorProvider() {
+        state.providerEditor.provider = Object.assign({}, state.providerEditor.provider || {}, {
+          id: editor.mode === 'new' ? '' : providerId(provider),
+          name: nameInput.value.trim(),
+          category: categoryInput.value,
+          ipv4: providerText(ipv4Input.value).split('\n').filter(Boolean),
+          ipv6: providerText(ipv6Input.value).split('\n').filter(Boolean),
+          doh: dohInput.value.trim() || null,
+          notes: notesInput.value.trim()
+        });
+      }
+      [nameInput, categoryInput, ipv4Input, ipv6Input, dohInput, notesInput].forEach(function (control) {
+        control.addEventListener('input', markDirty);
+        control.addEventListener('change', markDirty);
+      });
+      [[ipv4Input, 'ipv4'], [ipv6Input, 'ipv6'], [dohInput, 'doh']].forEach(function (entry) {
+        entry[0].addEventListener('blur', function () {
+          var field = entry[1], message = providerClientFieldError(field, entry[0].value);
+          syncEditorProvider();
+          if (message) {
+            state.providerEditorFieldErrors[field] = message;
+            state.providerEditorError = { title: _('Проверьте форму'), message: _('Исправьте отмеченные поля и повторите сохранение.'), errors: [], dependencies: [], details: null };
+          } else {
+            delete state.providerEditorFieldErrors[field];
+            if (!Object.keys(state.providerEditorFieldErrors).length) state.providerEditorError = null;
+          }
+          redraw();
+        });
+      });
+      var close = shell.button(_('Отмена'), 'sm', function () { state.providerEditor = null; state.providerEditorDirty = false; state.providerEditorError = null; state.providerEditorFieldErrors = {}; redraw(); });
+      var save = shell.button(_('Сохранить'), 'primary sm', function () {
         if (state.providerEditorBusy) return;
         var payload = {
-          id: idInput.value.trim(), revision: catalogRevision, name: nameInput.value.trim(), category: categoryInput.value,
+          id: editor.mode === 'new' ? '' : providerId(provider), revision: catalogRevision, name: nameInput.value.trim(), category: categoryInput.value,
           ipv4: providerText(ipv4Input.value).split('\n').filter(Boolean), ipv6: providerText(ipv6Input.value).split('\n').filter(Boolean),
           doh: dohInput.value.trim() || null, notes: notesInput.value.trim()
         };
         if (!payload.id) delete payload.id;
         var clientErrors = {};
         if (!payload.name) clientErrors.name = _('Укажите название провайдера.');
-        if (!payload.ipv4.length) clientErrors.ipv4 = _('Добавьте хотя бы один IPv4-адрес.');
+        clientErrors.ipv4 = providerClientFieldError('ipv4', payload.ipv4.join('\n'));
+        if (!clientErrors.ipv4) delete clientErrors.ipv4;
+        clientErrors.ipv6 = providerClientFieldError('ipv6', payload.ipv6.join('\n'));
+        if (!clientErrors.ipv6) delete clientErrors.ipv6;
+        clientErrors.doh = providerClientFieldError('doh', payload.doh || '');
+        if (!clientErrors.doh) delete clientErrors.doh;
         if (!payload.notes) clientErrors.notes = _('Добавьте заметку о провайдере.');
         if (Object.keys(clientErrors).length) {
+          syncEditorProvider();
+          state.providerEditorDirty = true;
           state.providerEditorFieldErrors = clientErrors;
           state.providerEditorError = { title: _('Проверьте форму'), message: _('Исправьте отмеченные поля и повторите сохранение.'), errors: [], dependencies: [], details: null };
           redraw();
@@ -873,6 +954,7 @@ function render(ctx) {
           if (!answer || answer.ok === false) throw answer;
           state.providerEditor = null;
           state.providerEditorBusy = false;
+          state.providerEditorDirty = false;
           state.providerEditorFieldErrors = {};
           shell.showToast(_('Провайдер сохранён.'), 'ok');
           return ctx.refresh('dns');
@@ -882,7 +964,7 @@ function render(ctx) {
           state.providerEditorError = issue;
           state.providerEditorFieldErrors = issue.fieldErrors;
           state.providerEditor.provider = Object.assign({}, state.providerEditor.provider || {}, {
-            id: payload.id,
+            id: payload.id || providerId(provider),
             name: payload.name,
             category: payload.category,
             ipv4: payload.ipv4,
@@ -895,35 +977,59 @@ function render(ctx) {
           redraw();
         });
       });
+      var reset = !isCustom && provider.overridden === true ? shell.button(_('Сбросить изменения'), 'danger sm', function () { resetProvider(provider); }, state.providerEditorBusy) : null;
+      var remove = isCustom && editor.mode !== 'new' ? shell.button(_('Удалить'), 'danger sm', function () { deleteProvider(provider); }, state.providerEditorBusy) : null;
+      function editorSection(title, fields) {
+        return E('section', { 'class': 'z2m-provider-editor-section' }, [E('h3', {}, title), E('div', { 'class': 'z2m-provider-editor-grid' }, fields)]);
+      }
+      var stableId = providerId(provider);
+      var origin = provider.origin === 'custom' || editor.mode === 'new' ? _('Пользовательский') : _('Пакетный');
+      var technical = E('details', { 'class': 'z2m-provider-editor-technical' }, [
+        E('summary', {}, _('Технические сведения')),
+        E('dl', { 'class': 'z2m-provider-technical-grid' }, [
+          E('div', {}, [E('dt', {}, _('Stable ID')), E('dd', {}, stableId ? E('code', {}, stableId) : _('Будет создан автоматически'))]),
+          E('div', {}, [E('dt', {}, _('Источник')), E('dd', {}, origin)]),
+          E('div', {}, [E('dt', {}, _('Revision каталога')), E('dd', {}, E('code', {}, String(catalogRevision)))])
+        ])
+      ]);
       return E('div', { 'class': 'z2m-provider-editor', 'data-testid': 'dns-provider-editor' }, [
-        E('div', { 'class': 'z2m-provider-editor-head' }, [E('div', {}, [E('strong', {}, editor.mode === 'new' ? _('Новый DNS-провайдер') : _('Редактирование провайдера')), E('small', { 'class': 'z2m-dim' }, isCustom ? _('Пользовательская запись. Выбор DNS и применение — отдельное действие.') : _('Пакетный источник. Изменения сохраняются как overlay; baseline не меняется.'))]), E('small', { 'class': 'z2m-dim' }, _('Снимок каталога: rev ') + String(catalogRevision))]),
+        E('div', { 'class': 'z2m-provider-editor-head' }, [E('div', {}, [E('strong', {}, editor.mode === 'new' ? _('Новый DNS-провайдер') : _('Редактирование провайдера')), E('small', { 'class': 'z2m-dim' }, isCustom ? _('Пользовательский профиль. Выбор DNS и применение — отдельное действие.') : _('Встроенный профиль остаётся неизменным. Здесь сохраняются только ваши изменения.')), dirtyStatus]), E('span')]),
         providerErrorNode(),
-        E('div', { 'class': 'z2m-provider-editor-grid' }, [
+        editorSection(_('Основное'), [
           providerField(_('Название'), nameInput, null, 'name'),
-          providerField(_('Категория'), categoryInput, null, 'category'),
-          providerField(_('Стабильный ID'), idInput, editor.mode === 'new' ? _('Можно оставить пустым — ID будет создан из названия.') : _('ID является частью конфигурации и не изменяется.'), 'id'),
+          providerField(_('Категория'), categoryInput, null, 'category')
+        ]),
+        editorSection(_('Адреса'), [
           providerField(_('IPv4-адреса'), ipv4Input, _('По одному адресу в строке.'), 'ipv4'),
-          providerField(_('IPv6-адреса'), ipv6Input, _('По одному адресу в строке.'), 'ipv6'),
-          providerField(_('DoH endpoint'), dohInput, _('Только https://; endpoint остаётся данными и не включает DoH сам по себе.'), 'doh'),
+          providerField(_('IPv6-адреса'), ipv6Input, _('По одному адресу в строке.'), 'ipv6')
+        ]),
+        editorSection(_('Подключение'), [
+          providerField(_('DoH endpoint'), dohInput, _('Оставьте пустым, если провайдер не использует DoH.'), 'doh')
+        ]),
+        editorSection(_('Дополнительно'), [
           providerField(_('Заметки'), notesInput, null, 'notes')
         ]),
-        E('div', { 'class': 'z2m-provider-editor-actions' }, [close, save])
+        technical,
+        E('div', { 'class': 'z2m-provider-editor-actions' }, [close, save, reset, remove])
       ]);
     }
     function openProviderEditor(provider) {
       state.providerEditor = { mode: provider ? 'edit' : 'new', provider: provider ? Object.assign({}, provider) : {} };
+      state.providerEditorDirty = false;
       state.providerEditorError = null;
       state.providerEditorFieldErrors = {};
       redraw();
     }
     function resetProvider(provider) {
       if (!ctx.api.dns.product.providerReset || state.providerEditorBusy) return;
-      ctx.shell.avatar.confirm({ title: _('Вернуть данные провайдера?'), message: _('Пользовательские поля будут удалены, а пакетный вариант останется неизменным.'), okLabel: _('Вернуть'), className: 'danger' }).then(function (confirmed) {
+      ctx.shell.avatar.confirm({ title: _('Сбросить изменения?'), message: _('Вернуть встроенные значения ' + providerName(provider) + '?'), okLabel: _('Сбросить'), className: 'danger' }).then(function (confirmed) {
         if (!confirmed) return;
         state.providerEditorBusy = true;
         return edit(ctx.api.dns.product.providerReset, { id: providerId(provider), revision: catalogRevision }).then(function (answer) {
           if (!answer || answer.ok === false) throw answer;
           state.providerEditorBusy = false;
+          state.providerEditor = null;
+          state.providerEditorDirty = false;
           return ctx.refresh('dns');
         }).catch(function (error) {
           state.providerEditorBusy = false;
@@ -934,12 +1040,14 @@ function render(ctx) {
     }
     function deleteProvider(provider) {
       if (!ctx.api.dns.product.providerDelete || state.providerEditorBusy) return;
-      ctx.shell.avatar.confirm({ title: _('Удалить DNS-провайдера?'), message: _('Провайдер будет удалён из пользовательского каталога. Backend сначала проверит глобальные и сервисные зависимости.'), okLabel: _('Удалить'), className: 'danger' }).then(function (confirmed) {
+      ctx.shell.avatar.confirm({ title: _('Удалить DNS-провайдера?'), message: _('Если провайдер используется, удаление остановится и покажет его зависимости.'), okLabel: _('Удалить'), className: 'danger' }).then(function (confirmed) {
         if (!confirmed) return;
         state.providerEditorBusy = true;
         return edit(ctx.api.dns.product.providerDelete, { id: providerId(provider), revision: catalogRevision }).then(function (answer) {
           if (!answer || answer.ok === false) throw answer;
           state.providerEditorBusy = false;
+          state.providerEditor = null;
+          state.providerEditorDirty = false;
           return ctx.refresh('dns');
         }).catch(function (error) {
           state.providerEditorBusy = false;
@@ -956,10 +1064,10 @@ function render(ctx) {
         E('div', { 'class': 'z2m-provider-catalog-summary' }, [
           E('span', { 'class': 'z2m-provider-catalog-count' }, String(providers.length) + ' ' + _('провайдеров')),
           E('span', { 'class': 'z2m-provider-catalog-count' }, String(customCount) + ' ' + _('пользовательских')),
-          E('span', { 'class': 'z2m-provider-catalog-count' }, String(overriddenCount) + ' ' + _('override')),
+          E('span', { 'class': 'z2m-provider-catalog-count' }, String(overriddenCount) + ' ' + _('изменённых')),
           add
         ]),
-        E('p', { 'class': 'z2m-dim z2m-provider-catalog-note' }, _('Пакетный baseline неизменяем. Редактор сохраняет overlay; проверка и применение DNS запускаются отдельно.')),
+        E('p', { 'class': 'z2m-dim z2m-provider-catalog-note' }, _('Встроенные профили сохраняются как есть. Ваши изменения, проверка и применение DNS — отдельные действия.')),
         E('details', { 'class': 'z2m-provider-catalog-details' }, [E('summary', {}, _('Подробнее')), E('div', { 'class': 'z2m-dim' }, [_('Revision каталога: '), E('code', {}, String(catalogRevision)), E('br'), _('Единый ID используется в глобальном DNS, правилах сервисов и диагностике.')])]),
         providerEditorPanel()
       ]));
@@ -980,8 +1088,8 @@ function render(ctx) {
           var editProviderButton = shell.button(_('Настроить'), 'sm', function () { openProviderEditor(provider); }, state.providerEditorBusy);
           var reset = provider.overridden === true ? shell.button(_('Сбросить'), 'sm', function () { resetProvider(provider); }, state.providerEditorBusy) : null;
           var remove = provider.origin === 'custom' ? shell.button(_('Удалить'), 'danger sm', function () { deleteProvider(provider); }, state.providerEditorBusy) : null;
-          var originLabel = provider.origin === 'custom' ? _('Пользовательский') : provider.overridden === true ? _('Изменён пользователем') : _('Пакетный');
-          var metadata = E('div', { 'class': 'z2m-provider-meta' }, [shell.chip(originLabel, provider.origin === 'custom' ? 'o' : provider.overridden === true ? 'o' : 'g'), E('code', {}, id)]);
+          var originLabel = provider.origin === 'custom' ? _('Пользовательский') : provider.overridden === true ? _('Пакетный · Изменён') : _('Пакетный');
+          var metadata = E('div', { 'class': 'z2m-provider-meta' }, [shell.chip(originLabel, provider.origin === 'custom' || provider.overridden === true ? 'o' : 'g'), selected ? shell.chip(_('Используется'), 'g', true) : null]);
           body.appendChild(E('div', { 'class': 'z2m-provider-row' + (selected ? ' selected' : '') }, [
             E('span', { 'class': 'z2m-provider-icon', style: 'color:' + iconData.color }, [icon]),
             E('div', { 'class': 'z2m-provider-main' }, [E('strong', { 'class': 'z2m-provider-name' }, providerName(provider)), E('small', { 'class': 'z2m-provider-addresses' }, asArray(provider.ipv4 || provider.addresses).join(' · ') || _('Адрес не указан')), metadata]),
@@ -1036,14 +1144,17 @@ function render(ctx) {
     var id = providerId(provider);
     var error = state.providerErrors[id];
     var result = state.providerResults[id];
+    if (state.providerBusy[id] === true)
+      return E('div', { 'class': 'z2m-provider-result z2m-provider-result-pending' }, [shell.chip(_('Проверяется…'), 'b', true)]);
     if (error) {
       var mapped = ProductUX.errorMessage(error, _('Проверка провайдера не выполнена.'));
       return E('div', { 'class': 'z2m-provider-result z2m-provider-result-error' }, [
-        shell.chip(mapped.message, 'r'),
+        shell.chip(_('Проблема'), 'r', true),
+        E('span', {}, mapped.message),
         E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Технические детали')), E('code', {}, mapped.technical)])
       ]);
     }
-    if (!result) return E('div', { 'class': 'z2m-provider-result z2m-dim' }, _('Не проверялось'));
+    if (!result) return E('div', { 'class': 'z2m-provider-result z2m-dim' }, _('Не проверен'));
     var ok = providerResultClass(id) === 'z2m-provider-result-success';
     var probe = providerProbe(result, id);
     var attempts = asArray(probe && probe.attempts);
@@ -1057,9 +1168,9 @@ function render(ctx) {
     });
     return E('div', { 'class': 'z2m-provider-result ' + providerResultClass(id) }, [
       E('span', { 'class': 'z2m-provider-status-dot ' + (ok ? 'ok' : 'fail') }, '●'),
-      E('strong', {}, ok ? (partial ? _('Работает частично') : _('Работает')) : _('Недоступен')),
-      latency == null ? E('span', { 'class': 'z2m-provider-measurement-missing' }, _('Время не измерено')) : E('span', { 'class': 'z2m-provider-latency' }, formatLatency(latency)),
-      E('span', { 'class': 'z2m-provider-attempts' }, answered + ' ' + _('из') + ' ' + attempts.length + ' ' + _('отвечает')),
+      E('strong', {}, ok ? (partial ? _('Частично доступен') : _('Доступен')) : _('Проблема')),
+      latency == null ? null : E('span', { 'class': 'z2m-provider-latency' }, formatLatency(latency)),
+      attempts.length ? E('span', { 'class': 'z2m-provider-attempts' }, answered + ' ' + _('из') + ' ' + attempts.length + ' ' + _('отвечает')) : null,
       detailRows.length ? E('details', { 'class': 'z2m-provider-details' }, [E('summary', {}, _('Детали')), E('div', { 'class': 'z2m-provider-detail-list' }, detailRows)]) : null
     ]);
   }

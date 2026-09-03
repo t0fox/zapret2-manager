@@ -5207,6 +5207,59 @@
   background:var(--panel);
   box-shadow:0 1px 0 rgba(0,0,0,.08);
 }
+.z2m-app .z2m-provider-editor-section {
+  display:grid;
+  gap:8px;
+  padding-top:2px;
+}
+.z2m-app .z2m-provider-editor-section h3 {
+  margin:0;
+  color:var(--tx3);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.z2m-app .z2m-provider-editor-status {
+  display:block;
+  min-height:0;
+  margin-top:2px;
+}
+.z2m-app .z2m-provider-editor-technical {
+  border-top:1px solid var(--border);
+  padding-top:10px;
+  color:var(--tx3);
+  font-size:11px;
+}
+.z2m-app .z2m-provider-editor-technical summary {
+  cursor:pointer;
+  color:var(--tx2);
+  font-size:12px;
+}
+.z2m-app .z2m-provider-technical-grid {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px 16px;
+  margin:10px 0 0;
+}
+.z2m-app .z2m-provider-technical-grid>div {
+  display:grid;
+  gap:3px;
+  min-width:0;
+}
+.z2m-app .z2m-provider-technical-grid dt {
+  color:var(--tx3);
+}
+.z2m-app .z2m-provider-technical-grid dd {
+  min-width:0;
+  margin:0;
+  color:var(--tx2);
+  overflow-wrap:anywhere;
+}
+.z2m-app .z2m-provider-technical-grid code {
+  color:var(--tx2);
+  overflow-wrap:anywhere;
+}
 .z2m-app .z2m-provider-editor-head small {
   line-height:1.4;
 }
@@ -5322,10 +5375,13 @@
   .z2m-app .z2m-provider-editor-grid {
     gap:10px;
   }
+  .z2m-app .z2m-provider-technical-grid {
+    grid-template-columns:1fr;
+  }
 }
 @media(max-width:430px){
   .z2m-app .z2m-provider-catalog-count {
-    flex-basis:100%;
+    flex-basis:calc(50% - 8px);
   }
   .z2m-app .z2m-provider-editor-head {
     gap:8px;
