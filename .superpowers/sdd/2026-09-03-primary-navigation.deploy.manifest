@@ -1,0 +1,6 @@
+# Reviewed source-only closure for the primary navigation. No backend, service,
+# or unrelated page assets are included.
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js|/www/luci-static/resources/view/zapret2-manager/z2m-shell.js|0644
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js|/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js|0644
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-icons.js|/www/luci-static/resources/view/zapret2-manager/z2m-icons.js|0644
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|0644
