@@ -1,44 +1,78 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
   <title id="title">zapret2.manager</title>
-  <desc id="desc">zapret2.manager — LuCI management layer for zapret2 on OpenWrt.</desc>
+  <desc id="desc">zapret2.manager — единый LuCI-интерфейс управления zapret2 на OpenWrt.</desc>
   <defs>
-    <linearGradient id="panel" x1="0" y1="0" x2="1200" y2="300" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0B1120"/>
-      <stop offset="0.55" stop-color="#111827"/>
-      <stop offset="1" stop-color="#101226"/>
+    <linearGradient id="shell" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17191F"/>
+      <stop offset="0.58" stop-color="#16181D"/>
+      <stop offset="1" stop-color="#171823"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(190 150) rotate(15) scale(390 230)" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#5B4CE6" stop-opacity=".32"/>
-      <stop offset="1" stop-color="#5B4CE6" stop-opacity="0"/>
+    <linearGradient id="topbar" x1="0" y1="0" x2="1200" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#191B26"/>
+      <stop offset="1" stop-color="#17191F"/>
+    </linearGradient>
+    <linearGradient id="iconBg" x1="42" y1="16" x2="88" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58A6FF"/>
+      <stop offset="0.5" stop-color="#665BFF"/>
+      <stop offset="1" stop-color="#7557FF"/>
+    </linearGradient>
+    <linearGradient id="accentLine" x1="242" y1="0" x2="862" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58A6FF"/>
+      <stop offset="0.6" stop-color="#665BFF"/>
+      <stop offset="1" stop-color="#7557FF"/>
+    </linearGradient>
+    <radialGradient id="brandGlow" cx="0" cy="0" r="1" gradientTransform="translate(250 200) rotate(8) scale(390 170)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#665BFF" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#665BFF" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="iconBg" x1="88" y1="74" x2="224" y2="220" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#4F7CFF"/>
-      <stop offset="0.52" stop-color="#5B4CE6"/>
-      <stop offset="1" stop-color="#7C3AED"/>
-    </linearGradient>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity=".32"/>
+    <filter id="logoShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".28"/>
     </filter>
   </defs>
 
-  <rect width="1200" height="300" rx="28" fill="url(#panel)"/>
-  <rect width="1200" height="300" rx="28" fill="url(#glow)"/>
+  <rect x="1" y="1" width="1198" height="318" rx="24" fill="url(#shell)" stroke="#30343D" stroke-width="2"/>
+  <rect x="2" y="2" width="1196" height="68" rx="22" fill="url(#topbar)"/>
+  <path d="M2 70H1198" stroke="#30343D"/>
+  <rect x="2" y="70" width="1196" height="50" fill="#16181D"/>
+  <path d="M2 120H1198" stroke="#2B3038"/>
+  <rect x="2" y="120" width="1196" height="198" rx="0" fill="url(#brandGlow)"/>
 
-  <g filter="url(#shadow)">
-    <rect x="92" y="78" width="136" height="136" rx="32" fill="url(#iconBg)"/>
-    <path d="M122 101H166V128L142 160V191H122C117.582 191 114 187.418 114 183V109C114 104.582 117.582 101 122 101Z" fill="#F8FAFC"/>
-    <path d="M188 101H198C202.418 101 206 104.582 206 109V183C206 187.418 202.418 191 198 191H158V163L182 131V109C182 104.582 184.686 101 188 101Z" fill="#F8FAFC"/>
+  <g filter="url(#logoShadow)">
+    <rect x="42" y="15" width="46" height="46" rx="12" fill="url(#iconBg)"/>
+    <path d="M53 23H67V33L59 44V53H53C50.791 53 49 51.209 49 49V27C49 24.791 50.791 23 53 23Z" fill="#F8FAFC"/>
+    <path d="M74 23H78C80.209 23 82 24.791 82 27V49C82 51.209 80.209 53 78 53H65V43L73 32V27C73 24.791 73.448 23 74 23Z" fill="#F8FAFC"/>
   </g>
 
-  <text x="278" y="130" fill="#F8FAFC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="48" font-weight="760" letter-spacing="-.6">zapret2.manager</text>
-  <text x="278" y="172" fill="#A8B1C4" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="500">LuCI-панель управления zapret2 для OpenWrt</text>
+  <text x="106" y="45" fill="#F1F3F6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="22" font-weight="720" letter-spacing="-.3">zapret2.manager</text>
+  <text x="1032" y="42" text-anchor="end" fill="#929AA8" font-family="SFMono-Regular, Consolas, ui-monospace, monospace" font-size="14">OpenWrt · LuCI</text>
 
-  <g transform="translate(278 204)">
-    <rect width="450" height="40" rx="20" fill="#0D1726" stroke="#334155"/>
-    <circle cx="24" cy="20" r="6" fill="#22C55E"/>
-    <text x="43" y="26" fill="#D8E2F0" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="16" font-weight="600">Strategy · Scanner · DNS · Proxy · Diagnostics</text>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="620" fill="#AEB6C4">
+    <text x="242" y="101">Главная</text>
+    <text x="348" y="101">Обход DPI</text>
+    <text x="473" y="101">Прокси и маршрутизация</text>
+    <text x="687" y="101">Списки и данные</text>
+    <text x="840" y="101">Диагностика</text>
+    <text x="955" y="101">Система</text>
+  </g>
+  <text x="242" y="101" fill="#58A6FF" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="700">Главная</text>
+  <rect x="235" y="116" width="70" height="3" rx="1.5" fill="#58A6FF"/>
+
+  <text x="70" y="184" fill="#F1F3F6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="37" font-weight="760" letter-spacing="-.6">Единое управление zapret2 на OpenWrt</text>
+  <text x="70" y="219" fill="#929AA8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="18" font-weight="500">Стратегии, Z2K Core, DNS, прокси и диагностика — в одном LuCI-интерфейсе.</text>
+
+  <g transform="translate(70 246)" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="620">
+    <rect width="245" height="38" rx="19" fill="#1C1F26" stroke="#343A45"/>
+    <circle cx="20" cy="19" r="5" fill="#58A6FF"/>
+    <text x="36" y="24" fill="#D8DEE9">Preview → Validate → Apply</text>
+
+    <rect x="259" width="146" height="38" rx="19" fill="#1C1F26" stroke="#343A45"/>
+    <circle cx="279" cy="19" r="5" fill="#7557FF"/>
+    <text x="295" y="24" fill="#D8DEE9">Z2K Core</text>
+
+    <rect x="419" width="248" height="38" rx="19" fill="#1C1F26" stroke="#343A45"/>
+    <circle cx="439" cy="19" r="5" fill="#22C55E"/>
+    <text x="455" y="24" fill="#D8DEE9">DNS · Proxy · Diagnostics</text>
   </g>
 
-  <path d="M1008 92H1110M1008 116H1072" stroke="#64748B" stroke-opacity=".28" stroke-width="2" stroke-linecap="round"/>
-  <path d="M1018 208H1114M1052 184H1114" stroke="#64748B" stroke-opacity=".18" stroke-width="2" stroke-linecap="round"/>
+  <rect x="70" y="299" width="760" height="2" rx="1" fill="url(#accentLine)" opacity=".72"/>
 </svg>
