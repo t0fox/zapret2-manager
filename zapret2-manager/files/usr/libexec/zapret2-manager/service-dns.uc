@@ -396,6 +396,7 @@ export const service_dns_tiktok_check = function(req) {
 		if (result.ok && result.selected && (!current || result.selected.ip != current.ip)) {
 			auto.lastFailover = { at: nowValue, from: current ? current.ip : null, to: result.selected.ip, sourceDomain: result.selected.sourceDomain || null, mode: result.selected.mode || null, reason: current ? 'consecutive probe failures' : 'verified initial candidate', threshold: current ? TIKTOK_FAILOVER_THRESHOLD : null };
 			tiktok_set_selected(auto, result.selected);
+			auto.failureCount = 0;
 			auto.state = current ? 'failover' : 'healthy';
 			state.tiktokAuto = auto;
 			if (!state_save(state)) return err('ESTATE', 'TikTok failover state write failed');

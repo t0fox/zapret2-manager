@@ -124,6 +124,7 @@ test('TikTok address ownership preserves external entries and only replaces its 
   assert.match(owner, /managedAddressEntries|address_ownership/);
   assert.match(owner, /tiktok_apply_override_if_needed/);
   assert.match(owner, /resultingAddressEntries/);
+  assert.match(owner, /tiktok_set_selected\(auto, result\.selected\);\s*auto\.failureCount = 0/);
   assert.match(worker, /previous.*address|external.*address|managed.*address/i);
 });
 
