@@ -5294,6 +5294,16 @@
 .z2m-app .z2m-provider-editor-actions .z2m-btn {
   min-height:44px;
 }
+/* Desktop provider controls should read as quiet row actions, not large
+ * primary controls. Keep the larger hit area on touch layouts below. */
+.z2m-app .z2m-provider-catalog-summary .z2m-btn,
+.z2m-app .z2m-provider-actions .z2m-btn,
+.z2m-app .z2m-provider-editor-actions .z2m-btn {
+  min-height:34px;
+  padding:5px 10px;
+  border-radius:5px;
+  font-size:12px;
+}
 /* Keep provider actions in a real column; never let a button group overflow the row. */
 .z2m-app .z2m-provider-groups {
   container-type: inline-size;
@@ -5392,5 +5402,13 @@
   }
   .z2m-app .z2m-provider-editor-actions .z2m-btn {
     width:100%;
+    min-height:44px;
+  }
+}
+@media (pointer:coarse) and (min-width:431px){
+  .z2m-app .z2m-provider-catalog-summary .z2m-btn,
+  .z2m-app .z2m-provider-actions .z2m-btn,
+  .z2m-app .z2m-provider-editor-actions .z2m-btn {
+    min-height:40px;
   }
 }
