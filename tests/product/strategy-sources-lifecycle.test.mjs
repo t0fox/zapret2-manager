@@ -41,12 +41,23 @@ const snapshot = (sourceId = 'avatar', id = `${sourceId}-snapshot-1`) => {
     normalizedEntryCount: sourceId === 'z2k' ? 1 : 0, immutable: true,
   };
   if (sourceId === 'z2k') {
-    result.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+    result.sourcePath = 'official:generate_nfqws2_opt_from_strategies';
+    result.sourceFiles = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
+    result.fileSha256 = Object.fromEntries(result.sourceFiles.map(name => [name, 'f'.repeat(64)]));
+    result.compilerSchema = 'z2m.z2k-official-compiler-snapshot.v1';
+    result.compilerSnapshotDigest = 'f'.repeat(64);
+    result.nfqws2OptSha256 = 'e'.repeat(64);
     result.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'c'.repeat(64), profileCount: 1 };
     result.entries = [{
       canonicalId: 'z2k:z2k_all_in_one', sourceId: 'z2k', upstreamId: 'z2k_all_in_one',
       sourceSnapshotId: id, sourceCommit: 'a'.repeat(40), entryKind: 'all-in-one', usable: true,
-      profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+      sourcePath: 'official:generate_nfqws2_opt_from_strategies', officialNfqws2Opt: '--filter-tcp=443',
+      nativeValidation: { status: 'verified' },
+      profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443', officialArgs: '--filter-tcp=443', officialProfileIndex: 0 }],
+      provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40),
+        sourcePath: 'official:generate_nfqws2_opt_from_strategies', kind: 'strategy-catalog-import',
+        compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'f'.repeat(64),
+        nfqws2OptSha256: 'e'.repeat(64), templates: 'disabled' },
     }];
   }
   return result;

@@ -35,11 +35,18 @@ function entry(sourceId, snapshotId, commit, name, discord) {
   return {
     canonicalId: `${sourceId}:${name}`, sourceId, upstreamId: name,
     sourceSnapshotId: snapshotId, sourceCommit: commit, name: 'Same display name', args,
-    profiles: [{ id: 'discord-profile', name: 'Discord Voice / Video', enabled: true, args }],
+    profiles: [{ id: 'discord-profile', name: 'Discord Voice / Video', enabled: true, args,
+      ...(sourceId === 'z2k' ? { officialArgs: args, officialProfileIndex: 0 } : {}) }],
     capabilities: { autocircular: true, discordUdp: discord, protocols: discord ? ['udp'] : ['tcp'] },
     requirements: { engine: 'nfqws2' },
+    ...(sourceId === 'z2k' ? { sourcePath: 'official:generate_nfqws2_opt_from_strategies', officialArgs: args,
+      entryKind: 'standalone', usable: true, semanticDigest: 'a'.repeat(64), nativeValidation: { status: 'verified' } } : {}),
     provenance: { repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId,
-      sourceCommit: commit, sourcePath: 'strats_new2.txt', kind: 'strategy-catalog' },
+      sourceCommit: commit,
+      ...(sourceId === 'z2k' ? { sourcePath: 'official:generate_nfqws2_opt_from_strategies', kind: 'official-top-level-profile',
+        compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'f'.repeat(64),
+        nfqws2OptSha256: 'f'.repeat(64), templates: 'disabled', officialProfileIndex: 0 } :
+        { sourcePath: 'strats_new2.txt', kind: 'strategy-catalog' }) },
   };
 }
 
@@ -52,7 +59,12 @@ function source(sourceId, snapshotId, commit, entries) {
     immutable: true, published: true, entries,
   };
   if (sourceId === 'z2k') {
-    result.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+    result.sourcePath = 'official:generate_nfqws2_opt_from_strategies';
+    result.sourceFiles = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
+    result.fileSha256 = Object.fromEntries(result.sourceFiles.map(name => [name, 'f'.repeat(64)]));
+    result.compilerSchema = 'z2m.z2k-official-compiler-snapshot.v1';
+    result.compilerSnapshotDigest = 'f'.repeat(64);
+    result.nfqws2OptSha256 = 'f'.repeat(64);
     result.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'e'.repeat(64), profileCount: 1 };
   }
   return result;
@@ -66,7 +78,11 @@ test('Discord donor discovery is semantic, source-filterable, and provenance-com
     entry('z2k', 'z2k-s1', z2kCommit, 'shared-display', true),
     entry('z2k', 'z2k-s1', z2kCommit, 'tls-only', false),
     { ...entry('z2k', 'z2k-s1', z2kCommit, 'z2k_all_in_one', false),
-      canonicalId: 'z2k:z2k_all_in_one', entryKind: 'all-in-one', poolKey: 'all-in-one', usable: true },
+      canonicalId: 'z2k:z2k_all_in_one', entryKind: 'all-in-one', poolKey: 'all-in-one', usable: true,
+      officialNfqws2Opt: '--filter-tcp=443 --filter-l7=tls --lua-desync=circular:key=rkn_tcp',
+      provenance: { ...entry('z2k', 'z2k-s1', z2kCommit, 'z2k_all_in_one', false).provenance,
+        kind: 'strategy-catalog-import' },
+    },
   ];
   const env = { Z2M_STRATEGY_CATALOG_GENERATION_ROOT: root };
   try {

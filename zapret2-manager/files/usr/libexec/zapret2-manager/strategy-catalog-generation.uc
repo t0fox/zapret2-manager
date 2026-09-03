@@ -100,12 +100,32 @@ function native_verified(value) {
 		|| (value.status == 'not_checked' && getenv('Z2M_UPDATE_SOURCE_TEST') == '1'
 			&& getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0'));
 }
+function valid_z2k_compiled_provenance(entry, snapshot, kind) {
+	let provenance = entry && entry.provenance;
+	return object(entry) && entry.sourcePath == OFFICIAL_Z2K_SOURCE_PATH
+		&& object(provenance) && provenance.repository == SOURCE_REPOSITORIES.z2k
+		&& provenance.sourceId == 'z2k' && provenance.sourcePath == OFFICIAL_Z2K_SOURCE_PATH
+		&& provenance.kind == kind && provenance.compilerSchema == 'z2m.z2k-official-compiler-snapshot.v1'
+		&& provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
+		&& valid_digest(provenance.nfqws2OptSha256) && provenance.templates == 'disabled';
+}
+function valid_z2k_compiled_profiles(profiles, expectedCount) {
+	if (type(profiles) != 'array' || expectedCount < 1 || length(profiles) != expectedCount) return false;
+	for (let profile in profiles)
+		if (!object(profile) || type(profile.officialProfileIndex) != 'int'
+			|| profile.officialProfileIndex < 0 || !string(profile.officialArgs) || profile.officialArgs == '') return false;
+	return true;
+}
 function valid_z2k_standalone(entry, snapshot) {
 	return object(entry) && entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
 		&& entry.entryKind == 'standalone' && entry.usable == true && valid_digest(entry.semanticDigest)
 		&& native_verified(entry.nativeValidation)
-		&& type(entry.profiles) == 'array' && length(entry.profiles) == 1
-		&& object(entry.provenance) && entry.provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
+		&& string(entry.officialArgs) && entry.officialArgs != ''
+		&& valid_z2k_compiled_provenance(entry, snapshot, 'official-top-level-profile')
+		&& valid_z2k_compiled_profiles(entry.profiles, 1)
+		&& entry.profiles[0].officialProfileIndex == entry.provenance.officialProfileIndex
+		&& entry.provenance.officialProfileIndex < snapshot.allInOne.profileCount
+		&& entry.profiles[0].officialArgs == entry.officialArgs
 		&& type(entry.provenance.officialProfileIndex) == 'int' && entry.provenance.officialProfileIndex >= 0;
 }
 function contains(value, needle) {
@@ -118,31 +138,60 @@ function valid_z2k_snapshot(snapshot) {
 		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
 		|| !object(snapshot.allInOne) || snapshot.allInOne.canonicalId != 'z2k:z2k_all_in_one'
 		|| !valid_digest(snapshot.allInOne.digest) || type(snapshot.allInOne.profileCount) != 'int'
-		|| snapshot.allInOne.profileCount < 1 || type(snapshot.entries) != 'array'
+		|| snapshot.allInOne.profileCount < 1 || snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH
+		|| !valid_digest(snapshot.compilerSnapshotDigest) || !valid_digest(snapshot.nfqws2OptSha256)
+		|| snapshot.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1'
+		|| type(snapshot.fileSha256) != 'object' || length(snapshot.sourceFiles) != 5
+		|| type(snapshot.entries) != 'array'
 		|| snapshot.entryCount != length(snapshot.entries) || snapshot.normalizedEntryCount != length(snapshot.entries)) return false;
-	if (snapshot.sourcePath == OFFICIAL_Z2K_SOURCE_PATH) {
-		if (!valid_digest(snapshot.compilerSnapshotDigest) || !valid_digest(snapshot.nfqws2OptSha256)
-			|| snapshot.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1'
-			|| type(snapshot.fileSha256) != 'object' || type(snapshot.sourceFiles) != 'array'
-			|| length(snapshot.sourceFiles) != 5) return false;
-		for (let relative in ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'])
-			if (!contains(snapshot.sourceFiles, relative) || !valid_digest(snapshot.fileSha256[relative])) return false;
-	}
+	for (let relative in ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'])
+		if (!contains(snapshot.sourceFiles, relative) || !valid_digest(snapshot.fileSha256[relative])) return false;
 	let allInOneCount = 0;
 	for (let entry in snapshot.entries) {
 		if (!object(entry)) return false;
 		if (entry.entryKind == 'all-in-one') {
 			if (entry.canonicalId != snapshot.allInOne.canonicalId
 				|| entry.sourceId != 'z2k' || entry.sourceSnapshotId != snapshot.snapshotId
-				|| entry.usable != true
-				|| (snapshot.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && (!object(entry.provenance)
-					|| entry.provenance.compilerSnapshotDigest != snapshot.compilerSnapshotDigest
-					|| !string(entry.officialNfqws2Opt)))
-				|| type(entry.profiles) != 'array' || length(entry.profiles) != snapshot.allInOne.profileCount) return false;
+				|| entry.usable != true || !string(entry.officialNfqws2Opt) || entry.officialNfqws2Opt == ''
+				|| !valid_z2k_compiled_provenance(entry, snapshot, 'strategy-catalog-import')
+				|| !valid_z2k_compiled_profiles(entry.profiles, snapshot.allInOne.profileCount)) return false;
 			allInOneCount++;
 		} else if (!valid_z2k_standalone(entry, snapshot)) return false;
 	}
 	return allInOneCount == 1;
+}
+function valid_z2k_index_entry(entry, snapshotId) {
+	if (!object(entry) || entry.sourceId != 'z2k' || entry.sourceSnapshotId != snapshotId
+		|| entry.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || !object(entry.provenance)
+		|| entry.provenance.repository != SOURCE_REPOSITORIES.z2k || entry.provenance.sourceId != 'z2k'
+		|| entry.provenance.sourcePath != OFFICIAL_Z2K_SOURCE_PATH
+		|| entry.provenance.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1'
+		|| !valid_digest(entry.provenance.compilerSnapshotDigest)
+		|| !valid_digest(entry.provenance.nfqws2OptSha256) || entry.provenance.templates != 'disabled') return false;
+	if (entry.entryKind == 'all-in-one')
+		return entry.canonicalId == 'z2k:z2k_all_in_one' && entry.usable == true
+			&& string(entry.officialNfqws2Opt) && entry.officialNfqws2Opt != ''
+			&& native_verified(entry.nativeValidation)
+			&& entry.provenance.kind == 'strategy-catalog-import'
+			&& valid_z2k_compiled_profiles(entry.profiles, length(entry.profiles));
+	if (entry.entryKind != 'standalone' || entry.usable != true || !valid_digest(entry.semanticDigest)
+		|| entry.provenance.kind != 'official-top-level-profile' || !string(entry.officialArgs) || entry.officialArgs == '') return false;
+	return valid_z2k_compiled_profiles(entry.profiles, 1)
+		&& entry.profiles[0].officialProfileIndex == entry.provenance.officialProfileIndex
+		&& entry.profiles[0].officialArgs == entry.officialArgs
+		&& type(entry.provenance.officialProfileIndex) == 'int' && entry.provenance.officialProfileIndex >= 0
+		&& native_verified(entry.nativeValidation);
+}
+function valid_generation_entries(index) {
+	let source = index.sources && index.sources.z2k, z2kCount = 0, allInOneCount = 0;
+	for (let entry in index.entries || []) {
+		if (!object(entry) || entry.sourceId != 'z2k') continue;
+		if (!object(source) || !valid_z2k_index_entry(entry, source.snapshotId)) return false;
+		z2kCount++;
+		if (entry.entryKind == 'all-in-one') allInOneCount++;
+	}
+	if (source == null) return z2kCount == 0;
+	return z2kCount == source.entryCount && allInOneCount == 1;
 }
 function valid_source_snapshot(id, snapshot) {
 	return object(snapshot) && snapshot.schema == 'z2m.strategy-source-snapshot.v1'
@@ -251,6 +300,9 @@ function fail_phase(phase) {
 }
 
 export const strategy_catalog_generation_build = function(input) { return build(input); };
+export const strategy_catalog_generation_z2k_snapshot_is_current = function(snapshot) {
+	return valid_z2k_snapshot(snapshot);
+};
 
 export const strategy_catalog_generation_publish = function(input) {
 	let built = build(input);
@@ -299,6 +351,7 @@ export const strategy_catalog_generation_read = function() {
 				pointerIndexDigest: p && p.indexDigest || null, indexDigest: i && i.indexDigest || null } } };
 	let digest = sha256(sprintf('%J', index_basis(i)));
 	if (digest != i.indexDigest) return failure('ESTALE', 'Active Strategy generation index digest is invalid');
+	if (!valid_generation_entries(i)) return failure('ESTALE', 'Active Strategy generation contains a non-compiled Z2K catalog');
 	let generation = read_json(GENERATIONS_ROOT + '/' + p.generationId + '.json');
 	if (!generation.ok || generation.missing || !object(generation.value)
 		|| generation.value.indexDigest != i.indexDigest)

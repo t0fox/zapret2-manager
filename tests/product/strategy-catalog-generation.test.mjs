@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -39,10 +40,11 @@ function invokeModule(module, functionName, args = [], root, extraEnv = {}) {
 }
 
 function entry(sourceId, upstreamId, snapshotId) {
+  const args = '--filter-tcp=443';
   return {
     canonicalId: `${sourceId}:${upstreamId}`, sourceId, upstreamId,
     sourceSnapshotId: snapshotId, sourceCommit: 'a'.repeat(40),
-    name: `${sourceId} ${upstreamId}`, profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443' }],
+    name: `${sourceId} ${upstreamId}`, profiles: [{ id: 'profile-1', enabled: true, args, officialArgs: args, officialProfileIndex: 0 }],
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
     requirements: { engine: 'nfqws2' },
     ...(sourceId === 'z2k' ? {
@@ -51,8 +53,11 @@ function entry(sourceId, upstreamId, snapshotId) {
     } : {}),
     provenance: {
       repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId,
-      ...(sourceId === 'z2k' ? { compilerSnapshotDigest: 'f'.repeat(64), officialProfileIndex: 0 } : {}),
-    },
+      ...(sourceId === 'z2k' ? { sourcePath: 'official:generate_nfqws2_opt_from_strategies', kind: 'official-top-level-profile',
+        compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'f'.repeat(64),
+        nfqws2OptSha256: 'e'.repeat(64), officialProfileIndex: 0, templates: 'disabled' } : {}),
+  },
+    ...(sourceId === 'z2k' ? { sourcePath: 'official:generate_nfqws2_opt_from_strategies', officialArgs: args } : {}),
   };
 }
 
@@ -62,7 +67,12 @@ function allInOneEntry(snapshotId) {
     canonicalId: 'z2k:z2k_all_in_one',
     name: 'z2k всё-в-одном',
     entryKind: 'all-in-one', poolKey: 'all-in-one', pinned: true, usable: true,
-    profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+    officialNfqws2Opt: '--filter-tcp=443',
+    profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443', officialArgs: '--filter-tcp=443', officialProfileIndex: 0 }],
+    provenance: {
+      ...entry('z2k', 'z2k_all_in_one', snapshotId).provenance,
+      kind: 'strategy-catalog-import',
+    },
   };
 }
 
@@ -79,6 +89,12 @@ function source(sourceId, snapshotId, enabled = true, published = true, upstream
   if (sourceId === 'z2k') {
     snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
     snapshot.compilerSnapshotDigest = 'f'.repeat(64);
+    snapshot.sourcePath = 'official:generate_nfqws2_opt_from_strategies';
+    snapshot.fileSha256 = Object.fromEntries(snapshot.sourceFiles.map(name => [name, 'f'.repeat(64)]));
+    snapshot.sourceFiles.push('lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh');
+    snapshot.fileSha256 = Object.fromEntries(snapshot.sourceFiles.map(name => [name, 'f'.repeat(64)]));
+    snapshot.compilerSchema = 'z2m.z2k-official-compiler-snapshot.v1';
+    snapshot.nfqws2OptSha256 = 'e'.repeat(64);
     snapshot.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'd'.repeat(64), profileCount: 1 };
   }
   return { enabled, currentSnapshotId: snapshotId, snapshot };
@@ -213,6 +229,51 @@ test('pointer and index digest mismatch fails closed', () => {
   const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
   index.generationId = 'generation-tampered';
   fs.writeFileSync(indexPath, JSON.stringify(index));
+  const result = invoke('strategy_catalog_generation_read', [], root);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'ESTALE');
+});
+
+test('legacy Z2K pool/strategy arms cannot be published as the current generation', () => {
+  const root = rootFor('legacy-z2k');
+  const row = source('z2k', 'z2k-legacy-pools');
+  row.snapshot.sourcePath = 'legacy:strategy-pools';
+  row.snapshot.entries[0].canonicalId = 'z2k:manual_autocircular_rkn';
+  row.snapshot.entries[0].upstreamId = 'manual_autocircular_rkn';
+  row.snapshot.entries[0].name = 'manual_autocircular_rkn / strategy 1';
+  const result = invoke('strategy_catalog_generation_build', [{
+    generatedAt: 1788200020, sources: { z2k: row }, userRevision: 0,
+  }], root);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'ESTALE');
+});
+
+test('active generation reads fail closed when a legacy Z2K index is still pointed at', () => {
+  const root = rootFor('legacy-read');
+  const generations = path.join(root, 'generations');
+  fs.mkdirSync(generations, { recursive: true });
+  const snapshotId = 'z2k-legacy-read';
+  const legacyEntry = {
+    canonicalId: 'z2k:manual_autocircular_rkn', sourceId: 'z2k', upstreamId: 'manual_autocircular_rkn',
+    sourceSnapshotId: snapshotId, sourceCommit: 'a'.repeat(40), entryKind: 'standalone', usable: true,
+    profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443' }],
+    provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourcePath: 'strats_new2.txt' },
+  };
+  const index = {
+    schema: 'z2m.strategy-read-index.v3', generatedAt: 1788200021,
+    sources: { z2k: { sourceId: 'z2k', repository: 'necronicle/z2k', snapshotId,
+      sourceCommit: 'a'.repeat(40), contentDigest: 'b'.repeat(64), entryCount: 1, normalizedEntryCount: 1 } },
+    userRevision: 0, entries: [legacyEntry],
+  };
+  const basis = { schema: index.schema, generatedAt: index.generatedAt, sources: index.sources,
+    userRevision: index.userRevision, entries: index.entries };
+  const digest = crypto.createHash('sha256').update(JSON.stringify(basis)).digest('hex');
+  index.generationId = 'generation-' + digest;
+  index.indexDigest = digest;
+  const pointer = { schema: 'z2m.strategy-active-generation.v1', generationId: index.generationId, indexDigest: digest };
+  fs.writeFileSync(path.join(root, 'strategy-catalog-index.json'), JSON.stringify(index));
+  fs.writeFileSync(path.join(root, 'active.json'), JSON.stringify(pointer));
+  fs.writeFileSync(path.join(generations, index.generationId + '.json'), JSON.stringify(index));
   const result = invoke('strategy_catalog_generation_read', [], root);
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.error.code, 'ESTALE');

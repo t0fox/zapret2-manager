@@ -108,29 +108,40 @@ test('normal Strategy reads preserve the source-specific origin of v3 catalog en
   const entry = {
     canonicalId: 'z2k:shared', sourceId: 'z2k', upstreamId: 'shared',
     sourceSnapshotId: 'z2k-s1', sourceCommit: 'a'.repeat(40), name: 'Shared',
-    profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443' }],
+    profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443', officialArgs: '--filter-tcp=443', officialProfileIndex: 0 }],
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
     is_builtin: false,
     requirements: { engine: 'nfqws2' },
     entryKind: 'standalone', usable: true, semanticDigest: 'e'.repeat(64),
     nativeValidation: { status: 'verified' },
+    sourcePath: 'official:generate_nfqws2_opt_from_strategies', officialArgs: '--filter-tcp=443',
     provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40),
-      compilerSnapshotDigest: 'f'.repeat(64), officialProfileIndex: 0 },
+      sourcePath: 'official:generate_nfqws2_opt_from_strategies', kind: 'official-top-level-profile',
+      compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'f'.repeat(64),
+      nfqws2OptSha256: 'e'.repeat(64), officialProfileIndex: 0, templates: 'disabled' },
   };
   const allInOneEntry = {
     canonicalId: 'z2k:z2k_all_in_one', sourceId: 'z2k', upstreamId: 'z2k_all_in_one',
     sourceSnapshotId: 'z2k-s1', sourceCommit: 'a'.repeat(40), name: 'z2k всё-в-одном',
     entryKind: 'all-in-one', usable: true,
     is_builtin: false,
-    profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+    sourcePath: 'official:generate_nfqws2_opt_from_strategies', officialNfqws2Opt: '--filter-tcp=443',
+    nativeValidation: { status: 'verified' },
+    profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443', officialArgs: '--filter-tcp=443', officialProfileIndex: 0 }],
     capabilities: { autocircular: true, discordUdp: true, protocols: ['tcp', 'udp'] },
     requirements: { engine: 'nfqws2' },
-    provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40) },
+    provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: 'a'.repeat(40),
+      sourcePath: 'official:generate_nfqws2_opt_from_strategies', kind: 'strategy-catalog-import',
+      compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'f'.repeat(64),
+      nfqws2OptSha256: 'e'.repeat(64), templates: 'disabled' },
   };
   const snapshot = {
     schema: 'z2m.strategy-source-snapshot.v1', sourceId: 'z2k', repository: 'necronicle/z2k',
     sourceCommit: 'a'.repeat(40), contentDigest: 'b'.repeat(64), snapshotId: 'z2k-s1',
-    sourceFiles: ['strats_new2.txt', 'quic_strats.ini'],
+    sourcePath: 'official:generate_nfqws2_opt_from_strategies',
+    sourceFiles: ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'],
+    fileSha256: { 'strats_new2.txt': 'f'.repeat(64), 'quic_strats.ini': 'f'.repeat(64), 'lib/utils.sh': 'f'.repeat(64), 'lib/strategies.sh': 'f'.repeat(64), 'lib/config_official.sh': 'f'.repeat(64) },
+    compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', nfqws2OptSha256: 'e'.repeat(64),
     compilerSnapshotDigest: 'f'.repeat(64),
     allInOne: { canonicalId: 'z2k:z2k_all_in_one', digest: 'c'.repeat(64), profileCount: 1 },
     entryCount: 2, normalizedEntryCount: 2, immutable: true, published: true,
@@ -180,16 +191,19 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
   const makeEntry = (sourceId, snapshotId, id) => ({
     canonicalId: `${sourceId}:${id}`, sourceId, upstreamId: id,
     sourceSnapshotId: snapshotId, sourceCommit: commit, name: id,
-    profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443' }],
+    profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443', ...(sourceId === 'z2k' ? { officialArgs: '--filter-tcp=443', officialProfileIndex: 0 } : {}) }],
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
     ...(sourceId === 'z2k' ? { is_builtin: false } : {}),
     requirements: { engine: 'nfqws2' },
-    ...(sourceId === 'z2k' ? {
+      ...(sourceId === 'z2k' ? {
+      sourcePath: 'official:generate_nfqws2_opt_from_strategies', officialArgs: '--filter-tcp=443',
       entryKind: 'standalone', usable: true, semanticDigest: 'e'.repeat(64),
       nativeValidation: { status: 'verified' },
     } : {}),
     provenance: { repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId, sourceCommit: commit,
-      ...(sourceId === 'z2k' ? { compilerSnapshotDigest: 'f'.repeat(64), officialProfileIndex: 0 } : {}) },
+      ...(sourceId === 'z2k' ? { sourcePath: 'official:generate_nfqws2_opt_from_strategies', kind: 'official-top-level-profile',
+        compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'f'.repeat(64),
+        nfqws2OptSha256: 'f'.repeat(64), officialProfileIndex: 0, templates: 'disabled' } : {}) },
   });
   const makeSnapshot = (sourceId, snapshotId, entry) => {
     const snapshot = {
@@ -199,8 +213,12 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
       snapshotId, entryCount: 1, normalizedEntryCount: 1, immutable: true, published: true, entries: [entry],
     };
     if (sourceId === 'z2k') {
-      snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
-      snapshot.compilerSnapshotDigest = 'f'.repeat(64);
+       snapshot.sourcePath = 'official:generate_nfqws2_opt_from_strategies';
+       snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
+       snapshot.fileSha256 = Object.fromEntries(snapshot.sourceFiles.map(name => [name, 'f'.repeat(64)]));
+       snapshot.compilerSchema = 'z2m.z2k-official-compiler-snapshot.v1';
+       snapshot.nfqws2OptSha256 = 'f'.repeat(64);
+       snapshot.compilerSnapshotDigest = 'f'.repeat(64);
       snapshot.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'd'.repeat(64), profileCount: 1 };
       snapshot.entryCount = 2;
       snapshot.normalizedEntryCount = 2;
@@ -209,10 +227,15 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
         sourceSnapshotId: snapshotId, sourceCommit: commit, name: 'z2k всё-в-одном',
         entryKind: 'all-in-one', usable: true, pinned: true,
         is_builtin: false,
-        profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443' }],
+         sourcePath: 'official:generate_nfqws2_opt_from_strategies', officialNfqws2Opt: '--filter-tcp=443',
+         nativeValidation: { status: 'verified' },
+         profiles: [{ id: 'all-in-one-1', enabled: true, args: '--filter-tcp=443', officialArgs: '--filter-tcp=443', officialProfileIndex: 0 }],
         capabilities: { autocircular: true, discordUdp: true, protocols: ['tcp', 'udp'] },
         requirements: { engine: 'nfqws2' },
-        provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: commit },
+         provenance: { repository: 'necronicle/z2k', sourceId: 'z2k', sourceCommit: commit,
+           sourcePath: 'official:generate_nfqws2_opt_from_strategies', kind: 'strategy-catalog-import',
+           compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'f'.repeat(64),
+           nfqws2OptSha256: 'f'.repeat(64), templates: 'disabled' },
       });
     }
     return snapshot;

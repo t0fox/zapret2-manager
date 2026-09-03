@@ -21,6 +21,10 @@ function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function integer(value) { return type(value) == 'int' && value >= 0; }
+function native_verified(value) {
+	return object(value) && (value.status == 'verified'
+		|| (value.status == 'not_checked' && getenv('Z2M_UPDATE_SOURCE_TEST') == '1'));
+}
 function error(code, message, path) {
 	let result = { ok: false, error: { code: code, message: message } };
 	if (path != null) result.error.path = path;
@@ -161,25 +165,49 @@ function valid_official_z2k_provenance(snapshot) {
 		if (!contains(snapshot.sourceFiles, relative) || !valid_digest(snapshot.fileSha256[relative])) return false;
 	return true;
 }
+function valid_official_z2k_entry(entry, snapshot, kind) {
+	let provenance = entry && entry.provenance;
+	return object(entry) && entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
+		&& entry.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && object(provenance)
+		&& provenance.repository == SOURCE_REPOSITORIES.z2k && provenance.sourceId == 'z2k'
+		&& provenance.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && provenance.kind == kind
+		&& provenance.compilerSchema == 'z2m.z2k-official-compiler-snapshot.v1'
+		&& provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
+		&& valid_digest(provenance.nfqws2OptSha256) && provenance.templates == 'disabled';
+}
 function valid_z2k_snapshot(snapshot) {
 	if (!object(snapshot) || type(snapshot.sourceFiles) != 'array'
 		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
 		|| !object(snapshot.allInOne) || snapshot.allInOne.canonicalId != 'z2k:z2k_all_in_one'
 		|| !string(snapshot.allInOne.digest) || !match(snapshot.allInOne.digest, /^[0-9a-f]{64}$/)
 		|| type(snapshot.allInOne.profileCount) != 'int' || snapshot.allInOne.profileCount < 1
-		|| type(snapshot.entries) != 'array') return false;
-	if (snapshot.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && !valid_official_z2k_provenance(snapshot)) return false;
+		|| snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || !valid_official_z2k_provenance(snapshot)
+		|| type(snapshot.entries) != 'array' || snapshot.entryCount != length(snapshot.entries)
+		|| snapshot.normalizedEntryCount != length(snapshot.entries)) return false;
+	let allInOneCount = 0;
 	for (let entry in snapshot.entries) {
-		if (object(entry) && entry.canonicalId == snapshot.allInOne.canonicalId
-			&& entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
-			&& entry.entryKind == 'all-in-one' && entry.usable == true
-			&& (snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || (object(entry.provenance)
-				&& entry.provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
-				&& string(entry.officialNfqws2Opt)))
-			&& type(entry.profiles) == 'array' && length(entry.profiles) == snapshot.allInOne.profileCount)
-			return true;
+		if (!object(entry)) return false;
+		if (entry.entryKind == 'all-in-one') {
+			if (entry.canonicalId != snapshot.allInOne.canonicalId || entry.usable != true
+				|| !string(entry.officialNfqws2Opt) || entry.officialNfqws2Opt == ''
+				|| !native_verified(entry.nativeValidation)
+				|| !valid_official_z2k_entry(entry, snapshot, 'strategy-catalog-import')
+				|| type(entry.profiles) != 'array' || length(entry.profiles) != snapshot.allInOne.profileCount) return false;
+			allInOneCount++;
+			continue;
+		}
+		if (entry.entryKind != 'standalone' || entry.usable != true || !valid_digest(entry.semanticDigest)
+			|| !native_verified(entry.nativeValidation)
+			|| !string(entry.officialArgs) || entry.officialArgs == ''
+			|| !valid_official_z2k_entry(entry, snapshot, 'official-top-level-profile')
+			|| type(entry.profiles) != 'array' || length(entry.profiles) != 1
+			|| type(entry.profiles[0].officialProfileIndex) != 'int'
+			|| entry.profiles[0].officialProfileIndex < 0
+			|| entry.profiles[0].officialProfileIndex >= snapshot.allInOne.profileCount
+			|| entry.profiles[0].officialProfileIndex != entry.provenance.officialProfileIndex
+			|| entry.profiles[0].officialArgs != entry.officialArgs) return false;
 	}
-	return false;
+	return allInOneCount == 1;
 }
 
 function valid_snapshot(id, snapshot) {

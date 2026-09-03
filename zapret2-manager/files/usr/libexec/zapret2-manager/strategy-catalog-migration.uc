@@ -8,7 +8,8 @@ import * as avatar_source from './strategy-source-avatar.uc';
 import * as source_refresh from './strategy-source-refresh.uc';
 import * as source_store from './strategy-sources.uc';
 import { strategy_catalog_resolve } from './strategy-catalog.uc';
-import { strategy_catalog_generation_publish, strategy_catalog_generation_read } from './strategy-catalog-generation.uc';
+import { strategy_catalog_generation_publish, strategy_catalog_generation_read,
+	strategy_catalog_generation_z2k_snapshot_is_current } from './strategy-catalog-generation.uc';
 import { strategy_user_list } from './strategy-state.uc';
 
 const SOURCE_IDS = ['avatar', 'z2k'];
@@ -37,11 +38,21 @@ function current(id) {
 	let result = null;
 	try { result = source_store.strategy_source_current_snapshot(id); } catch (e) { result = null; }
 	if (!object(result)) return error('EIO', 'Strategy source state could not be read', id);
-	if (!result.ok) return failure(result, id);
+	// An older install may point at a valid-looking Z2K snapshot composed from
+	// pool arms. Treat that snapshot as a refresh candidate, never as LKG data.
+	// The source store deliberately reports it as stale after the compiled-only
+	// admission gate is enabled.
+	if (!result.ok) {
+		if (id == 'z2k' && result.error && result.error.code == 'ESTALE')
+			return { ok: true, snapshot: null, mode: 'legacy-invalid' };
+		return failure(result, id);
+	}
 	if (result.snapshot == null) return { ok: true, snapshot: null, mode: 'missing' };
 	if (!object(result.snapshot) || result.snapshot.published == false
 		|| type(result.snapshot.entries) != 'array')
 		return error('EVERIFY', 'Recorded source snapshot is not a published immutable candidate', id);
+	if (id == 'z2k' && !strategy_catalog_generation_z2k_snapshot_is_current(result.snapshot))
+		return { ok: true, snapshot: null, mode: 'legacy-invalid' };
 	return { ok: true, snapshot: result.snapshot, mode: 'existing' };
 }
 function source_row(id, snapshot, enabled) {
