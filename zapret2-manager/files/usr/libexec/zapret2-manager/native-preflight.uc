@@ -9,6 +9,7 @@
 import { readfile, stat, popen } from 'fs';
 import { z2m_tokenize, z2m_parse, z2m_validate } from './profiles.uc';
 import { resolveInstalled } from './runtime-composition.uc';
+import { runtime_target_path, runtime_argument_token } from './runtime-asset-paths.uc';
 
 const NFQWS2_BIN = '/opt/zapret2/nfq2/nfqws2';
 const MANIFEST = '/usr/share/zapret2-manager/native-preflight.json';
@@ -61,47 +62,6 @@ function load_manifest() {
 	if (type(value.minNfqws2CompatVer) != 'int' || value.minNfqws2CompatVer < 1)
 		return { ok: false, reason: 'minimum nfqws2 compatibility is not pinned' };
 	return { ok: true, value: value };
-}
-
-function runtime_target_path(target) {
-	if (type(target) != 'string') return null;
-	if (substr(target, 0, length('/opt/zapret2/')) == '/opt/zapret2/') return target;
-	if (substr(target, 0, length('/runtime-assets/lua/')) == '/runtime-assets/lua/')
-		return RUNTIME_LUA_ROOT + substr(target, length('/runtime-assets/lua/'));
-	if (substr(target, 0, length('/runtime-assets/bin/')) == '/runtime-assets/bin/')
-		return '/opt/zapret2/files/fake/' + substr(target, length('/runtime-assets/bin/'));
-	if (substr(target, 0, length('/runtime-assets/lists/')) == '/runtime-assets/lists/')
-		return '/opt/zapret2/lists/' + substr(target, length('/runtime-assets/lists/'));
-	if (substr(target, 0, length('/runtime-assets/ipset/')) == '/runtime-assets/ipset/')
-		return '/opt/zapret2/ipset/' + substr(target, length('/runtime-assets/ipset/'));
-	return null;
-}
-
-function runtime_argument_token(value) {
-	if (type(value) != 'string') return value;
-	let prefixes = [
-		'--hostlist=', '--hostlist-exclude=', '--hostlist-exclude-domains=',
-		'--ipset=', '--ipset-exclude=', '--lua-init='
-	];
-	for (let prefix in prefixes) if (substr(value, 0, length(prefix)) == prefix) {
-		let reference = substr(value, length(prefix)), sigil = '';
-		if (prefix == '--lua-init=' && substr(reference, 0, 1) == '@') {
-			sigil = '@'; reference = substr(reference, 1);
-		}
-		let target = runtime_target_path(reference);
-		return target == null ? value : prefix + sigil + target;
-	}
-	if (substr(value, 0, length('--blob=')) == '--blob=') {
-		let raw = substr(value, length('--blob=')), marker = index(raw, ':');
-		if (marker >= 0) {
-			let source = substr(raw, marker + 1), markerPrefix = substr(source, 0, 1);
-			if (markerPrefix == '@' || markerPrefix == '+') {
-				let target = runtime_target_path(substr(source, 1));
-				if (target != null) return '--blob=' + substr(raw, 0, marker + 1) + markerPrefix + target;
-			}
-		}
-	}
-	return value;
 }
 
 function runtime_composition_snapshot(input) {

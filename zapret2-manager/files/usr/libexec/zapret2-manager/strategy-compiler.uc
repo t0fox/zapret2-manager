@@ -10,6 +10,7 @@ import { avatar_tokenize, strategy_normalize, strategy_enabled_profiles } from '
 import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
 import { profiles_render_candidate, profiles_candidate_round_trip } from './profiles-apply.uc';
 import { native_preflight } from './native-preflight.uc';
+import { runtime_argument_token } from './runtime-asset-paths.uc';
 
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
 const COMPILER_AUTHORITY_MARKER = 'z2m-scanner-compiler.v1';
@@ -30,7 +31,7 @@ const COMPILER_SEMANTIC_MANIFEST = {
 	candidateOutput: 'args.fragments.count.dependencies.validation.applicability.sha256.v1',
 	nativePreflight: 'opt-in.validate-or-execution-admission.v1',
 	preflightOutput: 'status.coverage.diagnostics.v1',
-	effectiveArgv: 'pinned-engine.live-inputs.shell-quoted-command.v1',
+	effectiveArgv: 'pinned-engine.live-inputs.runtime-asset-binding.shell-quoted-command.v2',
 };
 
 function is_object(value) {
@@ -227,6 +228,11 @@ function descriptor_path(descriptor, fallback) {
 	return fallback;
 }
 
+function descriptor_root(descriptor, fallback) {
+	if (is_object(descriptor) && safe_absolute_path(descriptor.root)) return descriptor.root;
+	return fallback;
+}
+
 function descriptor_present(descriptor, defaultValue) {
 	if (is_object(descriptor) && descriptor.present != null) return descriptor.present == true;
 	return defaultValue;
@@ -247,8 +253,15 @@ function list_descriptor_for(environment, reference) {
 
 function list_reference(environment, reference, kind, allowAbsolute) {
 	let paths = is_object(environment.paths) ? environment.paths : {};
-	let descriptor = list_descriptor_for(environment, reference), raw = descriptor_path(descriptor, reference);
-	let resolved = resolve_path(raw, paths, kind == 'ipset' ? 'ipset' : 'list', allowAbsolute == true);
+	let descriptor = list_descriptor_for(environment, reference), raw = descriptor_path(descriptor, reference),
+		resolvedKind = kind == 'ipset' ? 'ipset' : 'list', resolvedPaths = paths;
+	if (is_object(descriptor) && safe_absolute_path(descriptor.root)) {
+		resolvedPaths = {};
+		for (let key in paths) resolvedPaths[key] = paths[key];
+		if (resolvedKind == 'ipset') resolvedPaths.ipsetRoot = descriptor_root(descriptor, paths.ipsetRoot);
+		else resolvedPaths.listRoot = descriptor_root(descriptor, paths.listRoot);
+	}
+	let resolved = resolve_path(raw, resolvedPaths, resolvedKind, allowAbsolute == true);
 	let available = descriptor != null && descriptor_safe(descriptor)
 		&& descriptor_present(descriptor, false) && resolved != null;
 	return {
@@ -752,23 +765,24 @@ export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {
 	if (type(baseArgs) != 'array') return error_result('EINPUT', 'live base args are required');
 	for (let i = 0; i < length(baseArgs); i++) {
 		if (type(baseArgs[i]) != 'string') return error_result('EINPUT', 'live base args must be strings');
-		push(argv, baseArgs[i]);
+		push(argv, runtime_argument_token(baseArgs[i]));
 	}
 	let luaInit = runtimeInputs.luaInit;
 	if (type(luaInit) != 'array') return error_result('EINPUT', 'live Lua-init inputs are required');
 	for (let i = 0; i < length(luaInit); i++) {
 		if (type(luaInit[i]) != 'string') return error_result('EINPUT', 'live Lua-init inputs must be strings');
-		push(argv, '--lua-init=' + luaInit[i]);
+		push(argv, runtime_argument_token('--lua-init=' + luaInit[i]));
 	}
 	let hostlists = runtimeInputs.hostlists;
 	if (type(hostlists) != 'array') return error_result('EINPUT', 'live hostlist inputs are required');
 	for (let i = 0; i < length(hostlists); i++) {
 		if (type(hostlists[i]) != 'string') return error_result('EINPUT', 'live hostlist inputs must be strings');
-		push(argv, '--hostlist=' + hostlists[i]);
+		push(argv, runtime_argument_token('--hostlist=' + hostlists[i]));
 	}
 	let tokenized = avatar_tokenize(strategyArgs);
 	if (!tokenized.ok) return tokenized;
-	for (let i = 0; i < length(tokenized.tokens); i++) push(argv, tokenized.tokens[i].value);
+	for (let i = 0; i < length(tokenized.tokens); i++)
+		push(argv, runtime_argument_token(tokenized.tokens[i].value));
 	let command = '';
 	for (let i = 0; i < length(argv); i++) {
 		if (i > 0) command += ' ';

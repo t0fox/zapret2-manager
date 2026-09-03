@@ -486,6 +486,49 @@ test('RPC Preview uses authoritative server runtime composition and ignores clie
   assert.equal(forged.error.code, 'EINPUT');
 });
 
+test('runtime composition projects canonical assets into compiler descriptors', () => {
+  const projected = invokeValues('strategy_runtime_environment_from_composition', [
+    {
+      listMode: 'none',
+      paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
+      functions: {}, blobs: {}, lua: {}, lists: {},
+    },
+    {
+      ok: true,
+      runtimeAssets: [
+        { id: 'blob:canonical-list', kind: 'hostlist', runtimeTarget: '/runtime-assets/lists/extra_strats/TCP/RKN/List.txt' },
+        { id: 'lua:canonical', kind: 'lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua' },
+      ],
+    },
+  ]);
+
+  const list = projected.lists['/runtime-assets/lists/extra_strats/TCP/RKN/List.txt'];
+  assert.ok(list);
+  assert.equal(list.path, 'extra_strats/TCP/RKN/List.txt');
+  assert.equal(list.root, '/opt/zapret2/lists');
+  assert.equal(list.safe, true);
+  assert.equal(projected.lua['/runtime-assets/lua/z2k-modern-core.lua'].root, '/opt/zapret2/lua');
+});
+
+test('Apply candidate binding uses the canonical runtime asset path mapping', () => {
+  const bound = invokeValues('strategy_runtime_bind_candidate', [{
+    ok: true,
+    candidate: '--hostlist=/runtime-assets/lists/extra_strats/TCP/RKN/List.txt '
+      + '--lua-init=/runtime-assets/lua/z2k-modern-core.lua '
+      + '--blob=quic_5:@/runtime-assets/bin/quic_5.bin',
+    strategyArgs: '--hostlist=/runtime-assets/lists/extra_strats/TCP/RKN/List.txt',
+    args: '--hostlist=/runtime-assets/lists/extra_strats/TCP/RKN/List.txt',
+  }]);
+
+  assert.equal(bound.ok, true);
+  assert.equal(bound.candidate, '--hostlist=/opt/zapret2/lists/extra_strats/TCP/RKN/List.txt '
+    + '--lua-init=/opt/zapret2/lua/z2k-modern-core.lua '
+    + '--blob=quic_5:@/opt/zapret2/files/fake/quic_5.bin');
+  assert.equal(bound.strategyArgs, bound.candidate);
+  assert.equal(bound.args, bound.candidate);
+  assert.match(bound.digest, /^[a-f0-9]{64}$/);
+});
+
 test('RPC Preview fails closed when authoritative runtime composition is unavailable', () => {
   const result = invokeRpcMethod('strategies_preview', {
     edit: JSON.stringify({

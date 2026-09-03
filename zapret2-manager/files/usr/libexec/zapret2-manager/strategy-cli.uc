@@ -15,8 +15,9 @@ import { read_var } from './apply.uc';
 import { z2m_parse, z2m_validate, z2m_tokenize } from './profiles.uc';
 import { avatar_tokenize, strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
-import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
+import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_candidate_digest, profiles_reconcile_evidence } from './profiles-apply.uc';
 import { resolveInstalled } from './runtime-composition.uc';
+import { runtime_target_path, runtime_argument_token } from './runtime-asset-paths.uc';
 import { discord_autocircular_donor } from './discord-profile.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
@@ -232,14 +233,104 @@ function runtime_inputs_bounded(value) {
 	return true;
 }
 
-function runtime_target_path(target) {
-	if (!is_string(target)) return null;
-	if (starts_with(target, '/opt/zapret2/')) return target;
-	if (starts_with(target, '/runtime-assets/lua/')) return '/opt/zapret2/lua/' + substr(target, length('/runtime-assets/lua/'));
-	if (starts_with(target, '/runtime-assets/bin/')) return '/opt/zapret2/files/fake/' + substr(target, length('/runtime-assets/bin/'));
-	if (starts_with(target, '/runtime-assets/lists/')) return '/opt/zapret2/lists/' + substr(target, length('/runtime-assets/lists/'));
-	if (starts_with(target, '/runtime-assets/ipset/')) return '/opt/zapret2/ipset/' + substr(target, length('/runtime-assets/ipset/'));
+function runtime_path_root(target, kind) {
+	if (kind == 'lua' && starts_with(target, '/opt/zapret2/lua/')) return '/opt/zapret2/lua';
+	if (kind == 'blob' && starts_with(target, '/opt/zapret2/files/fake/')) return '/opt/zapret2/files/fake';
+	if (kind == 'ipset' && starts_with(target, '/opt/zapret2/ipset/')) return '/opt/zapret2/ipset';
+	if ((kind == 'hostlist' || kind == 'list') && starts_with(target, '/opt/zapret2/lists/')) return '/opt/zapret2/lists';
 	return null;
+}
+
+function runtime_relative_path(target, root) {
+	let prefix = root == null ? null : root + '/';
+	return prefix != null && starts_with(target, prefix) ? substr(target, length(prefix)) : null;
+}
+
+function runtime_asset_descriptor(target, root, entry) {
+	let relative = runtime_relative_path(target, root);
+	if (!is_string(relative) || !length(relative)) return null;
+	return { path: relative, root: root, present: stat(target) != null, safe: true,
+		runtimeAssetId: is_object(entry) ? entry.id : null };
+}
+
+function runtime_descriptor_set(registry, key, descriptor) {
+	if (is_object(registry) && is_string(key) && length(key) && is_object(descriptor)) registry[key] = descriptor;
+}
+
+function runtime_blob_aliases(blobs, target, entry, descriptor) {
+	let root = runtime_path_root(target, 'blob'), relative = runtime_relative_path(target, root);
+	if (relative == null) return;
+	let leaf = substr(relative, rindex(relative, '/') + 1), stem = leaf;
+	if (length(stem) > 4 && substr(stem, length(stem) - 4) == '.bin') stem = substr(stem, 0, length(stem) - 4);
+	runtime_descriptor_set(blobs, leaf, descriptor);
+	runtime_descriptor_set(blobs, stem, descriptor);
+	if (is_object(entry) && is_string(entry.id) && starts_with(entry.id, 'blob:'))
+		runtime_descriptor_set(blobs, substr(entry.id, 5), descriptor);
+}
+
+function runtime_list_aliases(lists, entry, target, descriptor) {
+	let keys = [entry.runtimeTarget, target], root = descriptor.root, relative = descriptor.path;
+	if (root == '/opt/zapret2/lists') {
+		push(keys, 'lists/' + relative);
+		push(keys, relative);
+	} else if (root == '/opt/zapret2/ipset') {
+		push(keys, 'ipset/' + relative);
+		push(keys, relative);
+	}
+	for (let key in keys) runtime_descriptor_set(lists, key, descriptor);
+}
+
+function runtime_lua_aliases(lua, entry, target, descriptor) {
+	let root = descriptor.root, relative = descriptor.path;
+	runtime_descriptor_set(lua, entry.runtimeTarget, descriptor);
+	runtime_descriptor_set(lua, target, descriptor);
+	runtime_descriptor_set(lua, relative, descriptor);
+	runtime_descriptor_set(lua, '@lua/' + relative, descriptor);
+}
+
+function add_manager_list_binding(lists, reference, target, role) {
+	let root = starts_with(target, '/etc/zapret2-manager/lists/') ? '/etc/zapret2-manager/lists' : '/opt/zapret2/lists';
+	let descriptor = runtime_asset_descriptor(target, root, { id: role });
+	if (descriptor == null) return;
+	descriptor.infrastructureRole = role;
+	runtime_descriptor_set(lists, reference, descriptor);
+	runtime_descriptor_set(lists, target, descriptor);
+}
+
+// Project the canonical resolver output into the descriptor shape consumed by
+// strategy-compiler.  The resolver remains the only runtime membership
+// authority; this function only adds references and never scans or writes a
+// second inventory.
+function runtime_environment_with_composition(environment, composition) {
+	let result = {}, paths = {}, lists = {}, blobs = {}, lua = {};
+	for (let key in environment || {}) result[key] = environment[key];
+	for (let key in (environment && environment.paths) || {}) paths[key] = environment.paths[key];
+	for (let key in (environment && environment.lists) || {}) lists[key] = environment.lists[key];
+	for (let key in (environment && environment.blobs) || {}) blobs[key] = environment.blobs[key];
+	for (let key in (environment && environment.lua) || {}) lua[key] = environment.lua[key];
+	if (!is_object(composition) || type(composition.runtimeAssets) != 'array') {
+		result.paths = paths; result.lists = lists; result.blobs = blobs; result.lua = lua;
+		return result;
+	}
+	// These are stable Z2M-owned infrastructure bindings used by the official
+	// compiler output but intentionally do not belong to Z2K lifecycle membership.
+	add_manager_list_binding(lists, '/runtime-assets/lists/whitelist.txt',
+		'/etc/zapret2-manager/lists/whitelist.txt', 'manager-whitelist');
+	add_manager_list_binding(lists, '/runtime-assets/lists/discovered-domains.txt',
+		'/opt/zapret2/lists/discovered-domains.txt', 'z2k-discovered-domains');
+	for (let entry in composition.runtimeAssets) {
+		if (!is_object(entry) || !is_string(entry.runtimeTarget) || !is_string(entry.kind)) continue;
+		let target = runtime_target_path(entry.runtimeTarget), root = runtime_path_root(target, entry.kind);
+		if (target == null || root == null) continue;
+		let descriptor = runtime_asset_descriptor(target, root, entry);
+		if (descriptor == null) continue;
+		if (entry.kind == 'hostlist' || entry.kind == 'ipset') runtime_list_aliases(lists, entry, target, descriptor);
+		else if (entry.kind == 'lua') runtime_lua_aliases(lua, entry, target, descriptor);
+		else if (entry.kind == 'blob') runtime_blob_aliases(blobs, target, entry, descriptor);
+	}
+	result.paths = paths; result.lists = lists; result.blobs = blobs; result.lua = lua;
+	result.runtimeComposition = composition;
+	return result;
 }
 
 function runtime_snapshot_valid(value) {
@@ -292,6 +383,7 @@ function runtime_context_from_environment() {
 		|| runtime.enginePath != ENGINE_PATH) return error_result('EUNAVAILABLE', 'server runtime composition test evidence is unavailable');
 	let composition = null;
 	try { composition = json(getenv('Z2M_STRATEGY_RUNTIME_COMPOSITION') || 'null'); } catch (e) { composition = null; }
+	if (is_object(environment)) environment = runtime_environment_with_composition(environment, composition);
 	if (is_object(environment)) environment.runtimeComposition = composition;
 	return { ok: true, environment: is_object(environment) ? environment : {}, runtimeInputs: runtime,
 		runtimeComposition: composition };
@@ -446,11 +538,17 @@ function live_runtime_inputs() {
 		}
 	}
 
-	return { ok: true, runtimeComposition: composition, environment: {
+	let projectedEnvironment = runtime_environment_with_composition({
 		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake', listRoot: '/lists', ipsetRoot: '/lists' },
-		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}, runtimeComposition: composition
-	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
+		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}
+	}, composition);
+	return { ok: true, runtimeComposition: composition, environment: projectedEnvironment,
+		runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
+
+export const strategy_runtime_environment_from_composition = function(environment, composition) {
+	return runtime_environment_with_composition(environment, composition);
+};
 
 // Scanner production planning uses the same server-owned live composition
 // evidence as Strategy preview/validate. Keep this as an internal module
@@ -695,7 +793,27 @@ function candidate_projection(resolved, candidate, effective, validation, includ
 	};
 	if (includeValidation == true) minimal.validation = validation;
 	encoded = serialize(minimal);
-	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? minimal : null;
+	if (encoded != null && length(encoded) <= MAX_OUTPUT_BYTES) return minimal;
+
+	// A complete effective command is still useful when argv would push the
+	// transport over its hard bound.  Keep that command and all admission
+	// metadata, while omitting only the derived argv presentation; the command
+	// remains the canonical executable projection and Apply never consumes this
+	// response shape.
+	let commandOnly = {
+		strategyId: bounded_identity(resolved.id, 128), origin: bounded_identity(resolved.origin, 32),
+		effectiveCommand: effective.effectiveCommand, effectiveArgv: [],
+		profiles_count: candidate.profilesCount, profilesCount: candidate.profilesCount,
+		dependencies: dependencies_record(candidate.dependencies), digest: candidate.digest,
+		applicable: candidate.applicable == true,
+		presentation: {
+			mode: 'compact', canonicalComplete: true,
+			omittedFields: ['strategyArgs', 'args', 'fullCommand', 'fullArgv', 'effectiveArgv']
+		}
+	};
+	if (includeValidation == true) commandOnly.validation = validation;
+	encoded = serialize(commandOnly);
+	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? commandOnly : null;
 }
 
 function validation_error(resolved, candidate, effective, validation, code, message) {
@@ -800,6 +918,32 @@ function strategy_apply_candidate(resolved, environment) {
 	return is_object(injected) ? injected : strategy_candidate(resolved.strategy, environment);
 }
 
+function bind_executable_candidate(candidate) {
+	if (!is_object(candidate) || !is_string(candidate.candidate) || !length(candidate.candidate)) return null;
+	let tokenized = z2m_tokenize(candidate.candidate);
+	if (!is_object(tokenized) || tokenized.ok == false || type(tokenized.tokens) != 'array') return null;
+	let tokens = [];
+	for (let token in tokenized.tokens) {
+		if (!is_object(token) || !is_string(token.value)) return null;
+		push(tokens, runtime_argument_token(token.value));
+	}
+	let executable = join(' ', tokens), digestValue = profiles_candidate_digest(executable);
+	if (!is_string(digestValue) || !digest(digestValue)) return null;
+	let result = {};
+	for (let key in candidate) result[key] = candidate[key];
+	result.candidate = executable;
+	if (is_string(result.strategyArgs)) result.strategyArgs = executable;
+	if (is_string(result.args)) result.args = executable;
+	result.digest = digestValue;
+	result.candidateSha256 = digestValue;
+	result.expectedHash = digestValue;
+	return result;
+}
+
+export const strategy_runtime_bind_candidate = function(candidate) {
+	return bind_executable_candidate(candidate);
+};
+
 function strategy_apply_release_evidence(result, projection, operationNonce) {
 	if (!is_object(projection) || !is_object(result) || !is_object(result.applied)
 		|| !digest(projection.expectedConfigSha256) || !digest(projection.previousCandidateSha256)
@@ -889,6 +1033,10 @@ export const strategy_apply = function(input, context) {
 	if (!complete_validation(candidate.nativeValidation))
 		return strategy_apply_finish(error_result('EPREFLIGHT', 'complete native Strategy preflight is required'), begun.operationNonce);
 	if (!digest(candidate.digest)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy candidate digest is unavailable'), begun.operationNonce);
+	let executableCandidate = bind_executable_candidate(candidate);
+	if (!is_object(executableCandidate))
+		return strategy_apply_finish(error_result('EINTERNAL', 'executable Strategy candidate could not be bound to runtime assets'), begun.operationNonce);
+	candidate = executableCandidate;
 	if (!digest(oldConfigSha256) || !digest(oldCandidateSha256))
 		return strategy_apply_finish(error_result('EVERIFY', 'authoritative pre-Apply config and candidate hashes are unavailable'), begun.operationNonce);
 	let selection = { revision: begun.selectionRevision, selected: begun.selected,

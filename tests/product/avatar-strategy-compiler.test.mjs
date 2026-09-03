@@ -174,6 +174,26 @@ test('list and ipset dependencies resolve relative descriptors and absolute list
   assert.doesNotMatch(unsafe.strategyArgs, /--hostlist=\/etc\/passwd/);
 });
 
+test('canonical runtime list references resolve through descriptor-specific bounded roots', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --hostlist=/runtime-assets/lists/extra_strats/TCP/RKN/List.txt --hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt' },
+  ]), {
+    ...environment,
+    lists: {
+      '/runtime-assets/lists/extra_strats/TCP/RKN/List.txt': {
+        path: 'extra_strats/TCP/RKN/List.txt', root: '/opt/zapret2/lists', present: true,
+      },
+      '/etc/zapret2-manager/lists/whitelist.txt': {
+        path: 'whitelist.txt', root: '/etc/zapret2-manager/lists', present: true,
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.dependencies.available, true, JSON.stringify(result.dependencies));
+  assert.deepEqual(result.dependencies.missing, []);
+});
+
 test('missing native list roots preserve original options without null executable paths', () => {
   const result = invoke('strategy_compile', strategy([
     { id: 'p1', args: '--filter-tcp=443 --hostlist=lists/missing.txt --ipset=lists/missing-ipset.txt' },
@@ -481,6 +501,30 @@ test('effective argv rejects client-composed inputs and shell-quotes captured va
   assert.ok(safe.command.includes("'\\''/tmp/pwned'\\''"));
   assert.equal(rejectedArgv.ok, false);
   assert.equal(rejectedSource.ok, false);
+});
+
+test('effective argv binds canonical runtime asset references to physical execution targets', () => {
+  const runtimeInputs = {
+    source: 'live',
+    enginePath: '/opt/zapret2/nfq2/nfqws2',
+    baseArgs: [],
+    luaInit: ['/runtime-assets/lua/z2k-modern-core.lua'],
+    hostlists: ['/runtime-assets/lists/extra_strats/TCP/RKN/List.txt'],
+  };
+  const result = invoke('strategy_effective_argv',
+    '--hostlist=/runtime-assets/lists/extra_strats/TCP/RKN/List.txt '
+      + '--lua-init=/runtime-assets/lua/z2k-modern-core.lua '
+      + '--blob=quic_5:@/runtime-assets/bin/quic_5.bin', runtimeInputs);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.effectiveArgv, [
+    '/opt/zapret2/nfq2/nfqws2',
+    '--lua-init=/opt/zapret2/lua/z2k-modern-core.lua',
+    '--hostlist=/opt/zapret2/lists/extra_strats/TCP/RKN/List.txt',
+    '--hostlist=/opt/zapret2/lists/extra_strats/TCP/RKN/List.txt',
+    '--lua-init=/opt/zapret2/lua/z2k-modern-core.lua',
+    '--blob=quic_5:@/opt/zapret2/files/fake/quic_5.bin',
+  ]);
 });
 
 test('strategy candidate carries Apply-compatible SHA-256 identity and admission fields', () => {

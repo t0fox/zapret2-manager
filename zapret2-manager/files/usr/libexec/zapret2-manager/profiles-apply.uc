@@ -877,6 +877,10 @@ export const profiles_candidate_hash = function() {
 	let current = read_var(OPT_VAR);
 	return current == null ? null : sha256_text_via_file(current);
 };
+export const profiles_candidate_digest = function(candidate) {
+	if (type(candidate) != 'string' || !length(candidate) || length(candidate) > MAX_CANDIDATE_BYTES) return null;
+	return sha256_text_via_file(candidate);
+};
 
 export const profiles_reconcile_evidence = function() {
 	let injected = hook_value('reconciliation', 'evidence');

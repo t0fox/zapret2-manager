@@ -48,6 +48,16 @@ test('Strategy Apply sidecar carries bounded Strategy identity, not the full run
   assert.doesNotMatch(projection, /runtimeSnapshot\s*:/);
 });
 
+test('Strategy Apply binds and rehashes the executable candidate before mutation', () => {
+  const source = fs.readFileSync(CLI, 'utf8');
+  assert.match(source, /runtime_argument_token/);
+  assert.match(source, /bind_executable_candidate/);
+  assert.match(source, /profiles_candidate_digest/);
+  const applyRegion = source.slice(source.indexOf('export const strategy_apply'), source.indexOf('function strategy_reconcile_locked'));
+  assert.match(applyRegion, /bind_executable_candidate\(candidate\)/);
+  assert.match(applyRegion, /candidate = executableCandidate/);
+});
+
 test('Strategy Apply revalidation accepts both canonical catalog origins', () => {
   const source = fs.readFileSync(STATE, 'utf8');
   assert.match(source, /input\.strategyOrigin == 'avatar_builtin'\s*\|\|\s*input\.strategyOrigin == 'z2k_builtin'/);
