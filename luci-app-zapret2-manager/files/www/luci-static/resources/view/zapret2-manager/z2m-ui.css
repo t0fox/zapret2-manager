@@ -5361,8 +5361,8 @@
     grid-template-columns:32px minmax(0,1fr);
   }
   .z2m-app .z2m-provider-actions {
-    display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
+    display:flex;
+    justify-content:flex-start;
   }
   .z2m-app .z2m-provider-actions .z2m-btn {
     min-height:44px;

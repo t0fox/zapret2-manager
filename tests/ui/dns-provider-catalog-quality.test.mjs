@@ -42,7 +42,7 @@ test('provider catalog layout keeps touch-safe actions and responsive editor geo
   assert.match(css, /@media \(pointer:coarse\)/);
   assert.match(css, /z2m-provider-groups[\s\S]*container-type:\s*inline-size/);
   assert.match(css, /@container dns-provider-list \(max-width:980px\)/);
-  assert.match(css, /z2m-provider-actions[\s\S]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(css, /@container dns-provider-list \(max-width:620px\)[\s\S]*z2m-provider-actions[\s\S]*display:flex[\s\S]*justify-content:flex-start/);
   assert.match(css, /@media\(max-width:430px\)/);
   assert.match(css, /prefers-reduced-motion:reduce/);
 });
