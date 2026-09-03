@@ -57,10 +57,11 @@ git diff --check
 UI scoped suite (10 files, including DNS catalog and Components coherence)
 => tests=78, pass=78, fail=0, skipped=0.
 
-DNS/product scoped suite
-=> tests=25, pass=21, fail=0, skipped=4.
-  The four skips are UCode-backed catalog persistence cases because the host
-  has no /opt/ucode/bin/ucode.
+DNS provider catalog UCode suite (WSL `/home/kirill/ucode/bin/ucode`)
+=> tests=13, pass=13, fail=0, skipped=0.
+
+The earlier Windows-only DNS/product run had four expected UCode skips; the
+same UCode-backed catalog cases are now covered by the WSL run above.
 
 Z2K static/lifecycle scoped suite
 => tests=29, pass=29, fail=0, skipped=0.
@@ -69,7 +70,7 @@ Exact revision / dependency / target-gate contracts
 => tests=20, pass=20, fail=0.
 
 Release contract suite
-=> tests=5, pass=5, fail=0.
+=> tests=8, pass=8, fail=0.
 
 Pinned APK build (`bash scripts/release/build-apk.sh`)
 => exit 1 after the script's 3 bounded feed attempts. The SDK archive was
@@ -81,8 +82,8 @@ Pinned APK build (`bash scripts/release/build-apk.sh`)
 
 ## Known host boundary
 
-The full official compiler / Strategy refresh suite was executed once after
-the latest changes:
+The full official compiler / Strategy refresh suite was executed in WSL with
+the locally available UCode runtime:
 
 ```text
 node --test --test-concurrency=1 \
@@ -92,11 +93,13 @@ node --test --test-concurrency=1 \
   tests/product/strategy-source-refresh.test.mjs
 ```
 
-Result: `tests=29, pass=0, fail=29`. Every failure is the same environment
-boundary: `spawnSync /opt/ucode/bin/ucode ENOENT`; no product assertion was
-reached. A prior single bounded attempt to install the pinned runtime failed
-with `curl: (6) Could not resolve host: github.com`; no retry or token/network
-workaround was performed.
+Result: `tests=29, pass=29, fail=0, skipped=0`.
+
+The Windows-native invocation still has no `/opt/ucode/bin/ucode`; it is not
+used as evidence against the implementation when the equivalent WSL runtime
+run is available. A prior single bounded attempt to install the pinned runtime
+failed with `curl: (6) Could not resolve host: github.com`; no retry or
+token/network workaround was performed.
 
 ## Router boundary
 
@@ -116,8 +119,16 @@ project contract requires explicit approval for physical-router mutation.
 
 ## Delivery state
 
-The implementation commit is `1b167426b3bda7b4657569ba9718fd88bc0daafa` on
-`main`. It remains subject to the final review, successful package
-build/artifact verification, and the router/browser acceptance boundary
-above. No GREEN/READY claim is made for the blocked UCode, failed package
-build, or unexecuted router gates.
+The implementation commits on `main` are:
+
+- `1b167426b3bda7b4657569ba9718fd88bc0daafa` — DNS / Strategy / Z2K slices;
+- `ca251453` — UCode-compatible DNS catalog fix;
+- `0e7aefa1` — scoped OpenWrt feed package installation and release contract.
+
+They remain subject to final package build/artifact verification and the
+router/browser acceptance boundary above. The pinned build's last observed
+result was exit 1 after the three bounded feed attempts because OpenWrt feeds
+could not resolve and `/mnt/g` failed the SDK case-sensitive-filesystem
+prerequisite; the later feed-scope patch has only static contract evidence so
+far. No GREEN/READY claim is made for package artifacts or unexecuted router
+gates.
