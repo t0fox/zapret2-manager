@@ -73,7 +73,7 @@ function canonical_selections(selections, d) {
 	let m = maps(d), result = {}, invalid = [];
 	for (let serviceId in selections || {}) {
 		let selected = selections[serviceId], resolved = resolve_selection(m, serviceId, selected);
-		if (selected == 'off') { result[serviceId] = 'off'; continue; }
+		if (selected == 'off' || selected == '' || selected == null) { result[serviceId] = 'off'; continue; }
 		if (!resolved) { push(invalid, { serviceId: serviceId, providerId: selected }); continue; }
 		result[serviceId] = resolved.providerId;
 	}

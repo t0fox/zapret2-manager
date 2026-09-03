@@ -83,6 +83,11 @@ test('service DNS status propagates catalog and normalized-state failures', () =
   assert.match(status, /if\s*\(!normalized\.ok\)\s*return\s+normalized/);
 });
 
+test('empty service DNS selections normalize to the explicit off state', () => {
+  const source = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc', 'utf8');
+  assert.match(source, /if\s*\(selected\s*==\s*'off'\s*\|\|\s*selected\s*==\s*''\s*\|\|\s*selected\s*==\s*null\)/);
+});
+
 test('provider CRUD is exposed as explicit write RPCs with read-only listing', () => {
   const rpc = fs.readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
   const acl = fs.readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8');
