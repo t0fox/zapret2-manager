@@ -115,6 +115,12 @@ the corresponding `0.1.0-r154` filogic bundle. The artifact is available in
 the local ignored download directory for later deployment; it has not been
 installed on the router.
 
+The subsequent evidence-only `main` commit
+`e65c32e487218269a52bfdc703a0115a5cb4f166` also completed the supported CI
+workflow as run `33711268937`. Its manifest records that exact source SHA and
+the same three verified product APKs (`0.1.0-r154`); the artifact verifier
+again returned `Verified 3 product APKs`.
+
 The full all-tests WSL run was completed before the final Z2K validator and
 fixture follow-up and is therefore retained as a diagnostic, not as the final
 gate: `tests=2366, pass=2054, fail=304, skipped=4, todo=4, RC=1`. Its failures
@@ -163,6 +169,19 @@ Read-only discovery succeeded on `root@192.168.1.1`:
   and the existing Z2K resource check reports `update-available` with
   `canApply: false`; these are baseline observations, not fresh checks from
   the new package.
+- Read-only RPC baseline: active strategy is canonical ID
+  `z2k:z2k_all_in_one` with `entryKind: all-in-one`, while the active catalog
+  has `852` physical and `852` unique entries, source commit
+  `8c44df2bed98872d1348db053623ee6bf2902408`, and digest
+  `446a1d7b95be7dc7ce3731bbf99b89c51c0fa19e8bc117fdf9ee23daf9f51d2d`.
+- Read-only Z2K version baseline: installed `r-80.3`; remote cache is stale,
+  with `r-81.6` reported as latest and `r-81.6` installable. The current
+  resource status still reports attention on `z2k-resources` and
+  `canApply: false`; no refresh was started.
+- Read-only DNS baseline: global mode is `system`; service DNS revision is
+  draft/applied `3` with `chatgpt-openai` selected as
+  `prof-chatgpt-openai-comss-dns`; the effective provider list contains the
+  immutable built-in catalog and no custom provider was observed.
 
 No current worktree file was deployed, no package was installed, no RPC reload
 or service restart was run, no Strategy/DNS Apply was run, and no reboot was
@@ -182,10 +201,12 @@ The implementation commits on `main` are:
 - `29cc34fc` — final scoped acceptance evidence refresh;
 - `352d8abb` — package-only build boundary evidence.
 - `9464a595` — delivery evidence alignment after the main push.
+- `e65c32e4` — evidence-only commit whose exact CI artifact was verified.
 
-The exact supported CI package build and artifact verification are now
-complete for `9464a595`; the pinned local build remains a separate diagnostic
-failure because OpenWrt feeds could not resolve and `/mnt/g` failed the SDK
-case-sensitive-filesystem prerequisite. The implementation is pushed to
-`origin/main` at `9464a595`. No package artifact has been installed on the
-router, and no GREEN/READY claim is made for unexecuted router/browser gates.
+The exact supported CI package build and artifact verification are complete
+for the implementation source at `e65c32e487218269a52bfdc703a0115a5cb4f166`;
+the pinned local build remains a separate diagnostic failure because OpenWrt
+feeds could not resolve and `/mnt/g` failed the SDK case-sensitive-filesystem
+prerequisite. The evidence-only commit is pushed to `origin/main`. No package
+artifact has been installed on the router, and no GREEN/READY claim is made
+for unexecuted router/browser gates.
