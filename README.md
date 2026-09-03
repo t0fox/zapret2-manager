@@ -4,13 +4,14 @@
 
 <br>
 
+[![main-latest](https://img.shields.io/badge/release-main--latest-665BFF?logo=github&logoColor=white)](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
 [![APK build](https://github.com/t0fox/zapret2-manager/actions/workflows/apk-build.yml/badge.svg?branch=main)](https://github.com/t0fox/zapret2-manager/actions/workflows/apk-build.yml)
-[![main-latest](https://img.shields.io/badge/release-main--latest-6d5dfc?logo=github&logoColor=white)](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
-[![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12.5-00B5E2?logo=openwrt&logoColor=white)](https://openwrt.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](./LICENSE)
-[![Last commit](https://img.shields.io/github/last-commit/t0fox/zapret2-manager?label=updated)](https://github.com/t0fox/zapret2-manager/commits/main)
+[![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12.5-58A6FF?logo=openwrt&logoColor=white)](https://openwrt.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22C55E)](./LICENSE)
 
-**Управляй `zapret2` на OpenWrt через единый LuCI-интерфейс — без ручной сборки разрозненных сценариев вокруг движка.**
+<br>
+
+**Единый LuCI-интерфейс для управления `zapret2` на OpenWrt.**
 
 [**Скачать `main-latest`**](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
 &nbsp;·&nbsp;
