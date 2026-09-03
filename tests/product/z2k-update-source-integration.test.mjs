@@ -137,6 +137,19 @@ test('Z2K selected details resolves through the initialized exact-version export
 	assert.equal(details.unavailableReason, 'EZ2K_UNCLASSIFIED_UPSTREAM_FILE');
 });
 
+test('Z2K selected details keeps unconsumed upstream files advisory and the target installable', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	seedInstalledRelease(s);
+	const details = invoke(s, 'mod.z2k_version_details("r-81.6")', presentationEnv(s, '1000', 'z2k_advisory_selected'));
+	assert.equal(details.ok, true, JSON.stringify(details));
+	assert.equal(details.version, 'r-81.6');
+	assert.equal(details.installable, true, JSON.stringify(details));
+	assert.equal(details.unavailableReason, null, JSON.stringify(details));
+	assert.equal(details.targetCanApply, true, JSON.stringify(details));
+	assert.notEqual(details.targetAttentionState, 'unknown');
+	assert.deepEqual(details.targetBlockingReasons, []);
+});
+
 function comparablePresentation(value) {
 	return {
 		version: value.version,

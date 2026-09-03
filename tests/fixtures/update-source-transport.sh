@@ -60,8 +60,22 @@ case "$mode" in
 			*/git/ref/tags/r-80.3)
 				printf '%s' '{"ref":"refs/tags/r-80.3","object":{"sha":"cccccccccccccccccccccccccccccccccccccccc","type":"commit"}}' > "$output"
 				;;
-			*/UPDATES.json)
+			*/UPDATES.json*)
 				printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":1,"current":"r-80.3","files_sha256":{"files/lua/example.lua":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}' > "$output"
+				;;
+			*)
+				printf '%s' '{}' > "$output"
+				;;
+		esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
+	z2k_advisory_selected)
+		case "$url" in
+			*/git/refs/tags\?per_page=100)
+				printf '%s' '[{"ref":"refs/tags/r-81.6","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}}]' > "$output"
+				;;
+			*/UPDATES.json*)
+				printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":81,"current":"r-81.6","files_sha256":{"files/lua/z2k-alert.lua":"2222222222222222222222222222222222222222222222222222222222222222","files/lists/sni_wl_candidates.txt":"3333333333333333333333333333333333333333333333333333333333333333","files/lists/tcp16_targets.txt":"4444444444444444444444444444444444444444444444444444444444444444","files/z2k-config-validator.sh":"5555555555555555555555555555555555555555555555555555555555555555","files/z2k-geosite.sh":"6666666666666666666666666666666666666666666666666666666666666666","files/z2k-tcp16-probe.sh":"7777777777777777777777777777777777777777777777777777777777777777","files/z2k-update-lists.sh":"8888888888888888888888888888888888888888888888888888888888888888","webpanel/www/js/pages/strategy-pick.js":"9999999999999999999999999999999999999999999999999999999999999999","z2k-detect/builds/z2k-detect-linux-amd64":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}' > "$output"
 				;;
 			*)
 				printf '%s' '{}' > "$output"
