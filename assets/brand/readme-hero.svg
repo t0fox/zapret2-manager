@@ -1,78 +1,78 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
-  <title id="title">zapret2.manager</title>
-  <desc id="desc">zapret2.manager — единый LuCI-интерфейс управления zapret2 на OpenWrt.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="220" viewBox="0 0 1200 220" role="img" aria-labelledby="title desc">
+  <title id="title">zapret2.manager brand banner</title>
+  <desc id="desc">Graphite and indigo zapret2.manager brand banner without embedded text.</desc>
   <defs>
-    <linearGradient id="shell" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#17191F"/>
+    <linearGradient id="shell" x1="0" y1="0" x2="1200" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17191F"/>
       <stop offset="0.58" stop-color="#16181D"/>
       <stop offset="1" stop-color="#171823"/>
     </linearGradient>
-    <linearGradient id="topbar" x1="0" y1="0" x2="1200" y2="70" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#191B26"/>
-      <stop offset="1" stop-color="#17191F"/>
-    </linearGradient>
-    <linearGradient id="iconBg" x1="42" y1="16" x2="88" y2="62" gradientUnits="userSpaceOnUse">
+    <linearGradient id="icon" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#58A6FF"/>
-      <stop offset="0.5" stop-color="#665BFF"/>
+      <stop offset="0.52" stop-color="#665BFF"/>
       <stop offset="1" stop-color="#7557FF"/>
     </linearGradient>
-    <linearGradient id="accentLine" x1="242" y1="0" x2="862" y2="0" gradientUnits="userSpaceOnUse">
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
       <stop stop-color="#58A6FF"/>
-      <stop offset="0.6" stop-color="#665BFF"/>
+      <stop offset="0.58" stop-color="#665BFF"/>
       <stop offset="1" stop-color="#7557FF"/>
     </linearGradient>
-    <radialGradient id="brandGlow" cx="0" cy="0" r="1" gradientTransform="translate(250 200) rotate(8) scale(390 170)" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#665BFF" stop-opacity=".12"/>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(255 122) rotate(7) scale(400 160)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#665BFF" stop-opacity=".15"/>
       <stop offset="1" stop-color="#665BFF" stop-opacity="0"/>
     </radialGradient>
-    <filter id="logoShadow" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".28"/>
-    </filter>
   </defs>
 
-  <rect x="1" y="1" width="1198" height="318" rx="24" fill="url(#shell)" stroke="#30343D" stroke-width="2"/>
-  <rect x="2" y="2" width="1196" height="68" rx="22" fill="url(#topbar)"/>
-  <path d="M2 70H1198" stroke="#30343D"/>
-  <rect x="2" y="70" width="1196" height="50" fill="#16181D"/>
-  <path d="M2 120H1198" stroke="#2B3038"/>
-  <rect x="2" y="120" width="1196" height="198" rx="0" fill="url(#brandGlow)"/>
+  <rect x="1" y="1" width="1198" height="218" rx="24" fill="url(#shell)" stroke="#30343D" stroke-width="2"/>
+  <rect x="2" y="2" width="1196" height="66" rx="22" fill="#191B23"/>
+  <path d="M2 68H1198" stroke="#30343D"/>
+  <rect x="2" y="68" width="1196" height="150" fill="url(#glow)"/>
 
-  <g filter="url(#logoShadow)">
-    <rect x="42" y="15" width="46" height="46" rx="12" fill="url(#iconBg)"/>
-    <path d="M53 23H67V33L59 44V53H53C50.791 53 49 51.209 49 49V27C49 24.791 50.791 23 53 23Z" fill="#F8FAFC"/>
-    <path d="M74 23H78C80.209 23 82 24.791 82 27V49C82 51.209 80.209 53 78 53H65V43L73 32V27C73 24.791 73.448 23 74 23Z" fill="#F8FAFC"/>
+  <g transform="translate(44 20)">
+    <rect width="44" height="44" rx="11" fill="url(#icon)"/>
+    <path d="M10 8H24V18L16 29V36H10C7.791 36 6 34.209 6 32V12C6 9.791 7.791 8 10 8Z" fill="#F8FAFC"/>
+    <path d="M31 8H34C36.209 8 38 9.791 38 12V32C38 34.209 36.209 36 34 36H22V27L30 17V12C30 9.791 30.448 8 31 8Z" fill="#F8FAFC"/>
   </g>
 
-  <text x="106" y="45" fill="#F1F3F6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="22" font-weight="720" letter-spacing="-.3">zapret2.manager</text>
-  <text x="1032" y="42" text-anchor="end" fill="#929AA8" font-family="SFMono-Regular, Consolas, ui-monospace, monospace" font-size="14">OpenWrt · LuCI</text>
-
-  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="620" fill="#AEB6C4">
-    <text x="242" y="101">Главная</text>
-    <text x="348" y="101">Обход DPI</text>
-    <text x="473" y="101">Прокси и маршрутизация</text>
-    <text x="687" y="101">Списки и данные</text>
-    <text x="840" y="101">Диагностика</text>
-    <text x="955" y="101">Система</text>
-  </g>
-  <text x="242" y="101" fill="#58A6FF" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="700">Главная</text>
-  <rect x="235" y="116" width="70" height="3" rx="1.5" fill="#58A6FF"/>
-
-  <text x="70" y="184" fill="#F1F3F6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="37" font-weight="760" letter-spacing="-.6">Единое управление zapret2 на OpenWrt</text>
-  <text x="70" y="219" fill="#929AA8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="18" font-weight="500">Стратегии, Z2K Core, DNS, прокси и диагностика — в одном LuCI-интерфейсе.</text>
-
-  <g transform="translate(70 246)" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="620">
-    <rect width="245" height="38" rx="19" fill="#1C1F26" stroke="#343A45"/>
-    <circle cx="20" cy="19" r="5" fill="#58A6FF"/>
-    <text x="36" y="24" fill="#D8DEE9">Preview → Validate → Apply</text>
-
-    <rect x="259" width="146" height="38" rx="19" fill="#1C1F26" stroke="#343A45"/>
-    <circle cx="279" cy="19" r="5" fill="#7557FF"/>
-    <text x="295" y="24" fill="#D8DEE9">Z2K Core</text>
-
-    <rect x="419" width="248" height="38" rx="19" fill="#1C1F26" stroke="#343A45"/>
-    <circle cx="439" cy="19" r="5" fill="#22C55E"/>
-    <text x="455" y="24" fill="#D8DEE9">DNS · Proxy · Diagnostics</text>
+  <g fill="#D9DEE8" opacity=".95">
+    <rect x="106" y="29" width="142" height="11" rx="5.5"/>
+    <rect x="106" y="46" width="96" height="6" rx="3" fill="#7F8999" opacity=".7"/>
   </g>
 
-  <rect x="70" y="299" width="760" height="2" rx="1" fill="url(#accentLine)" opacity=".72"/>
+  <g transform="translate(912 27)">
+    <rect width="54" height="6" rx="3" fill="#5F6877" opacity=".75"/>
+    <rect x="66" width="62" height="6" rx="3" fill="#5F6877" opacity=".52"/>
+    <rect x="140" width="46" height="6" rx="3" fill="#5F6877" opacity=".36"/>
+  </g>
+
+  <g transform="translate(72 103)">
+    <rect width="505" height="18" rx="9" fill="#F1F3F6" opacity=".96"/>
+    <rect y="34" width="422" height="9" rx="4.5" fill="#929AA8" opacity=".76"/>
+    <rect y="54" width="334" height="9" rx="4.5" fill="#929AA8" opacity=".48"/>
+
+    <g transform="translate(0 86)">
+      <rect width="176" height="30" rx="15" fill="#1D2027" stroke="#343A45"/>
+      <circle cx="17" cy="15" r="4" fill="#58A6FF"/>
+      <rect x="31" y="11" width="112" height="8" rx="4" fill="#D8DEE9" opacity=".78"/>
+
+      <rect x="190" width="132" height="30" rx="15" fill="#1D2027" stroke="#343A45"/>
+      <circle cx="207" cy="15" r="4" fill="#7557FF"/>
+      <rect x="221" y="11" width="72" height="8" rx="4" fill="#D8DEE9" opacity=".78"/>
+
+      <rect x="336" width="184" height="30" rx="15" fill="#1D2027" stroke="#343A45"/>
+      <circle cx="353" cy="15" r="4" fill="#22C55E"/>
+      <rect x="367" y="11" width="118" height="8" rx="4" fill="#D8DEE9" opacity=".78"/>
+    </g>
+  </g>
+
+  <g transform="translate(737 95)">
+    <rect width="385" height="94" rx="18" fill="#151820" stroke="#2D3340"/>
+    <rect x="24" y="22" width="164" height="8" rx="4" fill="#D8DEE9" opacity=".72"/>
+    <rect x="24" y="43" width="275" height="6" rx="3" fill="#697487" opacity=".72"/>
+    <rect x="24" y="58" width="221" height="6" rx="3" fill="#697487" opacity=".45"/>
+    <circle cx="337" cy="28" r="7" fill="#22C55E" opacity=".9"/>
+    <rect x="318" y="47" width="40" height="5" rx="2.5" fill="#22C55E" opacity=".42"/>
+  </g>
+
+  <rect x="72" y="205" width="650" height="2" rx="1" fill="url(#accent)" opacity=".78"/>
 </svg>
