@@ -70,6 +70,13 @@ Exact revision / dependency / target-gate contracts
 
 Release contract suite
 => tests=5, pass=5, fail=0.
+
+Pinned APK build (`bash scripts/release/build-apk.sh`)
+=> exit 1 after the script's 3 bounded feed attempts. The SDK archive was
+  verified and extracted, but all three OpenWrt feeds failed with
+  `Could not resolve host: git.openwrt.org`; the SDK prerequisite also failed
+  `case-sensitive-fs` on `/mnt/g`. No `FORCE=1` override was used, so no APK
+  artifact or artifact-verifier evidence was claimed.
 ```
 
 ## Known host boundary
@@ -109,7 +116,8 @@ project contract requires explicit approval for physical-router mutation.
 
 ## Delivery state
 
-The implementation is on `main` and remains subject to the final review,
-package build/artifact verification, and the router/browser acceptance
-boundary above. No GREEN/READY claim is made for the blocked UCode or
-unexecuted router gates.
+The implementation commit is `1b167426b3bda7b4657569ba9718fd88bc0daafa` on
+`main`. It remains subject to the final review, successful package
+build/artifact verification, and the router/browser acceptance boundary
+above. No GREEN/READY claim is made for the blocked UCode, failed package
+build, or unexecuted router gates.
