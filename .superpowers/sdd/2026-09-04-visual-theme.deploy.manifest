@@ -1,0 +1,19 @@
+---
+title: Visual theme router deployment manifest
+status: reviewed
+date: 2026-09-04
+---
+
+Target: `root@192.168.1.1`
+
+Only these existing static assets are deployed for the visual-theme pass:
+
+| Repository path | Router path | SHA-256 |
+| --- | --- | --- |
+| `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js` | `/www/luci-static/resources/view/zapret2-manager/z2m-shell.js` | `b2d8357c7a968eb68e430809d414f2dbeb389dbe70241464c580156e2477e6a7` |
+| `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css` | `/www/luci-static/resources/view/zapret2-manager/z2m-ui.css` | `e13e2bc74ecc3678df66a7509d0e9cc8575e0f834b80943a901d4398b0d80b11` |
+
+No page JavaScript, route, RPC, backend, package, or data file is part of
+this deployment. Preserve a timestamped router backup before copying. The
+static CSS revision is loaded by the existing shell loader; do not restart
+the backend or mutate runtime state for this visual-only change.
