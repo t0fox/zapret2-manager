@@ -90,6 +90,7 @@ test('materializes blobs, lua, lists into the live engine roots', () => {
   assert.equal(verdict.blockedLifecycleAssets, 7);
   assert.equal(fs.existsSync(path.join(sb.base, 'lists', 'discord.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.base, 'ipset', 'discord.txt')), true);
+  assert.equal(fs.existsSync(path.join(sb.base, 'lists', 'discovered-domains.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.stateDir, 'state.tsv')), true);
 });
 

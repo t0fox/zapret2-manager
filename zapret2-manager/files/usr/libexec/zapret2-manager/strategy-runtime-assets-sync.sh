@@ -332,6 +332,12 @@ ensure_dir "$BASE/ipset"
 # runtime asset directories world-traversable regardless of caller umask.
 chmod 0755 "$BASE" "$BASE/files" "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset" 2>/dev/null || true
 [ -e "$BASE/bin" ] || ln -s "$BASE/files/fake" "$BASE/bin"
+# The official Z2K compiler always wires the discovered-domain hostlist into
+# its flat output. Keep that dynamic, engine-owned input present even before
+# the detector has written its first domain; an absent file makes the whole
+# otherwise valid All-in-One catalog fail native preflight.
+[ -f "$BASE/lists/discovered-domains.txt" ] || : > "$BASE/lists/discovered-domains.txt"
+chmod 0644 "$BASE/lists/discovered-domains.txt" 2>/dev/null || true
 ensure_dir "$ETC_ROOT/lists"
 [ -f "$ETC_ROOT/lists/whitelist.txt" ] || touch "$ETC_ROOT/lists/whitelist.txt"
 
