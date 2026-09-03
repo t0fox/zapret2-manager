@@ -153,6 +153,8 @@ The implementation commits on `main` are:
 - `1cf6f0be` — Z2K test-only native gate alignment and package index warm-up
   verification;
 - `ed502342` — acceptance evidence refresh.
+- `29cc34fc` — final scoped acceptance evidence refresh;
+- `352d8abb` — package-only build boundary evidence.
 
 They remain subject to final package build/artifact verification and the
 router/browser acceptance boundary above. The pinned build's last observed
@@ -160,4 +162,5 @@ result was exit 1 after the three bounded feed attempts because OpenWrt feeds
 could not resolve and `/mnt/g` failed the SDK case-sensitive-filesystem
 prerequisite; the later feed-scope patch has only static contract evidence so
 far. No GREEN/READY claim is made for package artifacts or unexecuted router
-gates. The current branch also has no push or package artifact delivery yet.
+gates. The implementation commits are pushed to `origin/main` at
+`352d8abb`; no package artifact has been delivered.
