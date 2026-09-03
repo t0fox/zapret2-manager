@@ -88,6 +88,11 @@ PACKAGE_ROOT="$SDK_DIR/package/z2m"
 
 printf 'release build: updating and installing OpenWrt feeds\n'
 FEED_NAMES='base packages luci'
+# Install only the package definitions required by the three manager APKs.
+# `scripts/feeds install` accepts package names, not feed names; installing all
+# feed packages would select unrelated target/device packages and broaden the
+# build into an unnecessary firmware-wide prerequisite graph.
+FEED_PACKAGES='ucode ucode-mod-fs ucode-mod-io ucode-mod-socket ucode-mod-uloop kmod-nfnetlink-queue kmod-nft-queue ncat flock uclient-fetch ca-bundle unzip jsonfilter libjson-c luci-base'
 FEEDS_READY=0
 for FEED_ATTEMPT in 1 2 3; do
 	if (
@@ -104,7 +109,7 @@ for FEED_ATTEMPT in 1 2 3; do
 	fi
 	if [ "$FEEDS_READY" -eq 1 ] && (
 		cd "$SDK_DIR"
-		./scripts/feeds install $FEED_NAMES
+		./scripts/feeds install $FEED_PACKAGES
 	); then
 		break
 	fi
