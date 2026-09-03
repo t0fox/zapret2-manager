@@ -133,6 +133,7 @@ test('Existing service DNS RPC, CLI, and ACL remain the canonical TikTok owner',
     assert.match(rpc, new RegExp(method));
     assert.match(acl, new RegExp(method));
   }
+  assert.match(fs.readFileSync(OWNER, 'utf8'), /export const service_dns_apply_async/);
   assert.match(cli, /service_dns_tiktok_(?:status|check|set|set_async)/);
   assert.doesNotMatch(rpc, /tiktok.*daemon|tiktok.*pool.*service|second.*resolver/i);
 });
