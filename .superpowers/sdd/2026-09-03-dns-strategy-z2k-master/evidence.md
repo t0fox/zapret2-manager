@@ -86,7 +86,7 @@ Pinned APK build (`bash scripts/release/build-apk.sh`)
   verified and extracted, but all three OpenWrt feeds failed with
   `Could not resolve host: git.openwrt.org`; the SDK prerequisite also failed
   `case-sensitive-fs` on `/mnt/g`. No `FORCE=1` override was used, so no APK
-  artifact or artifact-verifier evidence was claimed.
+  artifact was promoted from this local attempt.
 
 Two additional bounded package-only diagnostics used existing local SDK caches
 and were not treated as release evidence. A minimal-config probe avoided the
@@ -95,7 +95,25 @@ the host DNS timeout. A second probe using the older cache's completed
 dependency stamps reached virtual-kernel packaging and failed with
 `libfakeroot: connect: Connection refused` in the relocated SDK environment.
 No package artifact was promoted or claimed from either probe.
+
+Supported GitHub Actions package build for implementation commit
+`9464a59588f1ddb06df3ac8401dc9999915d6cbb`
+=> run `33705550732` completed successfully. The workflow built and verified
+three product APKs for OpenWrt `25.12.5`, target `mediatek/filogic`, and
+uploaded the exact artifact `z2m-apk-9464a59588f1ddb06df3ac8401dc9999915d6cbb`.
+The repository verifier returned `Verified 3 product APKs` for the downloaded
+artifact. The recorded APK SHA-256 values are:
+
+```text
+zapret2-manager-0.1.0-r154.apk       767413f559440781183dea1cb93f959912fa6eb313c9156de1965872320f641d
+luci-app-zapret2-manager-0.1.0-r154.apk 98e4e1b0f3eed893e1e8a8f77d61f25e374a6bf8fe9feb21784ddcb844c3a32d
+zapret2-manager-full-0.1.0-r154.apk  168b52ee4656853e9e7505881c8a03e72cb73cfb27f9245240c0bf79732dd447
 ```
+
+The rolling prerelease `main-latest` points to the same commit and exposes
+the corresponding `0.1.0-r154` filogic bundle. The artifact is available in
+the local ignored download directory for later deployment; it has not been
+installed on the router.
 
 The full all-tests WSL run was completed before the final Z2K validator and
 fixture follow-up and is therefore retained as a diagnostic, not as the final
@@ -135,8 +153,16 @@ Read-only discovery succeeded on `root@192.168.1.1`:
 - OpenWrt `25.12.5`, revision `r33051-f5dae5ece4`, target
   `mediatek/filogic`, board `cudy,wbr3000uax-v1-ubootmod`.
 - `zapret2-manager`, `luci-app-zapret2-manager`, and
-  `zapret2-manager-full` are installed.
-- `/usr/bin/ucode` exists on the target.
+  `zapret2-manager-full` are installed at `0.1.0-r150` according to the
+  target APK database.
+- The target has official `zapret2` engine release `v1.0.4`; `nfqws2` is
+  running and the nftables `inet zapret2` table has active queue rules for
+  queue `300`.
+- The target has `/usr/bin/ucode`, the current active catalog generation is
+  `generation-446a1d7b95be7dc7ce3731bbf99b89c51c0fa19e8bc117fdf9ee23daf9f51d2d`,
+  and the existing Z2K resource check reports `update-available` with
+  `canApply: false`; these are baseline observations, not fresh checks from
+  the new package.
 
 No current worktree file was deployed, no package was installed, no RPC reload
 or service restart was run, no Strategy/DNS Apply was run, and no reboot was
@@ -155,12 +181,11 @@ The implementation commits on `main` are:
 - `ed502342` — acceptance evidence refresh.
 - `29cc34fc` — final scoped acceptance evidence refresh;
 - `352d8abb` — package-only build boundary evidence.
+- `9464a595` — delivery evidence alignment after the main push.
 
-They remain subject to final package build/artifact verification and the
-router/browser acceptance boundary above. The pinned build's last observed
-result was exit 1 after the three bounded feed attempts because OpenWrt feeds
-could not resolve and `/mnt/g` failed the SDK case-sensitive-filesystem
-prerequisite; the later feed-scope patch has only static contract evidence so
-far. No GREEN/READY claim is made for package artifacts or unexecuted router
-gates. The implementation commits are pushed to `origin/main` at
-`352d8abb`; no package artifact has been delivered.
+The exact supported CI package build and artifact verification are now
+complete for `9464a595`; the pinned local build remains a separate diagnostic
+failure because OpenWrt feeds could not resolve and `/mnt/g` failed the SDK
+case-sensitive-filesystem prerequisite. The implementation is pushed to
+`origin/main` at `9464a595`. No package artifact has been installed on the
+router, and no GREEN/READY claim is made for unexecuted router/browser gates.
