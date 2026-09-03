@@ -1,0 +1,5 @@
+# Reviewed source-only LuCI shell closure. No backend, service, or runtime files.
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js|/www/luci-static/resources/view/zapret2-manager/app.js|0644
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js|/www/luci-static/resources/view/zapret2-manager/z2m-shell.js|0644
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|0644
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/icons/zapret2-manager-mark.svg|/www/luci-static/resources/view/zapret2-manager/icons/zapret2-manager-mark.svg|0644

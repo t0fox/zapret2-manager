@@ -90,11 +90,11 @@ function setHash(tab) {
 }
 function statusState(initial) {
   var value = RuntimeState.state(initial);
-  if (value === 'unavailable') return { label: _('недоступно'), kind: 'r' };
-  if (value === 'running') return { label: _('работает'), kind: 'g' };
-  if (value === 'stopped') return { label: _('остановлена'), kind: 'r' };
+  if (value === 'unavailable') return { label: _('Недоступно'), kind: 'r' };
+  if (value === 'running') return { label: _('Работает'), kind: 'g' };
+  if (value === 'stopped') return { label: _('Остановлено'), kind: 'r' };
   if (value === 'mismatch') return { label: _('расхождение'), kind: 'o' };
-  return { label: value === 'degraded' ? _('деградировала') : _('неизвестно'), kind: 'o' };
+  return { label: value === 'degraded' ? _('Требует внимания') : _('Состояние неизвестно'), kind: 'o' };
 }
 function detectedVersion(initial) {
   var meta = initial && initial.meta || {};
@@ -300,8 +300,14 @@ return L.view.extend({
 
     var service = statusState(initial);
     var version = detectedVersion(initial);
-    var brand = [E('span', { 'class': 'mark', 'aria-hidden': 'true' }, 'z2'),
-      E('span', { 'class': 'nm' }, ['zapret2', E('span', { 'class': 'mgr' }, '·manager')])];
+    var brand = [E('img', {
+      'class': 'mark',
+      src: L.resource('view/zapret2-manager/icons/zapret2-manager-mark.svg'),
+      width: '32',
+      height: '32',
+      alt: '',
+      'aria-hidden': 'true'
+    }), E('span', { 'class': 'nm', 'translate': 'no' }, 'zapret2.manager')];
     if (version) brand.push(E('span', { 'class': 'ver' }, version));
     appRoot = E('div', { 'class': 'z2m-app', id: 'z2m-app' }, [
       E('header', { 'class': 'z2m-apptop' }, E('div', { 'class': 'in' }, [
