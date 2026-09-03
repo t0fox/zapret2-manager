@@ -136,6 +136,24 @@ test('v2 installed receipt remains valid after an unrelated Registry revision', 
   assert.equal(result.state, 'confirmed', JSON.stringify(result));
 });
 
+test('v2 installed receipt preserves semantic hostlist and ipset kinds in the blob Registry namespace', { skip: !hasUcode }, () => {
+  const membership = [
+    { id: 'lua:alpha', type: 'lifecycle-managed', owner: 'z2k-core', kind: 'lua', role: 'lua-init', sourcePath: 'files/lua/alpha.lua', runtimeTarget: '/runtime-assets/lua/alpha.lua', contentSha256: '1'.repeat(64), byteSize: 11, runtimeOrder: 0, version: 'r-80.3', sourceCommit: SOURCE_COMMIT },
+    { id: 'blob:list', type: 'lifecycle-managed', owner: 'z2k-core', kind: 'hostlist', role: 'dependency', sourcePath: 'files/lists/list.txt', runtimeTarget: '/runtime-assets/lists/list.txt', contentSha256: '2'.repeat(64), byteSize: 22, version: 'r-80.3', sourceCommit: SOURCE_COMMIT },
+    { id: 'blob:set', type: 'lifecycle-managed', owner: 'z2k-core', kind: 'ipset', role: 'dependency', sourcePath: 'files/ipset/set.txt', runtimeTarget: '/runtime-assets/ipset/set.txt', contentSha256: '3'.repeat(64), byteSize: 33, version: 'r-80.3', sourceCommit: SOURCE_COMMIT },
+  ];
+  const receipt = {
+    schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'r-80.3', source: 'necronicle/z2k', sourceCommit: SOURCE_COMMIT,
+    manifestSha256: '4'.repeat(64), classificationSha256: '5'.repeat(64), installedAuthorityRevision: 3, z2kMembership: membership,
+  };
+  const assets = membership.map(entry => ({ id: entry.id, type: entry.kind === 'lua' ? 'lua' : 'blob', contentSha256: entry.contentSha256, byteSize: entry.byteSize,
+    path: `/etc/zapret2-manager/assets/${entry.id.replace(':', '/')}`, ownership: 'manager', revision: 1,
+    provenance: { kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: SOURCE_COMMIT, sourcePath: entry.sourcePath, bundleId: 'z2k-curated-lua', version: 'r-80.3' },
+  }));
+  const result = invoke(authorityModule, `mod.z2k_registry_receipt_state(${JSON.stringify({ ok: true, schema: 1, revision: 3, assets, activationReceipts: [receipt] })})`);
+  assert.equal(result.state, 'confirmed', JSON.stringify(result));
+});
+
 const currentClassification = {
   sourcePath: 'files/lua/z2k-modern-core.lua', class: 'exact-managed', type: 'lua',
   localName: 'runtime-assets/lua/z2k-modern-core.lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua'

@@ -663,6 +663,7 @@ function z2k_canonical_target_assets(targetVersion, targetCommit, manifestSha256
 	}
 	return result;
 }
+function make_stage_root() { try { mkdir(STAGE_PARENT); } catch (e) {} let value = command('mktemp -d ' + shell_quote(STAGE_PARENT + '/stage.XXXXXX')); let root = trim(value.out); return value.rc == 0 && index(root, STAGE_PARENT + '/') == 0 ? root : null; }
 function z2k_target_assets_with_sizes(assets, listed, targetCommit) {
 	if (type(assets) != 'array' || !length(assets) || !object(listed) || type(listed.assets) != 'array' || !valid_commit(targetCommit))
 		return fail('EZ2K_INCOMPATIBLE', 'Z2K target size evidence is unavailable.');
@@ -832,7 +833,6 @@ function build_status(manifest, checkedAt, activeZ2KManifest) {
 	for (let i = 0; i < length(rows); i++) if (rows[i].state == 'update' || rows[i].state == 'missing') { push(updates, rows[i]); byType[rows[i].type] = (byType[rows[i].type] || 0) + 1; let consumer = rows[i].compatibility.consumer || 'не указано'; consumers[consumer] = (consumers[consumer] || 0) + 1; }
 	return { ok: true, schema: 1, checkedAt: checkedAt || null, manifest: { bundleId: manifest.bundleId, version: manifest.version, generatedAt: manifest.generatedAt }, sources: source_rows(manifest, rows), installed: installed, updates: updates, summary: { installed: length(installed), updates: length(updates), byType: byType, consumers: consumers }, autoCheck: { enabled: false, autoInstall: false, mode: 'manifest-only' } };
 }
-function make_stage_root() { try { mkdir(STAGE_PARENT); } catch (e) {} let value = command('mktemp -d ' + shell_quote(STAGE_PARENT + '/stage.XXXXXX')); let root = trim(value.out); return value.rc == 0 && index(root, STAGE_PARENT + '/') == 0 ? root : null; }
 function z2k_local_fingerprint(targetAssets, listed, removeIds) {
 	let rows = [];
 	for (let i = 0; i < length(targetAssets || []); i++) {
@@ -1344,8 +1344,11 @@ export const resource_center_prepare_version = function(request) {
 	if (!sizedTarget.ok) return sizedTarget;
 	let canonicalAssets = z2k_canonical_target_assets(resolved.version, resolved.commitSha, resolved.manifestSha256, classificationSnapshot.sha256, sizedTarget.assets);
 	if (canonicalAssets == null) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical runtime composition для выбранного release.');
-	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets };
-	let candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision });
+	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets };
+	// Compose once to obtain the membership identity, then bind the final
+	// plan token and resolve again so the persisted candidate snapshot carries
+	// the exact token consumed by the apply path.
+	let candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision, phase: 'prepare' });
 	if (!candidate.ok) return candidate;
 	target.membershipDigest = candidate.membershipDigest; target.candidateSnapshotId = candidate.snapshotId; target.compositionSnapshotId = candidate.compositionSnapshotId;
 	target.dependencyClosure = z2k_target_dependency_closure(candidate);
@@ -1355,8 +1358,13 @@ export const resource_center_prepare_version = function(request) {
 		target.targetAttentionState = target.targetAttentionState == 'none' ? 'dependency-required' : target.targetAttentionState;
 		push(target.targetBlockingReasons, 'Z2K_RUNTIME_DEPENDENCY_CLOSURE_REQUIRED');
 	}
+	// Bind the token only after the final dependency digest is known. The
+	// persisted target validator intentionally recomputes this identity.
 	target.planToken = z2k_target_token(target, preparedAt);
 	if (target.planToken == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
+	candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision });
+	if (!candidate.ok) return candidate;
+	target.membershipDigest = candidate.membershipDigest; target.candidateSnapshotId = candidate.snapshotId; target.compositionSnapshotId = candidate.compositionSnapshotId;
 	if (target.planToken == null || !save_prepared_target(target)) return fail('EIO', 'Не удалось сохранить Z2K target snapshot.');
 	return { ok: true, target: z2k_target_summary(target), planToken: target.planToken, diagnostics: resolved.diagnostics || null };
 };

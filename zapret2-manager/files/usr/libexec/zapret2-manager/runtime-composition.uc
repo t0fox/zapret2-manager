@@ -280,9 +280,10 @@ export const resolveInstalled = function(input) {
 };
 
 export const resolveCandidate = function(preparedTarget, context) {
+	let preparing = object(context) && context.phase == 'prepare';
 	if (!object(preparedTarget) || (preparedTarget.schema != 'z2k-target-v2' && preparedTarget.schema != 2) || !valid_release(preparedTarget.targetVersion)
 		|| !valid_commit(preparedTarget.targetCommit || preparedTarget.targetCommitSha) || !valid_digest(preparedTarget.manifestSha256)
-		|| !valid_digest(preparedTarget.classificationSha256) || !string(preparedTarget.planToken) || !length(preparedTarget.planToken)
+		|| !valid_digest(preparedTarget.classificationSha256) || (!preparing && (!string(preparedTarget.planToken) || !length(preparedTarget.planToken)))
 		|| !integer(preparedTarget.baseRegistryRevision) || preparedTarget.baseRegistryRevision < 0) return fail('EINPUT', 'prepared Z2K target is incomplete');
 	let current = object(context) && integer(context.observedRegistryRevision) ? context.observedRegistryRevision : preparedTarget.baseRegistryRevision;
 	let committed = object(context) && integer(context.committedAssetRevision) ? context.committedAssetRevision : preparedTarget.committedAssetRevision;

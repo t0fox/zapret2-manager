@@ -40,6 +40,15 @@ function receipt_valid(receipt, listed) {
 	return true;
 }
 
+function physical_registry_type(entry) {
+	if (!object(entry) || !string(entry.kind) || !string(entry.id)) return null;
+	if (entry.kind == 'lua') return 'lua';
+	// Registry stores blob:* bytes as blob even when runtime composition gives
+	// them the semantic hostlist/ipset kind consumed by the engine.
+	if (substr(entry.id, 0, 5) == 'blob:') return 'blob';
+	return entry.kind;
+}
+
 function v2_receipt_valid(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v2' || receipt.bundleId != 'z2k-curated-lua'
 		|| parse_release(receipt.version) == null || !valid_commit(receipt.sourceCommit) || !valid_sha(receipt.manifestSha256)
@@ -59,7 +68,7 @@ function v2_receipt_valid(receipt, listed) {
 		if (seen[expected.id] || found == null || expected.type != 'lifecycle-managed'
 			|| expected.owner != 'z2k-core' || !string(expected.role) || !string(expected.kind) || !valid_source_path(expected.sourcePath)
 			|| !valid_runtime_target(expected.runtimeTarget) || (expected.role == 'lua-init' && (expected.kind != 'lua' || type(expected.runtimeOrder) != 'int'))
-			|| expected.kind != found.type || !valid_sha(expected.contentSha256) || expected.contentSha256 != found.contentSha256 || expected.byteSize != found.byteSize
+			|| physical_registry_type(expected) != found.type || !valid_sha(expected.contentSha256) || expected.contentSha256 != found.contentSha256 || expected.byteSize != found.byteSize
 			|| expected.sourcePath != provenance.sourcePath || expected.version != receipt.version
 			|| expected.sourceCommit != receipt.sourceCommit || provenance.version != receipt.version || provenance.sourceCommit != receipt.sourceCommit) return false;
 		seen[expected.id] = true;

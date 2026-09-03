@@ -105,6 +105,15 @@ test('canonical runtime composition module exposes the five planned lifecycle fu
   assert.match(source, /scannerOverlay/);
 });
 
+test('candidate preparation can bind the final plan token after composing membership', () => {
+  assert.match(read(compositionPath), /context\.phase == 'prepare'/);
+  const coordinator = read(coordinatorPath);
+  assert.match(coordinator, /phase: 'prepare'/);
+  assert.match(coordinator, /target\.runtimeBundleDigest = target\.dependencyClosure/);
+  assert.match(coordinator, /target\.runtimeBundleDigest[\s\S]*target\.planToken = z2k_target_token/);
+  assert.match(coordinator, /target\.planToken = z2k_target_token/);
+});
+
 test('installed authority revision remains distinct from later observed Registry revision', () => {
   const fixture = v2Fixture();
   fixture.registry.revision = 18;

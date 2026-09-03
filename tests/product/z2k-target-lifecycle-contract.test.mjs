@@ -21,6 +21,7 @@ test('Z2K target planning has one immutable identity and a v2 prepared snapshot'
   assert.match(coordinator, /localFingerprint/);
   assert.match(coordinator, /targetVersion/);
   assert.match(coordinator, /preparedAt/);
+  assert.match(coordinator, /baseRegistryRevision:\s*listed\.revision/);
   assert.match(coordinator, /z2k_target_membership_compatible/);
   assert.match(coordinator, /hybrid asset set/);
 });
