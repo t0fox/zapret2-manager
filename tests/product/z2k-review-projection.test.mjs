@@ -16,3 +16,7 @@ test('watched upstream changes produce an actionable review detail', () => {
 test('resource status/check projection preserves upstream review details', () => {
   assert.match(resourceUpdate, /reviewDetails: plan\.reviewDetails \|\| \[\]/);
 });
+
+test('Z2K revision validator returns a boolean for strict metadata validation', () => {
+  assert.match(upstream, /function valid_commit\(value\) \{[\s\S]*match\(lc\(value\), \/\^\[a-f0-9\]\{40\}\$\/\) != null;/);
+});

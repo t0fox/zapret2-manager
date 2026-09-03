@@ -213,3 +213,76 @@ test('Components never labels an unavailable compiled closure as ready', () => {
   assert.match(textOf(compiled), /Runtime dependency closure неполон/);
   assert.doesNotMatch(textOf(compiled), /Готово/);
 });
+
+test('Z2K readiness requires a complete canonical closure, not only Lua 13/13', () => {
+  const model = loadComponentsModel();
+  const incomplete = rawZ2k({
+    local: {
+      ...rawZ2k().local,
+      lua: { ready: 13, total: 13 },
+      dependencyClosure: { ...closure, available: true, resolution: 'complete', counts: { ...closure.counts, missing: 1 } },
+      runtimeBundleDigest: digest,
+    },
+  });
+  const component = model.normalizeZ2k(incomplete, true);
+  assert.notEqual(component.health, 'ready');
+  assert.equal(component.compiledDependencySummary.missing, 1);
+});
+
+test('Components consumes the backend-owned runtime summary for release and counts', () => {
+  const model = loadComponentsModel();
+  const summary = {
+    installedRelease: { value: 'r-81.6' }, availableRelease: { value: 'r-82.1' },
+    health: 'ready', updateState: 'update-available', attentionState: 'none',
+    integrity: 'verified', integrityOk: true, strategies: 8,
+    dependencyClosure: { available: true, resolution: 'complete', counts: { lua: 13, blobs: 21, hostlists: 6, ipsets: 0, dynamic: 2, runtime: 0, builtins: 2, missing: 0 } },
+    counts: { lua: 13, blobs: 21, hostlists: 6, ipsets: 0, dynamic: 2, runtime: 0, builtins: 2, missing: 0 },
+    staticManagedCount: 40, runtimeBundleDigest: digest, sourceCommit: 'runtime-commit',
+  };
+  const component = model.normalizeZ2k({ runtimeSummary: summary }, true);
+  assert.equal(component.installedRelease.value, 'r-81.6');
+  assert.equal(component.availableRelease, 'r-82.1');
+  assert.equal(component.compiledDependencySummary.strategies, 8);
+  assert.equal(component.compiledDependencySummary.lua, 13);
+  assert.equal(component.compiledDependencySummary.blobs, 21);
+  assert.equal(component.compiledDependencySummary.hostlists, 6);
+	assert.equal(component.compiledDependencySummary.ipsets, 0);
+});
+
+test('Z2K primary card exposes canonical runtime summary counts', () => {
+  const { renderComponents, state } = loadMaintenance();
+  state.z2kExpanded = false;
+  state.componentMetadata.z2k = { value: { versions: [], remoteState: 'not-loaded' } };
+  const summary = {
+    installedRelease: { value: 'r-81.6' },
+    availableRelease: { value: 'r-82.2' },
+    health: 'ready',
+    strategies: 8,
+    staticManagedCount: 39,
+    dependencyClosure: { ...closure, counts: { ...closure.counts, lua: 13 } },
+    runtimeBundleDigest: digest,
+  };
+  const ctx = makeContext({
+    runtimeSummary: summary,
+    local: { installed: true, integrity: 'verified', integrityOk: true, lua: { ready: 13, total: 13 } },
+  });
+  const rendered = renderComponents(ctx, ctx.data);
+  const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
+
+  assert.ok(card, 'primary Z2K card must render');
+  assert.match(textOf(card), /Runtime bundle39/);
+  assert.match(textOf(card), /Strategies8/);
+  assert.match(textOf(card), /Lua13 \/ 13/);
+  assert.match(textOf(card), /Последняяr-82\.2/);
+});
+
+test('Components rejects a canonical digest mismatch even when the summary claims ready', () => {
+	const model = loadComponentsModel();
+	const summary = {
+		health: 'ready', runtimeBundleDigest: digest,
+		dependencyClosure: { available: true, resolution: 'complete', runtimeBundleDigest: 'b'.repeat(64), counts: { lua: 13, blobs: 21, hostlists: 6, ipsets: 0, missing: 0 } },
+		counts: { lua: 13, blobs: 21, hostlists: 6, ipsets: 0, missing: 0 }
+	};
+	const component = model.normalizeZ2k({ runtimeSummary: summary }, true);
+	assert.notEqual(component.health, 'ready');
+});

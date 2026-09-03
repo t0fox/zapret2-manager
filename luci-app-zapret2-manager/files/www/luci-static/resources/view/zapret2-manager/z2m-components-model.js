@@ -98,7 +98,7 @@ function timestamp(value) {
 
 function versionFrom(value) {
 	value = object(value);
-	return first(value.version || value.release || value.installedRelease || value.latestVersion, null);
+	return first(value.value || value.version || value.release || value.installedRelease || value.latestVersion, null);
 }
 
 function normalizeEngine(input) {
@@ -171,6 +171,14 @@ function z2kLuaEvidence(value) {
   var lua = object(value.lua);
   return lua.ready !== undefined && lua.total !== undefined
     && lua.total > 0 && lua.ready === lua.total;
+}
+
+function z2kClosureComplete(closure, digest) {
+  if (!closure || closure.available !== true || closure.resolution !== 'complete') return false;
+  var counts = object(closure.counts);
+  if (countValue(counts.missing) !== 0) return false;
+  var closureDigest = first(closure.runtimeBundleDigest || digest, null);
+  return !!(closureDigest && digest && closureDigest === digest);
 }
 
 function normalizeZ2kCatalog(value) {
@@ -310,12 +318,18 @@ function normalizeZ2k(input, engineReady) {
 	var remoteState = first(value.remoteState || catalogMeta.remoteState || input.remoteState, null);
 	var selectedDetails = normalizeZ2kDetails(value.selectedDetails || input.selectedDetails);
 	var selectedVersion = first(value.selectedVersion || selectedDetails.version, null);
-	var remoteStatus = first(value.updateState || value.status || value.state, 'unknown');
+	var runtimeSummary = value.runtimeSummary && typeof value.runtimeSummary === 'object' && !Array.isArray(value.runtimeSummary) ? value.runtimeSummary : null;
+	var remoteStatus = first(value.updateState || value.status || value.state || runtimeSummary && runtimeSummary.updateState, 'unknown');
 	var updateState = z2kUpdateState(remoteStatus);
 	var local = object(value.local);
-	var hasLocal = local && (local.installed !== undefined || local.lua !== undefined || local.integrity !== undefined || local.integrityOk !== undefined || local.commit !== undefined || local.installedRelease !== undefined);
-  var explicitHealth = value.health || value.integrity || local.health;
-  if (local.integrity === 'broken' && !explicitHealth) explicitHealth = 'broken';
+	var hasLocal = local && (local.installed !== undefined || local.lua !== undefined || local.integrity !== undefined || local.integrityOk !== undefined || local.commit !== undefined || local.installedRelease !== undefined) || runtimeSummary !== null;
+	var canonicalHealth = runtimeSummary && runtimeSummary.health ? health(runtimeSummary.health, 'degraded') : null;
+	var explicitHealth = value.health || value.integrity || local.health || canonicalHealth;
+	if (local.integrity === 'broken' && !explicitHealth) explicitHealth = 'broken';
+	var canonicalClosure = runtimeSummary && runtimeSummary.dependencyClosure && typeof runtimeSummary.dependencyClosure === 'object' ? runtimeSummary.dependencyClosure : null;
+	var canonicalDigest = runtimeSummary ? first(runtimeSummary.runtimeBundleDigest, null) : null;
+	var evidenceClosure = canonicalClosure || (local.dependencyClosure && typeof local.dependencyClosure === 'object' ? local.dependencyClosure : value.dependencyClosure && typeof value.dependencyClosure === 'object' ? value.dependencyClosure : null);
+	var evidenceDigest = canonicalDigest || first(value.runtimeBundleDigest || local.runtimeBundleDigest || evidenceClosure && evidenceClosure.runtimeBundleDigest, null);
   // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
   // plus materialized/integrity-checked assets. Without a proven engine the
   // component is a requires-engine install gate — regardless of bundled
@@ -327,8 +341,10 @@ function normalizeZ2k(input, engineReady) {
     summary = 'Требуется совместимый Zapret2 Engine.';
   } else if (hasLocal) {
     var localEvidence = z2kLuaEvidence(local);
-    if (local.installed === false) healthState = 'missing';
+    if (local.installed === false || runtimeSummary && runtimeSummary.health === 'missing') healthState = 'missing';
     else if (local.integrityOk === false || local.integrity === 'broken') healthState = 'broken';
+	    else if (evidenceClosure && !z2kClosureComplete(evidenceClosure, evidenceDigest)) healthState = 'degraded';
+    else if (canonicalHealth) healthState = canonicalHealth;
     else if (localEvidence) healthState = 'ready';
     else healthState = 'degraded';
     if (explicitHealth) {
@@ -364,23 +380,24 @@ function normalizeZ2k(input, engineReady) {
 	}
 	var safeUpdate = object(value.safeUpdate || local.safeUpdate);
 	var rebases = array(value.rebases || value.adapted || plan.rebases || local.rebases);
-	var advisoryReviews = array(value.advisoryReviews || plan.advisoryReviews || local.advisoryReviews);
-	var blockingReviews = array(value.blockingReviews || plan.blockingReviews || local.blockingReviews);
+	var advisoryReviews = array(value.advisoryReviews || plan.advisoryReviews || local.advisoryReviews || runtimeSummary && runtimeSummary.advisoryReviews);
+	var blockingReviews = array(value.blockingReviews || plan.blockingReviews || local.blockingReviews || runtimeSummary && runtimeSummary.blockingReviews);
 	var blockingReasons = array(value.blockingReasons || plan.blockingReasons || local.blockingReasons);
 	var reviews = array(value.reviews || value.watched || plan.reviews || local.reviews);
 	if (!reviews.length) reviews = advisoryReviews.concat(blockingReviews);
 	var reviewDetails = array(value.reviewDetails || plan.reviewDetails || local.reviewDetails);
-	var unknownUnconsumed = array(value.unknownUnconsumed || plan.unknownUnconsumed || local.unknownUnconsumed);
+	var unknownUnconsumed = array(value.unknownUnconsumed || plan.unknownUnconsumed || local.unknownUnconsumed || runtimeSummary && runtimeSummary.unknownUnconsumed);
 	var compilerInputs = array(value.compilerInputs || plan.compilerInputs || local.compilerInputs);
 	var dependencyGraph = object(value.dependencyGraph || plan.dependencyGraph || local.dependencyGraph);
-	var dependencyClosure = object(value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure)
-		? (value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure) : null;
-	var dependencyCounts = dependencyClosure && object(dependencyClosure.counts) ? dependencyClosure.counts : {};
-	var runtimeBundleDigest = first(value.runtimeBundleDigest || plan.runtimeBundleDigest || local.runtimeBundleDigest
+	var dependencyClosure = canonicalClosure || (object(value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure)
+		? (value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure) : null);
+	var dependencyCounts = runtimeSummary && runtimeSummary.counts && typeof runtimeSummary.counts === 'object' ? runtimeSummary.counts : dependencyClosure && object(dependencyClosure.counts) ? dependencyClosure.counts : {};
+	var runtimeBundleDigest = first(canonicalDigest || value.runtimeBundleDigest || plan.runtimeBundleDigest || local.runtimeBundleDigest
 		|| dependencyClosure && dependencyClosure.runtimeBundleDigest, null);
 var strategyCount = countValue(value.strategyCount);
 	if (strategyCount === null) strategyCount = countValue(plan.strategyCount);
 	if (strategyCount === null) strategyCount = countValue(local.strategyCount);
+	if (strategyCount === null && runtimeSummary) strategyCount = countValue(runtimeSummary.strategies);
 	var compiledDependencySummary = {
 		available: dependencyClosure ? dependencyClosure.available === true : null,
 		resolution: first(dependencyClosure && dependencyClosure.resolution, null),
@@ -404,7 +421,7 @@ var strategyCount = countValue(value.strategyCount);
 		advisory: Math.max(advisoryReviews.length, unknownUnconsumed.length),
 		registryAvailable: dependencyGraph.registryAvailable === true
 	};
-	var attentionState = first(value.attentionState || plan.attentionState, null);
+	var attentionState = first(value.attentionState || plan.attentionState || runtimeSummary && runtimeSummary.attentionState, null);
 	if (attentionState === null) {
 		if (rebases.length || updateState === 'rebase-required') attentionState = 'rebase-required';
 		else if (blockingReviews.length) attentionState = 'review-required';
@@ -436,7 +453,7 @@ var strategyCount = countValue(value.strategyCount);
 	};
 	var luaSrc = hasLocal ? object(local.lua) : object(value.lua);
 	var provenanceSrc = hasLocal && local.provenance ? object(local.provenance) : object(value.provenance);
-	var coherenceSource = object(value.coherence || plan.coherence || local.coherence || input.coherence);
+	var coherenceSource = object(value.coherence || plan.coherence || local.coherence || runtimeSummary && runtimeSummary.coherence || input.coherence);
 	var localProvenance = object(local.provenance);
 	var coherence = {
 		installedRuntimeRevision: first(coherenceSource.installedRuntimeRevision || value.installedRuntimeRevision || local.commit || localProvenance.sourceCommit, null),
@@ -445,7 +462,7 @@ var strategyCount = countValue(value.strategyCount);
 		candidateStrategyRevision: first(coherenceSource.candidateStrategyRevision || value.candidateStrategyRevision, null),
 		coherenceStatus: first(coherenceSource.coherenceStatus || value.coherenceStatus, 'unknown')
 	};
-	var releaseRaw = local.installedRelease !== undefined ? local.installedRelease : value.installedRelease;
+	var releaseRaw = runtimeSummary && runtimeSummary.installedRelease !== undefined ? runtimeSummary.installedRelease : local.installedRelease !== undefined ? local.installedRelease : value.installedRelease;
 	var installedRelease;
 	if (releaseRaw && typeof releaseRaw === 'object' && !Array.isArray(releaseRaw)) {
 		installedRelease = {
@@ -459,7 +476,9 @@ var strategyCount = countValue(value.strategyCount);
 		installedRelease = { value: null, confidence: 'unknown', authority: null };
 	}
 	var catalogCanProvideRelease = ['unavailable', 'empty', 'not-loaded'].indexOf(remoteState) < 0;
-	var availableReleaseRaw = catalogCanProvideRelease ? value.availableRelease || value.available : null;
+	var hasCanonicalAvailableRelease = runtimeSummary && Object.prototype.hasOwnProperty.call(runtimeSummary, 'availableRelease');
+	var availableReleaseRaw = hasCanonicalAvailableRelease ? runtimeSummary.availableRelease
+		: catalogCanProvideRelease ? (value.availableRelease || value.available) : null;
 	var catalogLatest = catalog.filter(function (item) { return item.latest === true; })[0];
 	var availableRelease = availableReleaseRaw && typeof availableReleaseRaw === 'object'
 		? versionFrom(availableReleaseRaw) : first(availableReleaseRaw, null);
@@ -503,6 +522,7 @@ var strategyCount = countValue(value.strategyCount);
 		dependencyGraph: dependencyGraph,
 		dependencyClosure: dependencyClosure,
 		runtimeBundleDigest: runtimeBundleDigest,
+		runtimeSummary: runtimeSummary,
 		compiledDependencySummary: compiledDependencySummary,
 		dependencySummary: dependencySummary,
 		coherence: coherence,
@@ -512,8 +532,10 @@ var strategyCount = countValue(value.strategyCount);
     summary: summary,
     version: versionRaw,
     actions: actions,
-    counters: {
+		counters: {
       lua: luaSrc.ready !== undefined && luaSrc.total !== undefined ? String(luaSrc.ready) + ' / ' + String(luaSrc.total) : null,
+      runtimeBundle: runtimeSummary && runtimeSummary.staticManagedCount !== undefined ? String(runtimeSummary.staticManagedCount) : null,
+      strategies: strategyCount !== null ? String(strategyCount) : null,
       safeUpdate: safeUpdate.count !== undefined ? String(safeUpdate.count) : null
     },
 		details: {
@@ -528,6 +550,7 @@ var strategyCount = countValue(value.strategyCount);
 		dependencyGraph: dependencyGraph,
 		dependencyClosure: dependencyClosure,
 		compiledDependencySummary: compiledDependencySummary,
+		runtimeSummary: runtimeSummary,
 		coherence: coherence,
       trustMode: first(value.trustMode || local.trustMode, null),
       manifest: manifest,

@@ -26,6 +26,35 @@ function decorateAsset(asset) {
 	return out;
 }
 
+function canonicalSummary(value) {
+	return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function semanticIndexes(summary) {
+	var byId = {}, bySourcePath = {}, closure = summary && canonicalSummary(summary.dependencyClosure);
+	var items = closure && Array.isArray(closure.items) ? closure.items : [];
+	for (var i = 0; i < items.length; i++) {
+		var item = canonicalSummary(items[i]);
+		if (!item) continue;
+		if (item.id) byId[String(item.id)] = item;
+		if (item.sourcePath) bySourcePath[String(item.sourcePath)] = item;
+	}
+	return { byId: byId, bySourcePath: bySourcePath };
+}
+
+function decorateSemantic(asset, indexes) {
+	var out = decorateAsset(asset), provenance = canonicalSummary(out.provenance), item = null;
+	if (indexes) item = indexes.byId[String(out.id)] || indexes.bySourcePath[String(out.sourcePath || provenance && provenance.sourcePath || '')] || null;
+	if (item) {
+		out.semanticKind = text(item.kind) || out.semanticKind || null;
+		out.dependencyClass = text(item.class) || out.dependencyClass || null;
+		out.runtimeTarget = text(item.runtimeTarget) || out.runtimeTarget || null;
+		out.runtimeRole = text(item.role) || out.runtimeRole || null;
+		out.semanticOwner = text(item.owner) || out.semanticOwner || null;
+	}
+	return out;
+}
+
 var USER_KINDS = { 'imported': true, 'user-created': true };
 // System kinds are everything else except we treat generated separately (not auto-user)
 var PACKAGE_IDS = { 'package-baseline': true, 'package': true };
@@ -83,7 +112,8 @@ function z2kBadgeState(z2kStatus) {
 
 function z2kUpdateState(value) {
 	value = object(value);
-	return UpdatePresentation.normalize(value.updateState || value.status || value.state);
+	var runtime = canonicalSummary(value.runtimeSummary);
+	return UpdatePresentation.normalize(value.updateState || value.status || value.state || runtime && runtime.updateState);
 }
 
 function releaseValue(value) {
@@ -93,7 +123,20 @@ function releaseValue(value) {
 	return text(value);
 }
 
-function deriveGroupState(group, z2k) {
+function canonicalZ2kGroupState(summary) {
+	if (!summary) return null;
+	var healthState = text(summary.health);
+	if (healthState === 'missing') return 'missing';
+	if (healthState === 'broken') return 'error';
+	if (healthState === 'degraded') return 'attention';
+	var updateState = UpdatePresentation.normalize(summary.updateState);
+	if (updateState === 'update-available') return 'update';
+	if (['rebase-required', 'review-required', 'integration-required', 'validation-required'].indexOf(updateState) >= 0) return 'attention';
+	return z2kBadgeState(updateState);
+}
+
+function deriveGroupState(group, z2k, runtimeSummary) {
+	if (group.id === 'z2k-resources' && runtimeSummary) return canonicalZ2kGroupState(runtimeSummary) || 'unknown';
 	var assetStates = [];
 	for (var i = 0; i < group.assets.length; i++) {
 		var s = text(group.assets[i].state) || 'unknown';
@@ -173,20 +216,24 @@ function buildModel(resources, assets, opts) {
 	assets = object(assets);
 	opts = object(opts);
 	var advanced = opts.advanced === true;
+	var z2k = object(resources.z2k || resources.component);
+	var runtimeSummary = canonicalSummary(z2k.runtimeSummary) || canonicalSummary(resources.runtimeSummary) || canonicalSummary(object(z2k.local).runtimeSummary);
+	var fallbackClosure = canonicalSummary(z2k.dependencyClosure) || {};
+	var canonicalCounts = runtimeSummary && canonicalSummary(runtimeSummary.counts)
+		|| canonicalSummary(z2k.counts) || canonicalSummary(fallbackClosure.counts);
+	var semantic = semanticIndexes(runtimeSummary || { dependencyClosure: fallbackClosure });
 
 	var sourcesRaw = array(resources.sources);
-	var registryRaw = array(assets.assets || assets.list || []).map(decorateAsset);
+	var registryRaw = array(assets.assets || assets.list || []).map(function (asset) { return decorateSemantic(asset, semantic); });
 	var registryById = {};
 	for (var ri = 0; ri < registryRaw.length; ri++) if (text(registryRaw[ri].id)) registryById[text(registryRaw[ri].id)] = registryRaw[ri];
 	var installedRaw = array(resources.installed).map(function (asset) {
 		var row = object(asset);
 		var registered = registryById[text(row.id)];
-		return decorateAsset(registered ? Object.assign({}, row, registered) : row);
+		return decorateSemantic(registered ? Object.assign({}, row, registered) : row, semantic);
 	});
 	// Also support assets.assets already
-	if (!registryRaw.length && Array.isArray(assets)) registryRaw = assets.map(decorateAsset);
-
-	var z2k = object(resources.z2k);
+	if (!registryRaw.length && Array.isArray(assets)) registryRaw = assets.map(function (asset) { return decorateSemantic(asset, semantic); });
 	// Normalize sources and build indexes
 	var sources = [];
 	var byId = {};
@@ -387,15 +434,21 @@ function buildModel(resources, assets, opts) {
 	var maxSummaryRank = -1;
 
 	function updateGroupMetrics(grp) {
-		var counts = {};
+		var storageCounts = {};
 		for (var ci = 0; ci < grp.assets.length; ci++) {
 			var a = grp.assets[ci];
 			var t = text(a.type) || 'blob';
-			counts[t] = (counts[t] || 0) + 1;
+			storageCounts[t] = (storageCounts[t] || 0) + 1;
 		}
-		grp.counts = counts;
+		grp.storageCounts = storageCounts;
+		grp.counts = grp.id === 'z2k-resources' && canonicalCounts
+			? Object.assign({}, canonicalCounts) : storageCounts;
+		if (grp.id === 'z2k-resources') {
+			grp.staticManagedCount = runtimeSummary && runtimeSummary.staticManagedCount !== undefined
+				? runtimeSummary.staticManagedCount : z2k.staticManagedCount !== undefined ? z2k.staticManagedCount : null;
+		}
 		grp.total = grp.assets.length;
-		grp.state = deriveGroupState(grp, z2k);
+		grp.state = deriveGroupState(grp, z2k, runtimeSummary);
 		grp.stateLabel = humanStateLabel(grp.state);
 		if (grp.id === 'z2k-resources') {
 			grp.bundleUpdateState = z2kUpdateState(z2k);
@@ -456,8 +509,8 @@ function buildModel(resources, assets, opts) {
 		var localProv = object(object(z2k.local).provenance);
 		localCommit = text(object(z2k.local).commit) || text(localProv.commit) || null;
 		var remoteCurrent = text(object(z2k.manifest).current) || null;
-		var installedRelease = releaseValue(object(z2k.local).installedRelease || z2k.installedRelease);
-		var availableRelease = releaseValue(z2k.availableRelease || z2k.available);
+		var installedRelease = releaseValue(runtimeSummary && runtimeSummary.installedRelease || object(z2k.local).installedRelease || z2k.installedRelease);
+		var availableRelease = releaseValue(runtimeSummary && runtimeSummary.availableRelease || z2k.availableRelease || z2k.available);
 		updateCallout = {
 			sourceId: 'z2k-resources',
 			status: z2kStatus,
@@ -481,6 +534,7 @@ function buildModel(resources, assets, opts) {
 		allGroups: groups.concat([userGroup]),
 		userGroup: userGroup,
 		z2k: z2k,
+		z2kSummary: runtimeSummary,
 		sources: sources,
 		byId: byId,
 		updateCallout: updateCallout,

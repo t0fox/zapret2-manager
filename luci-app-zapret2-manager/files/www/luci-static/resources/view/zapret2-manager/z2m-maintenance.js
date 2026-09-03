@@ -1046,10 +1046,22 @@ function engineMetaRows(component, engineStatus) {
   return rows.filter(function (r) { return r.value; });
 }
 function z2kMetaRows(component) {
+  var runtime = component && (component.runtimeSummary || component.details && component.details.runtimeSummary) || {};
+  var compiled = component && component.compiledDependencySummary || {};
+  var counters = component && component.counters || {};
+  var runtimeBundle = runtime.staticManagedCount !== undefined && runtime.staticManagedCount !== null
+    ? runtime.staticManagedCount : counters.runtimeBundle;
+  var strategies = runtime.strategies !== undefined && runtime.strategies !== null
+    ? runtime.strategies : compiled.strategies;
   var rows = [];
   rows.push({ label: _('Установлено'), value: z2kReleaseLabel(component) });
   rows.push({ label: _('Последняя'), value: z2kLatestRelease(component) });
-  if (component.counters && component.counters.lua) rows.push({ label: _('Lua'), value: component.counters.lua });
+  if (runtimeBundle !== undefined && runtimeBundle !== null)
+    rows.push({ label: _('Runtime bundle'), value: runtimeBundle });
+  if (strategies !== undefined && strategies !== null)
+    rows.push({ label: _('Strategies'), value: strategies });
+  if (counters.lua || compiled.lua !== undefined && compiled.lua !== null)
+    rows.push({ label: _('Lua'), value: counters.lua || compiled.lua });
   rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
   return rows;
 }
@@ -1652,7 +1664,8 @@ function renderZ2KDetails(ctx, component) {
     renderFactGrid([
       { label: _('Установлено'), value: z2kReleaseLabel(component) },
       { label: _('Последняя'), value: z2kLatestRelease(component) },
-      { label: _('Lua assets'), value: component.counters && component.counters.lua },
+      { label: _('Runtime bundle'), value: component.counters && component.counters.runtimeBundle },
+      { label: _('Strategies'), value: component.counters && component.counters.strategies },
       { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') }
     ]),
     renderZ2KDependencySummary(component),
@@ -1676,8 +1689,11 @@ function renderZ2KDetails(ctx, component) {
 		{ label: _('Runtime revision'), value: coherence.installedRuntimeRevision },
 		{ label: _('Available upstream revision'), value: coherence.availableUpstreamRevision },
 		{ label: _('Strategy source revision'), value: coherence.currentStrategySourceRevision },
-		{ label: _('Candidate Strategy revision'), value: coherence.candidateStrategyRevision },
+        { label: _('Candidate Strategy revision'), value: coherence.candidateStrategyRevision },
 		{ label: _('Coherence'), value: coherence.coherenceStatus },
+		{ label: _('Static managed resources'), value: component.runtimeSummary && component.runtimeSummary.staticManagedCount },
+		{ label: _('Runtime bundle digest'), value: component.runtimeSummary && component.runtimeSummary.runtimeBundleDigest },
+		{ label: _('Runtime source commit'), value: component.runtimeSummary && component.runtimeSummary.sourceCommit },
         { label: _('Проверяемые пути'), value: reviewPaths },
         { label: _('Причина проверки'), value: z2kReviewReason(component) },
         { label: _('Rebase'), value: component.rebases && component.rebases.length ? component.rebases.join(', ') : null }

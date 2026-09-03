@@ -25,6 +25,15 @@ test('REGRESSION: resource_center_status exposes local Z2K evidence (lua ready/t
   assert.match(SRC, /build_status|row_for|asset_registry_list/, 'must derive local from registry/manifest rows');
 });
 
+test('REGRESSION: Resources and Components share one backend-owned Z2K runtime summary', () => {
+  assert.match(SRC, /function z2k_runtime_summary\s*\(/);
+  assert.match(SRC, /schema:\s*'z2m\.z2k-runtime-summary\.v1'/);
+  for (const field of ['blockingReviews', 'advisoryReviews', 'unknownUnconsumed', 'rebases', 'canApply', 'dependencyClosure', 'runtimeBundleDigest', 'staticManagedCount'])
+    assert.match(SRC, new RegExp('\\b' + field + '\\b'), field + ' must be exposed by the backend projection');
+  assert.match(SRC, /semanticKind/);
+  assert.match(SRC, /z2k_annotate_installed\(answer\.installed/);
+});
+
 test('REGRESSION: resource_center_check persists its result so refresh does not lose it', () => {
   // check must persist signedSources/z2k check result for later status merges
   // Look for an atomic write or a dedicated state file

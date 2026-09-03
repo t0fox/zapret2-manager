@@ -277,13 +277,13 @@ function fetch_validated(input, existing) {
 	try { parsed = json(raw); } catch (e) { return { ok: false, error: { code: 'EMETADATA', message: 'Remote update metadata is malformed.' }, response: response }; }
 	let checked = callback_validation(input, parsed);
 	if (!checked.ok) return { ok: false, error: checked.error, response: response };
-	return { ok: true, payload: checked.payload, contentSha256: contentSha256, status: response.status, meta: response.meta };
+	return { ok: true, payload: checked.payload, rawPayload: parsed, contentSha256: contentSha256, status: response.status, meta: response.meta };
 }
 function save_lkg(input, payload, response, now, previous) {
 	let path = cache_path(input);
 	if (path == null || !ensure_dir(CACHE_ROOT)) return false;
 	let value = { schemaVersion: SCHEMA_VERSION, sourceKey: input.sourceKey, origin: input.origin,
-		url: input.url, fetchedAt: now, validatedAt: now, revision: nonce(), payload: payload };
+		url: input.url, fetchedAt: now, validatedAt: now, revision: nonce(), payload: response.rawPayload != null ? response.rawPayload : payload };
 	if (response.contentSha256 != null) value.contentSha256 = response.contentSha256;
 	else if (previous != null && previous.contentSha256 != null) value.contentSha256 = previous.contentSha256;
 	let etag = header(response.meta, 'etag'), modified = header(response.meta, 'last-modified');

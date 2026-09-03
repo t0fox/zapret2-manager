@@ -72,3 +72,20 @@ test('source UI keeps mutation identity separate from applied strategy identity'
   assert.match(page, /Не применять автоматически/);
   assert.doesNotMatch(page, /strategies\.apply\(/);
 });
+
+test('source UI distinguishes strategy entries from runtime resources and names catalog revisions clearly', () => {
+  const page = read('z2m-assets.js');
+  assert.match(page, /Исходных стратегий/);
+  assert.match(page, /В каталоге/);
+  assert.match(page, /Стратегий/);
+  assert.match(page, /Ревизия каталога/);
+  assert.doesNotMatch(page, /resourceCountText\(card\.entryCount\)/);
+});
+
+test('Resources primary Z2K summary prefers canonical backend counts over storage counts', () => {
+  const page = read('z2m-assets.js');
+  assert.match(page, /var canonicalRuntime = canonicalZ2k\.runtimeSummary \|\| resources\.runtimeSummary/);
+  assert.match(page, /var canonicalCounts = canonicalRuntime\.counts \|\| canonicalZ2k\.counts \|\| canonicalClosure\.counts/);
+  assert.match(page, /group\.id === 'z2k-resources' && canonicalCounts/);
+  assert.match(page, /canonicalManagedCount/);
+});

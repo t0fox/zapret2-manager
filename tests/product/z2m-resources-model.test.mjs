@@ -59,6 +59,22 @@ function makeInstalledForZ2k(count, typeCounts) {
 	return rows;
 }
 
+function makeCanonicalRuntimeSummary(overrides = {}) {
+	const digest = 'b'.repeat(64);
+	const counts = { lua: 13, blobs: 21, hostlists: 6, ipsets: 0, dynamic: 2, runtime: 0, builtins: 2, missing: 0 };
+	return {
+		installedRelease: { value: 'r-81.6', confidence: 'registry', authority: 'z2k-core' },
+		availableRelease: { value: 'r-82.1', confidence: 'checked', authority: 'z2k-core' },
+		health: 'ready', updateState: 'update-available', attentionState: 'none',
+		integrity: 'verified', integrityOk: true, strategies: 8,
+		dependencyClosure: { available: true, resolution: 'complete', counts, itemCount: 53, missing: [] },
+		counts, staticManagedCount: 40, runtimeBundleDigest: digest,
+		coherence: { coherenceStatus: 'aligned', installedRuntimeRevision: 'runtime-commit' },
+		sourceCommit: 'runtime-commit',
+		...overrides
+	};
+}
+
 test('resource count text uses correct Russian plural forms for all visible totals', () => {
 	const model = loadModel();
 	assert.equal(model.resourceCountText(0), '0 ресурсов');
@@ -378,4 +394,71 @@ test('severity: remote current + broken asset => group not current, broken, chil
 	const broken = z2kGroup.assets.find(a => a.id === installed[2].id);
 	assert.equal(model.shouldShowBadge(broken), true, 'broken child must have badge');
 	assert.equal(model.shouldShowBadge(z2kGroup.assets[0]), false, 'healthy sibling must not have badge');
+});
+
+test('canonical runtime summary owns Z2K counts while storage counts remain technical', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const installed = makeInstalledForZ2k(40, { lua: 7, blob: 33 });
+	installed[7].semanticKind = 'hostlist';
+	installed[7].id = 'blob:youtube-list';
+	const summary = makeCanonicalRuntimeSummary();
+	const out = model.buildModel({ sources, installed, z2k: { runtimeSummary: summary } }, { assets: installed }, { advanced: false });
+	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
+
+	assert.deepEqual(JSON.parse(JSON.stringify(z2kGroup.counts)), summary.counts, 'primary Z2K counts must come from canonical closure');
+	assert.deepEqual(JSON.parse(JSON.stringify(z2kGroup.storageCounts)), { lua: 7, blob: 33 }, 'storage counts remain technical disclosure');
+	assert.deepEqual(JSON.parse(JSON.stringify(out.z2kSummary.counts)), summary.counts);
+	assert.equal(z2kGroup.assets.find(asset => asset.id === 'blob:youtube-list').semanticKind, 'hostlist', 'stable ID and storage type are preserved');
+	assert.equal(out.updateCallout.from, 'r-81.6');
+	assert.equal(out.updateCallout.to, 'r-82.1');
+});
+
+test('resource model keeps canonical counts when runtime summary is projected at the response root', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const installed = makeInstalledForZ2k(2, { lua: 1, blob: 1 });
+	const summary = makeCanonicalRuntimeSummary();
+	const out = model.buildModel({ sources, installed, runtimeSummary: summary }, { assets: installed }, { advanced: false });
+	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
+
+	assert.deepEqual(JSON.parse(JSON.stringify(z2kGroup.counts)), summary.counts);
+	assert.equal(z2kGroup.staticManagedCount, summary.staticManagedCount);
+});
+
+test('resource model falls back to the backend dependency closure when runtime summary is absent', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const installed = makeInstalledForZ2k(2, { lua: 1, blob: 1 });
+	const summary = makeCanonicalRuntimeSummary();
+	const out = model.buildModel({ sources, installed, z2k: { dependencyClosure: summary.dependencyClosure, staticManagedCount: summary.staticManagedCount } }, { assets: installed }, { advanced: false });
+	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
+
+	assert.deepEqual(JSON.parse(JSON.stringify(z2kGroup.counts)), summary.counts);
+	assert.equal(z2kGroup.staticManagedCount, summary.staticManagedCount);
+});
+
+test('unknown unconsumed registry rows do not create a second Z2K health verdict', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const installed = makeInstalledForZ2k(1, { blob: 1 });
+	installed[0].state = 'attention';
+	const summary = makeCanonicalRuntimeSummary({ health: 'ready', updateState: 'update-available', unknownUnconsumed: ['files/extra.txt'] });
+	const out = model.buildModel({ sources, installed, z2k: { runtimeSummary: summary } }, { assets: installed }, { advanced: false });
+	assert.equal(out.groups.find(g => g.id === 'z2k-resources').state, 'update');
+	assert.equal(out.summary.state, 'update');
+});
+
+test('canonical missing dependency and digest mismatch stay visible as runtime health failures', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const installed = makeInstalledForZ2k(2, { lua: 1, blob: 1 });
+	const base = makeCanonicalRuntimeSummary();
+	for (const failure of [
+		{ health: 'degraded', dependencyClosure: { ...base.dependencyClosure, counts: { ...base.counts, missing: 1 } }, counts: { ...base.counts, missing: 1 } },
+		{ health: 'degraded', dependencyClosure: { ...base.dependencyClosure, runtimeBundleDigest: 'c'.repeat(64) } }
+	]) {
+		const out = model.buildModel({ sources, installed, z2k: { runtimeSummary: { ...base, ...failure } } }, { assets: installed }, { advanced: false });
+		assert.notEqual(out.groups.find(group => group.id === 'z2k-resources').state, 'current');
+	}
 });

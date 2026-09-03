@@ -10,6 +10,7 @@ import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classifica
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
 import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, verifyMaterialized, verifyActivationProcess } from './runtime-composition.uc';
 import { read_var, config_sha256 } from './apply.uc';
+import { engine_status } from './engine-manager.uc';
 import * as strategy_sources from './strategy-sources.uc';
 import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
 import { asset_registry_environment } from './asset-registry.uc';
@@ -331,6 +332,159 @@ function strategy_coherence(local, remote) {
 	return { installedRuntimeRevision: installedRuntimeRevision, availableUpstreamRevision: availableUpstreamRevision,
 		currentStrategySourceRevision: currentStrategySourceRevision, candidateStrategyRevision: candidateStrategyRevision,
 		coherenceStatus: coherenceStatus };
+}
+function z2k_engine_runtime_projection() {
+	try {
+		let value = engine_status();
+		return object(value) ? {
+			installed: value.installed === true,
+			compatible: value.compatible === true,
+			serviceState: value.serviceState || null,
+			runtimeRunning: value.runtimeRunning === true,
+			ready: value.installed === true && value.compatible === true && value.serviceState == 'running' && value.runtimeRunning === true,
+			installedRelease: value.installedRelease || null
+		} : { installed: false, compatible: false, serviceState: null, runtimeRunning: false, ready: false, installedRelease: null };
+	} catch (e) {
+		return { installed: false, compatible: false, serviceState: null, runtimeRunning: false, ready: false, installedRelease: null };
+	}
+}
+function z2k_runtime_closure_counts(closure) {
+	let counts = object(closure) && object(closure.counts) ? closure.counts : {};
+	return {
+		lua: type(counts.lua) == 'int' ? counts.lua : 0,
+		blobs: type(counts.blobs) == 'int' ? counts.blobs : 0,
+		hostlists: type(counts.hostlists) == 'int' ? counts.hostlists : 0,
+		ipsets: type(counts.ipsets) == 'int' ? counts.ipsets : 0,
+		dynamic: type(counts.dynamic) == 'int' ? counts.dynamic : 0,
+		runtime: type(counts.runtime) == 'int' ? counts.runtime : 0,
+		builtins: type(counts.builtins) == 'int' ? counts.builtins : 0,
+		missing: type(counts.missing) == 'int' ? counts.missing : 0
+	};
+}
+function z2k_runtime_closure_ready(closure, digest) {
+	return object(closure) && closure.available === true && closure.resolution == 'complete'
+		&& z2k_runtime_closure_counts(closure).missing == 0 && string(digest) && match(lc(digest), /^[a-f0-9]{64}$/)
+		&& string(closure.runtimeBundleDigest) && closure.runtimeBundleDigest == digest;
+}
+function z2k_static_managed_count(installed) {
+	let count = 0;
+	for (let i = 0; i < length(installed || []); i++) {
+		let row = installed[i] || {}, provenance = row.provenance || {};
+		if (row.source == 'z2k-resources' || provenance.bundleId == 'z2k-curated-lua' || provenance.repository == 'necronicle/z2k') count++;
+	}
+	return count;
+}
+function z2k_semantic_item_for(row, closure) {
+	if (!object(row) || !object(closure)) return null;
+	let items = closure.items || [], sourcePath = row.sourcePath || (row.provenance && row.provenance.sourcePath) || null;
+	for (let i = 0; i < length(items); i++) {
+		let item = items[i] || {};
+		if ((row.id && item.id == row.id) || (sourcePath && item.sourcePath == sourcePath)) return item;
+	}
+	return null;
+}
+function z2k_annotate_installed(installed, closure) {
+	let result = [];
+	for (let i = 0; i < length(installed || []); i++) {
+		let row = installed[i], item = z2k_semantic_item_for(row, closure), copy = {};
+		for (let key in row || {}) copy[key] = row[key];
+		if (object(item)) {
+			copy.semanticKind = item.kind || null;
+			copy.dependencyClass = item.class || null;
+			copy.runtimeTarget = item.runtimeTarget || null;
+			copy.runtimeRole = item.role || null;
+			copy.semanticOwner = item.owner || null;
+		}
+		push(result, copy);
+	}
+	return result;
+}
+function z2k_runtime_reconciliation(closure, installed) {
+	let partitions = { packageStatic: 0, lifecycleManaged: 0, dynamic: 0, runtimeGenerated: 0, engineBuiltins: 0, user: 0 };
+	let duplicateRuntimeAssets = [], ownerConflicts = [], seenIds = {}, seenTargets = {}, targetOwners = {};
+	for (let item in object(closure) && closure.items || []) {
+		if (!object(item)) continue;
+		let id = item.id || item.class + ':' + (item.reference || '');
+		if (seenIds[id]) push(duplicateRuntimeAssets, id);
+		seenIds[id] = true;
+		let target = item.runtimeTarget || null, owner = item.owner || item.ownership || 'unknown';
+		if (target != null) {
+			if (seenTargets[target]) push(duplicateRuntimeAssets, target);
+			seenTargets[target] = true;
+			if (targetOwners[target] != null && targetOwners[target] != owner)
+				push(ownerConflicts, { runtimeTarget: target, owners: [targetOwners[target], owner] });
+			targetOwners[target] = owner;
+		}
+		let klass = item.class || '', typeName = item.type || '', role = item.role || '';
+		if (klass == 'blob-engine-builtin' || role == 'engine-builtin' || typeName == 'engine-builtin') partitions.engineBuiltins++;
+		else if (klass == 'hostlist-dynamic' || klass == 'ipset-dynamic') partitions.dynamic++;
+		else if (klass == 'blob-runtime' || klass == 'blob-inline' || role == 'runtime-generated' || typeName == 'runtime-generated') partitions.runtimeGenerated++;
+		else if (typeName == 'package-static' || owner == 'package') partitions.packageStatic++;
+		else if (typeName == 'user' || owner == 'user') partitions.user++;
+		else if (typeName == 'lifecycle-managed' || owner == 'z2k-core' || klass == 'lua' || klass == 'blob-file' || klass == 'hostlist-static' || klass == 'ipset-static') partitions.lifecycleManaged++;
+	}
+	for (let row in installed || []) {
+		let provenance = object(row && row.provenance) ? row.provenance : {}, kind = provenance.kind || '';
+		if (kind == 'imported' || kind == 'user-created' || row && (row.ownership == 'user' || row.source == 'user')) partitions.user++;
+	}
+	return {
+		schema: 'z2m.z2k-runtime-reconciliation.v1',
+		closureAvailable: object(closure) && closure.available === true,
+		partitions: partitions,
+		duplicateRuntimeAssets: duplicateRuntimeAssets,
+		ownerConflicts: ownerConflicts,
+		uniqueRuntimeOwner: !length(ownerConflicts) && !length(duplicateRuntimeAssets)
+	};
+}
+function z2k_runtime_summary(local, remote, engine, staticManagedCount, installed) {
+	local = object(local) ? local : {};
+	remote = object(remote) ? remote : {};
+	engine = object(engine) ? engine : {};
+	let closure = object(local.dependencyClosure) ? local.dependencyClosure : (object(remote.dependencyClosure) ? remote.dependencyClosure : null);
+	let counts = z2k_runtime_closure_counts(closure), installedDigest = local.runtimeBundleDigest || null, digest = installedDigest || remote.runtimeBundleDigest || (closure && closure.runtimeBundleDigest) || null;
+	let closureReady = z2k_runtime_closure_ready(closure, digest) && string(installedDigest) && closure && closure.runtimeBundleDigest == installedDigest, engineReady = engine.ready === true;
+	let localInstalled = local.installed === true;
+	let health = !engine.installed || !localInstalled ? 'missing' : local.integrityOk !== true ? 'broken' : !engineReady || !closureReady ? 'degraded' : 'ready';
+	let blockingReviews = remote.blockingReviews || [], advisoryReviews = remote.advisoryReviews || [], unknownUnconsumed = remote.unknownUnconsumed || [], rebases = remote.rebases || [];
+	let updateState = remote.updateState || remote.status || 'unknown', attentionState = remote.attentionState || 'none';
+	if (length(rebases)) attentionState = 'rebase-required';
+	else if (length(blockingReviews)) attentionState = 'review-required';
+	else if (length(advisoryReviews)) attentionState = 'review-advisory';
+	return {
+		schema: 'z2m.z2k-runtime-summary.v1',
+		installedRelease: local.installedRelease || { value: null, confidence: 'unknown', authority: null },
+		availableRelease: remote.availableRelease || null,
+		health: health, updateState: updateState, attentionState: attentionState,
+		integrity: local.integrity || null, integrityOk: local.integrityOk === true,
+		strategies: local.strategyCount != null ? local.strategyCount : remote.strategyCount,
+		counts: counts, staticManagedCount: staticManagedCount,
+		dependencyClosure: closure, runtimeBundleDigest: digest,
+		engine: engine, sourceCommit: local.commit || null,
+		reconciliation: z2k_runtime_reconciliation(closure, installed),
+		blockingReviews: blockingReviews, advisoryReviews: advisoryReviews,
+		unknownUnconsumed: unknownUnconsumed, rebases: rebases,
+		canApply: remote.canApply === true && !length(blockingReviews) && !length(rebases) && !length(remote.compilerInputs || []),
+		coherence: remote.coherence || null,
+		identity: { closureDigest: closure && closure.runtimeBundleDigest || null, installedDigest: local.runtimeBundleDigest || null, coherent: closureReady }
+	};
+}
+export const z2k_runtime_summary_projection = function(local, remote, engine, staticManagedCount, installed) {
+	return z2k_runtime_summary(local, remote, engine, staticManagedCount, installed);
+};
+function z2k_apply_runtime_summary(remote, local, summary) {
+	remote.runtimeSummary = summary;
+	remote.health = summary.health;
+	remote.integrity = summary.integrity;
+	remote.integrityOk = summary.integrityOk;
+	remote.installedRelease = summary.installedRelease;
+	remote.availableRelease = summary.availableRelease;
+	remote.strategyCount = summary.strategies;
+	remote.staticManagedCount = summary.staticManagedCount;
+	remote.dependencyClosure = summary.dependencyClosure;
+	remote.runtimeBundleDigest = summary.runtimeBundleDigest;
+	remote.reconciliation = summary.reconciliation;
+	remote.canApply = summary.canApply;
+	local.runtimeSummary = summary;
 }
 function z2k_canonical_runtime_path(runtimeTarget) {
 	if (!string(runtimeTarget)) return null;
@@ -828,7 +982,7 @@ function build_status(manifest, checkedAt, activeZ2KManifest) {
 			seen[item.id] = true;
 		}
 	}
-	for (let i = 0; i < length(listed.assets); i++) if (!seen[listed.assets[i].id]) { let asset = listed.assets[i], row = { id: asset.id, type: asset.type, name: asset.name, path: asset.path, ownership: asset.ownership, packageBaseline: asset.ownership == 'package', revision: asset.revision, contentSha256: asset.contentSha256, byteSize: asset.byteSize, lastChecked: asset.lastChecked || null, lastUpdated: asset.lastUpdated || null, references: asset.references || [], state: asset.validation && asset.validation.status == 'passed' ? 'current' : 'attention', status: state_label(asset.validation && asset.validation.status == 'passed' ? 'current' : 'attention'), provenance: asset.provenance || null, safeToUpdate: asset.ownership != 'package' }; push(installed, row); }
+	for (let i = 0; i < length(listed.assets); i++) if (!seen[listed.assets[i].id]) { let asset = listed.assets[i], provenance = asset.provenance || {}, row = { id: asset.id, type: asset.type, name: asset.name, sourcePath: provenance.sourcePath || null, sourceCommit: provenance.sourceCommit || null, path: asset.path, ownership: asset.ownership, packageBaseline: asset.ownership == 'package', revision: asset.revision, contentSha256: asset.contentSha256, byteSize: asset.byteSize, lastChecked: asset.lastChecked || null, lastUpdated: asset.lastUpdated || null, references: asset.references || [], state: asset.validation && asset.validation.status == 'passed' ? 'current' : 'attention', status: state_label(asset.validation && asset.validation.status == 'passed' ? 'current' : 'attention'), provenance: asset.provenance || null, safeToUpdate: asset.ownership != 'package' }; push(installed, row); }
 	let updates = [], byType = {}, consumers = {};
 	for (let i = 0; i < length(rows); i++) if (rows[i].state == 'update' || rows[i].state == 'missing') { push(updates, rows[i]); byType[rows[i].type] = (byType[rows[i].type] || 0) + 1; let consumer = rows[i].compatibility.consumer || 'не указано'; consumers[consumer] = (consumers[consumer] || 0) + 1; }
 	return { ok: true, schema: 1, checkedAt: checkedAt || null, manifest: { bundleId: manifest.bundleId, version: manifest.version, generatedAt: manifest.generatedAt }, sources: source_rows(manifest, rows), installed: installed, updates: updates, summary: { installed: length(installed), updates: length(updates), byType: byType, consumers: consumers }, autoCheck: { enabled: false, autoInstall: false, mode: 'manifest-only' } };
@@ -1511,8 +1665,12 @@ export const resource_center_status = function () {
 	if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
 	let remote = latestCheck ? z2k_projection(latestCheck.signed, true) : z2k_projection(null);
+	let engine = z2k_engine_runtime_projection();
+	answer.installed = z2k_annotate_installed(answer.installed, local.dependencyClosure);
 	remote.local = local;
 	remote.coherence = strategy_coherence(local, remote);
+	let runtimeSummary = z2k_runtime_summary(local, remote, engine, z2k_static_managed_count(answer.installed), answer.installed);
+	z2k_apply_runtime_summary(remote, local, runtimeSummary);
 	remote.checkedAt = latestCheck ? latestCheck.checkedAt : null;
 	remote.planToken = latestCheck ? (latestCheck.planToken || remote.planToken) : null;
 	remote.preparedTarget = persisted && persisted.preparedTarget ? { targetVersion: persisted.preparedTarget.targetVersion, operation: persisted.preparedTarget.operation, preparedAt: persisted.preparedTarget.preparedAt } : null;
@@ -1550,8 +1708,12 @@ export const resource_center_check = function () {
 	let answer = build_status(loaded.manifest, checkedAt, activeZ2KManifest); if (!answer.ok) return answer;
 	let local = z2k_local_projection(loaded.manifest);
 	let remote = z2k_projection(signed);
+	let engine = z2k_engine_runtime_projection();
+	answer.installed = z2k_annotate_installed(answer.installed, local.dependencyClosure);
 	remote.local = local;
 	remote.coherence = strategy_coherence(local, remote);
+	let runtimeSummary = z2k_runtime_summary(local, remote, engine, z2k_static_managed_count(answer.installed), answer.installed);
+	z2k_apply_runtime_summary(remote, local, runtimeSummary);
 	remote.checkedAt = checkedAt;
 	remote.planToken = signed.ok === true ? plan_token(checkedAt, signed.manifest, signed.sourceCommit || signed.manifestRevision) : null;
 	if (signed.ok === true && remote.planToken != null) signed.planToken = remote.planToken;

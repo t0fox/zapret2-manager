@@ -127,6 +127,19 @@ test('source status exposes bounded cache, success, attempt, and cooldown diagno
   assert.equal(status.cooldown.limited, false);
 });
 
+test('normalized metadata keeps raw validator shape in cache for the next read', () => {
+  const s = sandbox();
+  const input = `{sourceKey:'fixture:normalized',origin:'github-rest',url:'https://api.github.com/repos/example/releases',ttlSec:60,validate:function(value){return type(value)=='object'&&value!=null&&value.kind=='fixture';},normalize:function(value){return {kind:value.kind,value:value.value};}}`;
+  const first = call(s, 'update_source_refresh', input);
+  const second = call(s, 'update_source_browse', input, { Z2M_FIXTURE_MODE: 'error' });
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.deepEqual(first.payload, { kind: 'fixture', value: 1 });
+  assert.equal(second.ok, true, JSON.stringify(second));
+  assert.deepEqual(second.payload, { kind: 'fixture', value: 1 });
+  assert.equal(second.requestCount, 0);
+  assert.equal(requestCount(s), 1);
+});
+
 test('refresh keeps the last-known-good payload when the response is malformed', () => {
   const s = sandbox();
   const input = fixtureInput();

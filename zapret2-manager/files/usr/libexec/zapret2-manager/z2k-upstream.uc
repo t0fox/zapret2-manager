@@ -15,7 +15,7 @@ const MAX_PATH = 256;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
-function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
+function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/) != null; }
 function fail(code, message, details) { let value = { ok: false, error: { code: code, message: message } }; if (details != null) value.error.details = details; return value; }
 function run(command) { let p = popen(command + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
 function quote(value) { return type(value) == 'string' && index(value, "'") < 0 && index(value, '\n') < 0 && index(value, '\r') < 0 ? "'" + value + "'" : null; }
