@@ -40,3 +40,9 @@ test('API keeps provider CRUD under the canonical DNS product facade', () => {
   assert.match(api, /providerReset:calls\.dnsProductProviderReset/);
   assert.match(api, /providerDelete:calls\.dnsProductProviderDelete/);
 });
+
+test('selected provider indicator follows the effective resolver when backend omits a selection ID', () => {
+  assert.match(view, /upstreamNameservers/);
+  assert.match(view, /addresses\.every\(function \(address, index\)/);
+  assert.match(view, /return matched \? providerId\(matched\) : ''/);
+});

@@ -179,7 +179,16 @@ function selectedProviderId(dns, providers) {
   if (selected && typeof selected === 'object') selected = selected.id || selected.providerId;
   if (selected) return String(selected);
   var row = providers.filter(function (provider) { return provider && (provider.selected === true || provider.active === true || provider.current === true); })[0];
-  return row ? providerId(row) : '';
+  if (row) return providerId(row);
+  var resolver = dns && (dns.resolver || dns);
+  var upstream = resolver && (resolver.upstreamNameservers || resolver.nameservers || resolver.upstream);
+  if (!Array.isArray(upstream) || !upstream.length) return '';
+  var normalized = upstream.map(function (address) { return String(address); });
+  var matched = providers.filter(function (provider) {
+    var addresses = asArray(provider && provider.ipv4).map(function (address) { return String(address); });
+    return addresses.length === normalized.length && addresses.every(function (address, index) { return address === normalized[index]; });
+  })[0];
+  return matched ? providerId(matched) : '';
 }
 function selectionMap(status) {
   var source = status && (status.selections || status.mappings || status.services) || {};
