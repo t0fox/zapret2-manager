@@ -5459,13 +5459,13 @@
 .z2m-app [class$="-card"],
 .z2m-app [class$="-panel"],
 .z2m-app .z2m-kpi {
-  border-radius:var(--z2m-radius-surface);
+  border-radius:var(--z2m-radius-surface) !important;
 }
 .z2m-app .z2m-btn,
 .z2m-app .btn,
 .z2m-app button.btn,
 .z2m-app .z2m-overview-update-summary-action {
-  border-radius:var(--z2m-radius-control);
+  border-radius:var(--z2m-radius-control) !important;
 }
 .z2m-app input:not([type="checkbox"]):not([type="radio"]),
 .z2m-app select,
@@ -5474,13 +5474,13 @@
 .z2m-app .form-select,
 .z2m-app .z2m-input,
 .z2m-app .z2m-select {
-  border-radius:var(--z2m-radius-control);
+  border-radius:var(--z2m-radius-control) !important;
 }
 .z2m-app .z2m-chip,
 .z2m-app .badge,
 .z2m-app .chip,
 .z2m-app [class$="-badge"] {
-  border-radius:var(--z2m-radius-pill);
+  border-radius:var(--z2m-radius-pill) !important;
 }
 .z2m-app .z2m-system-version-table,
 .z2m-app .z2m-resource-table,
@@ -5492,8 +5492,9 @@
 .z2m-app .z2m-routing-list,
 .z2m-app .z2m-service-dns-list,
 .z2m-app .list-ui-group {
-  border-radius:var(--z2m-radius-row);
+  border-radius:var(--z2m-radius-row) !important;
 }
+.z2m-app > .z2m-wrap{padding-top:0}
 .z2m-app button:focus-visible,
 .z2m-app a:focus-visible,
 .z2m-app input:focus-visible,
