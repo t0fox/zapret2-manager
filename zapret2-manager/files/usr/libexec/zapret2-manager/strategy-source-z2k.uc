@@ -10,6 +10,7 @@
 
 import { popen, unlink, writefile } from 'fs';
 import { z2m_parse, z2m_validate } from './profiles.uc';
+import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
 
 const SOURCE_ID = 'z2k';
 const REPOSITORY = 'necronicle/z2k';
@@ -196,6 +197,19 @@ function requirements_from_profiles(profiles) {
 	}
 	return { engine: 'nfqws2', luaFunctions: functions, blobs: blobs };
 }
+function dependency_closure(compiled, metadata, args) {
+	let inventory = object(metadata) && object(metadata.dependencyInventory) ? metadata.dependencyInventory : {};
+	let request = { args: args, sourceCommit: compiled.sourceCommit,
+		compilerSnapshotDigest: compiled.compilerSnapshotDigest, nfqws2OptSha256: compiled.nfqws2OptSha256 };
+	for (let key in inventory) request[key] = inventory[key];
+	try { return z2k_dependency_closure(request); }
+	catch (e) { return { schema: 'z2m.z2k-dependency-closure.v1', available: false, resolution: 'unavailable',
+		items: [], missing: [{ class: 'unknown-consumed', kind: 'runtime', reference: 'closure', available: false,
+			reason: 'dependency closure could not be computed' }], counts: { lua: 0, blobs: 0, hostlists: 0, ipsets: 0, dynamic: 0, runtime: 0, builtins: 0, missing: 1 },
+		runtimeBundleDigest: null, sourceCommit: compiled.sourceCommit,
+		compilerSnapshotDigest: compiled.compilerSnapshotDigest, nfqws2OptSha256: compiled.nfqws2OptSha256,
+		structurallyCompilable: false }; }
+}
 function capabilities(profiles) {
 	let protocols = [], circular = false, discord = false;
 	for (let profile in profiles) {
@@ -261,7 +275,7 @@ function profile_label(profile, index, args) {
 function semantic_digest(entryKind, args, protocol) {
 	return digest(sprintf('%J', { entryKind: entryKind, args: args, protocol: protocol || 'unknown' }));
 }
-function standalone_projection(model, profile, index, sourceCommit, compiler, resources) {
+function standalone_projection(model, profile, index, sourceCommit, compiler, resources, dependencyInventory) {
 	let projected = profile_projection(model, profile, index, resources);
 	if (!projected.ok) return projected;
 	let candidate = projected.profile, structural = structural_validation(candidate.args);
@@ -270,13 +284,15 @@ function standalone_projection(model, profile, index, sourceCommit, compiler, re
 	let upstreamId = 'profile-' + (profileIndex + 1), canonicalId = 'z2k:' + upstreamId;
 	let digestValue = semantic_digest('standalone', candidate.args, candidate.protocol);
 	if (!valid_digest(digestValue)) return error('EDIGEST', 'Z2K standalone semantic digest could not be computed', 'profiles[' + index + ']');
+	let closure = dependency_closure(compiler, { dependencyInventory: dependencyInventory || {} }, candidate.officialArgs);
 	let one = {
 		id: canonicalId, canonicalId: canonicalId, sourceId: SOURCE_ID, upstreamId: upstreamId,
 		sourceCommit: sourceCommit, sourcePath: COMPILER_SOURCE_PATH, name: profile_label(profile, index, candidate.args),
 		description: 'Полный официальный профиль Z2K, опубликованный как standalone projection.',
 		args: candidate.args, officialArgs: candidate.officialArgs, profiles: [candidate],
 		semanticDigest: digestValue, capabilities: capabilities([candidate]),
-		requirements: requirements_from_profiles([candidate]), usable: false, featured: false,
+		requirements: requirements_from_profiles([candidate]), dependencyClosure: closure,
+		runtimeBundleDigest: closure.runtimeBundleDigest || null, usable: false, featured: false,
 		recommended: false, pinned: false, entryKind: 'standalone',
 		resourceBindings: projected.bindings, provenance: {
 			repository: REPOSITORY, sourceId: SOURCE_ID, sourceCommit: sourceCommit,
@@ -337,10 +353,12 @@ export const strategy_source_z2k_import_compiled = function(compiled, metadata) 
 		for (let item in projected.bindings) push(bindings, { profileIndex: i, from: item.from, to: item.to, role: item.role });
 	}
 	let args = join(' --new ', profile_field_values(profiles, 'args'));
+	let dependencyInventory = metadata.dependencyInventory || {};
+	let closure = dependency_closure(checked.compiled, metadata, checked.compiled.nfqws2Opt);
 	let standaloneCandidates = [], standaloneDiagnostics = [];
 	for (let i = 0; i < length(checked.model.profiles); i++) {
 		let standalone = standalone_projection(checked.model, checked.model.profiles[i], i,
-			checked.compiled.sourceCommit, checked.compiled, metadata.resourceBindings);
+			checked.compiled.sourceCommit, checked.compiled, metadata.resourceBindings, dependencyInventory);
 		if (!standalone.ok) {
 			push(standaloneDiagnostics, { officialProfileIndex: i, error: standalone.error || { code: 'EVERIFY', message: 'standalone projection failed' } });
 			continue;
@@ -356,6 +374,7 @@ export const strategy_source_z2k_import_compiled = function(compiled, metadata) 
 		description: 'Импортировано из полного flat NFQWS2_OPT официального компилятора Z2K.',
 		args: args, officialNfqws2Opt: checked.compiled.nfqws2Opt, profiles: profiles,
 		capabilities: caps, autocircular: caps.autocircular, discordUdp: caps.discordUdp,
+		dependencyClosure: closure, runtimeBundleDigest: closure.runtimeBundleDigest || null,
 		is_builtin: false, requirements: requirements, usable: true, featured: true, recommended: true,
 		pinned: true, entryKind: 'all-in-one', poolKey: 'all-in-one', semanticDigest: allInOneSemanticDigest,
 		composition: { source: COMPILER_SOURCE_PATH, profileCount: length(profiles),
@@ -391,7 +410,7 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 	}
 	let imported = strategy_source_z2k_import_compiled(compiled, {
 		sourceCommit: sourceCommit, sourceFiles: sourceFiles, fileSha256: fileSha256,
-		resourceBindings: input.resourceBindings
+		resourceBindings: input.resourceBindings, dependencyInventory: input.dependencyInventory
 	});
 	if (!imported.ok) return imported;
 	let identity = COMPILER_SCHEMA + '\n' + REPOSITORY + '\n' + sourceCommit + '\n'

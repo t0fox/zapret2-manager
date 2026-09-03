@@ -561,6 +561,26 @@ function renderActiveCard() {
     ? '<div class="active-strategy-projection"><span>Источник: ' + escapeHtml(sourceFilterLabel(sourceId)) + '</span><span>Стратегия: ' + escapeHtml(active.name) + '</span></div>' : '';
   host.innerHTML = active ? '<span class="status-dot running"></span><div class="active-strategy-copy"><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-helper">Используется сейчас в nfqws2</div><div class="active-strategy-meta">' + activeLabels(active) + '</div>' + sourceLine + '</div><button class="btn btn-ghost btn-sm active-strategy-preview" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">' + svgIcon('terminal', 14) + '<span>Превью команды</span></button>' : '<span class="status-dot stopped"></span><div class="active-strategy-copy"><div class="active-strategy-name">Стратегия не выбрана</div><div class="active-strategy-helper">Выберите стратегию из списка ниже</div></div>';
 }
+function compiledCatalogStats() {
+  var stats = {
+    avatar: { count: 0 },
+    z2k: { count: 0, allInOne: 0, standalone: 0 },
+    user: { count: 0 }
+  };
+  state.rows.forEach(function (strategy) {
+    var source = strategySourceId(strategy);
+    if (!stats[source]) return;
+    stats[source].count++;
+    if (source !== 'z2k') return;
+    var canonical = text(strategy.canonicalId || strategy.id).toLowerCase();
+    var allInOne = text(strategy.entryKind).toLowerCase() === 'all-in-one' ||
+      text(strategy.poolKey).toLowerCase() === 'all-in-one' ||
+      canonical === 'z2k:z2k_all_in_one' || strategy.pinned === true;
+    if (allInOne) stats.z2k.allInOne++;
+    else stats.z2k.standalone++;
+  });
+  return stats;
+}
 function renderCatalogSummary() {
   var host = state.root && state.root.querySelector('#catalog-summary');
   if (!host) return;
@@ -569,9 +589,17 @@ function renderCatalogSummary() {
     host.innerHTML = '<div class="catalog-summary-state warning">Состояние каталога недоступно; локальные стратегии не скрыты.</div>';
     return;
   }
-  var value = catalogValue(state.data), counts = object(value.counts), semantic = object(value.semantic), resolution = object(value.resolution);
+  var value = catalogValue(state.data), counts = object(value.counts), resolution = object(value.resolution), stats = compiledCatalogStats();
   var verification = resolution.verified === true ? 'Проверен' : 'Не проверен';
-  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(semantic.canonicalStrategies || counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? verification : 'Проверка') + '</b><span>Состояние</span></div></div>';
+  var z2kDescription = stats.z2k.count
+    ? 'All-in-One + ' + stats.z2k.standalone + ' standalone top-level profiles'
+    : 'Официальный compiled-пул недоступен';
+  host.innerHTML = '<div class="compiled-catalog-lede"><span>Источники разделены по владению и готовности. Legacy numeric strategy IDs не публикуются.</span><span class="compiled-catalog-health">' + escapeHtml(value.ok === true ? verification : 'Проверка') + ' · ' + text(counts.files || 0) + ' upstream files</span></div>' +
+    '<div class="compiled-catalog-grid">' +
+      '<div class="compiled-catalog-source" data-catalog-source="avatar"><div class="compiled-catalog-source-head"><b>Avatar</b><span class="compiled-catalog-state ready">Готовые</span></div><strong>' + text(stats.avatar.count) + '</strong><span>готовых стратегий</span></div>' +
+      '<div class="compiled-catalog-source" data-catalog-source="z2k"><div class="compiled-catalog-source-head"><b>Z2K</b><span class="compiled-catalog-state ready">Official compiled</span></div><strong>' + text(stats.z2k.count) + '</strong><span>' + escapeHtml(z2kDescription) + '</span></div>' +
+      '<div class="compiled-catalog-source" data-catalog-source="user"><div class="compiled-catalog-source-head"><b>User</b><span class="compiled-catalog-state">Отдельно</span></div><strong>' + text(stats.user.count) + '</strong><span>пользовательских стратегий</span></div>' +
+    '</div>';
 }
 function renderBulkBar() {
   var bar = state.root && state.root.querySelector('#strat-bulkbar');
@@ -1194,7 +1222,7 @@ function refreshStrategyStyles() {
   var link = document && document.getElementById ? document.getElementById('z2m-ui-css') : null;
   if (!link || !link.getAttribute || !link.setAttribute) return;
   var href = link.getAttribute('href') || '';
-  if (href.indexOf('v=p03dr-strategy-ide-20260830-3') < 0) link.setAttribute('href', href.split('?')[0] + '?v=p03dr-strategy-ide-20260830-3');
+  if (href.indexOf('v=compiled-catalog-20260903-r1') < 0) link.setAttribute('href', href.split('?')[0] + '?v=compiled-catalog-20260903-r1');
 }
 function refreshHealthcheck() {
   if (!state.ctx || !state.ctx.api.healthcheck || !state.ctx.api.healthcheck.status) return Promise.resolve();
@@ -2624,7 +2652,7 @@ function render(ctx) {
   var activeTitle = root.querySelector('.active-strategy-card .card-title');
   if (activeTitle) activeTitle.innerHTML = svgIcon('activity', 16) + '<span>Активная стратегия</span><span class="card-title-actions" id="strategy-debug-info"></span>';
   var summaryTitle = root.querySelector('.catalog-summary-card .card-title');
-  if (summaryTitle) summaryTitle.innerHTML = 'Каталог стратегий <span class="catalog-summary-note">источник и готовность</span>';
+  if (summaryTitle) summaryTitle.innerHTML = 'Compiled Strategy Catalog <span class="catalog-summary-note">источник и готовность</span>';
   var ops = root.querySelectorAll('.strategy-ops-card');
   if (ops[0]) ops[0].querySelector('.card-title').innerHTML = svgIcon('activity', 16) + '<span>Авто-починка (healthcheck)</span><span class="strategy-ops-subtitle">проверяет связь и обновляет circular при провалах</span>';
   if (ops[1]) ops[1].querySelector('.card-title').innerHTML = svgIcon('refresh', 16) + '<span>Выученные стратегии (autocircular)</span><span class="strategy-ops-subtitle">circular подобрал и закрепил</span>';

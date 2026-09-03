@@ -15,6 +15,10 @@ function collectionCount(value) {
   return Object.keys(object(value)).length;
 }
 
+function countValue(value) {
+  return typeof value === 'number' && isFinite(value) && value >= 0 ? value : null;
+}
+
 function text(value) {
   return value === null || value === undefined || value === '' ? null : String(value);
 }
@@ -369,6 +373,27 @@ function normalizeZ2k(input, engineReady) {
 	var unknownUnconsumed = array(value.unknownUnconsumed || plan.unknownUnconsumed || local.unknownUnconsumed);
 	var compilerInputs = array(value.compilerInputs || plan.compilerInputs || local.compilerInputs);
 	var dependencyGraph = object(value.dependencyGraph || plan.dependencyGraph || local.dependencyGraph);
+	var dependencyClosure = object(value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure)
+		? (value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure) : null;
+	var dependencyCounts = dependencyClosure && object(dependencyClosure.counts) ? dependencyClosure.counts : {};
+	var runtimeBundleDigest = first(value.runtimeBundleDigest || plan.runtimeBundleDigest || local.runtimeBundleDigest
+		|| dependencyClosure && dependencyClosure.runtimeBundleDigest, null);
+	var strategyCount = countValue(value.strategyCount !== undefined ? value.strategyCount
+		: plan.strategyCount !== undefined ? plan.strategyCount : local.strategyCount);
+	var compiledDependencySummary = {
+		available: dependencyClosure ? dependencyClosure.available === true : null,
+		resolution: first(dependencyClosure && dependencyClosure.resolution, null),
+		strategies: strategyCount,
+		lua: countValue(dependencyCounts.lua),
+		blobs: countValue(dependencyCounts.blobs),
+		hostlists: countValue(dependencyCounts.hostlists),
+		ipsets: countValue(dependencyCounts.ipsets),
+		dynamic: countValue(dependencyCounts.dynamic),
+		runtime: countValue(dependencyCounts.runtime),
+		builtins: countValue(dependencyCounts.builtins),
+		missing: countValue(dependencyCounts.missing),
+		runtimeBundleDigest: runtimeBundleDigest
+	};
 	var dependencySummary = {
 		runtimeExact: collectionCount(dependencyGraph.runtimeExact),
 		compilerInputs: compilerInputs.length || collectionCount(dependencyGraph.compilerInputs),
@@ -473,6 +498,9 @@ function normalizeZ2k(input, engineReady) {
 		unknownUnconsumed: unknownUnconsumed,
 		compilerInputs: compilerInputs,
 		dependencyGraph: dependencyGraph,
+		dependencyClosure: dependencyClosure,
+		runtimeBundleDigest: runtimeBundleDigest,
+		compiledDependencySummary: compiledDependencySummary,
 		dependencySummary: dependencySummary,
 		coherence: coherence,
 		provenance: provenanceSrc,
@@ -495,6 +523,8 @@ function normalizeZ2k(input, engineReady) {
 		unknownUnconsumed: unknownUnconsumed,
 		compilerInputs: compilerInputs,
 		dependencyGraph: dependencyGraph,
+		dependencyClosure: dependencyClosure,
+		compiledDependencySummary: compiledDependencySummary,
 		coherence: coherence,
       trustMode: first(value.trustMode || local.trustMode, null),
       manifest: manifest,

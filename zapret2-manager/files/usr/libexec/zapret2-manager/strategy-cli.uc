@@ -177,12 +177,34 @@ function dependencies_record(value) {
 			available: false, reason: bounded_text(item.reason, MAX_DEPENDENCY_TEXT)
 		});
 	}
+	let closure = null;
+	if (is_object(record.dependencyClosure)) {
+		let source = record.dependencyClosure, closureItems = [], closureMissing = [];
+		for (let item in copy_array(source.items, MAX_DEPENDENCY_ITEMS)) {
+			if (!is_object(item)) continue;
+			push(closureItems, { class: bounded_text(item.class, 32), kind: bounded_text(item.kind, 32),
+				reference: bounded_text(item.reference, MAX_DEPENDENCY_TEXT), id: bounded_text(item.id, MAX_DEPENDENCY_TEXT),
+				available: item.available == true, owner: bounded_text(item.owner, 64), role: bounded_text(item.role, 64) });
+		}
+		for (let item in copy_array(source.missing, MAX_DEPENDENCY_ITEMS)) {
+			if (!is_object(item)) continue;
+			push(closureMissing, { class: bounded_text(item.class, 32), kind: bounded_text(item.kind, 32),
+				reference: bounded_text(item.reference, MAX_DEPENDENCY_TEXT), id: bounded_text(item.id, MAX_DEPENDENCY_TEXT),
+				available: false, reason: bounded_text(item.reason, MAX_DEPENDENCY_TEXT) });
+		}
+		closure = { schema: bounded_text(source.schema, 64), available: source.available == true,
+			resolution: bounded_text(source.resolution, 32), items: closureItems, missing: closureMissing,
+			counts: is_object(source.counts) ? source.counts : {},
+			runtimeBundleDigest: digest(source.runtimeBundleDigest) ? source.runtimeBundleDigest : null };
+	}
 	return {
 		available: record.available == true,
 		items: items,
 		missing: missing,
 		structurallyCompilable: record.structurallyCompilable == true,
-		nativeValidation: validation_record(record.nativeValidation)
+		nativeValidation: validation_record(record.nativeValidation),
+		dependencyClosure: closure,
+		runtimeBundleDigest: digest(record.runtimeBundleDigest) ? record.runtimeBundleDigest : null
 	};
 }
 
@@ -249,8 +271,15 @@ function runtime_relative_path(target, root) {
 function runtime_asset_descriptor(target, root, entry) {
 	let relative = runtime_relative_path(target, root);
 	if (!is_string(relative) || !length(relative)) return null;
-	return { path: relative, root: root, present: stat(target) != null, safe: true,
+	let descriptor = { path: relative, root: root, present: stat(target) != null, safe: true,
 		runtimeAssetId: is_object(entry) ? entry.id : null };
+	if (is_object(entry)) {
+		for (let key in ['id', 'kind', 'type', 'owner', 'role', 'sourcePath', 'runtimeTarget', 'contentSha256', 'byteSize'])
+			if (entry[key] != null) descriptor[key] = entry[key];
+		if (entry.kind == 'blob' && entry.role == 'runtime-generated') descriptor.dependencyClass = 'blob-runtime';
+		if (entry.kind == 'blob' && entry.role == 'engine-builtin') descriptor.dependencyClass = 'blob-engine-builtin';
+	}
+	return descriptor;
 }
 
 function runtime_descriptor_set(registry, key, descriptor) {
@@ -330,6 +359,7 @@ function runtime_environment_with_composition(environment, composition) {
 	}
 	result.paths = paths; result.lists = lists; result.blobs = blobs; result.lua = lua;
 	result.runtimeComposition = composition;
+	result.runtimeAssets = composition.runtimeAssets;
 	return result;
 }
 
@@ -1030,6 +1060,10 @@ export const strategy_apply = function(input, context) {
 		return strategy_apply_finish(error_result('ENOENABLED', 'Strategy requires at least one enabled Profile'), begun.operationNonce);
 	if (!is_object(candidate.dependencies) || candidate.dependencies.available != true)
 		return strategy_apply_finish(error_result('EDEPENDENCY', 'Strategy dependencies are unavailable'), begun.operationNonce);
+	if (resolved.sourceId == 'z2k' && (!is_object(candidate.dependencies.dependencyClosure)
+		|| candidate.dependencies.dependencyClosure.available != true
+		|| !digest(candidate.dependencies.dependencyClosure.runtimeBundleDigest)))
+		return strategy_apply_finish(error_result('EDEPENDENCY', 'Z2K runtime dependency closure is unavailable or incomplete'), begun.operationNonce);
 	if (!complete_validation(candidate.nativeValidation))
 		return strategy_apply_finish(error_result('EPREFLIGHT', 'complete native Strategy preflight is required'), begun.operationNonce);
 	if (!digest(candidate.digest)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy candidate digest is unavailable'), begun.operationNonce);

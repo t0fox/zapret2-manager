@@ -11,6 +11,7 @@ import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
 import { profiles_render_candidate, profiles_candidate_round_trip } from './profiles-apply.uc';
 import { native_preflight } from './native-preflight.uc';
 import { runtime_argument_token } from './runtime-asset-paths.uc';
+import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
 
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
 const COMPILER_AUTHORITY_MARKER = 'z2m-scanner-compiler.v1';
@@ -506,6 +507,30 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 		collect_list_option_dependencies(dependencies, tokens, environment);
 	}
 	dependencies.available = length(dependencies.missing) == 0;
+	// Z2K candidates carry a single immutable typed closure resolved against
+	// the installed runtime composition. Avatar/user compilation keeps the
+	// legacy flat inspection contract and does not invent a second inventory.
+	if (is_object(environment.runtimeComposition)) {
+		let closure = null;
+		try {
+			closure = z2k_dependency_closure({
+				args: join(' --new ', scanFragments),
+				assets: environment.runtimeAssets || environment.runtimeComposition.runtimeAssets || [],
+				dynamic: environment.dynamicDependencies || [], lists: environment.lists || {},
+				hostlists: environment.hostlists || {}, ipsets: environment.ipsets || {},
+				blobs: environment.blobs || {}, runtime: environment.runtimeBlobs || {},
+				builtins: environment.engineBuiltins || {}, functions: environment.functions || {},
+				luaFunctions: environment.luaFunctions || {}, sourceCommit: environment.sourceCommit || null,
+				compilerSnapshotDigest: environment.compilerSnapshotDigest || null,
+				nfqws2OptSha256: environment.nfqws2OptSha256 || null
+			});
+		} catch (e) { closure = null; }
+		if (is_object(closure)) {
+			dependencies.dependencyClosure = closure;
+			dependencies.runtimeBundleDigest = closure.runtimeBundleDigest || null;
+			if (closure.available != true) dependencies.available = false;
+		}
+	}
 	return dependencies;
 }
 

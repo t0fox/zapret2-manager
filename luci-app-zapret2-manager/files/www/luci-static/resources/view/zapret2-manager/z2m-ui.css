@@ -1096,6 +1096,58 @@
   font-size:11px;
   font-weight:400;
 }
+.z2m-view#z2m-view-strategy .compiled-catalog-lede {
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 16px 0;
+  color:var(--tx3);
+  font-size:11px;
+  line-height:1.4;
+}
+.z2m-view#z2m-view-strategy .compiled-catalog-health {
+  flex:0 0 auto;
+  color:var(--tx2);
+  font-variant-numeric:tabular-nums;
+}
+.z2m-view#z2m-view-strategy .compiled-catalog-grid {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:0;
+  padding:11px 16px 12px;
+}
+.z2m-view#z2m-view-strategy .compiled-catalog-source {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  padding:2px 16px;
+  border-right:1px solid var(--border);
+}
+.z2m-view#z2m-view-strategy .compiled-catalog-source:first-child { padding-left:0; }
+.z2m-view#z2m-view-strategy .compiled-catalog-source:last-child { padding-right:0; border-right:0; }
+.z2m-view#z2m-view-strategy .compiled-catalog-source-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  color:var(--tx2);
+  font-size:12px;
+}
+.z2m-view#z2m-view-strategy .compiled-catalog-source strong { color:var(--tx); font-size:18px; line-height:1.15; font-variant-numeric:tabular-nums; }
+.z2m-view#z2m-view-strategy .compiled-catalog-source > span { color:var(--tx3); font-size:11px; overflow-wrap:anywhere; }
+.z2m-view#z2m-view-strategy .compiled-catalog-state { color:var(--tx3); font-size:10px; font-weight:500; white-space:nowrap; }
+.z2m-view#z2m-view-strategy .compiled-catalog-state.ready { color:var(--green); }
+@media (max-width:700px) {
+  .z2m-view#z2m-view-strategy .compiled-catalog-lede { align-items:flex-start; flex-direction:column; gap:4px; }
+  .z2m-view#z2m-view-strategy .compiled-catalog-health { white-space:normal; }
+  .z2m-view#z2m-view-strategy .compiled-catalog-grid { grid-template-columns:1fr; gap:0; }
+  .z2m-view#z2m-view-strategy .compiled-catalog-source,
+  .z2m-view#z2m-view-strategy .compiled-catalog-source:first-child,
+  .z2m-view#z2m-view-strategy .compiled-catalog-source:last-child { padding:10px 0; border-right:0; border-bottom:1px solid var(--border); }
+  .z2m-view#z2m-view-strategy .compiled-catalog-source:last-child { border-bottom:0; }
+}
 .z2m-view#z2m-view-strategy .catalog-summary-grid { padding:11px 16px 12px; }
 .z2m-view#z2m-view-strategy .catalog-summary-grid b { font-size:18px; }
 .z2m-view#z2m-view-strategy .active-strategy-card {

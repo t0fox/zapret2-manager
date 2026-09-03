@@ -53,7 +53,7 @@ function legacy_function_names(raw) {
 	}
 	return names;
 }
-function add_legacy_environment(environment) {
+function add_legacy_environment(environment, registryListed) {
 		environment.paths = { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake',
 		listRoot: '/opt/zapret2/lists', ipsetRoot: '/opt/zapret2/ipset' };
 	for (let filename in LEGACY_LUA_FILES) {
@@ -87,13 +87,35 @@ function add_legacy_environment(environment) {
 	let aliases = {
 		quic_google: 'quic_initial_www_google_com.bin', quic5: 'quic_5.bin',
 		quic4: 'quic_4.bin', quic1: 'quic_1.bin', quic6: 'quic_6.bin',
+		quic_dbankcloud: 'quic_initial_dbankcloud_ru.bin',
 		fake_default_tls: 'fake_tls_1.bin', fake_default_http: 'http_iana_org.bin',
 		// The canonical z2k catalog names this payload tls_max_ru while the
 		// package-owned binary keeps the upstream descriptive filename.
 		tls_max_ru: 'tls_clienthello_max_ru.bin',
 		fake_default_quic: 'fake_quic.bin'
 	};
-	for (let alias in aliases) if (blobFiles[aliases[alias]] != null) environment.blobs[alias] = blobFiles[aliases[alias]];
+	for (let alias in aliases) if (blobFiles[aliases[alias]] != null) {
+		let filename = aliases[alias], descriptor = blobFiles[filename];
+		// Prefer the verified Registry record when the legacy runtime filename is
+		// also present in the managed bundle. This preserves the alias while
+		// carrying canonical target/hash/ownership into dependency resolution.
+		for (let asset in registryListed && registryListed.assets || []) {
+			if (!asset || asset.type != 'blob' || environment.blobs[asset.id] == null) continue;
+			let leaf = string(asset.path) ? substr(asset.path, rindex(asset.path, '/') + 1) : null;
+			if (leaf != filename && asset.name != filename && asset.name != 'runtime-assets/bin/' + filename) continue;
+			descriptor = {};
+			for (let key in environment.blobs[asset.id]) descriptor[key] = environment.blobs[asset.id][key];
+			descriptor.kind = 'blob'; descriptor.owner = asset.provenance && asset.provenance.owner || 'z2k-core';
+			descriptor.role = asset.provenance && asset.provenance.role || 'dependency';
+			descriptor.sourcePath = asset.provenance && asset.provenance.sourcePath || null;
+			descriptor.runtimeTarget = '/runtime-assets/bin/' + filename;
+			descriptor.contentSha256 = asset.contentSha256 || null;
+			descriptor.byteSize = asset.byteSize == null ? null : asset.byteSize;
+			descriptor.available = regular(asset.path); descriptor.present = descriptor.available;
+			break;
+		}
+		environment.blobs[alias] = descriptor;
+	}
 }
 function link_target(path) { try { return readlink(path); } catch (e) { return null; } }
 function asset_parent_safe(kind) { let base = '/etc/zapret2-manager'; if (link_target(base) != null || (stat(base) != null && !directory(base))) return false; if (link_target(USER_ROOT) != null || (stat(USER_ROOT) != null && !directory(USER_ROOT))) return false; let typed = USER_ROOT + '/' + kind; return link_target(typed) == null && (stat(typed) == null || directory(typed)); }
@@ -558,7 +580,7 @@ export const asset_registry_validate = function(id) { let resolved = asset_regis
 // registry remains an empty compatibility environment for old catalog tests.
 export const asset_registry_environment = function() {
 	let listed = asset_registry_list(null), environment = { assetRefs: {}, lua: {}, blobs: {}, lists: {}, functions: {} };
-	add_legacy_environment(environment);
+	add_legacy_environment(environment, listed);
 	if (!listed.ok) return {};
 	for (let i = 0; i < length(listed.assets); i++) {
 		let asset = listed.assets[i], descriptor = { id: asset.id, type: asset.type, path: asset.path,
@@ -570,6 +592,9 @@ export const asset_registry_environment = function() {
 		if (asset.type == 'hostlist' || asset.type == 'hosts') environment.lists[asset.id] = descriptor;
 		if (asset.type == 'ipset') environment.lists[asset.id] = descriptor;
 	}
+	// Run the legacy alias projection once more after Registry descriptors are
+	// present so aliases can inherit verified hash/target/ownership metadata.
+	add_legacy_environment(environment, listed);
 	for (let i = 0; i < length(listed.assets); i++) {
 		let asset = listed.assets[i];
 		if (asset.type != 'lua' || !regular(asset.path)) continue;

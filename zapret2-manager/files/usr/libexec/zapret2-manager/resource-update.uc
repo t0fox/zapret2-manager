@@ -11,6 +11,8 @@ import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2
 import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, verifyMaterialized, verifyActivationProcess } from './runtime-composition.uc';
 import { read_var, config_sha256 } from './apply.uc';
 import * as strategy_sources from './strategy-sources.uc';
+import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
+import { asset_registry_environment } from './asset-registry.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -219,7 +221,7 @@ function source_rows(manifest, rows) {
 	return result;
 }
 function z2k_projection(signed) {
-	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], removedItems: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], unknownUnconsumed: [], compilerInputs: [], dependencyGraph: null, planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, sourceCommit: null, manifestRevision: null, candidateStrategyRevision: null, manifest: null, availableRelease: null };
+	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], removedItems: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], unknownUnconsumed: [], compilerInputs: [], dependencyGraph: null, dependencyClosure: null, runtimeBundleDigest: null, strategyCount: null, planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, sourceCommit: null, manifestRevision: null, candidateStrategyRevision: null, manifest: null, availableRelease: null };
 	let plan = object(signed.plan) ? signed.plan : {}, manifest = object(signed.manifest) ? signed.manifest : {};
 	let status = signed.status || 'unknown';
 	let updateState = signed.updateState || plan.updateState || (length(plan.updates || []) + length(plan.removedItems || []) > 0 ? 'update-available' : status == 'unknown' ? 'unknown' : 'current');
@@ -240,6 +242,9 @@ function z2k_projection(signed) {
 		unknownUnconsumed: plan.unknownUnconsumed || signed.unknownUnconsumed || [],
 		compilerInputs: plan.compilerInputs || signed.compilerInputs || [],
 		dependencyGraph: plan.dependencyGraph || signed.dependencyGraph || null,
+		dependencyClosure: plan.dependencyClosure || signed.dependencyClosure || null,
+		runtimeBundleDigest: plan.runtimeBundleDigest || signed.runtimeBundleDigest || null,
+		strategyCount: plan.strategyCount || signed.strategyCount || null,
 		planToken: signed.planToken || null,
 		trustMode: signed.trustMode || null,
 		verified: signed.ok === true && signed.trustMode != 'allow-untrusted',
@@ -257,6 +262,46 @@ function strategy_source_snapshot() {
 		let current = strategy_sources.strategy_source_current_snapshot('z2k');
 		return current && current.ok === true ? current.snapshot : null;
 	} catch (e) { return null; }
+}
+function z2k_compiled_dependency_projection() {
+	let snapshot = strategy_source_snapshot(), entry = null;
+	for (let item in snapshot && snapshot.entries || [])
+		if (object(item) && item.entryKind == 'all-in-one') { entry = item; break; }
+	let closure = object(entry) && object(entry.dependencyClosure) ? entry.dependencyClosure : null;
+	return {
+		dependencyClosure: closure,
+		runtimeBundleDigest: closure && closure.runtimeBundleDigest || null,
+		strategyCount: object(snapshot) && type(snapshot.entryCount) == 'int' ? snapshot.entryCount : null
+	};
+}
+function z2k_target_dependency_closure(runtimeCandidate) {
+	let snapshot = strategy_source_snapshot(), entry = null;
+	for (let item in snapshot && snapshot.entries || [])
+		if (object(item) && item.entryKind == 'all-in-one') { entry = item; break; }
+	if (!object(entry) || !string(entry.officialNfqws2Opt) || !object(runtimeCandidate)) return null;
+	let environment = {};
+	try { environment = asset_registry_environment(); } catch (e) { environment = {}; }
+	let engineBuiltins = {
+		fake_default_tls: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true },
+		fake_default_http: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true },
+		fake_default_quic: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true }
+	};
+	let dynamic = [
+		{ id: 'dynamic:manager-whitelist', kind: 'hostlist', class: 'hostlist-dynamic', owner: 'manager', role: 'manager-whitelist',
+			reference: '/runtime-assets/lists/whitelist.txt', runtimeTarget: '/etc/zapret2-manager/lists/whitelist.txt', available: true },
+		{ id: 'dynamic:discovered-domains', kind: 'hostlist', class: 'hostlist-dynamic', owner: 'manager', role: 'z2k-discovered-domains',
+			reference: '/runtime-assets/lists/discovered-domains.txt', runtimeTarget: '/opt/zapret2/lists/discovered-domains.txt', available: true }
+	];
+	let closure = null;
+	try { closure = z2k_dependency_closure({ args: entry.officialNfqws2Opt,
+		assets: runtimeCandidate.runtimeAssets || [], dynamic: dynamic,
+		blobs: environment.blobs || {}, lists: environment.lists || {}, lua: environment.lua || {},
+		builtins: engineBuiltins,
+		functions: environment.functions || {}, luaFunctions: environment.functions || {},
+		sourceCommit: snapshot.sourceCommit || null, compilerSnapshotDigest: entry.provenance && entry.provenance.compilerSnapshotDigest || null,
+		nfqws2OptSha256: entry.provenance && entry.provenance.nfqws2OptSha256 || null }); }
+	catch (e) { closure = null; }
+	return closure;
 }
 function strategy_coherence(local, remote) {
 	let installedRuntimeRevision = object(local) ? (local.commit || (object(local.provenance) && local.provenance.sourceCommit) || null) : null;
@@ -307,6 +352,7 @@ function z2k_canonical_local_projection(listed, resolved) {
 		kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: authority.sourceCommit || null,
 		version: authority.release || null, bundleId: 'z2k-curated-lua'
 	};
+	let compiled = z2k_compiled_dependency_projection();
 	return {
 		installed: authority.kind == 'installed' && string(authority.release),
 		integrity: verification.ok ? 'verified' : 'broken',
@@ -322,13 +368,17 @@ function z2k_canonical_local_projection(listed, resolved) {
 		commit: authority.sourceCommit || null,
 		provenance: provenance,
 		checkedAt: checkedAt,
-		installedRelease: installedRelease || { value: null, confidence: 'unknown', authority: null }
+		installedRelease: installedRelease || { value: null, confidence: 'unknown', authority: null },
+		dependencyClosure: compiled.dependencyClosure,
+		runtimeBundleDigest: compiled.runtimeBundleDigest,
+		strategyCount: compiled.strategyCount
 	};
 }
 
 function z2k_local_projection(manifest) {
+	let compiled = z2k_compiled_dependency_projection();
 	let listed = asset_registry_list(null);
-	if (!listed.ok) return { installed: false, integrity: 'broken', integrityOk: false, lua: { ready: 0, total: 0 }, baselineMatched: 0, revision: 0, commit: null, provenance: null, checkedAt: null, installedRelease: { value: null, confidence: 'unknown', authority: null } };
+	if (!listed.ok) return { installed: false, integrity: 'broken', integrityOk: false, lua: { ready: 0, total: 0 }, baselineMatched: 0, revision: 0, commit: null, provenance: null, checkedAt: null, installedRelease: { value: null, confidence: 'unknown', authority: null }, dependencyClosure: compiled.dependencyClosure, runtimeBundleDigest: compiled.runtimeBundleDigest, strategyCount: compiled.strategyCount };
 	let resolved = resolveInstalled({ registry: listed });
 	if (resolved.ok && resolved.lifecycleState == 'installed' && resolved.compositionStatus == 'canonical') return z2k_canonical_local_projection(listed, resolved);
 	let want = {};
@@ -400,7 +450,7 @@ function z2k_local_projection(manifest) {
 	let integrityOk = !hasMissing && !hasAttention;
 	let installed = !hasMissing && installedCount > 0 && total > 0;
 	let installedRelease = z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
-	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease };
+	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease, dependencyClosure: compiled.dependencyClosure, runtimeBundleDigest: compiled.runtimeBundleDigest, strategyCount: compiled.strategyCount };
 }
 function runtime_target_path(runtimeTarget) {
 	if (!string(runtimeTarget)) return null;
@@ -569,7 +619,7 @@ function z2k_target_token(target, preparedAt) {
 		push(removalIdentity, item.id + '|' + item.type + '|' + item.sourcePath + '|' + item.runtimeTarget + '|' + item.expectedRevision + '|' + item.expectedContentSha256 + '|' + item.expectedByteSize + '|' + item.bundleId + '|' + item.version + '|' + item.sourceCommit);
 	}
 	sort(removalIdentity);
-	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.classificationSha256 + '|' + target.operation + '|' + join(',', removeIds) + '|' + join(',', removalIdentity) + '|' + preparedAt;
+	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.classificationSha256 + '|' + (target.runtimeBundleDigest || '') + '|' + target.operation + '|' + join(',', removeIds) + '|' + join(',', removalIdentity) + '|' + preparedAt;
 	let digest = digest_text(canonical, 'z2m-z2k-token');
 	return digest == null ? null : 'z2k-target-v2:' + digest;
 }
@@ -678,7 +728,7 @@ function valid_prepared_target(value) {
 		seen[id] = true;
 		if (!valid_removal_descriptor(value.removeTargets[i], id)) return false;
 	}
-	return z2k_target_token(value, value.preparedAt) == value.planToken;
+	return valid_digest(value.runtimeBundleDigest) && z2k_target_token(value, value.preparedAt) == value.planToken;
 }
 function z2k_target_from_state(state) { return state && state.preparedTarget && valid_prepared_target(state.preparedTarget) ? state.preparedTarget : null; }
 function normalize_check_state(value) {
@@ -1196,7 +1246,7 @@ function z2k_finalized_pending_matches(pending, listed) {
 		&& receipt.installedAuthorityRevision <= listed.revision;
 }
 function z2k_target_summary(target) {
-	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), preparedAt: target.preparedAt };
+	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), runtimeBundleDigest: target.runtimeBundleDigest || null, dependencyClosure: target.dependencyClosure || null, preparedAt: target.preparedAt };
 }
 function save_prepared_target(target) {
 	let state = load_check_state() || { schema: 2, latestCheck: null, preparedTarget: null };
@@ -1280,12 +1330,19 @@ export const resource_center_prepare_version = function(request) {
 	if (!sizedTarget.ok) return sizedTarget;
 	let canonicalAssets = z2k_canonical_target_assets(resolved.version, resolved.commitSha, resolved.manifestSha256, classificationSnapshot.sha256, sizedTarget.assets);
 	if (canonicalAssets == null) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical runtime composition для выбранного release.');
-	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets };
-	target.planToken = z2k_target_token(target, preparedAt);
-	if (target.planToken == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
+	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets };
 	let candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision });
 	if (!candidate.ok) return candidate;
 	target.membershipDigest = candidate.membershipDigest; target.candidateSnapshotId = candidate.snapshotId; target.compositionSnapshotId = candidate.compositionSnapshotId;
+	target.dependencyClosure = z2k_target_dependency_closure(candidate);
+	target.runtimeBundleDigest = target.dependencyClosure && target.dependencyClosure.runtimeBundleDigest || null;
+	if (!object(target.dependencyClosure) || target.dependencyClosure.available !== true || !valid_digest(target.runtimeBundleDigest)) {
+		target.targetCanApply = false;
+		target.targetAttentionState = target.targetAttentionState == 'none' ? 'dependency-required' : target.targetAttentionState;
+		push(target.targetBlockingReasons, 'Z2K_RUNTIME_DEPENDENCY_CLOSURE_REQUIRED');
+	}
+	target.planToken = z2k_target_token(target, preparedAt);
+	if (target.planToken == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
 	if (target.planToken == null || !save_prepared_target(target)) return fail('EIO', 'Не удалось сохранить Z2K target snapshot.');
 	return { ok: true, target: z2k_target_summary(target), planToken: target.planToken, diagnostics: resolved.diagnostics || null };
 };
@@ -1317,6 +1374,9 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	if (!listed.ok || type(target.baseRegistryRevision) != 'int') return fail('ECHECK_STALE', 'Z2K prepared operation has no authoritative Registry baseline; prepare the release again.');
 	let candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision });
 	if (!candidate.ok) return candidate;
+	let dependencyClosure = z2k_target_dependency_closure(candidate);
+	if (!object(dependencyClosure) || dependencyClosure.available !== true || dependencyClosure.runtimeBundleDigest != target.runtimeBundleDigest)
+		return fail('EDEPENDENCY', 'Z2K runtime dependency closure changed or is unavailable; prepare the release again.', { expectedRuntimeBundleDigest: target.runtimeBundleDigest, actualRuntimeBundleDigest: dependencyClosure && dependencyClosure.runtimeBundleDigest || null });
 	let fingerprint = z2k_local_fingerprint(target.assets, listed, target.removeIds);
 	if (fingerprint == null || fingerprint != target.localFingerprint) return fail('ECHECK_STALE', 'Z2K local resources changed after preparation; prepare the release again.');
 	let classificationSnapshot = z2k_read_classification_snapshot(), classification = classificationSnapshot && classificationSnapshot.value;

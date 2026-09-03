@@ -13,6 +13,8 @@ import * as z2k_compiler from './z2k-official-compiler.uc';
 import { native_preflight } from './native-preflight.uc';
 import * as sources from './strategy-sources.uc';
 import { private_tempfile } from './core/private-temp.uc';
+import { resolveInstalled } from './runtime-composition.uc';
+import { asset_registry_environment } from './asset-registry.uc';
 
 const AVATAR_REPOSITORY = 'avatarDD/zapret-gui';
 const Z2K_REPOSITORY = 'necronicle/z2k';
@@ -122,6 +124,29 @@ function cleanup_staging(path) {
 	if (!string(path) || !match(path, /^\/tmp\/z2m-avatar-refresh\.[A-Za-z0-9]+$/)) return;
 	run('rm -rf ' + quote(path));
 }
+function z2k_dependency_inventory() {
+	let composition = null, environment = {};
+	try { composition = resolveInstalled({}); } catch (e) { composition = null; }
+	try { environment = asset_registry_environment(); } catch (e) { environment = {}; }
+	let engineBuiltins = {
+		fake_default_tls: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true },
+		fake_default_http: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true },
+		fake_default_quic: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true }
+	};
+	let inventory = { assets: composition && composition.ok == true ? composition.runtimeAssets || [] : [],
+		blobs: environment.blobs || {}, lists: environment.lists || {}, lua: environment.lua || {},
+		luaFunctions: environment.functions || {}, functions: environment.functions || {},
+		builtins: engineBuiltins,
+		deferred: !(composition && composition.ok == true), dynamic: [
+			{ id: 'dynamic:manager-whitelist', kind: 'hostlist', class: 'hostlist-dynamic', owner: 'manager',
+				role: 'manager-whitelist', reference: '/runtime-assets/lists/whitelist.txt',
+				runtimeTarget: '/etc/zapret2-manager/lists/whitelist.txt', available: true },
+			{ id: 'dynamic:discovered-domains', kind: 'hostlist', class: 'hostlist-dynamic', owner: 'manager',
+				role: 'z2k-discovered-domains', reference: '/runtime-assets/lists/discovered-domains.txt',
+				runtimeTarget: '/opt/zapret2/lists/discovered-domains.txt', available: true }
+		] };
+	return inventory;
+}
 function validate_z2k_candidate(snapshot) {
 	let entry = snapshot && snapshot.entries && snapshot.entries[0];
 	if (!object(entry) || !string(entry.args) || entry.args == '')
@@ -229,7 +254,8 @@ function prepare_refresh(id) {
 			message: 'Z2K official compiler rejected the verified source snapshot',
 			phase: compiled.error && compiled.error.phase || 'compile', details: compiled.error || null } };
 		try { prepared = z2k_source.strategy_source_z2k_prepare_snapshot({ compiler: compiled,
-			sourceCommit: sourceCommit, sourceFiles: Z2K_COMPILER_FILES, fileSha256: fileSha256 }); }
+			sourceCommit: sourceCommit, sourceFiles: Z2K_COMPILER_FILES, fileSha256: fileSha256,
+			dependencyInventory: z2k_dependency_inventory() }); }
 		catch (e) { return error('EVERIFY', 'Z2K source snapshot verification failed'); }
 		if (!prepared.ok) return error(prepared.error && prepared.error.code || 'EVERIFY', 'Z2K source snapshot verification failed');
 		snapshot = prepared.snapshot;

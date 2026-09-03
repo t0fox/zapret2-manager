@@ -1197,6 +1197,49 @@ function renderZ2KDependencySummary(component) {
     ])
   ]);
 }
+function z2kCompiledDependencyStatus(summary) {
+  if (summary.available === true) return { label: _('Готово'), kind: 'ready' };
+  if (summary.available === false) return { label: _('Недоступно'), kind: 'blocking' };
+  return { label: _('Не подтверждён'), kind: 'advisory' };
+}
+function renderZ2KCompiledDependencySummary(component) {
+  var summary = component && component.compiledDependencySummary;
+  if (!summary || (summary.available === null && summary.strategies === null && summary.lua === null
+    && summary.blobs === null && summary.hostlists === null && summary.ipsets === null)) return null;
+  var status = z2kCompiledDependencyStatus(summary);
+  var missing = summary.missing || 0;
+  var digest = summary.runtimeBundleDigest;
+  return E('section', { 'class': 'z2m-z2k-compiled-dependencies', 'aria-labelledby': 'z2m-z2k-compiled-dependencies-heading' }, [
+    E('div', { 'class': 'z2m-z2k-dependency-summary-head' }, [
+      E('div', {}, [
+        E('span', { 'class': 'z2m-component-details-kicker' }, _('CANONICAL RUNTIME BUNDLE')),
+        E('h4', { id: 'z2m-z2k-compiled-dependencies-heading' }, _('Compiled Strategy Catalog'))
+      ]),
+      E('span', { 'class': 'z2m-chip z2m-z2k-dependency-chip z2m-z2k-dependency-chip--' + status.kind }, status.label)
+    ]),
+    renderFactGrid([
+      { label: _('Strategies'), value: summary.strategies },
+      { label: _('Lua'), value: summary.lua },
+      { label: _('Blobs'), value: summary.blobs },
+      { label: _('Hostlists'), value: summary.hostlists },
+      { label: _('IP sets'), value: summary.ipsets }
+    ]),
+    missing ? E('aside', { 'class': 'z2m-z2k-dependency-note z2m-z2k-dependency-note--blocking', role: 'alert' }, [
+      E('strong', {}, _('Runtime dependency closure неполон')),
+      E('p', {}, _('Применение заблокировано: обнаружено отсутствующих consumed-зависимостей — ') + missing + '.')
+    ]) : null,
+    E('details', { 'class': 'z2m-z2k-dependency-paths z2m-z2k-compiled-dependencies-details' }, [
+      E('summary', {}, _('Показать runtime bundle identity')),
+      renderInfoRows([
+        { label: _('Resolution'), value: summary.resolution },
+        { label: _('Dynamic resources'), value: summary.dynamic },
+        { label: _('Runtime-generated blobs'), value: summary.runtime },
+        { label: _('Engine built-ins'), value: summary.builtins },
+        { label: _('runtimeBundleDigest'), value: digest }
+      ])
+    ])
+  ]);
+}
 function componentCompatibilityLabel(component) {
   var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
   if (compatibility === 'compatible') return _('Подтверждена');
@@ -1618,6 +1661,7 @@ function renderZ2KDetails(ctx, component) {
       { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') }
     ]),
     renderZ2KDependencySummary(component),
+    renderZ2KCompiledDependencySummary(component),
     renderDetailSection(_('Версии'), E('div', { 'class': 'z2m-z2k-release-selection' }, [
       E('div', { 'class': 'z2m-z2k-current-version' }, [E('span', { 'class': 'z2m-dim' }, _('Текущая версия')), E('strong', {}, z2kReleaseLabel(component))]),
       selector,

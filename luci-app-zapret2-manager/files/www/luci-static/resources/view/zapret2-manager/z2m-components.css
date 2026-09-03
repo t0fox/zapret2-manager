@@ -578,6 +578,11 @@
 .z2m-components-page .z2m-z2k-dependency-paths{min-width:0;border-top:1px solid rgba(255,255,255,.055)}
 .z2m-components-page .z2m-z2k-dependency-paths summary{padding-top:10px;color:var(--blue);font-size:12px;font-weight:600;cursor:pointer;list-style-position:inside}
 .z2m-components-page .z2m-z2k-dependency-paths .z2m-component-info-rows{padding-top:2px}
+.z2m-components-page .z2m-z2k-compiled-dependencies{display:grid;gap:12px;min-width:0;padding-top:14px;border-top:1px solid rgba(255,255,255,.055)}
+.z2m-components-page .z2m-z2k-compiled-dependencies .z2m-component-fact-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.z2m-components-page .z2m-z2k-compiled-dependencies .z2m-component-fact{padding:10px 11px;background:var(--panel)}
+.z2m-components-page .z2m-z2k-compiled-dependencies .z2m-component-fact strong{font-size:15px}
+.z2m-components-page .z2m-z2k-compiled-dependencies-details .z2m-component-info-row strong{overflow-wrap:break-word}
 .z2m-components-page .z2m-component-technical,.z2m-components-page .z2m-component-danger-zone{min-width:0;border-top:1px solid var(--border)}
 .z2m-components-page .z2m-component-technical summary,.z2m-components-page .z2m-component-danger-zone summary{padding:14px 0;color:var(--tx2);font-size:13px;font-weight:600;cursor:pointer;list-style-position:inside}
 .z2m-components-page .z2m-component-technical .z2m-component-info-rows{padding:0 0 4px}
@@ -587,6 +592,7 @@
 .z2m-components-page .z2m-component-details :where(button,a,summary):focus-visible{outline:2px solid #8fd3ff;outline-offset:2px}
 @media(max-width:1100px){
   .z2m-components-page .z2m-component-fact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .z2m-components-page .z2m-z2k-compiled-dependencies .z2m-component-fact-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media(max-width:800px){
   .z2m-components-page .z2m-component-details{padding:16px;gap:16px}
@@ -596,12 +602,14 @@
   .z2m-components-page .z2m-component-info-row{grid-template-columns:1fr;gap:3px}
   .z2m-components-page .z2m-component-update-state{align-items:flex-start;flex-direction:column;gap:4px}
   .z2m-components-page .z2m-z2k-dependency-summary .z2m-component-fact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .z2m-components-page .z2m-z2k-compiled-dependencies .z2m-component-fact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:470px){
   .z2m-components-page .z2m-component-detail-actions .z2m-btn{width:100%}
   .z2m-components-page .z2m-z2k-dependency-summary-head{display:grid;gap:8px}
   .z2m-components-page .z2m-z2k-dependency-chip{justify-self:start}
   .z2m-components-page .z2m-z2k-dependency-summary .z2m-component-fact-grid{grid-template-columns:1fr}
+  .z2m-components-page .z2m-z2k-compiled-dependencies .z2m-component-fact-grid{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){
   .z2m-components-page .z2m-component-card{transition:none}

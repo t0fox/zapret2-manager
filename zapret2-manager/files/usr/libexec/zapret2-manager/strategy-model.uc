@@ -210,6 +210,8 @@ function copy_catalog_provenance(strategy, entry) {
 	if (entry.winner != null) strategy.winner = entry.winner;
 	if (entry.effectiveOrdinal != null) strategy.effectiveOrdinal = entry.effectiveOrdinal;
 	if (entry.rawArgs != null) strategy.rawArgs = entry.rawArgs;
+	if (entry.dependencyClosure != null) strategy.dependencyClosure = entry.dependencyClosure;
+	if (entry.runtimeBundleDigest != null) strategy.runtimeBundleDigest = entry.runtimeBundleDigest;
 }
 
 // Convert one physical CatalogEntry without applying compiler transforms. The

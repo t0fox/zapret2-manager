@@ -116,12 +116,20 @@ function valid_z2k_compiled_profiles(profiles, expectedCount) {
 			|| profile.officialProfileIndex < 0 || !string(profile.officialArgs) || profile.officialArgs == '') return false;
 	return true;
 }
+function valid_z2k_dependency_closure(entry) {
+	let closure = entry && entry.dependencyClosure;
+	return object(closure) && closure.schema == 'z2m.z2k-dependency-closure.v1'
+		&& type(closure.items) == 'array' && type(closure.missing) == 'array'
+		&& object(closure.counts) && valid_digest(closure.runtimeBundleDigest)
+		&& (closure.resolution == 'complete' || closure.resolution == 'deferred');
+}
 function valid_z2k_standalone(entry, snapshot) {
 	return object(entry) && entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
 		&& entry.entryKind == 'standalone' && entry.usable == true && valid_digest(entry.semanticDigest)
 		&& native_verified(entry.nativeValidation)
 		&& string(entry.officialArgs) && entry.officialArgs != ''
 		&& valid_z2k_compiled_provenance(entry, snapshot, 'official-top-level-profile')
+		&& valid_z2k_dependency_closure(entry)
 		&& valid_z2k_compiled_profiles(entry.profiles, 1)
 		&& entry.profiles[0].officialProfileIndex == entry.provenance.officialProfileIndex
 		&& entry.provenance.officialProfileIndex < snapshot.allInOne.profileCount
@@ -154,6 +162,7 @@ function valid_z2k_snapshot(snapshot) {
 				|| entry.sourceId != 'z2k' || entry.sourceSnapshotId != snapshot.snapshotId
 				|| entry.usable != true || !string(entry.officialNfqws2Opt) || entry.officialNfqws2Opt == ''
 				|| !valid_z2k_compiled_provenance(entry, snapshot, 'strategy-catalog-import')
+				|| !valid_z2k_dependency_closure(entry)
 				|| !valid_z2k_compiled_profiles(entry.profiles, snapshot.allInOne.profileCount)) return false;
 			allInOneCount++;
 		} else if (!valid_z2k_standalone(entry, snapshot)) return false;
@@ -173,10 +182,12 @@ function valid_z2k_index_entry(entry, snapshotId) {
 			&& string(entry.officialNfqws2Opt) && entry.officialNfqws2Opt != ''
 			&& native_verified(entry.nativeValidation)
 			&& entry.provenance.kind == 'strategy-catalog-import'
+			&& valid_z2k_dependency_closure(entry)
 			&& valid_z2k_compiled_profiles(entry.profiles, length(entry.profiles));
 	if (entry.entryKind != 'standalone' || entry.usable != true || !valid_digest(entry.semanticDigest)
 		|| entry.provenance.kind != 'official-top-level-profile' || !string(entry.officialArgs) || entry.officialArgs == '') return false;
-	return valid_z2k_compiled_profiles(entry.profiles, 1)
+	return valid_z2k_dependency_closure(entry)
+		&& valid_z2k_compiled_profiles(entry.profiles, 1)
 		&& entry.profiles[0].officialProfileIndex == entry.provenance.officialProfileIndex
 		&& entry.profiles[0].officialArgs == entry.officialArgs
 		&& type(entry.provenance.officialProfileIndex) == 'int' && entry.provenance.officialProfileIndex >= 0

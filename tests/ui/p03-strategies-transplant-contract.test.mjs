@@ -41,7 +41,7 @@ test('P03 page maps supported donor actions to canonical Z2M Strategy RPCs', () 
   assert.match(route, /primary\.render/);
   assert.match(route, /function primaryModule[\s\S]*return Strategies/);
   assert.doesNotMatch(route, /Scanner\.(load|render|mount|unmount)/);
-  assert.doesNotMatch(page, /Avatar Strategy|Canonical Strategy catalog|Strategy Catalog|Available Strategies|Strategy Scanner/);
+  assert.doesNotMatch(page, /Avatar Strategy|Canonical Strategy catalog|Available Strategies|Strategy Scanner/);
   assert.doesNotMatch(route, /z2m-strategy-workflow/);
 });
 
