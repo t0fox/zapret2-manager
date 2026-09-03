@@ -207,6 +207,19 @@ function legacy_tiktok_managed_addresses(state, current) {
 	for (let i = 0; i < length(current || []); i++) if (address_domain(current[i]) == TIKTOK_AUTO_HOST) push(matches, current[i]);
 	return { entries: length(matches) == 1 ? matches : [], ambiguous: length(matches) > 1 };
 }
+function tiktok_address_needs_apply(state) {
+	let active = active_dnsmasq(), current = active ? uci_snapshot(active) : null;
+	if (!current) return false;
+	let legacy = legacy_tiktok_managed_addresses(state, current.address);
+	if (legacy.ambiguous) return true;
+	let own = address_ownership(current.address, legacy.entries, tiktok_override(state));
+	return hash(current.address) != hash(own.resultingEntries);
+}
+function tiktok_apply_override_if_needed(state) {
+	if (!tiktok_address_needs_apply(state)) return null;
+	let op = 'tiktok-sync-' + trim(run('date +%s').out) + '-auto';
+	return enqueue_native_apply({ operationId: op }, op);
+}
 function enqueue_native_apply(input, internal) {
 	input = input || {};
 	let op = internal || input.operationId || '';
@@ -363,6 +376,13 @@ export const service_dns_tiktok_check = function(req) {
 		}
 		state.tiktokAuto = auto;
 		if (!state_save(state)) return err('ESTATE', 'TikTok health state write failed');
+		let synced = tiktok_apply_override_if_needed(state);
+		if (synced && synced.ok === false) return synced;
+		if (synced && synced.accepted) {
+			let syncedStatus = service_dns_tiktok_status();
+			syncedStatus.apply = synced;
+			return syncedStatus;
+		}
 		return service_dns_tiktok_status();
 	}
 	auto.failureCount = (auto.failureCount || 0) + 1;
