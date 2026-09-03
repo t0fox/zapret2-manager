@@ -1222,7 +1222,7 @@ function refreshStrategyStyles() {
   var link = document && document.getElementById ? document.getElementById('z2m-ui-css') : null;
   if (!link || !link.getAttribute || !link.setAttribute) return;
   var href = link.getAttribute('href') || '';
-  if (href.indexOf('v=compiled-catalog-20260903-r1') < 0) link.setAttribute('href', href.split('?')[0] + '?v=compiled-catalog-20260903-r1');
+  if (href.indexOf('v=compiled-catalog-20260903-r2') < 0) link.setAttribute('href', href.split('?')[0] + '?v=compiled-catalog-20260903-r2');
 }
 function refreshHealthcheck() {
   if (!state.ctx || !state.ctx.api.healthcheck || !state.ctx.api.healthcheck.status) return Promise.resolve();
