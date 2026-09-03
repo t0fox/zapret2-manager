@@ -145,6 +145,10 @@ function normalizeError(error){
  else if (code === 'EUPDATE_NOT_AVAILABLE') { kind='update_not_available'; message=_('Обновление уже не требуется.'); retryable=false; }
  else if (code === 'EZ2K_REVIEW_REQUIRED') { kind='update_blocked_review'; message=_('Обновление заблокировано до проверки upstream-изменений.'); retryable=false; }
  else if (code === 'EZ2K_REBASE_REQUIRED') { kind='update_blocked_rebase'; message=_('Обновление заблокировано до адаптации upstream-изменений.'); retryable=false; }
+ else if (code === 'ECONFLICT') { kind='revision_conflict'; message=_('Каталог изменился. Обновите данные и повторите действие.'); retryable=true; }
+ else if (code === 'EDEPENDENCY') { kind='dependency_blocked'; message=_('Действие остановлено: провайдер используется конфигурацией.'); retryable=false; }
+ else if (code === 'EWRITE') { kind='backend_io'; message=_('Каталог не сохранён: backend не смог записать overlay.'); retryable=true; }
+ else if (code === 'EINPUT') { kind='request_rejected'; message=_('Проверьте данные провайдера.'); retryable=false; }
  else if (/not.?installed|component.?missing|package.?missing|enoent/.test(hay)) { kind='component_not_installed'; message=_('Компонент не установлен.'); retryable=false; }
  else if (/provider|backend provider/.test(hay) && /unavailable|missing|not found|object not found|disabled/.test(hay)) { kind='provider_unavailable'; message=_('Backend provider недоступен.'); retryable=true; }
  else if (/dependency|epref|eprobe|missing dependency|requires/.test(hay)) { kind='dependency_unavailable'; message=_('Зависимость недоступна.'); retryable=true; }
@@ -154,7 +158,11 @@ function normalizeError(error){
  else if (/session|auth|login|expired|401|403|network|timeout|offline|connection/.test(hay)) { kind='session_failure'; message=_('Сеанс LuCI или сетевое соединение недоступны.'); retryable=true; }
  else if (value instanceof Error || (typeof value === 'object' && value.stack)) { kind='frontend_error'; message=value.message ? String(value.message) : _('Ошибка интерфейса.'); }
  var details=bounded(formatErrorDetails(value && typeof value === 'object' ? value : outer, code, raw), 1200);
- return { code:code, kind:kind, message:message, retryable:retryable, technical:bounded(raw, 320), details:details };
+ var errors = value && typeof value === 'object' && value.errors !== undefined ? value.errors : outer.errors;
+ var dependencies = value && typeof value === 'object' && value.dependencies !== undefined ? value.dependencies : outer.dependencies;
+ var expectedRevision = value && typeof value === 'object' && value.expectedRevision !== undefined ? value.expectedRevision : outer.expectedRevision;
+ var actualRevision = value && typeof value === 'object' && value.actualRevision !== undefined ? value.actualRevision : outer.actualRevision;
+ return { code:code, kind:kind, message:message, retryable:retryable, technical:bounded(raw, 320), details:details, errors:errors, dependencies:dependencies, expectedRevision:expectedRevision, actualRevision:actualRevision };
 }
 function tgEdit(method, value) { return method(JSON.stringify(value || {})); }
 function tgCheckUpdates(selection) {
