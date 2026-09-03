@@ -7,6 +7,13 @@ const root = path.resolve(import.meta.dirname, '..');
 const [manifestPath = path.join(root, 'tests/fixtures/z2k-signed-update/UPDATES.json')] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const localRoot = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager');
+const compilerInputs = [
+  ['strats_new2.txt', 'official Z2K compiler'],
+  ['quic_strats.ini', 'official Z2K compiler'],
+  ['lib/utils.sh', 'official Z2K compiler'],
+  ['lib/strategies.sh', 'official Z2K compiler'],
+  ['lib/config_official.sh', 'official Z2K compiler'],
+];
 
 function sha256(file) { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); }
 function localPath(sourcePath) {
@@ -30,9 +37,12 @@ function reviewPolicy(sourcePath) {
   if (/^files\/z2k-(config-validator|update-lists|geosite)\.sh$/.test(sourcePath)) return 'advisory';
   return 'blocking';
 }
+function dependencyClass(klass) {
+  return klass === 'exact-managed' ? 'runtime-exact' : klass;
+}
 function entry(sourcePath, digest) {
   const klass = classify(sourcePath), local = localPath(sourcePath);
-  const base = { sourcePath, class: klass, type: path.extname(sourcePath).replace('.', '') || 'file', basedOnSha256: digest };
+  const base = { sourcePath, class: klass, dependencyClass: dependencyClass(klass), type: path.extname(sourcePath).replace('.', '') || 'file', basedOnSha256: digest };
   if (klass === 'exact-managed') {
     base.localName = local ? path.relative(localRoot, local).replaceAll(path.sep, '/') : null;
     base.runtimeTarget = local ? '/' + base.localName : null;
@@ -56,10 +66,18 @@ function entry(sourcePath, digest) {
 
 const files = Object.entries(manifest.files_sha256).map(([sourcePath, digest]) => entry(sourcePath, digest));
 const output = {
-  schema: 'zapret2-manager.z2k-integration.v1',
+  schema: 'zapret2-manager.z2k-integration.v2',
   source: { repository: 'necronicle/z2k', branch: manifest.branch, commit: '54b6765f2ab3e0f7f13030c90c809f1dcacfcce2', release: manifest.current, seq: manifest.seq },
   manifestSchema: manifest.schema,
   manifestFileCount: files.length,
+  compilerInputs: compilerInputs.map(([sourcePath, consumer]) => ({
+    sourcePath,
+    class: 'compiler-input',
+    dependencyClass: 'compiler-input',
+    consumer,
+    required: true,
+    reviewPolicy: 'blocking',
+  })),
   files
 };
 const destination = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json');

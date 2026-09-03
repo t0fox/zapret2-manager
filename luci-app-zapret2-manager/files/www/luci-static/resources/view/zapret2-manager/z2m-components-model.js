@@ -10,6 +10,11 @@ function array(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function collectionCount(value) {
+  if (Array.isArray(value)) return value.length;
+  return Object.keys(object(value)).length;
+}
+
 function text(value) {
   return value === null || value === undefined || value === '' ? null : String(value);
 }
@@ -361,6 +366,18 @@ function normalizeZ2k(input, engineReady) {
 	var reviews = array(value.reviews || value.watched || plan.reviews || local.reviews);
 	if (!reviews.length) reviews = advisoryReviews.concat(blockingReviews);
 	var reviewDetails = array(value.reviewDetails || plan.reviewDetails || local.reviewDetails);
+	var unknownUnconsumed = array(value.unknownUnconsumed || plan.unknownUnconsumed || local.unknownUnconsumed);
+	var compilerInputs = array(value.compilerInputs || plan.compilerInputs || local.compilerInputs);
+	var dependencyGraph = object(value.dependencyGraph || plan.dependencyGraph || local.dependencyGraph);
+	var dependencySummary = {
+		runtimeExact: collectionCount(dependencyGraph.runtimeExact),
+		compilerInputs: compilerInputs.length || collectionCount(dependencyGraph.compilerInputs),
+		unknownUnconsumed: unknownUnconsumed.length,
+		adapted: collectionCount(dependencyGraph.adapted) || rebases.length,
+		blocking: blockingReviews.length,
+		advisory: Math.max(advisoryReviews.length, unknownUnconsumed.length),
+		registryAvailable: dependencyGraph.registryAvailable === true
+	};
 	var attentionState = first(value.attentionState || plan.attentionState, null);
 	if (attentionState === null) {
 		if (rebases.length || updateState === 'rebase-required') attentionState = 'rebase-required';
@@ -391,6 +408,15 @@ function normalizeZ2k(input, engineReady) {
 	};
 	var luaSrc = hasLocal ? object(local.lua) : object(value.lua);
 	var provenanceSrc = hasLocal && local.provenance ? object(local.provenance) : object(value.provenance);
+	var coherenceSource = object(value.coherence || plan.coherence || local.coherence || input.coherence);
+	var localProvenance = object(local.provenance);
+	var coherence = {
+		installedRuntimeRevision: first(coherenceSource.installedRuntimeRevision || value.installedRuntimeRevision || local.commit || localProvenance.sourceCommit, null),
+		availableUpstreamRevision: first(coherenceSource.availableUpstreamRevision || value.availableUpstreamRevision || value.sourceCommit || value.manifestRevision, null),
+		currentStrategySourceRevision: first(coherenceSource.currentStrategySourceRevision || value.currentStrategySourceRevision, null),
+		candidateStrategyRevision: first(coherenceSource.candidateStrategyRevision || value.candidateStrategyRevision, null),
+		coherenceStatus: first(coherenceSource.coherenceStatus || value.coherenceStatus, 'unknown')
+	};
 	var releaseRaw = local.installedRelease !== undefined ? local.installedRelease : value.installedRelease;
 	var installedRelease;
 	if (releaseRaw && typeof releaseRaw === 'object' && !Array.isArray(releaseRaw)) {
@@ -444,6 +470,11 @@ function normalizeZ2k(input, engineReady) {
 		advisoryReviews: advisoryReviews,
 		blockingReviews: blockingReviews,
 		blockingReasons: blockingReasons,
+		unknownUnconsumed: unknownUnconsumed,
+		compilerInputs: compilerInputs,
+		dependencyGraph: dependencyGraph,
+		dependencySummary: dependencySummary,
+		coherence: coherence,
 		provenance: provenanceSrc,
 		reviews: reviews,
 		rebases: rebases,
@@ -461,6 +492,10 @@ function normalizeZ2k(input, engineReady) {
 		rebases: rebases,
 		reviews: reviews,
 		reviewDetails: reviewDetails,
+		unknownUnconsumed: unknownUnconsumed,
+		compilerInputs: compilerInputs,
+		dependencyGraph: dependencyGraph,
+		coherence: coherence,
       trustMode: first(value.trustMode || local.trustMode, null),
       manifest: manifest,
 		planToken: planToken,

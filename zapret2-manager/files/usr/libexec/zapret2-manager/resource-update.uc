@@ -10,6 +10,7 @@ import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classifica
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
 import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, verifyMaterialized, verifyActivationProcess } from './runtime-composition.uc';
 import { read_var, config_sha256 } from './apply.uc';
+import * as strategy_sources from './strategy-sources.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -175,13 +176,14 @@ function z2k_manifest_installed_release(manifest, listed, want, installedCount, 
 function z2k_target_gate(manifest) {
 	let plan = z2k_upstream_plan(manifest);
 	if (!plan.ok) return plan;
-	if (length(plan.rebases || []) || length(plan.blockingReviews || [])) return fail('EZ2K_REVIEW_REQUIRED', 'Выбранный release требует проверки перед установкой.', { attentionState: plan.attentionState || 'review-required', blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [] });
+	if (length(plan.rebases || []) || length(plan.blockingReviews || []) || length(plan.compilerInputs || [])) return fail('EZ2K_REVIEW_REQUIRED', length(plan.compilerInputs || []) ? 'Изменились compiler inputs; перед установкой нужны compile и validation.' : 'Выбранный release требует проверки перед установкой.', { attentionState: plan.attentionState || (length(plan.compilerInputs || []) ? 'validation-required' : 'review-required'), blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [], compilerInputs: plan.compilerInputs || [] });
 	return { ok: true, canApply: true, attentionState: plan.attentionState || 'none', blockingReasons: plan.blockingReasons || [], reviewDetails: plan.reviewDetails || [], plan: plan };
 }
 function state_label(state) { return ({ current: 'Актуально', update: 'Доступно обновление', missing: 'Не установлено', checking: 'Проверяем', unavailable: 'Источник недоступен', stale: 'Проверка устарела', error: 'Ошибка проверки', attention: 'Требуется внимание', unknown: 'Не проверено' })[state] || 'Требуется внимание'; }
-function plan_token(checkedAt, manifest) {
+function plan_token(checkedAt, manifest, sourceCommit) {
 	if (type(checkedAt) != 'int' || !object(manifest) || type(manifest.seq) != 'int' || !string(manifest.current)) return null;
-	let token = 'z2k-plan-v1:' + checkedAt + ':' + manifest.seq + ':' + manifest.current;
+	let suffix = string(sourceCommit) && match(lc(sourceCommit), /^[a-f0-9]{40}$/) ? ':' + lc(sourceCommit) : '';
+	let token = 'z2k-plan-v1:' + checkedAt + ':' + manifest.seq + ':' + manifest.current + suffix;
 	return length(token) <= 256 ? token : null;
 }
 function current_asset(item, assets) {
@@ -217,7 +219,7 @@ function source_rows(manifest, rows) {
 	return result;
 }
 function z2k_projection(signed) {
-	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], removedItems: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, manifest: null, availableRelease: null };
+	if (!object(signed) || signed.ok !== true) return { status: 'unknown', updateState: 'unknown', attentionState: 'none', canApply: false, updates: [], removedItems: [], rebases: [], reviews: [], advisoryReviews: [], blockingReviews: [], blockingReasons: [], reviewDetails: [], unknownUnconsumed: [], compilerInputs: [], dependencyGraph: null, planToken: null, trustMode: 'allow-untrusted', verified: false, source: null, sourceCommit: null, manifestRevision: null, candidateStrategyRevision: null, manifest: null, availableRelease: null };
 	let plan = object(signed.plan) ? signed.plan : {}, manifest = object(signed.manifest) ? signed.manifest : {};
 	let status = signed.status || 'unknown';
 	let updateState = signed.updateState || plan.updateState || (length(plan.updates || []) + length(plan.removedItems || []) > 0 ? 'update-available' : status == 'unknown' ? 'unknown' : 'current');
@@ -235,13 +237,41 @@ function z2k_projection(signed) {
 		blockingReviews: plan.blockingReviews || [],
 		blockingReasons: plan.blockingReasons || [],
 		reviewDetails: plan.reviewDetails || [],
+		unknownUnconsumed: plan.unknownUnconsumed || signed.unknownUnconsumed || [],
+		compilerInputs: plan.compilerInputs || signed.compilerInputs || [],
+		dependencyGraph: plan.dependencyGraph || signed.dependencyGraph || null,
 		planToken: signed.planToken || null,
 		trustMode: signed.trustMode || null,
 		verified: signed.ok === true && signed.trustMode != 'allow-untrusted',
 		source: signed.source || null,
+		sourceCommit: signed.sourceCommit || (signed.source && signed.source.commit) || null,
+		manifestRevision: signed.manifestRevision || signed.sourceCommit || (signed.source && signed.source.commit) || null,
+		candidateStrategyRevision: signed.candidateStrategyRevision || signed.strategyCandidateRevision || null,
 		manifest: { seq: manifest.seq, current: manifest.current },
 		availableRelease: known_release(manifest.current)
 	};
+}
+
+function strategy_source_snapshot() {
+	try {
+		let current = strategy_sources.strategy_source_current_snapshot('z2k');
+		return current && current.ok === true ? current.snapshot : null;
+	} catch (e) { return null; }
+}
+function strategy_coherence(local, remote) {
+	let installedRuntimeRevision = object(local) ? (local.commit || (object(local.provenance) && local.provenance.sourceCommit) || null) : null;
+	let availableUpstreamRevision = object(remote) ? (remote.sourceCommit || remote.manifestRevision || null) : null;
+	let snapshot = strategy_source_snapshot();
+	let currentStrategySourceRevision = object(snapshot) ? snapshot.sourceCommit || null : null;
+	let candidateStrategyRevision = object(remote) ? (remote.candidateStrategyRevision || remote.strategyCandidateRevision || null) : null;
+	let coherenceStatus = 'unknown';
+	if (installedRuntimeRevision != null && currentStrategySourceRevision != null)
+		coherenceStatus = installedRuntimeRevision == currentStrategySourceRevision ? 'aligned' : 'diverged';
+	else if (installedRuntimeRevision != null) coherenceStatus = 'runtime-only';
+	else if (currentStrategySourceRevision != null) coherenceStatus = 'strategy-only';
+	return { installedRuntimeRevision: installedRuntimeRevision, availableUpstreamRevision: availableUpstreamRevision,
+		currentStrategySourceRevision: currentStrategySourceRevision, candidateStrategyRevision: candidateStrategyRevision,
+		coherenceStatus: coherenceStatus };
 }
 function z2k_canonical_runtime_path(runtimeTarget) {
 	if (!string(runtimeTarget)) return null;
@@ -679,7 +709,7 @@ function persist_check_state(payload) {
 	return regular(CHECK_STATE);
 }
 function save_check_state(signed, checkedAt, signedSources, token) {
-	let planToken = token || (signed && signed.ok === true ? plan_token(checkedAt, signed.manifest) : null);
+	let planToken = token || (signed && signed.ok === true ? plan_token(checkedAt, signed.manifest, signed.sourceCommit || signed.manifestRevision) : null);
 	if (signed && signed.ok === true && planToken != null) signed.planToken = planToken;
 	let old = load_check_state(), payload = { schema: 2, latestCheck: { checkedAt: checkedAt, planToken: planToken, signed: signed, signedSources: signedSources }, preparedTarget: old && old.preparedTarget || null };
 	persist_check_state(payload);
@@ -760,11 +790,14 @@ function z2k_classification_for(map, path) {
 	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) if (map.files[i] && map.files[i].sourcePath == path) return map.files[i];
 	return null;
 }
+function z2k_runtime_exact(item) {
+	return object(item) && (item.class == 'exact-managed' || item.dependencyClass == 'runtime-exact');
+}
 function z2k_classification_asset_for(map, id, typeName) {
 	let found = null;
 	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) {
 		let item = map.files[i], mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
-		if (!object(item) || item.class != 'exact-managed' || mappedType != typeName || !string(item.sourcePath) || !runtime_target_path(item.runtimeTarget)
+		if (!z2k_runtime_exact(item) || mappedType != typeName || !string(item.sourcePath) || !runtime_target_path(item.runtimeTarget)
 			|| z2k_asset_id_from_classification(item, item.sourcePath) != id) continue;
 		if (found != null) return { ambiguous: true };
 		found = item;
@@ -792,7 +825,7 @@ function z2k_receipt_runtime_descriptor(id, typeName, receipts, classification) 
 					|| recorded.type != typeName || !valid_digest(recorded.sha256) || type(recorded.byteSize) != 'int' || recorded.byteSize < 1)
 					return fail('EVERIFY', 'Complete historical Z2K receipt metadata is inconsistent.', { id: id });
 				let item = z2k_classification_for(classification, recorded.sourcePath), mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
-				if (item == null || item.class != 'exact-managed' || mappedType != typeName || !runtime_target_path(item.runtimeTarget)
+				if (!z2k_runtime_exact(item) || mappedType != typeName || !runtime_target_path(item.runtimeTarget)
 					|| z2k_asset_id_from_classification(item, recorded.sourcePath) != id)
 					return fail('EVERIFY', 'Complete historical Z2K receipt asset has no canonical runtime identity.', { id: id, sourcePath: recorded.sourcePath });
 				if (complete != null && (complete.sourcePath != recorded.sourcePath || complete.type != recorded.type || complete.runtimeTarget != item.runtimeTarget))
@@ -832,7 +865,7 @@ function z2k_target_membership_compatible(listed, targetAssets, classification) 
 		let current = listed.assets[j], provenance = current && current.provenance;
 		if (provenance && provenance.kind == 'catalog/upstream' && provenance.bundleId == 'z2k-curated-lua' && provenance.sourcePath && targetById[current.id] != provenance.sourcePath) {
 			let historical = z2k_classification_for(classification, provenance.sourcePath);
-			if (historical == null || historical.class != 'exact-managed') return fail('EZ2K_INCOMPATIBLE', 'Z2K target membership would leave an unmanaged hybrid asset set.', { id: current.id, sourcePath: provenance.sourcePath });
+			if (!z2k_runtime_exact(historical)) return fail('EZ2K_INCOMPATIBLE', 'Z2K target membership would leave an unmanaged hybrid asset set.', { id: current.id, sourcePath: provenance.sourcePath });
 		}
 	}
 	return { ok: true };
@@ -849,7 +882,7 @@ function z2k_target_removals(listed, targetAssets, classification, canonicalPlan
 		if (!provenance || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua' || targetById[current.id]) continue;
 		let historical = provenance.sourcePath && z2k_classification_for(classification, provenance.sourcePath);
 		let expectedType = historical && historical.type == 'lua' ? 'lua' : historical && (historical.type == 'bin' || historical.type == 'txt') ? 'blob' : null;
-		if (historical == null || historical.class != 'exact-managed' || expectedType != current.type || !runtime_target_path(historical.runtimeTarget)
+		if (!z2k_runtime_exact(historical) || expectedType != current.type || !runtime_target_path(historical.runtimeTarget)
 			|| type(current.revision) != 'int' || current.revision < 1 || !valid_digest(current.contentSha256) || type(current.byteSize) != 'int' || current.byteSize < 1
 			|| !object(provenance) || provenance.bundleId != 'z2k-curated-lua' || !string(provenance.version) || !string(provenance.sourceCommit) || !string(provenance.sourcePath) || provenance.sourcePath != historical.sourcePath)
 			return fail('EZ2K_INCOMPATIBLE', 'Z2K target removal descriptor is incomplete or inconsistent.', { id: current.id, sourcePath: provenance.sourcePath });
@@ -1038,7 +1071,7 @@ export const z2k_runtime_confirmed_target = function(listed, classification, aut
 		let asset = listed.assets[i], provenance = asset && asset.provenance;
 		if (!provenance || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua') continue;
 		let item = z2k_classification_for(classification, provenance.sourcePath);
-		if (item == null || item.class != 'exact-managed' || !runtime_target_path(item.runtimeTarget)) return fail('EVERIFY', 'Confirmed Z2K asset has no safe runtime mapping.', { id: asset.id });
+		if (!z2k_runtime_exact(item) || !runtime_target_path(item.runtimeTarget)) return fail('EVERIFY', 'Confirmed Z2K asset has no safe runtime mapping.', { id: asset.id });
 		push(active, { id: asset.id, type: asset.type, sourcePath: provenance.sourcePath, runtimeTarget: item.runtimeTarget, sha256: asset.contentSha256, byteSize: asset.byteSize });
 		activeById[asset.id] = true;
 	}
@@ -1205,7 +1238,10 @@ function z2k_reconcile_after_mutation(target) {
 		signed.blockingReviews = plan.blockingReviews; signed.blockingReasons = plan.blockingReasons; signed.reviewDetails = plan.reviewDetails; signed.updateItems = plan.updateItems;
 		signed.removedItems = plan.removedItems || [];
 		signed.plan = plan;
-		let token = plan_token(latestCheck.checkedAt, signed.manifest); signed.planToken = token; latestCheck.planToken = token;
+		signed.unknownUnconsumed = plan.unknownUnconsumed || [];
+		signed.compilerInputs = plan.compilerInputs || [];
+		signed.dependencyGraph = plan.dependencyGraph || null;
+		let token = plan_token(latestCheck.checkedAt, signed.manifest, signed.sourceCommit || signed.manifestRevision); signed.planToken = token; latestCheck.planToken = token;
 	} else if (object(signed)) {
 		let unknown = z2k_unknown_plan(signed.manifest || null);
 		signed.status = 'unknown'; signed.updateState = 'unknown'; signed.attentionState = 'none'; signed.canApply = false;
@@ -1395,6 +1431,7 @@ export const resource_center_status = function () {
 	let local = z2k_local_projection(loaded.manifest);
 	let remote = latestCheck ? z2k_projection(latestCheck.signed) : z2k_projection(null);
 	remote.local = local;
+	remote.coherence = strategy_coherence(local, remote);
 	remote.checkedAt = latestCheck ? latestCheck.checkedAt : null;
 	remote.planToken = latestCheck ? (latestCheck.planToken || remote.planToken) : null;
 	remote.preparedTarget = persisted && persisted.preparedTarget ? { targetVersion: persisted.preparedTarget.targetVersion, operation: persisted.preparedTarget.operation, preparedAt: persisted.preparedTarget.preparedAt } : null;
@@ -1433,12 +1470,14 @@ export const resource_center_check = function () {
 	let local = z2k_local_projection(loaded.manifest);
 	let remote = z2k_projection(signed);
 	remote.local = local;
+	remote.coherence = strategy_coherence(local, remote);
 	remote.checkedAt = checkedAt;
-	remote.planToken = signed.ok === true ? plan_token(checkedAt, signed.manifest) : null;
+	remote.planToken = signed.ok === true ? plan_token(checkedAt, signed.manifest, signed.sourceCommit || signed.manifestRevision) : null;
 	if (signed.ok === true && remote.planToken != null) signed.planToken = remote.planToken;
 	answer.planToken = remote.planToken;
 	answer.z2k = remote;
-	answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? (signed.trustMode == 'allow-untrusted' ? 'Источник разрешён без проверки подписи' : signed.status) : 'Ошибка проверки источника', checkMode: signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest', trustMode: signed.trustMode || null, verified: signed.ok === true && signed.trustMode != 'allow-untrusted', evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, trustMode: signed.trustMode || null, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'Z2K source check failed' } } };
+	answer.z2kCoherence = remote.coherence;
+	answer.signedSources = { z2k: { state: signed.ok ? (signed.status == 'current' ? 'current' : 'attention') : 'error', status: signed.ok ? (signed.trustMode == 'allow-untrusted' ? 'Источник разрешён без проверки подписи' : signed.status) : 'Ошибка проверки источника', checkMode: signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest', trustMode: signed.trustMode || null, verified: signed.ok === true && signed.trustMode != 'allow-untrusted', evidence: signed.ok ? { repository: signed.source.repository, branch: signed.source.branch, commit: signed.source.commit || signed.sourceCommit || null, trustMode: signed.trustMode || null, manifestSeq: signed.manifest.seq, manifestCurrent: signed.manifest.current } : { code: signed.error && signed.error.code || 'EZ2K_CHECK_FAILED', message: signed.error && signed.error.message || 'Z2K source check failed' } } };
 	for (let i = 0; i < length(answer.sources); i++) if (answer.sources[i].id == 'z2k-resources') {
 		answer.sources[i].checkMode = signed.trustMode == 'allow-untrusted' ? 'allow-untrusted' : 'signed-manifest';
 		answer.sources[i].verification = answer.signedSources.z2k;

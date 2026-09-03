@@ -9,9 +9,9 @@
 
 import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { load_state, save_state } from './profiles-draft.uc';
+import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
 
 const SNAP_DIR = '/tmp/zapret2-manager/last-good/dns-global';
-const PROVIDERS_PATH = '/usr/libexec/zapret2-manager/catalog/dns-providers.json';
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -26,15 +26,26 @@ function err(code, message, stage) {
 
 function now_iso() { return trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out); }
 
-// load provider catalog
-function load_providers() {
-	let raw = readfile(PROVIDERS_PATH);
-	if (!raw) return [];
-	try {
-		let doc = json(raw);
-		if (doc && type(doc.providers) == 'array') return doc.providers;
-	} catch (e) {}
-	return [];
+function effective_providers() {
+	let result = dns_provider_catalog_get();
+	return result.ok === true && type(result.providers) == 'array' ? result.providers : [];
+}
+
+function catalog_guard(draft) {
+	let catalog = dns_provider_catalog_get();
+	if (catalog.ok !== true || type(catalog.providers) != 'array')
+		return err('ETARGET', 'DNS provider catalog is unavailable', 'catalog');
+	let fields = ['primary', 'secondary'];
+	for (let i = 0; i < length(fields); i++) {
+		let id = draft[fields[i]];
+		if (!id) continue;
+		let found = false;
+		for (let j = 0; j < length(catalog.providers); j++) if (catalog.providers[j].id == id) { found = true; break; }
+		if (!found) return err('ENOENT', 'DNS provider ' + id + ' is not present in the effective catalog', 'catalog');
+	}
+	if (draft.mode != 'system' && !draft.primary)
+		return err('EINPUT', 'primary DNS provider is required for a non-system mode', 'catalog');
+	return null;
 }
 
 // load draft from state.json
@@ -107,7 +118,7 @@ function current_dnsmasq_state() {
 }
 
 function provider_by_id(id) {
-	let providers = load_providers();
+	let providers = effective_providers();
 	for (let i = 0; i < length(providers); i++)
 		if (providers[i].id == id) return providers[i];
 	return null;
@@ -142,12 +153,14 @@ function snapshot_available() {
 export const dns_global_get = function() {
 	let draft = load_draft();
 	let current = current_dnsmasq_state();
-	let providers = load_providers();
+	let catalog = dns_provider_catalog_get();
+	let providers = catalog.ok === true && type(catalog.providers) == 'array' ? catalog.providers : [];
 	return {
-		ok: true,
+		ok: catalog.ok === true,
 		draft: draft,
 		applied: current,
 		providers: providers,
+		providerCatalog: catalog,
 		modes: ['system', 'doh', 'dot', 'udp'],
 		rollbackAvailable: snapshot_available(),
 		note: 'global DNS changes are drafted, previewed and applied atomically'
@@ -174,12 +187,16 @@ export const dns_global_set = function(input) {
 	if (input.strictOrder != null) draft.strictOrder = input.strictOrder === true;
 	if (input.blockAaaa != null) draft.blockAaaa = input.blockAaaa === true;
 	if (input.customRules != null) draft.customRules = String(input.customRules || '');
+	let catalogError = catalog_guard(draft);
+	if (catalogError) return catalogError;
 	if (!save_draft(draft)) return err('ETARGET', 'failed to write dns-global draft state');
 	return { ok: true, revision: draft.revision, draft: draft };
 };
 
 export const dns_global_preview = function() {
 	let draft = load_draft();
+	let catalogError = catalog_guard(draft);
+	if (catalogError) return catalogError;
 	let current = current_dnsmasq_state();
 	let changes = [];
 
@@ -243,6 +260,8 @@ function rollback_global() {
 
 export const dns_global_apply = function() {
 	let draft = load_draft();
+	let catalogError = catalog_guard(draft);
+	if (catalogError) return catalogError;
 	let current = current_dnsmasq_state();
 
 	snapshot_global();

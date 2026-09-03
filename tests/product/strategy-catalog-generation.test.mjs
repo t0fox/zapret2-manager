@@ -45,7 +45,14 @@ function entry(sourceId, upstreamId, snapshotId) {
     name: `${sourceId} ${upstreamId}`, profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443' }],
     capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
     requirements: { engine: 'nfqws2' },
-    provenance: { repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId },
+    ...(sourceId === 'z2k' ? {
+      entryKind: 'standalone', usable: true, semanticDigest: 'e'.repeat(64),
+      nativeValidation: { status: 'verified' },
+    } : {}),
+    provenance: {
+      repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId,
+      ...(sourceId === 'z2k' ? { compilerSnapshotDigest: 'f'.repeat(64), officialProfileIndex: 0 } : {}),
+    },
   };
 }
 
@@ -71,6 +78,7 @@ function source(sourceId, snapshotId, enabled = true, published = true, upstream
   };
   if (sourceId === 'z2k') {
     snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini'];
+    snapshot.compilerSnapshotDigest = 'f'.repeat(64);
     snapshot.allInOne = { canonicalId: 'z2k:z2k_all_in_one', digest: 'd'.repeat(64), profileCount: 1 };
   }
   return { enabled, currentSnapshotId: snapshotId, snapshot };

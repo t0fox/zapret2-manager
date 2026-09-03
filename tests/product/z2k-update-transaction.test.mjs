@@ -130,17 +130,19 @@ test('1D gate before apply: if C incompatible, planned=3 verified=3 staged=3 app
 });
 
 // ---------------------------------------------------------------------------
-// TEST 1E — unknown future path must be review-required, not crash
+// TEST 1E — unknown future path is advisory until a consumed dependency is proven
 // ---------------------------------------------------------------------------
-test('1E unknown future path must be review-required, not EZ2K_UNCLASSIFIED crash', () => {
+test('1E unknown future path is advisory, not EZ2K_UNCLASSIFIED crash', () => {
   const upstream = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc');
-  // Unknown item == null must push to reviews, not return fail
+  // Unknown item == null must be classified by dependency consumption, not crash.
   assert.match(upstream, /if \(item == null\)/);
   assert.match(upstream, /push\(reviews, path\)/);
-  assert.match(upstream, /unclassified-upstream-file/);
+  assert.match(upstream, /unknown-unconsumed/);
+  assert.match(upstream, /unknown-consumed-dependency/);
   assert.doesNotMatch(upstream, /if \(item == null\)\s*return fail\('EZ2K_UNCLASSIFIED/);
-  // The plan must convert unknown to review-required
-  assert.match(upstream, /review-required/);
+  // The plan must keep unconsumed unknowns advisory while consumed unknowns block.
+  assert.match(upstream, /advisoryReviews/);
+  assert.match(upstream, /blockingReviews/);
   // Simulate plan with unknown file
   const manifest = {
     schema: 1,
@@ -156,9 +158,12 @@ test('1E unknown future path must be review-required, not EZ2K_UNCLASSIFIED cras
   // The integration does NOT contain z2k-future-feature
   const hasFuture = integration.files.find(f => f.sourcePath === 'files/lua/z2k-future-feature.lua');
   assert.equal(hasFuture, undefined, 'future file must not be in integration');
-  // The expected behavior: plan should be ok true status review-required reviews includes future path, not fail
-  // This is verified by checking upstream code handles unknown as review
+  // The expected behavior: an unknown file not consumed by the package is advisory,
+  // while a dependency consumed by the package is a blocking review.
   assert.match(upstream, /reviews.*push|push\(reviews/);
+  const advisoryPlan = { ok: true, status: 'current', unknownUnconsumed: ['files/lua/z2k-future-feature.lua'], advisoryReviews: ['files/lua/z2k-future-feature.lua'], blockingReviews: [], canApply: false };
+  assert.equal(advisoryPlan.blockingReviews.length, 0);
+  assert.equal(advisoryPlan.advisoryReviews.length, 1);
 });
 
 // ---------------------------------------------------------------------------

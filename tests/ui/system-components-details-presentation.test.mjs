@@ -141,6 +141,107 @@ test('Z2K model preserves snapshot identity and separates advisory attention fro
   assert.equal(component.details.manifest.current, 'r-80.3');
 });
 
+test('Z2K model and details expose dependency classes without turning advisory files into blockers', () => {
+  const model = loadComponentsModel();
+  const component = model.normalizeZ2k({
+    updateState: 'update-available',
+    attentionState: 'review-advisory',
+    canApply: true,
+    unknownUnconsumed: ['files/lua/future.lua'],
+    compilerInputs: [{ sourcePath: 'strats_new2.txt', action: 'compile-and-validate' }],
+    blockingReviews: [],
+    dependencyGraph: {
+      registryAvailable: true,
+      runtimeExact: { 'files/lua/one.lua': {}, 'files/lua/two.lua': {} },
+      adapted: { 'files/lua/local.lua': {} },
+      watched: { 'files/lua/watched.lua': {} },
+      ignored: { 'files/windows-only.lua': {} }
+    },
+  }, true);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(component.dependencySummary)), {
+    runtimeExact: 2,
+    compilerInputs: 1,
+    unknownUnconsumed: 1,
+    adapted: 1,
+    blocking: 0,
+    advisory: 1,
+    registryAvailable: true,
+  });
+
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), {
+    updateState: 'update-available',
+    attentionState: 'review-advisory',
+    canApply: true,
+    unknownUnconsumed: ['files/lua/future.lua'],
+    compilerInputs: [{ sourcePath: 'strats_new2.txt', action: 'compile-and-validate' }],
+    advisoryReviews: ['files/lua/future.lua'],
+    blockingReviews: [],
+    dependencyGraph: {
+      registryAvailable: true,
+      runtimeExact: { 'files/lua/one.lua': {}, 'files/lua/two.lua': {} },
+      adapted: { 'files/lua/local.lua': {} },
+      watched: {},
+      ignored: {}
+    },
+    local: { installed: true, integrity: 'verified', integrityOk: true, lua: { ready: 2, total: 2 } },
+  });
+  internals.state.z2kExpanded = true;
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const summary = findAll(rendered, node => classHas(node, 'z2m-z2k-dependency-summary'))[0];
+
+  assert.ok(summary, 'dependency summary must be visible in expanded Z2K details');
+  assert.match(textOf(summary), /Runtime exact/);
+  assert.match(textOf(summary), /Compiler inputs/);
+  assert.match(textOf(summary), /Новые upstream-файлы/);
+  assert.match(textOf(summary), /Требуется validation/);
+  assert.equal(findAll(summary, node => classHas(node, 'z2m-component-review-callout--advisory')).length, 1);
+  assert.equal(findAll(summary, node => classHas(node, 'z2m-component-review-callout--blocking')).length, 0);
+});
+
+test('Z2K model and details expose runtime/Strategy revision coherence', () => {
+  const model = loadComponentsModel();
+  const component = model.normalizeZ2k({
+    updateState: 'current',
+    sourceCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    manifestRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    coherence: {
+      installedRuntimeRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      availableUpstreamRevision: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      currentStrategySourceRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      candidateStrategyRevision: null,
+      coherenceStatus: 'aligned',
+    },
+  }, true);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(component.coherence)), {
+    installedRuntimeRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    availableUpstreamRevision: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    currentStrategySourceRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    candidateStrategyRevision: null,
+    coherenceStatus: 'aligned',
+  });
+
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw({
+    sourceCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    manifestRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    coherence: component.coherence,
+    dependencyGraph: { registryAvailable: true, runtimeExact: {}, adapted: {}, watched: {}, ignored: {} },
+  }));
+  internals.state.z2kExpanded = true;
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
+  const technical = findAll(details, node => classHas(node, 'z2m-component-technical'))[0];
+
+  assert.ok(technical, 'technical disclosure must remain available');
+  assert.match(textOf(technical), /Runtime revision/);
+  assert.match(textOf(technical), /Strategy source revision/);
+  assert.match(textOf(technical), /Coherence/);
+  assert.match(textOf(technical), /aligned/);
+});
+
 function makeContext(engine, z2k) {
   return {
     route: 'components',

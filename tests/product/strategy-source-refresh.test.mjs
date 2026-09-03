@@ -159,7 +159,12 @@ test('Z2K refresh binds exact revision and raw content to a verified immutable s
   assert.equal(result.snapshot.sourceFiles.length, 5);
   assert.equal(Object.keys(result.snapshot.fileSha256).length, 5);
   assert.equal(result.snapshot.allInOne.profileCount, 7);
-  assert.equal(result.snapshot.entries.length, 1);
+  assert.equal(result.snapshot.entries.length, 8);
+  assert.equal(result.snapshot.entries.filter((entry) => entry.entryKind === 'all-in-one').length, 1);
+  assert.equal(result.snapshot.entries.filter((entry) => entry.entryKind === 'standalone').length, 7);
+  assert.ok(result.snapshot.entries.every((entry) => entry.sourceSnapshotId === result.snapshot.snapshotId));
+  assert.ok(result.snapshot.entries.filter((entry) => entry.entryKind === 'standalone')
+    .every((entry) => entry.usable === true && entry.nativeValidation.status === 'not_checked'));
   assert.match(result.snapshot.compilerSnapshotDigest, /^[0-9a-f]{64}$/);
   assert.match(result.snapshot.nfqws2OptSha256, /^[0-9a-f]{64}$/);
 });

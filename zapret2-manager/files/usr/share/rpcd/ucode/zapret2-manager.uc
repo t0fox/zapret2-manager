@@ -29,7 +29,8 @@ import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources
 import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
-	dns_product_rollback } from '/usr/libexec/zapret2-manager/dns-product.uc';
+	dns_product_rollback, dns_product_provider_save, dns_product_provider_reset,
+	dns_product_provider_delete } from '/usr/libexec/zapret2-manager/dns-product.uc';
 import { tg_product_get, tg_product_catalog, tg_product_status, tg_product_versions,
 	tg_product_operation_status, tg_product_validate, tg_product_preview, tg_product_apply,
 	tg_product_health, tg_product_check_updates, tg_product_switch, tg_product_install,
@@ -1397,6 +1398,9 @@ return {
 		dns_product_validate: { args: { edit: 'string' }, call: function (req) { return dns_product_validate(req); } },
 		dns_product_apply: { args: { edit: 'string' }, call: function (req) { return dns_product_apply(req); } },
 		dns_product_rollback: { args: { edit: 'string' }, call: function (req) { return dns_product_rollback(req); } },
+		dns_product_provider_save: { args: { edit: 'string' }, call: function (req) { return dns_product_provider_save(req); } },
+		dns_product_provider_reset: { args: { edit: 'string' }, call: function (req) { return dns_product_provider_reset(req); } },
+		dns_product_provider_delete: { args: { edit: 'string' }, call: function (req) { return dns_product_provider_delete(req); } },
 		tg_product_get: { call: function (req) { return tg_product_get(req); } },
 		tg_product_catalog: { call: function (req) { return tg_product_catalog(req); } },
 		tg_product_status: { call: function (req) { return tg_product_status(req); } },

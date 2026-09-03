@@ -9,10 +9,9 @@
 // same picture legitimately).
 
 import { readfile, writefile, stat, popen, lsdir } from 'fs';
+import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
 let uci = require('uci');
 
-const PROVIDERS_PATH = '/usr/libexec/zapret2-manager/catalog/dns-providers.json';
-const PROVIDER_SCHEMA = 1;
 const TOTAL_BUDGET_SEC = 25;
 const DNS_DEADLINE_SEC = 4;
 const PING_DEADLINE_SEC = 2;
@@ -39,8 +38,6 @@ function err(code, message, stage, extra) {
 // ---------------------------------------------------------------------------
 // provider catalog (validated, versioned — data only)
 // ---------------------------------------------------------------------------
-const PROVIDER_CATEGORIES = { anycast: 1, privacy: 1, filtered: 1, regional: 1, isp: 1, 'Популярные':1, 'Безопасные':1, 'Для ИИ':1 };
-
 function ipv4_ok(ip) {
 	let parts = split('' + ip, '.');
 	if (length(parts) != 4) return false;
@@ -55,56 +52,6 @@ function ipv4_ok(ip) {
 		if (+o > 255) return false;
 	}
 	return true;
-}
-
-function validate_provider(p) {
-	let errs = [];
-	if (type(p) != 'object' || p == null) { push(errs, 'provider is not an object'); return errs; }
-	if (type(p.id) != 'string' || length(p.id) < 2 || length(p.id) > 32) push(errs, 'id must be 2..32 chars of a-z0-9-');
-	if (type(p.name) != 'string' || p.name == '') push(errs, 'name required');
-	if (!PROVIDER_CATEGORIES[p.category]) push(errs, 'unknown category');
-	if (type(p.reviewed) != 'string' || length(p.reviewed) != 10) push(errs, 'reviewed must be an ISO date');
-	if (type(p.provenance) != 'array' || length(p.provenance) == 0) push(errs, 'provenance[] required');
-	if (type(p.ipv4) == 'array') {
-		for (let i = 0; i < length(p.ipv4); i++)
-			if (!ipv4_ok(p.ipv4[i])) push(errs, 'invalid ipv4 ' + p.ipv4[i]);
-	}
-	if (p.doh != null) {
-		// 'https:'+'//' written in parts — a literal '//' inside a string would
-		// be eaten as a comment by the local bracket-gate's naive stripper
-		let scheme_ok = (type(p.doh) == 'string' && substr(p.doh, 0, 6) == 'https:'
-			&& substr(p.doh, 6, 2) == '/' + '/');
-		if (!scheme_ok) push(errs, 'doh endpoint must be an https-scheme URL (data only — never activated)');
-	}
-	if (type(p.notes) != 'string' || p.notes == '') push(errs, 'privacy/security notes required');
-	return errs;
-}
-
-function load_providers() {
-	let raw = readfile(PROVIDERS_PATH);
-	if (!raw) return { ok: false, errors: ['providers file missing: ' + PROVIDERS_PATH], byId: {} };
-	let doc = null;
-	try { doc = json(raw); } catch (e) {
-		return { ok: false, errors: ['providers file is not valid JSON'], byId: {} };
-	}
-	let errors = [];
-	if (type(doc) != 'object' || doc == null)
-		return { ok: false, errors: ['providers document is not an object'], byId: {} };
-	if (doc.schema != PROVIDER_SCHEMA) push(errors, 'schema must be ' + PROVIDER_SCHEMA);
-	if (type(doc.version) != 'string' || doc.version == '') push(errors, 'version required');
-	let byId = {};
-	if (type(doc.providers) == 'array') {
-		for (let i = 0; i < length(doc.providers); i++) {
-			let p = doc.providers[i];
-			let perrs = validate_provider(p);
-			for (let j = 0; j < length(perrs); j++) push(errors, (type(p) == 'object' && type(p.id) == 'string' ? p.id + ': ' : '') + perrs[j]);
-			if (type(p) == 'object' && type(p.id) == 'string') {
-				if (byId[p.id] != null) push(errors, 'duplicate provider id: ' + p.id);
-				byId[p.id] = p;
-			}
-		}
-	}
-	return { ok: (length(errors) == 0), errors: errors, byId: byId, doc: doc };
 }
 
 // ---------------------------------------------------------------------------
@@ -214,13 +161,14 @@ export const dnsprov_components = function() {
 // providers
 // ---------------------------------------------------------------------------
 export const dnsprov_providers = function() {
-	let lp = load_providers();
-	if (!lp.ok) return err('ETARGET', 'provider catalog is invalid', { errors: lp.errors });
+	let catalog = dns_provider_catalog_get();
+	if (!catalog.ok) return err('ETARGET', 'effective provider catalog is invalid', { errors: [catalog.error.message] });
 	return {
 		ok: true,
-		schema: PROVIDER_SCHEMA,
-		version: lp.doc.version,
-		providers: lp.doc.providers,
+		schema: catalog.providerSchema || 1,
+		version: catalog.version || null,
+		revision: catalog.revision,
+		providers: catalog.providers,
 		note: 'DoH endpoints are DATA — nothing here activates DoH or changes the router resolver'
 	};
 };
@@ -322,8 +270,10 @@ export const dnsprov_diagnose = function(input) {
 	}
 	let onlyProvider = (type(input) == 'object' && input != null && type(input.provider) == 'string') ? input.provider : null;
 
-	let lp = load_providers();
-	if (!lp.ok) return err('ETARGET', 'provider catalog is invalid', { errors: lp.errors });
+	let catalog = dns_provider_catalog_get();
+	if (!catalog.ok) return err('ETARGET', 'effective provider catalog is invalid', { errors: [catalog.error.message] });
+	let byId = {};
+	for (let i = 0; i < length(catalog.providers); i++) byId[catalog.providers[i].id] = catalog.providers[i];
 
 	// local resolver first
 	let localProbe = nslookup_probe(domain, '127.0.0.1');
@@ -331,11 +281,11 @@ export const dnsprov_diagnose = function(input) {
 	let localOk = (length(localIps) > 0);
 
 	let probes = [];
-	let providerIds = keys(lp.byId);
+	let providerIds = keys(byId);
 	let started = now_ms();
 	for (let i = 0; i < length(providerIds); i++) {
 		if (now_ms() - started >= TOTAL_BUDGET_SEC * 1000) break;
-		let p = lp.byId[providerIds[i]];
+		let p = byId[providerIds[i]];
 		if (onlyProvider != null && p.id != onlyProvider) continue;
 		let attempts = [];
 		for (let j = 0; type(p.ipv4) == 'array' && j < length(p.ipv4); j++) {
@@ -378,10 +328,11 @@ function rollback_network(snapshot) {
 export const dns_select_provider = function(input) {
 	let providerId = (type(input) == 'object' && input != null && type(input.providerId) == 'string') ? input.providerId : null;
 	if (providerId == null || providerId == '') return err('EINPUT', 'providerId is required', 'validate');
-	let lp = load_providers();
-	if (!lp.ok) return err('ETARGET', 'provider catalog is invalid', 'catalog', { errors: lp.errors });
-	let p = lp.byId[providerId];
-	if (!p) return err('ENOENT', 'provider is not in the bundled catalog', 'catalog');
+	let catalog = dns_provider_catalog_get();
+	if (!catalog.ok) return err('ETARGET', 'effective provider catalog is invalid', 'catalog', { errors: [catalog.error.message] });
+	let p = null;
+	for (let i = 0; i < length(catalog.providers); i++) if (catalog.providers[i].id == providerId) { p = catalog.providers[i]; break; }
+	if (!p) return err('ENOENT', 'provider is not in the effective catalog', 'catalog');
 	if (type(p.ipv4) != 'array' || length(p.ipv4) == 0) return err('EINPUT', 'provider has no IPv4 resolvers', 'validate');
 	let c = uci.cursor();
 	if (!c.load('network')) return err('ETARGET', 'network UCI is unavailable', 'snapshot');

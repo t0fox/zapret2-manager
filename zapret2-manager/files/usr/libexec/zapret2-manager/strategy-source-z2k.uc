@@ -250,6 +250,46 @@ function profile_projection(model, profile, index, resources) {
 		officialArgs: officialArgs, officialProfileIndex: profile.index
 	}, bindings: bound.bindings };
 }
+function profile_label(profile, index, args) {
+	if (has(args, '--filter-l7=discord') || has(args, '--filter-l7=discord,stun')) return 'Z2K · Discord UDP';
+	if (has(args, '/runtime-assets/lists/extra_strats/UDP/YT/List.txt')) return 'Z2K · YouTube QUIC';
+	if (has(args, '/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt')) return 'Z2K · GoogleVideo TCP';
+	if (has(args, '/runtime-assets/lists/extra_strats/TCP/YT/List.txt')) return 'Z2K · YouTube TCP';
+	if (has(args, '/runtime-assets/lists/extra_strats/TCP/RKN/List.txt')) return 'Z2K · RKN';
+	return 'Z2K Profile ' + (index + 1);
+}
+function semantic_digest(entryKind, args, protocol) {
+	return digest(sprintf('%J', { entryKind: entryKind, args: args, protocol: protocol || 'unknown' }));
+}
+function standalone_projection(model, profile, index, sourceCommit, compiler, resources) {
+	let projected = profile_projection(model, profile, index, resources);
+	if (!projected.ok) return projected;
+	let candidate = projected.profile, structural = structural_validation(candidate.args);
+	if (!structural.ok) return structural;
+	let profileIndex = candidate.officialProfileIndex != null ? candidate.officialProfileIndex : index;
+	let upstreamId = 'profile-' + (profileIndex + 1), canonicalId = 'z2k:' + upstreamId;
+	let digestValue = semantic_digest('standalone', candidate.args, candidate.protocol);
+	if (!valid_digest(digestValue)) return error('EDIGEST', 'Z2K standalone semantic digest could not be computed', 'profiles[' + index + ']');
+	let one = {
+		id: canonicalId, canonicalId: canonicalId, sourceId: SOURCE_ID, upstreamId: upstreamId,
+		sourceCommit: sourceCommit, sourcePath: COMPILER_SOURCE_PATH, name: profile_label(profile, index, candidate.args),
+		description: 'Полный официальный профиль Z2K, опубликованный как standalone projection.',
+		args: candidate.args, officialArgs: candidate.officialArgs, profiles: [candidate],
+		semanticDigest: digestValue, capabilities: capabilities([candidate]),
+		requirements: requirements_from_profiles([candidate]), usable: false, featured: false,
+		recommended: false, pinned: false, entryKind: 'standalone',
+		resourceBindings: projected.bindings, provenance: {
+			repository: REPOSITORY, sourceId: SOURCE_ID, sourceCommit: sourceCommit,
+			sourcePath: COMPILER_SOURCE_PATH, kind: 'official-top-level-profile',
+			officialProfileIndex: profileIndex, compilerSchema: COMPILER_SCHEMA,
+			compilerSnapshotDigest: compiler.compilerSnapshotDigest,
+			nfqws2OptSha256: compiler.nfqws2OptSha256, templates: 'disabled',
+			resourceBindings: copy(projected.bindings)
+		},
+		validation: { parser: 'passed', manager: 'passed', diagnostics: structural.validation, native: 'not_checked' }
+	};
+	return { ok: true, entry: one };
+}
 function composition_digest(value) { return digest(sprintf('%J', value)); }
 function profile_field_values(profiles, field) {
 	let result = [];
@@ -297,7 +337,18 @@ export const strategy_source_z2k_import_compiled = function(compiled, metadata) 
 		for (let item in projected.bindings) push(bindings, { profileIndex: i, from: item.from, to: item.to, role: item.role });
 	}
 	let args = join(' --new ', profile_field_values(profiles, 'args'));
-	let caps = capabilities(profiles), requirements = requirements_from_profiles(profiles);
+	let standaloneCandidates = [], standaloneDiagnostics = [];
+	for (let i = 0; i < length(checked.model.profiles); i++) {
+		let standalone = standalone_projection(checked.model, checked.model.profiles[i], i,
+			checked.compiled.sourceCommit, checked.compiled, metadata.resourceBindings);
+		if (!standalone.ok) {
+			push(standaloneDiagnostics, { officialProfileIndex: i, error: standalone.error || { code: 'EVERIFY', message: 'standalone projection failed' } });
+			continue;
+		}
+		push(standaloneCandidates, standalone.entry);
+	}
+	let caps = capabilities(profiles), requirements = requirements_from_profiles(profiles), allInOneSemanticDigest = semantic_digest('all-in-one', args, 'mixed');
+	if (!valid_digest(allInOneSemanticDigest)) return error('EDIGEST', 'Z2K All-in-One semantic digest could not be computed');
 	let entry = {
 		id: 'z2k:' + ALL_IN_ONE_ID, canonicalId: 'z2k:' + ALL_IN_ONE_ID, sourceId: SOURCE_ID,
 		upstreamId: ALL_IN_ONE_ID, sourceCommit: checked.compiled.sourceCommit,
@@ -306,7 +357,7 @@ export const strategy_source_z2k_import_compiled = function(compiled, metadata) 
 		args: args, officialNfqws2Opt: checked.compiled.nfqws2Opt, profiles: profiles,
 		capabilities: caps, autocircular: caps.autocircular, discordUdp: caps.discordUdp,
 		is_builtin: false, requirements: requirements, usable: true, featured: true, recommended: true,
-		pinned: true, entryKind: 'all-in-one', poolKey: 'all-in-one',
+		pinned: true, entryKind: 'all-in-one', poolKey: 'all-in-one', semanticDigest: allInOneSemanticDigest,
 		composition: { source: COMPILER_SOURCE_PATH, profileCount: length(profiles),
 			profileOrder: profile_field_values(profiles, 'id'), preservesFilters: true },
 		resourceBindings: bindings,
@@ -319,7 +370,8 @@ export const strategy_source_z2k_import_compiled = function(compiled, metadata) 
 			fileSha256: metadata.fileSha256 || {}, resourceBindings: copy(bindings) },
 		validation: { parser: 'passed', manager: 'passed', diagnostics: checked.validation }
 	};
-	return { ok: true, entry: entry, model: checked.model, validation: checked.validation };
+	return { ok: true, entry: entry, model: checked.model, validation: checked.validation,
+		standaloneCandidates: standaloneCandidates, standaloneDiagnostics: standaloneDiagnostics };
 };
 
 export const strategy_source_z2k_prepare_snapshot = function(input) {
@@ -350,7 +402,7 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 	let snapshotId = 'z2k-' + contentDigest, entry = copy(imported.entry);
 	entry.sourceSnapshotId = snapshotId;
 	entry.provenance.sourceSnapshotId = snapshotId;
-	let entryDigest = digest(sprintf('%J', entry)), allInOneDigest = composition_digest(entry);
+	let entryDigest = digest(sprintf('%J', entry)), allInOneDigest = entry.semanticDigest;
 	if (!entryDigest || !allInOneDigest) return error('EDIGEST', 'Z2K imported entry identity could not be computed');
 	return { ok: true, snapshot: {
 		schema: SCHEMA, sourceId: SOURCE_ID, repository: REPOSITORY, sourceCommit: sourceCommit,
@@ -359,10 +411,73 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 		compilerSnapshotDigest: compiled.compilerSnapshotDigest, nfqws2OptSha256: compiled.nfqws2OptSha256,
 		contentDigest: contentDigest, snapshotId: snapshotId, entryDigests: [entryDigest],
 		normalizedEntriesDigest: entryDigest, entryCount: 1, normalizedEntryCount: 1,
-		entries: [entry], allInOne: { canonicalId: entry.canonicalId, digest: allInOneDigest,
+		entries: [entry], standaloneCandidates: imported.standaloneCandidates || [],
+		standaloneDiagnostics: imported.standaloneDiagnostics || [],
+		allInOne: { canonicalId: entry.canonicalId, digest: allInOneDigest,
 			profileCount: length(entry.profiles), order: entry.composition.profileOrder },
 		immutable: true, published: true
 	} };
+};
+
+function native_verified(value) {
+	if (!object(value)) return false;
+	if (value.status == 'verified') return true;
+	return getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && value.status == 'not_checked';
+}
+function standalone_diagnostic(entry, validation, reason) {
+	return { canonicalId: entry.canonicalId, officialProfileIndex: entry.profiles[0].officialProfileIndex,
+		kind: 'standalone-rejected', reason: reason, validation: copy(validation) };
+}
+
+// Finalize one prepared official compile result. The caller supplies native
+// evidence produced by the existing native_preflight boundary. Candidates
+// that fail that gate are retained only as diagnostics; All-in-One remains
+// the exact full official output and is never assembled from these entries.
+export const strategy_source_z2k_finalize_snapshot = function(input) {
+	if (!object(input) || !object(input.snapshot) || !object(input.allInOneValidation))
+		return error('EINPUT', 'Z2K snapshot finalization requires a snapshot and All-in-One native validation');
+	let snapshot = copy(input.snapshot), all = input.allInOneValidation;
+	if (!native_verified(all)) return error('EPREFLIGHT', 'Z2K All-in-One native preflight did not pass');
+	if (type(snapshot.entries) != 'array' || length(snapshot.entries) != 1
+		|| snapshot.entries[0].entryKind != 'all-in-one') return error('EVERIFY', 'Z2K snapshot must start with one All-in-One entry');
+	snapshot.entries[0].nativeValidation = copy(all);
+	snapshot.entries[0].validation.native = copy(all);
+	snapshot.nativeValidation = copy(all);
+	let diagnostics = snapshot.standaloneDiagnostics || [], validations = input.nativeValidations || [], seen = {}, published = [snapshot.entries[0]];
+	for (let record in validations) {
+		if (!object(record)) continue;
+		if (string(record.canonicalId) && object(record.validation)) seen[record.canonicalId] = record.validation;
+	}
+	let candidates = snapshot.standaloneCandidates || [], semantic = {};
+	for (let i = 0; i < length(candidates); i++) {
+		let candidate = candidates[i], validation = seen[candidate.canonicalId];
+		if (!native_verified(validation)) {
+			push(diagnostics, standalone_diagnostic(candidate, validation, validation && validation.reason || 'native validation unavailable or rejected'));
+			continue;
+		}
+		if (semantic[candidate.semanticDigest]) {
+			push(diagnostics, standalone_diagnostic(candidate, validation, 'duplicate semanticDigest of ' + semantic[candidate.semanticDigest]));
+			continue;
+		}
+		semantic[candidate.semanticDigest] = candidate.canonicalId;
+		candidate.sourceSnapshotId = snapshot.snapshotId;
+		candidate.provenance = object(candidate.provenance) ? candidate.provenance : {};
+		candidate.provenance.sourceSnapshotId = snapshot.snapshotId;
+		candidate.nativeValidation = copy(validation);
+		candidate.validation.native = copy(validation);
+		candidate.usable = true;
+		push(published, candidate);
+	}
+	snapshot.entries = published;
+	snapshot.standaloneCandidates = [];
+	snapshot.standaloneDiagnostics = diagnostics;
+	snapshot.entryCount = length(published);
+	snapshot.normalizedEntryCount = length(published);
+	snapshot.entryDigests = [];
+	for (let entry in published) push(snapshot.entryDigests, digest(sprintf('%J', entry)));
+	snapshot.normalizedEntriesDigest = digest(sprintf('%J', published));
+	if (!valid_digest(snapshot.normalizedEntriesDigest)) return error('EDIGEST', 'Z2K normalized entry digest could not be computed');
+	return { ok: true, snapshot: snapshot };
 };
 
 // Kept as a narrow compatibility seam for callers that need to reject legacy

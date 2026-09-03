@@ -8,7 +8,7 @@ const upstream = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libe
 const resourceUpdate = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc'), 'utf8');
 
 test('watched upstream changes produce an actionable review detail', () => {
-  assert.match(upstream, /item\.class == 'watched' && item\.basedOnSha256 != digest/);
+  assert.match(upstream, /klass == 'watched' && item\.basedOnSha256 != digest/);
   assert.match(upstream, /reason: 'watched-upstream-file-changed'/);
   assert.match(upstream, /Z2M не устанавливает его автоматически/);
 });

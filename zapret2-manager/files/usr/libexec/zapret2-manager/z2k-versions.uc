@@ -84,7 +84,7 @@ function resolve_tag_commit(version, tagSha, objectType, mode) {
 function read_classification() {
 	try {
 		let value = json(readfile(CLASSIFICATION));
-		if (!object(value) || value.schema != 'zapret2-manager.z2k-integration.v1' || type(value.files) != 'array') return null;
+		if (!object(value) || (value.schema != 'zapret2-manager.z2k-integration.v1' && value.schema != 'zapret2-manager.z2k-integration.v2') || type(value.files) != 'array') return null;
 		for (let i = 0; type(value.historicalFiles) == 'array' && i < length(value.historicalFiles); i++) push(value.files, value.historicalFiles[i]);
 		return value;
 	} catch (e) { return null; }
@@ -341,7 +341,7 @@ function fetch_manifest(version, commitSha, mode) {
 function managed_membership(manifest, map) {
 	if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
 	let assets = [], unknown = [], names = keys(manifest.files_sha256);
-	for (let i = 0; i < length(names); i++) { let path = names[i], item = class_for(map, path); if (item == null) { if (relevant_path(path)) push(unknown, path); continue; } if (item.class == 'exact-managed') { let id = asset_id(item, path); if (id == null) { push(unknown, path); continue; } push(assets, { sourcePath: path, sha256: manifest.files_sha256[path], id: id, type: substr(id, 0, index(id, ':')), name: item.localName || id, packagePath: item.packageBaselinePath || null, runtimeTarget: item.runtimeTarget || null, dependencies: item.dependencies || [] }); } }
+	for (let i = 0; i < length(names); i++) { let path = names[i], item = class_for(map, path); if (item == null) { if (relevant_path(path)) push(unknown, path); continue; } if (item.class == 'exact-managed' || item.dependencyClass == 'runtime-exact') { let id = asset_id(item, path); if (id == null) { push(unknown, path); continue; } push(assets, { sourcePath: path, sha256: manifest.files_sha256[path], id: id, type: substr(id, 0, index(id, ':')), name: item.localName || id, packagePath: item.packageBaselinePath || null, runtimeTarget: item.runtimeTarget || null, dependencies: item.dependencies || [] }); } }
 	sort(assets, function(a, b) { return a.sourcePath == b.sourcePath ? 0 : (a.sourcePath < b.sourcePath ? -1 : 1); }); sort(unknown); return { assets: assets, unknown: unknown };
 }
 function installed_release() { let authority = z2k_registry_installed_release(null); return authority && authority.value || null; }
@@ -608,7 +608,7 @@ export const z2k_version_details = function(version, options) {
 	let installedRow = target_release(installedVersion, catalog.versions);
 	let installedManifest = null;
 	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow, 'browse'); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
-	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [];
+	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0 && length(targetPlan.compilerInputs || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [];
 	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), compareEvidence = null, installedCommit = installedRow && installedRow.commitSha;
 	// Catalog rows for annotated tags intentionally keep tagSha and defer commit
 	// resolution. Compare is independent from historical manifest availability,

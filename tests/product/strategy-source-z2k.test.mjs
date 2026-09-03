@@ -89,6 +89,18 @@ test('flat official output imports every ordered profile, including profiles bey
   assert.match(entry.profiles[4].officialArgs, /udp_in=1:udp_out=4:key=discord_udp:nld=2:hostkey=z2k_nohost_key/);
   assert.match(entry.profiles[5].officialArgs, /--filter-tcp=80/);
   assert.match(entry.profiles[6].officialArgs, /--filter-tcp=5222/);
+  assert.equal(result.standaloneCandidates.length, 7);
+  assert.deepEqual(result.standaloneCandidates.map((candidate) => candidate.canonicalId),
+    ['z2k:profile-1', 'z2k:profile-2', 'z2k:profile-3', 'z2k:profile-4', 'z2k:profile-5', 'z2k:profile-6', 'z2k:profile-7']);
+  assert.equal(result.standaloneDiagnostics.length, 0);
+  for (const candidate of result.standaloneCandidates) {
+    assert.equal(candidate.entryKind, 'standalone');
+    assert.equal(candidate.usable, false);
+    assert.equal(candidate.profiles.length, 1);
+    assert.equal(candidate.profiles[0].officialProfileIndex, candidate.provenance.officialProfileIndex);
+    assert.match(candidate.semanticDigest, /^[0-9a-f]{64}$/);
+  }
+  assert.match(result.standaloneCandidates[4].profiles[0].officialArgs, /--filter-l7=discord,stun/);
 });
 
 test('resource rebinding changes only allowlisted infrastructure references', () => {

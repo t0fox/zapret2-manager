@@ -8,6 +8,7 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 const upstream = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc');
 const component = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-component.uc');
 const resourceUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
+const versions = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
 const generator = read('tools/generate-z2k-classification.mjs');
 const integration = JSON.parse(read('zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json'));
 const nativePreflight = read('zapret2-manager/files/usr/libexec/zapret2-manager/native-preflight.uc');
@@ -71,6 +72,12 @@ test('available release and activation receipt version come from the selected ca
   const componentApply = component.slice(component.indexOf('export const z2k_component_apply'));
   assert.match(componentApply, /ELEGACY_LIFECYCLE/);
   assert.doesNotMatch(componentApply, /z2k_upstream_check\(\)|asset_registry_apply_bundle/);
+});
+
+test('compiler-input changes remain non-applicable through target preparation and release details', () => {
+  assert.match(resourceUpdate, /length\(plan\.compilerInputs \|\| \[\]\)/);
+  assert.match(resourceUpdate, /compiler-inputs|compilerInputs/);
+  assert.match(versions, /length\(targetPlan\.compilerInputs \|\| \[\]\) == 0/);
 });
 
 test('native preflight consumes the installed resolver closure instead of a static Lua list', () => {

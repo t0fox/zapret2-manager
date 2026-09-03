@@ -15,12 +15,18 @@ test('every accepted Z2K manifest path has exactly one explicit classification',
   const classes = new Set(['exact-managed', 'adapted', 'watched', 'ignored-platform']);
   for (const item of classification.files) assert.ok(classes.has(item.class), item.sourcePath);
   assert.equal(classification.manifestFileCount, expected.length);
+  assert.equal(classification.schema, 'zapret2-manager.z2k-integration.v2');
+  assert.deepEqual(classification.compilerInputs.map(item => item.sourcePath), [
+    'strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh',
+  ]);
 });
 
-test('adapted and ignored Z2K files cannot be treated as raw managed assets', () => {
+test('runtime-exact and ignored Z2K files carry explicit dependency semantics', () => {
   const state = classification.files.find(item => item.sourcePath === 'files/lua/z2k-state-persist.lua');
-  assert.equal(state.class, 'adapted');
-  assert.ok(state.localSha256);
+  assert.equal(state.class, 'exact-managed');
+  assert.equal(state.dependencyClass, 'runtime-exact');
+  assert.equal(state.localSha256, undefined);
   const platform = classification.files.find(item => item.sourcePath.startsWith('files/init.d/'));
   assert.equal(platform.class, 'ignored-platform');
+  assert.equal(platform.dependencyClass, 'ignored-platform');
 });

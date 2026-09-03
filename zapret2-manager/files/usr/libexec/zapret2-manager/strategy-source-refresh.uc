@@ -123,17 +123,34 @@ function cleanup_staging(path) {
 	run('rm -rf ' + quote(path));
 }
 function validate_z2k_candidate(snapshot) {
-	if (getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0')
-		return { ok: true, validation: { status: 'not_checked', reason: 'test-only native validation bypass' } };
 	let entry = snapshot && snapshot.entries && snapshot.entries[0];
 	if (!object(entry) || !string(entry.args) || entry.args == '')
 		return error('EPREFLIGHT', 'Z2K candidate has no compiled Strategy arguments');
-	let result = null;
-	try { result = native_preflight(entry.args); }
-	catch (e) { result = null; }
-	if (!object(result) || result.status != 'verified')
-		return { ok: false, error: { code: 'EPREFLIGHT', message: 'Z2K candidate failed native preflight before publication', details: result || null } };
-	return { ok: true, validation: result };
+	let testBypass = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0';
+	let preflight_entry = function(candidate) {
+		if (!object(candidate) || !string(candidate.args) || candidate.args == '')
+			return { ok: false, validation: { status: 'rejected', reason: 'compiled Strategy arguments are empty' } };
+		if (testBypass) return { ok: true, validation: { status: 'not_checked', reason: 'test-only native validation bypass' } };
+		let result = null;
+		try { result = native_preflight(candidate.args); }
+		catch (e) { result = null; }
+		if (!object(result) || result.status != 'verified')
+			return { ok: false, validation: object(result) ? result : { status: 'rejected', reason: 'native preflight returned no evidence' } };
+		return { ok: true, validation: result };
+	};
+	let all = preflight_entry(entry);
+	if (!all.ok) return { ok: false, error: { code: 'EPREFLIGHT', message: 'Z2K All-in-One failed native preflight before publication', details: all.validation || null } };
+	let nativeValidations = [];
+	for (let candidate in snapshot.standaloneCandidates || []) {
+		let checked = preflight_entry(candidate);
+		push(nativeValidations, { canonicalId: candidate.canonicalId, validation: checked.validation });
+	}
+	let finalized = null;
+	try { finalized = z2k_source.strategy_source_z2k_finalize_snapshot({
+		snapshot: snapshot, allInOneValidation: all.validation, nativeValidations: nativeValidations
+	}); } catch (e) { finalized = error('EVERIFY', 'Z2K source snapshot finalization failed'); }
+	if (!finalized.ok) return finalized;
+	return { ok: true, validation: all.validation, snapshot: finalized.snapshot };
 }
 function extract_avatar_archive(archive) {
 	if (!object(archive) || !string(archive.path)) return error('EINPUT', 'Avatar source archive is missing');
@@ -220,8 +237,8 @@ function prepare_refresh(id) {
 			return error('EPROVENANCE', 'Z2K source snapshot is not bound to the accepted upstream branch');
 		let native = validate_z2k_candidate(snapshot);
 		if (!native.ok) return native;
+		snapshot = native.snapshot;
 		snapshot.nativeValidation = native.validation;
-		if (snapshot.entries[0]) snapshot.entries[0].nativeValidation = native.validation;
 		snapshot.published = true;
 	}
 	return { ok: true, sourceId: id, metadata: checked.metadata, snapshot: snapshot,

@@ -1133,6 +1133,70 @@ function z2kReviewReason(component) {
     reasons.push(_('Адаптированные файлы требуют ручного rebase: ') + component.rebases.join(', '));
   return reasons.join(' ');
 }
+function z2kDependencyPaths(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).map(String);
+  if (!value || typeof value !== 'object') return [];
+  return Object.keys(value).filter(Boolean);
+}
+function z2kDependencySummaryStatus(component, summary, compilerInputs, blockingReviews, rebases, unknownUnconsumed) {
+  if (blockingReviews.length || rebases.length) return { label: _('Требуется проверка'), kind: 'blocking' };
+  if (compilerInputs.length) return { label: _('Требуется validation'), kind: 'validation' };
+  if (unknownUnconsumed.length) return { label: _('Есть advisory-файлы'), kind: 'advisory' };
+  if (summary.registryAvailable === false) return { label: _('Registry недоступен'), kind: 'blocking' };
+  return { label: _('Готово к применению'), kind: 'ready' };
+}
+function renderZ2KDependencySummary(component) {
+  var summary = component && component.dependencySummary || {};
+  var graph = component && component.dependencyGraph || {};
+  var compilerInputs = Array.isArray(component && component.compilerInputs) ? component.compilerInputs : [];
+  var unknownUnconsumed = Array.isArray(component && component.unknownUnconsumed) ? component.unknownUnconsumed : [];
+  var blockingReviews = Array.isArray(component && component.blockingReviews) ? component.blockingReviews : [];
+  var rebases = Array.isArray(component && component.rebases) ? component.rebases : [];
+  var adaptedPaths = z2kDependencyPaths(graph.adapted);
+  var hasEvidence = Object.keys(graph).length > 0 || compilerInputs.length || unknownUnconsumed.length || blockingReviews.length || rebases.length;
+  if (!hasEvidence) return null;
+  var status = z2kDependencySummaryStatus(component, summary, compilerInputs, blockingReviews, rebases, unknownUnconsumed);
+  var unknownText = unknownUnconsumed.join(', ');
+  var compilerText = compilerInputs.map(function (item) { return item && (item.sourcePath || item.path); }).filter(Boolean).join(', ');
+  var blockingText = blockingReviews.concat(rebases).join(', ');
+  var detailsId = 'z2m-z2k-dependency-paths';
+  return E('section', { 'class': 'z2m-z2k-dependency-summary', 'aria-labelledby': detailsId }, [
+    E('div', { 'class': 'z2m-z2k-dependency-summary-head' }, [
+      E('div', {}, [
+        E('span', { 'class': 'z2m-component-details-kicker' }, _('СОСТАВ SNAPSHOT')),
+        E('h4', { id: detailsId }, _('Зависимости обновления'))
+      ]),
+      E('span', { 'class': 'z2m-chip z2m-z2k-dependency-chip z2m-z2k-dependency-chip--' + status.kind }, status.label)
+    ]),
+    renderFactGrid([
+      { label: _('Runtime exact'), value: summary.runtimeExact || 0 },
+      { label: _('Compiler inputs'), value: summary.compilerInputs || 0 },
+      { label: _('Новые upstream-файлы'), value: summary.unknownUnconsumed || 0 },
+      { label: _('Адаптация / блокировки'), value: (summary.adapted || 0) + (summary.blocking || 0) }
+    ]),
+    compilerInputs.length ? E('aside', { 'class': 'z2m-z2k-dependency-note z2m-z2k-dependency-note--validation', role: 'status' }, [
+      E('strong', {}, _('Compiler inputs изменились')),
+      E('p', {}, _('Перед применением нужен официальный compile и повторная validation.'))
+    ]) : null,
+    unknownUnconsumed.length ? E('aside', { 'class': 'z2m-component-review-callout z2m-component-review-callout--advisory', role: 'status' }, [
+      E('strong', {}, _('Новые upstream-файлы отмечены как advisory')),
+      E('p', {}, _('Они не потребляются активным dependency graph и не блокируют применимый runtime update.') + ' ' + unknownText)
+    ]) : null,
+    blockingText ? E('aside', { 'class': 'z2m-z2k-dependency-note z2m-z2k-dependency-note--blocking', role: 'alert' }, [
+      E('strong', {}, _('Есть блокирующие зависимости')),
+      E('p', {}, blockingText)
+    ]) : null,
+    E('details', { 'class': 'z2m-z2k-dependency-paths' }, [
+      E('summary', {}, _('Показать пути и provenance')),
+      renderInfoRows([
+        { label: _('Compiler inputs'), value: compilerText },
+        { label: _('Новые upstream-файлы'), value: unknownText },
+        { label: _('Адаптированные пути'), value: adaptedPaths.join(', ') },
+        { label: _('Asset Registry'), value: summary.registryAvailable ? _('Доступен') : _('Не подтверждён') }
+      ])
+    ])
+  ]);
+}
 function componentCompatibilityLabel(component) {
   var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
   if (compatibility === 'compatible') return _('Подтверждена');
@@ -1505,9 +1569,10 @@ function renderZ2KReleasePanel(ctx, component) {
   ]);
 }
 function renderZ2KDetails(ctx, component) {
-  var shell = ctx.shell;
-  var componentDetails = component.details || {};
-  var provenance = component.provenance || componentDetails.provenance || {};
+	var shell = ctx.shell;
+	var componentDetails = component.details || {};
+	var provenance = component.provenance || componentDetails.provenance || {};
+	var coherence = component.coherence || componentDetails.coherence || {};
   var isReady = (component.runtimeHealth || component.health) === 'ready';
   var catalog = z2kCatalogRows(component);
   var selectedVersion = component.selectedVersion || (catalog[0] && catalog[0].version) || null;
@@ -1552,6 +1617,7 @@ function renderZ2KDetails(ctx, component) {
       { label: _('Lua assets'), value: component.counters && component.counters.lua },
       { label: _('Целостность'), value: isReady ? _('Подтверждена') : _('Требует проверки') }
     ]),
+    renderZ2KDependencySummary(component),
     renderDetailSection(_('Версии'), E('div', { 'class': 'z2m-z2k-release-selection' }, [
       E('div', { 'class': 'z2m-z2k-current-version' }, [E('span', { 'class': 'z2m-dim' }, _('Текущая версия')), E('strong', {}, z2kReleaseLabel(component))]),
       selector,
@@ -1568,6 +1634,11 @@ function renderZ2KDetails(ctx, component) {
         { label: _('Источник'), value: provenance.source },
         { label: _('Trust mode'), value: componentDetails.trustMode },
         { label: _('Выбранный release'), value: selectedVersion },
+		{ label: _('Runtime revision'), value: coherence.installedRuntimeRevision },
+		{ label: _('Available upstream revision'), value: coherence.availableUpstreamRevision },
+		{ label: _('Strategy source revision'), value: coherence.currentStrategySourceRevision },
+		{ label: _('Candidate Strategy revision'), value: coherence.candidateStrategyRevision },
+		{ label: _('Coherence'), value: coherence.coherenceStatus },
         { label: _('Проверяемые пути'), value: reviewPaths },
         { label: _('Причина проверки'), value: z2kReviewReason(component) },
         { label: _('Rebase'), value: component.rebases && component.rebases.length ? component.rebases.join(', ') : null }

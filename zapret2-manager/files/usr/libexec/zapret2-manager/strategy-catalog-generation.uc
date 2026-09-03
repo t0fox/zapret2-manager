@@ -95,6 +95,14 @@ function safe_id(value) {
 }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{7,40}$/); }
+function valid_z2k_standalone(entry, snapshot) {
+	return object(entry) && entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
+		&& entry.entryKind == 'standalone' && entry.usable == true && valid_digest(entry.semanticDigest)
+		&& object(entry.nativeValidation) && entry.nativeValidation.status == 'verified'
+		&& type(entry.profiles) == 'array' && length(entry.profiles) == 1
+		&& object(entry.provenance) && entry.provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
+		&& type(entry.provenance.officialProfileIndex) == 'int' && entry.provenance.officialProfileIndex >= 0;
+}
 function contains(value, needle) {
 	if (type(value) != 'array') return false;
 	for (let item in value) if (item == needle) return true;
@@ -105,7 +113,8 @@ function valid_z2k_snapshot(snapshot) {
 		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
 		|| !object(snapshot.allInOne) || snapshot.allInOne.canonicalId != 'z2k:z2k_all_in_one'
 		|| !valid_digest(snapshot.allInOne.digest) || type(snapshot.allInOne.profileCount) != 'int'
-		|| snapshot.allInOne.profileCount < 1 || type(snapshot.entries) != 'array') return false;
+		|| snapshot.allInOne.profileCount < 1 || type(snapshot.entries) != 'array'
+		|| snapshot.entryCount != length(snapshot.entries) || snapshot.normalizedEntryCount != length(snapshot.entries)) return false;
 	if (snapshot.sourcePath == OFFICIAL_Z2K_SOURCE_PATH) {
 		if (!valid_digest(snapshot.compilerSnapshotDigest) || !valid_digest(snapshot.nfqws2OptSha256)
 			|| snapshot.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1'
@@ -114,17 +123,21 @@ function valid_z2k_snapshot(snapshot) {
 		for (let relative in ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'])
 			if (!contains(snapshot.sourceFiles, relative) || !valid_digest(snapshot.fileSha256[relative])) return false;
 	}
+	let allInOneCount = 0;
 	for (let entry in snapshot.entries) {
-		if (object(entry) && entry.canonicalId == snapshot.allInOne.canonicalId
-			&& entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
-			&& entry.entryKind == 'all-in-one' && entry.usable == true
-			&& (snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || (object(entry.provenance)
-				&& entry.provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
-				&& string(entry.officialNfqws2Opt)))
-			&& type(entry.profiles) == 'array' && length(entry.profiles) == snapshot.allInOne.profileCount)
-			return true;
+		if (!object(entry)) return false;
+		if (entry.entryKind == 'all-in-one') {
+			if (entry.canonicalId != snapshot.allInOne.canonicalId
+				|| entry.sourceId != 'z2k' || entry.sourceSnapshotId != snapshot.snapshotId
+				|| entry.usable != true
+				|| (snapshot.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && (!object(entry.provenance)
+					|| entry.provenance.compilerSnapshotDigest != snapshot.compilerSnapshotDigest
+					|| !string(entry.officialNfqws2Opt)))
+				|| type(entry.profiles) != 'array' || length(entry.profiles) != snapshot.allInOne.profileCount) return false;
+			allInOneCount++;
+		} else if (!valid_z2k_standalone(entry, snapshot)) return false;
 	}
-	return false;
+	return allInOneCount == 1;
 }
 function valid_source_snapshot(id, snapshot) {
 	return object(snapshot) && snapshot.schema == 'z2m.strategy-source-snapshot.v1'
