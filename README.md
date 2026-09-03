@@ -1,15 +1,10 @@
 <div align="center">
 
-<img src="./assets/brand/readme-dashboard-v2.svg" alt="Интерфейс zapret2.manager" width="100%">
+<img src="./assets/brand/zapret2-manager-mark.svg" alt="Логотип zapret2.manager" width="104">
 
 <h1>zapret2.manager</h1>
 
-<p><strong>Единый LuCI-интерфейс для управления zapret2 на OpenWrt</strong></p>
-
-<p>
-  Стратегии обхода, системные компоненты, DNS, прокси и диагностика<br>
-  собраны в одном понятном и согласованном интерфейсе.
-</p>
+<p><strong>Менеджер zapret2 для OpenWrt</strong></p>
 
 [![main-latest](https://img.shields.io/badge/release-main--latest-665BFF?logo=github&logoColor=white)](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest)
 [![APK build](https://github.com/t0fox/zapret2-manager/actions/workflows/apk-build.yml/badge.svg?branch=main)](https://github.com/t0fox/zapret2-manager/actions/workflows/apk-build.yml)
