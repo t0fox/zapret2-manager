@@ -11,6 +11,7 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compiler.uc');
 const HARNESS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compile.sh');
+const TIMEOUT_HELPER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-timeout.sh');
 const FIXTURE_ROOT = path.join(ROOT, 'tests/fixtures/z2k-official-compiler/a7fa893ae79e91accffb7aec8652519e36c82689');
 const FILES = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
 const COMMIT = 'a7fa893ae79e91accffb7aec8652519e36c82689';
@@ -46,6 +47,7 @@ function invoke(functionName, args = [], extraEnv = {}) {
         ...process.env,
         LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib',
         Z2M_Z2K_OFFICIAL_COMPILE_HARNESS: HARNESS,
+        Z2M_Z2K_OFFICIAL_TIMEOUT_HELPER: TIMEOUT_HELPER,
         ...extraEnv,
       },
       encoding: 'utf8', timeout: 60_000, maxBuffer: 20 * 1024 * 1024,

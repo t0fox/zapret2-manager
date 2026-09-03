@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MAKEFILE = fs.readFileSync(path.join(ROOT, 'zapret2-manager/Makefile'), 'utf8');
 const HARNESS = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compile.sh'), 'utf8');
+const TIMEOUT_HELPER = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-timeout.sh'), 'utf8');
 const COMPILER = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compiler.uc'), 'utf8');
 
 test('package ships the official compiler bridge with the required runtime modes', () => {
@@ -16,9 +17,10 @@ test('package ships the official compiler bridge with the required runtime modes
   assert.match(HARNESS, /create_default_strategy_files/);
   assert.doesNotMatch(HARNESS, /^[^#\r\n]*(?:install\.sh|service|iptables|nft\b|uci\b|reboot\b)/m);
   assert.match(COMPILER, /const DEFAULT_HARNESS = '\/usr\/libexec\/zapret2-manager\/z2k-official-compile\.sh'/);
+  assert.match(COMPILER, /const DEFAULT_TIMEOUT_HELPER = '\/usr\/libexec\/zapret2-manager\/z2k-official-timeout\.sh'/);
   assert.match(COMPILER, /Z2K_NFQWS2_TEMPLATES=0/);
   assert.match(COMPILER, /ulimit -f 1024/);
-  assert.match(COMPILER, /command -v timeout/);
-  assert.match(COMPILER, /kill -0/);
-  assert.match(COMPILER, /wait \"\$child\"/);
+  assert.match(TIMEOUT_HELPER, /command -v timeout/);
+  assert.match(TIMEOUT_HELPER, /kill -0/);
+  assert.match(TIMEOUT_HELPER, /wait \"\$child\"/);
 });

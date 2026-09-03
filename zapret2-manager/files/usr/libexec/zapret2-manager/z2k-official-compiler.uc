@@ -9,6 +9,7 @@ import { private_tempfile } from './core/private-temp.uc';
 const REPOSITORY = 'necronicle/z2k';
 const SCHEMA = 'z2m.z2k-official-compiler-snapshot.v1';
 const DEFAULT_HARNESS = '/usr/libexec/zapret2-manager/z2k-official-compile.sh';
+const DEFAULT_TIMEOUT_HELPER = '/usr/libexec/zapret2-manager/z2k-official-timeout.sh';
 const REQUIRED_FILES = [
 	'strats_new2.txt',
 	'quic_strats.ini',
@@ -124,6 +125,11 @@ function harness_path() {
 	if (value == null || value == '') value = DEFAULT_HARNESS;
 	return string(value) && match(value, /^\/[A-Za-z0-9._+@%=-]+(\/[A-Za-z0-9._+@%=-]+)*$/) ? value : null;
 }
+function timeout_helper_path() {
+	let value = getenv('Z2M_Z2K_OFFICIAL_TIMEOUT_HELPER');
+	if (value == null || value == '') value = DEFAULT_TIMEOUT_HELPER;
+	return string(value) && match(value, /^\/[A-Za-z0-9._+@%=-]+(\/[A-Za-z0-9._+@%=-]+)*$/) ? value : null;
+}
 function parse_envelope(output) {
 	if (!string(output) || length(output) > MAX_STDOUT_BYTES)
 		return fail('EOUTPUT', 'official compiler stdout exceeds the bound', 'parse', 'stdout');
@@ -183,6 +189,8 @@ export const z2k_official_compile = function(snapshot) {
 	if (!checked.ok) return checked;
 	let harness = harness_path();
 	if (harness == null) return fail('EINPUT', 'official compiler harness path is invalid', 'prepare', 'harness');
+	let timeoutHelper = timeout_helper_path();
+	if (timeoutHelper == null) return fail('EINPUT', 'official compiler timeout helper path is invalid', 'prepare', 'timeoutHelper');
 	let root = make_temp_root();
 	if (root == null) return fail('EIO', 'could not create a private compiler directory', 'prepare', 'compileRoot');
 	let stdoutPath = root + '/stdout', stderrPath = root + '/stderr', result = null;
@@ -190,22 +198,11 @@ export const z2k_official_compile = function(snapshot) {
 		if (!write_snapshot(root, checked.files)) {
 			result = fail('EIO', 'could not materialize the verified compiler snapshot', 'prepare', 'files');
 		} else {
-			let invocation = 'sh ' + shell_quote(harness) + ' ' + shell_quote(root),
-				output = ' >' + shell_quote(stdoutPath) + ' 2>' + shell_quote(stderrPath),
-				timeoutMarker = root + '/timeout';
-			// OpenWrt images do not necessarily ship coreutils' timeout and the
-			// BusyBox applet may also be disabled. Keep the compiler deadline
-			// authoritative with a POSIX-shell watchdog in that case.
-			let fallback = 'rm -f ' + shell_quote(timeoutMarker) + '; (' + invocation + output + ') & child=$!; '
-				+ '( sleep ' + COMPILE_TIMEOUT_SECONDS + '; if kill -0 "$child" 2>/dev/null; then '
-				+ 'kill "$child" 2>/dev/null; : >' + shell_quote(timeoutMarker) + '; fi ) & watchdog=$!; '
-				+ 'wait "$child"; rc=$?; kill "$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null; '
-				+ 'if [ -f ' + shell_quote(timeoutMarker) + ' ]; then rc=124; fi; exit "$rc"';
 			let command = 'ulimit -f 1024; exec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=' + shell_quote(root)
 				+ ' ZAPRET2_DIR=' + shell_quote(root) + ' CONFIG_DIR=' + shell_quote(root + '/config.d')
-				+ ' Z2K_NFQWS2_TEMPLATES=0 sh -c ' + shell_quote(
-					'if command -v timeout >/dev/null 2>&1; then exec timeout ' + COMPILE_TIMEOUT_SECONDS + ' '
-					+ invocation + output + '; else ' + fallback + '; fi');
+				+ ' Z2K_NFQWS2_TEMPLATES=0 sh ' + shell_quote(timeoutHelper)
+				+ ' ' + COMPILE_TIMEOUT_SECONDS + ' ' + shell_quote(harness) + ' ' + shell_quote(root)
+				+ ' ' + shell_quote(stdoutPath) + ' ' + shell_quote(stderrPath);
 			let executed = run(command), stdoutBytes = file_size(stdoutPath), stderrBytes = file_size(stderrPath);
 			if (stdoutBytes < 0 || stderrBytes < 0)
 				result = fail('ECOMPILE', 'official compiler did not produce bounded output files', 'compile');
