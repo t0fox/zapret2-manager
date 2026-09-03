@@ -37,6 +37,8 @@ test('provider catalog layout keeps touch-safe actions and responsive editor geo
   assert.match(css, /z2m-provider-editor-actions \.z2m-btn[\s\S]*min-height:44px/);
   assert.match(css, /provider controls should read as quiet row actions/);
   assert.match(css, /z2m-provider-actions \.z2m-btn[\s\S]*min-height:34px/);
+  assert.match(css, /z2m-provider-actions[\s\S]*display:flex[\s\S]*justify-content:flex-end/);
+  assert.match(css, /z2m-provider-actions \.z2m-btn[\s\S]*width:auto/);
   assert.match(css, /@media \(pointer:coarse\)/);
   assert.match(css, /z2m-provider-groups[\s\S]*container-type:\s*inline-size/);
   assert.match(css, /@container dns-provider-list \(max-width:980px\)/);
