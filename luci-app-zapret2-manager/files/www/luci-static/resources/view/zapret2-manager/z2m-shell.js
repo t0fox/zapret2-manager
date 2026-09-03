@@ -217,7 +217,10 @@ function primaryNavigation(model, activeId, onSelect, attrs) {
         });
       });
     }
+    var previousPrimary = host.querySelector('.z2m-primary-nav');
+    var restorePrimaryFocus = typeof document !== 'undefined' && previousPrimary && previousPrimary.contains(document.activeElement);
     host.replaceChildren.apply(host, secondary ? [primary, secondary] : [primary]);
+    if (restorePrimaryFocus && activePrimary && typeof activePrimary.focus === 'function') activePrimary.focus();
     if (activePrimary && typeof activePrimary.scrollIntoView === 'function') {
       var schedule = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : function (callback) { setTimeout(callback, 0); };
       schedule(function () { activePrimary.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
