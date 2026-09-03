@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/brand/readme-hero.svg" alt="Интерфейс zapret2.manager" width="100%">
+<img src="./assets/brand/readme-dashboard-v2.svg" alt="Интерфейс zapret2.manager" width="100%">
 
 <h1>zapret2.manager</h1>
 
