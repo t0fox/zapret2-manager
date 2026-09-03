@@ -4,6 +4,7 @@
 
 import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
+import { tiktok_domain_catalog, tiktok_parse_nslookup, tiktok_resolved_candidates, tiktok_state_migrate } from './service-dns-tiktok-model.uc';
 let uci = require('uci');
 
 const DATASET_PATH = '/usr/libexec/zapret2-manager/catalog/service-dns-profiles.json';
@@ -13,12 +14,8 @@ const LOCK_FILE = '/tmp/zapret2-manager/service-dns-apply.lock';
 const LEGACY_FRAGMENT = '/etc/zapret2-manager/service-dns-routing.d/10-routing.conf';
 const TIKTOK_AUTO_HOST = 'v77.tiktokcdn.com';
 const TIKTOK_AUTO_OWNER = 'service_dns_tiktok_auto';
-const TIKTOK_CANDIDATES = [
-	'212.188.77.134', '212.188.77.135', '212.188.77.140', '212.188.77.136',
-	'37.19.202.33', '37.19.202.53', '37.19.202.47', '37.19.202.54', '37.19.202.46', '37.19.202.50', '37.19.202.51', '37.19.202.49', '37.19.202.52', '37.19.202.48',
-	'185.11.78.47',
-	'143.244.42.18', '143.244.42.29', '143.244.42.21', '143.244.42.36', '143.244.42.15', '143.244.42.26', '143.244.42.17', '143.244.42.23'
-];
+const TIKTOK_RESOLVER_STATE = '/tmp/resolv.conf.d/resolv.conf.auto';
+const TIKTOK_RESOLVER_FALLBACK = '/etc/resolv.conf';
 const TIKTOK_FAILOVER_THRESHOLD = 2;
 const TIKTOK_RECOVERY_THRESHOLD = 3;
 const TIKTOK_MAX_PROBES = 12;
@@ -26,12 +23,27 @@ const TIKTOK_SUCCESS_TARGET = 4;
 
 function create_job_dir(dir) { try { mkdir(JOBS_DIR); } catch (e) {} try { mkdir(dir); } catch (e) {} return stat(dir) != null; }
 function run(cmd) { if (substr(cmd, 0, 12) == 'mkdir-child ') return { out: '', rc: create_job_dir(substr(cmd, 12)) ? 0 : 1 }; let p = popen(cmd + ' 2>&1', 'r'); if (!p) return { out: '', rc: -1 }; let out = p.read('all') || ''; return { out: out, rc: p.close() }; }
+function shell_quote(value) { let out = "'", text = '' + value; for (let i = 0; i < length(text); i++) out += substr(text, i, 1) == "'" ? "'\\''" : substr(text, i, 1); return out + "'"; }
+function bounded_run(cmd, seconds) { let script = cmd + " & p=$!; (sleep " + int(seconds) + "; kill $p 2>/dev/null) >/dev/null 2>&1 & t=$!; wait $p; r=$?; kill $t 2>/dev/null; exit $r"; return run('sh -c ' + shell_quote(script)); }
 
 function now() { return trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out); }
 function err(code, message, extra) { let out = { ok: false, error: { code: code, message: message } }; for (let k in extra || {}) out[k] = extra[k]; return out; }
 function copy(values) { let out = []; for (let i = 0; i < length(values || []); i++) if (type(values[i]) == 'string') push(out, values[i]); return out; }
 function hash(values) { let h = 2166136261, raw = join('\n', values || []) + '\n'; for (let i = 0; i < length(raw); i++) h = (h ^ ord(substr(raw, i, 1))) * 16777619; return sprintf('%x', h); }
-function state_load() { try { let outer = json(readfile(STATE_PATH)); if (outer && type(outer.serviceDns) == 'object') { let state = outer.serviceDns; if (type(state.tiktokAuto) != 'object') state.tiktokAuto = { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0, managed: false }; if (type(state.applied) != 'object') state.applied = { revision: 0, managedServerEntries: [], externallySatisfiedEntries: [], managedAddressEntries: [] }; if (type(state.applied.managedAddressEntries) != 'array') state.applied.managedAddressEntries = []; return state; } } catch (e) {} return { selections: {}, draftRevision: 0, applied: { revision: 0, managedServerEntries: [], externallySatisfiedEntries: [], managedAddressEntries: [] }, tiktokAuto: { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0, managed: false }, events: [] }; }
+function state_load() {
+	try {
+		let outer = json(readfile(STATE_PATH));
+		if (outer && type(outer.serviceDns) == 'object') {
+			let state = outer.serviceDns;
+			if (type(state.tiktokAuto) != 'object') state.tiktokAuto = { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0, managed: false };
+			state.tiktokAuto = tiktok_state_migrate(state.tiktokAuto);
+			if (type(state.applied) != 'object') state.applied = { revision: 0, managedServerEntries: [], externallySatisfiedEntries: [], managedAddressEntries: [] };
+			if (type(state.applied.managedAddressEntries) != 'array') state.applied.managedAddressEntries = [];
+			return state;
+		}
+	} catch (e) {}
+	return { selections: {}, draftRevision: 0, applied: { revision: 0, managedServerEntries: [], externallySatisfiedEntries: [], managedAddressEntries: [] }, tiktokAuto: tiktok_state_migrate({ enabled: false, state: 'off', failureCount: 0, recoveryCount: 0, managed: false }), events: [] };
+}
 function state_save(state) { writefile(STATE_PATH + '.tmp', sprintf('%J', { serviceDns: state }) + '\n'); return run('mv -f ' + STATE_PATH + '.tmp ' + STATE_PATH).rc == 0; }
 function dataset() {
 	try {
@@ -45,7 +57,7 @@ function dataset() {
 	} catch (e) {}
 	return { ok: false };
 }
-function valid_domain(value) { return type(value) == 'string' && match(value, /^[a-z0-9][a-z0-9.-]*\.[a-z][a-z]+$/); }
+function valid_domain(value) { return type(value) == 'string' && length(value) > 0 && length(value) <= 253 && match(value, /^[a-z0-9][a-z0-9.-]*\.[a-z][a-z0-9-]*$/) && index(value, '..') < 0; }
 function valid_ip(value) { if (type(value) != 'string' || !match(value, /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) return false; let p = split(value, '.'); for (let i = 0; i < 4; i++) if (int(p[i]) > 255) return false; return true; }
 function route_entry(domain, ip) { domain = lc(trim(domain || '')); ip = trim(ip || ''); return valid_domain(domain) && valid_ip(ip) ? '/' + domain + '/' + ip : null; }
 function address_entry(domain, ip) { let entry = route_entry(domain, ip); return entry; }
@@ -119,51 +131,309 @@ function ownership(current, previous, desired) { let old = {}, external = [], pr
 function address_domain(entry) { let parts = split(entry || '', '/'); return length(parts) > 2 ? lc(parts[1]) : ''; }
 function address_ownership(current, previous, desired) { let own = ownership(current, previous, desired), conflicts = []; for (let i = 0; i < length(desired || []); i++) { let domain = address_domain(desired[i]); for (let j = 0; j < length(own.externalEntries || []); j++) if (address_domain(own.externalEntries[j]) == domain && own.externalEntries[j] != desired[i]) push(conflicts, { domain: domain, managed: desired[i], external: own.externalEntries[j] }); } own.conflicts = conflicts; return own; }
 function dedupe(values) { let out = [], seen = {}; for (let i = 0; i < length(values || []); i++) { let value = trim(values[i] || ''); if (valid_ip(value) && !seen[value]) { seen[value] = true; push(out, value); } } return out; }
-function discovered_tiktok_candidates(state, d) {
-	let out = [], m = maps(d), selected = state.selections && state.selections.tiktok, resolved = resolve_selection(m, 'tiktok', selected), provider = resolved && m.providers[resolved.providerId];
-	if (!provider) return out;
-	for (let i = 0; i < length(provider.ipv4 || []); i++) {
-		let resolver = provider.ipv4[i], result = run('nslookup ' + TIKTOK_AUTO_HOST + ' ' + resolver);
-		let lines = split(result.out || '', '\n');
-		for (let j = 0; j < length(lines); j++) { let matchIp = match(lines[j], /Address:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)/); if (matchIp && matchIp[1]) push(out, matchIp[1]); }
+function tiktok_system_resolvers() {
+	let out = [], sources = [TIKTOK_RESOLVER_STATE, TIKTOK_RESOLVER_FALLBACK];
+	for (let i = 0; i < length(sources); i++) {
+		let raw = stat(sources[i]) ? readfile(sources[i]) : null;
+		if (raw == null) continue;
+		let lines = split(raw, '\n');
+		for (let j = 0; j < length(lines); j++) {
+			let found = match(trim(lines[j] || ''), /^nameserver\s+([0-9.]+)\s*$/);
+			if (found && valid_ip(found[1]) && substr(found[1], 0, 4) != '127.' && index(out, found[1]) < 0) push(out, found[1]);
+		}
 	}
-	return dedupe(out);
+	return out;
 }
-function tiktok_candidates(state, d) { let out = discovered_tiktok_candidates(state, d); for (let i = 0; i < length(TIKTOK_CANDIDATES); i++) push(out, TIKTOK_CANDIDATES[i]); return dedupe(out); }
-function tiktok_probe(ip) {
+function tiktok_domain_resolutions() {
+	let out = [], catalog = tiktok_domain_catalog(), resolvers = tiktok_system_resolvers();
+	for (let i = 0; i < length(catalog); i++) {
+		let source = catalog[i], domain = lc(trim(source.domain || ''));
+		if (!valid_domain(domain) || source.enabled === false) continue;
+		if (!length(resolvers)) {
+			push(out, { domain: domain, mode: source.mode || 'generic', provenance: source.provenance || 'canonical-domain-source', resolver: null, resolverOwner: 'system-wan', status: 'unavailable', addresses: [], ttl: null, error: 'system resolver unavailable' });
+			continue;
+		}
+		for (let j = 0; j < length(resolvers); j++) {
+			let resolver = resolvers[j], query = bounded_run('/usr/bin/nslookup ' + shell_quote(domain) + ' ' + shell_quote(resolver), 5), parsed = tiktok_parse_nslookup(query.out || '', resolver);
+			push(out, { domain: domain, mode: source.mode || 'generic', provenance: source.provenance || 'canonical-domain-source', resolver: resolver, resolverOwner: 'system-wan', status: parsed.status, addresses: parsed.addresses, ttl: null, queryRc: query.rc, durationMs: null, error: parsed.status == 'resolved' ? null : (query.rc ? 'nslookup failed' : 'no valid DNS answer') });
+		}
+	}
+	return out;
+}
+function tiktok_resolution_snapshot() {
+	let resolutions = tiktok_domain_resolutions(), candidates = tiktok_resolved_candidates(resolutions), resolvers = tiktok_system_resolvers(), resolved = 0, unavailable = 0;
+	for (let i = 0; i < length(resolutions); i++) { if (resolutions[i].status == 'resolved') resolved++; if (resolutions[i].status == 'unavailable') unavailable++; }
+	return { domainCandidates: tiktok_domain_catalog(), resolutions: resolutions, candidates: candidates, resolvers: resolvers, resolverOwner: 'system-wan', status: resolved ? 'resolved' : (unavailable ? 'unavailable' : 'empty') };
+}
+function tiktok_candidate_ips(candidates) { let out = []; for (let i = 0; i < length(candidates || []); i++) if (candidates[i] && valid_ip(candidates[i].ip)) push(out, candidates[i].ip); return out; }
+function tiktok_probe(candidate) {
+	let item = type(candidate) == 'object' ? candidate : { ip: candidate }, ip = trim(item.ip || '');
 	if (!valid_ip(ip)) return { ip: ip, ok: false, reason: 'invalid-ip' };
-	let command = "/usr/bin/curl --ipv4 --silent --show-error --output /dev/null --stderr /dev/null --connect-timeout 4 --max-time 7 --write-out '%{http_code}|%{time_connect}|%{time_appconnect}|%{time_total}' --resolve '" + TIKTOK_AUTO_HOST + ":443:" + ip + "' 'https://" + TIKTOK_AUTO_HOST + "/'";
+	let resolveTarget = TIKTOK_AUTO_HOST + ':443:' + ip, url = 'https://' + TIKTOK_AUTO_HOST + '/', command = '/usr/bin/curl --ipv4 --silent --show-error --output /dev/null --stderr /dev/null --connect-timeout 4 --max-time 7 --write-out ' + shell_quote('%{http_code}|%{time_connect}|%{time_appconnect}|%{time_total}') + ' --resolve ' + shell_quote(resolveTarget) + ' ' + shell_quote(url);
 	let result = run(command), fields = split(trim(result.out || ''), '|'), tlsMs = length(fields) > 2 ? (+fields[2] * 1000) : 0, totalMs = length(fields) > 3 ? (+fields[3] * 1000) : 0;
-	return { ip: ip, ok: result.rc == 0 && tlsMs > 0, tcp443: result.rc == 0, tlsSni: tlsMs > 0, httpStatus: fields[0] || null, latencyMs: totalMs > 0 ? int(totalMs) : null, tlsLatencyMs: tlsMs > 0 ? int(tlsMs) : null, reason: result.rc == 0 && tlsMs > 0 ? 'verified' : 'tcp-or-tls-failed' };
+	return { ip: ip, ok: result.rc == 0 && tlsMs > 0, tcp443: result.rc == 0, tlsSni: tlsMs > 0, httpStatus: fields[0] || null, latencyMs: totalMs > 0 ? int(totalMs) : null, tlsLatencyMs: tlsMs > 0 ? int(tlsMs) : null, sourceDomains: copy(item.sourceDomains || []), modes: copy(item.modes || []), sourceDomain: item.sourceDomain || (length(item.sourceDomains || []) ? item.sourceDomains[0] : null), mode: item.mode || (length(item.modes || []) ? item.modes[0] : null), reason: result.rc == 0 && tlsMs > 0 ? 'verified' : 'tcp-or-tls-failed' };
 }
-function tiktok_probe_best(state, d) {
-	let candidates = tiktok_candidates(state, d), observations = [], best = null;
-	for (let i = 0; i < length(candidates) && i < TIKTOK_MAX_PROBES; i++) { let observation = tiktok_probe(candidates[i]); push(observations, observation); if (observation.ok && (!best || (observation.latencyMs || 999999) < (best.latencyMs || 999999))) best = observation; let successful = 0; for (let j = 0; j < length(observations); j++) if (observations[j].ok) successful++; if (successful >= TIKTOK_SUCCESS_TARGET) break; }
-	if (!best) return { ok: false, candidates: candidates, observations: observations, selected: null };
-	let repeat = tiktok_probe(best.ip);
-	let repeated = copy(observations); push(repeated, repeat);
-	if (!repeat.ok) return { ok: false, candidates: candidates, observations: repeated, selected: null, rejected: best.ip };
-	return { ok: true, candidates: candidates, observations: repeated, selected: { ip: best.ip, latencyMs: repeat.latencyMs, tlsLatencyMs: repeat.tlsLatencyMs, verified: true } };
+function tiktok_probe_best(state, d, snapshot, skipCurrent) {
+	let fresh = snapshot || tiktok_resolution_snapshot(), candidates = fresh.candidates || [], observations = [], best = null, auto = tiktok_state_migrate(state.tiktokAuto || {}), current = auto.selectedCandidate || (valid_ip(auto.selectedIp) ? { ip: auto.selectedIp, mode: 'legacy', provenance: 'legacy-state' } : null);
+	if (!skipCurrent && current) {
+		let currentObservation = tiktok_probe(current);
+		push(observations, currentObservation);
+		if (currentObservation.ok) return { ok: true, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: observations, selected: currentObservation };
+	}
+	for (let i = 0; i < length(candidates) && i < TIKTOK_MAX_PROBES; i++) {
+		if (current && candidates[i].ip == current.ip) continue;
+		let observation = tiktok_probe(candidates[i]);
+		push(observations, observation);
+		if (observation.ok && (!best || (observation.latencyMs || 999999) < (best.latencyMs || 999999))) best = observation;
+		let successful = 0;
+		for (let j = 0; j < length(observations); j++) if (observations[j].ok) successful++;
+		if (successful >= TIKTOK_SUCCESS_TARGET) break;
+	}
+	if (!best) return { ok: false, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: observations, selected: null };
+	let repeat = tiktok_probe(best), repeated = [];
+	for (let k = 0; k < length(observations); k++) push(repeated, observations[k]);
+	push(repeated, repeat);
+	if (!repeat.ok) return { ok: false, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: repeated, selected: null, rejected: best.ip };
+	return { ok: true, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: repeated, selected: repeat };
 }
-function tiktok_override(state) { let auto = state.tiktokAuto || {}; return auto.enabled && auto.selectedIp ? [address_entry(TIKTOK_AUTO_HOST, auto.selectedIp)] : []; }
+function tiktok_override(state) { let auto = state.tiktokAuto || {}, selected = auto.selectedCandidate && auto.selectedCandidate.ip ? auto.selectedCandidate.ip : auto.selectedIp; return auto.enabled && valid_ip(selected) ? [address_entry(TIKTOK_AUTO_HOST, selected)] : []; }
 function lock(op) { if (stat(LOCK_FILE)) { try { let l = json(readfile(LOCK_FILE)); if (l && l.operationId != op) return l; } catch (e) {} } writefile(LOCK_FILE, sprintf('%J', { operationId: op, phase: 'queued', updatedAt: now() }) + '\n'); return null; }
 function unlock(op) { try { let l = json(readfile(LOCK_FILE)); if (l && l.operationId == op) unlink(LOCK_FILE); } catch (e) {} }
 function valid_operation(op) { return type(op) == 'string' && match(op, /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/); }
-function enqueue_native_apply(input, internal) { input = input || {}; let op = internal || input.operationId || ''; if (!valid_operation(op)) return err('EINPUT', 'operationId is invalid'); let dir = JOBS_DIR + '/' + op, file = dir + '/job.json'; if (stat(file)) { try { let old = json(readfile(file)); return { ok: true, accepted: false, operationId: op, state: old.phase || 'queued', finished: old.finished === true, alreadyRunning: old.finished !== true }; } catch (e) {} } let held = lock(op); if (held) return err('EAPPLYBUSY', 'Another Service DNS Apply is running', { operationId: held.operationId, phase: held.phase, retryAfterMs: 2000 }); let state = state_load(), d = dataset(); if (!d.ok) { unlock(op); return err('ETARGET', 'dataset unavailable', { detail: d.error || null }); } let normalized = normalize_state(state, d.data); if (!normalized.ok) { unlock(op); return normalized; } let revision = type(state.draftRevision) == 'int' ? state.draftRevision : 0; if (input.draftRevision != null && input.draftRevision != revision) { unlock(op); return err('ECONFLICT', 'service DNS draft changed elsewhere'); } let routes = desired_routes(state.selections, d.data); if (length(routes.conflicts)) { unlock(op); return err('EDOMAINCONFLICT', 'Domain routing conflict', { conflicts: routes.conflicts }); } let active = active_dnsmasq(), current = active ? uci_snapshot(active) : null; if (!current) { unlock(op); return err('ETARGET', 'active dnsmasq instance/config unavailable'); } let own = ownership(current.server, state.applied.managedServerEntries || [], routes.entries), addressOwn = address_ownership(current.address, state.applied.managedAddressEntries || [], tiktok_override(state)), legacy = stat(LEGACY_FRAGMENT) ? readfile(LEGACY_FRAGMENT) : null; if (length(addressOwn.conflicts)) { unlock(op); return err('EDOMAINCONFLICT', 'TikTok address override conflicts with an external address entry', { conflicts: addressOwn.conflicts }); } let pre = { activeSection: active.section, serverListHash: hash(current.server), addressListHash: hash(current.address), confdirListHash: hash(current.confdir), previousManagedEntries: copy(state.applied.managedServerEntries), previousManagedAddressEntries: copy(state.applied.managedAddressEntries), legacyFragmentHash: hash([legacy || '']), draftRevision: revision, selectionHash: hash([sprintf('%J', state.selections || {})]) }; run('mkdir-child ' + dir); let job = { operationId: op, phase: 'queued', finished: false, revision: revision, desiredSelections: state.selections || {}, nativeUciPrecondition: pre, resultingServerEntries: own.resultingEntries, managedServerEntries: own.managedServerEntries, externallySatisfiedEntries: own.externallySatisfiedEntries, resultingAddressEntries: addressOwn.resultingEntries, managedAddressEntries: addressOwn.managedAddressEntries, externallySatisfiedAddressEntries: addressOwn.externallySatisfiedAddressEntries, previousUciServerEntries: current.server, previousUciAddressEntries: current.address, previousUciConfdirEntries: current.confdir, previousLegacyFragment: legacy, previousState: readfile(STATE_PATH) || '', statePath: STATE_PATH, createdAt: now() }; writefile(file, sprintf('%J', job) + '\n'); if (!stat(file)) { unlock(op); return err('ETARGET', 'job write failed'); } state.pending = { operationId: op, phase: 'queued', jobFile: file, createdAt: now() }; if (!state_save(state)) { try { unlink(file); } catch (e) {} unlock(op); return err('ESTATE', 'pending write failed'); } let worker = '/usr/libexec/zapret2-manager/service-dns-apply-worker.uc', workerRun = stat(worker) ? run('/usr/bin/ucode ' + worker + ' ' + file) : { out: '', rc: -1 }; if (workerRun.rc != 0) { state.pending = null; state_save(state); unlock(op); return err('ETARGET', 'worker failed: ' + trim(workerRun.out || '')); } return { ok: true, accepted: true, operationId: op, draftRevision: revision, state: 'submitted', routesWritten: length(routes.entries), overridesWritten: length(addressOwn.managedServerEntries) }; }
+function legacy_tiktok_managed_addresses(state, current) {
+	let previous = copy(state.applied && state.applied.managedAddressEntries || []);
+	if (length(previous) || !state.tiktokAuto || (state.tiktokAuto.managed !== true && state.tiktokAuto.legacyManagedAddressMigration !== true)) return { entries: previous, ambiguous: false };
+	let matches = [];
+	for (let i = 0; i < length(current || []); i++) if (address_domain(current[i]) == TIKTOK_AUTO_HOST) push(matches, current[i]);
+	return { entries: length(matches) == 1 ? matches : [], ambiguous: length(matches) > 1 };
+}
+function enqueue_native_apply(input, internal) {
+	input = input || {};
+	let op = internal || input.operationId || '';
+	if (!valid_operation(op)) return err('EINPUT', 'operationId is invalid');
+	let dir = JOBS_DIR + '/' + op, file = dir + '/job.json';
+	if (stat(file)) {
+		try {
+			let old = json(readfile(file));
+			return { ok: true, accepted: false, operationId: op, state: old.phase || 'queued', finished: old.finished === true, alreadyRunning: old.finished !== true };
+		} catch (e) {}
+	}
+	let held = lock(op);
+	if (held) return err('EAPPLYBUSY', 'Another Service DNS Apply is running', { operationId: held.operationId, phase: held.phase, retryAfterMs: 2000 });
+	let state = state_load(), d = dataset();
+	if (!d.ok) { unlock(op); return err('ETARGET', 'dataset unavailable', { detail: d.error || null }); }
+	let normalized = normalize_state(state, d.data);
+	if (!normalized.ok) { unlock(op); return normalized; }
+	let revision = type(state.draftRevision) == 'int' ? state.draftRevision : 0;
+	if (input.draftRevision != null && input.draftRevision != revision) { unlock(op); return err('ECONFLICT', 'service DNS draft changed elsewhere'); }
+	let routes = desired_routes(state.selections, d.data);
+	if (length(routes.conflicts)) { unlock(op); return err('EDOMAINCONFLICT', 'Domain routing conflict', { conflicts: routes.conflicts }); }
+	let active = active_dnsmasq(), current = active ? uci_snapshot(active) : null;
+	if (!current) { unlock(op); return err('ETARGET', 'active dnsmasq instance/config unavailable'); }
+	let legacyAddresses = legacy_tiktok_managed_addresses(state, current.address);
+	if (legacyAddresses.ambiguous) { unlock(op); return err('EDOMAINCONFLICT', 'TikTok managed address ownership is ambiguous; refusing to remove external entries', { host: TIKTOK_AUTO_HOST }); }
+	let own = ownership(current.server, state.applied.managedServerEntries || [], routes.entries), addressOwn = address_ownership(current.address, legacyAddresses.entries, tiktok_override(state)), legacy = stat(LEGACY_FRAGMENT) ? readfile(LEGACY_FRAGMENT) : null;
+	if (length(addressOwn.conflicts)) { unlock(op); return err('EDOMAINCONFLICT', 'TikTok address override conflicts with an external address entry', { conflicts: addressOwn.conflicts }); }
+	let pre = { activeSection: active.section, serverListHash: hash(current.server), addressListHash: hash(current.address), confdirListHash: hash(current.confdir), previousManagedEntries: copy(state.applied.managedServerEntries), previousManagedAddressEntries: copy(legacyAddresses.entries), legacyFragmentHash: hash([legacy || '']), draftRevision: revision, selectionHash: hash([sprintf('%J', state.selections || {})]) };
+	run('mkdir-child ' + dir);
+	let job = { operationId: op, phase: 'queued', finished: false, revision: revision, desiredSelections: state.selections || {}, nativeUciPrecondition: pre, resultingServerEntries: own.resultingEntries, managedServerEntries: own.managedServerEntries, externallySatisfiedEntries: own.externallySatisfiedEntries, resultingAddressEntries: addressOwn.resultingEntries, managedAddressEntries: addressOwn.managedAddressEntries, externallySatisfiedAddressEntries: addressOwn.externallySatisfiedAddressEntries, previousUciServerEntries: current.server, previousUciAddressEntries: current.address, previousUciConfdirEntries: current.confdir, previousLegacyFragment: legacy, previousState: readfile(STATE_PATH) || '', statePath: STATE_PATH, createdAt: now() };
+	writefile(file, sprintf('%J', job) + '\n');
+	if (!stat(file)) { unlock(op); return err('ETARGET', 'job write failed'); }
+	state.pending = { operationId: op, phase: 'queued', jobFile: file, createdAt: now() };
+	if (!state_save(state)) { try { unlink(file); } catch (e) {} unlock(op); return err('ESTATE', 'pending write failed'); }
+	let worker = '/usr/libexec/zapret2-manager/service-dns-apply-worker.uc', workerRun = stat(worker) ? run('/usr/bin/ucode ' + worker + ' ' + file) : { out: '', rc: -1 };
+	if (workerRun.rc != 0) { state.pending = null; state_save(state); unlock(op); return err('ETARGET', 'worker failed: ' + trim(workerRun.out || '')); }
+	return { ok: true, accepted: true, operationId: op, draftRevision: revision, state: 'submitted', routesWritten: length(routes.entries), overridesWritten: length(addressOwn.managedAddressEntries) };
+}
 
 export const service_dns_providers = function(req) { let d = dataset(); return d.ok ? { ok: true, providers: d.data.providers, profiles: d.data.profiles, providerRevision: d.data.providerRevision || 0, generatedAt: d.data.generatedAt || now() } : err('ETARGET', 'dataset unavailable', { detail: d.error || null }); };
 export const service_dns_status = function(req) { let state = state_load(), d = dataset(), active = active_dnsmasq(), snap = active ? uci_snapshot(active) : null, rollbackAvailable = false; if (!d.ok) return err('ETARGET', 'dataset unavailable', { detail: d.error || null }); let normalized = normalize_state(state, d.data); if (!normalized.ok) return normalized; state = normalized.state; if (state.lastOperation && state.lastOperation.operationId) { let f = JOBS_DIR + '/' + state.lastOperation.operationId + '/job.json'; if (stat(f)) { try { let j = json(readfile(f)); rollbackAvailable = j.finished === true && j.phase == 'success' && type(j.previousState) == 'string' && type(j.nativeUciPrecondition) == 'object'; } catch (e) {} } } let runtimeForwardingVerified = false; return { ok: true, selections: state.selections || {}, applied: state.applied ? state.applied.selections || {} : {}, appliedRevision: state.applied ? state.applied.revision || 0 : 0, draftRevision: state.draftRevision || 0, rollbackAvailable: rollbackAvailable, pending: state.pending || null, runtime: { backend: 'dnsmasq-uci', dnsmasqRunning: active != null, effectiveConfig: active ? active.configPath : null, runtimeForwardingVerified: runtimeForwardingVerified }, managedServerEntries: state.applied ? state.applied.managedServerEntries || [] : [], externalServerEntries: snap ? snap.server : [], managedAddressEntries: state.applied ? state.applied.managedAddressEntries || [] : [], externalAddressEntries: snap ? snap.address : [], tiktokAuto: state.tiktokAuto || { enabled: false, state: 'off' }, events: state.events || [] }; };
 export const service_dns_preview = function(req) { let state = state_load(), d = dataset(), active = active_dnsmasq(); if (!d.ok || !active) return err('ETARGET', 'dataset or active dnsmasq unavailable'); let normalized = normalize_state(state, d.data); if (!normalized.ok) return normalized; state = normalized.state; let snap = uci_snapshot(active), routes = desired_routes(state.selections, d.data); if (!snap) return err('ETARGET', 'active dnsmasq UCI section unavailable'); if (length(routes.invalid)) return err('EINPUT', 'service DNS selection references an unavailable provider or service profile', { invalid: routes.invalid }); if (length(routes.conflicts)) return err('EDOMAINCONFLICT', 'Domain routing conflict', { conflicts: routes.conflicts }); let own = ownership(snap.server, state.applied.managedServerEntries || [], routes.entries), addressOwn = address_ownership(snap.address, state.applied.managedAddressEntries || [], tiktok_override(state)); if (length(addressOwn.conflicts)) return err('EDOMAINCONFLICT', 'TikTok address override conflicts with an external address entry', { conflicts: addressOwn.conflicts }); return { ok: true, mode: 'preview', zeroWrites: true, routesAdded: own.managedServerEntries, routesRemoved: [], routesPreserved: own.externalEntries, overridesAdded: addressOwn.managedServerEntries, overridesPreserved: addressOwn.externalEntries, externallySatisfied: own.externallySatisfiedEntries, conflicts: [], resultingDirectiveCount: length(own.resultingEntries) + length(addressOwn.resultingEntries), affectedProviders: routes.providers, precondition: { activeSection: active.section, serverListHash: hash(snap.server), addressListHash: hash(snap.address), confdirListHash: hash(snap.confdir), draftRevision: state.draftRevision || 0, selectionHash: hash([sprintf('%J', state.selections || {})]) } }; };
 export const service_dns_check = function(req) { let state = state_load(), active = active_dnsmasq(), snap = active ? uci_snapshot(active) : null, wanted = state.applied ? state.applied.managedServerEntries || [] : [], wantedAddress = state.applied ? state.applied.managedAddressEntries || [] : [], matches = true; for (let i = 0; i < length(wanted); i++) if (!snap || index(snap.server, wanted[i]) < 0) matches = false; for (let j = 0; j < length(wantedAddress); j++) if (!snap || index(snap.address, wantedAddress[j]) < 0) matches = false; let effective = active ? readfile(active.configPath) || '' : ''; let legacy = index(effective, '10-routing.conf') >= 0; let q = run('sh -c \'nslookup example.com 127.0.0.1 >/dev/null 2>&1 & p=$!; (sleep 3; kill $p 2>/dev/null) & t=$!; wait $p; r=$?; kill $t 2>/dev/null; exit $r\''); return { ok: true, active: active, uciMatches: matches, legacyIncluded: legacy, localQuery: { ok: q.rc == 0, timedOut: q.rc != 0 }, allMatch: matches && !legacy && q.rc == 0 }; };
 export const service_dns_set = function(req) { let input = req && req.args ? req.args : req || {}, state = state_load(), d = dataset(); if (type(input.selections) != 'object') return err('EINPUT', 'selections must be an object'); if (!d.ok) return err('ETARGET', 'dataset unavailable', { detail: d.error || null }); let mapped = canonical_selections(input.selections, d.data); if (length(mapped.invalid)) return err('EINPUT', 'service DNS selection references an unavailable provider or service profile', { invalid: mapped.invalid }); state.selections = mapped.selections; state.draftRevision = (state.draftRevision || 0) + 1; if (!state_save(state)) return err('ESTATE', 'draft state write failed'); return { ok: true, draftRevision: state.draftRevision, selections: state.selections }; };
-export const service_dns_tiktok_status = function(req) { let state = state_load(), auto = state.tiktokAuto || { enabled: false, state: 'off' }; return { ok: true, host: TIKTOK_AUTO_HOST, owner: TIKTOK_AUTO_OWNER, enabled: auto.enabled === true, state: auto.state || (auto.enabled ? 'degraded' : 'off'), selectedIp: auto.selectedIp || null, latencyMs: auto.latencyMs || null, candidates: auto.candidates || [], lastProbe: auto.lastProbe || null, lastFailover: auto.lastFailover || null, failureCount: auto.failureCount || 0, recoveryCount: auto.recoveryCount || 0, override: auto.selectedIp ? { host: TIKTOK_AUTO_HOST, ip: auto.selectedIp, owner: TIKTOK_AUTO_OWNER, managed: true } : null }; };
-export const service_dns_tiktok_set = function(req) { let input = req && req.args ? req.args : req || {}, state = state_load(), auto = state.tiktokAuto || { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0 }, enabled = input.enabled === true; auto.enabled = enabled; auto.failureCount = 0; auto.recoveryCount = 0; if (!enabled) { auto.state = 'off'; auto.selectedIp = null; auto.latencyMs = null; auto.lastProbe = null; auto.lastFailover = null; auto.managed = false; state.tiktokAuto = auto; if (!state_save(state)) return err('ESTATE', 'TikTok auto-fix state write failed'); let offOp = 'tiktok-off-' + trim(run('date +%s').out) + '-auto'; return enqueue_native_apply({ operationId: offOp }, offOp); } let d = dataset(); if (!d.ok) return err('ETARGET', 'service DNS dataset unavailable'); let result = tiktok_probe_best(state, d.data), nowValue = now(); auto.candidates = result.candidates || []; auto.lastProbe = { at: nowValue, source: length(result.observations || []) ? 'provider+fallback-probe' : 'fallback-probe', observations: result.observations || [] }; if (result.ok && result.selected) { auto.state = 'healthy'; auto.selectedIp = result.selected.ip; auto.latencyMs = result.selected.latencyMs; auto.managed = true; } else { auto.state = 'degraded'; auto.selectedIp = null; auto.latencyMs = null; auto.managed = false; } state.tiktokAuto = auto; if (!state_save(state)) return err('ESTATE', 'TikTok auto-fix state write failed'); let op = 'tiktok-on-' + trim(run('date +%s').out) + '-auto', queued = enqueue_native_apply({ operationId: op }, op); queued.host = TIKTOK_AUTO_HOST; queued.owner = TIKTOK_AUTO_OWNER; queued.selected = result.selected || null; queued.probe = auto.lastProbe; return queued; };
-export const service_dns_tiktok_check = function(req) { let state = state_load(), auto = state.tiktokAuto || { enabled: false, state: 'off' }; if (auto.enabled !== true) return service_dns_tiktok_status(); let d = dataset(); if (!d.ok) return err('ETARGET', 'service DNS dataset unavailable'); let current = auto.selectedIp ? tiktok_probe(auto.selectedIp) : { ok: false }; if (!current.ok) { auto.failureCount = (auto.failureCount || 0) + 1; auto.recoveryCount = 0; if (auto.failureCount >= TIKTOK_FAILOVER_THRESHOLD) { let result = tiktok_probe_best(state, d.data); if (result.ok && result.selected && result.selected.ip != auto.selectedIp) { auto.lastFailover = { at: now(), from: auto.selectedIp || null, to: result.selected.ip, reason: 'consecutive probe failures', threshold: TIKTOK_FAILOVER_THRESHOLD }; auto.selectedIp = result.selected.ip; auto.latencyMs = result.selected.latencyMs; auto.state = 'failover'; auto.managed = true; auto.lastProbe = { at: now(), source: 'failover-probe', observations: result.observations || [] }; state.tiktokAuto = auto; if (!state_save(state)) return err('ESTATE', 'TikTok failover state write failed'); let op = 'tiktok-failover-' + trim(run('date +%s').out) + '-auto', queuedFailover = enqueue_native_apply({ operationId: op }, op); queuedFailover.ok = true; queuedFailover.failover = true; return queuedFailover; } auto.state = 'degraded'; } } else { auto.failureCount = 0; auto.recoveryCount = (auto.recoveryCount || 0) + 1; if (auto.recoveryCount >= TIKTOK_RECOVERY_THRESHOLD) { auto.selectedIp = null; auto.latencyMs = null; auto.state = 'healthy'; auto.managed = false; auto.lastFailover = { at: now(), action: 'removed-owned-override', reason: 'normal DNS recovered repeatedly', threshold: TIKTOK_RECOVERY_THRESHOLD }; state.tiktokAuto = auto; if (!state_save(state)) return err('ESTATE', 'TikTok recovery state write failed'); let op2 = 'tiktok-recover-' + trim(run('date +%s').out) + '-auto', queuedRecovery = enqueue_native_apply({ operationId: op2 }, op2); queuedRecovery.ok = true; queuedRecovery.recovered = true; return queuedRecovery; } auto.state = 'healthy'; } state.tiktokAuto = auto; if (!state_save(state)) return err('ESTATE', 'TikTok health state write failed'); return service_dns_tiktok_status(); };
-export const service_dns_apply_async = function(req) { return enqueue_native_apply(req && req.args ? req.args : req, null); };
+function tiktok_store_resolution(auto, result) {
+	auto.domainCandidates = result.domainCandidates || tiktok_domain_catalog();
+	auto.resolvedCandidates = result.resolvedCandidates || result.candidates || [];
+	auto.candidates = tiktok_candidate_ips(auto.resolvedCandidates);
+	auto.resolutions = result.resolutions || [];
+	auto.resolver = result.resolvers || null;
+	auto.resolverOwner = result.resolverOwner || 'system-wan';
+	auto.resolutionStatus = result.resolutionStatus || result.status || 'empty';
+}
+function tiktok_current_candidate(auto) {
+	if (type(auto.selectedCandidate) == 'object' && valid_ip(auto.selectedCandidate.ip)) return auto.selectedCandidate;
+	if (valid_ip(auto.selectedIp)) return { ip: auto.selectedIp, sourceDomain: null, mode: 'legacy', provenance: 'legacy-state' };
+	return null;
+}
+function tiktok_probe_record(at, source, result) {
+	return { at: at, source: source, resolutionStatus: result.resolutionStatus || result.status || null, resolverOwner: result.resolverOwner || 'system-wan', observations: result.observations || [], candidateCount: length(result.candidates || []) };
+}
+function tiktok_set_selected(auto, selected) {
+	if (!selected || !valid_ip(selected.ip)) return;
+	auto.selectedCandidate = selected;
+	auto.selectedIp = selected.ip;
+	auto.latencyMs = selected.latencyMs || null;
+	auto.managed = true;
+}
+export const service_dns_tiktok_status = function(req) {
+	let state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off' }), selected = tiktok_current_candidate(auto);
+	return { ok: true, host: TIKTOK_AUTO_HOST, owner: TIKTOK_AUTO_OWNER, enabled: auto.enabled === true, state: auto.state || (auto.enabled ? 'degraded' : 'off'), selectedIp: selected ? selected.ip : null, selectedCandidate: selected || null, latencyMs: auto.latencyMs || null, candidates: auto.candidates || [], domainCandidates: auto.domainCandidates || tiktok_domain_catalog(), resolvedCandidates: auto.resolvedCandidates || [], resolutions: auto.resolutions || [], resolver: auto.resolver || null, resolverOwner: auto.resolverOwner || 'system-wan', resolutionStatus: auto.resolutionStatus || 'unknown', lastProbe: auto.lastProbe || null, lastFailover: auto.lastFailover || null, failureCount: auto.failureCount || 0, recoveryCount: auto.recoveryCount || 0, override: selected && auto.enabled ? { host: TIKTOK_AUTO_HOST, ip: selected.ip, owner: TIKTOK_AUTO_OWNER, managed: auto.managed !== false } : null };
+};
+export const service_dns_tiktok_set = function(req) {
+	let input = req && req.args ? req.args : req || {}, state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0 }), enabled = input.enabled === true, previous = tiktok_current_candidate(auto);
+	auto.enabled = enabled;
+	auto.failureCount = 0;
+	auto.recoveryCount = 0;
+	if (!enabled) {
+		if (auto.managed === true && !(state.applied && length(state.applied.managedAddressEntries || []))) auto.legacyManagedAddressMigration = true;
+		auto.state = 'off';
+		auto.selectedIp = null;
+		auto.selectedCandidate = null;
+		auto.latencyMs = null;
+		auto.lastProbe = null;
+		auto.lastFailover = null;
+		auto.managed = false;
+		state.tiktokAuto = auto;
+		if (!state_save(state)) return err('ESTATE', 'TikTok auto-fix state write failed');
+		let offOp = 'tiktok-off-' + trim(run('date +%s').out) + '-auto';
+		return enqueue_native_apply({ operationId: offOp }, offOp);
+	}
+	let d = dataset();
+	if (!d.ok) return err('ETARGET', 'service DNS dataset unavailable');
+	let result = tiktok_probe_best({ tiktokAuto: auto }, d.data), nowValue = now();
+	tiktok_store_resolution(auto, result);
+	auto.lastProbe = tiktok_probe_record(nowValue, 'system-wan-domain-resolution+target-probe', result);
+	if (result.ok && result.selected) {
+		tiktok_set_selected(auto, result.selected);
+		auto.state = 'healthy';
+	} else if (previous) {
+		auto.selectedCandidate = previous;
+		auto.selectedIp = previous.ip;
+		auto.state = 'degraded';
+		auto.managed = auto.managed === true;
+	} else {
+		auto.selectedCandidate = null;
+		auto.selectedIp = null;
+		auto.latencyMs = null;
+		auto.state = 'degraded';
+		auto.managed = false;
+	}
+	state.tiktokAuto = auto;
+	if (!state_save(state)) return err('ESTATE', 'TikTok auto-fix state write failed');
+	let op = 'tiktok-on-' + trim(run('date +%s').out) + '-auto', queued = enqueue_native_apply({ operationId: op }, op);
+	queued.host = TIKTOK_AUTO_HOST;
+	queued.owner = TIKTOK_AUTO_OWNER;
+	queued.selected = result.selected || previous || null;
+	queued.domainCandidates = auto.domainCandidates;
+	queued.resolvedCandidates = auto.resolvedCandidates;
+	queued.resolverOwner = auto.resolverOwner;
+	queued.probe = auto.lastProbe;
+	return queued;
+};
+export const service_dns_tiktok_check = function(req) {
+	let state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off' });
+	if (auto.enabled !== true) return service_dns_tiktok_status();
+	let d = dataset();
+	if (!d.ok) return err('ETARGET', 'service DNS dataset unavailable');
+	let snapshot = tiktok_resolution_snapshot(), current = tiktok_current_candidate(auto), currentObservation = current ? tiktok_probe(current) : { ok: false, reason: 'no-selected-candidate' }, nowValue = now();
+	tiktok_store_resolution(auto, snapshot);
+	if (currentObservation.ok) {
+		auto.failureCount = 0;
+		if (snapshot.status == 'resolved' && length(snapshot.candidates || [])) {
+			auto.recoveryCount = (auto.recoveryCount || 0) + 1;
+			auto.state = 'healthy';
+		} else {
+			auto.recoveryCount = 0;
+			auto.state = 'degraded';
+		}
+		auto.lastProbe = tiktok_probe_record(nowValue, 'system-wan-domain-resolution+target-probe', { resolutionStatus: snapshot.status, resolverOwner: snapshot.resolverOwner, candidates: snapshot.candidates, observations: [currentObservation] });
+		if (auto.recoveryCount >= TIKTOK_RECOVERY_THRESHOLD) {
+			auto.selectedIp = null;
+			auto.selectedCandidate = null;
+			auto.latencyMs = null;
+			auto.state = 'healthy';
+			auto.managed = false;
+			auto.lastFailover = { at: nowValue, action: 'removed-owned-override', reason: 'normal DNS recovered repeatedly', threshold: TIKTOK_RECOVERY_THRESHOLD };
+			state.tiktokAuto = auto;
+			if (!state_save(state)) return err('ESTATE', 'TikTok recovery state write failed');
+			let recoveryOp = 'tiktok-recover-' + trim(run('date +%s').out) + '-auto', queuedRecovery = enqueue_native_apply({ operationId: recoveryOp }, recoveryOp);
+			queuedRecovery.ok = true;
+			queuedRecovery.recovered = true;
+			return queuedRecovery;
+		}
+		state.tiktokAuto = auto;
+		if (!state_save(state)) return err('ESTATE', 'TikTok health state write failed');
+		return service_dns_tiktok_status();
+	}
+	auto.failureCount = (auto.failureCount || 0) + 1;
+	auto.recoveryCount = 0;
+	if (!current || auto.failureCount >= TIKTOK_FAILOVER_THRESHOLD) {
+		let result = tiktok_probe_best({ tiktokAuto: auto }, d.data, snapshot, true);
+		tiktok_store_resolution(auto, result);
+		auto.lastProbe = tiktok_probe_record(nowValue, 'system-wan-domain-resolution+target-probe', result);
+		if (result.ok && result.selected && (!current || result.selected.ip != current.ip)) {
+			auto.lastFailover = { at: nowValue, from: current ? current.ip : null, to: result.selected.ip, sourceDomain: result.selected.sourceDomain || null, mode: result.selected.mode || null, reason: current ? 'consecutive probe failures' : 'verified initial candidate', threshold: current ? TIKTOK_FAILOVER_THRESHOLD : null };
+			tiktok_set_selected(auto, result.selected);
+			auto.state = current ? 'failover' : 'healthy';
+			state.tiktokAuto = auto;
+			if (!state_save(state)) return err('ESTATE', 'TikTok failover state write failed');
+			let op = (current ? 'tiktok-failover-' : 'tiktok-select-') + trim(run('date +%s').out) + '-auto', queued = enqueue_native_apply({ operationId: op }, op);
+			queued.ok = true;
+			queued.failover = !!current;
+			queued.selected = result.selected;
+			return queued;
+		}
+	}
+	auto.state = 'degraded';
+	state.tiktokAuto = auto;
+	if (!state_save(state)) return err('ESTATE', 'TikTok health state write failed');
+	return service_dns_tiktok_status();
+};
 export const service_dns_apply_status = function(req) { let input = req && req.args ? req.args : req || {}, op = input.operationId, state = state_load(); if (!op) return { ok: true, state: state.pending ? state.pending.phase : 'idle', pending: state.pending || null, lastOperation: state.lastOperation || null }; let file = JOBS_DIR + '/' + op + '/job.json'; if (!stat(file)) return err('ENOENT', 'operation not found'); try { let job = json(readfile(file)); return { ok: true, operationId: op, state: job.phase || 'queued', phase: job.phase || 'queued', finished: job.finished === true, error: job.error || null }; } catch (e) { return err('ESTATE', 'operation state malformed'); } };
 export const service_dns_apply = function(req) { let input = req && req.args ? req.args : req || {}, rev = input.revision != null ? input.revision : input.draftRevision, op = 'sync-' + trim(run('date +%s').out) + '-' + (type(rev) == 'int' ? rev : 0); let queued = enqueue_native_apply({ operationId: op, draftRevision: rev }, op); if (!queued.ok) return queued; let deadline = time() + 30; while (time() < deadline) { let status = service_dns_apply_status({ args: { operationId: op } }); if (status.finished) return status.error ? { ok: false, operationId: op, error: status.error } : { ok: true, operationId: op, state: status.state }; run('sleep 1'); } let status = service_dns_apply_status({ args: { operationId: op } }); return err('EAPPLYTIMEOUT', 'Service DNS Apply is still running', { operationId: op, phase: status.phase || 'queued', retryAfterMs: 2000 }); };
-export const service_dns_rollback = function(req) { let state = state_load(), last = state.lastOperation; if (!last || !last.operationId) return err('ESTATE', 'no native Service DNS snapshot to roll back'); let sourceFile = JOBS_DIR + '/' + last.operationId + '/job.json'; if (!stat(sourceFile)) return err('ESTATE', 'last Service DNS snapshot is unavailable'); let source = null; try { source = json(readfile(sourceFile)); } catch (e) {} if (!source || source.finished !== true || source.phase != 'success' || type(source.previousState) != 'string') return err('ESTATE', 'last Service DNS operation has no valid rollback snapshot'); let active = active_dnsmasq(), current = active ? uci_snapshot(active) : null; if (!active || !current) return err('ETARGET', 'active dnsmasq instance unavailable'); let op = 'rollback-' + trim(run('date +%s').out) + '-' + last.operationId; let dir = JOBS_DIR + '/' + op, file = dir + '/job.json'; if (stat(file)) return { ok: true, accepted: false, operationId: op, state: 'queued' }; let held = lock(op); if (held) return err('EAPPLYBUSY', 'Another Service DNS operation is running', { operationId: held.operationId, phase: held.phase, retryAfterMs: 2000 }); run('mkdir-child ' + dir); let job = { kind: 'rollback', operationId: op, phase: 'queued', finished: false, statePath: STATE_PATH, nativeUciPrecondition: source.nativeUciPrecondition, previousUciServerEntries: source.previousUciServerEntries || [], previousUciConfdirEntries: source.previousUciConfdirEntries || [], previousLegacyFragment: source.previousLegacyFragment, previousState: source.previousState, expectedCurrentServer: current.server, createdAt: now() }; writefile(file, sprintf('%J', job) + '\n'); if (!stat(file)) { unlock(op); return err('ETARGET', 'rollback job write failed'); } state.pending = { operationId: op, phase: 'queued', jobFile: file, createdAt: now(), kind: 'rollback' }; if (!state_save(state)) { unlock(op); return err('ESTATE', 'rollback pending state write failed'); } let worker = '/usr/libexec/zapret2-manager/service-dns-apply-worker.uc', spawned = stat(worker) ? run('sh -c \'/usr/bin/ucode ' + worker + ' ' + file + ' >/dev/null 2>&1 & echo $!\'') : { out: '', rc: -1 }; if (spawned.rc != 0 || !match(trim(spawned.out), /^[0-9]+$/)) { state.pending = null; state_save(state); unlock(op); return err('ETARGET', 'rollback worker spawn failed'); } return { ok: true, accepted: true, operationId: op, state: 'submitted', rollback: true }; };
+export const service_dns_rollback = function(req) { let state = state_load(), last = state.lastOperation; if (!last || !last.operationId) return err('ESTATE', 'no native Service DNS snapshot to roll back'); let sourceFile = JOBS_DIR + '/' + last.operationId + '/job.json'; if (!stat(sourceFile)) return err('ESTATE', 'last Service DNS snapshot is unavailable'); let source = null; try { source = json(readfile(sourceFile)); } catch (e) {} if (!source || source.finished !== true || source.phase != 'success' || type(source.previousState) != 'string') return err('ESTATE', 'last Service DNS operation has no valid rollback snapshot'); let active = active_dnsmasq(), current = active ? uci_snapshot(active) : null; if (!active || !current) return err('ETARGET', 'active dnsmasq instance unavailable'); let op = 'rollback-' + trim(run('date +%s').out) + '-' + last.operationId; let dir = JOBS_DIR + '/' + op, file = dir + '/job.json'; if (stat(file)) return { ok: true, accepted: false, operationId: op, state: 'queued' }; let held = lock(op); if (held) return err('EAPPLYBUSY', 'Another Service DNS operation is running', { operationId: held.operationId, phase: held.phase, retryAfterMs: 2000 }); run('mkdir-child ' + dir); let job = { kind: 'rollback', operationId: op, phase: 'queued', finished: false, statePath: STATE_PATH, nativeUciPrecondition: source.nativeUciPrecondition, previousUciServerEntries: source.previousUciServerEntries || [], previousUciAddressEntries: source.previousUciAddressEntries || [], previousUciConfdirEntries: source.previousUciConfdirEntries || [], previousLegacyFragment: source.previousLegacyFragment, previousState: source.previousState, expectedCurrentServer: current.server, expectedCurrentAddress: current.address, createdAt: now() }; writefile(file, sprintf('%J', job) + '\n'); if (!stat(file)) { unlock(op); return err('ETARGET', 'rollback job write failed'); } state.pending = { operationId: op, phase: 'queued', jobFile: file, createdAt: now(), kind: 'rollback' }; if (!state_save(state)) { unlock(op); return err('ESTATE', 'rollback pending state write failed'); } let worker = '/usr/libexec/zapret2-manager/service-dns-apply-worker.uc', spawned = stat(worker) ? run('sh -c \'/usr/bin/ucode ' + worker + ' ' + file + ' >/dev/null 2>&1 & echo $!\'') : { out: '', rc: -1 }; if (spawned.rc != 0 || !match(trim(spawned.out), /^[0-9]+$/)) { state.pending = null; state_save(state); unlock(op); return err('ETARGET', 'rollback worker spawn failed'); } return { ok: true, accepted: true, operationId: op, state: 'submitted', rollback: true }; };
 
 // TikTok enabling includes bounded DNS/TCP/TLS probes. Keep that work out of
 // the rpcd request; the worker calls the existing synchronous lifecycle below.
-export const service_dns_tiktok_set_async = function(req) { let input = req && req.args ? req.args : req || {}, enabled = input.enabled === true, suffix = enabled ? 'on' : 'off', op = 'tiktok-async-' + trim(run('date +%s').out) + '-' + suffix + '-auto', dir = JOBS_DIR + '/' + op, file = dir + '/job.json'; if (stat(file)) { try { let old = json(readfile(file)); return { ok: true, accepted: false, operationId: op, state: old.phase || 'queued', finished: old.finished === true, alreadyRunning: old.finished !== true }; } catch (e) {} } let state = state_load(), auto = state.tiktokAuto || { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0, managed: false }; auto.enabled = enabled; auto.failureCount = 0; auto.recoveryCount = 0; if (enabled) { auto.state = 'checking'; auto.selectedIp = null; auto.latencyMs = null; auto.managed = false; } else { auto.state = 'off'; auto.selectedIp = null; auto.latencyMs = null; auto.lastProbe = null; auto.lastFailover = null; auto.managed = false; } state.tiktokAuto = auto; if (!state_save(state)) return err('ESTATE', 'TikTok auto-fix state write failed'); if (run('mkdir-child ' + dir).rc != 0) return err('ETARGET', 'TikTok operation directory unavailable'); let job = { operationId: op, kind: 'tiktok', phase: 'queued', finished: false, args: { enabled: enabled }, createdAt: now() }; writefile(file, sprintf('%J', job) + '\n'); if (!stat(file)) return err('ETARGET', 'TikTok operation write failed'); let worker = '/usr/libexec/zapret2-manager/service-dns-tiktok-worker.uc', spawned = stat(worker) ? run("sh -c '/usr/bin/ucode " + worker + ' ' + file + " >/dev/null 2>&1 & echo $!'") : { out: '', rc: -1 }; if (spawned.rc != 0 || !match(trim(spawned.out), /^[0-9]+$/)) { writefile(file, sprintf('%J', { operationId: op, kind: 'tiktok', phase: 'failed', finished: true, error: { code: 'ETARGET', message: 'TikTok worker spawn failed' }, createdAt: now() }) + '\n'); return err('ETARGET', 'TikTok worker spawn failed'); } return { ok: true, accepted: true, operationId: op, state: 'submitted', tiktokState: auto.state }; };
+export const service_dns_tiktok_set_async = function(req) {
+	let input = req && req.args ? req.args : req || {}, enabled = input.enabled === true, suffix = enabled ? 'on' : 'off', op = 'tiktok-async-' + trim(run('date +%s').out) + '-' + suffix + '-auto', dir = JOBS_DIR + '/' + op, file = dir + '/job.json';
+	if (stat(file)) {
+		try {
+			let old = json(readfile(file));
+			return { ok: true, accepted: false, operationId: op, state: old.phase || 'queued', finished: old.finished === true, alreadyRunning: old.finished !== true };
+		} catch (e) {}
+	}
+	let state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0, managed: false }), selected = tiktok_current_candidate(auto);
+	auto.enabled = enabled;
+	auto.failureCount = 0;
+	auto.recoveryCount = 0;
+	if (enabled) {
+		auto.state = 'checking';
+		// Preserve the verified LKG while the worker resolves and probes a new snapshot.
+		if (selected) {
+			auto.selectedCandidate = selected;
+			auto.selectedIp = selected.ip;
+		}
+	} else {
+		if (auto.managed === true && !(state.applied && length(state.applied.managedAddressEntries || []))) auto.legacyManagedAddressMigration = true;
+		auto.state = 'off';
+		auto.selectedIp = null;
+		auto.selectedCandidate = null;
+		auto.latencyMs = null;
+		auto.lastProbe = null;
+		auto.lastFailover = null;
+		auto.managed = false;
+	}
+	state.tiktokAuto = auto;
+	if (!state_save(state)) return err('ESTATE', 'TikTok auto-fix state write failed');
+	if (run('mkdir-child ' + dir).rc != 0) return err('ETARGET', 'TikTok operation directory unavailable');
+	let job = { operationId: op, kind: 'tiktok', phase: 'queued', finished: false, args: { enabled: enabled }, createdAt: now() };
+	writefile(file, sprintf('%J', job) + '\n');
+	if (!stat(file)) return err('ETARGET', 'TikTok operation write failed');
+	let worker = '/usr/libexec/zapret2-manager/service-dns-tiktok-worker.uc', spawned = stat(worker) ? run("sh -c '/usr/bin/ucode " + worker + ' ' + file + " >/dev/null 2>&1 & echo $!'") : { out: '', rc: -1 };
+	if (spawned.rc != 0 || !match(trim(spawned.out), /^[0-9]+$/)) {
+		writefile(file, sprintf('%J', { operationId: op, kind: 'tiktok', phase: 'failed', finished: true, error: { code: 'ETARGET', message: 'TikTok worker spawn failed' }, createdAt: now() }) + '\n');
+		return err('ETARGET', 'TikTok worker spawn failed');
+	}
+	return { ok: true, accepted: true, operationId: op, state: 'submitted', tiktokState: auto.state, selectedCandidate: selected || null };
+};

@@ -174,6 +174,21 @@ function tiktokAutoStateLabel(value) {
     off: _('Автоисправление выключено'), disabled: _('Автоисправление выключено')
   })[String(stateValue || 'off').toLowerCase()] || _('Состояние TikTok недоступно');
 }
+function tiktokSelectedCandidate(auto) {
+  var selected = auto && auto.selectedCandidate;
+  if (selected && typeof selected === 'object' && selected.ip) return selected;
+  return auto && auto.selectedIp ? { ip: auto.selectedIp, sourceDomain: null, mode: 'legacy' } : null;
+}
+function tiktokResolutionSummary(auto) {
+  var resolutions = asArray(auto && auto.resolutions), domains = [], addresses = asArray(auto && auto.resolvedCandidates);
+  resolutions.forEach(function (item) {
+    if (item && item.status === 'resolved' && item.domain && domains.indexOf(item.domain) < 0) domains.push(item.domain);
+  });
+  return { domains: domains, addressCount: addresses.length, domainCount: domains.length };
+}
+function tiktokModeLabel(mode) {
+  return ({ cla: _('CLA'), ies: _('IES'), generic: _('общий CDN'), legacy: _('legacy') })[String(mode || '').toLowerCase()] || display(mode);
+}
 function selectedProviderId(dns, providers) {
   var selected = dns && (dns.selectedProviderId || dns.providerId || dns.selectedProvider || dns.provider && (dns.provider.id || dns.provider.providerId));
   if (selected && typeof selected === 'object') selected = selected.id || selected.providerId;
@@ -1343,6 +1358,23 @@ function render(ctx) {
         var copy = E('div', { 'class': 'z2m-service-dns-copy' }, [E('strong', { 'class': 'z2m-service-name' }, item.name), E('small', { 'class': 'z2m-service-domains', title: domains }, domains)]);
         if (id === 'tiktok') {
           var auto = state.tiktokAuto || {};
+          var selectedCandidate = tiktokSelectedCandidate(auto);
+          var resolutionSummary = tiktokResolutionSummary(auto);
+          var domainCandidates = asArray(auto.domainCandidates);
+          var sourceDomains = domainCandidates.map(function (candidate) { return candidate && candidate.domain || candidate; }).filter(Boolean);
+          var sourceDomain = selectedCandidate && selectedCandidate.sourceDomain || '';
+          var sourceValue = sourceDomain || (sourceDomains.length ? _('Доменный каталог') : _('Источник недоступен'));
+          var selectedMode = selectedCandidate && selectedCandidate.mode;
+          var tiktokProbe = selectedCandidate ? selectedCandidate.ip + (auto.latencyMs != null ? ' · ' + auto.latencyMs + ' мс' : '') : null;
+          var resolvedSummary = resolutionSummary.domainCount + ' из ' + sourceDomains.length + ' ' + _('доменов') + ' · ' + resolutionSummary.addressCount + ' ' + _('адресов');
+          var resolvedRows = asArray(auto.resolvedCandidates).map(function (candidate) {
+            var provenance = asArray(candidate && candidate.sourceDomains).join(' · ');
+            var modes = asArray(candidate && candidate.modes).map(tiktokModeLabel).join(' · ');
+            return E('li', {}, [
+              E('code', {}, display(candidate && candidate.ip)),
+              E('span', {}, [display(provenance || _('Источник не указан')), modes ? ' · ' + modes : ''])
+            ]);
+          });
           var autoSwitch = shell.switchControl({ checked: auto.enabled === true, small: true, label: _('Автоисправление ленты'), disabled: state.tiktokAutoBusy === true, attrs: { type: 'button', role: 'switch', 'aria-checked': auto.enabled ? 'true' : 'false', 'class': 'z2m-sw sm z2m-tiktok-auto-switch', title: _('Включить или выключить автоисправление TikTok') }, onChange: function (enabled) { toggleTiktok(enabled); } });
           autoSwitch.classList.toggle('on', auto.enabled === true);
           autoSwitch.setAttribute('data-state', auto.enabled === true ? 'on' : 'off');
@@ -1369,10 +1401,28 @@ function render(ctx) {
           autoSwitch.addEventListener('keydown', function (event) {
             if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleTiktok(!auto.enabled); }
           });
-          var tiktokProbe = auto.selectedIp ? auto.selectedIp + (auto.latencyMs != null ? ' · ' + auto.latencyMs + ' мс' : '') : null;
+          var tiktokDetails = E('details', { 'class': 'z2m-service-dns-tiktok-details' }, [
+            E('summary', {}, _('Подробнее о CDN')),
+            E('div', { 'class': 'z2m-service-dns-tiktok-detail-grid' }, [
+              E('span', {}, _('Домены источников: ') + display(sourceDomains.join(' · '))),
+              E('span', {}, _('Резолвер: ') + display(asArray(auto.resolver).join(', ') || auto.resolver)),
+              E('span', {}, _('Владелец резолвера: ') + display(auto.resolverOwner)),
+              E('span', {}, _('Статус DNS: ') + display(auto.resolutionStatus)),
+              E('span', {}, _('Режим выбранного: ') + tiktokModeLabel(selectedMode))
+            ]),
+            E('strong', { 'class': 'z2m-service-dns-tiktok-detail-title' }, _('Разрешённые адреса')),
+            resolvedRows.length ? E('ul', { 'class': 'z2m-service-dns-tiktok-resolved' }, resolvedRows) : E('p', { 'class': 'z2m-dim' }, _('Адреса ещё не получены.')),
+            auto.lastProbe ? E('code', { 'class': 'z2m-service-dns-tiktok-last-probe' }, JSON.stringify(auto.lastProbe)) : null
+          ]);
           copy.appendChild(E('div', { 'class': 'z2m-service-dns-tiktok' }, [
             E('div', { 'class': 'z2m-service-dns-tiktok-head' }, [E('strong', {}, _('Автоисправление ленты')), autoSwitch]),
-            E('div', { 'class': 'z2m-service-dns-tiktok-status' }, [E('span', {}, tiktokAutoStateLabel(auto)), tiktokProbe ? E('code', { title: _('Проверенный CDN и задержка') }, _('IP ') + tiktokProbe) : null])
+            E('div', { 'class': 'z2m-service-dns-tiktok-status' }, [
+              E('span', {}, tiktokAutoStateLabel(auto)),
+              E('span', { 'class': 'z2m-service-dns-tiktok-source' }, [_('Источник CDN: '), E('code', {}, sourceValue), selectedMode ? ' · ' + tiktokModeLabel(selectedMode) : '']),
+              E('span', { 'class': 'z2m-service-dns-tiktok-counts' }, _('Результат: ') + resolvedSummary),
+              tiktokProbe ? E('code', { title: _('Проверенный CDN и задержка') }, _('Текущий адрес ') + tiktokProbe) : null
+            ]),
+            tiktokDetails
           ]));
         }
         if (stateNode) copy.appendChild(stateNode);
