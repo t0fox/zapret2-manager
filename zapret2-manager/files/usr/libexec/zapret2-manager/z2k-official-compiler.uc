@@ -190,11 +190,22 @@ export const z2k_official_compile = function(snapshot) {
 		if (!write_snapshot(root, checked.files)) {
 			result = fail('EIO', 'could not materialize the verified compiler snapshot', 'prepare', 'files');
 		} else {
+			let invocation = 'sh ' + shell_quote(harness) + ' ' + shell_quote(root),
+				output = ' >' + shell_quote(stdoutPath) + ' 2>' + shell_quote(stderrPath),
+				timeoutMarker = root + '/timeout';
+			// OpenWrt images do not necessarily ship coreutils' timeout and the
+			// BusyBox applet may also be disabled. Keep the compiler deadline
+			// authoritative with a POSIX-shell watchdog in that case.
+			let fallback = 'rm -f ' + shell_quote(timeoutMarker) + '; (' + invocation + output + ') & child=$!; '
+				+ '( sleep ' + COMPILE_TIMEOUT_SECONDS + '; if kill -0 "$child" 2>/dev/null; then '
+				+ 'kill "$child" 2>/dev/null; : >' + shell_quote(timeoutMarker) + '; fi ) & watchdog=$!; '
+				+ 'wait "$child"; rc=$?; kill "$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null; '
+				+ 'if [ -f ' + shell_quote(timeoutMarker) + ' ]; then rc=124; fi; exit "$rc"';
 			let command = 'ulimit -f 1024; exec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=' + shell_quote(root)
 				+ ' ZAPRET2_DIR=' + shell_quote(root) + ' CONFIG_DIR=' + shell_quote(root + '/config.d')
-				+ ' Z2K_NFQWS2_TEMPLATES=0 timeout ' + COMPILE_TIMEOUT_SECONDS + ' sh '
-				+ shell_quote(harness) + ' ' + shell_quote(root)
-				+ ' >' + shell_quote(stdoutPath) + ' 2>' + shell_quote(stderrPath);
+				+ ' Z2K_NFQWS2_TEMPLATES=0 sh -c ' + shell_quote(
+					'if command -v timeout >/dev/null 2>&1; then exec timeout ' + COMPILE_TIMEOUT_SECONDS + ' '
+					+ invocation + output + '; else ' + fallback + '; fi');
 			let executed = run(command), stdoutBytes = file_size(stdoutPath), stderrBytes = file_size(stderrPath);
 			if (stdoutBytes < 0 || stderrBytes < 0)
 				result = fail('ECOMPILE', 'official compiler did not produce bounded output files', 'compile');

@@ -18,4 +18,7 @@ test('package ships the official compiler bridge with the required runtime modes
   assert.match(COMPILER, /const DEFAULT_HARNESS = '\/usr\/libexec\/zapret2-manager\/z2k-official-compile\.sh'/);
   assert.match(COMPILER, /Z2K_NFQWS2_TEMPLATES=0/);
   assert.match(COMPILER, /ulimit -f 1024/);
+  assert.match(COMPILER, /command -v timeout/);
+  assert.match(COMPILER, /kill -0/);
+  assert.match(COMPILER, /wait \"\$child\"/);
 });
