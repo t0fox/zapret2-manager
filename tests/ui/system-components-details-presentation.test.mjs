@@ -176,7 +176,7 @@ test('Z2K model and details expose dependency classes without turning advisory f
     canApply: true,
     unknownUnconsumed: ['files/lua/future.lua'],
     compilerInputs: [{ sourcePath: 'strats_new2.txt', action: 'compile-and-validate' }],
-    advisoryReviews: ['files/lua/future.lua'],
+    advisoryReviews: ['files/lua/future.lua', 'files/z2k-config-validator.sh'],
     blockingReviews: [],
     dependencyGraph: {
       registryAvailable: true,
@@ -195,6 +195,7 @@ test('Z2K model and details expose dependency classes without turning advisory f
   assert.match(textOf(summary), /Runtime exact/);
   assert.match(textOf(summary), /Compiler inputs/);
   assert.match(textOf(summary), /Новые upstream-файлы/);
+  assert.match(textOf(summary), /files\/z2k-config-validator\.sh/);
   assert.match(textOf(summary), /Требуется validation/);
   assert.equal(findAll(summary, node => classHas(node, 'z2m-component-review-callout--advisory')).length, 1);
   assert.equal(findAll(summary, node => classHas(node, 'z2m-component-review-callout--blocking')).length, 0);
@@ -315,6 +316,7 @@ test('Z2K details use a standalone review callout and never invent an update act
     updateState: 'review-required',
     availableRelease: 'r-80.1',
     reviews: ['files/z2k-config-validator.sh'],
+    blockingReviews: ['files/z2k-config-validator.sh'],
     reviewDetails: [{
       path: 'files/z2k-config-validator.sh',
       message: 'Наблюдаемый upstream-файл изменился; требуется semantic review.',
@@ -328,7 +330,8 @@ test('Z2K details use a standalone review callout and never invent an update act
   const callouts = findAll(details, node => classHas(node, 'z2m-component-review-callout'));
 
   assert.equal(callouts.length, 1, 'review reason must be a standalone callout');
-  assert.match(textOf(callouts[0]), /Наблюдаемый upstream-файл изменился/);
+  assert.match(textOf(callouts[0]), /Есть блокирующие зависимости/);
+  assert.doesNotMatch(textOf(callouts[0]), /z2k-config-validator\.sh/);
   assert.match(textOf(details), /r-80\.1/);
   assert.ok(buttonsOf(details).includes('Проверить обновления'));
   assert.ok(!buttonsOf(details).includes('Обновить'), 'blocking review must not show a fake update action');
@@ -363,7 +366,7 @@ test('Z2K blocking review suppresses update even when a remote update is present
   const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
 
   assert.ok(!buttonsOf(details).includes('Обновить'));
-  assert.match(textOf(details), /Требуется semantic review/);
+  assert.match(textOf(details), /Есть блокирующие зависимости/);
 });
 
 test('Z2K advisory review keeps an applicable update action without becoming a primary warning', () => {
@@ -483,6 +486,7 @@ test('Z2K collapsed integration attention follows canonical attention, blocking 
   assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', blockingReviews: ['files/etc/z2k-roots.pem'] }), true);
   assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', rebases: ['files/lua/z2k-state-persist.lua'] }), true);
   assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', advisoryReviews: ['files/z2k-config-validator.sh'] }), false);
+  assert.equal(internals.z2kNeedsIntegration({ updateState: 'review-required', attentionState: 'review-required' }), false);
 });
 
 test('Z2K rebase attention suppresses update and explains adapted files', () => {

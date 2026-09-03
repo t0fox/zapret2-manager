@@ -169,6 +169,16 @@ test('Z2K model normalizes the canonical compiled dependency closure by typed re
   });
 });
 
+test('Z2K model falls back to local strategy count when the remote projection is explicitly null', () => {
+  const model = loadComponentsModel();
+  const component = model.normalizeZ2k(rawZ2k({
+    strategyCount: null,
+    plan: { strategyCount: null },
+  }), true);
+
+  assert.equal(component.compiledDependencySummary.strategies, 8);
+});
+
 test('Components renders Compiled Strategy Catalog with fail-closed identity and typed counts', () => {
   const { renderComponents, state } = loadMaintenance();
   const ctx = makeContext(rawZ2k());

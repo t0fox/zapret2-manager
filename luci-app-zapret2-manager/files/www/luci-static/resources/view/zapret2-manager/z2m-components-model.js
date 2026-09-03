@@ -378,8 +378,9 @@ function normalizeZ2k(input, engineReady) {
 	var dependencyCounts = dependencyClosure && object(dependencyClosure.counts) ? dependencyClosure.counts : {};
 	var runtimeBundleDigest = first(value.runtimeBundleDigest || plan.runtimeBundleDigest || local.runtimeBundleDigest
 		|| dependencyClosure && dependencyClosure.runtimeBundleDigest, null);
-	var strategyCount = countValue(value.strategyCount !== undefined ? value.strategyCount
-		: plan.strategyCount !== undefined ? plan.strategyCount : local.strategyCount);
+var strategyCount = countValue(value.strategyCount);
+	if (strategyCount === null) strategyCount = countValue(plan.strategyCount);
+	if (strategyCount === null) strategyCount = countValue(local.strategyCount);
 	var compiledDependencySummary = {
 		available: dependencyClosure ? dependencyClosure.available === true : null,
 		resolution: first(dependencyClosure && dependencyClosure.resolution, null),
@@ -406,11 +407,13 @@ function normalizeZ2k(input, engineReady) {
 	var attentionState = first(value.attentionState || plan.attentionState, null);
 	if (attentionState === null) {
 		if (rebases.length || updateState === 'rebase-required') attentionState = 'rebase-required';
-		else if (blockingReviews.length || updateState === 'review-required') attentionState = 'review-required';
+		else if (blockingReviews.length) attentionState = 'review-required';
 		else if (updateState === 'integration-required') attentionState = 'integration-required';
 		else if (advisoryReviews.length) attentionState = 'review-advisory';
 		else attentionState = 'none';
 	}
+	if (attentionState === 'review-required' && blockingReviews.length === 0)
+		attentionState = advisoryReviews.length ? 'review-advisory' : 'none';
 	var updates = array(value.updates || plan.updates);
 	var canApplyValue = value.canApply !== undefined ? value.canApply : plan.canApply;
 	var canApply = canApplyValue === undefined
@@ -428,7 +431,7 @@ function normalizeZ2k(input, engineReady) {
       : healthState === 'missing' || healthState === 'broken' ? 'repair'
 		: updateState === 'update-available' && canApply === true ? 'update'
 		: ['integration-required', 'review-required', 'rebase-required'].indexOf(attentionState) >= 0
-			|| ['integration-required', 'review-required', 'rebase-required'].indexOf(updateState) >= 0
+			|| ['integration-required', 'rebase-required'].indexOf(updateState) >= 0
 			|| blockingReviews.length > 0 || rebases.length > 0 ? 'details' : 'check'
 	};
 	var luaSrc = hasLocal ? object(local.lua) : object(value.lua);

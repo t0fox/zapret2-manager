@@ -196,6 +196,7 @@ test('review-required exposes a standalone review explanation and safe re-check'
   const review = z2kRaw({
     updateState: 'review-required',
     reviews: ['files/z2k-config-validator.sh'],
+    blockingReviews: ['files/z2k-config-validator.sh'],
     reviewDetails: [{
       path: 'files/z2k-config-validator.sh',
       reason: 'watched-upstream-file-changed',
@@ -212,7 +213,7 @@ test('review-required exposes a standalone review explanation and safe re-check'
   assert.ok(buttons.includes('Проверить обновления'), 'explicit re-check must remain available');
   assert.ok(!buttons.includes('Обновить'), 'review state must not invent an update action');
   assert.match(text, /Причина проверки/);
-  assert.match(text, /Наблюдаемый upstream-файл изменился/);
+  assert.match(text, /Блокирующих зависимостей: 1/);
 });
 
 test('catalog fetchedAt never becomes the Components last-check timestamp', () => {
@@ -253,6 +254,7 @@ test('unresolved review survives a fresh re-check and is not rewritten to curren
   const review = z2kRaw({
     updateState: 'review-required',
     reviews: ['files/z2k-config-validator.sh'],
+    blockingReviews: ['files/z2k-config-validator.sh'],
     reviewDetails: [{
       path: 'files/z2k-config-validator.sh',
       reason: 'watched-upstream-file-changed',
@@ -273,8 +275,8 @@ test('unresolved review survives a fresh re-check and is not rewritten to curren
   await ctx.refreshPromise;
 
   assert.equal(internals.state.componentOperation, null);
-  assert.match(textOf(ctx.rendered), /Требуется проверка/);
-  assert.match(textOf(ctx.rendered), /Наблюдаемый upstream-файл изменился/);
+  assert.match(textOf(ctx.rendered), /Есть блокирующие зависимости/);
+  assert.doesNotMatch(textOf(ctx.rendered), /Требуется semantic review/);
   assert.doesNotMatch(textOf(ctx.rendered), /ОбновленияАктуально/);
 });
 
@@ -283,6 +285,7 @@ test('review clears only when the refreshed canonical backend state is current',
   const review = z2kRaw({
     updateState: 'review-required',
     reviews: ['files/z2k-config-validator.sh'],
+    blockingReviews: ['files/z2k-config-validator.sh'],
     reviewDetails: [{ path: 'files/z2k-config-validator.sh', message: 'review remains unresolved' }],
   });
   const current = z2kRaw({ updateState: 'current', reviews: [], reviewDetails: [] });
@@ -290,7 +293,7 @@ test('review clears only when the refreshed canonical backend state is current',
   const reviewText = textOf(internals.renderComponents(ctx, ctx.data));
   const currentText = textOf(internals.renderComponents(ctx, { ...dataFor(current), components: { ...dataFor(current).components, resources: { value: { checkedAt: 200, z2k: current } } } }));
 
-  assert.match(reviewText, /Требуется проверка/);
+  assert.match(reviewText, /Есть блокирующие зависимости/);
   assert.match(currentText, /Работает/);
   assert.doesNotMatch(currentText, /Причина проверки/);
 });

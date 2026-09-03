@@ -568,7 +568,7 @@
 .z2m-components-page .z2m-z2k-dependency-chip--ready{color:var(--green);border-color:rgba(93,185,132,.4)}
 .z2m-components-page .z2m-z2k-dependency-chip--advisory,.z2m-components-page .z2m-z2k-dependency-chip--validation{color:var(--orange);border-color:rgba(224,163,59,.4)}
 .z2m-components-page .z2m-z2k-dependency-chip--blocking{color:var(--red);border-color:rgba(226,105,90,.45)}
-.z2m-components-page .z2m-z2k-dependency-summary .z2m-component-fact-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.z2m-components-page .z2m-z2k-dependency-summary .z2m-component-fact-grid{grid-template-columns:repeat(6,minmax(0,1fr))}
 .z2m-components-page .z2m-z2k-dependency-summary .z2m-component-fact{padding:10px 11px;background:var(--panel)}
 .z2m-components-page .z2m-z2k-dependency-summary .z2m-component-fact strong{font-size:15px}
 .z2m-components-page .z2m-z2k-dependency-note{display:grid;gap:5px;min-width:0;padding:11px 13px;border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:5px;background:rgba(224,163,59,.07)}

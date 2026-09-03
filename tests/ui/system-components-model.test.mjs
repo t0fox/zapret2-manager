@@ -153,6 +153,22 @@ test('integration-required is distinct from a safe update and blocks automatic u
   assert.deepEqual(JSON.parse(JSON.stringify(page.components[1].details.rebases)), ['z2k-state-persist.lua']);
 });
 
+test('review-required without blocking evidence is normalized out of the UI state', () => {
+  const page = model.normalizePage({
+    engine: { status: engine() },
+    z2k: z2k({
+      updateState: 'update-available',
+      attentionState: 'review-required',
+      canApply: true,
+      blockingReviews: [],
+      advisoryReviews: [],
+    }),
+  });
+
+  assert.equal(page.components[1].attentionState, 'none');
+  assert.equal(page.components[1].actions.primary, 'update');
+});
+
 test('broken Z2K Core asks for recovery rather than deletion', () => {
   const page = model.normalizePage({
     engine: { status: engine() },

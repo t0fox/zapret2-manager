@@ -478,13 +478,12 @@ function componentStateLabel(component) {
     if (compatibility === 'incompatible') return _('Несовместим');
     if (runtimeHealth === 'checking') return _('Проверяется');
     if (attentionState === 'rebase-required' || rebases.length) return _('Требуется адаптация');
-    if (attentionState === 'review-required' || blockingReviews.length) return _('Требуется проверка');
+	if (blockingReviews.length) return _('Есть блокирующие зависимости');
     if (attentionState === 'integration-required') return _('Требуется интеграция');
     var installedValue = component.installedRelease && component.installedRelease.value;
     var latestValue = component.latestRelease || component.availableRelease;
     if (!installedValue) return runtimeHealth === 'ready' ? _('Работает') : _('Требует внимания');
     if (component.updateState === 'update-available') return _('Доступно обновление');
-    if (component.updateState === 'review-required') return _('Требуется проверка');
     if (component.updateState === 'rebase-required') return _('Требуется адаптация');
     if (component.updateState === 'integration-required') return _('Требуется интеграция');
     if (runtimeHealth === 'ready' && component.updateState === 'current' && compatibility === 'compatible' && (!latestValue || installedValue === latestValue)) return _('Актуален');
@@ -498,7 +497,6 @@ function componentStateLabel(component) {
   if (health === 'broken') return _('Ошибка');
   if (health === 'checking') return _('Проверяется');
   if (component.updateState === 'update-available') return _('Доступно обновление');
-  if (component.updateState === 'review-required') return _('Требуется проверка');
   if (component.updateState === 'rebase-required') return _('Требуется адаптация');
   if (component.updateState === 'integration-required') return _('Требуется интеграция');
   if (compatibility === 'incompatible') return _('Несовместим');
@@ -512,7 +510,7 @@ function mandatorySummary(page) {
   var ready = page.health.ready;
   var total = page.health.total;
   var updates = page.components.filter(function (c) { return c.updateState === 'update-available'; }).length;
-  var reviews = page.components.filter(function (c) { return c.updateState === 'review-required'; }).length;
+	var reviews = page.components.filter(function (c) { return c.blockingReviews && c.blockingReviews.length; }).length;
   var rebases = page.components.filter(function (c) { return c.updateState === 'rebase-required'; }).length;
   var integrations = page.components.filter(function (c) { return c.updateState === 'integration-required'; }).length;
   // Build dynamic counter like "2 работают · 1 обновление"
@@ -531,8 +529,8 @@ function updateSummary(page) {
   var counts = { 'update-available': 0, 'review-required': 0, 'rebase-required': 0, 'integration-required': 0 };
   page.components.forEach(function (component) {
     var attentionState = component.attentionState;
-    var blocking = attentionState === 'review-required' || attentionState === 'rebase-required'
-      || attentionState === 'integration-required'
+	var blocking = attentionState === 'rebase-required'
+		|| attentionState === 'integration-required'
       || (component.blockingReviews && component.blockingReviews.length)
       || (component.rebases && component.rebases.length);
     if (blocking) {
@@ -1097,7 +1095,7 @@ function z2kCanApply(component) {
 }
 function z2kUpdateLabel(component) {
   if (component.attentionState === 'rebase-required' || (component.rebases && component.rebases.length)) return _('Требуется адаптация');
-  if (component.attentionState === 'review-required' || (component.blockingReviews && component.blockingReviews.length)) return _('Требуется проверка');
+  if (component.blockingReviews && component.blockingReviews.length) return _('Есть блокирующие зависимости');
   if (component.attentionState === 'integration-required') return _('Требуется интеграция');
   return component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
 }
@@ -1105,32 +1103,20 @@ function z2kNeedsIntegration(component) {
   var attentionState = component && component.attentionState;
   var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
   var rebases = component && Array.isArray(component.rebases) ? component.rebases : [];
-  return ['integration-required', 'review-required', 'rebase-required'].indexOf(attentionState) >= 0
-    || ['integration-required', 'review-required', 'rebase-required'].indexOf(component && component.updateState) >= 0
+  return ['integration-required', 'rebase-required'].indexOf(attentionState) >= 0
+    || ['integration-required', 'rebase-required'].indexOf(component && component.updateState) >= 0
     || blockingReviews.length > 0
     || rebases.length > 0;
 }
 function z2kReviewReason(component) {
-  var hasBlocking = component && (component.attentionState === 'review-required' || (component.blockingReviews && component.blockingReviews.length));
-  var hasRebase = component && (component.attentionState === 'rebase-required' || (component.rebases && component.rebases.length));
+  var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
+  var rebases = component && Array.isArray(component.rebases) ? component.rebases : [];
+  var hasBlocking = blockingReviews.length > 0;
+  var hasRebase = rebases.length > 0 || component && component.attentionState === 'rebase-required';
   if (!hasBlocking && !hasRebase) return '';
-  var details = component.details || {};
-  var reviewDetails = details.reviewDetails || [];
   var reasons = [];
-  reviewDetails.forEach(function (item) {
-    if (!item || typeof item !== 'object') return;
-    var reason = item.message || item.reason || '';
-    var path = item.path || '';
-    if (reason && path) reasons.push(reason + ' (' + path + ')');
-    else if (reason) reasons.push(reason);
-    else if (path) reasons.push(path);
-  });
-  if (!reasons.length && component.blockingReasons && component.blockingReasons.length)
-    reasons.push(component.blockingReasons.join(', '));
-  if (!reasons.length && component.reviews && component.reviews.length)
-    reasons.push(_('Изменения в upstream-файлах требуют ручной semantic review: ') + component.reviews.join(', '));
-  if (!reasons.length && component.rebases && component.rebases.length)
-    reasons.push(_('Адаптированные файлы требуют ручного rebase: ') + component.rebases.join(', '));
+  if (hasBlocking) reasons.push(_('Блокирующих зависимостей: ') + blockingReviews.length + '. ' + _('Обновление остановлено до проверки ownership и policy.'));
+  if (hasRebase) reasons.push(_('Адаптированных зависимостей: ') + rebases.length + '. ' + _('Перед обновлением нужен rebase.'));
   return reasons.join(' ');
 }
 function z2kDependencyPaths(value) {
@@ -1139,18 +1125,20 @@ function z2kDependencyPaths(value) {
   return Object.keys(value).filter(Boolean);
 }
 function z2kDependencySummaryStatus(component, summary, compilerInputs, blockingReviews, rebases, unknownUnconsumed) {
-  if (blockingReviews.length || rebases.length) return { label: _('Требуется проверка'), kind: 'blocking' };
-  if (compilerInputs.length) return { label: _('Требуется validation'), kind: 'validation' };
-  if (unknownUnconsumed.length) return { label: _('Есть advisory-файлы'), kind: 'advisory' };
-  if (summary.registryAvailable === false) return { label: _('Registry недоступен'), kind: 'blocking' };
-  return { label: _('Готово к применению'), kind: 'ready' };
+	if (rebases.length) return { label: _('Требуется rebase'), kind: 'blocking' };
+	if (blockingReviews.length) return { label: _('Есть блокирующие зависимости'), kind: 'blocking' };
+	if (compilerInputs.length) return { label: _('Требуется validation'), kind: 'validation' };
+	if (summary.registryAvailable === false) return { label: _('Registry недоступен'), kind: 'blocking' };
+	if (unknownUnconsumed.length) return { label: _('Есть advisory-файлы'), kind: 'advisory' };
+	return { label: _('Готово к применению'), kind: 'ready' };
 }
 function renderZ2KDependencySummary(component) {
   var summary = component && component.dependencySummary || {};
   var graph = component && component.dependencyGraph || {};
-  var compilerInputs = Array.isArray(component && component.compilerInputs) ? component.compilerInputs : [];
-  var unknownUnconsumed = Array.isArray(component && component.unknownUnconsumed) ? component.unknownUnconsumed : [];
-  var blockingReviews = Array.isArray(component && component.blockingReviews) ? component.blockingReviews : [];
+	var compilerInputs = Array.isArray(component && component.compilerInputs) ? component.compilerInputs : [];
+	var unknownUnconsumed = Array.isArray(component && component.unknownUnconsumed) ? component.unknownUnconsumed : [];
+	var advisoryReviews = Array.isArray(component && component.advisoryReviews) ? component.advisoryReviews : [];
+	var blockingReviews = Array.isArray(component && component.blockingReviews) ? component.blockingReviews : [];
   var rebases = Array.isArray(component && component.rebases) ? component.rebases : [];
   var adaptedPaths = z2kDependencyPaths(graph.adapted);
   var hasEvidence = Object.keys(graph).length > 0 || compilerInputs.length || unknownUnconsumed.length || blockingReviews.length || rebases.length;
@@ -1158,7 +1146,8 @@ function renderZ2KDependencySummary(component) {
   var status = z2kDependencySummaryStatus(component, summary, compilerInputs, blockingReviews, rebases, unknownUnconsumed);
   var unknownText = unknownUnconsumed.join(', ');
   var compilerText = compilerInputs.map(function (item) { return item && (item.sourcePath || item.path); }).filter(Boolean).join(', ');
-  var blockingText = blockingReviews.concat(rebases).join(', ');
+  var blockingText = blockingReviews.join(', ');
+  var adaptedText = rebases.concat(adaptedPaths).filter(function (path, index, paths) { return paths.indexOf(path) === index; }).join(', ');
   var detailsId = 'z2m-z2k-dependency-paths';
   return E('section', { 'class': 'z2m-z2k-dependency-summary', 'aria-labelledby': detailsId }, [
     E('div', { 'class': 'z2m-z2k-dependency-summary-head' }, [
@@ -1171,8 +1160,10 @@ function renderZ2KDependencySummary(component) {
     renderFactGrid([
       { label: _('Runtime exact'), value: summary.runtimeExact || 0 },
       { label: _('Compiler inputs'), value: summary.compilerInputs || 0 },
-      { label: _('Новые upstream-файлы'), value: summary.unknownUnconsumed || 0 },
-      { label: _('Адаптация / блокировки'), value: (summary.adapted || 0) + (summary.blocking || 0) }
+      { label: _('Unknown unconsumed'), value: summary.unknownUnconsumed || 0 },
+      { label: _('Advisory reviews'), value: summary.advisory || 0 },
+      { label: _('Адаптированные'), value: summary.adapted || 0 },
+      { label: _('Блокирующие'), value: summary.blocking || 0 }
     ]),
     compilerInputs.length ? E('aside', { 'class': 'z2m-z2k-dependency-note z2m-z2k-dependency-note--validation', role: 'status' }, [
       E('strong', {}, _('Compiler inputs изменились')),
@@ -1180,18 +1171,20 @@ function renderZ2KDependencySummary(component) {
     ]) : null,
     unknownUnconsumed.length ? E('aside', { 'class': 'z2m-component-review-callout z2m-component-review-callout--advisory', role: 'status' }, [
       E('strong', {}, _('Новые upstream-файлы отмечены как advisory')),
-      E('p', {}, _('Они не потребляются активным dependency graph и не блокируют применимый runtime update.') + ' ' + unknownText)
+      E('p', {}, _('Не потребляются активным dependency graph и не блокируют применимый runtime update.') + ' ' + _('Количество: ') + unknownUnconsumed.length)
     ]) : null,
     blockingText ? E('aside', { 'class': 'z2m-z2k-dependency-note z2m-z2k-dependency-note--blocking', role: 'alert' }, [
       E('strong', {}, _('Есть блокирующие зависимости')),
-      E('p', {}, blockingText)
+      E('p', {}, _('Обновление остановлено. Количество: ') + blockingReviews.length)
     ]) : null,
     E('details', { 'class': 'z2m-z2k-dependency-paths' }, [
       E('summary', {}, _('Показать пути и provenance')),
       renderInfoRows([
-        { label: _('Compiler inputs'), value: compilerText },
-        { label: _('Новые upstream-файлы'), value: unknownText },
-        { label: _('Адаптированные пути'), value: adaptedPaths.join(', ') },
+		{ label: _('Compiler inputs'), value: compilerText },
+		{ label: _('Новые upstream-файлы'), value: unknownText },
+		{ label: _('Advisory reviews'), value: advisoryReviews.join(', ') },
+		{ label: _('Блокирующие пути'), value: blockingText },
+        { label: _('Адаптированные пути'), value: adaptedText },
         { label: _('Asset Registry'), value: summary.registryAvailable ? _('Доступен') : _('Не подтверждён') }
       ])
     ])
@@ -1304,12 +1297,14 @@ function renderUpdateSection(ctx, options) {
 }
 function renderReviewCallout(component) {
   var attentionState = component.attentionState;
-  var hasBlocking = attentionState === 'review-required' || (component.blockingReviews && component.blockingReviews.length);
-  var hasRebase = attentionState === 'rebase-required' || (component.rebases && component.rebases.length);
-  if (!hasBlocking && !hasRebase && component.updateState !== 'review-required') return null;
-  var title = hasRebase ? _('Требуется адаптация') : _('Требуется semantic review');
+  var blockingReviews = Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
+  var rebases = Array.isArray(component.rebases) ? component.rebases : [];
+  var hasBlocking = blockingReviews.length > 0;
+  var hasRebase = attentionState === 'rebase-required' || rebases.length > 0;
+  if (!hasBlocking && !hasRebase) return null;
+  var title = hasRebase ? _('Требуется адаптация') : _('Есть блокирующие зависимости');
   var kind = hasRebase ? 'rebase' : 'blocking';
-  var reason = z2kReviewReason(component) || (hasRebase ? _('Адаптированные файлы нельзя обновить автоматически.') : _('Изменения требуют ручной проверки перед обновлением.'));
+  var reason = z2kReviewReason(component) || (hasRebase ? _('Адаптированные файлы нельзя обновить автоматически.') : _('Обновление остановлено из-за блокирующей зависимости.'));
   return E('aside', { 'class': 'z2m-component-review-callout z2m-component-review-callout--' + kind, role: 'status', 'aria-live': 'polite' }, [
     E('strong', {}, title),
     E('p', {}, reason)
