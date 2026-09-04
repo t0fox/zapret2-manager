@@ -12,7 +12,8 @@ var state = {
   busy: null,
   timer: null,
   disposed: false,
-  lastError: null
+  lastError: null,
+  liveRun: null
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -41,7 +42,8 @@ function runFromEnvelope(value) {
   return object(envelope.run || envelope.activeRun || (envelope.runId ? envelope : null));
 }
 function currentRun(data, catalog, corpus) {
-  var run = runFromEnvelope(data.run && data.run.value);
+  var envelopeRun = runFromEnvelope(data.run && data.run.value);
+  var run = envelopeRun && envelopeRun.runId ? envelopeRun : state.liveRun;
   return StrategyModel.normalizeRun(run, catalog, corpus);
 }
 function latestCorpusRun(history) {
@@ -61,6 +63,9 @@ function showError(ctx, error) {
   var normalized = ctx.api.normalizeError(error);
   state.lastError = normalized && normalized.message || _('Неизвестная ошибка');
   ctx.shell.showToast(state.lastError, 'err');
+}
+function localRerender(ctx) {
+  return typeof ctx.rerender === 'function' ? ctx.rerender() : Promise.resolve();
 }
 function mutate(ctx, name, promise) {
   if (state.busy) return Promise.resolve(null);
@@ -500,14 +505,14 @@ function poll(ctx, runId) {
     if (state.disposed) return;
     edit(ctx.api.orchestra.runStatus, { runId: runId }).then(function (answer) {
       var run = runFromEnvelope(answer);
+      state.liveRun = run && run.runId ? run : null;
       if (!run.runId || StrategyModel.terminal(run.phase)) {
-        ctx.refresh('strategy');
-        return;
+        return localRerender(ctx);
       }
-      ctx.refresh('strategy').then(function () { poll(ctx, runId); });
+      return localRerender(ctx).then(function () { poll(ctx, runId); });
     }).catch(function (error) {
       if (!missingRun(error)) showError(ctx, error);
-      ctx.refresh('strategy');
+      return localRerender(ctx);
     });
   }, 1800);
 }
@@ -517,12 +522,14 @@ function mount(ctx) {
   var catalog = StrategyModel.normalizeCatalog(object(ctx.data && ctx.data.catalog && ctx.data.catalog.value), preview);
   var corpus = StrategyModel.normalizeCorpus(object(ctx.data && ctx.data.corpus && ctx.data.corpus.value));
   var run = currentRun(ctx.data || {}, catalog, corpus);
+  if (run && run.runId) state.liveRun = run;
   if (run.active && run.runId) poll(ctx, run.runId);
 }
 function unmount() {
   state.disposed = true;
   if (state.timer) window.clearTimeout(state.timer);
   state.timer = null;
+  state.liveRun = null;
 }
 function createAdapter(api) {
   return Strategy.createAdapter ? Strategy.createAdapter(api) : null;

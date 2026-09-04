@@ -76,6 +76,9 @@ function shouldPoll(auto) {
   var phase = String(auto && auto.phase || '');
   return !!(auto && auto.activeRunId) || ACTIVE_PHASES.indexOf(phase) >= 0;
 }
+function localRerender(ctx) {
+  return typeof ctx.rerender === 'function' ? ctx.rerender() : Promise.resolve();
+}
 function schedulePoll(ctx, auto) {
   if (!shouldPoll(auto) || state.pollTimer || state.pollInFlight) return;
   state.pollTimer = window.setTimeout(function () {
@@ -87,9 +90,10 @@ function schedulePoll(ctx, auto) {
       state.lastError = null;
       if (!shouldPoll(state.lastStatus) && TERMINAL_PHASES.indexOf(String(state.lastStatus.phase || '')) >= 0)
         state.outcome = state.outcome || String(state.lastStatus.phase || '');
-      return ctx.refresh('strategy');
+      return localRerender(ctx);
     }).catch(function (error) {
       state.lastError = ctx.api.normalizeError(error);
+      return localRerender(ctx);
     }).then(function () {
       state.pollInFlight = false;
     });
@@ -141,7 +145,7 @@ function confirmRestore(ctx, auto) {
 }
 function render(ctx, envelope) {
   envelope = envelope || {};
-  var auto = envelope.value || state.lastStatus || {};
+  var auto = state.lastStatus || envelope.value || {};
   var error = envelope.error || state.lastError;
   var capabilities = auto.capabilities || {};
   var phase = String(auto.phase || (error ? 'failed' : 'disabled'));

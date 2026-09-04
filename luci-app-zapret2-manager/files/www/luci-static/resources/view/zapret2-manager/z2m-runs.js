@@ -171,6 +171,9 @@ function refreshHistory(ctx) {
 function shouldPoll() {
   return !!(state.activeRun && !terminalRun(state.activeRun.phase));
 }
+function localRerender(ctx) {
+  return typeof ctx.rerender === 'function' ? ctx.rerender() : Promise.resolve();
+}
 function detached() {
   return !!(state.root && state.root.isConnected === false);
 }
@@ -195,22 +198,23 @@ function poll(ctx) {
     if (terminalRun(normalized.run.phase)) {
       state.activeRun = null;
       if (!state.terminalHistoryRefreshed)
-        return refreshHistory(ctx).then(function () { return ctx.refresh('strategy'); });
-      return ctx.refresh('strategy');
+        return refreshHistory(ctx).then(function () { return localRerender(ctx); });
+      return localRerender(ctx);
     }
-    return ctx.refresh('strategy');
+    return localRerender(ctx);
   }).catch(function (error) {
-    if (missingRunError(error)) { terminalizeMissingRun(error); return ctx.refresh('strategy'); }
+    if (missingRunError(error)) { terminalizeMissingRun(error); return localRerender(ctx); }
     if (authError(error)) {
       state.pollAuthStopped = true;
       state.pollWarning = _('Сессия истекла; polling остановлен.');
-      return;
+      return localRerender(ctx);
     }
     state.pollFailures++;
     state.pollDelay = state.pollFailures === 1 ? 5000 : state.pollFailures === 2 ? 10000 : 30000;
     state.pollWarning = timeoutError(error)
       ? _('Не удалось обновить запуск; показано последнее успешное состояние.')
       : structuredError(error);
+    return localRerender(ctx);
   }).then(function () {
     state.pollInFlight = false;
     schedulePoll(ctx);
@@ -292,7 +296,7 @@ function pollApply(ctx) {
       if (!operation || response.ok === false) throw response && response.error || response;
       state.operation = operation;
       if (!terminalApply(operation.phase)) pollApply(ctx);
-      return ctx.refresh('strategy');
+      return localRerender(ctx);
     }).catch(function (error) {
       state.error = structuredError(error);
     }).then(function () { state.applyInFlight = false; });

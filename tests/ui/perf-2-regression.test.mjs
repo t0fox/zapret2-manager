@@ -33,6 +33,28 @@ test('PERF-2 services polling uses one runStatus result and local rerender', () 
   assert.match(polling, /localRerender\(ctx\)/, 'service status changes must rerender locally');
 });
 
+test('PERF-2 secondary strategy workflows poll locally without route reloads', () => {
+  const auto = ui('z2m-auto.js');
+  const runs = ui('z2m-runs.js');
+  const workflow = ui('z2m-strategy-workflow-core.js');
+  const autoPoll = between(auto, 'function schedulePoll(ctx, auto)', 'function mutationError');
+  const runsPoll = between(runs, 'function poll(ctx)', 'function mutation(ctx');
+  const runsApplyPoll = between(runs, 'function pollApply(ctx)', 'function candidateRows');
+  const orchestraPoll = between(workflow, 'function poll(ctx, runId)', 'function mount(ctx)');
+  for (const source of [auto, runs, workflow])
+    assert.match(source, /function localRerender\(ctx\)[\s\S]*ctx\.rerender/,
+      'secondary strategy workflow must expose the app local rerender bridge');
+  for (const [name, source] of [['auto', autoPoll], ['runs', runsPoll], ['runs-apply', runsApplyPoll], ['orchestra', orchestraPoll]]) {
+    assert.match(source, /localRerender\(ctx\)/, `${name} polling must publish local state`);
+    assert.doesNotMatch(source, /ctx\.refresh\(['"]strategy['"]\)/,
+      `${name} polling must not reload the full strategy route`);
+  }
+  assert.match(autoPoll, /catch\(function \(error\) \{[\s\S]*localRerender\(ctx\)/,
+    'auto polling errors must reach the live UI');
+  assert.match(runsPoll, /state\.pollWarning[\s\S]*localRerender\(ctx\)/,
+    'run polling errors must reach the live UI');
+});
+
 test('PERF-2 Telegram navigation is local-first and releases mutation busy before enrichment', () => {
   const source = ui('z2m-proxy-page-core.js');
   const load = between(source, 'function load(ctx)', 'function appliedConfig');
