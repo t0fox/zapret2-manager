@@ -1,4 +1,4 @@
-name: OpenWrt APK build
+name: OpenWrt full APK build
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
           node-version: 22
 
       - name: Run release contract tests
-        run: node --test tests/release/version-contract.test.mjs tests/release/build-manifest.test.mjs
+        run: node --test tests/release/*.test.mjs
 
       - name: Install OpenWrt SDK host tools
         run: |
@@ -38,28 +38,11 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             build-essential gawk gettext git python3 rsync unzip file curl wget zstd ca-certificates
 
-      - name: Build manager APKs
+      - name: Build full manager APK
         run: scripts/release/build-apk.sh
 
-      - name: Verify release artifacts
+      - name: Verify release artifact
         run: node scripts/release/verify-artifacts.mjs dist
-
-      - name: Pack single prerelease asset
-        id: bundle
-        run: |
-          set -eu
-          bundle_name=$(node --input-type=module -e '
-            import fs from "node:fs";
-            const manifest = JSON.parse(fs.readFileSync("dist/build-manifest.json", "utf8"));
-            console.log(`zapret2-manager-${manifest.package.version}-r${manifest.package.release}-${manifest.openwrt.subtarget}.tar.zst`);
-          ')
-          (
-            cd dist
-            tar --sort=name --numeric-owner --owner=0 --group=0 --mtime='UTC 1970-01-01' \
-              -cf - *.apk SHA256SUMS build-manifest.json
-          ) | zstd -T0 -19 -c > "dist/$bundle_name"
-          test -s "dist/$bundle_name"
-          printf 'name=%s\n' "$bundle_name" >> "$GITHUB_OUTPUT"
 
       - name: Write artifact summary
         if: always()
@@ -67,14 +50,14 @@ jobs:
           set -eu
           summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
           {
-            printf '## OpenWrt APK build (%s)\n\n' "$GITHUB_SHA"
+            printf '## OpenWrt full APK build (%s)\n\n' "$GITHUB_SHA"
             if [ -f dist/build-manifest.json ]; then
               node --input-type=module -e '
                 import fs from "node:fs";
                 const m = JSON.parse(fs.readFileSync("dist/build-manifest.json", "utf8"));
-                console.log("| Artifact | Size | SHA256 |\n|---|---|---|");
-                for (const a of m.artifacts)
-                  console.log(`| ${a.filename} | ${a.bytes} | \`${a.sha256.slice(0, 16)}…\` |`);
+                const a = m.artifact;
+                console.log(`| Artifact | Size | SHA256 |\n|---|---|---|`);
+                console.log(`| ${a.filename} | ${a.bytes} | \`${a.sha256.slice(0, 16)}…\` |`);
                 console.log(`\nCommit: ${m.project.gitCommit}  Version: ${m.package.version}-r${m.package.release}`);
               ' >> "$summary"
             else
@@ -82,12 +65,12 @@ jobs:
             fi
           }
 
-      - name: Upload APK build artifact
+      - name: Upload full APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: z2m-apk-${{ github.sha }}
+          name: z2m-full-apk-${{ github.sha }}
           path: |
-            dist/*.apk
+            dist/zapret2-manager-full-*.apk
             dist/SHA256SUMS
             dist/build-manifest.json
           if-no-files-found: error
@@ -98,13 +81,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: main-latest
-          BUNDLE_NAME: ${{ steps.bundle.outputs.name }}
         run: |
-          NOTES=$(printf 'Rolling build of main at %s.\n\nDownload the single release asset, extract it, verify SHA256SUMS, then install the three APKs together:\n\n    tar --zstd -xf %s\n    sha256sum -c SHA256SUMS\n    apk add --allow-untrusted ./zapret2-manager-*.apk ./luci-app-zapret2-manager-*.apk ./zapret2-manager-full-*.apk' "$GITHUB_SHA" "$BUNDLE_NAME")
+          set -eu
+          NOTES=$(printf 'Rolling build of main at %s.\n\nDownload the three release files, verify SHA256SUMS, then install the single package:\n\n    sha256sum -c SHA256SUMS\n    apk add --allow-untrusted ./zapret2-manager-full-*.apk' "$GITHUB_SHA")
           gh release delete "$TAG" --yes --cleanup-tag || true
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Latest main build" \
+            --title "Latest main full APK build" \
             --notes "$NOTES" \
-            "dist/$BUNDLE_NAME"
+            dist/zapret2-manager-full-*.apk \
+            dist/SHA256SUMS \
+            dist/build-manifest.json

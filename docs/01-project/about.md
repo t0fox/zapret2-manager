@@ -17,8 +17,8 @@ Z2M — LuCI-интерфейс и backend для управления zapret2 �
 
 ## Что входит в Z2M
 
-- backend `zapret2-manager` и LuCI-пакет `luci-app-zapret2-manager`;
-- target-specific meta-package `zapret2-manager-full` для mediatek/filogic;
+- единый target-specific пакет `zapret2-manager-full`, содержащий backend, LuCI,
+  native helpers и runtime assets для `mediatek/filogic`;
 - канонический путь Strategy → Preview → Validate → Apply;
 - временный Scanner, который передаёт удачный кандидат в Strategy;
 - системные страницы Компоненты, Резервные копии и Настройки.

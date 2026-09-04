@@ -24,7 +24,7 @@
 </div>
 
 > [!IMPORTANT]
-> `main-latest` — постоянно обновляемая **предварительная сборка** из текущей ветки `main`, а не стабильный релиз. Загружай все APK из одного выпуска и перед установкой сверяй `SHA256SUMS`.
+> `main-latest` — постоянно обновляемая **предварительная сборка** из текущей ветки `main`, а не стабильный релиз. Загрузи полный APK и перед установкой сверяй `SHA256SUMS`.
 
 ## О проекте
 
@@ -89,11 +89,9 @@ Scanner не создаёт второй путь изменения production-
 
 ### 2. Скачай один комплект
 
-Открой выпуск [`main-latest`](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest) и используй файлы только из него. Комплект содержит три manager-пакета, `build-manifest.json` и `SHA256SUMS`.
+Открой выпуск [`main-latest`](https://github.com/t0fox/zapret2-manager/releases/tag/main-latest) и используй файлы только из него. Комплект содержит один полный manager APK, `build-manifest.json` и `SHA256SUMS`.
 
 ```text
-zapret2-manager-<version>.apk
-luci-app-zapret2-manager-<version>.apk
 zapret2-manager-full-<version>.apk
 build-manifest.json
 SHA256SUMS
@@ -108,17 +106,12 @@ sha256sum -c SHA256SUMS
 ### 3. Установи пакеты
 
 ```sh
-apk add --allow-untrusted \
-  ./zapret2-manager-<version>.apk \
-  ./luci-app-zapret2-manager-<version>.apk \
-  ./zapret2-manager-full-<version>.apk
+apk add --allow-untrusted ./zapret2-manager-full-<version>.apk
 ```
 
 | Пакет | Назначение |
 |---|---|
-| `zapret2-manager` | Backend: ucode/shell runtime и native `z2m-core-helper` |
-| `luci-app-zapret2-manager` | LuCI JavaScript frontend |
-| `zapret2-manager-full` | Target-specific meta-package для полного набора Z2M |
+| `zapret2-manager-full` | Самодостаточный backend, native helpers, runtime assets и LuCI для `mediatek/filogic` |
 
 > [!NOTE]
 > **Zapret2 Engine** устанавливается отдельно через **Система → Компоненты**. Telegram Proxy также является отдельным дополнительным компонентом и устанавливается через **Прокси и маршрутизация → Telegram Proxy**.
@@ -198,10 +191,11 @@ node scripts/release/verify-artifacts.mjs dist
 Точечная сборка пакетов через OpenWrt SDK:
 
 ```sh
-make package/zapret2-manager/compile V=s
-make package/luci-app-zapret2-manager/compile V=s
-make package/zapret2-manager-full/compile V=s
+scripts/release/build-apk.sh
 ```
+
+Скрипт сам staging-ит исходники backend и LuCI в pinned SDK и собирает только
+полный пакет; ручной `make` без этого staging не является release-сборкой.
 
 ### Native foundation
 

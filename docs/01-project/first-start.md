@@ -11,7 +11,7 @@ tags: [start, setup, guide]
 
 # Первый запуск
 
-1. Установите три APK из [инструкции установки](./installation.md).
+1. Установите полный APK по [инструкции установки](./installation.md).
 2. Откройте **Система → Компоненты**.
 3. Проверьте **Zapret2 Engine** и **Z2K Core**. Engine — обработчик трафика,
    Z2K Core — интеграция runtime-assets и autocircular; это один логический

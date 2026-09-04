@@ -29,9 +29,12 @@ test('all canonical manager packages share version and release identity', () => 
   assert.equal(new Set(Object.values(packages).map((item) => item.release)).size, 1);
 });
 
-test('package dependency graph stays backend, LuCI, and target-specific meta only', () => {
-  assert.match(packages.luci.depends, /\+zapret2-manager\b/);
+test('full package carries external runtime dependencies without split package dependencies', () => {
+  assert.doesNotMatch(packages.full.depends, /\+(?:zapret2-manager|luci-app-zapret2-manager)\b/);
   assert.match(packages.full.depends, /@TARGET_mediatek_filogic/);
-  assert.match(packages.full.depends, /\+zapret2-manager\b/);
-  assert.match(packages.full.depends, /\+luci-app-zapret2-manager\b/);
+  for (const dependency of [
+    'ucode', 'ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop',
+    'luci-base', 'kmod-nfnetlink-queue', 'kmod-nft-queue', 'ncat', 'flock',
+    'uclient-fetch', 'ca-bundle', 'unzip', 'jsonfilter', 'libjson-c'
+  ]) assert.match(packages.full.depends, new RegExp(`\\+${dependency.replaceAll('-', '\\-')}\\b`), dependency);
 });

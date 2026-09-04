@@ -11,25 +11,21 @@ tags: [start, installation, apk]
 
 # Установка APK
 
-Скачайте из одного GitHub Release три manager-пакета:
+Скачайте из одного GitHub Release полный manager APK:
 
-- `zapret2-manager` — backend, ucode/shell runtime и native helper;
-- `luci-app-zapret2-manager` — LuCI-интерфейс;
-- `zapret2-manager-full` — target-specific meta-package backend + LuCI.
+- `zapret2-manager-full` — backend, native helpers, ucode/runtime assets и LuCI
+  для target `mediatek/filogic`.
 
 На роутере установите их одной командой:
 
 ```sh
-apk add --allow-untrusted \
-  ./zapret2-manager-<version>.apk \
-  ./luci-app-zapret2-manager-<version>.apk \
-  ./zapret2-manager-full-<version>.apk
+apk add --allow-untrusted ./zapret2-manager-full-<version>.apk
 ```
 
 `--allow-untrusted` здесь означает установку APK без настроенной цепочки
 подписи. Это не шифрование и не отключение проверок Z2M. После установки
-backend выполняет root-bootstrap, создаёт базовые каталоги и перезагружает
-RPC-индекс.
+пакет выполняет root-bootstrap, мигрирует каталог стратегий, инвалидирует LuCI
+кэш, перезагружает RPC-индекс и запускает bounded readiness-проверку.
 
 ## После установки
 

@@ -20,15 +20,16 @@ need_command() {
 	command -v "$1" >/dev/null 2>&1 || die "required command is missing: $1"
 }
 
-for command in awk cp curl find git grep make rm sha256sum tar tr wc zstd; do
+for command in awk basename cp curl find git grep head make mkdir rm sha256sum sort stat sleep tar test wc zstd; do
 	need_command "$command"
 done
 need_command node
 
 [ -f "$CONFIG_FILE" ] || die "release config is missing: $CONFIG_FILE"
-[ -d "$REPO_ROOT/zapret2-manager" ] || die "backend package directory is missing"
-[ -d "$REPO_ROOT/luci-app-zapret2-manager" ] || die "LuCI package directory is missing"
-[ -d "$REPO_ROOT/zapret2-manager-full" ] || die "full package directory is missing"
+[ -d "$REPO_ROOT/zapret2-manager/src" ] || die "backend source directory is missing"
+[ -d "$REPO_ROOT/zapret2-manager/files" ] || die "backend files directory is missing"
+[ -d "$REPO_ROOT/luci-app-zapret2-manager/files" ] || die "LuCI files directory is missing"
+[ -f "$REPO_ROOT/zapret2-manager-full/Makefile" ] || die "full package Makefile is missing"
 
 eval "$(node --input-type=module -e '
 import { releaseConfig } from "./scripts/release/config.mjs";
@@ -39,7 +40,8 @@ console.log(`SDK_SUBTARGET=${JSON.stringify(o.subtarget)}`);
 console.log(`SDK_FILENAME=${JSON.stringify(o.sdkFilename)}`);
 console.log(`SDK_URL=${JSON.stringify(o.sdkUrl)}`);
 console.log(`SDK_SHA256=${JSON.stringify(o.sdkSha256)}`);
-console.log(`CORE_PACKAGES=${JSON.stringify(releaseConfig.packages.join(" "))}`);
+console.log(`FULL_PACKAGE=${JSON.stringify(releaseConfig.packages[0])}`);
+console.log(`EXTERNAL_DEPENDENCIES=${JSON.stringify(releaseConfig.externalDependencies.join(" "))}`);
 ' )"
 
 case "$BUILD_ROOT" in
@@ -52,10 +54,6 @@ case "$DIST_DIR" in
 esac
 
 CHECKED_OUT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
-: <<'LEGACY_SHA_CHECK'
-  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-  *) die "checked out commit is not a full SHA: $CHECKED_OUT_SHA" ;;
-LEGACY_SHA_CHECK
 printf '%s\n' "$CHECKED_OUT_SHA" | grep -Eq '^[0-9a-f]{40}$' || die "checked out commit is not a full SHA: $CHECKED_OUT_SHA"
 if [ -n "${GITHUB_SHA:-}" ] && [ "$GITHUB_SHA" != "$CHECKED_OUT_SHA" ]; then
 	die "GITHUB_SHA does not match checked out commit: $GITHUB_SHA != $CHECKED_OUT_SHA"
@@ -64,7 +62,6 @@ GIT_REF=${GITHUB_REF:-$(git -C "$REPO_ROOT" symbolic-ref -q --short HEAD || prin
 
 SDK_ARCHIVE="$CACHE_DIR/$SDK_FILENAME"
 EXTRACT_DIR="$WORK_DIR/sdk-extract"
-
 rm -rf "$WORK_DIR" "$DIST_DIR"
 mkdir -p "$CACHE_DIR" "$EXTRACT_DIR" "$DIST_DIR"
 
@@ -84,15 +81,10 @@ SDK_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print -quit)
 [ -x "$SDK_DIR/scripts/feeds" ] || die "SDK scripts/feeds is missing"
 [ -f "$SDK_DIR/package/Makefile" ] || die "SDK package/Makefile is missing"
 [ -d "$SDK_DIR/staging_dir/host" ] || die "SDK host staging directory is missing"
-PACKAGE_ROOT="$SDK_DIR/package/z2m"
 
 printf 'release build: updating and installing OpenWrt feeds\n'
 FEED_NAMES='base packages luci'
-# Install only the package definitions required by the three manager APKs.
-# `scripts/feeds install` accepts package names, not feed names; installing all
-# feed packages would select unrelated target/device packages and broaden the
-# build into an unnecessary firmware-wide prerequisite graph.
-FEED_PACKAGES='ucode ucode-mod-fs ucode-mod-io ucode-mod-socket ucode-mod-uloop kmod-nfnetlink-queue kmod-nft-queue ncat flock uclient-fetch ca-bundle unzip jsonfilter libjson-c luci-base'
+FEED_PACKAGES='ucode ucode-mod-fs ucode-mod-io ucode-mod-socket ucode-mod-uloop luci-base kmod-nfnetlink-queue kmod-nft-queue ncat flock uclient-fetch ca-bundle unzip jsonfilter libjson-c'
 FEEDS_READY=0
 for FEED_ATTEMPT in 1 2 3; do
 	if (
@@ -120,23 +112,20 @@ for FEED_ATTEMPT in 1 2 3; do
 	sleep $((FEED_ATTEMPT * 5))
 done
 
-mkdir -p "$PACKAGE_ROOT"
-for package in zapret2-manager luci-app-zapret2-manager zapret2-manager-full; do
-	[ -f "$REPO_ROOT/$package/Makefile" ] || die "package Makefile is missing: $package"
-	cp -a "$REPO_ROOT/$package" "$PACKAGE_ROOT/"
-done
-[ ! -e "$PACKAGE_ROOT/tg-ws-proxy-go" ] || die 'TG provider was copied into the SDK package namespace'
-[ ! -e "$PACKAGE_ROOT/tg-ws-proxy-rs" ] || die 'TG provider was copied into the SDK package namespace'
+PACKAGE_ROOT="$SDK_DIR/package/z2m"
+FULL_PACKAGE_ROOT="$PACKAGE_ROOT/$FULL_PACKAGE"
+mkdir -p "$FULL_PACKAGE_ROOT/sources/backend-src" \
+	"$FULL_PACKAGE_ROOT/sources/backend-files" \
+	"$FULL_PACKAGE_ROOT/sources/luci-files"
+cp -- "$REPO_ROOT/zapret2-manager-full/Makefile" "$FULL_PACKAGE_ROOT/Makefile"
+cp -a "$REPO_ROOT/zapret2-manager/src/." "$FULL_PACKAGE_ROOT/sources/backend-src/"
+cp -a "$REPO_ROOT/zapret2-manager/files/." "$FULL_PACKAGE_ROOT/sources/backend-files/"
+cp -a "$REPO_ROOT/luci-app-zapret2-manager/files/." "$FULL_PACKAGE_ROOT/sources/luci-files/"
 
-for package in zapret2-manager luci-app-zapret2-manager zapret2-manager-full; do
-	printf 'CONFIG_PACKAGE_%s=y\n' "$package" >> "$SDK_DIR/.config"
-done
+printf '%s\n' 'CONFIG_PACKAGE_zapret2-manager-full=y' >> "$SDK_DIR/.config"
 make -C "$SDK_DIR" -j2 defconfig
-
-for package in zapret2-manager luci-app-zapret2-manager zapret2-manager-full; do
-	printf 'release build: compiling %s\n' "$package"
-	make -C "$SDK_DIR" -j2 "package/z2m/$package/compile" V=s
-done
+printf 'release build: compiling %s\n' "$FULL_PACKAGE"
+make -C "$SDK_DIR" -j2 "package/z2m/$FULL_PACKAGE/compile" V=s
 
 require_staged_file() {
 	local pattern=$1
@@ -154,66 +143,74 @@ require_staged_dir() {
 	[ "$count" -gt 0 ] || die "staging verification failed: $description"
 }
 
-require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-core-helper' 'backend z2m-core-helper'
-require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-root-bootstrap' 'backend z2m-root-bootstrap'
-require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper' 'backend scanner firewall helper'
-require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/z2m-helperd' 'backend z2m-helperd'
-require_staged_file '*/.pkgdir/zapret2-manager/usr/libexec/zapret2-manager/*.uc' 'backend ucode files'
-require_staged_dir '*/.pkgdir/zapret2-manager/usr/share/zapret2-manager' 'backend shared data'
-require_staged_file '*/.pkgdir/zapret2-manager/etc/init.d/zapret2-manager' 'backend init script'
-require_staged_dir '*/.pkgdir/luci-app-zapret2-manager/www/luci-static/resources/view/zapret2-manager' 'LuCI views'
-require_staged_dir '*/.pkgdir/luci-app-zapret2-manager/usr/share/rpcd/acl.d' 'LuCI RPC ACL directory'
-require_staged_dir '*/.pkgdir/luci-app-zapret2-manager/usr/share/luci/menu.d' 'LuCI menu directory'
+STAGED_ROOT="*/.pkgdir/$FULL_PACKAGE"
+require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-core-helper" 'z2m-core-helper'
+require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-root-bootstrap" 'z2m-root-bootstrap'
+require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper" 'scanner firewall helper'
+require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-helperd" 'z2m-helperd'
+require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/*.uc" 'backend ucode files'
+require_staged_file "$STAGED_ROOT/usr/share/rpcd/ucode/zapret2-manager.uc" 'rpcd object'
+require_staged_dir "$STAGED_ROOT/usr/share/zapret2-manager" 'runtime assets'
+require_staged_file "$STAGED_ROOT/etc/init.d/zapret2-manager" 'init script'
+require_staged_file "$STAGED_ROOT/etc/hotplug.d/iface/90-zapret2-manager" 'hotplug runtime'
+require_staged_dir "$STAGED_ROOT/www/luci-static/resources/view/zapret2-manager" 'LuCI views'
+require_staged_dir "$STAGED_ROOT/usr/share/rpcd/acl.d" 'LuCI RPC ACL directory'
+require_staged_dir "$STAGED_ROOT/usr/share/luci/menu.d" 'LuCI menu directory'
 
-find_product_apk() {
-	local package=$1
-	local pattern="$package-[0-9]*.apk"
-	local -a matches
-	mapfile -t matches < <(find "$SDK_DIR/bin" -type f -name "$pattern" -print | sort)
-	[ "${#matches[@]}" -eq 1 ] || die "expected exactly one $package APK, found ${#matches[@]}"
-	printf '%s\n' "${matches[0]}"
-}
-
-BACKEND_APK=$(find_product_apk zapret2-manager)
-LUCI_APK=$(find_product_apk luci-app-zapret2-manager)
-FULL_APK=$(find_product_apk zapret2-manager-full)
+FULL_APK=$(find "$SDK_DIR/bin" -type f -name "$FULL_PACKAGE-[0-9]*.apk" -print | sort | head -n 1)
+[ -n "$FULL_APK" ] || die "full package APK was not produced"
+APK_COUNT=$(find "$SDK_DIR/bin" -type f -name '*.apk' | wc -l | awk '{print $1}')
+[ "$APK_COUNT" -eq 1 ] || die "SDK produced $APK_COUNT APKs; expected only the full package"
 APK_TOOL=$(find "$SDK_DIR/staging_dir/host" -type f -name apk -perm -u+x -print -quit)
 [ -n "$APK_TOOL" ] || die 'OpenWrt SDK-native apk tool is missing'
 
-if ! FULL_METADATA_JSON=$(
-	"$APK_TOOL" adbdump --format json "$FULL_APK"
-); then
-	die 'full package metadata could not be decoded by SDK apk'
-fi
-
-verify_full_package_dependency() {
-	local dependency=$1
-	if ! printf '%s' "$FULL_METADATA_JSON" | DEPENDENCY="$dependency" node --input-type=module -e '
+FULL_METADATA_JSON=$("$APK_TOOL" adbdump --format json "$FULL_APK") || die 'full package metadata could not be decoded by SDK apk'
+verify_metadata_field() {
+	local field=$1
+	local expected=$2
+	if ! printf '%s' "$FULL_METADATA_JSON" | FIELD="$field" EXPECTED="$expected" node --input-type=module -e '
 import fs from "node:fs";
-
 const metadata = JSON.parse(fs.readFileSync(0, "utf8"));
-const dependencies = metadata.info?.depends ?? metadata.info?.depend ?? [];
-const dependency = process.env.DEPENDENCY;
-if (!Array.isArray(dependencies) || !dependencies.some((value) => String(value) === dependency || String(value).startsWith(`${dependency}=`))) {
-	process.exit(1);
-}
+const field = process.env.FIELD;
+const expected = process.env.EXPECTED;
+const values = metadata.info?.[field] ?? metadata[field];
+const list = Array.isArray(values) ? values : [values];
+if (!list.some((value) => String(value) === expected || String(value).startsWith(`${expected}=`))) process.exit(1);
 '; then
-		die "full package dependency metadata is missing: $dependency"
+		die "full package metadata is missing $field: $expected"
 	fi
 }
+for dependency in $FEED_PACKAGES; do
+	verify_metadata_field depends "$dependency"
+done
+verify_metadata_field provides zapret2-manager
+verify_metadata_field provides luci-app-zapret2-manager
 
-printf 'release build: verifying full package dependency metadata\n'
-verify_full_package_dependency zapret2-manager
-verify_full_package_dependency luci-app-zapret2-manager
+PAYLOAD_DIR="$WORK_DIR/full-payload"
+mkdir -p "$PAYLOAD_DIR"
+"$APK_TOOL" extract --destination "$PAYLOAD_DIR" "$FULL_APK" || die 'full package payload could not be extracted by SDK apk'
+for relative in \
+	usr/libexec/zapret2-manager/z2m-core-helper \
+	usr/libexec/zapret2-manager/z2m-root-bootstrap \
+	usr/libexec/zapret2-manager/z2m-scanner-firewall-helper \
+	usr/libexec/zapret2-manager/z2m-helperd \
+	usr/libexec/zapret2-manager/strategy-catalog-migration-cli.uc \
+	usr/share/rpcd/ucode/zapret2-manager.uc \
+	usr/share/zapret2-manager/runtime-composition-package.json \
+	usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua \
+	etc/init.d/zapret2-manager \
+	etc/hotplug.d/iface/90-zapret2-manager \
+	usr/share/rpcd/acl.d/luci-app-zapret2-manager.json \
+	usr/share/luci/menu.d/luci-app-zapret2-manager.json \
+	www/luci-static/resources/view/zapret2-manager/z2m-api.js; do
+	[ -f "$PAYLOAD_DIR/$relative" ] || die "full package payload is missing: $relative"
+done
+[ "$(stat -c '%a' "$PAYLOAD_DIR/usr/libexec/zapret2-manager/z2m-helperd")" = 755 ] || die 'z2m-helperd mode is not 0755'
+[ "$(stat -c '%a' "$PAYLOAD_DIR/usr/share/rpcd/ucode/zapret2-manager.uc")" = 644 ] || die 'rpcd ucode mode is not 0644'
 
-cp -- "$BACKEND_APK" "$DIST_DIR/"
-cp -- "$LUCI_APK" "$DIST_DIR/"
-cp -- "$FULL_APK" "$DIST_DIR/"
-
-export DIST_DIR CHECKED_OUT_SHA GIT_REF SDK_ACTUAL_SHA="$ACTUAL_SDK_SHA" SDK_FILENAME SDK_SHA256
-export BACKEND_APK_NAME=$(basename -- "$BACKEND_APK")
-export LUCI_APK_NAME=$(basename -- "$LUCI_APK")
-export FULL_APK_NAME=$(basename -- "$FULL_APK")
+FULL_APK_NAME=$(basename -- "$FULL_APK")
+cp -- "$FULL_APK" "$DIST_DIR/$FULL_APK_NAME"
+export DIST_DIR CHECKED_OUT_SHA GIT_REF SDK_ACTUAL_SHA="$ACTUAL_SDK_SHA" SDK_FILENAME SDK_SHA256 FULL_APK_NAME
 node --input-type=module <<'NODE'
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -221,30 +218,23 @@ import path from 'node:path';
 import { releaseConfig } from './scripts/release/config.mjs';
 
 const dist = process.env.DIST_DIR;
-const artifactNames = [process.env.BACKEND_APK_NAME, process.env.LUCI_APK_NAME, process.env.FULL_APK_NAME];
-const digest = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-const packageFiles = ['zapret2-manager/Makefile', 'luci-app-zapret2-manager/Makefile', 'zapret2-manager-full/Makefile'];
-const packageIdentity = packageFiles.map((file) => {
-  const source = fs.readFileSync(file, 'utf8');
-  const version = source.match(/^PKG_VERSION\s*:?=\s*([^\s#]+)/m)?.[1];
-  const release = source.match(/^PKG_RELEASE\s*:?=\s*([^\s#]+)/m)?.[1];
-  if (!version || !release) throw new Error(`missing package identity in ${file}`);
-  return { version, release: Number(release) };
-});
-if (new Set(packageIdentity.map((item) => item.version)).size !== 1 ||
-    new Set(packageIdentity.map((item) => item.release)).size !== 1) {
-  throw new Error('manager package versions/releases are not synchronized');
-}
-const artifacts = artifactNames.map((filename, index) => {
-  const file = path.join(dist, filename);
-  const packageName = releaseConfig.packages[index];
-  const stat = fs.statSync(file);
-  return { package: packageName, filename, bytes: stat.size, sha256: digest(file) };
-});
+const file = path.join(dist, process.env.FULL_APK_NAME);
+const artifact = {
+  package: releaseConfig.packages[0],
+  filename: process.env.FULL_APK_NAME,
+  bytes: fs.statSync(file).size,
+  sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+};
+const source = fs.readFileSync('zapret2-manager-full/Makefile', 'utf8');
+const packageIdentity = {
+  version: source.match(/^PKG_VERSION\s*:?=\s*([^\s#]+)/m)?.[1],
+  release: Number(source.match(/^PKG_RELEASE\s*:?=\s*([^\s#]+)/m)?.[1])
+};
+if (!packageIdentity.version || !Number.isInteger(packageIdentity.release)) throw new Error('full package identity is incomplete');
 const manifest = {
   schema: releaseConfig.manifestSchema,
   project: { repository: releaseConfig.repository, gitCommit: process.env.CHECKED_OUT_SHA, gitRef: process.env.GIT_REF },
-  package: packageIdentity[0],
+  package: packageIdentity,
   openwrt: {
     version: releaseConfig.openwrt.version,
     target: releaseConfig.openwrt.target,
@@ -252,7 +242,13 @@ const manifest = {
     sdkFilename: process.env.SDK_FILENAME,
     sdkSha256: process.env.SDK_ACTUAL_SHA
   },
-  artifacts,
+  artifact,
+  externalDependencies: [...releaseConfig.externalDependencies],
+  bundled: { ...releaseConfig.bundled },
+  compatibility: {
+    provides: [...releaseConfig.compatibility.provides],
+    legacyPackages: [...releaseConfig.compatibility.legacyPackages]
+  },
   excludedOptionalPackages: [...releaseConfig.excludedOptionalPackages],
   installation: { ...releaseConfig.installation }
 };
@@ -261,8 +257,8 @@ NODE
 
 (
 	cd "$DIST_DIR"
-	sha256sum "$BACKEND_APK_NAME" "$LUCI_APK_NAME" "$FULL_APK_NAME" build-manifest.json > SHA256SUMS
+	sha256sum "$FULL_APK_NAME" build-manifest.json > SHA256SUMS
 	sha256sum -c SHA256SUMS
 )
 
-printf 'release build: generated three APKs, build-manifest.json, and SHA256SUMS in %s\n' "$DIST_DIR"
+printf 'release build: generated one full APK, build-manifest.json, and SHA256SUMS in %s\n' "$DIST_DIR"

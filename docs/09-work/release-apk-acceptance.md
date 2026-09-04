@@ -11,29 +11,25 @@ tags: [release, apk, openwrt, acceptance]
 
 # OpenWrt APK Release Acceptance
 
-This checklist applies to a single RC release. The one release asset is a
-bundle containing all three APKs and the two verification files from the same
-build.
+This checklist applies to one release. The release publishes one full APK and
+the two verification files from the same build.
 
 ## Package and checksum gate
 
-1. Download the single `zapret2-manager-<version>-<target>.tar.zst` asset from one RC release and extract it.
+1. Download `zapret2-manager-full-<version>.apk`, `build-manifest.json`, and `SHA256SUMS` from one release.
 2. Run `sha256sum -c SHA256SUMS`.
-3. Install the complete package set:
+3. First simulate the transaction, then install the complete package:
 
    ```sh
-   apk add --allow-untrusted \
-     ./zapret2-manager-<version>.apk \
-     ./luci-app-zapret2-manager-<version>.apk \
-     ./zapret2-manager-full-<version>.apk
+   apk add --simulate --allow-untrusted ./zapret2-manager-full-<version>.apk
+   apk add --allow-untrusted ./zapret2-manager-full-<version>.apk
    ```
 
-4. Confirm all three packages are installed:
+4. Confirm the full package and its compatibility provides are installed:
 
    ```sh
-   apk info -e zapret2-manager
-   apk info -e luci-app-zapret2-manager
    apk info -e zapret2-manager-full
+   apk info zapret2-manager-full
    ```
 
 ## Runtime gate
@@ -42,8 +38,17 @@ build.
 2. Confirm the Components page loads.
 3. Confirm backend RPC calls work and no runtime dependency is missing.
 4. Confirm the Main, Strategies, DNS, Telegram Proxy, WARP, and Scanner pages that are in scope for the installed release load without package errors.
-5. Reboot the router.
-6. Confirm the manager UI, rpcd object, backend service, and package-provided dependencies still work after reboot.
+5. Restart only `/etc/init.d/zapret2-manager` and confirm the active strategy,
+   RPC object, backend service, and logs remain healthy. Do not reboot the
+   router as part of this checklist.
+
+## Upgrade gate
+
+On a router with the previous split manager package set installed, run the same
+single-package command and verify that the compatibility provides migrate the
+legacy package names without duplicate backend/LuCI files or a second runtime
+process. Preserve the current/LKG runtime if the transaction or readiness gate
+fails.
 
 The engine remains independently installable from System → Components. Telegram Proxy remains independently installable from Proxy and Routing → Telegram Proxy.
 
