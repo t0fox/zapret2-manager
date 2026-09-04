@@ -64,6 +64,12 @@ test('release build stages source and compiles only the full package', () => {
   assert.doesNotMatch(buildScript, /generated three APKs|generated .* APKs/);
 });
 
+test('release build selects one full APK while keeping SDK dependency APKs out of dist', () => {
+  assert.match(buildScript, /FULL_APK_COUNT=/);
+  assert.match(buildScript, /FULL_APK_COUNT.*-eq 1/);
+  assert.doesNotMatch(buildScript, /APK_COUNT=\$\(find \"\$SDK_DIR\/bin\"[\s\S]*-name '\*\.apk'/);
+});
+
 test('workflow uploads and publishes the APK directly', () => {
   assert.doesNotMatch(workflow, /tar --sort=name|zstd -T0|\.tar\.zst/);
   assert.match(workflow, /dist\/zapret2-manager-full-\*\.apk/);

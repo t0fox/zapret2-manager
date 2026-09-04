@@ -157,10 +157,10 @@ require_staged_dir "$STAGED_ROOT/www/luci-static/resources/view/zapret2-manager"
 require_staged_dir "$STAGED_ROOT/usr/share/rpcd/acl.d" 'LuCI RPC ACL directory'
 require_staged_dir "$STAGED_ROOT/usr/share/luci/menu.d" 'LuCI menu directory'
 
+FULL_APK_COUNT=$(find "$SDK_DIR/bin" -type f -name "$FULL_PACKAGE-[0-9]*.apk" -print | wc -l | awk '{print $1}')
+[ "$FULL_APK_COUNT" -eq 1 ] || die "SDK produced $FULL_APK_COUNT full package APKs; expected exactly one"
 FULL_APK=$(find "$SDK_DIR/bin" -type f -name "$FULL_PACKAGE-[0-9]*.apk" -print | sort | head -n 1)
 [ -n "$FULL_APK" ] || die "full package APK was not produced"
-APK_COUNT=$(find "$SDK_DIR/bin" -type f -name '*.apk' | wc -l | awk '{print $1}')
-[ "$APK_COUNT" -eq 1 ] || die "SDK produced $APK_COUNT APKs; expected only the full package"
 APK_TOOL=$(find "$SDK_DIR/staging_dir/host" -type f -name apk -perm -u+x -print -quit)
 [ -n "$APK_TOOL" ] || die 'OpenWrt SDK-native apk tool is missing'
 
