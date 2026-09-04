@@ -175,7 +175,11 @@ const field = process.env.FIELD;
 const expected = process.env.EXPECTED;
 const values = metadata.info?.[field] ?? metadata[field];
 const list = Array.isArray(values) ? values : [values];
-if (!list.some((value) => String(value) === expected || String(value).startsWith(`${expected}=`))) process.exit(1);
+const abiVersioned = new RegExp(`^${expected}[0-9]+$`);
+if (!list.some((value) => {
+  const normalized = String(value);
+  return normalized === expected || normalized.startsWith(`${expected}=`) || abiVersioned.test(normalized);
+})) process.exit(1);
 '; then
 		die "full package metadata is missing $field: $expected"
 	fi

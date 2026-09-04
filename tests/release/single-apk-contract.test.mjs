@@ -70,6 +70,11 @@ test('release build selects one full APK while keeping SDK dependency APKs out o
   assert.doesNotMatch(buildScript, /APK_COUNT=\$\(find \"\$SDK_DIR\/bin\"[\s\S]*-name '\*\.apk'/);
 });
 
+test('release metadata verification accepts OpenWrt ABI-versioned dependency names', () => {
+  assert.match(buildScript, /abiVersioned/);
+  assert.match(buildScript, /expected\}\[0-9\]/);
+});
+
 test('workflow uploads and publishes the APK directly', () => {
   assert.doesNotMatch(workflow, /tar --sort=name|zstd -T0|\.tar\.zst/);
   assert.match(workflow, /dist\/zapret2-manager-full-\*\.apk/);
