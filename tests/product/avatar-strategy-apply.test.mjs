@@ -165,7 +165,11 @@ function strategyProjection(record, selected, previousCandidateSha256 = HASH) {
     catalogDigest: CATALOG_DIGEST, expectedRevision: selected == null ? 0 : 1,
     selectionRevision: selected == null ? 0 : 1, expectedSelected: selected,
     previousCandidateSha256, candidateSha256: CANDIDATE_HASH,
-    expectedConfigSha256: OLD_CONFIG_HASH, previousSelected: selected,
+    expectedConfigSha256: OLD_CONFIG_HASH,
+    runtimeBinding: { snapshotId: 'z2k-lifecycle-v2|installed-a',
+      compositionSnapshotId: 'z2k-composition-v2|installed-a', membershipDigest: HASH,
+      observedRegistryRevision: 17 },
+    previousSelected: selected,
     selected: { id: record.id, origin: 'user', revision: record.revision, candidateSha256: CANDIDATE_HASH }
   };
 }
@@ -403,6 +407,50 @@ test('profiles_apply_candidate executes a verified Strategy transaction through 
   assert.deepEqual(invoke(STATE, 'mod.strategy_selection_get()', env).selected, oldIdentity);
 }));
 
+test('readiness returns immediately when the restarted runtime is already ready', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const started = Date.now();
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      verify: null, readiness: [{ ok: true, checks: runtimeChecks(true) }]
+    })
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.verify.readiness.attempts, 1);
+  assert.equal(result.verify.readiness.timedOut, false);
+  assert.ok(Date.now() - started < 1800, 'immediate readiness paid an unexpected fixed delay');
+}));
+
+test('readiness polls a delayed runtime until the first successful condition', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      verify: null, readiness: [{ ok: false, checks: runtimeChecks(false) }, { ok: true, checks: runtimeChecks(true) }]
+    })
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.verify.readiness.attempts, 2);
+  assert.equal(result.verify.readiness.timedOut, false);
+}));
+
+test('readiness timeout remains finite and enters the existing exact-rollback verdict', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_READY_TIMEOUT_SEC: '1', Z2M_STRATEGY_READY_MAX_POLLS: '10',
+    Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      verify: null, readiness: [{ ok: false, checks: runtimeChecks(false) }]
+    })
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'EVERIFY');
+  assert.equal(result.uncertain, true);
+  assert.equal(result.verify.readiness.timedOut, true);
+  assert.equal(result.rollbackVerify.readiness.timedOut, true);
+}));
+
 test('profiles_apply_candidate executes restart failure and verified rollback through the boundary', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
@@ -487,16 +535,14 @@ test('strategy_apply executes a successful transaction through the injected cand
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_LEASE), false);
 }));
 
-test('strategy_apply rejects a Registry/runtime composition change before the profile writer', () => storage(({ record, env }) => {
-  const before = runtimeComposition({ observedRegistryRevision: 17 });
+test('locked Strategy Apply rejects a Registry/runtime composition change before the profile writer', () => storage(({ record, env }) => {
   const after = runtimeComposition({ observedRegistryRevision: 18,
     snapshotId: 'z2k-lifecycle-v2|installed-b', compositionSnapshotId: 'z2k-composition-v2|installed-b' });
-  const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
-    strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
-    snapshotId: 'client-forged-snapshot',
-  })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({
-    candidate: strategyCandidateStub(), runtimeComposition: [before, after],
-  }) });
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, null))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      runtimeComposition: after,
+    })
+  });
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.error.code, 'ESTALE');
 }));
@@ -571,8 +617,11 @@ test('projection boundary rejects stale or concurrent sidecars and preserves no-
   const projection = { callerContext: 'strategy_apply', operationNonce: 'apply-op',
     expectedRevision: 0, selectionRevision: 0, strategyRevision: 3,
     strategyId: 'user-one', strategyOrigin: 'user', catalogDigest: CATALOG_DIGEST,
-    previousCandidateSha256: hash, candidateSha256: hash,
-    selected: null, previousSelected: null, expectedSelected: null };
+     previousCandidateSha256: hash, candidateSha256: hash,
+     runtimeBinding: { snapshotId: 'z2k-lifecycle-v2|installed-a',
+       compositionSnapshotId: 'z2k-composition-v2|installed-a', membershipDigest: HASH,
+       observedRegistryRevision: 17 },
+     selected: null, previousSelected: null, expectedSelected: null };
   const envelope = {
     schema: 1, marker: 'z2m-strategy-apply-projection.v1', callerContext: 'strategy_apply',
     transactionNonce: 'nonce-one', candidateSha256: hash, projection,

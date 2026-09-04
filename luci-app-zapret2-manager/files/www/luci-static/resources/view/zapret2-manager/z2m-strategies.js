@@ -27,7 +27,7 @@ var FILTER_PRESETS = {
   quic443: '--filter-udp=443 --filter-l7=quic --payload=quic_initial'
 };
 var state = {
-  ctx: null, root: null, data: {}, rows: [], selectedId: null,
+  ctx: null, root: null, data: {}, rows: [], selectedId: null, applyIdentity: null,
   sourceFilter: 'all',
   pending: null, operationPending: null, editorLoadingId: null, editor: null, strategyEditor: null, preview: null, selectedIds: {}, discordDonorPicker: null,
   catalogProgress: null,
@@ -392,6 +392,44 @@ var ListUI = {
 };
 
 function identity(data) { return Model.identity(statusValue(data)); }
+function runtimeIdentity(data) {
+  var ids = identity(data);
+  return text(ids.currentId || ids.appliedId || ids.selectedId);
+}
+function applyAnswerIdentity(answer) {
+  var raw = object(strategyFromAnswer(answer));
+  var id = text(raw.canonicalStrategyId || raw.canonicalId || raw.id || raw.strategyId);
+  if (!id) throw new Error('Сервис не вернул canonical ID применённой стратегии');
+  var status = statusValue(state.data);
+  var previous = object(status.strategyStatus);
+  var projected = Object.assign({}, previous, raw, {
+    id: id,
+    strategyId: id,
+    canonicalStrategyId: text(raw.canonicalStrategyId || raw.canonicalId) || id,
+    selectedId: id,
+    appliedId: id
+  });
+  state.data.status = { value: Object.assign({}, status, {
+    strategyStatus: projected,
+    currentStrategyId: id,
+    selectedStrategy: Object.assign({}, object(status.selectedStrategy), { id: id, strategyId: id }),
+    appliedStrategy: Object.assign({}, object(status.appliedStrategy), { id: id, strategyId: id })
+  }) };
+  state.selectedId = id;
+  state.applyIdentity = { id: id, expiresAt: Date.now() + 30000 };
+  state.rows = buildRows(state.data);
+  renderAll();
+  return id;
+}
+function retainConfirmedApplyIdentity(data) {
+  var guard = state.applyIdentity;
+  if (!guard) return data;
+  if (Date.now() > guard.expiresAt) { state.applyIdentity = null; return data; }
+  var freshId = runtimeIdentity(data);
+  if (freshId === guard.id) { state.applyIdentity = null; return data; }
+  if (state.data && state.data.status) return Object.assign({}, data, { status: state.data.status });
+  return data;
+}
 function buildRows(data) {
   var current = state.selectedId || identity(data).selectedId;
   return listValue(data).map(function (item) { return Model.normalize(item, statusValue(data), current); });
@@ -1533,11 +1571,12 @@ function refreshData(full) {
     return load(state.ctx).then(function (data) {
       if (!state.disposed) {
         if (data.list && data.list.value) {
+          data = retainConfirmedApplyIdentity(data);
           state.data = data;
           var freshSelection = identity(data).selectedId;
           if (freshSelection) state.selectedId = freshSelection;
         } else if (state.data && state.data.list && state.data.list.value && data.list && data.list.error) {
-          if (data.status) state.data.status = data.status;
+          if (data.status) state.data.status = retainConfirmedApplyIdentity({ status: data.status }).status || data.status;
           if (data.catalog) state.data.catalog = data.catalog;
         } else {
           state.data = data;
@@ -1555,7 +1594,9 @@ function refreshData(full) {
   ];
   return Promise.allSettled(reads).then(function (results) {
     if (!state.disposed && results[0].status === 'fulfilled' && state.data) {
-      state.data.status = { value: results[0].value || {} };
+      var freshStatus = { value: results[0].value || {} };
+      freshStatus = retainConfirmedApplyIdentity({ status: freshStatus }).status || freshStatus;
+      state.data.status = freshStatus;
       var freshSelection = identity(state.data).selectedId;
       if (freshSelection) {
         state.selectedId = freshSelection;
@@ -1780,8 +1821,19 @@ function renderCatalogProgress() {
   return Promise.resolve(typeof request === 'function' ? request() : request).then(function (answer) {
     if (!answer || answer.ok === false) throw answer || new Error('Операция не выполнена');
     if (state.ctx && state.ctx.invalidateCache) state.ctx.invalidateCache('strategies');
+    if (action === 'apply') {
+      applyAnswerIdentity(answer);
+      if (scoped) state.operationPending = null; else state.pending = null;
+      renderAll();
+      notify('ok', Model.actionCopy('apply').success);
+      refreshData(true).then(function () {}, function (error) {
+        notify('err', 'Фоновое обновление статуса не выполнено: ' + errorText(state.ctx, error));
+      });
+      return answer;
+    }
     return refreshData(true).then(function () { return answer; });
   }).then(function (answer) {
+    if (action === 'apply') return answer;
     if (scoped) state.operationPending = null; else state.pending = null;
     renderAll(); notify('ok', action === 'apply' ? Model.actionCopy('apply').success : 'Изменения сохранены'); return answer;
   }, function (error) {
@@ -2713,7 +2765,7 @@ function mount(ctx) {
 function unmount() {
   state.disposed = true; if (state.pollTimer) window.clearTimeout(state.pollTimer); state.pollTimer = null;
   if (state.listUI) state.listUI.destroy(); state.listUI = null; unbindEvents(); closeModal(); closePreview(); closeConfirm(); closeLearnedModal(); closeStratPicker();
-  state.modalResize = null; state.selectedIds = {}; /* donor selectedIds.clear() boundary */
+  state.modalResize = null; state.selectedIds = {}; state.applyIdentity = null; /* donor selectedIds.clear() boundary */
   state.root = null; state.ctx = null; state.handoffConsumed = false;
 }
 return baseclass.extend({

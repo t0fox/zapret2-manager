@@ -151,14 +151,16 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
   assert.doesNotMatch(apply, /popen\('\/usr\/bin\/ucode '\s*\+\s*PATHS\.collector/);
   assert.match(apply, /import \{ collect_observations, collect \} from/);
   // verification must tolerate the fw-rule application race after restart
+  // with a bounded condition poll; readiness on the first probe must not pay
+  // an unconditional fixed sleep.
   const verifyFn = functionBody(apply, 'transaction_verify');
-  assert.match(verifyFn, /for \(let i = 0; i < \d+; i\+\+\)/);
-  assert.match(verifyFn, /run\('sleep 1'\)/);
+  assert.match(verifyFn, /deadline/);
+  assert.match(verifyFn, /run\('sleep 0\.1'\)/);
+  assert.doesNotMatch(verifyFn, /run\('sleep 2'\)/);
   assertOrdered(transaction, [
     /snapshot_apply\(\)/,
     /set_vars?_cas\(/,
     /upstream_action\('restart'\)/,
-    /run\('sleep 2'\)/,
     /transaction_verify\(0,/,
   ]);
   assertOrdered(transaction, [

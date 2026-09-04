@@ -112,6 +112,28 @@ function shell_escape(value) {
 	return result + "'";
 }
 
+function runtime_identity_digest(value) {
+	if (!is_string(value)) return null;
+	let maker = null, path = null;
+	try { maker = popen('umask 077; mktemp /tmp/z2m-strategy-runtime-id.XXXXXX 2>/dev/null', 'r'); }
+	catch (e) { maker = null; }
+	if (!maker) return null;
+	path = trim(maker.read('all') || '');
+	let makerRc = maker.close();
+	if (makerRc != 0 || !match(path, /^\/tmp\/z2m-strategy-runtime-id\.[A-Za-z0-9_-]+$/)) return null;
+	try {
+		if (!writefile(path, value)) { unlink(path); return null; }
+	} catch (e) { try { unlink(path); } catch (ignored) { } return null; }
+	let process = null;
+	try { process = popen('sha256sum ' + shell_escape(path) + ' 2>/dev/null | awk \'{print $1}\'', 'r'); }
+	catch (e) { try { unlink(path); } catch (ignored) { } return null; }
+	if (!process) { try { unlink(path); } catch (ignored) { } return null; }
+	let output = trim(process.read('all') || ''), rc = process.close();
+	try { unlink(path); } catch (ignored) { }
+	let fields = split(output, /[ \\t]+/);
+	return rc == 0 && length(fields) && digest(fields[0]) ? fields[0] : null;
+}
+
 function safe_id(value) {
 	return is_string(value) && length(value) > 0 && length(value) <= 128
 		&& index(value, chr(0)) < 0 && index(value, '/') < 0 && index(value, '..') < 0;
@@ -424,13 +446,14 @@ function runtime_composition_for_apply() {
 	catch (e) { return error_result('ESTALE', 'installed runtime composition could not be resolved'); }
 }
 
-function runtime_snapshot_equal(left, right) {
-	if (!runtime_snapshot_valid(left) || !runtime_snapshot_valid(right)) return false;
-	for (let key in ['snapshotId', 'compositionSnapshotId', 'membershipDigest', 'observedRegistryRevision'])
-		if (left[key] != right[key]) return false;
-	for (let key in ['lifecycleIdentity', 'receiptIdentity', 'runtimeAssets', 'luaInit', 'dependencyIndex'])
-		if (sprintf('%J', left[key]) != sprintf('%J', right[key])) return false;
-	return true;
+function runtime_snapshot_binding(snapshot) {
+	if (!runtime_snapshot_valid(snapshot)) return null;
+	let snapshotIdSha256 = runtime_identity_digest(snapshot.snapshotId);
+	let compositionSnapshotIdSha256 = runtime_identity_digest(snapshot.compositionSnapshotId);
+	let membershipDigestSha256 = runtime_identity_digest(snapshot.membershipDigest);
+	if (!digest(snapshotIdSha256) || !digest(compositionSnapshotIdSha256) || !digest(membershipDigestSha256)) return null;
+	return { snapshotIdSha256: snapshotIdSha256, compositionSnapshotIdSha256: compositionSnapshotIdSha256,
+		membershipDigestSha256: membershipDigestSha256, observedRegistryRevision: snapshot.observedRegistryRevision };
 }
 
 function runtime_snapshot_error(value) {
@@ -998,6 +1021,7 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 		selectionRevision: selection.revision, expectedSelected: selection.selected,
 		previousCandidateSha256: selection.previousCandidateSha256,
 		expectedConfigSha256: configHash,
+		runtimeBinding: runtime_snapshot_binding(runtimeSnapshot),
 		previousSelected: selection.selected,
 		selected: {
 			id: resolved.id, origin: resolved.origin, revision: input.revision == null ? 0 : input.revision,
@@ -1014,17 +1038,14 @@ function strategy_apply_candidate(resolved, environment, input, currentCatalog) 
 	let cacheKey = strategy_preview_cache_key(input, currentCatalog, resolved, environment);
 	let cached = strategy_preview_cache_get(cacheKey);
 	if (cached == null) return strategy_candidate(resolved.strategy, environment);
-	// Apply may consume a Preview candidate only after binding it to the same
-	// live snapshot and rerunning native preflight. The cache never supplies a
-	// PASS by itself and is not an Apply authority.
-	let nativeValidation = null;
-	try { nativeValidation = native_preflight(cached.strategyArgs, environment.runtimeComposition, cached.dependencies); }
-	catch (e) { nativeValidation = { status: 'unavailable', coverage: {}, diagnostics: [{ severity: 'error', code: 'NATIVE_PREFLIGHT_FAILED', message: 'native preflight could not be completed' }] }; }
-	cached.nativeValidation = nativeValidation;
-	if (is_object(cached.dependencies)) cached.dependencies.nativeValidation = nativeValidation;
-	let nativeVerified = complete_validation(nativeValidation);
-	cached.applicable = cached.dependencies.available == true && nativeVerified;
-	cached.executable = cached.dependencies.available == true && nativeVerified;
+	// Apply may consume only the compiled candidate from Preview. Native
+	// validation is deliberately not reused here: the locked profile writer is
+	// the sole Apply authority and performs one final preflight on the live
+	// installed composition immediately before CAS.
+	cached.nativeValidation = { status: 'not_checked', coverage: {}, diagnostics: [] };
+	if (is_object(cached.dependencies)) cached.dependencies.nativeValidation = cached.nativeValidation;
+	cached.applicable = cached.dependencies.available == true;
+	cached.executable = false;
 	return cached;
 }
 
@@ -1113,12 +1134,6 @@ export const strategy_apply = function(input, context) {
 	catch (e) { begun = null; }
 	if (!is_object(begun) || begun.ok != true)
 		return error_result(begun && begun.error ? begun.error.code : 'EUNCERTAIN', begun && begun.error ? begun.error.message : 'Strategy Apply guard could not be established.');
-	// Validate the installed runtime authority independently of the request and
-	// retain it for the compiler/preflight transaction. A client snapshotId is
-	// deliberately not consulted here.
-	let installedSnapshot = runtime_composition_for_apply();
-	if (!runtime_snapshot_valid(installedSnapshot))
-		return strategy_apply_finish(runtime_snapshot_error(installedSnapshot), begun.operationNonce);
 	let currentCatalog = catalog();
 	if (!is_object(currentCatalog) || currentCatalog.ok == false) return strategy_apply_finish(currentCatalog, begun.operationNonce);
 	let resolved = resolve_strategy(input, currentCatalog);
@@ -1127,8 +1142,17 @@ export const strategy_apply = function(input, context) {
 	if (!trusted.ok && apply_hook_value('candidate', null) == null)
 		return strategy_apply_finish(trusted, begun.operationNonce);
 	if (!trusted.ok) trusted = { ok: true, environment: {} };
-	trusted.environment.validate = true;
-	trusted.environment.executionAdmission = true;
+	// RPC server_context already carries the canonical installed composition.
+	// Reuse it instead of resolving the same Registry/receipt twice. Test and
+	// direct-module contexts may omit it, so they use the existing hook/fallback;
+	// a present but invalid composition is never silently replaced.
+	let installedSnapshot = trusted.runtimeComposition;
+	if (installedSnapshot == null) installedSnapshot = runtime_composition_for_apply();
+	// A client snapshotId is deliberately not consulted here.
+	if (!runtime_snapshot_valid(installedSnapshot))
+		return strategy_apply_finish(runtime_snapshot_error(installedSnapshot), begun.operationNonce);
+	trusted.environment.validate = false;
+	trusted.environment.executionAdmission = false;
 	trusted.environment.runtimeComposition = installedSnapshot;
 	let candidate = null;
 	try { candidate = strategy_apply_candidate(resolved, trusted.environment, input, currentCatalog); }
@@ -1144,8 +1168,6 @@ export const strategy_apply = function(input, context) {
 		|| candidate.dependencies.dependencyClosure.available != true
 		|| !digest(candidate.dependencies.dependencyClosure.runtimeBundleDigest)))
 		return strategy_apply_finish(error_result('EDEPENDENCY', 'Z2K runtime dependency closure is unavailable or incomplete'), begun.operationNonce);
-	if (!complete_validation(candidate.nativeValidation))
-		return strategy_apply_finish(error_result('EPREFLIGHT', 'complete native Strategy preflight is required'), begun.operationNonce);
 	if (!digest(candidate.digest)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy candidate digest is unavailable'), begun.operationNonce);
 	let executableCandidate = bind_executable_candidate(candidate);
 	if (!is_object(executableCandidate))
@@ -1155,16 +1177,14 @@ export const strategy_apply = function(input, context) {
 		return strategy_apply_finish(error_result('EVERIFY', 'authoritative pre-Apply config and candidate hashes are unavailable'), begun.operationNonce);
 	let selection = { revision: begun.selectionRevision, selected: begun.selected,
 		operationNonce: begun.operationNonce, previousCandidateSha256: begun.oldCandidateSha256 };
-	// Resolve the authority again immediately before handing control to the
-	// existing profile transaction. Any Registry, receipt, membership, order,
-	// or composition change is ESTALE; profiles_apply_candidate is never called.
-	let finalSnapshot = runtime_composition_for_apply();
-	if (!runtime_snapshot_valid(finalSnapshot) || !runtime_snapshot_equal(installedSnapshot, finalSnapshot))
-		return strategy_apply_finish(error_result('ESTALE', 'installed runtime composition changed during Strategy Apply', {
-			before: installedSnapshot, after: finalSnapshot
-		}), begun.operationNonce);
+	// The authoritative final resolve and preflight now happen inside the
+	// config.lock transaction. The compact binding below lets that locked
+	// resolver reject Registry/receipt/membership/composition drift without
+	// copying the full runtime snapshot into the sidecar.
 	let projection = strategy_apply_projection(resolved, input, candidate, selection, begun.oldConfigSha256, installedSnapshot);
-	let applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection);
+	let applied = null;
+	try { applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection); }
+	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction failed before returning a bounded result'), begun.operationNonce, projection); }
 	if (!is_object(applied)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction returned no result'), begun.operationNonce);
 	if (applied.ok != true) {
 		return strategy_apply_finish(applied, begun.operationNonce, projection);

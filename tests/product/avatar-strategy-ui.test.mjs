@@ -23,8 +23,10 @@ test('Strategy API declares the canonical catalog, editor, preview, apply, and i
   for (const method of [
     'strategies_create', 'strategies_update',
     'strategies_delete', 'strategies_duplicate', 'strategies_favorite',
-    'strategies_catalog_status', 'strategies_catalog_reload', 'strategies_import_profiles',
+    'strategies_catalog_reload', 'strategies_import_profiles',
   ]) assert.match(api, new RegExp(`method:'${method}'`), method);
+  assert.match(api, /strategiesCatalogStatus:z2kRead\.bind\(null, 'strategies_catalog_status'\)/,
+    'strategies_catalog_status must use the shared bounded read transport');
   assert.match(api, /z2kStrategyList/);
   for (const method of ['strategies_get', 'strategies_preview', 'strategies_validate'])
     assert.match(api, new RegExp(`'${method}'`), method);
@@ -134,7 +136,7 @@ test('background status refresh adopts a delayed post-Apply selection into the l
   const refreshStart = strategiesPreviewPage.indexOf('function refreshData(full)');
   const refreshEnd = strategiesPreviewPage.indexOf('function formatCatalogDuration', refreshStart);
   const refreshSource = strategiesPreviewPage.slice(refreshStart, refreshEnd);
-  assert.match(refreshSource, /state\.data\.status = \{ value: results\[0\]\.value \|\| \{\} \};[\s\S]*var freshSelection = identity\(state\.data\)\.selectedId[\s\S]*state\.selectedId\s*=\s*freshSelection/);
+  assert.match(refreshSource, /var freshStatus = \{ value: results\[0\]\.value \|\| \{\} \};[\s\S]*retainConfirmedApplyIdentity\(\{ status: freshStatus \}\)[\s\S]*state\.data\.status = freshStatus[\s\S]*var freshSelection = identity\(state\.data\)\.selectedId[\s\S]*state\.selectedId\s*=\s*freshSelection/);
   assert.match(refreshSource, /state\.rows\s*=\s*buildRows\(state\.data\)/);
 });
 

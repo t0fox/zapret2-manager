@@ -17,15 +17,25 @@ test('Home keeps canonical active strategy when optional preview fails', () => {
     'canonical status_fast strategy must take precedence over preview errors');
 });
 
-test('Home read-only RPCs have explicit bounded timeouts for router-side collectors', () => {
+test('critical Home/Strategy/Telegram reads use real bounded request transport', () => {
+  assert.match(api, /var Z2K_READ_TIMEOUT_MS = 15000;/,
+    'critical reads need a transport timeout independent of rpc.declare options');
+  assert.match(api, /function z2kReadRpc\(method, params\)/);
+  assert.match(api, /request\.post\(rpc\.getBaseURL\(\), \[message\], \{\s*timeout: Z2K_READ_TIMEOUT_MS/);
   for (const method of [
-    'discord_profile_preview', 'strategies_recommendations', 'tg_product_status',
-    'events_tail', 'maintenance_status', 'proxy_status', 'proxy_health'
+    'status_fast', 'strategies_catalog_status', 'proxy_status', 'proxy_health', 'events_tail'
   ]) {
-    const declaration = api.match(new RegExp(`method:'${method}'[^}]*}`));
-    assert.ok(declaration, `RPC declaration is present for ${method}`);
-    assert.match(declaration[0], /timeout: 60/, `${method} must remain bounded at 60 seconds`);
+    assert.match(api, new RegExp(`${method}`), `critical RPC method is present: ${method}`);
   }
+  assert.match(api, /statusFast:z2kRead\.bind\(null, 'status_fast'\)/);
+  assert.match(api, /strategiesCatalogStatus:z2kRead\.bind\(null, 'strategies_catalog_status'\)/);
+  assert.match(api, /proxyStatus:z2kRead\.bind\(null, 'proxy_status'\)/);
+  assert.match(api, /proxyHealth:z2kReadEdit\.bind\(null, 'proxy_health'\)/);
+  assert.match(api, /eventsTail:z2kReadEdit\.bind\(null, 'events_tail'\)/);
+  assert.doesNotMatch(api, /statusFast:rpc\.declare/);
+  assert.doesNotMatch(api, /strategiesCatalogStatus:rpc\.declare/);
+  assert.doesNotMatch(api, /proxyHealth:rpc\.declare/);
+  assert.doesNotMatch(api, /eventsTail:rpc\.declare/);
 });
 
 test('Heavy strategy read RPCs stay bounded beyond the All-in-One compile window', () => {

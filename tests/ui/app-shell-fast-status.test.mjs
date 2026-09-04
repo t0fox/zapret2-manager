@@ -21,7 +21,10 @@ const source = readFileSync(APP, 'utf8');
 const apiSource = readFileSync(API, 'utf8');
 
 test('z2m-api declares both status and bounded status_fast transports', () => {
-  assert.match(apiSource, /method:\s*'status_fast'/, 'status_fast ubus method must be declared');
+  assert.match(apiSource, /z2kRead\.bind\(null, 'status_fast'\)/,
+    'status_fast must use the explicit bounded request transport');
+  assert.match(apiSource, /params:\s*\[rpc\.getSessionID\(\), 'zapret2-manager', method, params \|\| \{\}\]/,
+    'status_fast must be encoded by the shared request transport');
   assert.match(apiSource, /statusFast\s*:/, 'statusFast facade must exist');
 });
 

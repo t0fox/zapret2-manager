@@ -30,6 +30,7 @@ import { z2m_parse, z2m_validate, z2m_fragment, z2m_tokenize, derive_capture_por
 import { load_state } from './profiles-draft.uc';
 import { parse_queue } from './qlen.uc';
 import { native_preflight } from './native-preflight.uc';
+import { resolveInstalled } from './runtime-composition.uc';
 import { collect_observations, collect } from './core/status-collector.uc';
 import { state_read } from './core/state-store.uc';
 import { strategy_selection_get_readonly } from './strategy-state.uc';
@@ -154,9 +155,9 @@ function sha256_text_via_file(text) {
 	return (length(h) == 64) ? h : null;
 }
 
-function native_preflight_for_apply(candidate) {
+function native_preflight_for_apply(candidate, runtimeSnapshot) {
 	let injected = hook_value('transaction', 'preflight');
-	return injected != null ? injected : native_preflight(candidate);
+	return injected != null ? injected : native_preflight(candidate, runtimeSnapshot);
 }
 
 function scanner_safe_id(value) {
@@ -475,19 +476,54 @@ function recollect_status() {
 	return sj;
 }
 
+function readiness_test_value() {
+	return getenv('Z2M_STRATEGY_SERVER_TEST') == '1' ? hook_value('transaction', 'readiness') : null;
+}
+
+function runtime_composition_test_value() {
+	if (getenv('Z2M_STRATEGY_SERVER_TEST') != '1') return null;
+	let hook = apply_hook();
+	return hook != null && hook.runtimeComposition != null ? hook.runtimeComposition : null;
+}
+
+function readiness_budget() {
+	let timeoutSec = 5, maxPolls = 50;
+	// Tests may shorten the bounded budget to exercise timeout/rollback paths;
+	// production RPC has the fixed five-second/50-probe budget.
+	if (getenv('Z2M_STRATEGY_SERVER_TEST') == '1') {
+		let requestedTimeout = getenv('Z2M_STRATEGY_READY_TIMEOUT_SEC');
+		let requestedPolls = getenv('Z2M_STRATEGY_READY_MAX_POLLS');
+		if (requestedTimeout != null && type(+requestedTimeout) == 'int' && +requestedTimeout >= 1 && +requestedTimeout <= 5)
+			timeoutSec = +requestedTimeout;
+		if (requestedPolls != null && type(+requestedPolls) == 'int' && +requestedPolls >= 1 && +requestedPolls <= 50)
+			maxPolls = +requestedPolls;
+	}
+	return { timeoutSec: timeoutSec, maxPolls: maxPolls };
+}
+
 function transaction_verify(attempt, allow_external_nfqws, injected) {
 	if (injected != null) return injected;
 	// Firewall rules are (re)created by the init hook after the daemon start
-	// returns; immediately after restart the queue rules may not be visible
-	// yet. Poll briefly before declaring a verification failure.
-	let sj = null, q = null, result = null;
-	for (let i = 0; i < 6; i++) {
-		if (i > 0) run('sleep 1');
-		sj = recollect_status();
-		q = parse_queue();
-		result = verify_status(sj, q, allow_external_nfqws);
-		if (result.ok) return result;
+	// returns. Poll the existing postflight invariants with a hard deadline;
+	// readiness reached on the first probe returns without an arbitrary delay.
+	let budget = readiness_budget(), started = time(), deadline = started + budget.timeoutSec, result = null, attempts = 0;
+	while (attempts < budget.maxPolls) {
+		let supplied = readiness_test_value();
+		if (supplied != null) result = supplied;
+		else {
+			let sj = recollect_status(), q = parse_queue();
+			result = verify_status(sj, q, allow_external_nfqws);
+		}
+		attempts++;
+		if (result != null && result.ok) {
+			result.readiness = { attempts: attempts, elapsedSec: time() - started, deadlineSec: budget.timeoutSec, timedOut: false };
+			return result;
+		}
+		if (time() >= deadline) break;
+		run('sleep 0.1');
 	}
+	if (result == null) result = verify_status(null, { registered: false, peer_portid: null }, allow_external_nfqws);
+	result.readiness = { attempts: attempts, elapsedSec: time() - started, deadlineSec: budget.timeoutSec, timedOut: true };
 	return result;
 }
 
@@ -534,18 +570,51 @@ function load_drafts_or_refuse() {
 	return { state: ls.state };
 }
 
+function runtime_binding_valid(value) {
+	if (type(value) != 'object' || value == null
+		|| type(value.observedRegistryRevision) != 'int' || value.observedRegistryRevision < 0) return false;
+	let compact = type(value.snapshotIdSha256) == 'string' && match(value.snapshotIdSha256, /^[a-f0-9]{64}$/)
+		&& type(value.compositionSnapshotIdSha256) == 'string' && match(value.compositionSnapshotIdSha256, /^[a-f0-9]{64}$/);
+	compact = compact && type(value.membershipDigestSha256) == 'string' && match(value.membershipDigestSha256, /^[a-f0-9]{64}$/);
+	let legacy = type(value.snapshotId) == 'string' && length(value.snapshotId) > 0 && length(value.snapshotId) <= 256
+		&& type(value.compositionSnapshotId) == 'string' && length(value.compositionSnapshotId) > 0
+		&& length(value.compositionSnapshotId) <= 256
+		&& type(value.membershipDigest) == 'string' && match(value.membershipDigest, /^[a-f0-9]{64}$/);
+	return compact || legacy;
+}
+
+function runtime_binding_matches(value, binding) {
+	if (type(value) != 'object' || type(binding) != 'object') return false;
+	let snapshotDigest = type(binding.snapshotIdSha256) == 'string'
+		? sha256_text_via_file(value.snapshotId) : binding.snapshotId;
+	let compositionDigest = type(binding.compositionSnapshotIdSha256) == 'string'
+		? sha256_text_via_file(value.compositionSnapshotId) : binding.compositionSnapshotId;
+	let membershipDigest = type(binding.membershipDigestSha256) == 'string'
+		? sha256_text_via_file(value.membershipDigest) : binding.membershipDigest;
+	return snapshotDigest == (binding.snapshotIdSha256 || value.snapshotId)
+		&& compositionDigest == (binding.compositionSnapshotIdSha256 || value.compositionSnapshotId)
+		&& membershipDigest == (binding.membershipDigestSha256 || value.membershipDigest)
+		&& binding.observedRegistryRevision == value.observedRegistryRevision;
+}
+
+function projection_invalid_reason(value, candidateHash) {
+	if (type(value) != 'object' || value == null) return 'projection-shape';
+	if (value.callerContext != 'strategy_apply') return 'caller-context';
+	if (type(value.operationNonce) != 'string' || length(value.operationNonce) == 0 || length(value.operationNonce) > 256) return 'operation-nonce';
+	if (value.candidateSha256 != candidateHash) return 'candidate-hash';
+	if (type(value.expectedRevision) != 'int' || type(value.selectionRevision) != 'int' || type(value.strategyRevision) != 'int') return 'selection-revision';
+	if (type(value.strategyId) != 'string' || type(value.strategyOrigin) != 'string') return 'strategy-identity';
+	if (type(value.catalogDigest) != 'string' || !match(value.catalogDigest, /^[a-f0-9]{64}$/)) return 'catalog-digest';
+	if (type(value.previousCandidateSha256) != 'string' || !match(value.previousCandidateSha256, /^[a-f0-9]{64}$/)) return 'previous-candidate-hash';
+	if (!runtime_binding_valid(value.runtimeBinding)) return 'runtime-binding-shape';
+	if (value.expectedSelected != null && type(value.expectedSelected) != 'object') return 'expected-selection';
+	if (value.previousSelected != null && type(value.previousSelected) != 'object') return 'previous-selection';
+	if (value.selected != null && type(value.selected) != 'object') return 'selected-identity';
+	return null;
+}
+
 function projection_valid(value, candidateHash) {
-	return type(value) == 'object' && value != null
-		&& value.callerContext == 'strategy_apply'
-		&& type(value.operationNonce) == 'string' && length(value.operationNonce) > 0 && length(value.operationNonce) <= 256
-		&& value.candidateSha256 == candidateHash && type(value.expectedRevision) == 'int'
-		&& type(value.selectionRevision) == 'int' && type(value.strategyRevision) == 'int'
-		&& type(value.strategyId) == 'string' && type(value.strategyOrigin) == 'string'
-		&& type(value.catalogDigest) == 'string' && match(value.catalogDigest, /^[a-f0-9]{64}$/)
-		&& type(value.previousCandidateSha256) == 'string' && match(value.previousCandidateSha256, /^[a-f0-9]{64}$/)
-		&& (value.expectedSelected == null || type(value.expectedSelected) == 'object')
-		&& (value.previousSelected == null || type(value.previousSelected) == 'object')
-		&& (value.selected == null || type(value.selected) == 'object');
+	return projection_invalid_reason(value, candidateHash) == null;
 }
 
 export const profiles_projection_boundary = function(candidateHash) {
@@ -701,7 +770,6 @@ function apply_candidate_pipeline(f) {
 
 	let restartHook = hook_value('transaction', 'restart');
 	let r = restartHook != null ? transaction_restart(0, restartHook) : upstream_action('restart');
-	run('sleep 2');
 	let verifyHook = hook_value('transaction', 'verify');
 	let verify = verifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, verifyHook)
 		: transaction_verify(0, f.allowExternalNfqws == true, null);
@@ -727,7 +795,6 @@ function apply_candidate_pipeline(f) {
 		if (snap.uciBytes != null) writefile(PATHS.uci_conf, snap.uciBytes);
 		let rollbackRestartHook = hook_value('transaction', 'restart');
 		let rr = rollbackRestartHook != null ? transaction_restart(1, rollbackRestartHook) : upstream_action('restart');
-		run('sleep 2');
 		let rollbackVerifyHook = hook_value('transaction', 'verify');
 		let rollbackVerify = rollbackVerifyHook != null ? transaction_verify(1, f.allowExternalNfqws == true, rollbackVerifyHook)
 			: transaction_verify(1, f.allowExternalNfqws == true, null);
@@ -845,15 +912,30 @@ function profiles_apply_candidate_locked(candidate, expectedHash, projection) {
 	let model = z2m_parse(candidate), diags = z2m_validate(model);
 	for (let d in model.diagnostics) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has parse errors', { diagnostics: model.diagnostics });
 	for (let d in diags) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has validation errors', { diagnostics: diags });
-	let native = native_preflight_for_apply(candidate), cur = hook_value('transaction', 'currentOpt');
+	let boundary = profiles_projection_boundary(expectedHash);
+	if (!boundary.ok) return boundary;
+	if (projection != null && !projection_valid(projection, expectedHash))
+		return err('identity', 'EINPUT', 'Strategy projection context is invalid', { reason: projection_invalid_reason(projection, expectedHash) });
+	let internalProjection = projection != null ? projection : boundary.projection;
+	let runtimeSnapshot = null;
+	if (internalProjection != null && internalProjection.runtimeBinding != null) {
+		let resolved = runtime_composition_test_value();
+		if (resolved == null) try { resolved = resolveInstalled({}); } catch (e) { resolved = null; }
+		let binding = internalProjection.runtimeBinding;
+		if (resolved == null || resolved.ok != true || resolved.lifecycleState != 'installed'
+			|| resolved.compositionStatus != 'canonical' || type(resolved.snapshotId) != 'string'
+			|| type(resolved.compositionSnapshotId) != 'string' || type(resolved.membershipDigest) != 'string'
+			|| type(resolved.observedRegistryRevision) != 'int'
+			|| !runtime_binding_matches(resolved, binding))
+			return err('preflight', 'ESTALE', 'installed runtime composition changed before authoritative Strategy preflight', {
+				expected: binding, actual: resolved });
+		runtimeSnapshot = resolved;
+	}
+	let native = native_preflight_for_apply(candidate, runtimeSnapshot), cur = hook_value('transaction', 'currentOpt');
 	if (cur == null) cur = read_var(OPT_VAR);
 	let diff = diff_summary(cur != null ? cur : '', candidate);
 	if (expectedHash != null && diff.candidateSha256 != expectedHash)
 		return err('validate', 'ECONFLICT', 'typed candidate hash changed before mutation', { expected: expectedHash, actual: diff.candidateSha256 });
-	let boundary = profiles_projection_boundary(expectedHash);
-	if (projection != null && !projection_valid(projection, expectedHash))
-		return err('identity', 'EINPUT', 'Strategy projection context is invalid');
-	let internalProjection = projection != null ? projection : boundary.projection;
 	let ports = derive_capture_ports(candidate);
 	if (!ports.ok) return err('validate', 'EINPUT', 'candidate contains invalid port expressions: ' + ports.error);
 	return apply_candidate_pipeline({ candidate: candidate, ports: ports, fragments: [], native: native, diff: diff,
