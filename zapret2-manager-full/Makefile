@@ -1,6 +1,9 @@
 # zapret2-manager-full — canonical self-contained backend + LuCI package
+# The package directory must be captured before rules.mk extends MAKEFILE_LIST.
 # The upstream zapret2 engine and Telegram Proxy remain optional lifecycle
 # components and are intentionally not bundled or pulled in as dependencies.
+FULL_PACKAGE_DIR:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager-full
@@ -11,7 +14,6 @@ PKG_LICENSE:=MIT
 PKG_FLAGS:=nonshared
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
-FULL_PACKAGE_DIR:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 FULL_SOURCE_DIR:=$(FULL_PACKAGE_DIR)/sources
 BACKEND_SOURCE_DIR:=$(FULL_SOURCE_DIR)/backend-src
 BACKEND_FILES_DIR:=$(FULL_SOURCE_DIR)/backend-files

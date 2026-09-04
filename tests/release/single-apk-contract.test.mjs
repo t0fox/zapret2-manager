@@ -43,6 +43,16 @@ test('full package owns split-package migration through compatibility provides',
   assert.equal((fullMakefile.match(/\/etc\/init\.d\/zapret2-manager restart/g) ?? []).length, 1);
 });
 
+test('the package captures its own source directory before OpenWrt includes mutate MAKEFILE_LIST', () => {
+  const packageDir = fullMakefile.indexOf('FULL_PACKAGE_DIR:=');
+  const rulesInclude = fullMakefile.indexOf('include $(TOPDIR)/rules.mk');
+
+  assert.ok(packageDir >= 0, 'FULL_PACKAGE_DIR must be defined');
+  assert.ok(rulesInclude >= 0, 'OpenWrt rules include must be present');
+  assert.ok(packageDir < rulesInclude, 'source directory must be captured before rules.mk');
+  assert.match(fullMakefile, /FULL_PACKAGE_DIR:=\$\(dir \$\(abspath \$\(lastword \$\(MAKEFILE_LIST\)\)\)\)/);
+});
+
 test('release build stages source and compiles only the full package', () => {
   assert.match(buildScript, /zapret2-manager-full/);
   assert.match(buildScript, /zapret2-manager\/src/);
