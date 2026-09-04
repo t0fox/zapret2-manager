@@ -61,6 +61,7 @@ var activeContext = null;
 var activationToken = 0;
 var hashHandler = null;
 var storeUnsubscribe = null;
+var headerStatusLifecycle = null;
 var tabDataCache = {};
 var tabLoadPromises = {};
 function currentSessionKey() {
@@ -125,13 +126,15 @@ return L.view.extend({
   },
 
   render: function (initial) {
+    if (headerStatusLifecycle) headerStatusLifecycle.dispose();
     Shell.injectCss();
     var content = E('main', { 'class': 'z2m-content', id: 'z2m-content' });
     var tabs = Shell.primaryNavigation(Navigation, tabFromHash(), navigateTo);
     var appRoot = null;
     var headerStatus = null;
     var headerStatusTimer = null;
-    var statusBroker = StatusFastBroker.create({ read: Api.service.statusFast });
+    var visibilityHandler = null;
+    var statusBroker = StatusFastBroker.create({ read: Api.service.statusFast, initial: initial });
 
     function setContentBusy(busy) {
       content.classList.toggle('z2m-refreshing', busy === true);
@@ -298,9 +301,15 @@ return L.view.extend({
     }
     function scheduleHeaderStatusRefresh() {
       if (headerStatusTimer) window.clearTimeout(headerStatusTimer);
+      headerStatusTimer = null;
+      // render() schedules this before LuCI attaches the returned root to the
+      // document. Check containment when the bounded timer fires instead of
+      // dropping the initial polling lifecycle here.
+      if (!appRoot || document.hidden) return;
       headerStatusTimer = window.setTimeout(function pollHeaderStatus() {
         headerStatusTimer = null;
         if (!appRoot || !document.body.contains(appRoot)) return;
+        if (document.hidden) return;
         statusBroker.get().then(function (data) {
           updateHeaderStatus({ status: { value: data } });
         }).catch(function () {
@@ -308,11 +317,36 @@ return L.view.extend({
         }).then(scheduleHeaderStatusRefresh);
       }, 5000);
     }
+    function refreshHeaderStatusAfterVisibilityChange() {
+      if (!appRoot || !document.body.contains(appRoot) || document.hidden) return;
+      statusBroker.get({ forceFresh: true }).then(function (data) {
+        updateHeaderStatus({ status: { value: data } });
+      }).catch(function () {
+        // Keep the last known header state and let the bounded routine poll
+        // retry when the document is visible again.
+      }).then(scheduleHeaderStatusRefresh);
+    }
 
     var initialTab = tabFromHash();
     if (hashHandler) window.removeEventListener('hashchange', hashHandler);
     hashHandler = function () { activate(tabFromHash()); };
     window.addEventListener('hashchange', hashHandler);
+    visibilityHandler = function () {
+      if (document.hidden) {
+        if (headerStatusTimer) window.clearTimeout(headerStatusTimer);
+        headerStatusTimer = null;
+        return;
+      }
+      refreshHeaderStatusAfterVisibilityChange();
+    };
+    window.addEventListener('visibilitychange', visibilityHandler);
+    headerStatusLifecycle = {
+      dispose: function () {
+        if (headerStatusTimer) window.clearTimeout(headerStatusTimer);
+        headerStatusTimer = null;
+        if (visibilityHandler) window.removeEventListener('visibilitychange', visibilityHandler);
+      }
+    };
 
     var service = statusState(initial);
     var version = detectedVersion(initial);

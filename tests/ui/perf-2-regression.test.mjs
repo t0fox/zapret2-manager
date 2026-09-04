@@ -54,6 +54,24 @@ test('PERF-2 DNS TikTok polling publishes targeted state without reloading DNS',
     'TikTok check must update the local canonical state');
 });
 
+test('PERF-2 DNS first paint uses one canonical product bootstrap', () => {
+  const source = ui('z2m-dns.js');
+  const load = between(source, 'function load(ctx)', '/* ---- render ---- */');
+  assert.match(load, /ctx\.api\.dns\.product\.get\(\)/,
+    'DNS bootstrap must use the canonical product facade');
+  assert.doesNotMatch(load, /ctx\.api\.dns\.product\.status\(\)/,
+    'DNS bootstrap must not repeat the product status owner');
+  assert.doesNotMatch(load, /ctx\.api\.dns\.get\(\)/,
+    'DNS bootstrap must not repeat the low-level DNS owner');
+  assert.doesNotMatch(load, /ctx\.api\.dns\.serviceStatus\(\)/,
+    'DNS bootstrap must not repeat the service DNS owner');
+  assert.doesNotMatch(load, /globalRead\(/,
+    'DNS bootstrap must not repeat the global DNS owner');
+  const deferred = between(source, 'function scheduleDeferred(ctx, token)', 'function load(ctx)');
+  assert.doesNotMatch(deferred, /product\.providers|serviceProviders|dns\.providers/,
+    'deferred DNS jobs must consume product-owned provider snapshots');
+});
+
 test('PERF-2 Control readiness retries status only and never events_tail', () => {
   const source = ui('z2m-avatar-control.js');
   const fetch = between(source, 'function fetchData(ctx)', 'function strategyId');
@@ -113,11 +131,15 @@ test('PERF-2 status-fast broker deduplicates bursts and expires bounded cache', 
   });
   const first = broker.get();
   const joined = broker.get({ forceFresh: true });
+  const joinedAgain = broker.get();
+  const joinedForceFresh = broker.get({ forceFresh: true });
   await Promise.resolve();
-  assert.equal(reads, 1, 'concurrent readers must share one status_fast request');
+  assert.equal(reads, 1, 'four concurrent readers must share one status_fast request');
   gates[0]({ generation: 1 });
   assert.deepEqual(await first, { generation: 1 });
   assert.deepEqual(await joined, { generation: 1 });
+  assert.deepEqual(await joinedAgain, { generation: 1 });
+  assert.deepEqual(await joinedForceFresh, { generation: 1 });
   assert.equal(reads, 1, 'fresh cached status must satisfy a second consumer');
   clock += 1501;
   const expired = broker.get();
@@ -125,6 +147,17 @@ test('PERF-2 status-fast broker deduplicates bursts and expires bounded cache', 
   assert.equal(reads, 2, 'expired status must trigger a new request');
   gates[1]({ generation: 2 });
   assert.deepEqual(await expired, { generation: 2 });
+
+  let seededReads = 0;
+  const seeded = brokerModule.create({
+    now: () => clock,
+    initial: { generation: 0 },
+    read: () => { seededReads++; return Promise.resolve({ generation: 3 }); }
+  });
+  assert.deepEqual(await seeded.get(), { generation: 0 }, 'shell status should seed a first route read');
+  assert.equal(seededReads, 0, 'seeded status must not open a duplicate request');
+  assert.deepEqual(await seeded.get({ forceFresh: true }), { generation: 3 });
+  assert.equal(seededReads, 1, 'forceFresh must still authorize a new read');
 });
 
 test('PERF-2 app context exposes the shared status-fast broker to consumers', () => {
@@ -132,13 +165,61 @@ test('PERF-2 app context exposes the shared status-fast broker to consumers', ()
   assert.match(source, /z2m-status-fast-broker/);
   assert.match(source, /statusFast\s*:/);
   assert.match(source, /statusBroker/);
+  assert.match(source, /initial\s*:/,
+    'the shell status result must seed the shared broker for the first route');
+});
+
+test('PERF-2 Strategies bootstrap consumes the shared status-fast broker', () => {
+  const source = ui('z2m-strategies.js');
+  const load = between(source, 'function load(ctx)', 'function mount(ctx)');
+  assert.match(load, /ctx\.statusFast/,
+    'Strategies must join the shell status broker instead of opening a second status_fast read');
+});
+
+test('PERF-2 status broker pauses routine header polling while the document is hidden', () => {
+  const source = ui('app.js');
+  const poll = between(source, 'function scheduleHeaderStatusRefresh()', 'var initialTab');
+  assert.match(poll, /document\.hidden/,
+    'routine status polling must not continue while the document is hidden');
+  assert.match(source, /visibilitychange/,
+    'returning to a visible document must trigger a bounded refresh');
+  assert.match(source, /forceFresh/,
+    'visible transition must use an authoritative fresh broker read');
+});
+
+test('PERF-2 Dashboard deferred work has reserved semantic lanes', () => {
+  const source = ui('z2m-overview-loading.js');
+  const scheduler = between(source, 'function scheduleDeferred(data)', 'function load(ctx)');
+  for (const lane of ['critical-local', 'fast-local', 'optional-heavy', 'remote'])
+    assert.match(scheduler, new RegExp(lane), `missing Dashboard scheduler lane: ${lane}`);
+  assert.match(scheduler, /MAX_DEFERRED_IN_FLIGHT|concurrency/);
+  assert.match(scheduler, /priority|lane|queue/i,
+    'Dashboard scheduler must make the lane policy explicit');
 });
 
 test('PERF-2 benchmark harness exposes bounded browser-lane scenarios', () => {
   const source = fs.readFileSync(path.join(root, 'tests/perf/rpc-starvation-harness.mjs'), 'utf8');
-  for (const scenario of ['dashboard-cold', 'strategies-navigation', 'telegram-navigation', 'telegram-health-action', 'logs-navigation', 'contention'])
+  for (const scenario of [
+    'dashboard-cold', 'dashboard-revisit', 'strategies-navigation', 'strategy-apply',
+    'telegram-navigation', 'telegram-start', 'telegram-stop', 'telegram-restart',
+    'telegram-health-action', 'dns-navigation', 'services-check', 'scanner-polling',
+    'components-navigation', 'diagnostics-navigation', 'logs-navigation', 'contention'
+  ])
     assert.match(source, new RegExp(`(?:['"]${scenario}['"]|\\b${scenario}\\s*:)`));
   assert.match(source, /MAX_DEFERRED_IN_FLIGHT|concurrency/);
   assert.match(source, /firstMeaningfulMs/);
   assert.match(source, /healthExcluded/);
+  assert.match(source, /rounds|scenarioRounds/);
+  assert.match(source, /duplicateCanonicalOwnerCount/);
+  assert.match(source, /p50Ms/);
+  assert.match(source, /p95Ms/);
+  assert.match(source, /timeouts/);
+  assert.match(source, /ubus.*-t|definition\.timeout/,
+    'remote ubus timeout must be bounded consistently with the harness call timeout');
+  assert.match(source, /responseEvidence/,
+    'mutation evidence must retain a bounded response projection, not only elapsed time');
+  assert.match(source, /preflightCount/,
+    'strategy Apply evidence must expose the authoritative locked preflight count');
+  assert.match(source, /responses:/,
+    'phase evidence must retain bounded RPC response projections');
 });

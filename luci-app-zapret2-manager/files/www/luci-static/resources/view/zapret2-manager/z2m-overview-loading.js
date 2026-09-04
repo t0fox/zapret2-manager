@@ -75,50 +75,72 @@ function createLoader(options) {
 		}
 		function scheduleDeferred(data) {
 			var jobs = [
-				{ key: 'preview', label: _('предпросмотра стратегии'), run: function () {
-					return ctx.api.strategy && typeof ctx.api.strategy.preview === 'function'
-						? ctx.api.strategy.preview() : {};
-				} },
-				{ key: 'events', label: _('журнала событий'), run: function () {
+				{ key: 'events', lane: 'critical-local', label: _('журнала событий'), run: function () {
 					return ctx.api.monitor && typeof ctx.api.monitor.eventsTail === 'function'
 						? edit(ctx.api.monitor.eventsTail, { limit: 8 }) : {};
 				} },
-				{ key: 'recommendations', label: _('рекомендаций'), run: function () {
+				{ key: 'strategy', lane: 'critical-local', label: _('активной стратегии'), run: function () {
+					return resolveCanonicalStrategy(ctx, data.status, edit);
+				} },
+				{ key: 'tgStatus', lane: 'fast-local', label: _('статуса Telegram Proxy'), run: function () {
+					return ctx.api.tg && ctx.api.tg.product && typeof ctx.api.tg.product.status === 'function'
+						? ctx.api.tg.product.status() : {};
+				} },
+				{ key: 'engineStatus', lane: 'fast-local', label: _('состояния zapret2'), run: function () {
+					return ctx.api.engine && typeof ctx.api.engine.status === 'function' ? ctx.api.engine.status() : {};
+				} },
+				{ key: 'systemStatus', lane: 'fast-local', label: _('состояния системы'), run: function () {
+					return ctx.api.maintenance && typeof ctx.api.maintenance.status === 'function' ? ctx.api.maintenance.status() : {};
+				} },
+				{ key: 'preview', lane: 'optional-heavy', label: _('предпросмотра стратегии'), run: function () {
+					return ctx.api.strategy && typeof ctx.api.strategy.preview === 'function'
+						? ctx.api.strategy.preview() : {};
+				} },
+				{ key: 'recommendations', lane: 'optional-heavy', label: _('рекомендаций'), run: function () {
 					if (ctx.api.strategies && typeof ctx.api.strategies.recommendations === 'function')
 						return ctx.api.strategies.recommendations();
 					return typeof options.recommendationsRpc === 'function' ? options.recommendationsRpc() : {};
 				} },
-				{ key: 'tgStatus', label: _('статуса Telegram Proxy'), run: function () {
-					return ctx.api.tg && ctx.api.tg.product && typeof ctx.api.tg.product.status === 'function'
-						? ctx.api.tg.product.status() : {};
-				} },
-				{ key: 'strategy', label: _('активной стратегии'), run: function () {
-					return resolveCanonicalStrategy(ctx, data.status, edit);
-				} },
-				{ key: 'engineStatus', label: _('состояния zapret2'), run: function () {
-					return ctx.api.engine && typeof ctx.api.engine.status === 'function' ? ctx.api.engine.status() : {};
-				} },
-				{ key: 'systemStatus', label: _('состояния системы'), run: function () {
-					return ctx.api.maintenance && typeof ctx.api.maintenance.status === 'function' ? ctx.api.maintenance.status() : {};
-				} },
-				{ key: 'versionStatus', label: _('версий'), run: function () {
+				{ key: 'versionStatus', lane: 'remote', label: _('версий'), run: function () {
 					return ctx.api.maintenance && typeof ctx.api.maintenance.versions === 'function' ? ctx.api.maintenance.versions() : {};
 				} },
-				{ key: 'resourcesStatus', label: _('состояния ресурсов'), run: function () {
+				{ key: 'resourcesStatus', lane: 'remote', label: _('состояния ресурсов'), run: function () {
 					return ctx.api.resources && typeof ctx.api.resources.status === 'function' ? ctx.api.resources.status() : {};
 				} }
 			];
-			var next = 0, active = 0;
+			var laneOrder = ['critical-local', 'fast-local', 'optional-heavy', 'remote'];
+			var queues = { 'critical-local': [], 'fast-local': [], 'optional-heavy': [], remote: [] };
+			jobs.forEach(function (job) { queues[job.lane].push(job); });
+			var primed = { 'critical-local': false, 'fast-local': false };
+			var active = 0;
+			function nextJob() {
+				// Prime one slot for critical-local and one for fast-local. This
+				// prevents a slow optional request from occupying both lanes while
+				// events, active strategy, and local system status are pending.
+				for (var i = 0; i < 2; i++) {
+					var preferred = laneOrder[i];
+					if (!primed[preferred] && queues[preferred].length) {
+						primed[preferred] = true;
+						return queues[preferred].shift();
+					}
+				}
+				for (var j = 0; j < laneOrder.length; j++) {
+					var lane = laneOrder[j];
+					if (queues[lane].length) return queues[lane].shift();
+				}
+				return null;
+			}
 			function pump() {
 				if (token !== runtime.loadToken) return;
-				while (active < MAX_DEFERRED_IN_FLIGHT && next < jobs.length) {
+				var job;
+				while (active < MAX_DEFERRED_IN_FLIGHT && (job = nextJob())) {
 					(function (job) {
 						active++;
 						Promise.resolve().then(function () { return bound(job.run(), job.label); })
 							.then(function (value) { publish(job, { status: 'fulfilled', value: value }); },
 								function (error) { publish(job, { status: 'rejected', reason: error }); })
 							.then(function () { active--; pump(); });
-					})(jobs[next++]);
+					})(job);
 				}
 			}
 			timer(pump);

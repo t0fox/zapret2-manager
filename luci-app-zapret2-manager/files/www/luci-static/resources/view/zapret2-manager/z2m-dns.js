@@ -308,10 +308,7 @@ function globalRead(api, productRead) {
 }
 function scheduleDeferred(ctx, token) {
   var jobs = [
-    ['productProviders', ctx.api.dns.product.providers, _('каталога DNS-провайдеров')],
-    ['serviceProviders', ctx.api.dns.serviceProviders, _('профилей DNS-сервисов')],
     ['components', ctx.api.dns.components, _('компонентов DNS')],
-    ['providers', ctx.api.dns.providers, _('провайдеров DNS')],
     ['serviceCatalog', ctx.api.services.catalogList, _('каталога сервисов')],
     ['tiktok', ctx.api.dns.serviceTiktokStatus, _('статуса TikTok')]
   ].filter(function (job) { return typeof job[1] === 'function'; });
@@ -338,18 +335,44 @@ function scheduleDeferred(ctx, token) {
 function load(ctx) {
   var token = ++state.loadToken;
   state.deferred = {
-    productProviders: { value: {} }, serviceProviders: { value: {} }, components: { value: {} },
-    providers: { value: {} }, serviceCatalog: { value: {} }, tiktok: { value: { enabled: false, state: 'loading' } }
+    components: { value: {} }, serviceCatalog: { value: {} },
+    tiktok: { value: { enabled: false, state: 'loading' } }
   };
   if (state.deferredTimer) window.clearTimeout(state.deferredTimer);
   state.deferredTimer = null;
-  var productRead = ctx.api.dns.product.get();
-  return Promise.allSettled([
-    productRead, ctx.api.dns.product.status(), ctx.api.dns.get(), ctx.api.dns.serviceStatus(), globalRead(ctx.api, productRead)
-  ]).then(function (results) {
+  // dns_product_get is the canonical read facade. Its bounded snapshot already
+  // contains every owner needed for the first render; repeating the underlying
+  // reads here used to create a six-request DNS burst and made rpcd starvation
+  // look like a generic LuCI/network failure.
+  return Promise.resolve().then(function () { return ctx.api.dns.product.get(); }).then(function (answer) {
+    var value = answer || {};
+    var productStatus = Object.assign({}, value, {
+      generatedAt: value.generatedAt || null,
+      dns: value.dns || {},
+      global: value.global || {},
+      service_dns: value.service_dns || {}
+    });
     var data = {
-      product: settled(results[0], ctx.api), productStatus: settled(results[1], ctx.api),
-      dns: settled(results[2], ctx.api), service: settled(results[3], ctx.api), global: settled(results[4], ctx.api)
+      product: { value: value },
+      productStatus: { value: productStatus },
+      dns: { value: value.dns || {} },
+      service: { value: value.service_dns || {} },
+      global: { value: value.global || {} },
+      productProviders: { value: value.providerCatalog || { providers: value.providers || [] } },
+      serviceProviders: { value: value.service || {} },
+      providers: { value: { providers: value.providers || [] } }
+    };
+    scheduleDeferred(ctx, token);
+    return data;
+  }, function (error) {
+    // Keep the real RPC/backend error in every dependent envelope. The view
+    // renders its technical details; it must never invent a network-unavailable
+    // diagnosis when the product facade itself failed.
+    var failure = { error: ctx.api.normalizeError(error) };
+    var data = {
+      product: failure, productStatus: failure, dns: failure,
+      service: failure, global: failure,
+      productProviders: failure, serviceProviders: failure, providers: failure
     };
     scheduleDeferred(ctx, token);
     return data;
@@ -364,9 +387,9 @@ function render(ctx) {
   var product = data.product && data.product.value || {};
   var dns = data.dns && data.dns.value || {};
   var serviceStatus = data.service && data.service.value || {};
-  var providerCatalog = data.productProviders && data.productProviders.value || {};
+  var providerCatalog = data.productProviders && data.productProviders.value || product.providerCatalog || {};
   var providers = providerRows(providerCatalog.providers || data.providers && data.providers.value || {});
-  var serviceProfileCatalog = data.serviceProviders && data.serviceProviders.value || {};
+  var serviceProfileCatalog = data.serviceProviders && data.serviceProviders.value || product.service || {};
   var serviceCatalog = data.serviceCatalog && data.serviceCatalog.value || {};
   var serviceProviders = providerRows(serviceProfileCatalog);
   var serviceCatalogData = serviceCatalogRows(serviceCatalog, serviceProfileCatalog);

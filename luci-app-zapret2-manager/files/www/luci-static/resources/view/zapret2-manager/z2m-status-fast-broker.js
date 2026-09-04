@@ -8,8 +8,9 @@ function create(options) {
   var read = options.read;
   var now = options.now || function () { return Date.now(); };
   var freshnessMs = Math.max(250, Number(options.freshnessMs) || DEFAULT_FRESHNESS_MS);
-  var cached = null;
-  var cachedAt = 0;
+  var initial = options.initial && !options.initial.error ? options.initial : null;
+  var cached = initial;
+  var cachedAt = initial !== null ? now() : 0;
   var inflight = null;
 
   function get(requestOptions) {

@@ -2752,7 +2752,10 @@ function load(ctx) {
   var reads = [
     boundedRead(ctx.api.strategies.list, readTimeout, 'Не удалось получить список стратегий.'),
     boundedRead(ctx.api.strategies.catalogStatus, readTimeout, 'Не удалось получить состояние каталога.'),
-    boundedRead(ctx.api.service.statusFast || ctx.api.service.status, readTimeout, 'Не удалось получить состояние службы.')
+    boundedRead(function () {
+      var read = ctx.statusFast || ctx.api.service.statusFast || ctx.api.service.status;
+      return read();
+    }, readTimeout, 'Не удалось получить состояние службы.')
   ];
   return Promise.allSettled(reads).then(function (results) {
     function settled(result) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: ctx.api.normalizeError(result.reason) }; }
