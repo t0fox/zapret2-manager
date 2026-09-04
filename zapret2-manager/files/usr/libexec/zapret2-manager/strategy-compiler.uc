@@ -12,6 +12,7 @@ import { profiles_render_candidate, profiles_candidate_round_trip } from './prof
 import { native_preflight } from './native-preflight.uc';
 import { runtime_argument_token } from './runtime-asset-paths.uc';
 import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
+import { popen } from 'fs';
 
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
 const COMPILER_AUTHORITY_MARKER = 'z2m-scanner-compiler.v1';
@@ -630,29 +631,15 @@ function validate_fragment(fragment, id, includeWarnings) {
 	return diagnostics;
 }
 
-const SHA_K = [
-	0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
-	0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
-	0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
-	0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
-	0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
-	0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
-	0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
-	0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
-];
-function u32(v) { let r=v%4294967296; return r<0?r+4294967296:r; }
-function shr(v,b) { return int(u32(v)/(2**b)); }
-function rotr(v,b) { return u32(shr(v,b)|u32(u32(v)*(2**(32-b)))); }
-function x32(a,b) { return u32(u32(a)^u32(b)); }
-function a32(a,b) { return u32(u32(a)&u32(b)); }
-function h32(v) { let s='';v=u32(v);for(let i=7;i>=0;i--)s+=substr('0123456789abcdef',int(v/(2**(i*4)))%16,1);return s; }
 function digest_text(text) {
-	let bytes=[];
-	for(let i=0;i<length(text);i++){let c=ord(substr(text,i,1));if(c<=0x7f)push(bytes,c);else if(c<=0x7ff){push(bytes,0xc0|(c>>6));push(bytes,0x80|(c&0x3f));}else{push(bytes,0xe0|(c>>12));push(bytes,0x80|((c>>6)&0x3f));push(bytes,0x80|(c&0x3f));}}
-	let bits=length(bytes)*8;push(bytes,128);while(length(bytes)%64!=56)push(bytes,0);for(let i=7;i>=0;i--)push(bytes,int(bits/(2**(i*8)))%256);
-	let st=[1779033703,-1150833019,1013904242,-1521486534,1359893119,-1694144372,528734635,1541459225];
-	for(let o=0;o<length(bytes);o+=64){let w=[];for(let i=0;i<16;i++){let p=o+i*4;push(w,u32(bytes[p]*16777216+bytes[p+1]*65536+bytes[p+2]*256+bytes[p+3]));}for(let i=16;i<64;i++){let q=w[i-15],r=w[i-2];push(w,u32(x32(x32(rotr(q,7),rotr(q,18)),shr(q,3))+w[i-16]+x32(x32(rotr(r,17),rotr(r,19)),shr(r,10))+w[i-7]));}let a=st[0],b=st[1],c=st[2],d=st[3],e=st[4],f=st[5],g=st[6],h=st[7];for(let i=0;i<64;i++){let t1=u32(h+x32(x32(rotr(e,6),rotr(e,11)),rotr(e,25))+x32(a32(e,f),a32(4294967295-u32(e),g))+SHA_K[i]+w[i]);let t2=u32(x32(x32(rotr(a,2),rotr(a,13)),rotr(a,22))+x32(x32(a32(a,b),a32(a,c)),a32(b,c)));h=g;g=f;f=e;e=u32(d+t1);d=c;c=b;b=a;a=u32(t1+t2);}for(let i=0;i<8;i++)st[i]=u32(st[i]+[a,b,c,d,e,f,g,h][i]);}
-	let out='';for(let i=0;i<8;i++)out+=h32(st[i]);return out;
+	if (type(text) != 'string') return null;
+	let process = null;
+	try { process = popen('printf %s ' + shell_quote(text) + ' | sha256sum 2>/dev/null', 'r'); }
+	catch (e) { return null; }
+	if (!process) return null;
+	let output = trim_ws(process.read('all') || ''), rc = process.close();
+	let fields = split(output, /[ \t]+/);
+	return rc == 0 && length(fields) && match(fields[0], /^[a-f0-9]{64}$/) ? fields[0] : null;
 }
 
 function compile_normalized(strategy, environment) {
@@ -701,7 +688,10 @@ function compile_normalized(strategy, environment) {
 	}
 	let drafts = [];
 	for (let i = 0; i < length(fragments); i++) push(drafts, { id: enabled[i].id, opt: fragments[i] });
-	let rendered = profiles_render_candidate(drafts);
+	// Each transformed fragment was parsed and validated above.  Keep the
+	// renderer's normal validation for draft/apply callers, but avoid parsing
+	// these same large Z2K fragments a third time on the read-only compiler path.
+	let rendered = profiles_render_candidate(drafts, true);
 	if (!rendered.ok) return error_result('EINPUT', 'Profile renderer refused transformed fragments', { renderer: rendered });
 	if (!profiles_candidate_round_trip(rendered.candidate, rendered.fragments))
 		return error_result('EINTERNAL', 'Profile renderer round-trip proof failed');

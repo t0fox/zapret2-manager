@@ -133,7 +133,7 @@ test('strategy Preview uses a real transport timeout instead of rpc.declare opti
 
   assert.deepEqual(result, { ok: true, applied: 1 });
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].options.timeout, 60000);
+  assert.equal(requests[0].options.timeout, 120000);
   assert.equal(requests[0].options.nobatch, true);
   assert.equal(requests[0].body[0].params[0], 'session-id');
   assert.equal(requests[0].body[0].params[1], 'zapret2-manager');

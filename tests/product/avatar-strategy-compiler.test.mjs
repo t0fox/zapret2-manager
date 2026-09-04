@@ -432,6 +432,14 @@ test('compiler pure paths have no write, install, or network operations', () => 
   assert.doesNotMatch(source, /\b(?:writefile|unlink|mkdir|rename|install|curl|wget|uci|opkg|apk)\s*\(/);
 });
 
+test('compiler candidate identity uses bounded native hashing for large official sets', () => {
+  const source = readFileSync(path.join(ROOT,
+    'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc'), 'utf8');
+  assert.match(source, /popen\([\s\S]*sha256sum/, 'large candidates must not use the quadratic UCode SHA loop');
+  assert.doesNotMatch(source, /const SHA_K\s*=|function digest_text\([\s\S]*for\(let o=0;o<length\(bytes\)/,
+    'the old byte-array SHA implementation regresses the real router past uhttpd timeout');
+});
+
 test('validate=true performs native admission and exposes the bounded result', () => {
   const result = invoke('strategy_compile', strategy([
     { id: 'p1', args: '--filter-tcp=443 --lua-desync=fake' },

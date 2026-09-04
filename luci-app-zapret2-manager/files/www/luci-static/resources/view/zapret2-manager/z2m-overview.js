@@ -506,10 +506,10 @@ function render(ctx) {
     var strategyName = strategyPresentation(canonicalName);
     var activeName = format.text(strategyName.primary);
     var strategySecondary = format.text(strategyName.secondary);
-    var strategy = envelopeError('preview')
-      ? { value: _('Недоступно'), kind: 'warning', detail: _('Сервер не сообщил стратегию') }
-      : activeName !== null
-        ? { value: activeName, kind: 'running', detail: strategySecondary || _('Активная стратегия') }
+    var strategy = activeName !== null
+      ? { value: activeName, kind: 'running', detail: strategySecondary || _('Активная стратегия') }
+      : envelopeError('preview')
+        ? { value: _('Недоступно'), kind: 'warning', detail: _('Сервер не сообщил стратегию') }
         : { value: _('Не выбрана'), kind: '', detail: _('Подтверждённая стратегия отсутствует') };
     var autostart = autostartCardValue();
     var system = systemCardValue();

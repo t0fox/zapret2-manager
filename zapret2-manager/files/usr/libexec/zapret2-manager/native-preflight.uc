@@ -34,11 +34,31 @@ function run(command) {
 	return { rc: rc, out: out };
 }
 
+function sha256_files(paths) {
+	if (type(paths) != 'array' || length(paths) == 0) return {};
+	let quoted = [];
+	for (let path in paths) {
+		if (type(path) != 'string' || !stat(path)) return null;
+		push(quoted, shell_escape(path));
+	}
+	let answer = run('sha256sum ' + join(' ', quoted));
+	if (answer.rc != 0) return null;
+	let lines = split(trim(answer.out), /\r?\n/);
+	if (length(lines) != length(paths)) return null;
+	let digests = {};
+	for (let i = 0; i < length(paths); i++) {
+		let line = lines[i];
+		if (length(line) < 66) return null;
+		let digest = substr(line, 0, 64), reportedPath = substr(line, 66);
+		if (!match(digest, /^[a-f0-9]{64}$/) || reportedPath != paths[i]) return null;
+		digests[paths[i]] = digest;
+	}
+	return digests;
+}
+
 function sha256_file(path) {
-	if (!stat(path)) return null;
-	let answer = run("sha256sum " + shell_escape(path) + " | awk '{print $1}'");
-	let digest = trim(answer.out);
-	return answer.rc == 0 && length(digest) == 64 ? digest : null;
+	let digests = sha256_files([path]);
+	return digests == null ? null : digests[path];
 }
 
 function load_manifest() {
@@ -75,7 +95,7 @@ function runtime_composition_snapshot(input) {
 		|| type(value.membershipDigest) != 'string' || type(value.runtimeAssets) != 'array'
 		|| type(value.luaInit) != 'array' || type(value.dependencyIndex) != 'object')
 		return { ok: false, reason: 'canonical installed runtime composition is unavailable' };
-	let runtime = [], lua = [], seen = {};
+	let runtime = [], runtimePaths = [], lua = [], seen = {};
 	for (let entry in value.runtimeAssets) {
 		if (type(entry) != 'object' || entry == null || type(entry.id) != 'string' || seen[entry.id])
 			return { ok: false, reason: 'runtime composition contains an invalid or duplicate entry' };
@@ -83,8 +103,9 @@ function runtime_composition_snapshot(input) {
 		if (path == null || type(entry.contentSha256) != 'string' || length(entry.contentSha256) != 64
 			|| type(entry.byteSize) != 'int' || !stat(path))
 			return { ok: false, reason: 'selected runtime asset is missing: ' + entry.id };
-		let actual = sha256_file(path), metadata = stat(path);
-		if (actual != entry.contentSha256 || metadata == null || metadata.size != entry.byteSize)
+		push(runtimePaths, path);
+		let metadata = stat(path);
+		if (metadata == null || metadata.size != entry.byteSize)
 			return { ok: false, reason: 'selected runtime asset identity does not match: ' + entry.id };
 		seen[entry.id] = true; push(runtime, { id: entry.id, kind: entry.kind, type: entry.type,
 			path: path, contentSha256: entry.contentSha256, byteSize: entry.byteSize });
@@ -99,6 +120,19 @@ function runtime_composition_snapshot(input) {
 			contentSha256: entry.contentSha256, byteSize: entry.byteSize });
 	}
 	if (length(lua) == 0) return { ok: false, reason: 'canonical runtime composition has no ordered Lua closure' };
+	let runtimeDigests = sha256_files(runtimePaths);
+	if (runtimeDigests == null) return { ok: false, reason: 'selected runtime asset digests could not be verified' };
+	for (let entry in runtime) {
+		if (runtimeDigests[entry.path] != entry.contentSha256)
+			return { ok: false, reason: 'selected runtime asset identity does not match: ' + entry.id };
+	}
+	let luaPaths = [];
+	for (let entry in lua) push(luaPaths, entry.path);
+	let luaDigests = sha256_files(luaPaths);
+	if (luaDigests == null) return { ok: false, reason: 'ordered Lua digests could not be verified' };
+	for (let entry in lua)
+		if (luaDigests[entry.path] != entry.contentSha256)
+			return { ok: false, reason: 'selected Lua identity does not match: ' + entry.id };
 	return { ok: true, value: value, runtime: runtime, lua: lua };
 }
 
@@ -243,10 +277,14 @@ export const native_preflight = function(candidate, runtimeComposition, strategy
 	let luaPaths = [];
 	for (let entry in composition.lua) {
 		push(luaPaths, entry.path);
-		if (sha256_file(entry.path) != entry.contentSha256 || stat(entry.path).size != entry.byteSize)
+	}
+	let luaDigests = sha256_files(luaPaths);
+	if (luaDigests == null) return { status: 'rejected', coverage: coverage,
+		diagnostics: diagnostics('selected Lua content identity could not be verified', 'LUA_RUNTIME_MISMATCH'), evidence: evidence };
+	for (let entry in composition.lua)
+		if (luaDigests[entry.path] != entry.contentSha256 || stat(entry.path).size != entry.byteSize)
 			return { status: 'rejected', coverage: coverage,
 				diagnostics: diagnostics('selected Lua content identity does not match the runtime snapshot', 'LUA_RUNTIME_MISMATCH'), evidence: evidence };
-	}
 	let lua = lua_bundle_digest(luaPaths);
 	if (!lua.ok)
 		return { status: 'partial', coverage: coverage, diagnostics: diagnostics(lua.reason, 'LUA_BUNDLE_UNAVAILABLE'), evidence: evidence };

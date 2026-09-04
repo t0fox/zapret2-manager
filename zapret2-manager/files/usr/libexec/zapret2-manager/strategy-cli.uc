@@ -3,7 +3,7 @@
 // catalog provenance, and runtime composition on the server, then delegates
 // candidate construction to the shared Strategy compiler.
 
-import { readfile, stat, readlink, lsdir, popen } from 'fs';
+import { readfile, writefile, unlink, stat, readlink, lsdir, popen } from 'fs';
 import { strategy_catalog_read_index, strategy_catalog_load, strategy_catalog_get_detail,
  strategy_catalog_status, strategy_catalog_reload, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
@@ -15,6 +15,7 @@ import { read_var } from './apply.uc';
 import { z2m_parse, z2m_validate, z2m_tokenize } from './profiles.uc';
 import { avatar_tokenize, strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
+import { native_preflight } from './native-preflight.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_candidate_digest, profiles_reconcile_evidence } from './profiles-apply.uc';
 import { resolveInstalled } from './runtime-composition.uc';
 import { runtime_target_path, runtime_argument_token } from './runtime-asset-paths.uc';
@@ -48,6 +49,13 @@ const MAX_DEPENDENCY_BYTES = 16384;
 const MAX_IMPORT_PROFILES = 256;
 const MAX_IMPORT_DIAGNOSTICS = 16;
 const MAX_IMPORT_NAME = 256;
+// rpcd-mod-ucode may reinitialize this module between calls. Keep one bounded
+// Preview candidate in volatile /tmp so the immediately-following Validate can
+// run native checks against the exact candidate instead of compiling the same
+// large All-in-One command a second time. This is not persistent state or an
+// authority: every hit is bound to the current catalog and runtime snapshot.
+const STRATEGY_PREVIEW_CACHE_PATH = '/tmp/z2m-strategy-preview-cache.json';
+const STRATEGY_PREVIEW_CACHE_SCHEMA = 'z2m.strategy-preview-cache.v1';
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ESTALE', 'ENOENABLED', 'EDEPENDENCY',
 	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO',
 	'EOUTPUT', 'ECHILD', 'EUNAVAILABLE'];
@@ -369,6 +377,44 @@ function runtime_snapshot_valid(value) {
 		&& is_string(value.compositionSnapshotId) && is_string(value.membershipDigest)
 		&& is_integer(value.observedRegistryRevision) && type(value.runtimeAssets) == 'array'
 		&& type(value.luaInit) == 'array' && is_object(value.dependencyIndex);
+}
+
+function strategy_preview_cache_key(input, catalog, resolved, environment) {
+	if (!is_object(input) || !is_string(input.strategy_id) || !is_integer(input.revision)
+		|| !digest(input.catalog_digest) || !is_object(catalog) || !is_object(resolved)
+		|| !is_object(environment) || !runtime_snapshot_valid(environment.runtimeComposition)) return null;
+	let snapshot = environment.runtimeComposition;
+	return serialize({ strategyId: input.strategy_id, revision: input.revision,
+		catalogDigest: input.catalog_digest, resolvedOrigin: resolved.origin,
+		snapshotId: snapshot.snapshotId, compositionSnapshotId: snapshot.compositionSnapshotId,
+		membershipDigest: snapshot.membershipDigest,
+		observedRegistryRevision: snapshot.observedRegistryRevision });
+}
+
+function strategy_preview_cache_put(key, candidate) {
+	if (!is_string(key) || !is_object(candidate) || candidate.ok != true) return;
+	let encoded = serialize({ schema: STRATEGY_PREVIEW_CACHE_SCHEMA, key: key, candidate: candidate });
+	if (!is_string(encoded) || length(encoded) > MAX_INLINE_BYTES) return;
+	let temporary = STRATEGY_PREVIEW_CACHE_PATH + '.tmp.' + time();
+	try {
+		if (!writefile(temporary, encoded + '\n')) { unlink(temporary); return; }
+		let moved = popen('mv -f ' + shell_escape(temporary) + ' ' + shell_escape(STRATEGY_PREVIEW_CACHE_PATH) + ' 2>/dev/null', 'r');
+		if (!moved || moved.close() != 0) { try { unlink(temporary); } catch (e) { } }
+	} catch (e) { try { unlink(temporary); } catch (x) { } }
+}
+
+function strategy_preview_cache_get(key) {
+	if (!is_string(key)) return null;
+	let raw = null;
+	try { raw = readfile(STRATEGY_PREVIEW_CACHE_PATH); } catch (e) { raw = null; }
+	if (!is_string(raw) || length(raw) > MAX_INLINE_BYTES) return null;
+	let envelope = null;
+	try { envelope = json(raw); } catch (e) { return null; }
+	if (!is_object(envelope) || envelope.schema != STRATEGY_PREVIEW_CACHE_SCHEMA
+		|| envelope.key != key || !is_object(envelope.candidate)
+		|| envelope.candidate.ok != true) return null;
+	let encoded = serialize(envelope.candidate);
+	return is_string(encoded) && length(encoded) <= MAX_INLINE_BYTES ? envelope.candidate : null;
 }
 
 function runtime_composition_for_apply() {
@@ -868,9 +914,27 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 	if (!trusted.ok) return trusted;
 	let environment = trusted.environment;
 	environment.validate = requireValidation == true || input.validate == true;
-	let candidate = null;
-	try { candidate = strategy_candidate(resolved.strategy, environment); }
-	catch (e) { return error_result('EINTERNAL', 'Strategy compilation failed'); }
+	let previewCacheKey = strategy_preview_cache_key(input, currentCatalog, resolved, environment);
+	// A cache hit is an exact, volatile compiler result bound to the current
+	// server snapshot. Reuse it for both Preview and Validate; Validate still
+	// replaces its native result with a fresh preflight below.
+	let candidate = strategy_preview_cache_get(previewCacheKey);
+	if (candidate == null) {
+		try { candidate = strategy_candidate(resolved.strategy, environment); }
+		catch (e) { return error_result('EINTERNAL', 'Strategy compilation failed'); }
+	} else if (requireValidation == true) {
+		// The cached candidate is reused only after server_context() resolved the
+		// current catalog/runtime identity. Native validation is always fresh for
+		// that exact snapshot; no cached PASS is accepted as validation evidence.
+		let nativeValidation = null;
+		try { nativeValidation = native_preflight(candidate.strategyArgs, environment.runtimeComposition, candidate.dependencies); }
+		catch (e) { nativeValidation = { status: 'unavailable', coverage: {}, diagnostics: [{ severity: 'error', code: 'NATIVE_PREFLIGHT_FAILED', message: 'native preflight could not be completed' }] }; }
+		candidate.nativeValidation = nativeValidation;
+		if (is_object(candidate.dependencies)) candidate.dependencies.nativeValidation = nativeValidation;
+		let nativeVerified = complete_validation(nativeValidation);
+		candidate.applicable = candidate.dependencies.available == true && nativeVerified;
+		candidate.executable = candidate.dependencies.available == true && nativeVerified;
+	}
 	if (!is_object(candidate) || candidate.ok != true)
 		return error_result(candidate && candidate.error ? candidate.error.code : 'EINPUT',
 			candidate && candidate.error ? candidate.error.message : 'Strategy compilation failed');
@@ -907,6 +971,7 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 	if (result == null) return bounded_error_projection(resolved, candidate, validation, 'EINTERNAL',
 		'Strategy Preview projection exceeds the safe output bound');
 	result.ok = true;
+	if (requireValidation != true && input.validate !== true) strategy_preview_cache_put(previewCacheKey, candidate);
 	return final_projection(result, bounded_error_projection(resolved, candidate, validation, 'EINTERNAL',
 		'Strategy Preview projection exceeds the safe output bound'));
 }
@@ -943,9 +1008,24 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 	};
 }
 
-function strategy_apply_candidate(resolved, environment) {
+function strategy_apply_candidate(resolved, environment, input, currentCatalog) {
 	let injected = apply_hook_value('candidate', null);
-	return is_object(injected) ? injected : strategy_candidate(resolved.strategy, environment);
+	if (is_object(injected)) return injected;
+	let cacheKey = strategy_preview_cache_key(input, currentCatalog, resolved, environment);
+	let cached = strategy_preview_cache_get(cacheKey);
+	if (cached == null) return strategy_candidate(resolved.strategy, environment);
+	// Apply may consume a Preview candidate only after binding it to the same
+	// live snapshot and rerunning native preflight. The cache never supplies a
+	// PASS by itself and is not an Apply authority.
+	let nativeValidation = null;
+	try { nativeValidation = native_preflight(cached.strategyArgs, environment.runtimeComposition, cached.dependencies); }
+	catch (e) { nativeValidation = { status: 'unavailable', coverage: {}, diagnostics: [{ severity: 'error', code: 'NATIVE_PREFLIGHT_FAILED', message: 'native preflight could not be completed' }] }; }
+	cached.nativeValidation = nativeValidation;
+	if (is_object(cached.dependencies)) cached.dependencies.nativeValidation = nativeValidation;
+	let nativeVerified = complete_validation(nativeValidation);
+	cached.applicable = cached.dependencies.available == true && nativeVerified;
+	cached.executable = cached.dependencies.available == true && nativeVerified;
+	return cached;
 }
 
 function bind_executable_candidate(candidate) {
@@ -1051,7 +1131,7 @@ export const strategy_apply = function(input, context) {
 	trusted.environment.executionAdmission = true;
 	trusted.environment.runtimeComposition = installedSnapshot;
 	let candidate = null;
-	try { candidate = strategy_apply_candidate(resolved, trusted.environment); }
+	try { candidate = strategy_apply_candidate(resolved, trusted.environment, input, currentCatalog); }
 	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy compilation failed'), begun.operationNonce); }
 	if (!is_object(candidate) || candidate.ok != true)
 		return strategy_apply_finish(error_result(candidate && candidate.error ? candidate.error.code : 'EINTERNAL',

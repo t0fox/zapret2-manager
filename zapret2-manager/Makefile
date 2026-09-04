@@ -80,6 +80,7 @@ define Package/zapret2-manager/install
 	chmod 0755 $(1)/etc/init.d/zapret2-manager
 	chmod 0755 $(1)/etc/hotplug.d/iface/90-zapret2-manager
 	chmod 0644 $(1)/usr/libexec/zapret2-manager/*.uc
+	chmod 0644 $(1)/usr/share/rpcd/ucode/*.uc
 	find $(1)/usr/share/zapret2-manager -type f -exec chmod 0644 {} +
 	chmod 0644 $(1)/etc/zapret2-manager/*.json
 	chmod 0640 $(1)/etc/zapret2-manager/ipset/*.txt
@@ -96,7 +97,7 @@ define Package/zapret2-manager/postinst
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
 # Clean-install lifecycle (no reboot): persistent roots, then strategy state,
 # then one-way source-generation migration, then the legacy compact catalog
-# fallback if migration cannot complete, then rpcd reload, enable AND start,
+# fallback if migration cannot complete, then rpcd reload, enable AND restart,
 # then runtime evidence. Migration failures remain visible and never replace
 # the verified legacy authority with a partial generation.
 /usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
@@ -143,7 +144,7 @@ if [ "$$index_ok" -ne 1 ]; then
 fi
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable || exit $$?
-/etc/init.d/zapret2-manager start || exit $$?
+/etc/init.d/zapret2-manager restart || exit $$?
 verify_tries=0
 while [ "$$verify_tries" -lt 15 ]; do
   if pidof z2m-helperd >/dev/null 2>&1 \

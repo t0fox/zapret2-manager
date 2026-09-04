@@ -312,7 +312,10 @@ function dq_escape(s) {
 	return out;
 }
 
-export const profiles_render_candidate = function(profiles) {
+// `alreadyValidated` is an internal compiler fast path only.  The caller must
+// have validated every transformed fragment immediately before rendering;
+// ordinary draft/apply callers keep the full parser and validator gate.
+export const profiles_render_candidate = function(profiles, alreadyValidated) {
 	if (type(profiles) != 'array' || length(profiles) == 0)
 		return err('load', 'ESTATE', 'no draft profiles to apply (refusing to replace the applied config with an empty set)');
 	let failures = [];
@@ -325,7 +328,7 @@ export const profiles_render_candidate = function(profiles) {
 			push(errs, { severity: 'error', code: 'MANAGER_EMPTY_PROFILE', message: 'draft ' + p.id + ': empty options fragment', tokenIndex: null, profileIndex: null });
 		} else if (index(frag, '\n') >= 0 || index(frag, '\r') >= 0) {
 			push(errs, { severity: 'error', code: 'MANAGER_FRAGMENT_MULTILINE', message: 'draft ' + p.id + ': fragment contains a raw newline (single-line fragments only)', tokenIndex: null, profileIndex: null });
-		} else {
+		} else if (alreadyValidated !== true) {
 			let model = z2m_parse(frag);
 			for (let di = 0; di < length(model.diagnostics); di++)
 				if (model.diagnostics[di].severity == 'error') push(errs, model.diagnostics[di]);

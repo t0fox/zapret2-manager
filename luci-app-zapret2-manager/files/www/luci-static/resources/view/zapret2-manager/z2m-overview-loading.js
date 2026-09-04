@@ -14,7 +14,7 @@
 
 'require baseclass';
 
-var LOAD_TIMEOUT_MS = 5000;
+var LOAD_TIMEOUT_MS = 15000;
 var MAX_DEFERRED_IN_FLIGHT = 2;
 function boundedLoad(promise, label, timeoutMs) {
 	timeoutMs = Number(timeoutMs) || LOAD_TIMEOUT_MS;

@@ -620,6 +620,8 @@ test('package installation assigns reviewed runtime file modes', () => {
     'native helper must be installed executable');
   assert.match(install, /chmod 0644[^\n]*\/usr\/libexec\/zapret2-manager\/\*\.uc/,
     'runtime ucode files must be non-executable data');
+  assert.match(install, /chmod 0644[^\n]*\/usr\/share\/rpcd\/ucode\/\*\.uc/,
+    'rpcd ucode plugins must not be world-writable or rpcd will ignore them');
   assert.match(install, /find[^\n]*\/usr\/share\/zapret2-manager[^\n]*chmod 0644/,
     'shared package data must be non-executable');
   assert.match(install, /chmod 0644[^\n]*\/etc\/zapret2-manager\/\*\.json/,

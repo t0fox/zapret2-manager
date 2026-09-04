@@ -78,7 +78,7 @@ async function runPostinst(root) {
     .replace('/usr/libexec/zapret2-manager/z2m-root-bootstrap', '/bin/true')
     .replace('/etc/init.d/rpcd reload', ':')
     .replace('/etc/init.d/zapret2-manager enable', ':')
-    .replace('/etc/init.d/zapret2-manager start || exit $?', ':')
+    .replace('/etc/init.d/zapret2-manager restart || exit $?', ':')
     .replaceAll('/usr/bin/ucode', `${fakeBin}/ucode`);
   const installShim = `#!${process.execPath}
 const fs = require('node:fs');

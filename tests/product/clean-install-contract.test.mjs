@@ -11,7 +11,7 @@ import path from 'node:path';
 //   persistent bootstrap -> strategy state seed -> source-generation migration
 //   -> legacy compact catalog index fallback (idempotent, written-checked,
 //   never silently swallowed) -> rpcd reload ->
-//   enable AND start -> procd/helperd/socket evidence -> bounded status_fast proof.
+//   enable AND restart -> procd/helperd/socket evidence -> bounded status_fast proof.
 //
 // This is a static source contract test: it parses the actual postinst recipe
 // shipped to the target (Makefile heredoc), so drift fails CI before any flash.
@@ -66,13 +66,13 @@ test('manager postinst builds the catalog index idempotently without pre-deletio
   assert.match(body, /migration-required/, 'migration failure must remain explicitly observable');
 });
 
-test('manager postinst enables AND starts the service with runtime verification', () => {
+test('manager postinst enables AND restarts the service with runtime verification', () => {
   const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
   assertOrder(body, [
     ['persistent bootstrap', 'z2m-root-bootstrap persistent'],
     ['rpcd reload', '/etc/init.d/rpcd reload'],
     ['service enable', '/etc/init.d/zapret2-manager enable'],
-    ['service start', '/etc/init.d/zapret2-manager start']
+    ['service restart', '/etc/init.d/zapret2-manager restart']
   ]);
   assert.match(body, /pidof[^\n]*z2m-helperd/, 'helper daemon process evidence required');
   assert.match(body, /z2m-helperd\.sock/, 'helper socket evidence required');

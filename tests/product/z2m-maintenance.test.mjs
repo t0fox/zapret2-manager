@@ -115,3 +115,28 @@ test('Z2K update error codes have actionable user-facing messages', () => {
     assert.equal(normalizeError({ code, message: 'backend technical copy' }).message, message, code);
   }
 });
+
+test('frontend RPC timeout stays an honest backend timeout, not a fake session failure', () => {
+  const normalizeError = loadNormalizeError();
+  const result = normalizeError({
+    code: 'frontend-timeout',
+    message: 'Не удалось дождаться ответа: статуса Telegram Proxy'
+  });
+
+  assert.equal(result.kind, 'backend_timeout');
+  assert.match(result.message, /Backend.*врем/i);
+  assert.notEqual(result.message, 'Сеанс LuCI или сетевое соединение недоступны.');
+  assert.match(result.technical, /Telegram Proxy/i);
+});
+
+test('generic RPC transport failure does not masquerade as LuCI session loss', () => {
+  const normalizeError = loadNormalizeError();
+  const result = normalizeError({
+    code: 'RPCError',
+    message: 'Connection failed while reading zapret2-manager status'
+  });
+  assert.equal(result.kind, 'backend_transport');
+  assert.match(result.message, /Backend RPC/);
+  assert.doesNotMatch(result.message, /Сеанс LuCI/);
+  assert.match(result.technical, /Connection failed/);
+});
