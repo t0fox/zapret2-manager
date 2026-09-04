@@ -34,6 +34,7 @@ import { resolveInstalled } from './runtime-composition.uc';
 import { collect_observations, collect } from './core/status-collector.uc';
 import { state_read } from './core/state-store.uc';
 import { strategy_selection_get_readonly } from './strategy-state.uc';
+import * as strategy_state from './strategy-state.uc';
 import { append_ndjson, event_id } from './events.uc';
 
 const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
@@ -56,6 +57,38 @@ function run(cmd) {
 	if (!out) out = '';
 	let rc = p.close();
 	return { out: out, rc: rc };
+}
+
+const MAX_TIMING_MS = 600000;
+
+// /proc/uptime is available on the supported OpenWrt target and gives us a
+// monotonic clock without spawning another process. The wall-clock fallback
+// keeps timing evidence non-authoritative on constrained test environments.
+function monotonic_ms() {
+	let raw = null;
+	try { raw = readfile('/proc/uptime'); } catch (e) { raw = null; }
+	let token = raw != null ? split(trim(raw), /[ \t]+/)[0] : null;
+	let value = token != null && length(token) ? (+token * 1000) : (time() * 1000);
+	return value >= 0 ? value : null;
+}
+
+function timing_elapsed(start) {
+	let now = monotonic_ms();
+	let value = start == null || now == null ? null : now - start;
+	return value != null && value >= 0 && value <= MAX_TIMING_MS ? value : null;
+}
+
+function timing_set(timing, name, start) {
+	let value = timing_elapsed(start);
+	if (type(timing) == 'object' && timing != null && value != null) timing[name] = value;
+}
+
+function timing_attach(result, timing) {
+	if (type(result) != 'object' || result == null || type(timing) != 'object' || timing == null) return result;
+	let encoded = null;
+	try { encoded = sprintf('%J', timing); } catch (e) { encoded = null; }
+	if (encoded != null && length(encoded) <= 4096) result.timing = timing;
+	return result;
 }
 
 function apply_hook() {
@@ -108,6 +141,15 @@ function err(stage, code, message, extra) {
 function strategy_state_call(name, input) {
 	let injected = hook_value('state', name);
 	if (injected != null) return injected;
+	// The profile transaction already runs inside the authoritative config
+	// lock. Keep the identity revalidation/commit in this same UCode process so
+	// Apply does not pay for a second rpcd-style module bootstrap per state
+	// transition. strategy-state.uc still owns its private state lock and CAS.
+	let local = strategy_state[name];
+	if (local != null) {
+		try { return input == null ? local() : local(input); }
+		catch (e) { return err('identity', 'EINTERNAL', 'Strategy state operation failed'); }
+	}
 	let source = 'import { ' + name + ' } from ' + sprintf('%J', STRATEGY_STATE_MODULE)
 		+ '; print(sprintf("%J", ' + name + '(' + (input == null ? '' : sprintf('%J', input)) + ')));';
 	let answer = run(shell_escape(UCODE_BIN) + ' -e ' + shell_escape(source));
@@ -703,6 +745,7 @@ export const profiles_apply_preview = function() {
 };
 
 function apply_candidate_pipeline(f) {
+	let timing = type(f.timing) == 'object' && f.timing != null ? f.timing : null;
 	if (getenv('Z2M_CONFIG_LOCKED') != '1' && apply_hook() == null)
 		return err('lock', 'ELOCK', 'config transaction lock is not held — nothing was written');
 	if (f.ports == null) {
@@ -759,8 +802,10 @@ function apply_candidate_pipeline(f) {
 		vars_map['NFQWS2_PORTS_UDP'] = f.ports.udp;
 	}
 	let casHook = hook_value('transaction', 'cas');
+	let writeStarted = monotonic_ms();
 	let cas = casHook != null ? transaction_cas(f.candidate, f.diff.candidateSha256, snap, casHook)
 		: set_vars_cas(vars_map, snap.configSha256);
+	if (timing != null) timing_set(timing, 'writeMs', writeStarted);
 	if (type(cas) != 'object' || cas == null || cas.ok != true) {
 		let code = (cas && cas.code) ? cas.code : 'EWRITE';
 		return err('write', code, code == 'ECONFLICT'
@@ -769,11 +814,16 @@ function apply_candidate_pipeline(f) {
 	}
 
 	let restartHook = hook_value('transaction', 'restart');
+	let restartStarted = monotonic_ms();
 	let r = restartHook != null ? transaction_restart(0, restartHook) : upstream_action('restart');
+	if (timing != null) timing_set(timing, 'restartMs', restartStarted);
 	let verifyHook = hook_value('transaction', 'verify');
+	let postflightStarted = monotonic_ms();
 	let verify = verifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, verifyHook)
 		: transaction_verify(0, f.allowExternalNfqws == true, null);
+	if (timing != null) timing_set(timing, 'postflightMs', postflightStarted);
 	let rollbackDecision = profiles_rollback_decision(r.rc, verify.ok, false, -1, false);
+	let identityStarted = monotonic_ms();
 	let identity = null, identityRetry = null, identityFailure = false, appliedIdentity = null;
 	if (!rollbackDecision.rollbackRequired && f.projection != null) {
 		identity = strategy_state_call('strategy_selection_apply', { expectedRevision: f.projection.expectedRevision, selected: f.projection.selected, applyNonce: f.projection.operationNonce });
@@ -853,7 +903,7 @@ function apply_candidate_pipeline(f) {
 	});
 	writefile('/tmp/zapret2-manager/last-apply.json',
 		sprintf("%J", { candidateSha256: f.diff.candidateSha256, configSha256: cas.configSha256, at: time() }) + '\n');
-	return {
+	let result = {
 		ok: true, mode: 'apply',
 		applied: { profiles: f.draftCount, candidateSha256: f.diff.candidateSha256, configSha256: cas.configSha256 },
 		appliedIdentity: appliedIdentity,
@@ -861,6 +911,8 @@ function apply_candidate_pipeline(f) {
 		identityRetry: identityRetry,
 		rollback: { available: true, armed: false, exactSnapshot: true }
 	};
+	if (timing != null) timing_set(timing, 'identityCommitMs', identityStarted);
+	return result;
 }
 
 function locked_candidate_call(candidate, expectedHash, projection) {
@@ -909,6 +961,9 @@ function locked_candidate_call(candidate, expectedHash, projection) {
 }
 
 function profiles_apply_candidate_locked(candidate, expectedHash, projection) {
+	let transactionStarted = monotonic_ms(), timing = {
+		schema: 'z2m.strategy-apply-timing.v1', preflightCount: 0
+	};
 	let model = z2m_parse(candidate), diags = z2m_validate(model);
 	for (let d in model.diagnostics) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has parse errors', { diagnostics: model.diagnostics });
 	for (let d in diags) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has validation errors', { diagnostics: diags });
@@ -919,8 +974,10 @@ function profiles_apply_candidate_locked(candidate, expectedHash, projection) {
 	let internalProjection = projection != null ? projection : boundary.projection;
 	let runtimeSnapshot = null;
 	if (internalProjection != null && internalProjection.runtimeBinding != null) {
+		let resolveStarted = monotonic_ms();
 		let resolved = runtime_composition_test_value();
 		if (resolved == null) try { resolved = resolveInstalled({}); } catch (e) { resolved = null; }
+		timing_set(timing, 'lockedRuntimeResolveMs', resolveStarted);
 		let binding = internalProjection.runtimeBinding;
 		if (resolved == null || resolved.ok != true || resolved.lifecycleState != 'installed'
 			|| resolved.compositionStatus != 'canonical' || type(resolved.snapshotId) != 'string'
@@ -929,17 +986,23 @@ function profiles_apply_candidate_locked(candidate, expectedHash, projection) {
 			|| !runtime_binding_matches(resolved, binding))
 			return err('preflight', 'ESTALE', 'installed runtime composition changed before authoritative Strategy preflight', {
 				expected: binding, actual: resolved });
-		runtimeSnapshot = resolved;
+			runtimeSnapshot = resolved;
 	}
+	let preflightStarted = monotonic_ms();
 	let native = native_preflight_for_apply(candidate, runtimeSnapshot), cur = hook_value('transaction', 'currentOpt');
+	timing.preflightCount = 1;
+	timing_set(timing, 'authoritativePreflightMs', preflightStarted);
 	if (cur == null) cur = read_var(OPT_VAR);
 	let diff = diff_summary(cur != null ? cur : '', candidate);
 	if (expectedHash != null && diff.candidateSha256 != expectedHash)
 		return err('validate', 'ECONFLICT', 'typed candidate hash changed before mutation', { expected: expectedHash, actual: diff.candidateSha256 });
 	let ports = derive_capture_ports(candidate);
 	if (!ports.ok) return err('validate', 'EINPUT', 'candidate contains invalid port expressions: ' + ports.error);
-	return apply_candidate_pipeline({ candidate: candidate, ports: ports, fragments: [], native: native, diff: diff,
-		 draftCount: length(model.profiles), allowExternalNfqws: true, projection: internalProjection });
+	let result = apply_candidate_pipeline({ candidate: candidate, ports: ports, fragments: [], native: native, diff: diff,
+			draftCount: length(model.profiles), allowExternalNfqws: true, projection: internalProjection, timing: timing });
+	timing_set(timing, 'lockedTransactionMs', transactionStarted);
+	timing_attach(result, timing);
+	return result;
 }
 
 export const profiles_apply_candidate = function(candidate, expectedHash, projection) {

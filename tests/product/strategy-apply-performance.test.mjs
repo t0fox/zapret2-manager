@@ -175,3 +175,28 @@ test('Readiness metadata remains bounded evidence for both success and rollback/
   assert.match(pipeline, /rollbackVerify/);
   assert.match(pipeline, /uncertain/);
 });
+
+test('Locked transaction keeps Strategy identity calls in the authoritative UCode process', () => {
+  const imports = APPLY.slice(0, APPLY.indexOf('const LASTGOOD_DIR'));
+  const stateCall = region(APPLY, 'function strategy_state_call', 'function trim_ws');
+  const pipeline = region(APPLY, 'function apply_candidate_pipeline', 'function locked_candidate_call');
+
+  assert.match(imports, /import \* as strategy_state from ['"]\.\/strategy-state\.uc['"]/);
+  assert.match(stateCall, /strategy_state\[name\]/);
+  assert.match(stateCall, /same UCode process|private state lock/);
+  assert.doesNotMatch(pipeline, /strategy_state_call\(['"]strategy_apply_revalidate['"][\s\S]*run\(/);
+  assert.doesNotMatch(pipeline, /strategy_state_call\(['"]strategy_selection_apply['"][\s\S]*run\(/);
+});
+
+test('Apply exposes bounded per-stage timing evidence without making it an authority', () => {
+  const apply = region(CLI, 'export const strategy_apply =', 'function strategy_reconcile_locked');
+  const locked = region(APPLY, 'function profiles_apply_candidate_locked', 'export const profiles_apply_candidate');
+
+  assert.match(CLI, /function monotonic_ms\(/);
+  assert.match(APPLY, /function monotonic_ms\(/);
+  assert.match(apply, /timing/);
+  assert.match(locked, /timing/);
+  assert.match(apply, /catalog|compile|transaction/i);
+  assert.match(locked, /preflight|write|restart|postflight/i);
+  assert.match(CLI, /MAX_TIMING|timing.*bounded|bounded.*timing/i);
+});

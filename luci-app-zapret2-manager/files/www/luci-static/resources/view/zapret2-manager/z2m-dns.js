@@ -27,9 +27,9 @@ var state = {
   allProvidersBusy: false, benchRunning: false,
   dnsCheck: null,
   operation: null, lastOperation: null,
-  tiktokAuto: null, tiktokAutoBusy: false, tiktokAutoTimer: null,
+  tiktokAuto: null, tiktokAutoLocal: null, tiktokAutoBusy: false, tiktokAutoTimer: null,
   serviceOperationTimer: null, serviceOperationInFlight: false,
-  openPane: null, disposed: false
+  openPane: null, disposed: false, deferred: {}, loadToken: 0, deferredTimer: null
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -251,7 +251,17 @@ function scheduleTiktokAutoCheck(ctx) {
   if (!state.tiktokAuto || state.tiktokAuto.enabled !== true || !ctx.api.dns.serviceTiktokCheck) return;
   state.tiktokAutoTimer = window.setTimeout(function () {
     state.tiktokAutoTimer = null;
-    ctx.api.dns.serviceTiktokCheck().then(function () { return ctx.refresh('dns'); }).catch(function () {}).then(function () { scheduleTiktokAutoCheck(ctx); });
+    ctx.api.dns.serviceTiktokCheck().then(function () {
+      return ctx.api.dns.serviceTiktokStatus ? ctx.api.dns.serviceTiktokStatus() : null;
+    }).then(function (status) {
+      if (status) state.tiktokAutoLocal = status;
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+    }).catch(function (error) {
+      // Preserve the last canonical status and surface a real error through
+      // the existing status envelope; do not reload unrelated DNS data.
+      state.tiktokAutoLocal = Object.assign({}, state.tiktokAutoLocal || state.tiktokAuto || {}, { state: 'error', error: error });
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+    }).then(function () { scheduleTiktokAutoCheck(ctx); });
   }, 60000);
 }
 function collectMessages(value, out, depth) {
@@ -296,19 +306,53 @@ function globalRead(api, productRead) {
     return Object.assign({}, applied, { draft: desired, revision: revision });
   });
 }
+function scheduleDeferred(ctx, token) {
+  var jobs = [
+    ['productProviders', ctx.api.dns.product.providers, _('каталога DNS-провайдеров')],
+    ['serviceProviders', ctx.api.dns.serviceProviders, _('профилей DNS-сервисов')],
+    ['components', ctx.api.dns.components, _('компонентов DNS')],
+    ['providers', ctx.api.dns.providers, _('провайдеров DNS')],
+    ['serviceCatalog', ctx.api.services.catalogList, _('каталога сервисов')],
+    ['tiktok', ctx.api.dns.serviceTiktokStatus, _('статуса TikTok')]
+  ].filter(function (job) { return typeof job[1] === 'function'; });
+  var next = 0, active = 0;
+  function publish(job, result) {
+    if (token !== state.loadToken) return;
+    state.deferred[job[0]] = settled(result, ctx.api);
+    if (typeof ctx.rerender === 'function') ctx.rerender();
+  }
+  function pump() {
+    if (token !== state.loadToken || state.disposed) return;
+    while (active < 2 && next < jobs.length) {
+      (function (job) {
+        active++;
+        Promise.resolve().then(function () { return job[1](); })
+          .then(function (value) { publish(job, { status: 'fulfilled', value: value }); },
+            function (error) { publish(job, { status: 'rejected', reason: error }); })
+          .then(function () { active--; pump(); });
+      })(jobs[next++]);
+    }
+  }
+  state.deferredTimer = window.setTimeout(function () { state.deferredTimer = null; pump(); }, 0);
+}
 function load(ctx) {
+  var token = ++state.loadToken;
+  state.deferred = {
+    productProviders: { value: {} }, serviceProviders: { value: {} }, components: { value: {} },
+    providers: { value: {} }, serviceCatalog: { value: {} }, tiktok: { value: { enabled: false, state: 'loading' } }
+  };
+  if (state.deferredTimer) window.clearTimeout(state.deferredTimer);
+  state.deferredTimer = null;
   var productRead = ctx.api.dns.product.get();
   return Promise.allSettled([
-    productRead, ctx.api.dns.product.providers(), ctx.api.dns.product.status(),
-    ctx.api.dns.get(), ctx.api.dns.serviceStatus(), ctx.api.dns.serviceProviders(),
-    ctx.api.dns.components(), ctx.api.dns.providers(), globalRead(ctx.api, productRead), ctx.api.services.catalogList(), ctx.api.dns.serviceTiktokStatus()
+    productRead, ctx.api.dns.product.status(), ctx.api.dns.get(), ctx.api.dns.serviceStatus(), globalRead(ctx.api, productRead)
   ]).then(function (results) {
-    return {
-      product: settled(results[0], ctx.api), productProviders: settled(results[1], ctx.api), productStatus: settled(results[2], ctx.api),
-      dns: settled(results[3], ctx.api), service: settled(results[4], ctx.api), serviceProviders: settled(results[5], ctx.api),
-      components: settled(results[6], ctx.api), providers: settled(results[7], ctx.api), global: settled(results[8], ctx.api),
-      serviceCatalog: settled(results[9], ctx.api), tiktok: settled(results[10], ctx.api)
+    var data = {
+      product: settled(results[0], ctx.api), productStatus: settled(results[1], ctx.api),
+      dns: settled(results[2], ctx.api), service: settled(results[3], ctx.api), global: settled(results[4], ctx.api)
     };
+    scheduleDeferred(ctx, token);
+    return data;
   });
 }
 
@@ -316,7 +360,7 @@ function load(ctx) {
 function render(ctx) {
   state.disposed = false;
   var shell = ctx.shell;
-  var data = ctx.data || {};
+  var data = Object.assign({}, ctx.data || {}, state.deferred || {});
   var product = data.product && data.product.value || {};
   var dns = data.dns && data.dns.value || {};
   var serviceStatus = data.service && data.service.value || {};
@@ -332,7 +376,7 @@ function render(ctx) {
   var global = data.global && data.global.value || {};
   var globalApplied = global || {};
   var productOverrides = product.applied && product.applied.overrides;
-  state.tiktokAuto = data.tiktok && data.tiktok.value ? data.tiktok.value : { enabled: false, state: 'error', unavailable: true };
+  state.tiktokAuto = state.tiktokAutoLocal || (data.tiktok && data.tiktok.value ? data.tiktok.value : { enabled: false, state: 'error', unavailable: true });
   if (!state.operation && serviceStatus.pending && serviceStatus.pending.operationId) state.operation = serviceStatus.pending;
   scheduleTiktokAutoCheck(ctx);
 
@@ -1389,13 +1433,14 @@ function render(ctx) {
               if (answer && answer.operationId) state.operation = answer;
               return ctx.api.dns.serviceTiktokStatus ? ctx.api.dns.serviceTiktokStatus() : answer;
             }).then(function (status) {
-              if (status && status.ok !== false) state.tiktokAuto = status;
+              if (status && status.ok !== false) state.tiktokAutoLocal = status;
               state.tiktokAutoBusy = false;
-              return ctx.refresh('dns');
+              if (typeof ctx.rerender === 'function') ctx.rerender();
+              return status;
             }).catch(function (error) {
               state.tiktokAutoBusy = false;
               showError(error);
-              return ctx.refresh('dns').catch(function () {});
+              if (typeof ctx.rerender === 'function') ctx.rerender();
             });
           }
           autoSwitch.addEventListener('keydown', function (event) {
@@ -1745,6 +1790,9 @@ function render(ctx) {
 function mount() {}
 function unmount() {
   state.disposed = true;
+  state.loadToken++;
+  if (state.deferredTimer) window.clearTimeout(state.deferredTimer);
+  state.deferredTimer = null;
   state.openPane = null;
   if (state.serviceOperationTimer) window.clearTimeout(state.serviceOperationTimer);
   if (state.tiktokAutoTimer) window.clearTimeout(state.tiktokAutoTimer);

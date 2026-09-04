@@ -129,8 +129,9 @@ function createLoader(options) {
 		var bootstrap = hasInitial(ctx.initial)
 			? Promise.resolve(initialEnvelope(ctx.initial))
 			: Promise.resolve().then(function () {
-				var read = ctx.api.service && (ctx.api.service.statusFast || ctx.api.service.status);
-				return bound(read(), _('быстрого состояния')).then(function (value) {
+				var read = ctx.statusFast || ctx.api.service && (ctx.api.service.statusFast || ctx.api.service.status);
+				var request = ctx.statusFast ? read({ forceFresh: true }) : read();
+				return bound(request, _('быстрого состояния')).then(function (value) {
 					return { status: 'fulfilled', value: value };
 				}, function (error) { return { status: 'rejected', reason: error }; });
 			}).then(function (result) { return settled(result, ctx.api); });

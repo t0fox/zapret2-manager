@@ -1,9 +1,10 @@
 .z2m-app{
   --bg:#17181a; --panel:#1f2124; --panel2:#25282c; --raised:#2c3035;
   --border:#34383d; --border2:#3f444a; --bg-input:#141619;
-  --tx:#e8eaed; --tx2:#a7aeb6; --tx3:#7d858e;
+  --tx:#e8eaed; --tx1:var(--tx); --tx2:#a7aeb6; --tx3:#7d858e;
   --blue:#4b9fd5; --blue2:#3a86b8;
   --green:#5cb98b; --orange:#e0a33b; --red:#e2695a; --purple:#9a86d6;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
   --icon-xs:14px; --icon-sm:16px; --icon-md:20px; --icon-gap:8px;
   --hdr:#0b1120;
   --z2m-header:#0b1120; --z2m-header-surface:#101226;

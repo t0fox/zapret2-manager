@@ -5,7 +5,7 @@
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 'require view.zapret2-manager.z2m-icons as Icons';
 
-var state = { exported: null, busy: false };
+var state = { exported: null, busy: false, deferred: {}, loadToken: 0, deferredTimer: null };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -13,8 +13,21 @@ function activePane(ctx) { return ctx.route === 'logs' ? 'logs' : 'monitor'; }
 function settled(result, api) {
   return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) };
 }
-function readCall(fn, value) {
-  try { return value === undefined ? fn() : fn(value); } catch (error) { return Promise.reject(error); }
+function scheduleDeferred(ctx, token) {
+  if (state.deferredTimer) window.clearTimeout(state.deferredTimer);
+  state.deferredTimer = window.setTimeout(function () {
+    state.deferredTimer = null;
+    if (token !== state.loadToken) return;
+    edit(ctx.api.proxy.health, {}).then(function (value) {
+      if (token !== state.loadToken) return;
+      state.deferred.proxy = { value: value || {} };
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+    }).catch(function (error) {
+      if (token !== state.loadToken) return;
+      state.deferred.proxy = { error: ctx.api.normalizeError(error) };
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+    });
+  }, 0);
 }
 function load(ctx) {
   if (activePane(ctx) === 'logs') {
@@ -23,7 +36,10 @@ function load(ctx) {
     // compact viewer or a second events_tail lifecycle here.
     return AvatarLog.load(ctx);
   }
-  var fastCall = ctx.api.service && ctx.api.service.statusFast ? ctx.api.service.statusFast() : Promise.reject(new Error('status_fast unavailable'));
+  var token = ++state.loadToken;
+  state.deferred = { proxy: { value: { deferred: true } } };
+  var fastCall = (ctx.statusFast || ctx.api.service && ctx.api.service.statusFast) ?
+    (ctx.statusFast || ctx.api.service.statusFast)() : Promise.reject(new Error('status_fast unavailable'));
   // Diagnostics-grade evidence must stay bounded: the blocking full status
   // collector is intentionally NOT referenced here (app-shell contract).
   var fullCall = Promise.resolve({ cached: true, note: 'full collector intentionally skipped; bounded fast status governs this view' });
@@ -33,18 +49,19 @@ function load(ctx) {
     ctx.api.maintenance.status(),
     ctx.api.engine.status(),
     ctx.api.dns.product.status(),
-    edit(ctx.api.proxy.health, {}),
     ctx.api.tg.product.status()
   ]).then(function (results) {
-    return {
+    var data = {
       fast: settled(results[0], ctx.api),
       full: settled(results[1], ctx.api),
       system: settled(results[2], ctx.api),
       engine: settled(results[3], ctx.api),
       dns: settled(results[4], ctx.api),
-      proxy: settled(results[5], ctx.api),
-      telegram: settled(results[6], ctx.api)
+      proxy: state.deferred.proxy,
+      telegram: settled(results[5], ctx.api)
     };
+    scheduleDeferred(ctx, token);
+    return data;
   });
 }
 function statusKind(status) { return status === 'ok' ? 'g' : (status === 'error' ? 'r' : 'o'); }
@@ -146,7 +163,7 @@ function renderMonitoring(ctx, data) {
 function render(ctx) {
   var pane = activePane(ctx);
   if (pane === 'logs') return AvatarLog.render(ctx);
-  var body = renderMonitoring(ctx, ctx.data || {});
+  var body = renderMonitoring(ctx, Object.assign({}, ctx.data || {}, state.deferred || {}));
   return E('section', { 'class': 'z2m-view on z2m-monitoring-page', id: 'z2m-view-diagnostics' }, [
     E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Мониторинг')), E('p', {}, _('Read-only состояние компонентов · журналы открываются через навигацию'))])]),
     body
@@ -158,6 +175,9 @@ function mount(ctx) {
 }
 
 function unmount() {
+  state.loadToken++;
+  if (state.deferredTimer) window.clearTimeout(state.deferredTimer);
+  state.deferredTimer = null;
   if (AvatarLog.unmount) AvatarLog.unmount();
 }
 

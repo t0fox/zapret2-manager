@@ -61,6 +61,9 @@ function load(ctx) {
 function rerender(ctx) {
   return typeof ctx.rerender === 'function' ? ctx.rerender() : ctx.refresh('services');
 }
+function localRerender(ctx) {
+  return typeof ctx.rerender === 'function' ? ctx.rerender() : Promise.resolve();
+}
 function stage(ctx, next) {
   state.working = next;
   return rerender(ctx);
@@ -122,13 +125,13 @@ function pollServiceRun(ctx, id) {
         record.status = record.verdict || (String(record.phase).toLowerCase() === 'completed' ? 'strategy' : 'error');
         record.run = run;
       }
-      return ctx.refresh('services');
+      return localRerender(ctx);
     }).then(function () {
       var latest = state.checks[id];
       if (latest && latest.status === 'checking') pollServiceRun(ctx, id);
     }).catch(function (error) {
       state.checks[id] = { status: 'error', message: normalizeError(ctx.api, error).message };
-      return ctx.refresh('services');
+      return localRerender(ctx);
     });
   }, 1800);
 }

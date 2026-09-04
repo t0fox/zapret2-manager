@@ -20,6 +20,7 @@
 'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
 'require view.zapret2-manager.z2m-warp-page as Warp';
 'require view.zapret2-manager.z2m-tab-cache as TabCache';
+'require view.zapret2-manager.z2m-status-fast-broker as StatusFastBroker';
 
 var MODULES = {
   dashboard: Overview,
@@ -130,6 +131,7 @@ return L.view.extend({
     var appRoot = null;
     var headerStatus = null;
     var headerStatusTimer = null;
+    var statusBroker = StatusFastBroker.create({ read: Api.service.statusFast });
 
     function setContentBusy(busy) {
       content.classList.toggle('z2m-refreshing', busy === true);
@@ -140,6 +142,7 @@ return L.view.extend({
         route: tab,
         routeParams: paramsFromHash(),
         api: Api, store: store, shell: Shell, root: root || content,
+        statusFast: function (options) { return statusBroker.get(options); },
         data: data || {}, initial: initial || {},
         navigate: navigateTo,
         refresh: function (next) {
@@ -223,7 +226,9 @@ return L.view.extend({
       var module = MODULES[tab];
       var sameTab = activeModule === module && !!activeContext && activeContext.route === tab;
       var cachedEntry = force ? null : tabCache.get(tab);
-      var cached = cachedEntry ? cachedEntry.data : null;
+      var staleEntry = !force && !cachedEntry && tab === 'dashboard' && tabCache.getStale ? tabCache.getStale(tab) : null;
+      var cached = cachedEntry ? cachedEntry.data : staleEntry ? staleEntry.data : null;
+      var stale = !!(staleEntry && staleEntry.fresh === false);
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
       if (tabs.setActive) tabs.setActive(tab);
       if (cached && !sameTab) renderTabData(tab, module, cached, token, force);
@@ -240,6 +245,17 @@ return L.view.extend({
       if (cached && force !== true) {
         tabDataCache[tab] = cached;
         setContentBusy(false);
+        if (stale) {
+          // Dashboard is stale-first: keep the last useful cards visible while
+          // the fresh generation hydrates in the background.
+          loadTabData(tab, module, true).then(function (freshData) {
+            if (token !== activationToken) return;
+            renderTabData(tab, module, freshData, token, true);
+            setContentBusy(false);
+          }).catch(function (error) {
+            if (token === activationToken) Shell.showToast(_('Не удалось обновить Dashboard: ') + Api.normalizeError(error).message, 'warn');
+          });
+        }
         return Promise.resolve(cached);
       }
       setContentBusy(true);
@@ -285,7 +301,7 @@ return L.view.extend({
       headerStatusTimer = window.setTimeout(function pollHeaderStatus() {
         headerStatusTimer = null;
         if (!appRoot || !document.body.contains(appRoot)) return;
-        Api.service.statusFast().then(function (data) {
+        statusBroker.get().then(function (data) {
           updateHeaderStatus({ status: { value: data } });
         }).catch(function () {
           // Keep the last known header state on a transient status poll failure.

@@ -243,8 +243,7 @@ function load(ctx) {
     promise = Promise.allSettled([
     boundedLoad(ctx.api.maintenance.versions(), 'manager versions'),
     boundedLoad(engineLoad, 'engine status'),
-    boundedLoad(ctx.api.resources.status(), 'Z2K status'),
-    boundedLoad(ctx.api.tg && ctx.api.tg.product && ctx.api.tg.product.status ? ctx.api.tg.product.status() : Promise.resolve({}), 'TG status')
+    boundedLoad(ctx.api.resources.status(), 'Z2K status')
   ]).then(function (values) {
     return {
       components: {
@@ -254,7 +253,7 @@ function load(ctx) {
         // The release catalog is remote metadata. Keep an explicit not-loaded
         // envelope so the first render cannot mistake local status for latest.
         catalog: { value: { versions: [], remoteAvailable: null, remoteState: 'not-loaded', source: null } },
-        telegram: settled(values[3], ctx.api)
+        telegram: { value: { status: 'deferred', deferred: true } }
       }
     };
   });
@@ -286,6 +285,9 @@ function scheduleComponentMetadata(ctx) {
   });
   if (ctx.api.resources && typeof ctx.api.resources.versions === 'function') jobs.push({
     key: 'z2k', label: _('каталога Z2K'), run: function () { return ctx.api.resources.versions(); }
+  });
+  if (ctx.api.tg && ctx.api.tg.product && typeof ctx.api.tg.product.status === 'function') jobs.push({
+    key: 'telegram', label: _('статуса Telegram Proxy'), run: function () { return ctx.api.tg.product.status(); }
   });
   var next = 0, active = 0;
   function repaint() {
@@ -1881,9 +1883,10 @@ function renderComponents(ctx, data) {
     ? { releases: [], remoteAvailable: false, remoteState: 'unavailable', source: null, error: engineEnvelope.error }
     : engineEnvelope && engineEnvelope.value !== undefined ? engineEnvelope.value : engineValue[0] || {};
   var engineStatus = engineValue[1] || {};
-  var tgRaw = payload.telegram && payload.telegram.value || {};
+  var telegramEnvelope = state.componentMetadata.telegram || payload.telegram;
+  var tgRaw = telegramEnvelope && telegramEnvelope.value || {};
   // Handle envelope error case: if telegram load failed, keep tgRaw as {error} for unknown state
-  if (payload.telegram && payload.telegram.error) tgRaw = { error: payload.telegram.error, ok: false };
+  if (telegramEnvelope && telegramEnvelope.error) tgRaw = { error: telegramEnvelope.error, ok: false };
   var tgState = telegramCardState(tgRaw);
   var isTgInstalled = tgState.status === 'ok' || tgState.status === 'degraded' || (tgState.status === 'off' && tgState.label === 'Остановлен');
   var tgActions = [];

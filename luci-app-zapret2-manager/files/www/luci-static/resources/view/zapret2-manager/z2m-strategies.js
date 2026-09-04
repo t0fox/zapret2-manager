@@ -1587,7 +1587,7 @@ function refreshData(full) {
     });
   }
   var reads = [
-    boundedRead(state.ctx.api.service.statusFast || state.ctx.api.service.status, 8000, 'Не удалось получить состояние службы.'),
+    boundedRead(function () { return (state.ctx.statusFast || state.ctx.api.service.statusFast || state.ctx.api.service.status)(); }, 8000, 'Не удалось получить состояние службы.'),
     refreshLearned(),
     refreshHealthcheck(),
     refreshDebugToggle()
@@ -1826,7 +1826,7 @@ function renderCatalogProgress() {
       if (scoped) state.operationPending = null; else state.pending = null;
       renderAll();
       notify('ok', Model.actionCopy('apply').success);
-      refreshData(true).then(function () {}, function (error) {
+      refreshAppliedStatus().then(function () {}, function (error) {
         notify('err', 'Фоновое обновление статуса не выполнено: ' + errorText(state.ctx, error));
       });
       return answer;
@@ -1839,6 +1839,20 @@ function renderCatalogProgress() {
   }, function (error) {
     if (scoped) state.operationPending = null; else state.pending = null;
     renderAll(); notify('err', errorText(state.ctx, error)); return null;
+  });
+}
+function refreshAppliedStatus() {
+  if (state.disposed || !state.ctx) return Promise.resolve();
+  var read = state.ctx.statusFast || state.ctx.api.service.statusFast || state.ctx.api.service.status;
+  return boundedRead(function () { return read({ forceFresh: true }); }, 8000, 'Не удалось подтвердить состояние службы.').then(function (value) {
+    if (state.disposed) return value;
+    var status = { value: value || {} };
+    status = retainConfirmedApplyIdentity({ status: status }).status || status;
+    state.data.status = status;
+    state.rows = buildRows(state.data);
+    renderFiltersAndList();
+    renderActiveCard();
+    return value;
   });
 }
 function openConfirm(title, message, yes) {

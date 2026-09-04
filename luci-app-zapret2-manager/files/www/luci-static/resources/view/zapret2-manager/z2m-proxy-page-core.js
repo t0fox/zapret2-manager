@@ -123,6 +123,21 @@ function telegramEventRows(envelope) {
 function explicitHealthRead(ctx) {
   return edit(ctx.api.proxy.health, {});
 }
+function refreshLocalStatus(ctx) {
+  return boundedLoad(ctx.api.tg.product.status(), _('статуса Telegram Proxy')).then(function (value) {
+    var envelope = { value: value || {} };
+    state.deferred.providerStatus = envelope;
+    state.deferred.status = envelope;
+    state.deferred.health = statusHealthEnvelope(envelope);
+    return value;
+  }, function (error) {
+    var envelope = { error: ctx.api.normalizeError(error) };
+    state.deferred.providerStatus = envelope;
+    state.deferred.status = envelope;
+    state.deferred.health = envelope;
+    return null;
+  });
+}
 function statusHealthEnvelope(statusEnvelope) {
   if (statusEnvelope && statusEnvelope.error) return { error: statusEnvelope.error };
   var value = statusEnvelope && statusEnvelope.value;
@@ -208,7 +223,7 @@ function load(ctx) {
   state.deferredTimer = null;
   // Keep the local bootstrap fast, then verify Telegram in the deferred pass
   // on every Overview visit so a new tab never gets stuck on an old warning.
-  var requestHealth = true;
+  var requestHealth = false;
   state.fullHealthRequested = false;
   // tg_product_status is the canonical local aggregator. It already includes
   // proxy runtime/config health with upstream:false, so it is the sole source
@@ -277,7 +292,7 @@ function mutation(ctx, name, run, pendingMessage) {
     if (!answer || answer.ok === false) throw answer && answer.error || answer || new Error(name);
     state.tgLifecycle = { status: 'refreshing', action: name, message: _('Проверяем состояние…') };
     rerenderProxy(ctx);
-    return ctx.refresh('proxy').then(function () {
+    return refreshLocalStatus(ctx).then(function () {
       state.busy = null;
       state.tgLifecycle = null;
       rerenderProxy(ctx);
@@ -690,7 +705,14 @@ function refreshWithHealth(ctx) {
   state.tgLifecycle = { status: 'checking', action: 'health', message: _('Проверяем доступность Telegram…') };
   state.fullHealthRequested = true;
   rerenderProxy(ctx);
-  return ctx.refresh('proxy').catch(function (error) {
+  return explicitHealthRead(ctx).then(function (value) {
+    state.deferred.health = { value: value || {} };
+    state.busy = null;
+    state.tgHealthCheck = null;
+    state.tgLifecycle = null;
+    rerenderProxy(ctx);
+    return value;
+  }).catch(function (error) {
     if (state.busy !== 'health') return null;
     state.busy = null;
     state.tgHealthCheck = null;

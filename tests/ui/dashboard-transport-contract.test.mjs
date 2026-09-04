@@ -18,7 +18,7 @@ const fastStatus = fs.readFileSync(
 test('Dashboard reuses the bounded app-shell transport and schedules enrichment after bootstrap', () => {
   assert.match(loading, /hasInitial\(ctx\.initial\)/,
     'Dashboard must reuse the app-shell status_fast result when available');
-  assert.match(loading, /var read = ctx\.api\.service && \(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)/,
+  assert.match(loading, /var read = .*ctx\.api\.service && \(ctx\.api\.service\.statusFast \|\| ctx\.api\.service\.status\)/,
     'direct module consumers still get a bounded status_fast fallback');
   assert.match(loading, /MAX_DEFERRED_IN_FLIGHT = 2/,
     'deferred Dashboard reads must use two lanes');

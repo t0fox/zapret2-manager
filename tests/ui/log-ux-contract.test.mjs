@@ -7,6 +7,7 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const app = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js'), 'utf8');
 const nav = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js'), 'utf8');
+const overviewLoading = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview-loading.js'), 'utf8');
 const control = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-control.js'), 'utf8');
 const maintenance = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js'), 'utf8');
 const diagnostics = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-diagnostics-page.js'), 'utf8');
@@ -16,7 +17,7 @@ const css = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/
 const maintenanceBackend = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/maintenance.uc'), 'utf8');
 
 test('Dashboard log window is a bounded semantic event view', () => {
-  assert.match(page, /eventsTail, \{ limit: 8 \}/);
+  assert.match(overviewLoading, /eventsTail, \{ limit: 8 \}/);
   for (const label of ['ОТЛАДКА', 'ИНФО', 'УСПЕХ', 'ПРЕДУПР\.', 'ОШИБКА', 'КРИТИЧНО'])
     assert.match(avatarLog, new RegExp(label));
   assert.match(avatarLog, /raw\.source \|\| raw\.component/);
@@ -170,7 +171,7 @@ test('Canonical event journal is single authoritative producer and shared across
   // 2. Consumed by Logs page
   assert.match(avatarLog, /eventsTail/);
   // 3. Consumed by Dashboard Recent Events
-  assert.match(page, /eventsTail/);
+  assert.match(overviewLoading, /eventsTail/);
   // 4. Consumed by Control journal
   assert.match(control, /eventsTail/);
   // 5. Diagnostics owns the route; AvatarLog owns the canonical consumer and poller.

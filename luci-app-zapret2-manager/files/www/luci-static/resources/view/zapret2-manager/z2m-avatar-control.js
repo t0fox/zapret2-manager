@@ -88,13 +88,18 @@ function restoreLogViewport() {
 
 function fetchData(ctx) {
   return Promise.allSettled([
-    (ctx.api.service.statusFast || ctx.api.service.status)(),
+    (ctx.statusFast || ctx.api.service.statusFast || ctx.api.service.status)(),
     edit(ctx.api.monitor.eventsTail, { limit: 30 })
   ]).then(function (results) {
     return {
       status: settled(results[0], ctx.api),
       logs: settled(results[1], ctx.api)
     };
+  });
+}
+function fetchStatus(ctx, options) {
+  return Promise.resolve((ctx.statusFast || ctx.api.service.statusFast || ctx.api.service.status)(options || {})).then(function (value) {
+    return { status: { value: value || {} }, logs: runtime.logs };
   });
 }
 
@@ -228,7 +233,7 @@ function lifecycleAction(ctx, action) {
     return ctx.api.service.restart();
   }
   function confirmState(expected, remaining, answer) {
-    return fetchData(ctx).then(function (data) {
+    return fetchStatus(ctx, { forceFresh: true }).then(function (data) {
       remember(data);
       if (ControlModel.state(payload(data.status)) === expected) return data;
       if (remaining <= 0) {

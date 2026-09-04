@@ -49,6 +49,7 @@ const MAX_DEPENDENCY_BYTES = 16384;
 const MAX_IMPORT_PROFILES = 256;
 const MAX_IMPORT_DIAGNOSTICS = 16;
 const MAX_IMPORT_NAME = 256;
+const MAX_TIMING_MS = 600000;
 // rpcd-mod-ucode may reinitialize this module between calls. Keep one bounded
 // Preview candidate in volatile /tmp so the immediately-following Validate can
 // run native checks against the exact candidate instead of compiling the same
@@ -81,6 +82,33 @@ function error_result(code, message, extra) {
 	let result = { ok: false, error: { code: error_code(code), message: bounded_text(message, MAX_TEXT) } };
 	if (is_object(extra)) for (let key in extra) result[key] = extra[key];
 	return result;
+}
+
+// Keep Apply timing evidence monotonic and bounded. It is diagnostic metadata
+// only: all mutation decisions still use the existing catalog/runtime/CAS and
+// postflight authorities.
+function monotonic_ms() {
+	let raw = null;
+	try { raw = readfile('/proc/uptime'); } catch (e) { raw = null; }
+	let token = raw != null ? split(trim(raw), /[ \t]+/)[0] : null;
+	let value = token != null && length(token) ? (+token * 1000) : (time() * 1000);
+	return value >= 0 ? value : null;
+}
+
+function timing_elapsed(start) {
+	let now = monotonic_ms();
+	let value = start == null || now == null ? null : now - start;
+	return value != null && value >= 0 && value <= MAX_TIMING_MS ? value : null;
+}
+
+function timing_set(timing, name, start) {
+	let value = timing_elapsed(start);
+	if (is_object(timing) && value != null) timing[name] = value;
+}
+
+function timing_merge(target, value) {
+	if (!is_object(target) || !is_object(value)) return;
+	for (let key in value) if (key != 'schema') target[key] = value[key];
 }
 
 let APPLY_HOOK = null, APPLY_HOOK_LOADED = false, APPLY_HOOK_CURSOR = {};
@@ -1113,8 +1141,11 @@ function strategy_apply_finish(result, operationNonce, projection) {
 export const strategy_apply = function(input, context) {
 	let shape = input_shape(input, true);
 	if (!shape.ok) return shape;
+	let applyStarted = monotonic_ms(), timing = { schema: 'z2m.strategy-apply-timing.v1', preflightCount: 0 };
+	let stageStarted = monotonic_ms();
 	let guard = null;
 	try { guard = strategy_apply_guard_status(); } catch (e) { guard = null; }
+	timing_set(timing, 'guardMs', stageStarted);
 	if (!is_object(guard) || guard.ok != true || guard.blocked == true)
 		return error_result('EUNCERTAIN', 'Strategy Apply is blocked until explicit reconciliation.');
 	let pending = null;
@@ -1129,16 +1160,24 @@ export const strategy_apply = function(input, context) {
 	let begun = null;
 	let requestStrategyId = shape.hasId ? input.strategy_id : input.strategy_data.id;
 	let requestRevision = shape.hasId ? input.revision : 0;
+	stageStarted = monotonic_ms();
 	try { begun = strategy_apply_begin({ strategyId: requestStrategyId, strategyRevision: requestRevision, catalogDigest: input.catalog_digest,
 		oldConfigSha256: oldConfigSha256, oldCandidateSha256: oldCandidateSha256 }); }
 	catch (e) { begun = null; }
+	timing_set(timing, 'beginMs', stageStarted);
 	if (!is_object(begun) || begun.ok != true)
 		return error_result(begun && begun.error ? begun.error.code : 'EUNCERTAIN', begun && begun.error ? begun.error.message : 'Strategy Apply guard could not be established.');
+	stageStarted = monotonic_ms();
 	let currentCatalog = catalog();
+	timing_set(timing, 'catalogResolveMs', stageStarted);
 	if (!is_object(currentCatalog) || currentCatalog.ok == false) return strategy_apply_finish(currentCatalog, begun.operationNonce);
+	stageStarted = monotonic_ms();
 	let resolved = resolve_strategy(input, currentCatalog);
+	timing_set(timing, 'strategyResolveMs', stageStarted);
 	if (!resolved.ok) return strategy_apply_finish(resolved, begun.operationNonce);
+	stageStarted = monotonic_ms();
 	let trusted = server_context(context);
+	timing_set(timing, 'runtimeResolveMs', stageStarted);
 	if (!trusted.ok && apply_hook_value('candidate', null) == null)
 		return strategy_apply_finish(trusted, begun.operationNonce);
 	if (!trusted.ok) trusted = { ok: true, environment: {} };
@@ -1155,8 +1194,10 @@ export const strategy_apply = function(input, context) {
 	trusted.environment.executionAdmission = false;
 	trusted.environment.runtimeComposition = installedSnapshot;
 	let candidate = null;
+	stageStarted = monotonic_ms();
 	try { candidate = strategy_apply_candidate(resolved, trusted.environment, input, currentCatalog); }
 	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy compilation failed'), begun.operationNonce); }
+	timing_set(timing, 'compileDependenciesMs', stageStarted);
 	if (!is_object(candidate) || candidate.ok != true)
 		return strategy_apply_finish(error_result(candidate && candidate.error ? candidate.error.code : 'EINTERNAL',
 			candidate && candidate.error ? candidate.error.message : 'Strategy compilation failed'), begun.operationNonce);
@@ -1183,8 +1224,10 @@ export const strategy_apply = function(input, context) {
 	// copying the full runtime snapshot into the sidecar.
 	let projection = strategy_apply_projection(resolved, input, candidate, selection, begun.oldConfigSha256, installedSnapshot);
 	let applied = null;
+	stageStarted = monotonic_ms();
 	try { applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection); }
 	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction failed before returning a bounded result'), begun.operationNonce, projection); }
+	timing_set(timing, 'lockedTransactionMs', stageStarted);
 	if (!is_object(applied)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction returned no result'), begun.operationNonce);
 	if (applied.ok != true) {
 		return strategy_apply_finish(applied, begun.operationNonce, projection);
@@ -1194,8 +1237,13 @@ export const strategy_apply = function(input, context) {
 	// making callers reconstruct source provenance from a second authority.
 	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: requestRevision,
 		candidateSha256: candidate.digest, canonicalStrategyId: projection.selected.canonicalStrategyId,
-		sourceId: projection.selected.sourceId, sourceSnapshotId: projection.selected.sourceSnapshotId,
+		 sourceId: projection.selected.sourceId, sourceSnapshotId: projection.selected.sourceSnapshotId,
 		sourceCommit: projection.selected.sourceCommit, strategyDigest: projection.selected.strategyDigest };
+	timing_merge(timing, applied.timing);
+	timing.preflightCount = type(applied.timing) == 'object' && type(applied.timing.preflightCount) == 'int'
+		? applied.timing.preflightCount : 0;
+	timing_set(timing, 'totalMs', applyStarted);
+	applied.timing = timing;
 	return strategy_apply_finish(applied, begun.operationNonce, projection);
 };
 

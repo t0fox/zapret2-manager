@@ -2,6 +2,7 @@
 'require baseclass';
 
 var DEFAULT_TTLS = {
+  dashboard: 10000,
   strategies: 15000,
   lists: 30000,
   hostlists: 30000,
@@ -31,6 +32,11 @@ function create(options) {
     var entry = entries[tab];
     if (!entry || ttl(tab) <= 0 || now() - entry.timestamp >= ttl(tab)) return null;
     return { fresh: true, data: entry.data, generation: entry.generation };
+  }
+  function getStale(tab) {
+    var entry = entries[tab];
+    if (!entry || ttl(tab) <= 0) return null;
+    return { fresh: now() - entry.timestamp < ttl(tab), data: entry.data, generation: entry.generation };
   }
   function load(tab, loader, options) {
     options = options || {};
@@ -71,7 +77,7 @@ function create(options) {
     }
   }
   setSession.current = options.sessionKey || null;
-  return { get: get, load: load, invalidate: invalidate, invalidateAll: invalidate, setSession: setSession,
+  return { get: get, getStale: getStale, load: load, invalidate: invalidate, invalidateAll: invalidate, setSession: setSession,
     ttl: ttl, defaults: Object.assign({}, DEFAULT_TTLS) };
 }
 

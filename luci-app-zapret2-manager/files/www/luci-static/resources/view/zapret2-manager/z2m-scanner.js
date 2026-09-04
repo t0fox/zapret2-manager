@@ -205,6 +205,9 @@ function call(ctx, method, value) {
 function refresh(ctx) {
   return ctx.refresh('scan');
 }
+function localRerender(ctx) {
+  return ctx && typeof ctx.rerender === 'function' ? ctx.rerender() : Promise.resolve();
+}
 function invalidateTimer() {
   state.generation++;
   if (state.timer !== null && typeof window !== 'undefined' && window.clearTimeout) window.clearTimeout(state.timer);
@@ -229,22 +232,22 @@ function schedule(ctx) {
       if (recordPending(value)) {
         state.error = value;
         state.status = { status: 'error', error: 'Scanner record is unavailable (backend contract violation for accepted scan)' };
-        return refresh(ctx);
+        return localRerender(ctx);
       }
       state.error = null;
       state.status = value || {};
-      if (!terminal(state.status)) return refresh(ctx).then(function () { schedule(ctx); });
+      if (!terminal(state.status)) return localRerender(ctx).then(function () { schedule(ctx); });
       return call(ctx, 'results', { id: state.scanId }).then(function (report) {
         if (state.disposed || generation !== state.generation) return;
         state.report = object(report).report || report || null;
-        return refresh(ctx);
+        return localRerender(ctx);
       });
     }).catch(function (error) {
       if (state.disposed || generation !== state.generation) return;
       if (recordPending(error)) {
         state.error = error;
         state.status = { status: 'error', error: 'Scanner record is unavailable (backend contract violation)' };
-        return refresh(ctx);
+        return localRerender(ctx);
       }
       state.error = error;
       schedule(ctx);

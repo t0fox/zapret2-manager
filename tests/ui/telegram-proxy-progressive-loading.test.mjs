@@ -62,7 +62,7 @@ test('Telegram Proxy first render is local-only and does not launch an upstream 
     'catalog, versions, and journal must be deferred behind the local bootstrap');
 });
 
-test('Telegram Proxy overview verifies upstream after the local first paint', async () => {
+test('Telegram Proxy navigation leaves upstream verification to an explicit user action', async () => {
   const module = makeModule();
   const { api, calls, gates } = makeApi();
   const done = module.load(ctxFor(api));
@@ -78,7 +78,7 @@ test('Telegram Proxy overview verifies upstream after the local first paint', as
   gates.versions.resolve({});
   gates.events.resolve({});
   for (let i = 0; i < 10 && calls.health === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
-  assert.equal(calls.health, 1, 'overview reopen must schedule an upstream verification');
+  assert.equal(calls.health, 0, 'ordinary navigation must not schedule an upstream verification');
 
   Object.values(gates).forEach(gate => gate.resolve({}));
   await new Promise(resolve => setTimeout(resolve, 30));

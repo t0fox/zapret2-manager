@@ -178,7 +178,8 @@ function childContext(ctx, tab) {
     route: 'scan',
     routeParams: { tab: tab },
     root: state.host,
-    refresh: function () { return ctx.refresh('scan'); }
+    refresh: function () { return ctx.refresh('scan'); },
+    rerender: function () { return typeof ctx.rerender === 'function' ? ctx.rerender() : Promise.resolve(); }
   });
 }
 function unmountChild() {
