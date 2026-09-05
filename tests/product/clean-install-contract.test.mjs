@@ -83,6 +83,18 @@ test('manager postinst enables AND restarts the service with runtime verificatio
   assert.match(body, /status_fast/, 'bounded bounded status_fast proof required');
 });
 
+test('manager postinst materializes the package runtime bridge when Engine is already installed', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+  const sync = body.indexOf('strategy-runtime-assets-sync.sh');
+  const rpcd = body.indexOf('rpcd_pid=');
+  assert.ok(sync >= 0, 'clean install must invoke the canonical runtime asset sync');
+  assert.ok(sync < rpcd, 'runtime asset sync must run before rpcd/service restart');
+  assert.match(body, /-x\s+\/opt\/zapret2\/nfq2\/nfqws2/,
+    'manager-only install must not fabricate an Engine runtime tree');
+  assert.match(body, /strategy-runtime-assets-sync\.sh[^\n]*2>&1/,
+    'runtime sync failure must remain visible during package installation');
+});
+
 test('manager postinst seeds state with factory-image base utilities only', () => {
   const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
   assert.doesNotMatch(body, /\binstall\s+-d\b/,
