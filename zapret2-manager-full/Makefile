@@ -164,7 +164,12 @@ if [ "$$index_ok" -ne 1 ]; then
 fi
 rm -f /tmp/luci-indexcache.*
 rm -rf /tmp/luci-modulecache/ 2>/dev/null || true
-/etc/init.d/rpcd reload
+rpcd_pid="$$(pidof rpcd 2>/dev/null || true)"
+if [ -n "$$rpcd_pid" ]; then
+  kill -HUP "$$rpcd_pid" || exit $$?
+else
+  /etc/init.d/rpcd start || exit $$?
+fi
 /etc/init.d/zapret2-manager enable || exit $$?
 /etc/init.d/zapret2-manager restart || exit $$?
 verify_tries=0

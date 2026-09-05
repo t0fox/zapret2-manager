@@ -39,7 +39,7 @@ test('full package owns split-package migration through compatibility provides',
   assert.match(fullMakefile, /Package\/zapret2-manager-full\/postinst/);
   assert.match(fullMakefile, /luci-indexcache/);
   assert.match(fullMakefile, /strategy-catalog-migration-cli\.uc/);
-  assert.equal((fullMakefile.match(/\/etc\/init\.d\/rpcd reload/g) ?? []).length, 1);
+  assert.equal((fullMakefile.match(/kill -HUP/g) ?? []).length, 1);
   assert.equal((fullMakefile.match(/\/etc\/init\.d\/zapret2-manager restart/g) ?? []).length, 1);
 });
 

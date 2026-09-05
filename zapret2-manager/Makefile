@@ -149,7 +149,12 @@ if [ "$$index_ok" -ne 1 ]; then
   : > /etc/zapret2-manager/catalog/repair-required
   logger -t zapret2-manager -p daemon.err "catalog read index unavailable after install; run strategies_catalog_reload to repair"
 fi
-/etc/init.d/rpcd reload
+rpcd_pid="$$(pidof rpcd 2>/dev/null || true)"
+if [ -n "$$rpcd_pid" ]; then
+  kill -HUP "$$rpcd_pid" || exit $$?
+else
+  /etc/init.d/rpcd start || exit $$?
+fi
 /etc/init.d/zapret2-manager enable || exit $$?
 /etc/init.d/zapret2-manager restart || exit $$?
 verify_tries=0

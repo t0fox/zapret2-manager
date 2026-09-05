@@ -70,10 +70,14 @@ test('manager postinst enables AND restarts the service with runtime verificatio
   const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
   assertOrder(body, [
     ['persistent bootstrap', 'z2m-root-bootstrap persistent'],
-    ['rpcd reload', '/etc/init.d/rpcd reload'],
+    ['rpcd plugin reload', 'kill -HUP'],
     ['service enable', '/etc/init.d/zapret2-manager enable'],
     ['service restart', '/etc/init.d/zapret2-manager restart']
   ]);
+  assert.match(body, /rpcd_pid=.*pidof rpcd/,
+    'postinst must discover the live rpcd process before reloading plugins');
+  assert.match(body, /\/etc\/init\.d\/rpcd start/,
+    'postinst must have a checked fallback when rpcd is not running');
   assert.match(body, /pidof[^\n]*z2m-helperd/, 'helper daemon process evidence required');
   assert.match(body, /z2m-helperd\.sock/, 'helper socket evidence required');
   assert.match(body, /status_fast/, 'bounded bounded status_fast proof required');
