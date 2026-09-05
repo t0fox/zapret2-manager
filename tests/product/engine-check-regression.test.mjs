@@ -54,3 +54,15 @@ test('Fresh Engine check preserves canonical checkedAt and updateState in its re
   assert.match(check, /answer\.updateState\s*=\s*answer\.updateAvailable/);
   assert.match(check, /answer\.available\s*=\s*\{/);
 });
+
+test('Engine check accepts the public v-prefixed release tag from the UI', () => {
+  const backendCheck = catalog.slice(catalog.indexOf('export const engine_check'), catalog.indexOf('export const load_checked_candidate'));
+  assert.match(backendCheck, /version\s*=\s*substr\(version,\s*1\)/,
+    'engine catalog stores candidate versions without v while the public UI release identity is v-prefixed');
+});
+
+test('Engine catalog errors are UTF-8 text, not mojibake', () => {
+  assert.match(catalog, /Устанавливаемый release для этой версии не найден\./);
+  assert.doesNotMatch(catalog, /Р[Јђќџ]|С[ЃЂ]/,
+    'backend error text must remain readable when surfaced by LuCI');
+});

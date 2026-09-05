@@ -140,3 +140,16 @@ test('generic RPC transport failure does not masquerade as LuCI session loss', (
   assert.doesNotMatch(result.message, /Сеанс LuCI/);
   assert.match(result.technical, /Connection failed/);
 });
+
+test('unknown backend errors keep their actual cause visible to the user', () => {
+  const normalizeError = loadNormalizeError();
+  const result = normalizeError({
+    code: 'ENOASSET',
+    message: 'Устанавливаемый release для этой версии не найден.'
+  });
+
+  assert.equal(result.kind, 'backend_error');
+  assert.equal(result.message, 'Устанавливаемый release для этой версии не найден.');
+  assert.equal(result.technical, result.message);
+  assert.notEqual(result.message, 'Backend вернул ошибку.');
+});

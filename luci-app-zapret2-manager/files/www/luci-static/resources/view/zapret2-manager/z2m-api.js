@@ -182,6 +182,7 @@ function normalizeError(error){
  else if (/session|auth|login|expired|401|403/.test(hay)) { kind='session_failure'; message=_('Сеанс LuCI недоступен или требует повторной авторизации.'); retryable=true; }
  else if (/network|timeout|timed.?out|offline|connection|transport|fetch|xhr|http error/.test(hay)) { kind='backend_transport'; message=_('Backend RPC не ответил или транспорт недоступен.'); retryable=true; }
  else if (value instanceof Error || (typeof value === 'object' && value.stack)) { kind='frontend_error'; message=value.message ? String(value.message) : _('Ошибка интерфейса.'); }
+ if (kind === 'backend_error' && raw) message = raw;
  var details=bounded(formatErrorDetails(value && typeof value === 'object' ? value : outer, code, raw), 1200);
  var errors = value && typeof value === 'object' && value.errors !== undefined ? value.errors : outer.errors;
  var dependencies = value && typeof value === 'object' && value.dependencies !== undefined ? value.dependencies : outer.dependencies;
