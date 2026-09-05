@@ -79,6 +79,20 @@ test('manager postinst enables AND restarts the service with runtime verificatio
   assert.match(body, /status_fast/, 'bounded bounded status_fast proof required');
 });
 
+test('manager postinst seeds state with factory-image base utilities only', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+  assert.doesNotMatch(body, /\binstall\s+-d\b/,
+    'postinst must not require the optional install utility for directory creation');
+  assert.doesNotMatch(body, /\|\s*install\s+-o\b/,
+    'postinst must not require the optional install utility for state-file creation');
+  assert.match(body, /mkdir\s+-p\s+\/etc\/zapret2-manager\/strategies/,
+    'strategy directory must be created with base mkdir');
+  assert.match(body, /chown\s+root:root/,
+    'created persistent state must retain root ownership');
+  assert.match(body, /chmod\s+0(?:600|700)/,
+    'created persistent state must retain restrictive permissions');
+});
+
 test('manager postinst records an explicit repair marker when the index cannot be built', () => {
   const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
   assert.match(body, /repair-required/, 'repair-required marker must be persisted on unrecoverable index failure');

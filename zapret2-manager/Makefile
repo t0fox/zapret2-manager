@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=155
+PKG_RELEASE:=156
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
@@ -102,11 +102,18 @@ define Package/zapret2-manager/postinst
 # the verified legacy authority with a partial generation.
 /usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
 if [ ! -e /etc/zapret2-manager/strategies ] && [ ! -L /etc/zapret2-manager/strategies ]; then
-  install -d -o root -g root -m 0700 /etc/zapret2-manager/strategies || exit $$?
+  mkdir -p /etc/zapret2-manager/strategies || exit $$?
+  chown root:root /etc/zapret2-manager/strategies || exit $$?
+  chmod 0700 /etc/zapret2-manager/strategies || exit $$?
 fi
 if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-manager/strategy-state.json ]; then
+  strategy_state_tmp=/etc/zapret2-manager/.strategy-state.json.$$
+  rm -f "$$strategy_state_tmp"
   printf '%s\n' '{"schema":1,"revision":0,"favorites":[],"selected":null}' \
-    | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/strategy-state.json || exit $$?
+    > "$$strategy_state_tmp" || { rm -f "$$strategy_state_tmp"; exit 1; }
+  chown root:root "$$strategy_state_tmp" || { rm -f "$$strategy_state_tmp"; exit 1; }
+  chmod 0600 "$$strategy_state_tmp" || { rm -f "$$strategy_state_tmp"; exit 1; }
+  mv -f "$$strategy_state_tmp" /etc/zapret2-manager/strategy-state.json || { rm -f "$$strategy_state_tmp"; exit 1; }
 fi
 rm -f /etc/zapret2-manager/catalog/repair-required
 migration_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-migration-cli.uc 2>/dev/null)"
