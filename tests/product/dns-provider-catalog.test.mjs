@@ -67,6 +67,8 @@ test('packaged dns.malw.link provider matches the current official endpoint publ
   assert.equal(serviceProvider.doh, provider.doh);
   assert.equal(serviceProvider.sourceUrl, 'https://info.dns.malw.link/');
   assert.equal(serviceProvider.reviewedAt, '2026-09-06');
+  assert.equal(serviceCatalog.datasetVersion, '2.0.1');
+  assert.equal(serviceCatalog.contentDigest, 'bf538c23eb12343708262b172fca3c31636d37a31dd677337b1c9fe3ea3779e8');
 });
 
 test('DNS diagnostics consume the effective catalog owner', () => {
