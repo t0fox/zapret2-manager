@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "datasetVersion": "2.0.0",
+  "datasetVersion": "2.0.1",
   "upstreamCommit": "41c7fed7fe06774eff01e75d51bbee065c2de206",
   "upstreamRepo": "youtubediscord/zapret",
   "upstreamPath": "src/dns/dns_providers.py + src/hosts/proxy_domains.py (QUICK_SERVICES)",
@@ -7306,5 +7306,5 @@
       "notes": "A records resolved from dns.malw.link (84.21.189.133) at apply time."
     }
   ],
-  "contentDigest": "32a6eecfe00aeb88210f7bc4751ec42c50ef7d305253098e07cca19db7214a34"
+  "contentDigest": "bf538c23eb12343708262b172fca3c31636d37a31dd677337b1c9fe3ea3779e8"
 }
