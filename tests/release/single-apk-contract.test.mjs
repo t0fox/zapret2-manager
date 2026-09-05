@@ -75,6 +75,13 @@ test('release metadata verification accepts OpenWrt ABI-versioned dependency nam
   assert.match(buildScript, /expected\}\[0-9\]/);
 });
 
+test('release payload verification allows read-only extraction of an unsigned local APK', () => {
+  assert.match(buildScript,
+    /"\$APK_TOOL"\s+extract\s+--allow-untrusted\s+--no-chown\s+--destination/);
+  assert.equal(buildScript.match(/--allow-untrusted/g)?.length, 1,
+    '--allow-untrusted must be scoped only to local payload extraction');
+});
+
 test('workflow uploads and publishes the APK directly', () => {
   assert.doesNotMatch(workflow, /tar --sort=name|zstd -T0|\.tar\.zst/);
   assert.match(workflow, /dist\/zapret2-manager-full-\*\.apk/);

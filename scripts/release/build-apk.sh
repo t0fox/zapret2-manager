@@ -192,7 +192,7 @@ verify_metadata_field provides luci-app-zapret2-manager
 
 PAYLOAD_DIR="$WORK_DIR/full-payload"
 mkdir -p "$PAYLOAD_DIR"
-"$APK_TOOL" extract --destination "$PAYLOAD_DIR" "$FULL_APK" || die 'full package payload could not be extracted by SDK apk'
+"$APK_TOOL" extract --allow-untrusted --no-chown --destination "$PAYLOAD_DIR" "$FULL_APK" || die 'full package payload could not be extracted by SDK apk'
 for relative in \
 	usr/libexec/zapret2-manager/z2m-core-helper \
 	usr/libexec/zapret2-manager/z2m-root-bootstrap \
