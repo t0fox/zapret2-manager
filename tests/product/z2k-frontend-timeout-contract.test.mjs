@@ -119,6 +119,14 @@ test('resources.update uses a bounded operation-specific transport timeout inste
   assert.deepEqual(JSON.parse(requests[0].body[0].params[3].edit), JSON.parse(edit));
 });
 
+test('Z2K prepare uses a bounded long-read timeout for the real upstream snapshot', () => {
+  const { rpcDeclarations } = loadApi([]);
+  const declaration = rpcDeclarations.find(item => item.method === 'z2k_prepare_version');
+  assert.ok(declaration, 'z2k_prepare_version declaration must exist');
+  assert.equal(declaration.timeout, 120,
+    'Z2K prepare must not expire at the ordinary LuCI RPC timeout while resolving the upstream snapshot');
+});
+
 test('strategy Preview uses a real transport timeout instead of rpc.declare options', async () => {
   const requests = [];
   const { api } = loadApi(requests);
