@@ -44,6 +44,7 @@ function compatibilityState(value, fallback) {
 	var raw = String(value || '').toLowerCase();
 	if (raw === 'compatible' || raw === 'confirmed' || raw === 'ok') return 'compatible';
 	if (raw === 'incompatible' || raw === 'failed' || raw === 'broken') return 'incompatible';
+	if (raw === 'not-applicable' || raw === 'not-installed') return 'not-applicable';
 	if (['review-required', 'rebase-required', 'integration-required', 'inconsistent'].indexOf(raw) >= 0) return raw;
 	return fallback || 'unverified';
 }
@@ -111,14 +112,23 @@ function normalizeEngine(input) {
 	var catalog = object(input.catalog);
 	var remoteState = first(input.remoteState || catalog.remoteState || status.remoteState, null);
 	var remoteBlocked = ['unavailable', 'empty', 'not-loaded', 'stale'].indexOf(remoteState) >= 0;
-	var compatibilityValue = check.compatibility || status.compatibility || gate.compatibility;
-	var compatibilityStateValue = compatibilityValue || (status.compatible === false || gate.compatible === false
-	    ? 'incompatible' : (status.compatible === true || gate.compatible === true ? 'compatible' : null));
-	var compatibility = compatibilityRecord(compatibilityValue || compatibilityStateValue);
+	var candidate = object(check.candidate);
+	var releases = Array.isArray(catalog.releases) ? catalog.releases : [];
+	var catalogCandidate = object(releases[0]);
+	var installedCompatibilityValue = check.installedCompatibility || status.installedCompatibility || gate.installedCompatibility;
+	var installedCompatibilityFallback = status.compatible === false || gate.compatible === false ? 'incompatible'
+	    : status.compatible === true || gate.compatible === true ? 'compatible' : null;
+	var compatibility = installed
+	    ? compatibilityRecord(installedCompatibilityValue || check.compatibility || status.compatibility || gate.compatibility || installedCompatibilityFallback)
+	    : compatibilityRecord(installedCompatibilityValue, 'not-applicable');
+	var candidateCompatibilityValue = check.candidateCompatibility || check.compatibility
+	    || candidate.compatibility || candidate.compatibilityState
+	    || catalogCandidate.compatibility || catalogCandidate.compatibilityState;
+	var candidateCompatibility = compatibilityRecord(candidateCompatibilityValue);
 	var installedVersion = first(status.installedRelease || status.packageVersion, null);
 	var artifactKind = first(status.artifactKind || status.artifact || (status.patchSeries && status.patchSeries.length ? 'legacy-compatibility-build' : null), null);
 	var availableVersion = versionFrom(check.available) || first(check.availableRelease || check.latestRelease || check.latestVersion, null);
-	if (availableVersion === null && !remoteBlocked) availableVersion = versionFrom(status.available) || versionFrom(catalog.available);
+	if (availableVersion === null && !remoteBlocked) availableVersion = versionFrom(status.available) || versionFrom(catalog.available) || versionFrom(candidate) || versionFrom(catalogCandidate);
 	var installedIdentity = { version: installedVersion, artifactKind: artifactKind };
 	var updateState = engineUpdate(input, status);
 	var upstreamRelease = artifactKind === 'legacy-compatibility-build' ? null
@@ -137,6 +147,7 @@ function normalizeEngine(input) {
 		updateState: updateState,
 		updatePresentation: UpdatePresentation.describe(updateState),
 		compatibility: compatibility,
+		candidateCompatibility: candidateCompatibility,
 		installed: installedIdentity,
 		available: { version: availableVersion },
 		remoteState: remoteState,
@@ -392,12 +403,17 @@ function normalizeZ2k(input, engineReady) {
 	var dependencyClosure = canonicalClosure || (object(value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure)
 		? (value.dependencyClosure || plan.dependencyClosure || local.dependencyClosure) : null);
 	var dependencyCounts = runtimeSummary && runtimeSummary.counts && typeof runtimeSummary.counts === 'object' ? runtimeSummary.counts : dependencyClosure && object(dependencyClosure.counts) ? dependencyClosure.counts : {};
+	var runtimeEvidenceAuthoritative = runtimeSummary
+		? runtimeSummary.health !== 'missing' && local.installed !== false
+		: local.installed !== false;
+	if (!runtimeEvidenceAuthoritative) dependencyCounts = {};
 	var runtimeBundleDigest = first(canonicalDigest || value.runtimeBundleDigest || plan.runtimeBundleDigest || local.runtimeBundleDigest
 		|| dependencyClosure && dependencyClosure.runtimeBundleDigest, null);
 var strategyCount = countValue(value.strategyCount);
 	if (strategyCount === null) strategyCount = countValue(plan.strategyCount);
 	if (strategyCount === null) strategyCount = countValue(local.strategyCount);
 	if (strategyCount === null && runtimeSummary) strategyCount = countValue(runtimeSummary.strategies);
+	if (!runtimeEvidenceAuthoritative) strategyCount = null;
 	var compiledDependencySummary = {
 		available: dependencyClosure ? dependencyClosure.available === true : null,
 		resolution: first(dependencyClosure && dependencyClosure.resolution, null),
@@ -451,7 +467,7 @@ var strategyCount = countValue(value.strategyCount);
 			|| ['integration-required', 'rebase-required'].indexOf(updateState) >= 0
 			|| blockingReviews.length > 0 || rebases.length > 0 ? 'details' : 'check'
 	};
-	var luaSrc = hasLocal ? object(local.lua) : object(value.lua);
+	var luaSrc = runtimeEvidenceAuthoritative && hasLocal ? object(local.lua) : runtimeEvidenceAuthoritative ? object(value.lua) : {};
 	var provenanceSrc = hasLocal && local.provenance ? object(local.provenance) : object(value.provenance);
 	var coherenceSource = object(value.coherence || plan.coherence || local.coherence || runtimeSummary && runtimeSummary.coherence || input.coherence);
 	var localProvenance = object(local.provenance);
@@ -496,6 +512,7 @@ var strategyCount = countValue(value.strategyCount);
 		updatePresentation: UpdatePresentation.describe(updateState),
 		attentionState: attentionState,
 		canApply: canApply,
+		requiresEngine: engineReady !== true,
 		updates: updates,
 		compatibility: compatibilityStateValue,
 		installedRelease: installedRelease,
@@ -534,13 +551,14 @@ var strategyCount = countValue(value.strategyCount);
     actions: actions,
 		counters: {
       lua: luaSrc.ready !== undefined && luaSrc.total !== undefined ? String(luaSrc.ready) + ' / ' + String(luaSrc.total) : null,
-      runtimeBundle: runtimeSummary && runtimeSummary.staticManagedCount !== undefined ? String(runtimeSummary.staticManagedCount) : null,
-      strategies: strategyCount !== null ? String(strategyCount) : null,
+		runtimeBundle: runtimeEvidenceAuthoritative && runtimeSummary && runtimeSummary.staticManagedCount !== undefined ? String(runtimeSummary.staticManagedCount) : null,
+		strategies: runtimeEvidenceAuthoritative && strategyCount !== null ? String(strategyCount) : null,
       safeUpdate: safeUpdate.count !== undefined ? String(safeUpdate.count) : null
     },
 		details: {
 		engineDelta: first(value.engineDelta || local.engineDelta, null),
 		localInstalled: hasLocal && (local.installed === true || local.installed === false) ? local.installed : null,
+		requiresEngine: engineReady !== true,
 		provenance: provenanceSrc,
 		rebases: rebases,
 		reviews: reviews,
@@ -556,7 +574,7 @@ var strategyCount = countValue(value.strategyCount);
       manifest: manifest,
 		planToken: planToken,
 		checkSnapshot: { checkedAt: timestamp(value.checkedAt), manifest: manifest }
-	  }
+		}
   };
 }
 

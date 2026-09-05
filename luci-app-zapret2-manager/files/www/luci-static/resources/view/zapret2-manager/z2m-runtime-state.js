@@ -10,6 +10,7 @@ function state(status) {
   if (status.error) return 'unavailable';
   var summary = object(status.runtimeSummary);
   var value = String(summary.status || '').toLowerCase();
+  if (value === 'engine_missing' || value === 'not-installed') return 'missing';
   return value || 'unknown';
 }
 

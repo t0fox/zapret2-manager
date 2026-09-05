@@ -37,7 +37,10 @@ function catalogSourcePanel(ctx, state) {
     title: source.stale ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
     message: source.stale ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние движка не изменено.') :
       (limited ? _('GitHub временно ограничил запросы. Установленное состояние движка не изменено.') : _('Установленное состояние движка сохранено; повторите проверку позже.')),
-    kind: source.stale || empty ? 'info' : 'error'
+    kind: source.stale || empty ? 'info' : 'error',
+    actions: [ctx.shell.button(_('Проверить каталог'), 'sm', function () {
+      refreshCatalog(ctx, state);
+    }, !!state.busy)]
   });
 }
 
@@ -129,8 +132,28 @@ function load() {
   };
 }
 
-function loadCatalog(ctx) {
-  return Promise.resolve(ctx.api.engine.releases()).then(verified);
+function loadCatalog(ctx, options) {
+  var request = options === undefined ? ctx.api.engine.releases() : ctx.api.engine.releases(options);
+  return Promise.resolve(request).then(verified);
+}
+
+function refreshCatalog(ctx, state) {
+  if (state.busy) return;
+  state.busy = true;
+  state.redraw();
+  loadCatalog(ctx, { forceRefresh: true }).then(function (catalog) {
+    state.catalog = catalog;
+    state.releases = array(catalog.releases);
+    state.selectedVersion = latest(state).version || null;
+    state.check = null;
+    state.truth = ComponentsModel.normalizeEngine({ status: state.status, catalog: state.catalog });
+    state.busy = false;
+    state.redraw();
+  }).catch(function (error) {
+    state.busy = false;
+    ctx.shell.showToast(errorMessage(ctx, error), 'err');
+    state.redraw();
+  });
 }
 
 function refresh(ctx) {
@@ -158,7 +181,11 @@ function request(ctx, promise, success) {
 }
 
 function checkRelease(ctx, state) {
-  if (state.busy || !state.selectedVersion) return;
+  if (state.busy) return;
+  if (!state.selectedVersion) {
+    refreshCatalog(ctx, state);
+    return;
+  }
   state.busy = true;
   state.check = null;
   state.redraw();

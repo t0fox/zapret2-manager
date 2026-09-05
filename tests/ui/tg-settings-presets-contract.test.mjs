@@ -43,9 +43,13 @@ test('First initialization materializes a working recommended config (clean inst
   assert.match(provider, /DEFAULT_DOMAINS=1\\n/);
   assert.match(provider, /CF_PRIORITY=1\\n/);
   assert.match(provider, /function lan_address/);
-  // Written ONLY when config.conf is missing — upgrades/reinstalls keep
-  // the existing user config untouched.
-  assert.match(provider, /stat\(CONFIG_DIR \+ '\/config.conf'\) == null/);
+  // A missing file or the exact inert package seed is initialized; a complete
+  // user config remains untouched on upgrades/reinstalls.
+  assert.match(provider, /function config_needs_default\(/);
+  assert.match(provider, /config_needs_default\(\)/);
+  assert.match(provider, /index\(raw, 'ENABLED='\) < 0/);
+  assert.match(provider, /index\(raw, 'LINK_IP='\) < 0/);
+  assert.match(provider, /index\(raw, 'DC_IPS='\) < 0/);
   assert.match(provider, /first-run RECOMMENDED preset|Recommended profile/);
   assert.match(cfg, /presets apply on first initialization or via explicit restore/);
 });

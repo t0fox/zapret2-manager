@@ -366,7 +366,8 @@ function z2k_runtime_closure_ready(closure, digest) {
 		&& z2k_runtime_closure_counts(closure).missing == 0 && string(digest) && match(lc(digest), /^[a-f0-9]{64}$/)
 		&& string(closure.runtimeBundleDigest) && closure.runtimeBundleDigest == digest;
 }
-function z2k_static_managed_count(installed) {
+function z2k_static_managed_count(installed, local) {
+	if (!object(local) || local.installed !== true) return 0;
 	let count = 0;
 	for (let i = 0; i < length(installed || []); i++) {
 		let row = installed[i] || {}, provenance = row.provenance || {};
@@ -463,13 +464,16 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 		reconciliation: z2k_runtime_reconciliation(closure, installed),
 		blockingReviews: blockingReviews, advisoryReviews: advisoryReviews,
 		unknownUnconsumed: unknownUnconsumed, rebases: rebases,
-		canApply: remote.canApply === true && !length(blockingReviews) && !length(rebases) && !length(remote.compilerInputs || []),
+		canApply: engineReady === true && remote.canApply === true && !length(blockingReviews) && !length(rebases) && !length(remote.compilerInputs || []),
 		coherence: remote.coherence || null,
 		identity: { closureDigest: closure && closure.runtimeBundleDigest || null, installedDigest: local.runtimeBundleDigest || null, coherent: closureReady }
 	};
 }
 export const z2k_runtime_summary_projection = function(local, remote, engine, staticManagedCount, installed) {
 	return z2k_runtime_summary(local, remote, engine, staticManagedCount, installed);
+};
+export const z2k_static_managed_count_projection = function(installed, local) {
+	return z2k_static_managed_count(installed, local);
 };
 function z2k_apply_runtime_summary(remote, local, summary) {
 	remote.runtimeSummary = summary;
@@ -549,6 +553,22 @@ function z2k_local_projection(manifest) {
 	if (!listed.ok) return { installed: false, integrity: 'broken', integrityOk: false, lua: { ready: 0, total: 0 }, baselineMatched: 0, revision: 0, commit: null, provenance: null, checkedAt: null, installedRelease: { value: null, confidence: 'unknown', authority: null }, dependencyClosure: compiled.dependencyClosure, runtimeBundleDigest: compiled.runtimeBundleDigest, strategyCount: compiled.strategyCount };
 	let resolved = resolveInstalled({ registry: listed });
 	if (resolved.ok && resolved.lifecycleState == 'installed' && resolved.compositionStatus == 'canonical') return z2k_canonical_local_projection(listed, resolved);
+	if (resolved.ok && resolved.lifecycleState == 'V1_VERIFIED_MEMBERSHIP') {
+		let membership = resolved.legacyMembership || [], luaReady = 0;
+		for (let i = 0; i < length(membership); i++) if (membership[i] && membership[i].kind == 'lua') luaReady++;
+		let authority = resolved.authority || {}, release = authority.release || null, commit = authority.sourceCommit || null;
+		return {
+			installed: true, integrity: 'reconciliation-required', integrityOk: false,
+			lua: { ready: luaReady, total: luaReady }, baselineMatched: length(membership),
+			runtimeMatched: length(membership), runtimeAssets: [], luaInit: [],
+			compositionStatus: 'incomplete', lifecycleState: 'V1_VERIFIED_MEMBERSHIP',
+			reconciliationRequired: true, revision: resolved.observedRegistryRevision || 0,
+			installedAuthorityRevision: null, commit: commit,
+			provenance: { kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: commit, version: release, bundleId: 'z2k-curated-lua' },
+			checkedAt: null, installedRelease: { value: release, confidence: 'confirmed', authority: 'activation-receipt-v1' },
+			dependencyClosure: null, runtimeBundleDigest: null, strategyCount: null
+		};
+	}
 	let want = {};
 	for (let i = 0; i < length(manifest.bundles); i++) if (manifest.bundles[i].sourceId == 'z2k-resources') {
 		let items = manifest.bundles[i].assets || [];
@@ -616,9 +636,10 @@ function z2k_local_projection(manifest) {
 	// ready already counts lua only; ensure total reflects luaTotal
 	let integrity = hasAttention ? 'broken' : hasMissing ? 'broken' : baselineMatched === total ? 'verified' : 'diverged';
 	let integrityOk = !hasMissing && !hasAttention;
-	let installed = !hasMissing && installedCount > 0 && total > 0;
-	let installedRelease = z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention);
-	return { installed: installed, integrity: integrity, integrityOk: integrityOk, lua: { ready: ready, total: totalLua }, baselineMatched: baselineMatched, revision: maxRevision, commit: commit, provenance: provenance, checkedAt: maxLastChecked, installedRelease: installedRelease, dependencyClosure: compiled.dependencyClosure, runtimeBundleDigest: compiled.runtimeBundleDigest, strategyCount: compiled.strategyCount };
+	// Package-static Lua is support material, not an activated Z2K release.
+	// Lifecycle truth requires the Registry receipt and canonical runtime
+	// closure, which are handled by z2k_canonical_local_projection above.
+	return { installed: false, integrity: 'unverified', integrityOk: false, lua: { ready: 0, total: 0 }, baselineMatched: 0, revision: maxRevision, commit: null, provenance: null, checkedAt: maxLastChecked, installedRelease: { value: null, confidence: 'unknown', authority: null }, dependencyClosure: null, runtimeBundleDigest: null, strategyCount: null };
 }
 function runtime_target_path(runtimeTarget) {
 	if (!string(runtimeTarget)) return null;
@@ -1476,6 +1497,8 @@ function inline_bundle(request) {
 	let answer = asset_registry_apply_bundle({ bundleId: bundle.bundleId, version: bundle.version || 'test', source: 'controlled-test', sourceCommit: bundle.sourceCommit || '0000000000000000000000000000000000000000', assets: staged }); cleanup(root, paths); return answer;
 }
 export const resource_center_prepare_version = function(request) {
+	let engine = z2k_engine_runtime_projection();
+	if (!engine || engine.ready !== true) return fail('EENGINE_REQUIRED', 'Сначала установите и запустите совместимый Zapret2 Engine.');
 	let version = object(request) ? request.version : request;
 	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
 	let resolved = z2k_resolve_version(version); if (!resolved.ok) return resolved;
@@ -1669,7 +1692,7 @@ export const resource_center_status = function () {
 	answer.installed = z2k_annotate_installed(answer.installed, local.dependencyClosure);
 	remote.local = local;
 	remote.coherence = strategy_coherence(local, remote);
-	let runtimeSummary = z2k_runtime_summary(local, remote, engine, z2k_static_managed_count(answer.installed), answer.installed);
+	let runtimeSummary = z2k_runtime_summary(local, remote, engine, z2k_static_managed_count(answer.installed, local), answer.installed);
 	z2k_apply_runtime_summary(remote, local, runtimeSummary);
 	remote.checkedAt = latestCheck ? latestCheck.checkedAt : null;
 	remote.planToken = latestCheck ? (latestCheck.planToken || remote.planToken) : null;
@@ -1712,7 +1735,7 @@ export const resource_center_check = function () {
 	answer.installed = z2k_annotate_installed(answer.installed, local.dependencyClosure);
 	remote.local = local;
 	remote.coherence = strategy_coherence(local, remote);
-	let runtimeSummary = z2k_runtime_summary(local, remote, engine, z2k_static_managed_count(answer.installed), answer.installed);
+	let runtimeSummary = z2k_runtime_summary(local, remote, engine, z2k_static_managed_count(answer.installed, local), answer.installed);
 	z2k_apply_runtime_summary(remote, local, runtimeSummary);
 	remote.checkedAt = checkedAt;
 	remote.planToken = signed.ok === true ? plan_token(checkedAt, signed.manifest, signed.sourceCommit || signed.manifestRevision) : null;

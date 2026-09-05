@@ -61,6 +61,47 @@ test('shared lifecycle owner is ensured before any install mutation', () => {
   assert.ok(ensuredAt !== -1 && acquireAt !== -1);
 });
 
+test('shared lifecycle directory handling uses UCode-compatible path operations', () => {
+  assert.match(source, /function path_dirname\(/,
+    'clean-install init creation needs an explicit dirname helper');
+  assert.doesNotMatch(source, /INIT_PATH\.lastIndexOf\(/,
+    'UCode strings do not expose JavaScript lastIndexOf');
+  const ensureStart = source.indexOf('function ensure_shared_lifecycle');
+  const ensureEnd = source.indexOf('\nfunction download_verified_artifact', ensureStart);
+  assert.match(source.slice(ensureStart, ensureEnd), /path_dirname\(INIT_PATH\)/,
+    'init creation must use the compatible dirname helper');
+});
+
+test('clean-install helpers resolve UCode function bindings before execution', () => {
+  const runAt = source.indexOf('function run(');
+  const lanAt = source.indexOf('function lan_address(');
+  assert.ok(runAt !== -1 && lanAt !== -1 && runAt < lanAt,
+    'UCode does not hoist run() into the earlier lan_address() body');
+  assert.match(source, /join\('\/', slice\(/,
+    'dirname must use UCode join(separator, array) argument order');
+});
+
+test('package seed config is reconciled before provider start without overwriting user config', () => {
+  assert.match(source, /function config_needs_default\(/,
+    'the package seed must be distinguishable from a user-owned config');
+  const ensureStart = source.indexOf('function ensure_shared_lifecycle');
+  const ensureEnd = source.indexOf('\nfunction download_verified_artifact', ensureStart);
+  const ensure = source.slice(ensureStart, ensureEnd);
+  assert.match(ensure, /config_needs_default\(\)/,
+    'shared lifecycle must initialize the known package seed');
+  assert.match(source, /package seed|package-seed|manager-owned\)/i,
+    'the seed marker must be explicit');
+  assert.match(ensure, /default_config_body\(\)/,
+    'seed reconciliation must use the canonical recommended config');
+});
+
+test('fresh provider failures remove a newly installed direct binary', () => {
+  const restoreStart = source.indexOf('function restore_previous');
+  const restoreEnd = source.indexOf('\n// Manager-owned shared TG lifecycle surface', restoreStart);
+  assert.match(source.slice(restoreStart, restoreEnd), /settingsSnapshot\.hadBinary\s*!==\s*true/,
+    'rollback must clean a direct binary when no binary existed before install');
+});
+
 test('install is version-exact: load_checked_candidate requires an explicit version', () => {
   const fnStart = source.indexOf('function load_checked_candidate');
   const fnEnd = source.indexOf('\n}', fnStart);

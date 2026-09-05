@@ -35,6 +35,7 @@ var state = {
   tgSelections: {},
   tgOperation: null,
   tgOperationTimer: null,
+  tgOperationStartedAt: null,
   tgRetry: null,
   tgPollGeneration: 0,
   tgViewportLocked: false,
@@ -83,6 +84,10 @@ function settled(result, api) {
 // at the five-second client deadline. Keep a margin so successful responses
 // are not rendered as session failures by this page-local guard.
 var LOAD_TIMEOUT_MS = 15000;
+// A lost polling response must become an explicit, actionable state. The
+// provider transaction remains backend-owned, but the browser must never keep
+// a user in an unbounded pending modal when its observation channel is gone.
+var TG_OPERATION_MAX_WAIT_MS = 120000;
 function boundedLoad(promise, label) {
   return new Promise(function (resolve, reject) {
     var finished = false;
@@ -362,15 +367,17 @@ function tgOperationBody(operation) {
   var running = operation && (operation.status === 'RUNNING' || operation.status === 'ROLLING_BACK');
   var failed = operation && operation.status === 'FAILED';
   var rolledBack = operation && (operation.status === 'ROLLED_BACK' || operation.rollbackState === 'ROLLED_BACK');
+  var unknown = operation && operation.status === 'UNKNOWN';
   var rollbackBroken = operation && operation.rollbackState === 'ROLLBACK_FAILED';
-  var errorText = operation && operation.error && operation.error.message;
+  var errorText = operation && operation.error && operation.error.message || operation && operation.recoveryError;
   var percent = Math.max(0, Math.min(100, Number(operation && operation.progress || 0)));
   var body = [E('strong', {}, running ? operationTitle(operation) + '…' : failed ? operationTitle(operation) + ' — не выполнено' : operation.status === 'COMPLETE' ? operationTitle(operation) + ' — готово' : operationTitle(operation))];
   if (running) body.push(E('p', {}, display(operation && operation.message) !== '—' ? display(operation.message) : _('Дождитесь завершения: при ошибке сервер восстановит предыдущее состояние.')));
-  if (failed || rolledBack) {
+  if (failed || rolledBack || unknown) {
     body.push(E('div', { 'class': 'z2m-proxy-op-facts' }, compact([
       operation && operation.stage ? E('div', {}, [E('span', {}, _('Этап: ')), E('strong', {}, tgOperationLabel(operation.stage))]) : null,
       errorText ? E('div', {}, [E('span', {}, _('Причина: ')), E('strong', {}, errorText)]) : null,
+      unknown ? E('div', { 'class': 'z2m-proxy-provider-unavailable' }, _('Результат операции не подтверждён. Проверьте журнал и состояние сервиса перед повторной попыткой.')) : null,
       rolledBack ? E('div', { 'class': 'z2m-proxy-ok' }, _('Предыдущая версия восстановлена ✓')) : null,
       rollbackBroken ? E('div', { 'class': 'z2m-proxy-provider-unavailable' }, _('⚠ Автоматический откат не удался — проверьте журнал.')) : null
     ])));
@@ -379,35 +386,12 @@ function tgOperationBody(operation) {
   }
   if (running) {
     body.push(E('div', { 'class': 'z2m-tg-operation-stage' }, [E('span', {}, tgOperationLabel(operation && operation.stage)), E('strong', {}, percent + '%')]));
-    body.push(E('div', { 'class': 'z2m-progress-track' }, E('div', { 'class': 'z2m-progress-bar', style: 'width:' + percent + '%' })));
+    body.push(E('div', { 'class': 'z2m-progress-track', role: 'progressbar',
+      'aria-label': tgOperationLabel(operation && operation.stage), 'aria-valuemin': 0,
+      'aria-valuemax': 100, 'aria-valuenow': percent },
+      E('div', { 'class': 'z2m-progress-bar', style: 'width:' + percent + '%' })));
   }
   return E('div', { 'class': 'z2m-tg-operation-body', role: 'status', 'aria-live': 'polite' }, body);
-}
-// Progress smoothing: shown percent eases toward the backend stage value
-// and keeps drifting a few percent forward during long stages, so the bar
-// moves continuously instead of jumping between stage boundaries.
-function startProgressTicker() {
-  if (state.tgProgressTimer) return;
-  if (state.tgProgressShown == null) state.tgProgressShown = 0;
-  state.tgProgressTimer = setInterval(function () {
-    var op = state.tgOperation;
-    var modal = document.querySelector('#z2m-modal');
-    if (!op || op.status !== 'RUNNING' || !modal || !modal.classList.contains('on')) {
-      clearInterval(state.tgProgressTimer);
-      state.tgProgressTimer = null;
-      return;
-    }
-    var target = Number(op.progress || 0);
-    if (state.tgProgressShown == null || state.tgProgressShown < 3) state.tgProgressShown = Math.max(3, target);
-    var cap = Math.min(97, target + 7);
-    if (state.tgProgressShown < target) state.tgProgressShown = Math.min(target, state.tgProgressShown + Math.max(1.2, (target - state.tgProgressShown) * 0.25));
-    else if (state.tgProgressShown < cap) state.tgProgressShown = Math.min(cap, state.tgProgressShown + 0.35);
-    else if (state.tgProgressShown > target) state.tgProgressShown = target;
-    var bar = modal.querySelector('.z2m-progress-bar');
-    var pct = modal.querySelector('.z2m-tg-operation-stage strong');
-    if (bar) bar.style.width = Math.round(state.tgProgressShown) + '%';
-    if (pct) pct.textContent = Math.round(state.tgProgressShown) + '%';
-  }, 300);
 }
 function normalizeOperation(record) {
   if (!record) return null;
@@ -419,7 +403,6 @@ function normalizeOperation(record) {
 function renderTgOperationModal(ctx, operation) {
   if (!operation) return;
   var running = operation.status === 'RUNNING' || operation.status === 'ROLLING_BACK';
-  if (running) startProgressTicker();
   tgViewportLock(running);
   var footer = [];
   if (!running && (operation.status === 'FAILED' || operation.status === 'ROLLED_BACK') && state.tgRetry)
@@ -433,8 +416,10 @@ function renderTgOperationModal(ctx, operation) {
     ctx.shell.closeModal();
     tgViewportLock(false);
     state.tgOperation = null;
+    state.tgOperationStartedAt = null;
     state.tgRetry = null;
     state.busy = null;
+    state.tgLifecycle = null;
     if (state.tgOperationTimer) { clearTimeout(state.tgOperationTimer); state.tgOperationTimer = null; }
     ctx.refresh('proxy');
   }));
@@ -442,17 +427,30 @@ function renderTgOperationModal(ctx, operation) {
   var close = document.querySelector('#z2m-modal .z2m-modal-close');
   if (close && running) { close.hidden = true; close.disabled = true; }
 }
+function operationWaitExpired(ctx) {
+  if (!state.tgOperationStartedAt || Date.now() - state.tgOperationStartedAt < TG_OPERATION_MAX_WAIT_MS) return false;
+  state.busy = 'operation-unknown';
+  state.tgRetry = null;
+  state.tgOperation = Object.assign({}, state.tgOperation, {
+    status: 'UNKNOWN',
+    recoveryError: _('Не удалось получить итог операции за отведённое время.')
+  });
+  renderTgOperationModal(ctx, state.tgOperation);
+  return true;
+}
 function watchTgOperation(ctx, operationId, retry, meta) {
   if (state.tgOperationTimer) clearTimeout(state.tgOperationTimer);
   state.tgOperationTimer = null;
   state.tgPollGeneration++;
   var generation = state.tgPollGeneration;
+  state.tgOperationStartedAt = Date.now();
   state.tgOperation = normalizeOperation(Object.assign({ status: 'RUNNING', stage: 'PREPARE', progress: 5 }, meta || {}, { operationId: operationId }));
   state.tgRetry = retry || null;
   renderTgOperationModal(ctx, state.tgOperation);
   function poll() {
     if (generation !== state.tgPollGeneration) return;
-    ctx.api.tg.product.operationStatus(operationId ? { operationId: operationId } : {}).then(function (answer) {
+    if (operationWaitExpired(ctx)) return;
+    boundedLoad(ctx.api.tg.product.operationStatus(operationId ? { operationId: operationId } : {}), _('состояния операции Telegram Proxy')).then(function (answer) {
       if (generation !== state.tgPollGeneration) return;
       if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Состояние операции недоступно.'));
       var op = normalizeOperation(answer.operation);
@@ -474,9 +472,11 @@ function watchTgOperation(ctx, operationId, retry, meta) {
 // terminal state, so an in-flight transaction is never silently lost.
 function watchAttachedTgOperation(ctx) {
   var generation = ++state.tgPollGeneration;
+  if (!state.tgOperationStartedAt) state.tgOperationStartedAt = Date.now();
   function poll() {
     if (generation !== state.tgPollGeneration) return;
-    ctx.api.tg.product.operationStatus({}).then(function (answer) {
+    if (operationWaitExpired(ctx)) return;
+    boundedLoad(ctx.api.tg.product.operationStatus({}), _('состояния операции Telegram Proxy')).then(function (answer) {
       if (generation !== state.tgPollGeneration) return;
       var op = normalizeOperation(answer && answer.operation);
       if (!op) return;
@@ -492,8 +492,12 @@ function watchAttachedTgOperation(ctx) {
 }
 function showOperationFailure(ctx, retry, error) {
   // Prefer the durable operation record (stage/reason/rollback) over a raw toast.
-  ctx.api.tg.product.operationStatus({}).then(function (answer) {
+  boundedLoad(ctx.api.tg.product.operationStatus({}), _('состояния операции Telegram Proxy')).then(function (answer) {
     var op = normalizeOperation(answer && answer.operation);
+    if (op && (op.status === 'RUNNING' || op.status === 'ROLLING_BACK')) {
+      watchTgOperation(ctx, op.operationId, retry, op);
+      return;
+    }
     if (op && (op.status === 'FAILED' || op.status === 'ROLLED_BACK')) {
       state.tgOperation = op;
       state.tgRetry = retry || null;
@@ -509,7 +513,7 @@ function showOperationFailure(ctx, retry, error) {
 function finishTgTransaction(ctx, answer, retry) {
   state.tgPollGeneration++;
   if (answer && answer.operationId) { watchTgOperation(ctx, answer.operationId, retry); return; }
-  ctx.api.tg.product.operationStatus({}).then(function (opAnswer) {
+  boundedLoad(ctx.api.tg.product.operationStatus({}), _('состояния операции Telegram Proxy')).then(function (opAnswer) {
     var op = normalizeOperation(opAnswer && opAnswer.operation);
     if (op && op.status !== 'COMPLETE') {
       state.tgOperation = op;
@@ -522,6 +526,9 @@ function finishTgTransaction(ctx, answer, retry) {
 }
 function showSuccessModal(ctx, answer) {
   var shell = ctx.shell;
+  state.tgLifecycle = null;
+  state.busy = null;
+  state.tgOperationStartedAt = null;
   var identity = answer && answer.provider ? String(answer.provider).toUpperCase() : '';
   if (answer && answer.version) identity += ' ' + answer.version;
   if (answer && answer.changed === false) {
@@ -1093,16 +1100,27 @@ function providerCard(ctx, data, provider, status, releasePanel) {
       var liveCandidate = candidateForVersion(choices, (state.tgSelections[provider.id] || {}).version) || candidate;
       var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
       function start() {
+        if (state.busy) return;
         state.busy = 'provider-install';
-        ctx.api.tg.product.checkUpdates({ provider: request.provider, sourceId: request.sourceId, version: request.version, intent: 'mutation' }).then(function (check) {
+        state.tgLifecycle = { status: 'pending', action: 'provider-install', message: _('Проверяем выбранный релиз…') };
+        rerenderProxy(ctx);
+        Promise.resolve().then(function () {
+          return boundedLoad(ctx.api.tg.product.checkUpdates({ provider: request.provider, sourceId: request.sourceId, version: request.version, intent: 'mutation' }), _('проверки выбранного релиза'));
+        }).then(function (check) {
           if (!check || check.ok === false || !check.checkToken) throw check && check.error || new Error(_('Выбранная версия не прошла проверку.'));
-          return ctx.api.tg.product.switch({ provider: provider.id, version: liveCandidate.version, checkToken: check.checkToken });
+          state.tgLifecycle = { status: 'pending', action: 'provider-install', message: _('Устанавливаем выбранную версию…') };
+          rerenderProxy(ctx);
+          return boundedLoad(ctx.api.tg.product.switch({ provider: provider.id, version: liveCandidate.version, checkToken: check.checkToken }), _('установки Telegram Proxy'));
         }).then(function (answer) {
           if (!answer || answer.ok === false) throw answer && answer.error || new Error(_('Сервер не смог установить Telegram Proxy.'));
           state.busy = null;
+          state.tgLifecycle = { status: 'refreshing', action: 'provider-install', message: _('Проверяем установленную версию…') };
+          rerenderProxy(ctx);
           finishTgTransaction(ctx, answer, start);
         }).catch(function (error) {
           state.busy = null;
+          state.tgLifecycle = { status: 'error', action: 'provider-install', message: ProductUX.errorMessage(ctx.api.normalizeError(error)).message };
+          rerenderProxy(ctx);
           showOperationFailure(ctx, start, error);
         });
       }
@@ -1930,6 +1948,7 @@ function unmount() {
   state.tgOperationTimer = null;
   state.tgPollGeneration++;
   state.tgOperation = null;
+  state.tgOperationStartedAt = null;
   state.tgRetry = null;
   state.busy = null;
   state.tgLifecycle = null;

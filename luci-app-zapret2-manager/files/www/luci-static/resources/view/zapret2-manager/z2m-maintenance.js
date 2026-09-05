@@ -164,7 +164,8 @@ function catalogSourcePanel(ctx, state) {
     title: source.stale || remoteState === 'stale' ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
     message: source.stale || remoteState === 'stale' ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние не изменено.') :
       (limited ? _('Upstream временно ограничил запросы. Установленное состояние не изменено.') : _('Установленное состояние сохранено; повторите проверку позже.')),
-    kind: source.stale || remoteState === 'stale' || empty ? 'info' : 'error'
+    kind: source.stale || remoteState === 'stale' || empty ? 'info' : 'error',
+    actions: [ctx.shell.button(_('Проверить каталог'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)]
   });
 }
 function boundedLoad(promise, label, timeoutMs) {
@@ -558,7 +559,8 @@ function updateSummary(page) {
 }
 function z2kIdentityUnknown(page) {
   var z2k = page && page.components && page.components.find(function (component) { return component.id === 'z2k-core'; });
-  return !z2k || !z2k.installedRelease || !z2k.installedRelease.value;
+  return !!z2k && (z2k.runtimeHealth || z2k.health) !== 'missing'
+    && (!z2k.installedRelease || !z2k.installedRelease.value);
 }
 function heroStatusLabel(page) {
   if (page.health.state === 'ready' && z2kIdentityUnknown(page)) return _('Система работает');
@@ -1051,10 +1053,11 @@ function z2kMetaRows(component) {
   var runtime = component && (component.runtimeSummary || component.details && component.details.runtimeSummary) || {};
   var compiled = component && component.compiledDependencySummary || {};
   var counters = component && component.counters || {};
-  var runtimeBundle = runtime.staticManagedCount !== undefined && runtime.staticManagedCount !== null
-    ? runtime.staticManagedCount : counters.runtimeBundle;
-  var strategies = runtime.strategies !== undefined && runtime.strategies !== null
-    ? runtime.strategies : compiled.strategies;
+  var runtimeEvidenceAuthoritative = component && component.details && component.details.localInstalled === true && runtime.health !== 'missing';
+  var runtimeBundle = runtimeEvidenceAuthoritative
+    ? runtime.staticManagedCount !== undefined && runtime.staticManagedCount !== null ? runtime.staticManagedCount : counters.runtimeBundle : null;
+  var strategies = runtimeEvidenceAuthoritative
+    ? runtime.strategies !== undefined && runtime.strategies !== null ? runtime.strategies : compiled.strategies : null;
   var rows = [];
   rows.push({ label: _('Установлено'), value: z2kReleaseLabel(component) });
   rows.push({ label: _('Последняя'), value: z2kLatestRelease(component) });
@@ -1062,7 +1065,7 @@ function z2kMetaRows(component) {
     rows.push({ label: _('Runtime bundle'), value: runtimeBundle });
   if (strategies !== undefined && strategies !== null)
     rows.push({ label: _('Strategies'), value: strategies });
-  if (counters.lua || compiled.lua !== undefined && compiled.lua !== null)
+  if (runtimeEvidenceAuthoritative && (counters.lua || compiled.lua !== undefined && compiled.lua !== null))
     rows.push({ label: _('Lua'), value: counters.lua || compiled.lua });
   rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
   return rows;
@@ -1099,9 +1102,10 @@ function z2kCanApply(component) {
     && component.canApply === true && component.updateState === 'update-available';
   var targetCanApply = selected && selected.targetCanApply !== null && selected.targetCanApply !== undefined
     ? selected.targetCanApply === true : component && component.canApply === true;
+  var installGate = component && component.runtimeHealth === 'missing' && component.details && component.details.localInstalled === false && component.requiresEngine !== true;
   return !!component && (selected && selected.installable === true || legacyCatalogFallback)
     && !!z2kTargetRelease(component)
-    && component.runtimeHealth === 'ready'
+    && (component.runtimeHealth === 'ready' || installGate)
     && ['review-required', 'rebase-required', 'integration-required'].indexOf(attentionState) < 0
     && blockingReviews.length === 0
     && targetBlockingReasons.length === 0

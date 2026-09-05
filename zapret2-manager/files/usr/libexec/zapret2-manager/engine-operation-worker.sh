@@ -147,7 +147,7 @@ ROLLBACK_REQUIRED=1
 # continues); cancellation stays cooperative via the $CANCEL file checks.
 trap '' HUP INT TERM
 phase stopping 52 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || [ "$OLD_INSTALLED" -eq 0 ] || fail ESTOP 'Не удалось остановить zapret2.'
-phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL; chmod 0755 /opt 2>/dev/null || true 'Не удалось установить mode /opt/zapret2.'; find "$ENGINE_STAGE" -type d -exec chmod 0755 {} + 2>/dev/null || true; chown -R root:root "$ENGINE_STAGE" 2>/dev/null || true; find "$ENGINE_STAGE" -type f -exec chmod 0644 {} + 2>/dev/null || true; find "$ENGINE_STAGE/lua" -type f -exec chmod 0755 {} + 2>/dev/null || true; find "$ENGINE_STAGE/lua" -type f -exec chmod 0755 {} + 2>/dev/null || true;  chmod 0755 "$ENGINE_STAGE/nfq2/nfqws2" "$ENGINE_STAGE/ip2net/ip2net" "$ENGINE_STAGE/mdig/mdig" 2>/dev/null || true; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; NEW_INSTALLED=1; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
+phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL; chmod 0755 /opt 2>/dev/null || true 'Не удалось установить mode /opt/zapret2.'; find "$ENGINE_STAGE" -type d -exec chmod 0755 {} + 2>/dev/null || true; chown -R root:root "$ENGINE_STAGE" 2>/dev/null || true; find "$ENGINE_STAGE" -type f -exec chmod 0644 {} + 2>/dev/null || true; find "$ENGINE_STAGE/lua" -type f -exec chmod 0755 {} + 2>/dev/null || true; find "$ENGINE_STAGE" -type f -name '*.sh' -exec chmod 0755 {} + 2>/dev/null || true; chmod 0755 "$ENGINE_STAGE/nfq2/nfqws2" "$ENGINE_STAGE/ip2net/ip2net" "$ENGINE_STAGE/mdig/mdig" 2>/dev/null || true; [ -f "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && chmod 0755 "$ENGINE_STAGE/init.d/openwrt/zapret2" || true; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; NEW_INSTALLED=1; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
 phase restoring 75 'Восстанавливаются конфигурация и пользовательские списки.'; restore_config || fail ERESTORE "Не удалось восстановить пользовательские данные: ${RESTORE_ERROR:-unknown}."
 phase materializing 78 'Материализуются Z2K ресурсы в runtime движка.'
 SYNC=/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh
@@ -155,12 +155,22 @@ REGISTRY_SYNC=/usr/libexec/zapret2-manager/asset-registry-runtime-sync.uc
 /bin/sh "$SYNC" || fail EZ2K_ASSETS 'Материализация Z2K ассетов завершилась ошибкой.'
 sync_verdict="$(/bin/sh "$SYNC" --verify)" || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
 printf '%s\n' "$sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Целостность Z2K ассетов не подтверждена: $sync_verdict"
-registry_sync_verdict="$(/usr/bin/ucode "$REGISTRY_SYNC")" || fail EZ2K_ASSETS "Подтверждённые Z2K lifecycle-ассеты не материализованы: $registry_sync_verdict"
-printf '%s\n' "$registry_sync_verdict" | grep -q '"ok":true' || fail EZ2K_ASSETS "Подтверждённые Z2K lifecycle-ассеты не материализованы: $registry_sync_verdict"
+registry_sync_verdict="$(/usr/bin/ucode "$REGISTRY_SYNC")" || true
+if ! printf '%s\n' "$registry_sync_verdict" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'; then
+  printf '%s\n' "$registry_sync_verdict" | grep -q '"state"[[:space:]]*:[[:space:]]*"blocked-unknown-authority"' \
+    && printf '%s\n' "$registry_sync_verdict" | grep -q '"skipped"[[:space:]]*:[[:space:]]*true' \
+    && printf '%s\n' "$registry_sync_verdict" | grep -q '"reason"[[:space:]]*:[[:space:]]*"no-confirmed-z2k-release"' \
+    || fail EZ2K_ASSETS "Подтверждённые Z2K lifecycle-ассеты не материализованы: $registry_sync_verdict"
+fi
 phase proving 82 'Доказываются обязательные возможности движка.'
 CAPABILITIES="$WORK/capabilities.json"
 REQUIRED_CAPS="$(jsonfilter -i "$JOB" -e '@.candidate.requiredCapabilities[*]' 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
-Z2M_REQUIRED_CAPABILITIES="$REQUIRED_CAPS" /usr/bin/ucode /usr/libexec/zapret2-manager/preflight-cli.uc >"$CAPABILITIES" 2>/dev/null \
+CLEAN_ENGINE_BOOTSTRAP=0
+if printf '%s\n' "$registry_sync_verdict" | grep -q '"state"[[:space:]]*:[[:space:]]*"blocked-unknown-authority"' \
+  && printf '%s\n' "$registry_sync_verdict" | grep -q '"skipped"[[:space:]]*:[[:space:]]*true'; then
+  CLEAN_ENGINE_BOOTSTRAP=1
+fi
+Z2M_REQUIRED_CAPABILITIES="$REQUIRED_CAPS" Z2M_CLEAN_ENGINE_BOOTSTRAP="$CLEAN_ENGINE_BOOTSTRAP" /usr/bin/ucode /usr/libexec/zapret2-manager/preflight-cli.uc >"$CAPABILITIES" 2>/dev/null \
 	|| fail ECAPABILITY 'Preflight возможностей завершился ошибкой.'
 grep -q '"ok"[[:space:]]*:[[:space:]]*true' "$CAPABILITIES" || fail ECAPABILITY "Preflight не выдал вердикта: $(cat "$CAPABILITIES")"
 for capability in $REQUIRED_CAPS; do

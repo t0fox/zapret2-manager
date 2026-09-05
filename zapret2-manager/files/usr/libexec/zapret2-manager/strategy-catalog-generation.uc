@@ -100,6 +100,10 @@ function native_verified(value) {
 		|| (value.status == 'not_checked' && getenv('Z2M_UPDATE_SOURCE_TEST') == '1'
 			&& getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0'));
 }
+function native_deferred(value) {
+	return object(value) && value.status == 'deferred'
+		&& value.reason == 'canonical runtime composition is unavailable; native validation is deferred until Z2K activation';
+}
 function valid_z2k_compiled_provenance(entry, snapshot, kind) {
 	let provenance = entry && entry.provenance;
 	return object(entry) && entry.sourcePath == OFFICIAL_Z2K_SOURCE_PATH
@@ -123,10 +127,15 @@ function valid_z2k_dependency_closure(entry) {
 		&& object(closure.counts) && valid_digest(closure.runtimeBundleDigest)
 		&& (closure.resolution == 'complete' || closure.resolution == 'deferred');
 }
+function valid_z2k_native_entry(entry) {
+	return native_verified(entry.nativeValidation)
+		|| (entry.usable == false && native_deferred(entry.nativeValidation));
+}
 function valid_z2k_standalone(entry, snapshot) {
 	return object(entry) && entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
-		&& entry.entryKind == 'standalone' && entry.usable == true && valid_digest(entry.semanticDigest)
-		&& native_verified(entry.nativeValidation)
+		&& entry.entryKind == 'standalone' && (entry.usable == true || (entry.usable == false
+			&& native_deferred(entry.nativeValidation))) && valid_digest(entry.semanticDigest)
+		&& valid_z2k_native_entry(entry)
 		&& string(entry.officialArgs) && entry.officialArgs != ''
 		&& valid_z2k_compiled_provenance(entry, snapshot, 'official-top-level-profile')
 		&& valid_z2k_dependency_closure(entry)
@@ -160,9 +169,11 @@ function valid_z2k_snapshot(snapshot) {
 		if (entry.entryKind == 'all-in-one') {
 			if (entry.canonicalId != snapshot.allInOne.canonicalId
 				|| entry.sourceId != 'z2k' || entry.sourceSnapshotId != snapshot.snapshotId
-				|| entry.usable != true || !string(entry.officialNfqws2Opt) || entry.officialNfqws2Opt == ''
+				|| (entry.usable != true && !(entry.usable == false && native_deferred(entry.nativeValidation)))
+				|| !string(entry.officialNfqws2Opt) || entry.officialNfqws2Opt == ''
 				|| !valid_z2k_compiled_provenance(entry, snapshot, 'strategy-catalog-import')
 				|| !valid_z2k_dependency_closure(entry)
+				|| !valid_z2k_native_entry(entry)
 				|| !valid_z2k_compiled_profiles(entry.profiles, snapshot.allInOne.profileCount)) return false;
 			allInOneCount++;
 		} else if (!valid_z2k_standalone(entry, snapshot)) return false;
@@ -178,20 +189,22 @@ function valid_z2k_index_entry(entry, snapshotId) {
 		|| !valid_digest(entry.provenance.compilerSnapshotDigest)
 		|| !valid_digest(entry.provenance.nfqws2OptSha256) || entry.provenance.templates != 'disabled') return false;
 	if (entry.entryKind == 'all-in-one')
-		return entry.canonicalId == 'z2k:z2k_all_in_one' && entry.usable == true
+		return entry.canonicalId == 'z2k:z2k_all_in_one' && (entry.usable == true
+			|| (entry.usable == false && native_deferred(entry.nativeValidation)))
 			&& string(entry.officialNfqws2Opt) && entry.officialNfqws2Opt != ''
-			&& native_verified(entry.nativeValidation)
+			&& valid_z2k_native_entry(entry)
 			&& entry.provenance.kind == 'strategy-catalog-import'
 			&& valid_z2k_dependency_closure(entry)
 			&& valid_z2k_compiled_profiles(entry.profiles, length(entry.profiles));
-	if (entry.entryKind != 'standalone' || entry.usable != true || !valid_digest(entry.semanticDigest)
+	if (entry.entryKind != 'standalone' || (entry.usable != true && !(entry.usable == false
+		&& native_deferred(entry.nativeValidation))) || !valid_digest(entry.semanticDigest)
 		|| entry.provenance.kind != 'official-top-level-profile' || !string(entry.officialArgs) || entry.officialArgs == '') return false;
 	return valid_z2k_dependency_closure(entry)
 		&& valid_z2k_compiled_profiles(entry.profiles, 1)
 		&& entry.profiles[0].officialProfileIndex == entry.provenance.officialProfileIndex
 		&& entry.profiles[0].officialArgs == entry.officialArgs
 		&& type(entry.provenance.officialProfileIndex) == 'int' && entry.provenance.officialProfileIndex >= 0
-		&& native_verified(entry.nativeValidation);
+		&& valid_z2k_native_entry(entry);
 }
 function valid_generation_entries(index) {
 	let source = index.sources && index.sources.z2k, z2kCount = 0, allInOneCount = 0;

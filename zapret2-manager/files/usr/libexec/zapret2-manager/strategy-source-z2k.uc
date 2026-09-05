@@ -443,6 +443,10 @@ function native_verified(value) {
 	if (value.status == 'verified') return true;
 	return getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && value.status == 'not_checked';
 }
+function native_deferred(value) {
+	return object(value) && value.status == 'deferred'
+		&& value.reason == 'canonical runtime composition is unavailable; native validation is deferred until Z2K activation';
+}
 function standalone_diagnostic(entry, validation, reason) {
 	return { canonicalId: entry.canonicalId, officialProfileIndex: entry.profiles[0].officialProfileIndex,
 		kind: 'standalone-rejected', reason: reason, validation: copy(validation) };
@@ -456,11 +460,12 @@ export const strategy_source_z2k_finalize_snapshot = function(input) {
 	if (!object(input) || !object(input.snapshot) || !object(input.allInOneValidation))
 		return error('EINPUT', 'Z2K snapshot finalization requires a snapshot and All-in-One native validation');
 	let snapshot = copy(input.snapshot), all = input.allInOneValidation;
-	if (!native_verified(all)) return error('EPREFLIGHT', 'Z2K All-in-One native preflight did not pass');
+	if (!native_verified(all) && !native_deferred(all)) return error('EPREFLIGHT', 'Z2K All-in-One native preflight did not pass');
 	if (type(snapshot.entries) != 'array' || length(snapshot.entries) != 1
 		|| snapshot.entries[0].entryKind != 'all-in-one') return error('EVERIFY', 'Z2K snapshot must start with one All-in-One entry');
 	snapshot.entries[0].nativeValidation = copy(all);
 	snapshot.entries[0].validation.native = copy(all);
+	snapshot.entries[0].usable = native_verified(all);
 	snapshot.nativeValidation = copy(all);
 	let diagnostics = snapshot.standaloneDiagnostics || [], validations = input.nativeValidations || [], seen = {}, published = [snapshot.entries[0]];
 	for (let record in validations) {
@@ -470,7 +475,7 @@ export const strategy_source_z2k_finalize_snapshot = function(input) {
 	let candidates = snapshot.standaloneCandidates || [], semantic = {};
 	for (let i = 0; i < length(candidates); i++) {
 		let candidate = candidates[i], validation = seen[candidate.canonicalId];
-		if (!native_verified(validation)) {
+		if (!native_verified(validation) && !native_deferred(validation)) {
 			push(diagnostics, standalone_diagnostic(candidate, validation, validation && validation.reason || 'native validation unavailable or rejected'));
 			continue;
 		}
@@ -484,7 +489,7 @@ export const strategy_source_z2k_finalize_snapshot = function(input) {
 		candidate.provenance.sourceSnapshotId = snapshot.snapshotId;
 		candidate.nativeValidation = copy(validation);
 		candidate.validation.native = copy(validation);
-		candidate.usable = true;
+		candidate.usable = native_verified(validation);
 		push(published, candidate);
 	}
 	snapshot.entries = published;

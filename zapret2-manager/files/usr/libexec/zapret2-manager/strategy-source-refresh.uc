@@ -128,6 +128,8 @@ function z2k_dependency_inventory() {
 	let composition = null, environment = {};
 	try { composition = resolveInstalled({}); } catch (e) { composition = null; }
 	try { environment = asset_registry_environment(); } catch (e) { environment = {}; }
+	let engineReady = false;
+	try { engineReady = stat('/opt/zapret2/nfq2/nfqws2') != null && length(trim(run('pidof nfqws2').output || '')) > 0; } catch (e) { engineReady = false; }
 	let engineBuiltins = {
 		fake_default_tls: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true },
 		fake_default_http: { class: 'blob-engine-builtin', kind: 'blob', owner: 'nfqws2', role: 'engine-builtin', available: true },
@@ -137,6 +139,8 @@ function z2k_dependency_inventory() {
 		blobs: environment.blobs || {}, lists: environment.lists || {}, lua: environment.lua || {},
 		luaFunctions: environment.functions || {}, functions: environment.functions || {},
 		builtins: engineBuiltins,
+		compositionStatus: composition && composition.compositionStatus || 'unavailable',
+		engineReady: engineReady,
 		deferred: !(composition && composition.ok == true), dynamic: [
 			{ id: 'dynamic:manager-whitelist', kind: 'hostlist', class: 'hostlist-dynamic', owner: 'manager',
 				role: 'manager-whitelist', reference: '/runtime-assets/lists/whitelist.txt',
@@ -147,11 +151,18 @@ function z2k_dependency_inventory() {
 		] };
 	return inventory;
 }
-function validate_z2k_candidate(snapshot) {
+function deferred_native_validation() {
+	return { status: 'deferred', reason: 'canonical runtime composition is unavailable; native validation is deferred until Z2K activation', coverage: {
+		cliSyntax: 'deferred', luaLoad: 'deferred', luaCompatibility: 'deferred', engineCapabilities: 'deferred',
+		functionExistence: 'deferred', blobExistence: 'deferred', runtimeArguments: 'deferred', executionPlan: 'deferred'
+	}, evidence: { compositionStatus: 'unavailable', activationRequired: true } };
+}
+function validate_z2k_candidate(snapshot, dependencyInventory) {
 	let entry = snapshot && snapshot.entries && snapshot.entries[0];
 	if (!object(entry) || !string(entry.args) || entry.args == '')
 		return error('EPREFLIGHT', 'Z2K candidate has no compiled Strategy arguments');
 	let testBypass = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0';
+	let cleanBootstrap = object(dependencyInventory) && dependencyInventory.deferred === true && dependencyInventory.engineReady === true;
 	let preflight_entry = function(candidate) {
 		if (!object(candidate) || !string(candidate.args) || candidate.args == '')
 			return { ok: false, validation: { status: 'rejected', reason: 'compiled Strategy arguments are empty' } };
@@ -163,11 +174,11 @@ function validate_z2k_candidate(snapshot) {
 			return { ok: false, validation: object(result) ? result : { status: 'rejected', reason: 'native preflight returned no evidence' } };
 		return { ok: true, validation: result };
 	};
-	let all = preflight_entry(entry);
+	let all = cleanBootstrap ? { ok: true, validation: deferred_native_validation() } : preflight_entry(entry);
 	if (!all.ok) return { ok: false, error: { code: 'EPREFLIGHT', message: 'Z2K All-in-One failed native preflight before publication', details: all.validation || null } };
 	let nativeValidations = [];
 	for (let candidate in snapshot.standaloneCandidates || []) {
-		let checked = preflight_entry(candidate);
+		let checked = cleanBootstrap ? { ok: true, validation: deferred_native_validation() } : preflight_entry(candidate);
 		push(nativeValidations, { canonicalId: candidate.canonicalId, validation: checked.validation });
 	}
 	let finalized = null;
@@ -261,7 +272,7 @@ function prepare_refresh(id) {
 		snapshot = prepared.snapshot;
 		if (snapshot.sourceBranch != Z2K_BRANCH)
 			return error('EPROVENANCE', 'Z2K source snapshot is not bound to the accepted upstream branch');
-		let native = validate_z2k_candidate(snapshot);
+		let native = validate_z2k_candidate(snapshot, z2k_dependency_inventory());
 		if (!native.ok) return native;
 		snapshot = native.snapshot;
 		snapshot.nativeValidation = native.validation;

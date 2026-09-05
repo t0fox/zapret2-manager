@@ -32,10 +32,23 @@ const CHECK_TTL = 600;
 // --no-cfproxy); CF_PRIORITY=1 tries the CF route before direct WS. Custom
 // user domains/workers/MTProto/outbound stay empty until the user sets them.
 //
+// UCode does not hoist function declarations like JavaScript. Keep this
+// helper above every clean-install helper that calls it; otherwise the first
+// provider install dies before the durable operation can reach a terminal
+// state.
+function run(command) {
+	let p = popen(command + ' 2>/dev/null', 'r');
+	if (!p) return { rc: -1, out: '' };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();
+	return { rc: rc, out: out };
+}
+
 // HOST binds the router's LAN IPv4 so LAN clients (Telegram Desktop on a PC)
 // can actually reach the listener; a loopback-only bind is the #1 cause of
-// endless "Подключение…" on clients. Written ONLY when config.conf does not
-// exist yet — an existing (user-edited or upgraded) config is never touched.
+// endless "Подключение…" on clients. Written for the inert package seed only;
+// an existing complete (user-edited or upgraded) config is never touched.
 function lan_address() {
 	let r = run('/bin/ubus call network.interface.lan status 2>/dev/null');
 	let out = trim(r.out);
@@ -94,6 +107,22 @@ function default_config_body() {
 		'CF_PRIORITY=1\nCF_BALANCE=0\nDEFAULT_DOMAINS=1\n' +
 		'MTPROTO_PROXIES=\nOUTBOUND_PROXY=\nNO_PROXY=\n';
 }
+
+// The full manager package ships a deliberately inert config seed so an
+// optional provider can never start merely because its files were unpacked.
+// It is not a user configuration: the marker plus the absence of the
+// canonical fields identifies that exact seed. A complete config (including a
+// deliberately disabled one) remains untouched and must be changed through
+// proxycfg's explicit settings lifecycle.
+function config_needs_default() {
+	let path = CONFIG_DIR + '/config.conf';
+	if (stat(path) == null) return true;
+	let raw = readfile(path);
+	return raw != null &&
+		index(raw, '# Default Telegram MTProto WebSocket proxy configuration (manager-owned).') >= 0 &&
+		index(raw, 'ENABLED=') < 0 && index(raw, 'LINK_IP=') < 0 && index(raw, 'DC_IPS=') < 0;
+}
+
 // Secret storage uses proxycfg's canonical `SECRET=<32hex>` format so both
 // subsystems parse the same file; the init layer maps it to TG_* env vars.
 function canonical_init_body() {
@@ -132,15 +161,6 @@ const PROVIDERS = [
 	}
 ];
 
-function run(command) {
-	let p = popen(command + ' 2>/dev/null', 'r');
-	if (!p) return { rc: -1, out: '' };
-	let out = p.read('all');
-	if (!out) out = '';
-	let rc = p.close();
-	return { rc: rc, out: out };
-}
-
 function error(code, message) {
 	return { ok: false, error: { code: code, message: message } };
 }
@@ -148,6 +168,18 @@ function error(code, message) {
 function literal(value) {
 	return type(value) == 'string' && index(value, "'") < 0 && index(value, '\n') < 0 && index(value, '\r') < 0
 		? "'" + value + "'" : null;
+}
+
+// UCode strings do not implement JavaScript's lastIndexOf(). Keep this
+// helper deliberately small and portable because it runs during the clean
+// provider install path, before any provider binary exists.
+function path_dirname(path) {
+	if (type(path) != 'string' || path == '') return '.';
+	let parts = split(path, '/');
+	if (length(parts) <= 1) return '.';
+	let parent = join('/', slice(parts, 0, length(parts) - 1));
+	if (parent == '') return substr(path, 0, 1) == '/' ? '/' : '.';
+	return parent;
 }
 
 function safe_token(value) {
@@ -862,6 +894,10 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 	} else if (!save_state(null, null, null)) push(failures, 'empty-state-restore');
 	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
 	if (!restore_binary(settingsSnapshot)) push(failures, 'binary-restore');
+	if (settingsSnapshot.hadBinary !== true && stat(BINARY_PATH) != null) {
+		let removed = run('rm -f ' + literal(BINARY_PATH));
+		if (removed.rc != 0 || stat(BINARY_PATH) != null) push(failures, 'direct-binary-cleanup');
+	}
 	if (wasRunning && length(failures) == 0 && service('start') != 0) push(failures, 'previous-service-restore');
 	return failures;
 }
@@ -893,11 +929,11 @@ function ensure_shared_lifecycle() {
 		}
 	}
 	if (canonicalInit != null && stat(INIT_PATH) == null) {
-		run('mkdir -p ' + literal(substr(INIT_PATH, 0, INIT_PATH.lastIndexOf('/'))));
+		run('mkdir -p ' + literal(path_dirname(INIT_PATH)));
 		if (!writefile(INIT_PATH, canonicalInit)) push(failures, 'init-write');
 		else if (run('chmod 755 ' + literal(INIT_PATH)).rc != 0) push(failures, 'init-chmod');
 	}
-	if (stat(CONFIG_DIR + '/config.conf') == null) {
+	if (config_needs_default()) {
 		run('mkdir -p ' + literal(CONFIG_DIR));
 		if (!writefile(CONFIG_DIR + '/config.conf', default_config_body()))
 			push(failures, 'config-write');

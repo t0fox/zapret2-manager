@@ -348,6 +348,11 @@ chmod 0755 "$BASE" 2>/dev/null || true
 chmod 0644 "$BASE/lists/discovered-domains.txt" 2>/dev/null || true
 ensure_dir "$ETC_ROOT/lists"
 [ -f "$ETC_ROOT/lists/whitelist.txt" ] || touch "$ETC_ROOT/lists/whitelist.txt"
+# nfqws2 drops privileges before opening the manager-owned exclusion list.
+# Keep this narrow directory/file readable without making the state root
+# world-listable or weakening any other manager data permissions.
+chmod 0755 "$ETC_ROOT/lists" 2>/dev/null || true
+chmod 0644 "$ETC_ROOT/lists/whitelist.txt" 2>/dev/null || true
 
 # The nfqws2 daemon persists circular host bindings while rpcd reads them from
 # the canonical Z2M state path. The state parent remains root-owned and

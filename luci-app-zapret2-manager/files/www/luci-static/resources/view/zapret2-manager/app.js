@@ -92,6 +92,7 @@ function setHash(tab) {
 }
 function statusState(initial) {
   var value = RuntimeState.state(initial);
+  if (value === 'missing') return { label: _('Не установлен'), kind: 'r' };
   if (value === 'unavailable') return { label: _('Недоступно'), kind: 'r' };
   if (value === 'running') return { label: _('Работает'), kind: 'g' };
   if (value === 'stopped') return { label: _('Остановлено'), kind: 'r' };

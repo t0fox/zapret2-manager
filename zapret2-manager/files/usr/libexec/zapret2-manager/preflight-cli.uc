@@ -11,5 +11,18 @@
 
 import { install_proof } from './native-preflight.uc';
 
-print(sprintf('%J', install_proof()) + '\n');
+let proof = install_proof();
+// A first Engine install necessarily runs before any Z2K release has been
+// selected.  Defer composition-dependent Lua proof to the subsequent Z2K
+// activation, while keeping candidate-declared native requirements strict.
+if (proof && proof.ok !== true
+    && getenv('Z2M_CLEAN_ENGINE_BOOTSTRAP') == '1'
+    && proof.compositionStatus == 'unavailable'
+    && length(proof.requiredCapabilities || []) == 0) {
+  proof.ok = true;
+  proof.cleanBootstrap = true;
+  proof.compositionStatus = 'pending-z2k';
+  proof.compositionError = 'Z2K runtime composition will be proven during activation.';
+}
+print(sprintf('%J', proof) + '\n');
 exit(0);

@@ -124,7 +124,25 @@ function merged_candidates(result) {
 	return combined;
 }
 
-export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'РђСЂС…РёС‚РµРєС‚СѓСЂР° СѓСЃС‚СЂРѕР№СЃС‚РІР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return { ok: false, upstream: UPSTREAM, architecture: a, releases: [], remoteAvailable: false, remoteState: 'unavailable', stale: false, source: result.source || null, error: result.error || { code: 'EUNAVAILABLE', message: 'Каталог движка недоступен.' } }; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, remoteAvailable: true, remoteState: result.remoteState || (result.stale ? 'stale' : releases.length ? 'fresh' : 'empty'), cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null, source: result.source || null }; };
+function catalog_remote_state(result, releases) {
+	if (result.stale === true) return 'stale';
+	return length(releases || []) ? 'fresh' : result.remoteState || 'empty';
+}
+export const engine_releases = function () { let a = architecture(); if (a == null) return fail('EARCH', 'РђСЂС…РёС‚РµРєС‚СѓСЂР° СѓСЃС‚СЂРѕР№СЃС‚РІР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ.'); let result = catalog(a, { cache: true, allowStale: true }); if (!result.ok) return { ok: false, upstream: UPSTREAM, architecture: a, releases: [], remoteAvailable: false, remoteState: 'unavailable', stale: false, source: result.source || null, error: result.error || { code: 'EUNAVAILABLE', message: 'Каталог движка недоступен.' } }; let releases = [], combined = merged_candidates(result); for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i])); return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, remoteAvailable: true, remoteState: catalog_remote_state(result, releases), cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null, source: result.source || null }; };
+// Ordinary reads use browse/LKG. Explicit recovery uses the same catalog
+// owner with fresh source semantics so an empty/stale browse result cannot
+// deadlock Engine installation.
+export const engine_releases_for_request = function (input) {
+	if (!is_object(input) || input.forceRefresh !== true) return engine_releases();
+	let a = architecture();
+	if (a == null) return fail('EARCH', 'Архитектура устройства не поддерживается.');
+	let result = catalog(a, { cache: false, allowStale: false, forceRefresh: true });
+	if (!result.ok) return { ok: false, upstream: UPSTREAM, architecture: a, releases: [], remoteAvailable: false, remoteState: 'unavailable', stale: false, source: result.source || null, error: result.error || { code: 'EUNAVAILABLE', message: 'Каталог движка недоступен.' } };
+	let releases = [], combined = merged_candidates(result);
+	for (let i = 0; i < length(combined); i++) push(releases, public_candidate(combined[i]));
+	return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, remoteAvailable: true, remoteState: catalog_remote_state(result, releases), cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null, source: result.source || null };
+};
+
 export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null ? saved.installedRelease : null; return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
 // Legacy manager-built compatibility builds are identified by their
 // r*-z2m-* artifactVersion plus a non-empty patch series attached to the

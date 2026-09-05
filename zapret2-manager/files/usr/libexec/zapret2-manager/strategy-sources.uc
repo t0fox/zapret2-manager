@@ -25,6 +25,10 @@ function native_verified(value) {
 	return object(value) && (value.status == 'verified'
 		|| (value.status == 'not_checked' && getenv('Z2M_UPDATE_SOURCE_TEST') == '1'));
 }
+function native_deferred(value) {
+	return object(value) && value.status == 'deferred'
+		&& value.reason == 'canonical runtime composition is unavailable; native validation is deferred until Z2K activation';
+}
 function error(code, message, path) {
 	let result = { ok: false, error: { code: code, message: message } };
 	if (path != null) result.error.path = path;
@@ -175,6 +179,13 @@ function valid_official_z2k_entry(entry, snapshot, kind) {
 		&& provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
 		&& valid_digest(provenance.nfqws2OptSha256) && provenance.templates == 'disabled';
 }
+function deferred_z2k_snapshot(snapshot) {
+	return object(snapshot) && native_deferred(snapshot.nativeValidation);
+}
+function valid_z2k_native_entry(entry, snapshot) {
+	return native_verified(entry.nativeValidation)
+		|| (deferred_z2k_snapshot(snapshot) && entry.usable == false && native_deferred(entry.nativeValidation));
+}
 function valid_z2k_snapshot(snapshot) {
 	if (!object(snapshot) || type(snapshot.sourceFiles) != 'array'
 		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
@@ -188,16 +199,18 @@ function valid_z2k_snapshot(snapshot) {
 	for (let entry in snapshot.entries) {
 		if (!object(entry)) return false;
 		if (entry.entryKind == 'all-in-one') {
-			if (entry.canonicalId != snapshot.allInOne.canonicalId || entry.usable != true
+			if (entry.canonicalId != snapshot.allInOne.canonicalId || (entry.usable != true
+				&& !(deferred_z2k_snapshot(snapshot) && entry.usable == false && native_deferred(entry.nativeValidation)))
 				|| !string(entry.officialNfqws2Opt) || entry.officialNfqws2Opt == ''
-				|| !native_verified(entry.nativeValidation)
+				|| !valid_z2k_native_entry(entry, snapshot)
 				|| !valid_official_z2k_entry(entry, snapshot, 'strategy-catalog-import')
 				|| type(entry.profiles) != 'array' || length(entry.profiles) != snapshot.allInOne.profileCount) return false;
 			allInOneCount++;
 			continue;
 		}
-		if (entry.entryKind != 'standalone' || entry.usable != true || !valid_digest(entry.semanticDigest)
-			|| !native_verified(entry.nativeValidation)
+		if (entry.entryKind != 'standalone' || (entry.usable != true && !(deferred_z2k_snapshot(snapshot)
+			&& entry.usable == false && native_deferred(entry.nativeValidation))) || !valid_digest(entry.semanticDigest)
+			|| !valid_z2k_native_entry(entry, snapshot)
 			|| !string(entry.officialArgs) || entry.officialArgs == ''
 			|| !valid_official_z2k_entry(entry, snapshot, 'official-top-level-profile')
 			|| type(entry.profiles) != 'array' || length(entry.profiles) != 1

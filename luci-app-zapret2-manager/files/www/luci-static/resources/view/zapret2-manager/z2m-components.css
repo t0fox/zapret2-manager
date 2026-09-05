@@ -350,7 +350,7 @@
 .z2m-proxy-provider-card.release-active .hd h2{color:var(--blue)}
 .z2m-proxy-provider-card{cursor:default}
 .z2m-proxy-provider-card.release-active{cursor:pointer}
-.z2m-progress-bar{transition:width .7s cubic-bezier(.25,.6,.3,1)}
+.z2m-progress-bar{transition:width .24s cubic-bezier(.22,1,.36,1)}
 
 /* Telegram Settings — compact like Strategies (remove stretched CBI) */
 .z2m-tg-settings{max-width:800px}
@@ -513,6 +513,7 @@
 .z2m-z2k-operation-result p{margin:0;color:var(--tx2)}
 .z2m-z2k-operation-result .z2m-btn{justify-self:start;margin-top:2px}
 @media(prefers-reduced-motion:reduce){
+  .z2m-progress-bar{transition:none}
   .z2m-op-progress-bar{transition:none}
   .z2m-op-progress--indeterminate .z2m-op-progress-bar{width:100%;animation:none;transform:none;opacity:.58}
   .z2m-op-spinner{animation:none}
