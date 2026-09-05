@@ -7,6 +7,7 @@ import { ucodeModulePattern, ucodeDiagnostic } from '../native/core/ucode-test-h
 
 const root = path.resolve(import.meta.dirname, '../..');
 const modulePath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
+const source = fs.readFileSync(modulePath, 'utf8');
 const ucode = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const args = process.env.UCODE_ARGS_PIPE
   ? process.env.UCODE_ARGS_PIPE.split('|')
@@ -99,4 +100,15 @@ test('closure availability and digest are readiness gates independent of Lua tot
   const mismatched = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify({ ...local, runtimeBundleDigest: 'b'.repeat(64) })}, { updateState: 'current', canApply: false }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
   assert.equal(mismatched.health, 'degraded');
   assert.equal(mismatched.identity.coherent, false);
+});
+
+test('missing Engine cannot project a stale Z2K installed release from the Registry', { skip: !fs.existsSync(ucode) }, () => {
+  const engineMissing = { installed: false, compatible: false, serviceState: 'engine_missing', runtimeRunning: false, ready: false };
+  const summary = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'unknown', canApply: false }, ${JSON.stringify(engineMissing)}, 0, ${JSON.stringify(installed)})`);
+  assert.equal(summary.health, 'missing');
+  assert.deepEqual(summary.installedRelease, { value: null, confidence: 'unknown', authority: null });
+});
+
+test('runtime summary gates its installed release on Engine readiness', () => {
+  assert.match(source, /installedRelease:\s*engineReady\s*\?/);
 });

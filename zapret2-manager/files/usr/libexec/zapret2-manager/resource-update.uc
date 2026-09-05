@@ -453,7 +453,7 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 	else if (length(advisoryReviews)) attentionState = 'review-advisory';
 	return {
 		schema: 'z2m.z2k-runtime-summary.v1',
-		installedRelease: local.installedRelease || { value: null, confidence: 'unknown', authority: null },
+		installedRelease: engineReady ? local.installedRelease || { value: null, confidence: 'unknown', authority: null } : { value: null, confidence: 'unknown', authority: null },
 		availableRelease: remote.availableRelease || null,
 		health: health, updateState: updateState, attentionState: attentionState,
 		integrity: local.integrity || null, integrityOk: local.integrityOk === true,
