@@ -141,7 +141,7 @@ Router-side evidence from that egress path:
 This proves profile matching and NFQUEUE marking on router egress. It does not
 prove the requested end-to-end direct-LAN client gates, successful YouTube
 playback, GoogleVideo media transfer, or Discord Voice session. Consequently
-the full Z2K All-in-One traffic acceptance is **NOT PASS / NOT PROVEN**.
+the full Z2K All-in-One traffic acceptance is **НЕ ПОДТВЕРЖДЕНО / НЕ ЗАВЕРШЕНО**.
 
 ## Verification commands/results
 
