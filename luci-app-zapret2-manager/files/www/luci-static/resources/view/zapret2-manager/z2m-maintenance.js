@@ -77,6 +77,11 @@ var state = {
   engineOperationTimer: null,
   engineOperationPolling: false,
   engineOperationOverride: false,
+  engineCatalog: null,
+  engineSelectedVersion: null,
+  engineCheck: null,
+  engineCheckVersion: null,
+  engineComponent: null,
   z2kCheck: null,
   z2kCatalog: null,
   z2kSelectedVersion: null,
@@ -235,6 +240,11 @@ function load(ctx) {
     state.componentLoadToken++;
     state.componentHydrationToken = null;
     state.componentMetadata = {};
+    state.engineCatalog = null;
+    state.engineSelectedVersion = null;
+    state.engineCheck = null;
+    state.engineCheckVersion = null;
+    state.engineComponent = null;
     if (state.componentHydrationTimer) window.clearTimeout(state.componentHydrationTimer);
     state.componentHydrationTimer = null;
     var skipEngineOperationStatus = state.skipEngineOperationStatus;
@@ -991,6 +1001,13 @@ function toggleEngine(ctx) {
   if (state.engineExpanded) state.z2kExpanded = false;
   rerender(ctx);
 }
+function selectEngineVersion(ctx, version) {
+  if (!version || state.componentOperation) return;
+  state.engineSelectedVersion = version;
+  state.engineCheck = null;
+  state.engineCheckVersion = null;
+  rerender(ctx);
+}
 function toggleZ2K(ctx) {
   if (state.componentOperation) return;
   state.z2kExpanded = !state.z2kExpanded;
@@ -1042,8 +1059,9 @@ function engineMetaRows(component, engineStatus) {
   var details = component.details || {};
   var installed = component.installed || {};
   var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
+  var installedLabel = installed.version || ((component.runtimeHealth || component.health) === 'missing' ? _('Не установлен') : _('Версия не определена'));
   var rows = [];
-  rows.push({ label: _('Установлено'), value: installed.version || _('Не установлен') });
+  rows.push({ label: _('Установлено'), value: installedLabel });
   rows.push({ label: _('Служба'), value: details.serviceState ? (details.serviceState === 'running' ? _('Работает') : details.serviceState) : null });
   rows.push({ label: _('Совместимость'), value: compatibility === 'compatible' ? _('✓ Подтверждена') : compatibility === 'incompatible' ? _('Несовместим') : compatibility === 'review-required' ? _('Требуется проверка') : _('Не подтверждена') });
   if (component.updateState === 'update-available' && component.available && component.available.version)
@@ -1330,43 +1348,230 @@ function renderReviewCallout(component) {
     E('p', {}, reason)
   ]);
 }
-function engineActionWithCheck(ctx, component, action, label) {
-  var version = component.available && component.available.version || component.installed && component.installed.version;
-  if (component.canApply === false || !version || !ctx.api.engine.check || !ctx.api.engine[action]) {
-    showError(ctx, { message: _('Действие движка недоступно: отсутствует проверенный release.') });
-    return;
+function engineVersionKey(value) {
+  return String(value || '').replace(/^v/, '').split('.').map(function (part) {
+    var parsed = parseInt(part, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+}
+function compareEngineVersion(left, right) {
+  var a = engineVersionKey(left), b = engineVersionKey(right), size = Math.max(a.length, b.length);
+  for (var i = 0; i < size; i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0) ? 1 : -1;
   }
-  if (state.componentOperation || state.busy) return;
-  state.componentOperation = { kind: 'engine-' + action, scope: 'engine' };
+  return 0;
+}
+function engineCatalogRows(catalog) {
+  return catalog && Array.isArray(catalog.releases) ? catalog.releases.filter(function (item) {
+    return item && item.version;
+  }) : [];
+}
+function engineReleaseInstalled(component, release) {
+  var installed = component && component.installed && component.installed.version;
+  var version = release && (release.version || release.releaseTag);
+  return !!installed && !!version && compareEngineVersion(installed, version) === 0;
+}
+function engineReleaseLabel(component, release, index) {
+  var labels = [];
+  if (engineReleaseInstalled(component, release)) labels.push(_('установлена'));
+  if (release.latest === true || index === 0) labels.push(_('последняя'));
+  if (release.compatible === false || release.compatibilityState === 'incompatible') labels.push(_('несовместим'));
+  var version = release.version || release.releaseTag;
+  return version + (labels.length ? ' · ' + labels.join(' · ') : '');
+}
+function engineSelectedRelease(component, catalog) {
+  var rows = engineCatalogRows(catalog);
+  if (state.engineSelectedVersion && rows.some(function (item) { return String(item.version) === String(state.engineSelectedVersion); }))
+    return rows.find(function (item) { return String(item.version) === String(state.engineSelectedVersion); });
+  var preferred = component && component.available && component.available.version;
+  var selected = preferred && rows.find(function (item) { return compareEngineVersion(item.version, preferred) === 0; });
+  return selected || rows[0] || null;
+}
+function engineActionForRelease(component, release) {
+  if (!release || release.compatible === false || release.compatibilityState === 'incompatible') return null;
+  var target = release.version || release.releaseTag;
+  var installed = component && component.installed && component.installed.version;
+  if (!installed) return 'install';
+  var direction = compareEngineVersion(target, installed);
+  if (direction > 0) return 'update';
+  if (direction < 0) return 'downgrade';
+  return 'reinstall';
+}
+function engineActionLabel(action, version) {
+  if (action === 'install') return _('Установить') + (version ? ' ' + version : '');
+  if (action === 'update') return _('Обновить до ') + version;
+  if (action === 'downgrade') return _('Откатить до ') + version;
+  if (action === 'reinstall') return _('Переустановить ') + version;
+  return _('Действие недоступно');
+}
+function engineCheckCandidate(ctx, answer, selected) {
+  var candidate = object(answer && answer.candidate);
+  var version = candidate.version || candidate.installedRelease || selected && (selected.version || selected.releaseTag);
+  var notes = candidate.releaseNotes || selected && selected.releaseNotes;
+  return renderInfoRows([
+    { label: _('Проверенная версия'), value: version },
+    { label: _('Совместимость'), value: answer.compatibilityMessage || candidate.compatibilityMessage || selected && (selected.compatibilityMessage || selected.compatibilityState) },
+    { label: _('Тип артефакта'), value: candidate.artifactKind || selected && selected.artifactKind },
+    { label: _('Архитектура'), value: candidate.architecture || selected && selected.architecture },
+    { label: _('Размер'), value: candidate.size || selected && selected.size },
+    { label: _('SHA-256'), value: candidate.sha256 || selected && selected.sha256 }
+  ].concat(notes ? [{ label: _('Заметки к версии'), value: String(notes).replace(/\r\n?/g, '\n') }] : []));
+}
+function checkEngineRelease(ctx, component) {
+  component = component || state.engineComponent || {};
+  var catalog = state.engineCatalog || {};
+  var selected = engineSelectedRelease(component, catalog);
+  var version = selected && (selected.version || selected.releaseTag) || component.available && component.available.version;
+  if (!version || !ctx.api.engine || typeof ctx.api.engine.check !== 'function') {
+    var unavailable = { code: 'EENGINE_RELEASE', message: _('Проверка движка недоступна: официальный release не выбран.') };
+    showError(ctx, unavailable);
+    return Promise.resolve(null);
+  }
+  state.engineSelectedVersion = version;
+  state.engineCheck = null;
+  state.engineCheckVersion = version;
+  state.componentOperation = { kind: 'engine-check', scope: 'engine', version: version };
   rerender(ctx);
-  checkedResult(ctx.api.engine.check({ version: version, forceRefresh: true }), _('Проверка движка')).then(function (answer) {
+  return checkedResult(ctx.api.engine.check({ version: version, forceRefresh: true }), _('Проверка движка'), CHECK_TIMEOUT_MS).then(function (answer) {
+    state.engineCheck = answer;
+    state.engineCheckVersion = version;
     state.componentOperation = null;
     rerender(ctx);
+    return answer;
+  }).catch(function (error) {
+    state.engineCheck = { ok: false, error: ctx.api.normalizeError(error) };
+    state.componentOperation = null;
+    rerender(ctx);
+    showError(ctx, error);
+    return null;
+  });
+}
+function engineActionWithCheck(ctx, component, action, label) {
+  if (typeof component === 'string') {
+    label = action;
+    action = component;
+    component = state.engineComponent || {};
+  }
+  component = component || state.engineComponent || {};
+  var catalog = state.engineCatalog || {};
+  var selected = engineSelectedRelease(component, catalog);
+  var version = selected && (selected.version || selected.releaseTag) || component.available && component.available.version || component.installed && component.installed.version;
+  if (!version || !ctx.api.engine || typeof ctx.api.engine.check !== 'function' || typeof ctx.api.engine[action] !== 'function') {
+    var unavailable = { code: 'EENGINE_RELEASE', message: _('Действие движка недоступно: отсутствует официальный release.') };
+    showError(ctx, unavailable);
+    return Promise.resolve(null);
+  }
+  if (state.componentOperation || state.busy) return Promise.resolve(null);
+  var checked = state.engineCheck && state.engineCheck.ok !== false && state.engineCheckVersion === version
+    ? Promise.resolve(state.engineCheck)
+    : checkEngineRelease(ctx, component);
+  return checked.then(function (answer) {
     if (!answer.checkToken) throw { code: 'EINPUT', message: _('Проверка движка не вернула check token.') };
-    confirmAction(ctx, label + '?', _('Будет изменён только официальный embedded runtime zapret2. Конфигурация и Strategy сохраняются.'), label, function () {
+    var candidate = object(answer.candidate);
+    if (answer.compatible !== true && candidate.compatible !== true)
+      throw { code: 'EINCOMPATIBLE', message: _('Выбранный release не прошёл проверку совместимости.') };
+    var actionLabel = label || engineActionLabel(action, version);
+    confirmAction(ctx, actionLabel + '?', _('Будет изменён только официальный embedded runtime zapret2. Конфигурация и Strategy сохраняются.'), actionLabel, function () {
       mutation(ctx, 'engine-' + action, ctx.api.engine[action]({ version: version, checkToken: answer.checkToken })).then(function (result) {
         if (result) return refresh(ctx);
       });
     });
+    return answer;
   }).catch(function (error) {
-    state.componentOperation = null;
+    if (state.componentOperation) state.componentOperation = null;
     rerender(ctx);
     showError(ctx, error);
+    return null;
   });
 }
 function engineUpdateActionLabel(component) {
   var target = component && component.available && component.available.version;
   return target ? _('Обновить до ') + target : _('Обновить');
 }
-function renderEngineDetails(ctx, component, engineStatus) {
+function renderEngineReleaseSection(ctx, component, catalog) {
+  var shell = ctx.shell;
+  var releases = engineCatalogRows(catalog);
+  var selected = engineSelectedRelease(component, catalog);
+  var selectedVersion = selected && (selected.version || selected.releaseTag) || null;
+  if (selectedVersion) state.engineSelectedVersion = selectedVersion;
+  var checkMatches = !!selectedVersion && state.engineCheckVersion === selectedVersion && state.engineCheck;
+  var check = checkMatches ? state.engineCheck : null;
+  var action = engineActionForRelease(component, selected);
+  var actionLabel = engineActionLabel(action, selectedVersion);
+  var actionReady = !!(check && check.ok !== false && check.checkToken && (check.compatible === true || object(check.candidate).compatible === true));
+  var selection = releases.length ? E('div', { 'class': 'z2m-z2k-release-picker' }, [
+    E('label', { 'for': 'z2m-engine-release-select' }, _('Выбрать версию')),
+    E('select', {
+      id: 'z2m-engine-release-select',
+      'class': 'z2m-select',
+      value: selectedVersion || '',
+      'aria-label': _('Выбор Zapret2 Engine release'),
+      disabled: isBusyFor('engine') ? 'disabled' : undefined,
+      change: function (event) {
+        selectEngineVersion(ctx, event && event.target ? event.target.value : this.value);
+      }
+    }, releases.map(function (item, index) {
+      var version = item.version || item.releaseTag;
+      return E('option', { value: version, selected: version === selectedVersion ? 'selected' : undefined }, engineReleaseLabel(component, item, index));
+    }))
+  ]) : E('p', { 'class': 'z2m-dim' }, _('Каталог release ещё загружается.'));
+  var checkBody;
+  if (check && check.ok === false) {
+    checkBody = ctx.shell.statePanel({
+      title: _('Проверка выбранного release не пройдена'),
+      message: check.error && check.error.message || _('Состояние не считается проверенным.'),
+      kind: 'error'
+    });
+  } else if (check) {
+    checkBody = engineCheckCandidate(ctx, check, selected);
+  } else {
+    checkBody = ctx.shell.statePanel({
+      message: _('Проверка выбранного release ещё не выполнялась.'),
+      kind: 'info'
+    });
+  }
+  return renderDetailSection(_('Версии'), E('div', { 'class': 'z2m-z2k-release-selection z2m-engine-release-selection' }, [
+    selection,
+    renderDetailSection(_('Предпросмотр выбранного release'), checkBody, 'z2m-engine-release-preview'),
+    E('div', { 'class': 'z2m-z2k-release-actions z2m-engine-release-actions' }, [
+      shell.button(_('Проверить release'), 'sm', checkEngineRelease.bind(null, ctx, component), isBusyFor('engine') || !selectedVersion),
+      action ? shell.button(actionLabel, actionReady ? 'primary' : 'sm', engineActionWithCheck.bind(null, ctx, component, action, actionLabel), !actionReady || isBusyFor('engine')) : null
+    ])
+  ]), 'z2m-engine-release-selection-section');
+}
+function renderEngineOperationDetails(ctx) {
+  var operation = state.engineOperation;
+  if (!operation) return null;
+  var log = Array.isArray(operation.log) ? operation.log.map(function (entry) {
+    return '[' + componentDisplay(entry && entry.phase) + '] ' + componentDisplay(entry && entry.message);
+  }).join('\n') : '';
+  return renderDetailSection(_('Операция с движком'), E('div', {}, [
+    renderEngineOperation(ctx, operation),
+    renderInfoRows([
+      { label: _('Действие'), value: operation.action },
+      { label: _('Фаза'), value: operation.phase },
+      { label: _('Прогресс'), value: typeof operation.progress === 'number' ? operation.progress + '%' : null }
+    ]),
+    log ? E('pre', { 'class': 'z2m-console z2m-engine-log' }, log) : null,
+    operation.cancellable ? ctx.shell.button(_('Отменить'), 'danger sm', function () {
+      mutation(ctx, 'engine-operation-cancel', ctx.api.engine.operationCancel({ id: operation.id })).then(function (result) {
+        if (result) return refresh(ctx);
+      });
+    }, !!state.busy) : null
+  ]), 'z2m-component-engine-operation');
+}
+function renderEngineDetails(ctx, component, engineStatus, engineCatalog) {
   var shell = ctx.shell;
   var status = object(engineStatus);
+  var catalog = object(engineCatalog);
+  state.engineCatalog = catalog;
+  state.engineComponent = component;
   var details = component.details || {};
   var isReady = (component.runtimeHealth || component.health) === 'ready';
   var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
   var serviceManageable = isReady || (component.runtimeHealth === 'degraded' && component.installed && component.installed.version && compatibility === 'compatible');
   var hasUpdate = component.updateState === 'update-available' && component.canApply !== false;
-  var installed = component.installed && component.installed.version || _('Не установлен');
+  var installed = component.installed && component.installed.version || (isReady || component.runtimeHealth === 'degraded' ? _('Версия не определена') : _('Не установлен'));
   var available = component.available && component.available.version || _('Не определена');
   var updateLabel = component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
   var source = details.source || status.upstream || 'bol-van/zapret2';
@@ -1406,6 +1611,8 @@ function renderEngineDetails(ctx, component, engineStatus) {
         shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)
       ]
     }),
+    renderEngineReleaseSection(ctx, component, catalog),
+    renderEngineOperationDetails(ctx),
     renderDetailSection(_('Управление службой'), E('div', {}, [
       E('p', { 'class': 'z2m-dim' }, isReady ? _('Перезапуск применяет текущую конфигурацию без изменения release.') : serviceManageable ? _('Служба остановлена; перезапуск восстановит её без изменения release.') : _('Служба недоступна; сначала восстановите установленный release.')),
       E('div', { 'class': 'z2m-btnrow z2m-component-detail-actions' }, [
@@ -1962,7 +2169,7 @@ function renderComponents(ctx, data) {
         renderEngineCard(ctx, engineComp, engineStatus, engineValue),
         renderZ2KCard(ctx, z2kComp)
       ]),
-      state.engineExpanded ? renderEngineDetails(ctx, engineComp, engineStatus)
+      state.engineExpanded ? renderEngineDetails(ctx, engineComp, engineStatus, engineCatalog)
         : state.z2kExpanded ? renderZ2KDetails(ctx, z2kComp) : null
     ]),
     E('section', { 'class': 'z2m-components-section z2m-components-section--optional' }, [

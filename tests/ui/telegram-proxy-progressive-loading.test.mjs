@@ -51,7 +51,7 @@ function ctxFor(api, rerender) {
 
 function flush() { return new Promise(resolve => setTimeout(resolve, 0)); }
 
-test('Telegram Proxy first render is local-only and does not launch an upstream health probe', () => {
+test('Telegram Proxy first render stays local-only while scheduling an upstream health probe', () => {
   const loadStart = source.indexOf('function load(ctx)');
   const loadEnd = source.indexOf('\nfunction appliedConfig', loadStart);
   const load = source.slice(loadStart, loadEnd);
@@ -59,10 +59,12 @@ test('Telegram Proxy first render is local-only and does not launch an upstream 
   assert.doesNotMatch(load, /edit\(ctx\.api\.proxy\.health,\s*\{\}\)/,
     'proxy.health({}) must not block the first Telegram Proxy render');
   assert.match(load, /scheduleDeferred|deferred|scheduler/i,
-    'catalog, versions, and journal must be deferred behind the local bootstrap');
+    'catalog, versions, journal, and health must be deferred behind the local bootstrap');
+  assert.match(load, /var requestHealth\s*=\s*true/,
+    'every mounted page generation must schedule the bounded health verification');
 });
 
-test('Telegram Proxy navigation leaves upstream verification to an explicit user action', async () => {
+test('Telegram Proxy navigation schedules upstream verification after ordinary deferred reads', async () => {
   const module = makeModule();
   const { api, calls, gates } = makeApi();
   const done = module.load(ctxFor(api));
@@ -78,7 +80,7 @@ test('Telegram Proxy navigation leaves upstream verification to an explicit user
   gates.versions.resolve({});
   gates.events.resolve({});
   for (let i = 0; i < 10 && calls.health === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
-  assert.equal(calls.health, 0, 'ordinary navigation must not schedule an upstream verification');
+  assert.equal(calls.health, 1, 'ordinary navigation must schedule a bounded upstream verification');
 
   Object.values(gates).forEach(gate => gate.resolve({}));
   await new Promise(resolve => setTimeout(resolve, 30));
@@ -107,7 +109,7 @@ test('Telegram Proxy loader returns after local core and admits deferred reads t
   assert.equal(calls.capabilities, 1);
   assert.equal(calls.config, 1);
   assert.equal(calls.operation, 1);
-  assert.equal(calls.health, 0, 'ordinary open must not start the upstream health probe');
+  assert.equal(calls.health, 0, 'health must remain deferred until after the local bootstrap');
   assert.equal(calls.status + calls.catalog + calls.versions + calls.events, 0,
     'deferred reads start after core data is returned');
   await flush();
@@ -117,6 +119,7 @@ test('Telegram Proxy loader returns after local core and admits deferred reads t
 
   Object.values(gates).forEach(gate => gate.resolve({}));
   await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(calls.health, 1, 'health must run after the ordinary deferred reads');
 });
 
 test('Telegram Proxy ignores deferred results after unmount', async () => {

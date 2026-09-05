@@ -1,6 +1,6 @@
 {
 	"schema": 1,
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"upstreamCommit": "41c7fed7fe06774eff01e75d51bbee065c2de206",
 	"upstreamRepo": "youtubediscord/zapret",
 	"upstreamPath": "src/dns/dns_providers.py",
@@ -164,14 +164,14 @@
 			"upstreamName": "dns.malw.link",
 			"name": "dns.malw.link",
 			"category": "Для ИИ",
-			"reviewed": "2026-07-31",
+			"reviewed": "2026-09-06",
 			"provenance": [
-				{ "source": "youtubediscord/zapret", "url": "https://github.com/youtubediscord/zapret/blob/41c7fed/src/dns/dns_providers.py" }
+				{ "source": "dns.malw.link official provider information", "url": "https://info.dns.malw.link/" }
 			],
-			"ipv4": ["84.21.189.133", "64.188.98.242"],
-			"ipv6": ["2a12:bec4:1460:d5::2", "2a01:ecc0:2c1:2::2"],
+			"ipv4": ["95.216.204.218", "80.253.249.40"],
+			"ipv6": ["2a01:4f9:c014:6dac::1", "2a12:bec4:1460:5b7::2"],
 			"doh": "https://dns.malw.link/dns-query",
-			"notes": "Anti-DPI DNS for blocked AI/services. Returns bypass A records for restricted domains. DoH endpoint is data only; never activated."
+			"notes": "Anti-DPI DNS for blocked AI/services. Current addresses and DoH endpoint are taken from the provider's official information page; DoH is data only and never activated automatically."
 		}
 	]
 }

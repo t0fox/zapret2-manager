@@ -243,21 +243,21 @@
       "upstreamName": "dns.malw.link",
       "category": "Для ИИ",
       "ipv4": [
-        "84.21.189.133",
-        "64.188.98.242"
+        "95.216.204.218",
+        "80.253.249.40"
       ],
       "ipv6": [
-        "2a12:bec4:1460:d5::2",
-        "2a01:ecc0:2c1:2::2"
+        "2a01:4f9:c014:6dac::1",
+        "2a12:bec4:1460:5b7::2"
       ],
       "doh": "https://dns.malw.link/dns-query",
-      "sourceUrl": "https://dns.malw.link/dns-query",
-      "sourceRevision": "41c7fed7fe06774eff01e75d51bbee065c2de206",
+      "sourceUrl": "https://info.dns.malw.link/",
+      "sourceRevision": "2026-09-06",
       "sourceHash": "",
-      "reviewedAt": "2026-07-30",
+      "reviewedAt": "2026-09-06",
       "expiresAt": null,
       "trust": "public",
-      "notes": "Anti-DPI DNS for blocked AI/services. Returns bypass A records for restricted domains."
+      "notes": "Anti-DPI DNS for blocked AI/services. Endpoint and addresses are synchronized with the official provider information page."
     }
   ],
   "profiles": [

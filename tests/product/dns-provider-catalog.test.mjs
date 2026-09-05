@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/dns-provider-catalog.uc');
 const BASELINE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/dns-providers.json');
+const SERVICE_BASELINE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/service-dns-profiles.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const HAS_UCODE = fs.existsSync(UCODE_BIN);
 
@@ -46,6 +47,26 @@ test('effective provider catalog owner exposes the planned read and mutation int
   assert.match(source, /atomic|\.tmp\.|mv -f/i);
   assert.match(source, /EDEPENDENCY/);
   assert.match(source, /ECONFLICT/);
+});
+
+test('packaged dns.malw.link provider matches the current official endpoint publication', () => {
+  const catalog = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+  const provider = catalog.providers.find(item => item.id === 'malw-link');
+  assert.ok(provider, 'dns.malw.link must remain in the package catalog');
+  assert.deepEqual(provider.ipv4, ['95.216.204.218', '80.253.249.40']);
+  assert.deepEqual(provider.ipv6, ['2a01:4f9:c014:6dac::1', '2a12:bec4:1460:5b7::2']);
+  assert.equal(provider.doh, 'https://dns.malw.link/dns-query');
+  assert.ok(provider.provenance.some(item => item.url === 'https://info.dns.malw.link/'));
+  assert.equal(provider.reviewed, '2026-09-06');
+
+  const serviceCatalog = JSON.parse(fs.readFileSync(SERVICE_BASELINE, 'utf8'));
+  const serviceProvider = serviceCatalog.providers.find(item => item.id === 'malw-link');
+  assert.ok(serviceProvider, 'service DNS package catalog must retain dns.malw.link');
+  assert.deepEqual(serviceProvider.ipv4, provider.ipv4);
+  assert.deepEqual(serviceProvider.ipv6, provider.ipv6);
+  assert.equal(serviceProvider.doh, provider.doh);
+  assert.equal(serviceProvider.sourceUrl, 'https://info.dns.malw.link/');
+  assert.equal(serviceProvider.reviewedAt, '2026-09-06');
 });
 
 test('DNS diagnostics consume the effective catalog owner', () => {

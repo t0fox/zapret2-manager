@@ -227,12 +227,13 @@ function load(ctx) {
   if (state.deferredTimer) clearTimeout(state.deferredTimer);
   state.deferredTimer = null;
   // Keep the local bootstrap fast, then verify Telegram in the deferred pass
-  // on every Overview visit so a new tab never gets stuck on an old warning.
-  var requestHealth = false;
+  // on every page visit so a new tab never gets stuck on an old warning.
+  var requestHealth = true;
   state.fullHealthRequested = false;
   // tg_product_status is the canonical local aggregator. It already includes
   // proxy runtime/config health with upstream:false, so it is the sole source
-  // for the initial provider status; the explicit health action is deferred.
+  // for the initial provider status; the health verification remains deferred
+  // so it cannot block the first paint.
   return Promise.allSettled([
     boundedLoad(ctx.api.tg.product.status(), _('статуса Telegram Proxy')),
     boundedLoad(ctx.api.proxy.capabilities(), _('возможностей proxy')),
@@ -1964,7 +1965,7 @@ return baseclass.extend({
   render: render,
   mount: function (ctx) {
     state.mountedLoadToken = state.loadToken;
-    scheduleDeferred(ctx, state.loadToken, false);
+    scheduleDeferred(ctx, state.loadToken, true);
   },
   unmount: unmount,
   createAdapter: createAdapter

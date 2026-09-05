@@ -58,7 +58,7 @@ function loadMaintenance() {
   assert.ok(returnIndex >= 0, 'maintenance module return marker must exist');
   const prefix = maintenanceSource.slice(0, returnIndex);
   const enginePanelCalls = [];
-  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K, checkUpdates, updateZ2K, z2kNeedsIntegration };\n})()`, {
+  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K, checkUpdates, updateZ2K, z2kNeedsIntegration, checkEngineRelease, engineActionWithCheck };\n})()`, {
     baseclass: { extend: value => value },
     _: value => value,
     E: vnode,
@@ -308,6 +308,91 @@ test('Engine current state keeps re-check visible and does not duplicate managem
   assert.ok(buttonsOf(details).includes('Проверить обновления'));
   assert.equal((text.match(/Состояние движка/g) || []).length, 0, 'old nested EnginePanel heading must be absent');
   assert.equal((text.match(/Источник/g) || []).length, 1, 'source belongs to the single primary header/facts presentation');
+});
+
+test('Engine details provide the Z2K Core release lifecycle without a second backend owner', async () => {
+  const { internals } = loadMaintenance();
+  const catalog = {
+    remoteState: 'fresh',
+    remoteAvailable: true,
+    source: { origin: 'github-rest', stale: false },
+    releases: [
+      { version: '1.0.5', releaseTag: 'v1.0.5', compatible: true, compatibilityState: 'compatible', latest: true, installable: true, sha256: 'a'.repeat(64) },
+      { version: '1.0.4', releaseTag: 'v1.0.4', compatible: true, compatibilityState: 'compatible', installed: true, installable: true, sha256: 'b'.repeat(64) },
+    ],
+  };
+  const checks = [];
+  let modal = null;
+  const ctx = makeContext(engineStatus({ installedRelease: 'v1.0.4', available: { version: '1.0.5' } }), z2kRaw());
+  ctx.data.components.engine.value[0] = catalog;
+  ctx.api.engine.check = input => {
+    checks.push(input);
+    return Promise.resolve({
+      ok: true,
+      checkToken: 'engine-check-token',
+      checkedAt: 200,
+      compatible: true,
+      candidate: {
+        version: input.version,
+        compatibilityMessage: 'compatible',
+        releaseNotes: 'runtime fixes',
+        sha256: 'a'.repeat(64),
+      },
+    });
+  };
+  ctx.api.engine.update = input => Promise.resolve({ ok: true, operation: { id: 'engine-op', phase: 'queued', version: input.version } });
+  ctx.shell.openModal = (title, body, actions) => { modal = { title, body, actions }; };
+  internals.state.engineExpanded = true;
+
+  let rendered = internals.renderComponents(ctx, ctx.data);
+  let details = findAll(rendered, node => classHas(node, 'z2m-component-details--engine'))[0];
+  const select = findAll(details, node => node.tag === 'select' && node.attrs.id === 'z2m-engine-release-select')[0];
+
+  assert.ok(select, 'Engine must expose an explicit release selector');
+  assert.deepEqual(select.children.map(option => option.attrs.value), ['1.0.5', '1.0.4']);
+  assert.ok(textOf(details).includes('Предпросмотр выбранного release'));
+  assert.ok(buttonsOf(details).includes('Проверить release'));
+
+  select.attrs.change({ target: { value: '1.0.5' } });
+  assert.equal(internals.state.engineSelectedVersion, '1.0.5');
+
+  internals.checkEngineRelease(ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].version, '1.0.5');
+  assert.equal(checks[0].forceRefresh, true);
+
+  rendered = internals.renderComponents(ctx, ctx.data);
+  details = findAll(rendered, node => classHas(node, 'z2m-component-details--engine'))[0];
+  assert.match(textOf(details), /Проверенная версия1\.0\.5/);
+  assert.match(textOf(details), /runtime fixes/);
+  assert.ok(buttonsOf(details).some(label => /Обновить до 1\.0\.5/.test(label)));
+
+  internals.engineActionWithCheck(ctx, 'update');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(modal, 'mutation must require explicit confirmation');
+  assert.equal(checks.length, 1, 'a matching successful check must be reused for confirmation');
+  assert.equal(modal.actions[1].attrs.label, 'Обновить до 1.0.5');
+  modal.actions[1].attrs.click();
+});
+
+test('Installed engine without a release identity never renders as Не установлен', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(internals, z2kRaw());
+  ctx.data.components.engine.value = [{}, engineStatus({
+    installedRelease: null,
+    packageVersion: null,
+    available: {},
+  })];
+  internals.state.engineExpanded = true;
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
+  const text = textOf(details);
+
+  assert.match(text, /Установленный releaseВерсия не определена/);
+  assert.match(text, /Установленная версияВерсия не определена/);
+  assert.doesNotMatch(text, /Установленный releaseНе установлен/);
 });
 
 test('Z2K details use a standalone review callout and never invent an update action', () => {
