@@ -18,6 +18,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MAKEFILE = path.join(ROOT, 'zapret2-manager', 'Makefile');
+const FULL_MAKEFILE = path.join(ROOT, 'zapret2-manager-full', 'Makefile');
 const LUCI_MAKEFILE = path.join(ROOT, 'luci-app-zapret2-manager', 'Makefile');
 
 function postinstRecipe(makefile, packageName) {
@@ -93,6 +94,18 @@ test('manager postinst materializes the package runtime bridge when Engine is al
     'manager-only install must not fabricate an Engine runtime tree');
   assert.match(body, /strategy-runtime-assets-sync\.sh[^\n]*2>&1/,
     'runtime sync failure must remain visible during package installation');
+});
+
+test('full release postinst materializes the package runtime bridge when Engine is already installed', () => {
+  const body = postinstRecipe(FULL_MAKEFILE, 'zapret2-manager-full');
+  const sync = body.indexOf('strategy-runtime-assets-sync.sh');
+  const rpcd = body.indexOf('rpcd_pid=');
+  assert.ok(sync >= 0, 'full package clean install must invoke the canonical runtime asset sync');
+  assert.ok(sync < rpcd, 'full package runtime sync must run before rpcd/service restart');
+  assert.match(body, /-x\s+\/opt\/zapret2\/nfq2\/nfqws2/,
+    'full package install must not fabricate an Engine runtime tree');
+  assert.match(body, /strategy-runtime-assets-sync\.sh[^\n]*2>&1/,
+    'full package runtime sync failure must remain visible during package installation');
 });
 
 test('manager postinst seeds state with factory-image base utilities only', () => {
