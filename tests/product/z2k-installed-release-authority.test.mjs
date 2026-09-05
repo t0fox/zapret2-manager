@@ -97,6 +97,13 @@ test('Engine RPC projections expose the same independent truth fields as the UI 
   assert.match(engine, /export const engine_check_release = function \(input\) \{ return canonical_engine_check\(input\); \}/);
 });
 
+test('Z2K release catalog does not project a Registry receipt while the canonical Engine is absent', () => {
+  assert.match(versions, /installed_engine/);
+  const installed = versions.slice(versions.indexOf('function installed_release'), versions.indexOf('function target_operation'));
+  assert.match(installed, /installed_engine\(\)/);
+  assert.match(installed, /engine\.installed\s*!==\s*true/);
+});
+
 test('legacy v1 receipt compatibility is explicit and shares the reinstall operation contract', () => {
   assert.match(authority, /legacy|top-level|sourcePath/);
   assert.match(authority, /provenance\.version\s*!=\s*receipt\.version/);

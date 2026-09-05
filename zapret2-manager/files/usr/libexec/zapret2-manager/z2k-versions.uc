@@ -5,6 +5,7 @@
 // selects a release or a target prepare explicitly asks for it.
 import { readfile, writefile, stat, unlink, popen } from 'fs';
 import { z2k_registry_installed_release } from './z2k-installed-release.uc';
+import { installed_engine } from './engine-catalog.uc';
 import { z2k_upstream_plan } from './z2k-upstream.uc';
 import * as update_source from './update-source.uc';
 
@@ -344,7 +345,12 @@ function managed_membership(manifest, map) {
 	for (let i = 0; i < length(names); i++) { let path = names[i], item = class_for(map, path); if (item == null) { if (relevant_path(path)) push(unknown, path); continue; } if (item.class == 'exact-managed' || item.dependencyClass == 'runtime-exact') { let id = asset_id(item, path); if (id == null) { push(unknown, path); continue; } push(assets, { sourcePath: path, sha256: manifest.files_sha256[path], id: id, type: substr(id, 0, index(id, ':')), name: item.localName || id, packagePath: item.packageBaselinePath || null, runtimeTarget: item.runtimeTarget || null, dependencies: item.dependencies || [] }); } }
 	sort(assets, function(a, b) { return a.sourcePath == b.sourcePath ? 0 : (a.sourcePath < b.sourcePath ? -1 : 1); }); sort(unknown); return { assets: assets, unknown: unknown };
 }
-function installed_release() { let authority = z2k_registry_installed_release(null); return authority && authority.value || null; }
+function installed_release() {
+	let engine = installed_engine();
+	if (!engine || engine.installed !== true) return null;
+	let authority = z2k_registry_installed_release(null);
+	return authority && authority.value || null;
+}
 function target_operation(version, installed) {
 	if (!installed) return 'install';
 	let comparison = release_compare({ version: version }, { version: installed });
