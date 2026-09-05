@@ -153,3 +153,12 @@ test('unknown backend errors keep their actual cause visible to the user', () =>
   assert.equal(result.technical, result.message);
   assert.notEqual(result.message, 'Backend вернул ошибку.');
 });
+
+test('installed but stopped Engine keeps a truthful service recovery action', () => {
+  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
+  const details = src.slice(src.indexOf('function renderEngineDetails'), src.indexOf('function z2kReleaseDate'));
+  assert.match(details, /serviceManageable/);
+  assert.match(details, /serviceManageable\s*=\s*isReady\s*\|\|/);
+  assert.match(details, /component\.runtimeHealth\s*===\s*['"]degraded['"]/);
+  assert.match(details, /!serviceManageable/);
+});

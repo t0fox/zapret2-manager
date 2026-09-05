@@ -1363,6 +1363,8 @@ function renderEngineDetails(ctx, component, engineStatus) {
   var status = object(engineStatus);
   var details = component.details || {};
   var isReady = (component.runtimeHealth || component.health) === 'ready';
+  var compatibility = component.compatibility && typeof component.compatibility === 'object' ? component.compatibility.state : component.compatibility;
+  var serviceManageable = isReady || (component.runtimeHealth === 'degraded' && component.installed && component.installed.version && compatibility === 'compatible');
   var hasUpdate = component.updateState === 'update-available' && component.canApply !== false;
   var installed = component.installed && component.installed.version || _('Не установлен');
   var available = component.available && component.available.version || _('Не определена');
@@ -1405,9 +1407,9 @@ function renderEngineDetails(ctx, component, engineStatus) {
       ]
     }),
     renderDetailSection(_('Управление службой'), E('div', {}, [
-      E('p', { 'class': 'z2m-dim' }, isReady ? _('Перезапуск применяет текущую конфигурацию без изменения release.') : _('Служба недоступна; сначала восстановите установленный release.')),
+      E('p', { 'class': 'z2m-dim' }, isReady ? _('Перезапуск применяет текущую конфигурацию без изменения release.') : serviceManageable ? _('Служба остановлена; перезапуск восстановит её без изменения release.') : _('Служба недоступна; сначала восстановите установленный release.')),
       E('div', { 'class': 'z2m-btnrow z2m-component-detail-actions' }, [
-        shell.button(_('Перезапустить'), 'sm', function () { mutation(ctx, 'engine-restart', ctx.api.service.restart()).then(function (result) { if (result) return refresh(ctx); }); }, !!state.busy || !isReady),
+        shell.button(_('Перезапустить'), 'sm', function () { mutation(ctx, 'engine-restart', ctx.api.service.restart()).then(function (result) { if (result) return refresh(ctx); }); }, !!state.busy || !serviceManageable),
         component.installed && component.installed.version ? shell.button(_('Переустановить'), 'sm', engineActionWithCheck.bind(null, ctx, component, 'reinstall', _('Переустановить')), !!state.componentOperation) : null
       ])
     ]), 'z2m-component-service-management'),
