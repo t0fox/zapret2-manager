@@ -1054,7 +1054,7 @@ function z2kMetaRows(component) {
   var runtime = component && (component.runtimeSummary || component.details && component.details.runtimeSummary) || {};
   var compiled = component && component.compiledDependencySummary || {};
   var counters = component && component.counters || {};
-  var runtimeEvidenceAuthoritative = component && component.details && component.details.localInstalled === true && runtime.health !== 'missing';
+  var runtimeEvidenceAuthoritative = component && component.requiresEngine !== true && component.details && component.details.localInstalled === true && runtime.health !== 'missing';
   var runtimeBundle = runtimeEvidenceAuthoritative
     ? runtime.staticManagedCount !== undefined && runtime.staticManagedCount !== null ? runtime.staticManagedCount : counters.runtimeBundle : null;
   var strategies = runtimeEvidenceAuthoritative
@@ -1074,6 +1074,7 @@ function z2kMetaRows(component) {
 function z2kReleaseLabel(component) {
   var release = component.installedRelease || {};
   if (release.value) return release.value;
+  if (component.requiresEngine === true) return _('Не установлен');
   return component.details && component.details.localInstalled === false ? _('Не установлен') : _('Версия не определена');
 }
 function z2kLatestRelease(component) {
