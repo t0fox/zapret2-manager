@@ -82,9 +82,22 @@ Router: Cudy WBR3000UAX v1, OpenWrt 25.12.5
   `0b8182d24a887059a628d7266577c4ba8e9b8f2d`, asset SHA256
   `40040fef1747012a68f2dd5892b9a0bece91846e9bce37b59e35b641fdcb2a4e`.
 - Z2K catalog: `strategies_catalog_status` returned `ok:true`, 740 physical
-  entries, including the 8 Z2K records; generation source commit
+  entries, including 8 Z2K records: one All-in-One plus seven official
+  standalone profiles; generation source commit
   `f9dd3ea47a2239514f396a843b475c92c33f0b4c`.
 - Active strategy: `z2k:z2k_all_in_one`, origin `z2k_builtin`.
+- Direct `strategies_get` for that canonical ID returned `entryKind=all-in-one`
+  and the complete `officialNfqws2Opt` field: 29059 UTF-8 characters,
+  SHA256 `682615923f5c05e774d8932256de481d326480dd8995289483eafe025fa73834`.
+  The returned executable `args` field was 29078 characters, SHA256
+  `5a56844b6d8d5b50a3d55314ddb4b73e0be3b8ad766decfeaa366c0a0113d873`.
+  Its dependency closure was `available=true`, `resolution=complete`,
+  `missing=0`, runtime bundle digest
+  `0384c1c481f3434dd0eb2ce267111d741a140ceba8ea19de8d046f45cec0e7bd`.
+  Native validation was `verified`, diagnostics `0`, with all of
+  `cliSyntax`, `luaLoad`, `luaCompatibility`, `engineCapabilities`,
+  `functionExistence`, `blobExistence`, `runtimeArguments`, and
+  `executionPlan` marked `passed`.
 - `status_fast`: `serviceState=running`, one `nfqws2` PID, NFQUEUE `300`,
   registered/owner-matched, rules present, queue dropped/user-dropped `0`.
 - Runtime command contains the full TLS/HTTP, YouTube/GoogleVideo QUIC, and
