@@ -48,6 +48,11 @@ test('Telegram overview uses one compact three-step health chain', () => {
   assert.doesNotMatch(CSS, /\.z2m-proxy-health-chain\s*\{[^}]*repeat\(4,/);
 });
 
+test('Telegram health chain uses a CSS arrow escape, not a literal backslash sequence', () => {
+  assert.match(CSS, /content:"\\2192"/, 'the separator must render as a Unicode arrow');
+  assert.doesNotMatch(CSS, /content:"\\\\2192"/, 'double escaping renders the raw \\2192 text');
+});
+
 test('shared button contract supports accessible busy controls', () => {
   assert.match(SHELL, /attrs\s*\|\|\s*\{\}/);
   assert.match(UI, /'aria-busy'/);

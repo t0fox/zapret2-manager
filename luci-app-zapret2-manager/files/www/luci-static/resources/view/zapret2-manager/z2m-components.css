@@ -167,7 +167,7 @@
 .z2m-proxy-side-stack{display:grid;gap:14px}.z2m-proxy-side-stack>.z2m-panel{margin-bottom:0}
 .z2m-proxy-health-chain{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .z2m-proxy-health-step{position:relative;display:grid;gap:4px;min-height:72px;padding:11px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel2)}
-.z2m-proxy-health-step:not(:last-child):after{content:"\\2192";position:absolute;right:-8px;top:50%;z-index:2;transform:translate(50%,-50%);color:var(--tx3)}
+.z2m-proxy-health-step:not(:last-child):after{content:"\2192";position:absolute;right:-8px;top:50%;z-index:2;transform:translate(50%,-50%);color:var(--tx3)}
 .z2m-proxy-health-step span{color:var(--tx3);font-size:11px}.z2m-proxy-health-step strong{font-size:12px}.z2m-proxy-health-step.ok strong{color:var(--green)}.z2m-proxy-health-step.warn strong{color:var(--orange)}
 .z2m-proxy-secret-card{padding:13px;border:1px solid #6d5521;border-radius:7px;background:linear-gradient(135deg,rgba(224,163,59,.08),transparent 55%)}
 .z2m-proxy-secret-card h3{margin:0 0 4px;font-size:14px}.z2m-proxy-secret-card p{margin:0 0 10px;color:var(--tx2);font-size:12px}
