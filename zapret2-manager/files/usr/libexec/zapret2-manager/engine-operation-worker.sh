@@ -51,6 +51,16 @@ remove_legacy_package(){
  apk info -e zapret2 >/dev/null 2>&1 && return 1
  return 0
 }
+remove_engine_runtime(){
+ [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
+ if command -v nft >/dev/null 2>&1 && nft list table inet zapret2 >/dev/null 2>&1; then
+  nft delete table inet zapret2 >/dev/null 2>&1 || return 1
+ fi
+ rm -f "$INIT" /etc/hotplug.d/iface/90-zapret2 /etc/firewall.zapret2
+ [ ! -e "$INIT" ] && [ ! -e /etc/hotplug.d/iface/90-zapret2 ] && [ ! -e /etc/firewall.zapret2 ] || return 1
+ if command -v nft >/dev/null 2>&1 && nft list table inet zapret2 >/dev/null 2>&1; then return 1; fi
+ return 0
+}
 rollback(){
  ROLLBACK_ATTEMPTED=1; phase rolling_back 92 'Восстанавливается предыдущий engine payload и конфигурация.'
  [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
@@ -70,6 +80,7 @@ fail(){
 		# clean device a failed install must still not leave the new payload
 		if [ "$OLD_INSTALLED" -eq 0 ] && [ "$NEW_INSTALLED" -eq 1 ]; then
 			[ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
+			remove_engine_runtime || true
 			rm -rf /opt/zapret2 /etc/config/zapret2
 		fi
 	}
@@ -77,6 +88,7 @@ fail(){
 	# No previous payload to restore: a fresh-device failure must not leave
 	# the new payload installed and running (partial install committed).
 	[ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true
+	remove_engine_runtime || true
 	rm -rf /opt/zapret2 /etc/config/zapret2
  fi
  /usr/bin/ucode "$CLI" failed "$ID" "$code" "$message" "$([ "$ROLLBACK_ATTEMPTED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 1||printf 0)" "$([ "$ROLLBACK_VERIFIED" -eq 1 ]&&printf 'Откат проверен.'||printf 'Откат не подтверждён.')" >/dev/null 2>&1 || true
@@ -102,7 +114,7 @@ pidof nfqws2 >/dev/null 2>&1 && WAS_RUNNING=1
 [ -f "$UCI" ] && cp -a "$UCI" "$BACKUP/zapret2.uci"; [ -d /opt/zapret2/init.d/openwrt/custom.d ] && cp -a /opt/zapret2/init.d/openwrt/custom.d "$BACKUP/custom.d"; [ -d /opt/zapret2/ipset ] && cp -a /opt/zapret2/ipset "$BACKUP/ipset"; [ -d /etc/zapret2-manager/lists ] && cp -a /etc/zapret2-manager/lists "$BACKUP/manager-lists"; [ -f "$STATE" ] && cp -a "$STATE" "$BACKUP/engine-state.json"
 if [ "$OLD_INSTALLED" -eq 1 ]; then mkdir "$BACKUP/old-tree" || fail EBACKUP 'Не удалось сохранить текущий embedded engine.'; cp -a /opt/zapret2/. "$BACKUP/old-tree/" || fail EBACKUP 'Не удалось сохранить текущий embedded engine.'; [ -f "$INIT" ] && cp -a "$INIT" "$BACKUP/old-init"; OLD_TREE="$BACKUP/old-tree"; fi
 if [ "$ACTION" = uninstall ]; then
- ROLLBACK_REQUIRED="$OLD_INSTALLED"; phase stopping 55 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true; phase installing 65 'Удаляется только engine package.'; remove_legacy_package || fail EREMOVE 'Не удалось удалить legacy engine package.'; [ "$PRESERVE" = true ] || { rm -rf /opt/zapret2 /etc/config/zapret2; }; /usr/bin/ucode "$CLI" clear-state >/dev/null 2>&1 || fail ESTATE 'Engine state не очищен.'; ROLLBACK_REQUIRED=0; printf '{"ok":true,"state":"engine_missing"}\n' >"$WORK/result.json"; /usr/bin/ucode "$CLI" complete "$ID" "$WORK/result.json" >/dev/null 2>&1 || true; exit 0
+ ROLLBACK_REQUIRED="$OLD_INSTALLED"; phase stopping 55 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true; phase installing 65 'Удаляется только engine package.'; remove_legacy_package || fail EREMOVE 'Не удалось удалить legacy engine package.'; if [ "$PRESERVE" = true ]; then :; else remove_engine_runtime || fail EREMOVE 'Не удалось удалить runtime integration engine.'; rm -rf /opt/zapret2 /etc/config/zapret2; fi; /usr/bin/ucode "$CLI" clear-state >/dev/null 2>&1 || fail ESTATE 'Engine state не очищен.'; ROLLBACK_REQUIRED=0; printf '{"ok":true,"state":"engine_missing"}\n' >"$WORK/result.json"; /usr/bin/ucode "$CLI" complete "$ID" "$WORK/result.json" >/dev/null 2>&1 || true; exit 0
 fi
 case "$URL" in
 https://github.com/bol-van/zapret2/releases/download/v*/zapret2-v*-openwrt-embedded.tar.gz)
