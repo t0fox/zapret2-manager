@@ -157,14 +157,15 @@ function catalogSourcePanel(ctx, state) {
   state = object(state);
   var source = object(state.source);
   var remoteState = state.remoteState;
-  if (!source.stale && !source.error && remoteState !== 'unavailable' && remoteState !== 'empty') return null;
+  var notLoaded = remoteState === 'not-loaded';
+  if (!notLoaded && !source.stale && !source.error && remoteState !== 'unavailable' && remoteState !== 'empty') return null;
   var limited = source.error && source.error.code === 'ERATELIMIT';
   var empty = remoteState === 'empty';
   return ctx.shell.statePanel({
-    title: source.stale || remoteState === 'stale' ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
-    message: source.stale || remoteState === 'stale' ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние не изменено.') :
+    title: notLoaded ? _('Официальный каталог ещё не проверен') : source.stale || remoteState === 'stale' ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
+    message: notLoaded ? _('Нажмите «Проверить каталог», чтобы загрузить доступные официальные release.') : source.stale || remoteState === 'stale' ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние не изменено.') :
       (limited ? _('Upstream временно ограничил запросы. Установленное состояние не изменено.') : _('Установленное состояние сохранено; повторите проверку позже.')),
-    kind: source.stale || remoteState === 'stale' || empty ? 'info' : 'error',
+    kind: notLoaded || source.stale || remoteState === 'stale' || empty ? 'info' : 'error',
     actions: [ctx.shell.button(_('Проверить каталог'), 'sm', checkUpdates.bind(null, ctx, 'engine'), !!state.componentOperation)]
   });
 }

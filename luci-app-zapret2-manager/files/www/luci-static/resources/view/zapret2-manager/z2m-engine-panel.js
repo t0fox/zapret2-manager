@@ -30,14 +30,15 @@ function errorMessage(ctx, error) {
 function catalogSourcePanel(ctx, state) {
   var source = object(state.catalog && state.catalog.source);
   var remoteState = state.catalog && state.catalog.remoteState;
-  if (!source.stale && !source.error && remoteState !== 'unavailable' && remoteState !== 'empty') return null;
+  var notLoaded = remoteState === 'not-loaded';
+  if (!notLoaded && !source.stale && !source.error && remoteState !== 'unavailable' && remoteState !== 'empty') return null;
   var limited = source.error && source.error.code === 'ERATELIMIT';
   var empty = remoteState === 'empty';
   return ctx.shell.statePanel({
-    title: source.stale ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
-    message: source.stale ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние движка не изменено.') :
+    title: notLoaded ? _('Официальный каталог ещё не проверен') : source.stale ? _('Каталог показан из последнего сохранённого состояния') : empty ? _('Официальные release не найдены') : _('Каталог upstream недоступен'),
+    message: notLoaded ? _('Нажмите «Проверить каталог», чтобы загрузить доступные официальные release.') : source.stale ? _('Версии могут быть устаревшими. Нажмите «Проверить», чтобы подтвердить release перед изменением.') : empty ? _('Upstream ответил пустым каталогом. Установленное состояние движка не изменено.') :
       (limited ? _('GitHub временно ограничил запросы. Установленное состояние движка не изменено.') : _('Установленное состояние движка сохранено; повторите проверку позже.')),
-    kind: source.stale || empty ? 'info' : 'error',
+    kind: notLoaded || source.stale || empty ? 'info' : 'error',
     actions: [ctx.shell.button(_('Проверить каталог'), 'sm', function () {
       refreshCatalog(ctx, state);
     }, !!state.busy)]
@@ -259,7 +260,7 @@ function build(ctx, state) {
   });
   var buttons = [
     ctx.shell.button(_('Проверить'), 'primary', function () { checkRelease(ctx, state); },
-      actions.check.disabled || !state.selectedVersion)
+      actions.check.disabled)
   ];
 
   if (actions.install.visible)

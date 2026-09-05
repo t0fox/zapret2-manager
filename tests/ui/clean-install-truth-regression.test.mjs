@@ -110,6 +110,15 @@ test('empty Engine catalog has an explicit fresh recovery path and accepts a req
   assert.match(catalog, /return length\(releases \|\| \[\]\) \? 'fresh'/);
 });
 
+test('clean Engine first render exposes an enabled catalog recovery action before remote metadata loads', () => {
+  const panel = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-panel.js');
+  const maintenance = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
+
+  assert.match(panel, /remoteState === 'not-loaded'/);
+  assert.doesNotMatch(panel, /actions\.check\.disabled \|\| !state\.selectedVersion/);
+  assert.match(maintenance, /remoteState === 'not-loaded'/);
+});
+
 test('Engine request adapter resolves the browse export before invoking it', () => {
   const catalog = read('zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc');
   const browse = catalog.indexOf('export const engine_releases =');

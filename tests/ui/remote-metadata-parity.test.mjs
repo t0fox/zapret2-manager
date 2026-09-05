@@ -50,7 +50,7 @@ test('Components defer remote catalogs after local bootstrap and keep stale brow
   assert.match(engineManager, /remoteAvailable = false/);
   assert.match(engineManager, /releases = \[\]/);
   assert.match(enginePanel, /remoteState: 'not-loaded'/);
-  assert.match(enginePanel, /function loadCatalog\(ctx\)/);
+  assert.match(enginePanel, /function loadCatalog\(ctx, options\)/);
   assert.match(maintenance, /function scheduleComponentMetadata\(ctx\)/);
   assert.match(maintenance, /active < 2/);
 
