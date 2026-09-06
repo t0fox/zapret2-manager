@@ -20,6 +20,7 @@ const OFFICIAL_Z2K_SOURCE_PATH = 'official:generate_nfqws2_opt_from_strategies';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
+function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{40}$/); }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function integer(value) { return type(value) == 'int' && value >= 0; }
 function native_verified(value) {
@@ -165,14 +166,16 @@ function contains(value, needle) {
 	return false;
 }
 function valid_official_z2k_provenance(snapshot) {
-	if (snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || !valid_digest(snapshot.compilerSnapshotDigest)
+	if (!valid_commit(snapshot.sourceCommit) || snapshot.sourcePath != OFFICIAL_Z2K_SOURCE_PATH || !valid_digest(snapshot.compilerSnapshotDigest)
 		|| !valid_digest(snapshot.nfqws2OptSha256) || type(snapshot.fileSha256) != 'object'
 		|| type(snapshot.sourceFiles) != 'array' || length(snapshot.sourceFiles) != 5
-		|| snapshot.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1') return false;
+		|| snapshot.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1'
+		|| (snapshot.z2kCompatibilityIdentity == null) != (snapshot.compatibilityIdentity == null)) return false;
 	for (let relative in ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'])
 		if (!contains(snapshot.sourceFiles, relative) || !valid_digest(snapshot.fileSha256[relative])) return false;
 	if (snapshot.z2kCompatibilityIdentity != null &&
 		(!z2k_compatibility_identity_valid(snapshot.z2kCompatibilityIdentity)
+			|| snapshot.z2kCompatibilityIdentity.sourceCommit != snapshot.sourceCommit
 			|| snapshot.compatibilityIdentity != snapshot.z2kCompatibilityIdentity.digest
 			|| snapshot.z2kRelease != snapshot.z2kCompatibilityIdentity.release
 			|| snapshot.manifestRevision != snapshot.z2kCompatibilityIdentity.manifestRevision
@@ -182,12 +185,24 @@ function valid_official_z2k_provenance(snapshot) {
 function valid_official_z2k_entry(entry, snapshot, kind) {
 	let provenance = entry && entry.provenance;
 	return object(entry) && entry.sourceId == 'z2k' && entry.sourceSnapshotId == snapshot.snapshotId
+		&& valid_commit(entry.sourceCommit) && entry.sourceCommit == snapshot.sourceCommit
 		&& entry.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && object(provenance)
 		&& provenance.repository == SOURCE_REPOSITORIES.z2k && provenance.sourceId == 'z2k'
+		&& valid_commit(provenance.sourceCommit) && provenance.sourceCommit == snapshot.sourceCommit
 		&& provenance.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && provenance.kind == kind
 		&& provenance.compilerSchema == 'z2m.z2k-official-compiler-snapshot.v1'
 		&& provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
 		&& valid_digest(provenance.nfqws2OptSha256) && provenance.templates == 'disabled'
+		&& (entry.z2kCompatibilityIdentity == null) == (entry.compatibilityIdentity == null)
+		&& (provenance.z2kCompatibilityIdentity == null) == (provenance.compatibilityIdentity == null)
+		&& (entry.z2kCompatibilityIdentity == null ||
+			(z2k_compatibility_identity_valid(entry.z2kCompatibilityIdentity)
+				&& entry.z2kCompatibilityIdentity.sourceCommit == snapshot.sourceCommit
+				&& entry.compatibilityIdentity == entry.z2kCompatibilityIdentity.digest))
+		&& (provenance.z2kCompatibilityIdentity == null ||
+			(z2k_compatibility_identity_valid(provenance.z2kCompatibilityIdentity)
+				&& provenance.z2kCompatibilityIdentity.sourceCommit == snapshot.sourceCommit
+				&& provenance.compatibilityIdentity == provenance.z2kCompatibilityIdentity.digest))
 		&& (snapshot.z2kCompatibilityIdentity == null ||
 			(object(entry.z2kCompatibilityIdentity) && z2k_compatibility_identity_valid(entry.z2kCompatibilityIdentity)
 				&& entry.compatibilityIdentity == entry.z2kCompatibilityIdentity.digest
@@ -202,7 +217,7 @@ function valid_z2k_native_entry(entry, snapshot) {
 		|| (deferred_z2k_snapshot(snapshot) && entry.usable == false && native_deferred(entry.nativeValidation));
 }
 function valid_z2k_snapshot(snapshot) {
-	if (!object(snapshot) || type(snapshot.sourceFiles) != 'array'
+	if (!object(snapshot) || !valid_commit(snapshot.sourceCommit) || type(snapshot.sourceFiles) != 'array'
 		|| !contains(snapshot.sourceFiles, 'strats_new2.txt') || !contains(snapshot.sourceFiles, 'quic_strats.ini')
 		|| !object(snapshot.allInOne) || snapshot.allInOne.canonicalId != 'z2k:z2k_all_in_one'
 		|| !string(snapshot.allInOne.digest) || !match(snapshot.allInOne.digest, /^[0-9a-f]{64}$/)
@@ -241,10 +256,20 @@ function valid_z2k_snapshot(snapshot) {
 function valid_snapshot(id, snapshot) {
 	return object(snapshot) && snapshot.schema == SNAPSHOT_SCHEMA && snapshot.sourceId == id
 		&& snapshot.repository == SOURCE_REPOSITORIES[id] && safe_snapshot_id(snapshot.snapshotId)
-		&& string(snapshot.sourceCommit) && match(snapshot.sourceCommit, /^[0-9a-f]{7,40}$/)
+		&& string(snapshot.sourceCommit) && (id == 'z2k' ? valid_commit(snapshot.sourceCommit) : match(snapshot.sourceCommit, /^[0-9a-f]{7,40}$/))
 		&& string(snapshot.contentDigest) && match(snapshot.contentDigest, /^[0-9a-f]{64}$/)
 		&& integer(snapshot.entryCount) && integer(snapshot.normalizedEntryCount)
 		&& snapshot.immutable == true && (id != 'z2k' || valid_z2k_snapshot(snapshot));
+}
+
+function selected_core_identity_matches(snapshot, selected) {
+	if (selected == null) return true;
+	return object(snapshot.z2kCompatibilityIdentity)
+		&& z2k_compatibility_identity_valid(selected)
+		&& z2k_compatibility_identity_valid(snapshot.z2kCompatibilityIdentity)
+		&& selected.digest == snapshot.z2kCompatibilityIdentity.digest
+		&& selected.sourceCommit == snapshot.sourceCommit
+		&& snapshot.z2kCompatibilityIdentity.sourceCommit == snapshot.sourceCommit;
 }
 
 function read_current(id, state) {
@@ -372,6 +397,8 @@ export const strategy_source_install_verified_snapshot = function(id, prepared) 
 	if (prepared.verified != true) return error('EVERIFY', 'Prepared source snapshot is not verified');
 	let snapshot = copy(prepared.snapshot);
 	if (!valid_snapshot(id, snapshot)) return error('EVERIFY', 'Prepared source snapshot failed immutable identity validation');
+	if (id == 'z2k' && !selected_core_identity_matches(snapshot, prepared.selectedCoreIdentity))
+		return error('ECOMPATIBILITY', 'Selected Core identity does not match the Z2K source snapshot');
 	let state = load_state(id);
 	if (!state.ok) return state;
 	// Deterministic failure seam for native/product tests only. It is gated by
