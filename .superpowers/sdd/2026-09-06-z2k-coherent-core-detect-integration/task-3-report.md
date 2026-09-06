@@ -220,3 +220,99 @@ exit `0` (`Knowledge validation passed`), `node scripts/docs.mjs verify` exit
 `0` (`Quartz SHA verified: ab346fa66a895e12d63a308e70ce330ba795822a8`),
 `node --check tests/product/z2k-coherent-candidate.test.mjs` exit `0`, and
 `git diff --check` exit `0`.
+
+## Fix round 2: mutation bypass and closure digest review
+
+Status: `DONE_WITH_CONCERNS` for the Task 3 host/native boundary. The new
+critical and important findings are addressed within the existing Task 3 file
+boundary. No router/browser acceptance is run or claimed.
+
+### Scope and safety ruling
+
+Files changed in this round:
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/z2k-coherent-candidate.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc`
+- `tests/product/z2k-coherent-candidate.test.mjs`
+- `tests/product/z2k-runtime-composition.test.mjs`
+- This report.
+
+`resource-update.uc` was inspected at every production seam and was not
+modified. Its prepare, apply, and post-commit calls all pass the Resource
+Center target shape through `resolveCandidate()`. The narrowest safe ruling is
+implemented at that boundary: a target with `targetSchema: 'z2k-target-v2'`, or
+the durable `schema: 2` mutation fields used by persisted Resource Center
+targets, cannot use the fixture-only incomplete path. Without `candidateInput`
+it now returns hard `ECOHERENCE` before composition, staging, Registry
+consumption, or activation. Pure runtime-composition fixtures retain
+`coherenceStatus: 'unverified'` because they lack the production mutation
+shape and do not enter Resource Center mutation.
+
+Every complete production candidate path still builds exactly once through
+`z2k_candidate_build()` and then reaches `z2k_candidate_identity_gate()`.
+There is no second identity authority and no synthetic success path. Task 5
+Detect staging remains external.
+
+### Review findings addressed
+
+- Critical mutation bypass: added an executable runtime-composition regression
+  for both the explicit `targetSchema` target and a persisted schema-2 target
+  with that field absent. Both return `ECOHERENCE`; neither can return
+  `ok:true` with `coherenceStatus: 'unverified'`.
+- Closure digest forgery: `runtime_bundle_digest()` now computes the canonical
+  digest from the selected closure membership and requires any closure-provided
+  and supplied digest to match that computed value. A forged digest repeated in
+  both input and closure now returns `ECOMPATIBILITY`.
+- Identity gate reachability: complete `candidateInput` remains the only path
+  that builds a coherent candidate, and that path immediately invokes the
+  shared identity gate. Incomplete production-shaped targets fail before any
+  mutation seam can consume them.
+
+### Fix-round 2 TDD evidence
+
+RED:
+
+- Candidate command (bounded WSL ucode) exited `1`: `8` passed, `1` failed,
+  `0` skipped, `0` todo. The new closure-digest regression failed because the
+  forged closure digest was accepted (`true !== false`).
+- Runtime-composition command (bounded WSL ucode) exited `1`: `23` passed,
+  `2` failed, `0` skipped, `1` todo. The new production-shaped regression
+  failed because the incomplete target returned `ok:true` with
+  `coherenceStatus: 'unverified'`; the existing test 2 static mismatch also
+  failed. The persisted schema-2-without-`targetSchema` regression reproduced
+  the same bypass before the durable-field helper was added.
+
+GREEN/focused results:
+
+- `node --test tests/product/z2k-coherent-candidate.test.mjs` under WSL with
+  `timeout 30s` exited `0`: `9` passed, `0` failed, `0` skipped, `0` todo.
+- `node --test tests/product/z2k-runtime-composition.test.mjs` under WSL with
+  `timeout 30s` exited `1`: `24` passed, `1` failed, `0` skipped, `1` todo.
+  The new mutation-safety tests pass. The sole failure is the known
+  pre-existing static assertion in subtest 2 at
+  `tests/product/z2k-runtime-composition.test.mjs:116`: regex
+  `/target\.runtimeBundleDigest = target\.dependencyClosure/` does not match
+  `resource-update.uc`. This file and its unrelated expectation remain outside
+  the Task 3 fix scope.
+- `node --test tests/product/z2k-update-transaction.test.mjs` under bounded
+  WSL ucode exited `0`: `9/9` passed.
+- `node --test tests/product/z2k-candidate-compatibility.test.mjs tests/product/z2k-runtime-summary.test.mjs`
+  under bounded WSL ucode exited `0`: `8/8` passed.
+- `node --check tests/product/z2k-coherent-candidate.test.mjs; node --check tests/product/z2k-runtime-composition.test.mjs`
+  exited `0`; `git diff --check` exited `0`.
+- WSL ucode imports for `z2k-coherent-candidate.uc`, `runtime-composition.uc`,
+  `z2k-compat.uc`, and `z2k-dependency-closure.uc` exited `0`, each printing
+  `:ok`.
+
+The WSL launcher emitted its existing networking-mode warning, but all bounded
+commands completed within their 30-second limit. No process was left running.
+
+### Validator and commit evidence
+
+The post-append `node scripts/validate-knowledge.mjs` exited `0` with
+`Knowledge validation passed.` The post-append `node scripts/docs.mjs verify`
+exited `0` with `Quartz SHA verified:
+ab346fa66a895e12d63a308e70ce330ba795822a8`. The post-append `git diff
+--check` exited `0`.
+
+Fix-round 2 implementation commit hash: `843f7a5d5e8c6b742c5cd74bd702ab09d47eea9d`.
