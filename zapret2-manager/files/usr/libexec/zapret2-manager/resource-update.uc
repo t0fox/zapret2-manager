@@ -43,6 +43,11 @@ function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function array(value) { return type(value) == 'array'; }
 function text(value) { return value == null ? '' : '' + value; }
+// UCode does not hoist function declarations when a later-defined helper is
+// first resolved from a lifecycle callback. Keep identity validators before
+// Core snapshot preparation, which calls them during prepare/preview.
+function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function fail(code, message, extra) { let out = { ok: false, error: { code: code, message: message } }; for (let k in extra || {}) out.error[k] = extra[k]; return out; }
 function shell_quote(value) { let out = "'", raw = text(value); for (let i = 0; i < length(raw); i++) out += substr(raw, i, 1) == "'" ? "'\\''" : substr(raw, i, 1); return out + "'"; }
 function command(value) { let p = popen(value + ' 2>&1', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
@@ -686,8 +691,6 @@ function runtime_target_path(runtimeTarget) {
 	return null;
 }
 function runtime_source_safe(path) { return string(path) && substr(path, 0, length('/etc/zapret2-manager/assets/')) == '/etc/zapret2-manager/assets/' && index(path, '..') < 0 && index(path, '\\') < 0; }
-function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
-function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function z2k_target_asset_valid(item) {
 	return object(item) && string(item.sourcePath) && match(item.sourcePath, /^files\/(lua|fake|lists)\/[A-Za-z0-9._\/-]+$/)
 		&& string(item.id) && (substr(item.id, 0, 4) == 'lua:' || substr(item.id, 0, 5) == 'blob:')

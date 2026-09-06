@@ -13,6 +13,15 @@ const resourceUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/r
 const strategyState = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const strategyCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
 
+test('Z2K lifecycle resolver declares digest helpers before Core snapshot preparation', () => {
+  assert.ok(versions.length > 0);
+  const source = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
+  assert.ok(source.indexOf('function valid_digest') < source.indexOf('function z2k_core_snapshot_for_target'),
+    'UCode does not hoist the digest helper used by Core snapshot preparation');
+  assert.ok(source.indexOf('function valid_commit') < source.indexOf('function z2k_core_snapshot_for_target'),
+    'UCode does not hoist the commit helper used by Core snapshot preparation');
+});
+
 test('release catalog accepts r and p families and exposes authoritative identity fields', () => {
   assert.match(versions, /\/(?:\^)?\(\[rp\]\)/,
     'release parser must accept both r-* and p-* families');
