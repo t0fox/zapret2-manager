@@ -18,6 +18,7 @@ import * as z2k_source_refresh from './strategy-source-refresh.uc';
 import * as z2k_source from './strategy-source-z2k.uc';
 import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
+import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_executable_check } from './z2k-detect.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -43,6 +44,7 @@ const Z2K_STATUS_RPC_MAX_BYTES = 64 * 1024;
 // descriptor.  Keep lifecycle Lua in a disjoint order range so the resolver's
 // deterministic sort cannot interleave the two ownership domains.
 const Z2K_PACKAGE_LUA_ORDER_BASE = 100;
+const Z2K_DETECT_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -1640,6 +1642,8 @@ export const resource_center_prepare_version = function(request) {
 	let version = object(request) ? request.version : request;
 	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
 	let resolved = z2k_resolve_version(version); if (!resolved.ok) return resolved;
+	let detect = z2k_detect_candidate(resolved.manifest, resolved.commitSha, trim(command('uname -m').out));
+	if (!detect.ok) return detect;
 	if (type(resolved.assets) != 'array' || !length(resolved.assets) || length(resolved.assets) > 64) return fail('EZ2K_INCOMPATIBLE', 'Выбранный release не содержит полного exact-managed набора.');
 	for (let i = 0; i < length(resolved.assets); i++) if (!z2k_target_asset_valid(resolved.assets[i])) return fail('EZ2K_INCOMPATIBLE', 'Выбранный release содержит неподдерживаемый managed asset.', { sourcePath: resolved.assets[i] && resolved.assets[i].sourcePath });
 	let listed = asset_registry_list(null); if (!listed.ok) return listed;
@@ -1659,7 +1663,7 @@ export const resource_center_prepare_version = function(request) {
 	if (!sizedTarget.ok) return sizedTarget;
 	let canonicalAssets = z2k_canonical_target_assets(resolved.version, resolved.commitSha, resolved.manifestSha256, classificationSnapshot.sha256, sizedTarget.assets, null);
 	if (canonicalAssets == null) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical runtime composition для выбранного release.');
-	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets };
+	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets, detectArtifact: detect, detectRuntimeTarget: Z2K_DETECT_TARGET };
 	// Compose once to obtain the membership identity, then bind the final
 	// plan token and resolve again so the persisted candidate snapshot carries
 	// the exact token consumed by the apply path.
@@ -1756,6 +1760,12 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		if (!guard.ok) return z2k_runtime_guard_finish(guard, root, paths, guard);
 		root = make_stage_root();
 		if (root == null) return z2k_runtime_guard_finish(guard, root, paths, fail('ETARGET', 'resource staging directory is unavailable'));
+		let detectStage = root + '/z2k-detect', detectCandidate = target.detectArtifact;
+		if (!object(detectCandidate) || detectCandidate.runtimeTarget != Z2K_DETECT_TARGET) return z2k_runtime_guard_finish(guard, root, paths, fail('EDETECT_UNAVAILABLE', 'prepared Core target has no Detect artifact.'));
+		let detectStaged = z2k_detect_stage(detectCandidate, detectStage);
+		if (!detectStaged.ok) return z2k_runtime_guard_finish(guard, root, paths, detectStaged);
+		if (detectStaged.candidate.byteSize == null || !z2k_detect_executable_check(detectStage).ok) return z2k_runtime_guard_finish(guard, root, paths, fail('EDETECT_INCOMPATIBLE', 'staged Detect artifact failed executable preflight.'));
+		push(paths, detectStage); diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'staged' };
 	for (let i = 0; i < length(target.assets); i++) {
 		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
 		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
