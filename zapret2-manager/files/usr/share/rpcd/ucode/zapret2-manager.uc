@@ -305,7 +305,7 @@ function resource_version_arg(req) {
 	let version = null;
 	try { if (req && req.args && req.args.version != null) version = req.args.version; } catch (e) { }
 	if (version == null) { try { if (req && req.version != null) version = req.version; } catch (e) { } }
-	return type(version) == 'string' && match(version, /^r-[0-9]+(\.[0-9]+)?$/) ? version : null;
+	return type(version) == 'string' && match(version, /^([rp])-[0-9]+(\.[0-9]+)?$/) ? version : null;
 }
 function resource_include_compare_arg(req) {
 	try { if (req && req.args && (req.args.includeCompare === true || req.args.includeCompare == 'compare')) return true; } catch (e) { }

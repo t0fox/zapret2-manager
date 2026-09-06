@@ -7,6 +7,7 @@
 import { readfile, writefile, stat, readlink, unlink, mkdir, lsdir, popen } from 'fs';
 import { strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
+import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 
 const STORAGE_ROOT = getenv('Z2M_STRATEGY_ROOT') || '/etc/zapret2-manager';
 const STRATEGY_DIR = getenv('Z2M_STRATEGY_DIR') || '/etc/zapret2-manager/strategies';
@@ -443,15 +444,18 @@ function state_default() { return { schema: 1, revision: 0, favorites: [], selec
 
 function selection_provenance_valid(value) {
 	let hasProvenance = exists(value, 'canonicalStrategyId') || exists(value, 'sourceId')
-		|| exists(value, 'sourceSnapshotId') || exists(value, 'sourceCommit') || exists(value, 'strategyDigest');
+		|| exists(value, 'sourceSnapshotId') || exists(value, 'sourceCommit') || exists(value, 'strategyDigest')
+		|| exists(value, 'z2kCompatibilityIdentity') || exists(value, 'compatibilityIdentity');
 	if (!hasProvenance) return exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256']);
 	if (!exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256', 'canonicalStrategyId',
-		'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'])) return false;
+		'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest'])) return false;
 	if (!safe_strategy_id(value.canonicalStrategyId) || value.canonicalStrategyId != value.id
 		|| (value.sourceId != 'avatar' && value.sourceId != 'z2k' && value.sourceId != 'user')
 		|| !safe_strategy_id(value.sourceSnapshotId) || (value.sourceCommit != null
 			&& (!is_string(value.sourceCommit) || !match(value.sourceCommit, /^[a-f0-9]{7,40}$/)))
 		|| !sha256(value.strategyDigest)) return false;
+	if (value.sourceId == 'z2k' && (!z2k_compatibility_identity_valid(value.z2kCompatibilityIdentity)
+		|| value.compatibilityIdentity != value.z2kCompatibilityIdentity.digest)) return false;
 	return true;
 }
 
@@ -461,7 +465,7 @@ function selection_copy(value) {
 		id: value.id, origin: value.origin, revision: value.revision,
 		candidateSha256: value.candidateSha256
 	};
-	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'])
+	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest'])
 		if (exists(value, key)) result[key] = value[key];
 	return result;
 }
@@ -875,7 +879,7 @@ function same_selection(left, right) {
 	if (left == null || right == null) return left == right;
 	if (left.id != right.id || left.origin != right.origin || left.revision != right.revision
 		|| left.candidateSha256 != right.candidateSha256) return false;
-	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'])
+	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest'])
 		if (left[key] != right[key]) return false;
 	return true;
 }

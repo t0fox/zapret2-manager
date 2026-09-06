@@ -6,6 +6,7 @@
 // the only lifecycle inputs accepted by the two resolver entry points.
 import { asset_registry_list } from './asset-registry.uc';
 import { readfile } from 'fs';
+import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 
 const BUNDLE_ID = 'z2k-curated-lua';
 const MAX_ENTRIES = 128;
@@ -27,7 +28,7 @@ function copy(value) { let out = {}; for (let key in value || {}) out[key] = val
 function copy_array(value) { let out = []; for (let i = 0; array(value) && i < length(value); i++) push(out, value[i]); return out; }
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
-function valid_release(value) { return string(value) && match(value, /^r-[0-9]+(\.[0-9]+)?$/); }
+function valid_release(value) { return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/); }
 function contains(arrayValue, wanted) { for (let i = 0; array(arrayValue) && i < length(arrayValue); i++) if (arrayValue[i] == wanted) return true; return false; }
 function valid_kind(value) { return contains(KINDS, value); }
 function valid_entry_type(value) { return contains(ENTRY_TYPES, value); }
@@ -48,6 +49,12 @@ function normalized_entry(raw, expectedType) {
 	if (entry.type == 'scanner-overlay' && entry.owner != 'scanner') return fail('EOWNERSHIP', 'scanner overlay has a non-scanner owner', { id: raw.id });
 	if (entry.type == 'lifecycle-managed' && (!valid_release(entry.version) || !valid_commit(entry.sourceCommit)
 		|| !valid_digest(entry.manifestSha256) || !valid_digest(entry.classificationSha256))) return fail('EINPUT', 'lifecycle entry identity is incomplete', { id: raw.id });
+	if (entry.z2kCompatibilityIdentity != null &&
+		(!z2k_compatibility_identity_valid(entry.z2kCompatibilityIdentity)
+			|| entry.compatibilityIdentity != entry.z2kCompatibilityIdentity.digest
+			|| entry.z2kCompatibilityIdentity.release != entry.version
+			|| entry.z2kCompatibilityIdentity.sourceCommit != lc(entry.sourceCommit)
+			|| entry.z2kCompatibilityIdentity.runtimeBundleDigest != entry.runtimeBundleDigest)) return fail('EINPUT', 'lifecycle entry compatibility identity is invalid', { id: raw.id });
 	if (entry.type == 'package-static' && (entry.version != null || entry.sourceCommit != null || entry.manifestSha256 != null || entry.classificationSha256 != null)) return fail('EINPUT', 'package-static entry contains lifecycle identity', { id: raw.id });
 	if (entry.role == 'lua-init' && entry.kind != 'lua') return fail('EINPUT', 'only Lua entries may have the lua-init role', { id: raw.id });
 	if (entry.role == 'lua-init' && (!integer(entry.runtimeOrder) || entry.runtimeOrder < 0)) return fail('EINPUT', 'ordered Lua entry has no runtimeOrder', { id: raw.id });
@@ -104,6 +111,8 @@ function identity_authority(authority) {
 		result.classificationSha256 = authority.classificationSha256;
 		result.receiptId = authority.receiptId || null;
 		result.installedAuthorityRevision = authority.installedAuthorityRevision;
+		result.z2kCompatibilityIdentity = authority.z2kCompatibilityIdentity || null;
+		result.compatibilityIdentity = authority.compatibilityIdentity || null;
 	} else if (authority.kind == 'candidate') {
 		// observedRegistryRevision and committedAssetRevision are transport/CAS
 		// observations. The candidate's semantic identity must survive its own
@@ -115,6 +124,8 @@ function identity_authority(authority) {
 		result.planToken = authority.planToken;
 		result.baseRegistryRevision = authority.baseRegistryRevision;
 		result.contentIdentity = authority.contentIdentity || null;
+		result.z2kCompatibilityIdentity = authority.z2kCompatibilityIdentity || null;
+		result.compatibilityIdentity = authority.compatibilityIdentity || null;
 	}
 	return result;
 }
@@ -176,6 +187,8 @@ function compose(state, authority, lifecycleEntries, staticEntries, scannerEntri
 		ok: true, schemaVersion: 2, snapshotId: lifecycleIdentity, compositionSnapshotId: compositionIdentity,
 		lifecycleState: state, state: state, compositionStatus: 'canonical',
 		lifecycleIdentity: authority, receiptIdentity: authority.receiptId || null,
+		z2kCompatibilityIdentity: authority.z2kCompatibilityIdentity || null,
+		compatibilityIdentity: authority.compatibilityIdentity || null,
 		observedRegistryRevision: authority.observedRegistryRevision == null ? null : authority.observedRegistryRevision,
 		runtimeAssets: runtimeAssets, luaInit: luaInit, dependencyIndex: dependency_index(runtimeAssets),
 		scannerOverlay: overlay, membershipDigest: membershipIdentity,
@@ -215,7 +228,8 @@ function registry_match_membership(membership, listed, receipt) {
 		let expected = normalized.entries[i], actual = byId[expected.id], provenance = actual && actual.provenance;
 		if (actual == null || seen[expected.id] || actual.type != physical_registry_type(expected) || actual.contentSha256 != expected.contentSha256 || actual.byteSize != expected.byteSize
 			|| !object(provenance) || provenance.sourcePath != expected.sourcePath || provenance.version != expected.version
-			|| provenance.sourceCommit != expected.sourceCommit || provenance.bundleId != BUNDLE_ID) return fail('EINCONSISTENT', 'installed Z2K membership does not match Registry', { id: expected.id });
+			|| provenance.sourceCommit != expected.sourceCommit || provenance.bundleId != BUNDLE_ID
+			|| (expected.compatibilityIdentity != null && provenance.compatibilityIdentity != expected.compatibilityIdentity)) return fail('EINCONSISTENT', 'installed Z2K membership does not match Registry', { id: expected.id });
 		seen[expected.id] = true;
 	}
 	if (length(current) != length(normalized.entries)) return fail('EINCONSISTENT', 'Registry contains an extra active Z2K asset');
@@ -231,6 +245,11 @@ function v2_authority(receipt, listed) {
 		|| !valid_release(receipt.version) || !valid_commit(receipt.sourceCommit) || !valid_digest(receipt.manifestSha256)
 		|| !valid_digest(receipt.classificationSha256) || !integer(receipt.installedAuthorityRevision)
 		|| !object(listed) || !integer(listed.revision) || receipt.installedAuthorityRevision > listed.revision) return fail('EINCONSISTENT', 'v2 installed authority identity is invalid');
+	if (receipt.z2kCompatibilityIdentity != null &&
+		(!z2k_compatibility_identity_valid(receipt.z2kCompatibilityIdentity)
+			|| receipt.compatibilityIdentity != receipt.z2kCompatibilityIdentity.digest
+			|| receipt.z2kCompatibilityIdentity.release != receipt.version
+			|| receipt.z2kCompatibilityIdentity.sourceCommit != lc(receipt.sourceCommit))) return fail('EINCONSISTENT', 'v2 installed Z2K compatibility identity is invalid');
 	let membership = registry_match_membership(receipt.z2kMembership, listed, receipt);
 	if (!membership.ok) return membership;
 	return { ok: true, receipt: receipt, entries: membership.entries };
@@ -275,7 +294,9 @@ export const resolveInstalled = function(input) {
 	let installedAuthority = { kind: 'installed', release: receipt.version, sourceCommit: receipt.sourceCommit,
 		manifestSha256: receipt.manifestSha256, classificationSha256: receipt.classificationSha256,
 		receiptId: receipt.receiptId || null, installedAuthorityRevision: receipt.installedAuthorityRevision,
-		observedRegistryRevision: listed.revision, z2kMembership: authority.entries };
+		observedRegistryRevision: listed.revision, z2kMembership: authority.entries,
+		z2kCompatibilityIdentity: receipt.z2kCompatibilityIdentity || null,
+		compatibilityIdentity: receipt.compatibilityIdentity || null };
 	return compose('installed', installedAuthority, authority.entries, staticBase, scanner.entries, []);
 };
 
@@ -297,7 +318,9 @@ export const resolveCandidate = function(preparedTarget, context) {
 		manifestSha256: preparedTarget.manifestSha256, classificationSha256: preparedTarget.classificationSha256,
 		planToken: preparedTarget.planToken, baseRegistryRevision: preparedTarget.baseRegistryRevision,
 		observedRegistryRevision: current, committedAssetRevision: committed == null ? null : committed,
-		removeIds: removals.ids, contentIdentity: preparedTarget.contentIdentity || null, receiptIdentity: null };
+		removeIds: removals.ids, contentIdentity: preparedTarget.contentIdentity || null, receiptIdentity: null,
+		z2kCompatibilityIdentity: preparedTarget.z2kCompatibilityIdentity || null,
+		compatibilityIdentity: preparedTarget.compatibilityIdentity || null };
 	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase, preparedTarget.scannerOverlay || [], removals.ids);
 };
 

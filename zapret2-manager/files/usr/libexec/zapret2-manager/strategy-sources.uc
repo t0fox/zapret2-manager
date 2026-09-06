@@ -6,6 +6,7 @@
 // snapshot by directory enumeration.
 
 import { mkdir, popen, readfile, readlink, stat, unlink, writefile } from 'fs';
+import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 
 const ROOT = getenv('Z2M_STRATEGY_SOURCES_ROOT') || '/etc/zapret2-manager';
 const CONFIG_PATH = ROOT + '/strategy-sources.json';
@@ -167,6 +168,12 @@ function valid_official_z2k_provenance(snapshot) {
 		|| snapshot.compilerSchema != 'z2m.z2k-official-compiler-snapshot.v1') return false;
 	for (let relative in ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'])
 		if (!contains(snapshot.sourceFiles, relative) || !valid_digest(snapshot.fileSha256[relative])) return false;
+	if (snapshot.z2kCompatibilityIdentity != null &&
+		(!z2k_compatibility_identity_valid(snapshot.z2kCompatibilityIdentity)
+			|| snapshot.compatibilityIdentity != snapshot.z2kCompatibilityIdentity.digest
+			|| snapshot.z2kRelease != snapshot.z2kCompatibilityIdentity.release
+			|| snapshot.manifestRevision != snapshot.z2kCompatibilityIdentity.manifestRevision
+			|| snapshot.runtimeBundleDigest != snapshot.z2kCompatibilityIdentity.runtimeBundleDigest)) return false;
 	return true;
 }
 function valid_official_z2k_entry(entry, snapshot, kind) {
@@ -177,7 +184,12 @@ function valid_official_z2k_entry(entry, snapshot, kind) {
 		&& provenance.sourcePath == OFFICIAL_Z2K_SOURCE_PATH && provenance.kind == kind
 		&& provenance.compilerSchema == 'z2m.z2k-official-compiler-snapshot.v1'
 		&& provenance.compilerSnapshotDigest == snapshot.compilerSnapshotDigest
-		&& valid_digest(provenance.nfqws2OptSha256) && provenance.templates == 'disabled';
+		&& valid_digest(provenance.nfqws2OptSha256) && provenance.templates == 'disabled'
+		&& (snapshot.z2kCompatibilityIdentity == null ||
+			(object(entry.z2kCompatibilityIdentity) && z2k_compatibility_identity_valid(entry.z2kCompatibilityIdentity)
+				&& entry.compatibilityIdentity == entry.z2kCompatibilityIdentity.digest
+				&& entry.z2kCompatibilityIdentity.digest == snapshot.z2kCompatibilityIdentity.digest
+				&& provenance.compatibilityIdentity == snapshot.z2kCompatibilityIdentity.digest));
 }
 function deferred_z2k_snapshot(snapshot) {
 	return object(snapshot) && native_deferred(snapshot.nativeValidation);
@@ -248,6 +260,12 @@ function source_projection(config, state, id) {
 		lastKnownGoodSnapshotId: state.lastKnownGoodSnapshotId, revision: state.revision,
 		repository: SOURCE_REPOSITORIES[id], sourceCommit: snapshot && snapshot.sourceCommit || null,
 		contentDigest: snapshot && snapshot.contentDigest || null,
+		z2kRelease: snapshot && snapshot.z2kRelease || null,
+		manifestRevision: snapshot && snapshot.manifestRevision != null ? snapshot.manifestRevision : null,
+		runtimeBundleDigest: snapshot && snapshot.runtimeBundleDigest || null,
+		compilerSnapshotDigest: snapshot && snapshot.compilerSnapshotDigest || null,
+		z2kCompatibilityIdentity: snapshot && snapshot.z2kCompatibilityIdentity || null,
+		compatibilityIdentity: snapshot && snapshot.compatibilityIdentity || null,
 		entryCount: snapshot && snapshot.entryCount || 0,
 		normalizedEntryCount: snapshot && snapshot.normalizedEntryCount || 0,
 		hasLkg: state.lastKnownGoodSnapshotId != null,

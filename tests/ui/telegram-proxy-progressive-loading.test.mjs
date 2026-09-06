@@ -94,6 +94,18 @@ test('Telegram Proxy has generation guards and keeps the explicit health action 
   assert.match(source, /Проверить снова/);
 });
 
+test('Telegram Proxy manual refresh cannot leave the interactive check pending', () => {
+  const start = source.indexOf("function checkUpdatesNow()");
+  const end = source.indexOf("\n  var head =", start);
+  const body = source.slice(start, end);
+  assert.match(body, /boundedLoad\(ctx\.refresh\('proxy'\)/,
+    'the follow-up RPC graph must have the same finite deadline as the checks');
+  assert.match(body, /state\.tgCheckingUpdates = false/,
+    'both success and error paths must release the busy state');
+  assert.match(body, /showError\(ctx, error\)/,
+    'a failed interactive refresh must expose the typed error');
+});
+
 test('Telegram Proxy loader returns after local core and admits deferred reads two at a time', async () => {
   const module = makeModule();
   const { api, calls, gates } = makeApi();

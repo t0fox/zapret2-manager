@@ -5,11 +5,12 @@
 // recorded asset still matches the live Registry record and its provenance;
 // an extra active asset from the same managed bundle invalidates the receipt.
 import { asset_registry_list } from './asset-registry.uc';
+import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function copy_array(value) { let result = []; for (let i = 0; type(value) == 'array' && i < length(value); i++) push(result, value[i]); return result; }
-function parse_release(value) { return string(value) && match(value, /^r-[0-9]+(\.[0-9]+)?$/) ? value : null; }
+function parse_release(value) { return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/) ? value : null; }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function valid_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
@@ -55,6 +56,11 @@ function v2_receipt_valid(receipt, listed) {
 		|| !valid_sha(receipt.classificationSha256) || type(receipt.installedAuthorityRevision) != 'int'
 		|| !object(listed) || type(listed.revision) != 'int' || receipt.installedAuthorityRevision > listed.revision
 		|| type(receipt.z2kMembership) != 'array' || !length(receipt.z2kMembership)) return false;
+	if (receipt.z2kCompatibilityIdentity != null &&
+		(!z2k_compatibility_identity_valid(receipt.z2kCompatibilityIdentity)
+			|| receipt.compatibilityIdentity != receipt.z2kCompatibilityIdentity.digest
+			|| receipt.z2kCompatibilityIdentity.release != receipt.version
+			|| receipt.z2kCompatibilityIdentity.sourceCommit != lc(receipt.sourceCommit))) return false;
 	let seen = {}, current = [];
 	for (let i = 0; i < length(listed.assets || []); i++) {
 		let asset = listed.assets[i], provenance = asset && asset.provenance;

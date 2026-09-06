@@ -18,6 +18,7 @@ import { strategy_candidate, strategy_effective_argv } from './strategy-compiler
 import { native_preflight } from './native-preflight.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_candidate_digest, profiles_reconcile_evidence } from './profiles-apply.uc';
 import { resolveInstalled } from './runtime-composition.uc';
+import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { runtime_target_path, runtime_argument_token } from './runtime-asset-paths.uc';
 import { discord_autocircular_donor } from './discord-profile.uc';
 
@@ -59,7 +60,7 @@ const STRATEGY_PREVIEW_CACHE_PATH = '/tmp/z2m-strategy-preview-cache.json';
 const STRATEGY_PREVIEW_CACHE_SCHEMA = 'z2m.strategy-preview-cache.v1';
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ESTALE', 'ENOENABLED', 'EDEPENDENCY',
 	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO',
-	'EOUTPUT', 'ECHILD', 'EUNAVAILABLE'];
+	'EOUTPUT', 'ECHILD', 'EUNAVAILABLE', 'EZ2K_COMPATIBILITY_REQUIRED', 'EZ2K_COMPATIBILITY_MISMATCH'];
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
@@ -1055,9 +1056,26 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 			id: resolved.id, origin: resolved.origin, revision: input.revision == null ? 0 : input.revision,
 			candidateSha256: candidate.digest, canonicalStrategyId: canonicalStrategyId,
 			sourceId: sourceId, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
+			z2kCompatibilityIdentity: resolved.strategy && resolved.strategy.z2kCompatibilityIdentity || null,
+			compatibilityIdentity: resolved.strategy && resolved.strategy.compatibilityIdentity || null,
 			strategyDigest: candidate.digest
 		}
 	};
+}
+
+function z2k_apply_compatibility_gate(resolved, runtimeSnapshot) {
+	if (!is_object(resolved) || resolved.sourceId != 'z2k') return null;
+	let strategy = resolved.strategy || {}, wanted = strategy.z2kCompatibilityIdentity || null;
+	let installed = is_object(runtimeSnapshot) ? runtimeSnapshot.z2kCompatibilityIdentity || null : null;
+	if (!z2k_compatibility_identity_valid(wanted) || !z2k_compatibility_identity_valid(installed))
+		return error_result('EZ2K_COMPATIBILITY_REQUIRED', 'Z2K Strategy is not bound to the installed Z2K Core compatibility identity.', {
+			strategyCompatibilityIdentity: wanted, installedCompatibilityIdentity: installed, overrideAllowed: false
+		});
+	if (!z2k_compatibility_equal(wanted, installed))
+		return error_result('EZ2K_COMPATIBILITY_MISMATCH', 'Selected Z2K Strategy is incompatible with the installed Z2K Core release.', {
+			strategyCompatibilityIdentity: wanted, installedCompatibilityIdentity: installed, overrideAllowed: false
+		});
+	return null;
 }
 
 function strategy_apply_candidate(resolved, environment, input, currentCatalog) {
@@ -1190,6 +1208,9 @@ export const strategy_apply = function(input, context) {
 	// A client snapshotId is deliberately not consulted here.
 	if (!runtime_snapshot_valid(installedSnapshot))
 		return strategy_apply_finish(runtime_snapshot_error(installedSnapshot), begun.operationNonce);
+	let compatibilityError = z2k_apply_compatibility_gate(resolved, installedSnapshot);
+	if (compatibilityError != null)
+		return strategy_apply_finish(compatibilityError, begun.operationNonce);
 	trusted.environment.validate = false;
 	trusted.environment.executionAdmission = false;
 	trusted.environment.runtimeComposition = installedSnapshot;
@@ -1238,7 +1259,8 @@ export const strategy_apply = function(input, context) {
 	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: requestRevision,
 		candidateSha256: candidate.digest, canonicalStrategyId: projection.selected.canonicalStrategyId,
 		 sourceId: projection.selected.sourceId, sourceSnapshotId: projection.selected.sourceSnapshotId,
-		sourceCommit: projection.selected.sourceCommit, strategyDigest: projection.selected.strategyDigest };
+		sourceCommit: projection.selected.sourceCommit, z2kCompatibilityIdentity: projection.selected.z2kCompatibilityIdentity || null,
+		compatibilityIdentity: projection.selected.compatibilityIdentity || null, strategyDigest: projection.selected.strategyDigest };
 	timing_merge(timing, applied.timing);
 	timing.preflightCount = type(applied.timing) == 'object' && type(applied.timing.preflightCount) == 'int'
 		? applied.timing.preflightCount : 0;
@@ -1487,7 +1509,10 @@ function catalog_wire_metadata(strategy, current, compact) {
 		sourceFile: strategy.sourceFile || null, sourceOrdinal: strategy.sourceOrdinal || null,
 		cacheKey: strategy.cacheKey || null, cacheOrdinal: strategy.cacheOrdinal || null,
 		duplicateGroup: strategy.duplicateGroup || null, effectiveOrdinal: strategy.effectiveOrdinal || null,
-		winner: strategy.winner === true
+		winner: strategy.winner === true,
+		z2kRelease: strategy.z2kRelease || null, manifestRevision: strategy.manifestRevision == null ? null : strategy.manifestRevision,
+		runtimeBundleDigest: strategy.runtimeBundleDigest || null, compilerSnapshotDigest: strategy.compilerSnapshotDigest || null,
+		z2kCompatibilityIdentity: strategy.z2kCompatibilityIdentity || null, compatibilityIdentity: strategy.compatibilityIdentity || null
 	};
 	metadata.catalog = {
 		schema: current.schema || 1, source: current.source, aggregateDigest: current.aggregateDigest,
@@ -1507,7 +1532,8 @@ function wire_strategy(strategy, current, selection, compact) {
 		for (let key in ['id', 'name', 'description', 'is_builtin', 'source', 'level',
 			'label', 'author', 'protocol', 'featured', 'recommended', 'pinned', 'origin', 'revision', 'canonicalId', 'sourceId',
 			'sourceSnapshotId', 'sourceCommit', 'contentDigest', 'poolKey', 'entryKind',
-			'strategyNumber', 'aggregateId'])
+			'strategyNumber', 'aggregateId', 'z2kRelease', 'manifestRevision', 'runtimeBundleDigest',
+			'compilerSnapshotDigest', 'z2kCompatibilityIdentity', 'compatibilityIdentity'])
 			if (strategy[key] != null) result[key] = key == 'description'
 				? bounded_text(strategy[key], 256) : strategy[key];
 		result.profiles = [];

@@ -67,11 +67,24 @@ function source_error(result, message, resolution) {
 }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function parse_release(value) {
-	if (!string(value) || !match(value, /^r-[0-9]+(\.[0-9]+)?$/)) return null;
-	let body = substr(value, 2), dot = index(body, '.');
-	return { version: value, major: + (dot < 0 ? body : substr(body, 0, dot)), minor: dot < 0 ? 0 : +substr(body, dot + 1) };
+	if (!string(value) || !match(value, /^([rp])-[0-9]+(\.[0-9]+)?$/)) return null;
+	let family = substr(value, 0, 1), body = substr(value, 2), dot = index(body, '.');
+	let major = + (dot < 0 ? body : substr(body, 0, dot));
+	let minor = dot < 0 ? 0 : +substr(body, dot + 1);
+	return { version: value, family: family, lineage: family, major: major, minor: minor,
+		numericMajor: major, numericMinor: minor };
 }
-function release_compare(a, b) { let left = parse_release(a.version || a), right = parse_release(b.version || b); if (left.major != right.major) return right.major - left.major; if (left.minor != right.minor) return right.minor - left.minor; return text(left.version) == text(right.version) ? 0 : (text(left.version) < text(right.version) ? -1 : 1); }
+function release_compare(a, b) {
+	let left = parse_release(a.version || a), right = parse_release(b.version || b);
+	if (left == null || right == null) return null;
+	if (left.major != right.major) return right.major - left.major;
+	if (left.minor != right.minor) return right.minor - left.minor;
+	// A p-line is a later upstream lineage than an r-line at the same numeric
+	// release. This is only a deterministic tie-break; numeric release fields
+	// remain authoritative when they differ.
+	if (left.family != right.family) return left.family == 'p' ? -1 : 1;
+	return text(left.version) == text(right.version) ? 0 : (text(left.version) < text(right.version) ? -1 : 1);
+}
 function tag_name(ref) { if (!object(ref) || !string(ref.ref)) return null; let prefix = 'refs/tags/'; if (substr(ref.ref, 0, length(prefix)) != prefix) return null; let value = substr(ref.ref, length(prefix)); return parse_release(value) == null ? null : value; }
 function resolve_tag_commit(version, tagSha, objectType, mode) {
 	if (parse_release(version) == null || !valid_sha(tagSha)) return null;
@@ -105,7 +118,8 @@ function asset_id(item, path) {
 export const z2k_asset_id_from_classification = function(item, path) { return asset_id(item, path); };
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function validate_manifest(value, rawSize, requested) {
-	if (!object(value) || rawSize == null || rawSize < 2 || rawSize > MAX_MANIFEST || value.schema != 1 || value.branch != BRANCH || type(value.seq) != 'int' || value.seq < 0 || !string(value.current) || parse_release(value.current) == null || (requested != null && value.current != requested) || !object(value.files_sha256)) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json schema or release identity is invalid.');
+	if (!object(value) || rawSize == null || rawSize < 2 || rawSize > MAX_MANIFEST || value.schema != 1 || value.branch != BRANCH || type(value.seq) != 'int' || value.seq < 0 || !string(value.current) || parse_release(value.current) == null || !object(value.files_sha256)) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json schema or release identity is invalid.');
+	if (requested != null && value.current != requested) return fail('EZ2K_INCONSISTENT_SOURCE', 'UPDATES.json current release does not match the selected immutable tag.', { requested: requested, manifestCurrent: value.current });
 	let names = keys(value.files_sha256); if (!length(names) || length(names) > MAX_TAGS) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json file count is invalid.');
 	for (let i = 0; i < length(names); i++) { let path = names[i], digest = value.files_sha256[path]; if (!safe_path(path) || !valid_digest(digest)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path or invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
 	return { ok: true, manifest: value };
@@ -374,7 +388,23 @@ function fetch_refs(mode) {
 	sort(candidates, function(a, b) { return release_compare(a, b); }); return { ok: true, refs: candidates, stale: result.ok !== true || result.stale === true, source: result };
 }
 function catalog_row(candidate, installed) {
-	return { version: candidate.version, latest: false, installed: candidate.version == installed, commitSha: candidate.objectType == 'commit' ? candidate.tagSha : null, publishedAt: 0, installable: true, unavailableReason: null, tagSha: candidate.tagSha, objectType: candidate.objectType };
+	let identity = parse_release(candidate.version);
+	return { version: candidate.version, family: identity.family, lineage: identity.lineage,
+		major: identity.major, minor: identity.minor, numericMajor: identity.numericMajor,
+		numericMinor: identity.numericMinor, latest: false, installed: candidate.version == installed,
+		commitSha: candidate.objectType == 'commit' ? candidate.tagSha : null, publishedAt: 0,
+		installable: true, unavailableReason: null, tagSha: candidate.tagSha,
+		objectType: candidate.objectType, authoritative: { tagVersion: candidate.version,
+			tagSha: candidate.tagSha, commitSha: candidate.objectType == 'commit' ? candidate.tagSha : null } };
+}
+function installed_only_row(version) {
+	let identity = parse_release(version);
+	return { version: version, family: identity.family, lineage: identity.lineage,
+		major: identity.major, minor: identity.minor, numericMajor: identity.numericMajor,
+		numericMinor: identity.numericMinor, latest: false, installed: true,
+		commitSha: null, publishedAt: 0, installable: false,
+		unavailableReason: 'installed-not-in-remote', tagSha: null, objectType: null,
+		localOnly: true, authoritative: { tagVersion: version, tagSha: null, commitSha: null } };
 }
 export const z2k_versions = function(options) {
 	let fresh = object(options) && options.fresh === true;
@@ -386,8 +416,17 @@ export const z2k_versions = function(options) {
 		error: refs.error, diagnostics: { requestCount: REQUEST_COUNT, restRequestCount: REST_REQUEST_COUNT, cache: 'miss', source: 'update-source' } };
 	let rows = [], limit = MAX_VERSIONS;
 	for (let i = 0; i < length(refs.refs) && i < limit; i++) push(rows, catalog_row(refs.refs[i], installed));
-	if (installed != null) { let present = false; for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) present = true; if (!present) for (let i = limit; i < length(refs.refs); i++) if (refs.refs[i].version == installed) { push(rows, catalog_row(refs.refs[i], installed)); break; } }
-	if (length(rows)) rows[0].latest = true;
+	if (installed != null) {
+		let present = false;
+		for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) present = true;
+		if (!present) {
+			for (let i = limit; i < length(refs.refs); i++) if (refs.refs[i].version == installed) { push(rows, catalog_row(refs.refs[i], installed)); present = true; break; }
+			if (!present && parse_release(installed) != null) push(rows, installed_only_row(installed));
+		}
+	}
+	let latestVersion = null;
+	for (let i = 0; i < length(refs.refs); i++) if (latestVersion == null || release_compare(refs.refs[i], { version: latestVersion }) < 0) latestVersion = refs.refs[i].version;
+	for (let i = 0; i < length(rows); i++) if (rows[i].version == latestVersion) rows[i].latest = true;
 	if (fresh && refs.stale) return fail('ESTALE', 'Каталог release устарел; повторите подготовку после свежей проверки.', { diagnostics: network_diagnostics('catalog') });
 	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed,
 		localFallback: installed == null ? null : { version: installed, installed: true, sourceId: 'installed-runtime' },
@@ -396,7 +435,7 @@ export const z2k_versions = function(options) {
 };
 
 function manifest_body(manifest, version) { let history = manifest && manifest.history; for (let i = 0; type(history) == 'array' && i < length(history); i++) if (object(history[i]) && history[i].v == version && string(history[i].desc)) { let body = trim(history[i].desc); if (length(body)) return body; } return null; }
-function human_body(message) { let value = trim(text(message)), marker = index(value, '—'); if (marker >= 0) { let body = trim(substr(value, marker + 1)); return length(body) ? body : null; } let lines = split(value, '\n'), body = length(lines) > 1 ? trim(join(slice(lines, 1), '\n')) : ''; return length(body) ? body : (length(value) && !match(value, /^r-[0-9]+(\.[0-9]+)?$/) ? value : null); }
+function human_body(message) { let value = trim(text(message)), marker = index(value, '—'); if (marker >= 0) { let body = trim(substr(value, marker + 1)); return length(body) ? body : null; } let lines = split(value, '\n'), body = length(lines) > 1 ? trim(join(slice(lines, 1), '\n')) : ''; return length(body) ? body : (length(value) && !match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/) ? value : null); }
 function fallback_body(changeSet) {
 	let modified = changeSet && type(changeSet.modified) == 'int' ? changeSet.modified : 0;
 	let added = changeSet && type(changeSet.added) == 'int' ? changeSet.added : 0;

@@ -120,6 +120,45 @@ function fetch_exact(url) {
 	if (!string(raw)) return error('ENETWORK', 'Exact source content is unavailable');
 	return { ok: true, content: raw, contentDigest: content_digest(raw) };
 }
+function compile_z2k_exact(sourceCommit) {
+	if (!valid_sha(sourceCommit)) return error('EPROVENANCE', 'Z2K compiler requires an exact source commit');
+	let files = {}, fileSha256 = {};
+	for (let relative in Z2K_COMPILER_FILES) {
+		let url = 'https://raw.githubusercontent.com/' + Z2K_REPOSITORY + '/' + sourceCommit + '/' + relative;
+		let fetched = fetch_exact(url);
+		if (!fetched.ok) return fetched;
+		if (fetched.contentDigest == null) return error('EDIGEST', 'Z2K compiler source digest could not be computed');
+		files[relative] = fetched.content;
+		fileSha256[relative] = fetched.contentDigest;
+	}
+	let compilerSnapshot = { repository: Z2K_REPOSITORY, sourceCommit: sourceCommit,
+		files: files, fileSha256: fileSha256 };
+	let compiled = null;
+	try { compiled = z2k_compiler.z2k_official_compile(compilerSnapshot); }
+	catch (e) { return error('ECOMPILE', 'Z2K official compiler invocation failed'); }
+	if (!compiled.ok) return { ok: false, error: { code: compiled.error && compiled.error.code || 'EVERIFY',
+		message: 'Z2K official compiler rejected the verified source snapshot',
+		phase: compiled.error && compiled.error.phase || 'compile', details: compiled.error || null } };
+	return { ok: true, compiler: compiled, sourceFiles: Z2K_COMPILER_FILES, fileSha256: fileSha256 };
+}
+
+// Core-only exact source boundary. It has no HEAD/branch discovery and is not
+// wired to the source-refresh RPC; the caller must supply the selected release
+// identity and the runtime inventory used for the dependency closure.
+export const strategy_source_z2k_compile_exact = function(input) {
+	if (!object(input) || !valid_sha(input.sourceCommit))
+		return error('EINPUT', 'Core Z2K compile requires an exact source commit');
+	return compile_z2k_exact(input.sourceCommit);
+};
+
+// Called only after the Core candidate runtime has been materialized. The
+// native evidence is therefore bound to the staged release, and the source
+// pointer is still untouched if this gate rejects the candidate.
+export const strategy_source_z2k_finalize_core_snapshot = function(input) {
+	if (!object(input) || !object(input.snapshot)) return error('EINPUT', 'Core Z2K snapshot is required');
+	let inventory = object(input.dependencyInventory) ? input.dependencyInventory : z2k_dependency_inventory();
+	return validate_z2k_candidate(input.snapshot, inventory);
+};
 function cleanup_staging(path) {
 	if (!string(path) || !match(path, /^\/tmp\/z2m-avatar-refresh\.[A-Za-z0-9]+$/)) return;
 	run('rm -rf ' + quote(path));

@@ -335,9 +335,10 @@ function render(ctx) {
   }
 
   function renderStrategySource(card) {
-    var refreshButton = ctx.shell.button(_('Обновить'), 'primary sm', function () { refreshSource(card, refreshButton); });
+    var refreshButton = card.id === 'z2k' ? null : ctx.shell.button(_('Обновить'), 'primary sm', function () { refreshSource(card, refreshButton); });
     var toggleButton = ctx.shell.button(card.enabled ? _('Отключить') : _('Включить'), 'sm' + (card.enabled ? ' danger' : ''), function () { toggleSource(card, toggleButton); });
-    if (!card.configRevision || strategySources.ok === false) { refreshButton.disabled = true; toggleButton.disabled = true; }
+    if ((!card.configRevision || strategySources.ok === false) && refreshButton) refreshButton.disabled = true;
+    if (!card.configRevision || strategySources.ok === false) toggleButton.disabled = true;
     var count = card.entryCount ? card.entryCount + ' ' + _('Исходных стратегий') : _('Нет проверенного снимка');
     if (card.normalizedEntryCount) count += ' · ' + card.normalizedEntryCount + ' ' + _('В каталоге');
     var snapshot = card.currentSnapshotId || card.lastKnownGoodSnapshotId || '—';
@@ -348,8 +349,10 @@ function render(ctx) {
         E('dt', {}, _('Ревизия каталога')), E('dd', {}, 'r' + card.revision),
         E('dt', {}, _('Снимок')), E('dd', { 'class': 'mono' }, snapshot)
       ]),
-      E('p', { 'class': 'z2m-strategy-source-note' }, _('Не применять автоматически: источник обновляет каталог, но не меняет активную стратегию.')),
-      E('div', { 'class': 'z2m-page-actions z2m-strategy-source-actions' }, [refreshButton, toggleButton])
+      E('p', { 'class': 'z2m-strategy-source-note' }, card.id === 'z2k'
+        ? _('Управляется Z2K Core: источник и каталог обновляются только вместе с выбранным релизом Z2K.')
+        : _('Не применять автоматически: источник обновляет каталог, но не меняет активную стратегию.')),
+      E('div', { 'class': 'z2m-page-actions z2m-strategy-source-actions' }, [refreshButton, toggleButton].filter(Boolean))
     ]);
   }
 

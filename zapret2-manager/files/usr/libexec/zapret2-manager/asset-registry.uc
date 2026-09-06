@@ -522,7 +522,9 @@ function lifecycle_membership_matches(state, request) {
 			|| lifecycle_physical_type(expected) != actual.type || expected.contentSha256 != actual.contentSha256 || expected.byteSize != actual.byteSize
 			|| expected.sourcePath != provenance.sourcePath || expected.version != request.version
 			|| expected.sourceCommit != request.sourceCommit || provenance.version != request.version
-			|| provenance.sourceCommit != request.sourceCommit || provenance.bundleId != request.bundleId) return fail('ESTALE', 'committed Registry membership does not equal the candidate', { id: expected && expected.id || null });
+			|| provenance.sourceCommit != request.sourceCommit || provenance.bundleId != request.bundleId
+			|| (request.z2kCompatibilityIdentity != null && (expected.compatibilityIdentity != request.z2kCompatibilityIdentity.digest
+				|| provenance.compatibilityIdentity != request.z2kCompatibilityIdentity.digest))) return fail('ESTALE', 'committed Registry membership does not equal the candidate', { id: expected && expected.id || null });
 		seen[expected.id] = true;
 	}
 	return { ok: true, assets: current };
@@ -541,6 +543,8 @@ export const asset_registry_finalize_activation = function(request) {
 	if (evidence.verified !== true && evidence.ok !== true && evidence.processVerified !== true) return fail('EVERIFY', 'activation evidence is not verified');
 	let receipt = { schema: 'asset-activation-receipt.v2', bundleId: request.bundleId, version: request.version, source: request.source || 'necronicle/z2k', sourceCommit: request.sourceCommit,
 		manifestSha256: request.manifestSha256, classificationSha256: request.classificationSha256, membershipDigest: request.membershipDigest,
+		z2kCompatibilityIdentity: request.z2kCompatibilityIdentity || null,
+		compatibilityIdentity: request.z2kCompatibilityIdentity && request.z2kCompatibilityIdentity.digest || null,
 		candidateSnapshotId: request.candidateSnapshotId, baseRegistryRevision: request.baseRegistryRevision == null ? null : request.baseRegistryRevision,
 		committedRegistryRevision: request.committedAssetRevision, installedAuthorityRevision: state.revision + 1,
 		z2kMembership: copy_array(request.z2kMembership), activationEvidence: copy(evidence), activatedAt: time() };

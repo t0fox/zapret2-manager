@@ -1222,7 +1222,10 @@ function installPane(ctx, data) {
         return answer;
       });
     })).then(function () {
-      return ctx.refresh('proxy');
+      // Refresh is another RPC graph and must share the same bounded loading
+      // contract. Otherwise a successful upstream check can leave the button
+      // in «Проверяем обновления…» forever if the follow-up page load stalls.
+      return boundedLoad(ctx.refresh('proxy'), _('обновления состояния Telegram Proxy'));
     }).then(function () {
       state.tgCheckingUpdates = false;
       state.tgCheckedAt = Date.now();

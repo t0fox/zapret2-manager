@@ -11,6 +11,7 @@
 import { popen, unlink, writefile } from 'fs';
 import { z2m_parse, z2m_validate } from './profiles.uc';
 import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
+import { z2k_compatibility_identity } from './z2k-compatibility.uc';
 
 const SOURCE_ID = 'z2k';
 const REPOSITORY = 'necronicle/z2k';
@@ -66,6 +67,7 @@ function copy(value) {
 function trim_ws(value) { return trim(value == null ? '' : '' + value); }
 function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{40}$/); }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
+function valid_release(value) { return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/); }
 function starts(value, prefix) {
 	return string(value) && length(value) >= length(prefix)
 		&& substr(value, 0, length(prefix)) == prefix;
@@ -275,7 +277,7 @@ function profile_label(profile, index, args) {
 function semantic_digest(entryKind, args, protocol) {
 	return digest(sprintf('%J', { entryKind: entryKind, args: args, protocol: protocol || 'unknown' }));
 }
-function standalone_projection(model, profile, index, sourceCommit, compiler, resources, dependencyInventory) {
+function standalone_projection(model, profile, index, sourceCommit, compiler, resources, dependencyInventory, compatibility) {
 	let projected = profile_projection(model, profile, index, resources);
 	if (!projected.ok) return projected;
 	let candidate = projected.profile, structural = structural_validation(candidate.args);
@@ -304,6 +306,18 @@ function standalone_projection(model, profile, index, sourceCommit, compiler, re
 		},
 		validation: { parser: 'passed', manager: 'passed', diagnostics: structural.validation, native: 'not_checked' }
 	};
+	if (compatibility != null) {
+		one.z2kRelease = compatibility.release;
+		one.manifestRevision = compatibility.manifestRevision;
+		one.runtimeBundleDigest = compatibility.runtimeBundleDigest;
+		one.z2kCompatibilityIdentity = copy(compatibility);
+		one.compatibilityIdentity = compatibility.digest;
+		one.provenance.z2kRelease = compatibility.release;
+		one.provenance.manifestRevision = compatibility.manifestRevision;
+		one.provenance.runtimeBundleDigest = compatibility.runtimeBundleDigest;
+		one.provenance.z2kCompatibilityIdentity = copy(compatibility);
+		one.provenance.compatibilityIdentity = compatibility.digest;
+	}
 	return { ok: true, entry: one };
 }
 function composition_digest(value) { return digest(sprintf('%J', value)); }
@@ -355,10 +369,24 @@ export const strategy_source_z2k_import_compiled = function(compiled, metadata) 
 	let args = join(' --new ', profile_field_values(profiles, 'args'));
 	let dependencyInventory = metadata.dependencyInventory || {};
 	let closure = dependency_closure(checked.compiled, metadata, checked.compiled.nfqws2Opt);
+	let runtimeBundleDigest = closure.runtimeBundleDigest || null;
+	if (metadata.runtimeBundleDigest != null && metadata.runtimeBundleDigest != runtimeBundleDigest)
+		return error('ESTALE', 'Z2K runtime bundle digest does not match the compiled dependency closure', 'runtimeBundleDigest');
+	let compatibility = null;
+	if (metadata.z2kRelease != null || metadata.release != null || metadata.manifestRevision != null
+		|| metadata.runtimeBundleDigest != null) {
+		let release = metadata.z2kRelease || metadata.release;
+		if (!valid_release(release) || type(metadata.manifestRevision) != 'int' || !valid_digest(runtimeBundleDigest))
+			return error('EPROVENANCE', 'Core-managed Z2K snapshot identity is incomplete', 'z2kCompatibilityIdentity');
+		compatibility = z2k_compatibility_identity({ release: release, sourceCommit: checked.compiled.sourceCommit,
+			manifestRevision: metadata.manifestRevision, runtimeBundleDigest: runtimeBundleDigest,
+			compilerSnapshotDigest: checked.compiled.compilerSnapshotDigest });
+		if (compatibility == null) return error('EPROVENANCE', 'Core-managed Z2K snapshot identity is invalid', 'z2kCompatibilityIdentity');
+	}
 	let standaloneCandidates = [], standaloneDiagnostics = [];
 	for (let i = 0; i < length(checked.model.profiles); i++) {
 		let standalone = standalone_projection(checked.model, checked.model.profiles[i], i,
-			checked.compiled.sourceCommit, checked.compiled, metadata.resourceBindings, dependencyInventory);
+			checked.compiled.sourceCommit, checked.compiled, metadata.resourceBindings, dependencyInventory, compatibility);
 		if (!standalone.ok) {
 			push(standaloneDiagnostics, { officialProfileIndex: i, error: standalone.error || { code: 'EVERIFY', message: 'standalone projection failed' } });
 			continue;
@@ -389,6 +417,18 @@ export const strategy_source_z2k_import_compiled = function(compiled, metadata) 
 			fileSha256: metadata.fileSha256 || {}, resourceBindings: copy(bindings) },
 		validation: { parser: 'passed', manager: 'passed', diagnostics: checked.validation }
 	};
+	if (compatibility != null) {
+		entry.z2kRelease = compatibility.release;
+		entry.manifestRevision = compatibility.manifestRevision;
+		entry.runtimeBundleDigest = compatibility.runtimeBundleDigest;
+		entry.z2kCompatibilityIdentity = copy(compatibility);
+		entry.compatibilityIdentity = compatibility.digest;
+		entry.provenance.z2kRelease = compatibility.release;
+		entry.provenance.manifestRevision = compatibility.manifestRevision;
+		entry.provenance.runtimeBundleDigest = compatibility.runtimeBundleDigest;
+		entry.provenance.z2kCompatibilityIdentity = copy(compatibility);
+		entry.provenance.compatibilityIdentity = compatibility.digest;
+	}
 	return { ok: true, entry: entry, model: checked.model, validation: checked.validation,
 		standaloneCandidates: standaloneCandidates, standaloneDiagnostics: standaloneDiagnostics };
 };
@@ -410,11 +450,15 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 	}
 	let imported = strategy_source_z2k_import_compiled(compiled, {
 		sourceCommit: sourceCommit, sourceFiles: sourceFiles, fileSha256: fileSha256,
-		resourceBindings: input.resourceBindings, dependencyInventory: input.dependencyInventory
+		resourceBindings: input.resourceBindings, dependencyInventory: input.dependencyInventory,
+		z2kRelease: input.z2kRelease || input.release, manifestRevision: input.manifestRevision,
+		runtimeBundleDigest: input.runtimeBundleDigest
 	});
 	if (!imported.ok) return imported;
 	let identity = COMPILER_SCHEMA + '\n' + REPOSITORY + '\n' + sourceCommit + '\n'
 		+ compiled.compilerSnapshotDigest + '\n' + compiled.nfqws2OptSha256 + '\n';
+	if (entry.z2kCompatibilityIdentity != null)
+		identity += 'z2kCompatibilityIdentity=' + entry.z2kCompatibilityIdentity.digest + '\n';
 	for (let relative in REQUIRED_FILES) identity += relative + '\n' + fileSha256[relative] + '\n';
 	let contentDigest = digest(identity);
 	if (!contentDigest) return error('EDIGEST', 'Z2K snapshot content digest could not be computed');
@@ -423,11 +467,17 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 	entry.provenance.sourceSnapshotId = snapshotId;
 	let entryDigest = digest(sprintf('%J', entry)), allInOneDigest = entry.semanticDigest;
 	if (!entryDigest || !allInOneDigest) return error('EDIGEST', 'Z2K imported entry identity could not be computed');
+	let compatibility = entry.z2kCompatibilityIdentity || null;
 	return { ok: true, snapshot: {
 		schema: SCHEMA, sourceId: SOURCE_ID, repository: REPOSITORY, sourceCommit: sourceCommit,
 		sourcePath: COMPILER_SOURCE_PATH, sourceFiles: sourceFiles, sourceBranch: BRANCH,
 		fileSha256: fileSha256, compilerSchema: COMPILER_SCHEMA,
 		compilerSnapshotDigest: compiled.compilerSnapshotDigest, nfqws2OptSha256: compiled.nfqws2OptSha256,
+		z2kRelease: compatibility && compatibility.release || null,
+		manifestRevision: compatibility && compatibility.manifestRevision != null ? compatibility.manifestRevision : null,
+		runtimeBundleDigest: compatibility && compatibility.runtimeBundleDigest || null,
+		z2kCompatibilityIdentity: compatibility,
+		compatibilityIdentity: compatibility && compatibility.digest || null,
 		contentDigest: contentDigest, snapshotId: snapshotId, entryDigests: [entryDigest],
 		normalizedEntriesDigest: entryDigest, entryCount: 1, normalizedEntryCount: 1,
 		entries: [entry], standaloneCandidates: imported.standaloneCandidates || [],

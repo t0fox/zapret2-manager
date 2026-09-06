@@ -72,12 +72,7 @@ function prepare_avatar(legacy) {
 	return { ok: true, snapshot: prepared.snapshot, mode: 'migrated' };
 }
 function prepare_z2k() {
-	let refreshed = null;
-	try { refreshed = source_refresh.strategy_source_refresh('z2k'); }
-	catch (e) { refreshed = null; }
-	if (!object(refreshed) || refreshed.ok != true || !object(refreshed.snapshot))
-		return failure(refreshed, 'z2k');
-	return { ok: true, snapshot: refreshed.snapshot, mode: 'fresh' };
+	return error('EMANAGED', 'Z2K source migration requires a Core-managed release activation', 'z2k');
 }
 function user_entries() {
 	let listed = null;

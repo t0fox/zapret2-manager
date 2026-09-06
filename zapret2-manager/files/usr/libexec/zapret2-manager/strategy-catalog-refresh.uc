@@ -271,7 +271,8 @@ export const catalog_refresh_rebuild = function() {
 // adapter only prepares a private candidate; this coordinator is the sole
 // path that can activate it and publish the generation that refers to it.
 export const catalog_refresh_source = function(id) {
-	if (id != 'avatar' && id != 'z2k') return { ok: false, error: { code: 'EINPUT', message: 'Unknown strategy source' } };
+	if (id == 'z2k') return { ok: false, error: { code: 'EMANAGED', message: 'Z2K strategy source is managed by Z2K Core' } };
+	if (id != 'avatar') return { ok: false, error: { code: 'EINPUT', message: 'Unknown strategy source' } };
 	let before = null;
 	try { before = source_store.strategy_sources_get(); } catch (e) { before = null; }
 	if (!before || before.ok != true) return before || { ok: false, error: { code: 'EIO', message: 'Strategy source config is unavailable' } };
@@ -463,6 +464,7 @@ export const catalog_refresh_worker_run = function() {
   for (let id in ['avatar', 'z2k']) {
     let enabled = config.sources[id] && config.sources[id].enabled == true;
     if (!enabled) continue;
+	if (id == 'z2k') continue; // Z2K source snapshots advance only with the Core lifecycle.
     enabledCount++;
     let refreshed = refresh_source(s, id, enabled, id == 'avatar' ? 15 : 35, id == 'avatar' ? 25 : 45);
 		if (!refreshed.ok) return failure_with_rollback(s, refreshed, previousActivations);
