@@ -457,21 +457,48 @@ export const runtime_composition_candidate_cas = function(candidate, observedReg
 // Candidate strategy selection is part of the Core transaction preflight.  A
 // catalog may change only after this gate has accepted the exact candidate
 // runtime; callers must not silently replace the user's selected strategy.
+function runtime_strategy_source_contract(sourceId) {
+	if (sourceId == 'z2k') return { origin: 'z2k_builtin', owner: 'z2k-core', strategyClass: 'official-z2k', repository: 'necronicle/z2k', prefix: 'z2k:', kinds: ['official-top-level-profile', 'strategy-catalog-import'] };
+	if (sourceId == 'avatar') return { origin: 'avatar_builtin', owner: 'avatar', strategyClass: 'avatar', repository: 'avatarDD/zapret-gui', prefix: 'avatar:', kinds: ['strategy-catalog'] };
+	if (sourceId == 'user') return { origin: 'user', owner: 'user', strategyClass: 'user', repository: null, prefix: null, kinds: ['user-strategy'] };
+	return null;
+}
+function runtime_strategy_catalog_entries(catalog) {
+	if (!object(catalog)) return null;
+	if (array(catalog.entries)) return catalog.entries;
+	if (array(catalog.canonicalEntries)) return catalog.canonicalEntries;
+	return null;
+}
+function runtime_strategy_entry_matches(selected, entry, contract, selectedId) {
+	if (!object(entry) || entry.id != selectedId || entry.canonicalId != selectedId
+		|| entry.sourceId != selected.sourceId || entry.origin != contract.origin
+		|| entry.owner != contract.owner || entry.strategyClass != contract.strategyClass) return false;
+	if (contract.prefix != null && substr(selectedId, 0, length(contract.prefix)) != contract.prefix) return false;
+	let provenance = entry.provenance;
+	if (!object(provenance) || provenance.sourceId != selected.sourceId
+		|| provenance.repository != contract.repository || !contains(contract.kinds, provenance.kind)) return false;
+	if (selected.sourceId != 'user' && (!string(entry.sourceSnapshotId) || entry.sourceSnapshotId == ''
+		|| provenance.sourceSnapshotId != entry.sourceSnapshotId)) return false;
+	if (selected.sourceId != 'user' && selected.sourceSnapshotId != null && selected.sourceSnapshotId != entry.sourceSnapshotId) return false;
+	if (selected.sourceCommit != null && selected.sourceCommit != entry.sourceCommit) return false;
+	return true;
+}
 export const runtime_strategy_preflight = function(input) {
 	if (!object(input)) return fail('EINPUT', 'strategy preflight input is invalid');
 	let selected = input.activeStrategy || null;
 	if (selected == null) return { ok: true, skipped: true, reason: 'no-active-strategy' };
-	if (!string(selected.id) || selected.selected !== true) return fail('ECOMPATIBILITY', 'active strategy selection is not preserved');
+	if (!string(selected.id) || selected.selected !== true || !string(selected.canonicalStrategyId) || selected.canonicalStrategyId != selected.id)
+		return fail('ECOMPATIBILITY', 'active strategy selection is not canonical or not preserved');
 	let sourceId = selected.sourceId;
-	if (sourceId != 'z2k' && sourceId != 'avatar' && sourceId != 'user')
+	let contract = runtime_strategy_source_contract(sourceId);
+	if (!contract || selected.origin != contract.origin)
 		return fail('ECOMPATIBILITY', 'active strategy source is unknown or missing; candidate validation cannot be proven', { sourceId: sourceId == null ? null : sourceId });
-	let catalog = input.candidateCatalog || {}, ids = catalog.ids || catalog.canonicalIds || [];
-	let found = false;
-	for (let i = 0; array(ids) && i < length(ids); i++) if (ids[i] == (selected.canonicalStrategyId || selected.id)) found = true;
-	if (!found) return fail('ECOMPATIBILITY', 'active strategy canonical ID is absent from the candidate catalog', { sourceId: sourceId, id: selected.canonicalStrategyId || selected.id });
+	let selectedId = selected.canonicalStrategyId, entries = runtime_strategy_catalog_entries(input.candidateCatalog), found = null;
+	for (let i = 0; array(entries) && i < length(entries); i++) if (runtime_strategy_entry_matches(selected, entries[i], contract, selectedId)) { found = entries[i]; break; }
+	if (found == null) return fail('ECOMPATIBILITY', 'active strategy canonical ID is not bound to verified candidate provenance', { sourceId: sourceId, id: selectedId });
 	if (!object(input.candidateRuntime) || input.candidateRuntime.closureReady !== true || input.candidateRuntime.nativeReady !== true)
-		return fail('ECOMPATIBILITY', 'active strategy does not close over the candidate runtime or pass native preflight', { sourceId: sourceId, id: selected.canonicalStrategyId || selected.id });
-	return { ok: true, selectedId: selected.canonicalStrategyId || selected.id, sourceId: sourceId };
+		return fail('ECOMPATIBILITY', 'active strategy does not close over the candidate runtime or pass native preflight', { sourceId: sourceId, id: selectedId });
+	return { ok: true, selectedId: selectedId, sourceId: sourceId, origin: contract.origin, owner: contract.owner, strategyClass: contract.strategyClass };
 };
 
 // Test-only production seam for the post-materialize failure boundary.  It

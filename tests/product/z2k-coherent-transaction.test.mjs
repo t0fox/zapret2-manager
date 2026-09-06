@@ -55,6 +55,22 @@ function priorActivationFixture() {
   };
 }
 
+function catalogEntry(sourceId, canonicalId) {
+  return {
+    id: canonicalId, canonicalId, sourceId,
+    origin: sourceId === 'z2k' ? 'z2k_builtin' : sourceId === 'avatar' ? 'avatar_builtin' : 'user',
+    owner: sourceId === 'z2k' ? 'z2k-core' : sourceId,
+    strategyClass: sourceId === 'z2k' ? 'official-z2k' : sourceId === 'avatar' ? 'avatar' : 'user',
+    entryKind: sourceId === 'z2k' ? 'all-in-one' : null,
+    sourceSnapshotId: `${sourceId}-snapshot`,
+    provenance: {
+      repository: sourceId === 'z2k' ? 'necronicle/z2k' : sourceId === 'avatar' ? 'avatarDD/zapret-gui' : null,
+      sourceId, sourceSnapshotId: `${sourceId}-snapshot`,
+      kind: sourceId === 'z2k' ? 'strategy-catalog-import' : sourceId === 'avatar' ? 'strategy-catalog' : 'user-strategy',
+    },
+  };
+}
+
 test('prepare is staging-only and worker remains a progress coordinator', () => {
   assert.match(coordinator, /resource_center_prepare_version/);
   assert.match(coordinator, /save_prepared_target\(target\)/);
@@ -158,12 +174,38 @@ test('unknown and missing active strategy sources fail closed before candidate m
 
 test('recognized official, Avatar, and User sources still require candidate closure evidence', { skip: !hasUcode }, () => {
   for (const sourceId of ['z2k', 'avatar', 'user']) {
-    const selected = { id: `${sourceId}:stable`, canonicalStrategyId: `${sourceId}:stable`, sourceId, selected: true };
-    const accepted = invokeRuntime(`composition.runtime_strategy_preflight({ activeStrategy: ${JSON.stringify(selected)}, candidateCatalog: { ids: ['${sourceId}:stable'] }, candidateRuntime: { closureReady: true, nativeReady: true } })`);
+    const selected = { id: `${sourceId}:stable`, canonicalStrategyId: `${sourceId}:stable`, sourceId, origin: sourceId === 'z2k' ? 'z2k_builtin' : sourceId === 'avatar' ? 'avatar_builtin' : 'user', selected: true };
+    const accepted = invokeRuntime(`composition.runtime_strategy_preflight({ activeStrategy: ${JSON.stringify(selected)}, candidateCatalog: { entries: [${JSON.stringify(catalogEntry(sourceId, `${sourceId}:stable`))}] }, candidateRuntime: { closureReady: true, nativeReady: true } })`);
     assert.equal(accepted.ok, true, JSON.stringify(accepted));
-    const rejected = invokeRuntime(`composition.runtime_strategy_preflight({ activeStrategy: ${JSON.stringify(selected)}, candidateCatalog: { ids: ['${sourceId}:stable'] }, candidateRuntime: { closureReady: false, nativeReady: true } })`);
+    const rejected = invokeRuntime(`composition.runtime_strategy_preflight({ activeStrategy: ${JSON.stringify(selected)}, candidateCatalog: { entries: [${JSON.stringify(catalogEntry(sourceId, `${sourceId}:stable`))}] }, candidateRuntime: { closureReady: false, nativeReady: true } })`);
     assert.equal(rejected.ok, false, JSON.stringify(rejected));
     assert.equal(rejected.error.code, 'ECOMPATIBILITY', JSON.stringify(rejected));
+  }
+});
+
+test('runtime preflight rejects Avatar/User provenance mismatches and flat-list attribution', { skip: !hasUcode }, () => {
+  const cases = [
+    [{ id: 'avatar:stable', canonicalStrategyId: 'avatar:stable', sourceId: 'avatar', origin: 'avatar_builtin', selected: true }, catalogEntry('user', 'avatar:stable')],
+    [{ id: 'user:stable', canonicalStrategyId: 'user:stable', sourceId: 'user', origin: 'user', selected: true }, catalogEntry('avatar', 'user:stable')],
+  ];
+  for (const [selected, entry] of cases) {
+    const result = invokeRuntime(`composition.runtime_strategy_preflight({ activeStrategy: ${JSON.stringify(selected)}, candidateCatalog: { entries: [${JSON.stringify(entry)}] }, candidateRuntime: { closureReady: true, nativeReady: true } })`);
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.error.code, 'ECOMPATIBILITY', JSON.stringify(result));
+  }
+  const flatOnly = invokeRuntime(`composition.runtime_strategy_preflight({ activeStrategy: ${JSON.stringify(cases[0][0])}, candidateCatalog: { ids: ['avatar:stable'] }, candidateRuntime: { closureReady: true, nativeReady: true } })`);
+  assert.equal(flatOnly.ok, false, JSON.stringify(flatOnly));
+  assert.equal(flatOnly.error.code, 'ECOMPATIBILITY', JSON.stringify(flatOnly));
+});
+
+test('transaction precommit rejects Avatar/User provenance mismatches before mutation', { skip: !hasUcode }, () => {
+  for (const [selectedSource, catalogSource] of [['avatar', 'user'], ['user', 'avatar']]) {
+    const result = invoke(`transaction.resource_center_test_precommit_failure({ testOnly: true, failure: 'strategy-provenance-mismatch', selectedSource: '${selectedSource}', catalogSource: '${catalogSource}' })`);
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.error.code, 'ECOMPATIBILITY', JSON.stringify(result));
+    assert.equal(result.mutations.registry, 0, JSON.stringify(result));
+    assert.equal(result.mutations.runtime, 0, JSON.stringify(result));
+    assert.equal(result.activeIdentity, 'X', JSON.stringify(result));
   }
 });
 

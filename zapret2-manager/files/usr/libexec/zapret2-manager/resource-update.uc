@@ -1951,18 +1951,47 @@ export const resource_center_test_prepared_state_guard = function(input) {
 	return { ok: true, planToken: token, priorActivationDigest: gate.priorActivationDigest, mutationCount: 1 };
 };
 
+function z2k_candidate_source_contract(sourceId) {
+	if (sourceId == 'z2k') return { origin: 'z2k_builtin', owner: 'z2k-core', strategyClass: 'official-z2k', repository: 'necronicle/z2k', prefix: 'z2k:', kinds: ['official-top-level-profile', 'strategy-catalog-import'] };
+	if (sourceId == 'avatar') return { origin: 'avatar_builtin', owner: 'avatar', strategyClass: 'avatar', repository: 'avatarDD/zapret-gui', prefix: 'avatar:', kinds: ['strategy-catalog'] };
+	if (sourceId == 'user') return { origin: 'user', owner: 'user', strategyClass: 'user', repository: null, prefix: null, kinds: ['user-strategy'] };
+	return null;
+}
+function z2k_candidate_kind_allowed(kinds, kind) {
+	for (let allowed in kinds || []) if (allowed == kind) return true;
+	return false;
+}
+function z2k_candidate_entry_projection(entry) {
+	if (!object(entry) || !string(entry.canonicalId) || !string(entry.sourceId)) return null;
+	let contract = z2k_candidate_source_contract(entry.sourceId), provenance = entry.provenance;
+	if (!contract || !object(provenance) || provenance.sourceId != entry.sourceId
+		|| provenance.repository != contract.repository || !z2k_candidate_kind_allowed(contract.kinds, provenance.kind)) return null;
+	if (contract.prefix != null && substr(entry.canonicalId, 0, length(contract.prefix)) != contract.prefix) return null;
+	let sourceSnapshotId = entry.sourceSnapshotId || provenance.sourceSnapshotId || null;
+	let sourceCommit = entry.sourceCommit || provenance.sourceCommit || null;
+	if (entry.sourceId != 'user' && (!string(sourceSnapshotId) || !string(sourceCommit)
+		|| provenance.sourceSnapshotId != sourceSnapshotId || provenance.sourceCommit != sourceCommit)) return null;
+	return {
+		id: entry.canonicalId, canonicalId: entry.canonicalId, sourceId: entry.sourceId,
+		origin: contract.origin, owner: contract.owner, strategyClass: contract.strategyClass,
+		entryKind: entry.entryKind || null, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
+		provenance: { repository: contract.repository, sourceId: entry.sourceId,
+			sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit, kind: provenance.kind }
+	};
+}
 function z2k_candidate_catalog(priorCatalog, coreSnapshot) {
-	let ids = [], seen = {};
-	if (object(priorCatalog) && object(priorCatalog.index) && type(priorCatalog.index.entries) == 'array') for (let priorEntry in priorCatalog.index.entries) {
-		if (object(priorEntry) && priorEntry.sourceId != 'z2k' && string(priorEntry.canonicalId) && !seen[priorEntry.canonicalId]) { seen[priorEntry.canonicalId] = true; push(ids, priorEntry.canonicalId); }
+	let ids = [], entries = [], seen = {};
+	function append(raw) {
+		let projected = z2k_candidate_entry_projection(raw);
+		if (projected != null && !seen[projected.canonicalId]) {
+			seen[projected.canonicalId] = true; push(ids, projected.canonicalId); push(entries, projected);
+		}
 	}
-	if (object(coreSnapshot) && type(coreSnapshot.entries) == 'array') for (let entry in coreSnapshot.entries) {
-		if (object(entry) && string(entry.canonicalId) && !seen[entry.canonicalId]) { seen[entry.canonicalId] = true; push(ids, entry.canonicalId); }
-	}
-	if (object(coreSnapshot) && type(coreSnapshot.standaloneCandidates) == 'array') for (let candidate in coreSnapshot.standaloneCandidates) {
-		if (object(candidate) && string(candidate.canonicalId) && !seen[candidate.canonicalId]) { seen[candidate.canonicalId] = true; push(ids, candidate.canonicalId); }
-	}
-	return { ids: ids, canonicalIds: ids };
+	if (object(priorCatalog) && object(priorCatalog.index) && type(priorCatalog.index.entries) == 'array') for (let priorEntry in priorCatalog.index.entries)
+		if (object(priorEntry) && priorEntry.sourceId != 'z2k') append(priorEntry);
+	if (object(coreSnapshot) && type(coreSnapshot.entries) == 'array') for (let entry in coreSnapshot.entries) append(entry);
+	if (object(coreSnapshot) && type(coreSnapshot.standaloneCandidates) == 'array') for (let candidate in coreSnapshot.standaloneCandidates) append(candidate);
+	return { entries: entries, canonicalEntries: entries, ids: ids, canonicalIds: ids };
 }
 
 function z2k_strategy_preflight(target) {
@@ -2190,15 +2219,26 @@ export const resource_center_test_coherent_finalize_request = function(input) {
 // exposes mutation counters so the focused test proves that a rejected Detect
 // or strategy candidate never reaches Registry/runtime publication.
 export const resource_center_test_precommit_failure = function(input) {
-	if (!object(input) || input.testOnly !== true || (input.failure != 'detect-sha' && input.failure != 'strategy-preflight'))
+	if (!object(input) || input.testOnly !== true || (input.failure != 'detect-sha' && input.failure != 'strategy-preflight' && input.failure != 'strategy-provenance-mismatch'))
 		return fail('EINPUT', 'Internal pre-commit failure seam is restricted to controlled tests.');
 	let mutations = { registry: 0, runtime: 0 }, activeIdentity = 'X', digest = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 	let target = { detectArtifact: { sha256: digest }, activeStrategy: null, candidateCatalog: { ids: [] }, candidateRuntime: { closureReady: true, nativeReady: true } };
 	let staged = { candidate: { sha256: digest } };
 	if (input.failure == 'detect-sha') staged.candidate.sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-	else {
-		target.activeStrategy = { id: 'avatar-selected', canonicalStrategyId: 'avatar-selected', sourceId: 'avatar', selected: true };
+	else if (input.failure == 'strategy-preflight') {
+		target.activeStrategy = { id: 'avatar-selected', canonicalStrategyId: 'avatar-selected', sourceId: 'avatar', origin: 'avatar_builtin', selected: true };
 		target.candidateRuntime = { closureReady: false, nativeReady: false };
+	} else {
+		let selectedSource = input.selectedSource == 'user' ? 'user' : 'avatar';
+		let catalogSource = input.catalogSource == 'avatar' ? 'avatar' : 'user';
+		let selectedId = 'avatar:stable', selectedContract = z2k_candidate_source_contract(selectedSource), catalogContract = z2k_candidate_source_contract(catalogSource);
+		let sourceSnapshotId = catalogSource + '-snapshot', sourceCommit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+		let rawEntry = { id: selectedId, canonicalId: selectedId, sourceId: catalogSource, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
+			entryKind: catalogSource == 'z2k' ? 'all-in-one' : null,
+			provenance: { repository: catalogContract.repository, sourceId: catalogSource, sourceSnapshotId: sourceSnapshotId,
+				sourceCommit: sourceCommit, kind: catalogSource == 'avatar' ? 'strategy-catalog' : 'user-strategy' } };
+		target.activeStrategy = { id: selectedId, canonicalStrategyId: selectedId, sourceId: selectedSource, origin: selectedContract.origin, selected: true };
+		target.candidateCatalog = { entries: [z2k_candidate_entry_projection(rawEntry)] };
 	}
 	let gate = z2k_precommit_gate(target, { lifecycleState: 'candidate' }, staged);
 	if (gate.ok === true) { mutations.registry++; mutations.runtime++; activeIdentity = 'Y'; }
