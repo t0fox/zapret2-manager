@@ -28,7 +28,6 @@ function dependency_class(item) {
 	if (item.dependencyClass == 'runtime-exact') return 'runtime-exact';
 	if (item.dependencyClass == 'detect-arch') return 'detect-arch';
 	if (item.dependencyClass == 'compiler-input') return 'compiler-input';
-	if (item.dependencyClass == 'adapted') return 'adapted';
 	if (item.dependencyClass == 'watched') return 'watched';
 	if (item.dependencyClass == 'ignored-platform') return 'ignored-platform';
 	if (item.class == 'exact-managed') return 'runtime-exact';
@@ -54,7 +53,7 @@ export const z2k_dependency_graph = function(input) {
 	input = object(input) ? input : {};
 	let files = classification_files(input.classification);
 	if (files == null) return error('EDEPENDENCY', 'Z2K dependency classification is unavailable');
-	let graph = { schema: 'z2m.z2k-dependency-graph.v1', compilerInputs: {}, runtimeExact: {}, detectArch: {}, adapted: {}, watched: {}, ignored: {}, known: {}, consumed: {}, registryAvailable: false };
+	let graph = { schema: 'z2m.z2k-dependency-graph.v1', compilerInputs: {}, runtimeExact: {}, detectArch: {}, watched: {}, ignored: {}, known: {}, consumed: {}, registryAvailable: false };
 	for (let item in COMPILER_INPUTS) {
 		let record = copy(item);
 		record.required = true;
@@ -64,11 +63,12 @@ export const z2k_dependency_graph = function(input) {
 	}
 	for (let item in files) {
 		let klass = dependency_class(item), record = copy(item);
+		if (klass != 'runtime-exact' && klass != 'detect-arch' && klass != 'compiler-input' && klass != 'watched' && klass != 'ignored-platform')
+			return error('EDEPENDENCY_INCONSISTENT', 'unknown dependency class in Z2K classification', { sourcePath: item.sourcePath, dependencyClass: klass });
 		record.dependencyClass = klass;
 		graph.known[item.sourcePath] = record;
 		if (klass == 'runtime-exact') graph.runtimeExact[item.sourcePath] = record;
 		else if (klass == 'detect-arch') graph.detectArch[item.sourcePath] = record;
-		else if (klass == 'adapted') graph.adapted[item.sourcePath] = record;
 		else if (klass == 'watched') graph.watched[item.sourcePath] = record;
 		else if (klass == 'ignored-platform') graph.ignored[item.sourcePath] = record;
 		if (klass != 'ignored-platform') graph.consumed[item.sourcePath] = { class: klass, consumer: item.consumer || null, sourcePath: item.sourcePath };

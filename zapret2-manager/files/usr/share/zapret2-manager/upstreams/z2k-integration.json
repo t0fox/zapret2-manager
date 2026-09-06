@@ -381,36 +381,39 @@
       "class": "exact-managed",
       "dependencyClass": "runtime-exact",
       "type": "txt",
-      "basedOnSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "basedOnSha256": null,
       "localName": "runtime-assets/lists/sni_wl_candidates.txt",
       "runtimeTarget": "/runtime-assets/lists/sni_wl_candidates.txt",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/sni_wl_candidates.txt",
       "consumer": "Z2M managed runtime asset resolver",
-      "requiredCapabilities": []
+      "requiredCapabilities": [],
+      "digestStatus": "unverified"
     },
     {
       "sourcePath": "files/lists/tcp16_targets.txt",
       "class": "exact-managed",
       "dependencyClass": "runtime-exact",
       "type": "txt",
-      "basedOnSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "basedOnSha256": null,
       "localName": "runtime-assets/lists/tcp16_targets.txt",
       "runtimeTarget": "/runtime-assets/lists/tcp16_targets.txt",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/tcp16_targets.txt",
       "consumer": "Z2M managed runtime asset resolver",
-      "requiredCapabilities": []
+      "requiredCapabilities": [],
+      "digestStatus": "unverified"
     },
     {
       "sourcePath": "files/lists/tcp16_nets.txt",
       "class": "exact-managed",
       "dependencyClass": "runtime-exact",
       "type": "txt",
-      "basedOnSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "basedOnSha256": null,
       "localName": "runtime-assets/lists/tcp16_nets.txt",
       "runtimeTarget": "/runtime-assets/lists/tcp16_nets.txt",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/tcp16_nets.txt",
       "consumer": "Z2M managed runtime asset resolver",
-      "requiredCapabilities": []
+      "requiredCapabilities": [],
+      "digestStatus": "unverified"
     },
     {
       "sourcePath": "files/lists/extra-domains.txt",
@@ -582,15 +585,14 @@
     },
     {
       "sourcePath": "z2k-detect/builds/z2k-detect-linux-arm64",
-      "class": "exact-managed",
+      "class": "detect-arch",
       "dependencyClass": "detect-arch",
       "type": "file",
-      "basedOnSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "localName": null,
-      "runtimeTarget": null,
-      "packageBaselinePath": null,
-      "consumer": "Z2M managed runtime asset resolver",
-      "requiredCapabilities": []
+      "basedOnSha256": null,
+      "architecture": "arm64",
+      "consumer": "Task 5 Detect artifact staging",
+      "required": true,
+      "digestStatus": "unverified"
     },
     {
       "sourcePath": "files/lua/z2k-fooling-ext.lua",

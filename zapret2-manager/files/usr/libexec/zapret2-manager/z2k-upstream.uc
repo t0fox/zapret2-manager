@@ -142,12 +142,6 @@ function plan(value) {
 		if (klass == 'compiler-input' && item.basedOnSha256 != digest) {
 			push(compilerInputs, { sourcePath: path, currentSha256: item.basedOnSha256 || null, targetSha256: digest, consumer: item.consumer || 'official Z2K compiler', action: 'compile-and-validate' });
 		}
-		else if (klass == 'adapted' && item.basedOnSha256 != digest) {
-			let detail = { path: path, reason: 'adapted-upstream-file-changed', policy: 'blocking', message: 'Адаптированный upstream-файл изменился; требуется rebase.' };
-			push(rebases, path);
-			push(reviewDetails, detail);
-			push(blockingReasons, detail);
-		}
 		else if (klass == 'runtime-exact' || klass == 'detect-arch') {
 			targetPaths[path] = true;
 			let installedAsset = registry_asset_for(path, assets), installed = installedAsset && installedAsset.contentSha256 || installedShaFor(path, assets);

@@ -12,7 +12,7 @@ test('every accepted Z2K manifest path has exactly one explicit classification',
   const actual = classification.files.map(item => item.sourcePath).sort();
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
-  const classes = new Set(['exact-managed', 'adapted', 'watched', 'ignored-platform']);
+  const classes = new Set(['exact-managed', 'detect-arch', 'watched', 'ignored-platform']);
   for (const item of classification.files) assert.ok(classes.has(item.class), item.sourcePath);
   assert.equal(classification.manifestFileCount, expected.length);
   assert.equal(classification.schema, 'zapret2-manager.z2k-integration.v2');

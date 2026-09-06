@@ -26,9 +26,21 @@ test('dependency graph derives consumed unknowns from local Registry ownership',
   assert.match(graph, /registryAvailable/);
   assert.match(graph, /compilerInputs/);
   assert.match(graph, /runtimeExact/);
-  assert.match(graph, /adapted/);
+  assert.match(graph, /EDEPENDENCY_INCONSISTENT/);
+  assert.match(graph, /unknown dependency class/);
+  assert.doesNotMatch(graph, /adapted:\s*\{/);
+  assert.doesNotMatch(graph, /klass == 'adapted'/);
   assert.match(graph, /watched/);
   assert.match(graph, /ignored/);
+});
+
+test('dependency graph rejects classes outside the exact Task 2 contract', () => {
+  assert.match(graph, /runtime-exact/);
+  assert.match(graph, /detect-arch/);
+  assert.match(graph, /compiler-input/);
+  assert.match(graph, /watched/);
+  assert.match(graph, /ignored-platform/);
+  assert.match(graph, /unknown dependency class/);
 });
 
 test('planner separates advisory unknown-unconsumed files from blocking consumed dependencies', () => {

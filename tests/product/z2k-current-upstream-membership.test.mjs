@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '../..');
@@ -15,7 +17,45 @@ test('current Z2K runtime membership includes exact lists and architecture-speci
   assert.equal(byPath['files/lists/tcp16_targets.txt'].dependencyClass, 'runtime-exact');
   assert.equal(byPath['files/lists/tcp16_nets.txt'].dependencyClass, 'runtime-exact');
   assert.equal(byPath['z2k-detect/builds/z2k-detect-linux-arm64'].dependencyClass, 'detect-arch');
+  assert.equal(byPath['z2k-detect/builds/z2k-detect-linux-arm64'].localName, undefined);
+  assert.equal(byPath['z2k-detect/builds/z2k-detect-linux-arm64'].runtimeTarget, undefined);
+  assert.equal(byPath['z2k-detect/builds/z2k-detect-linux-arm64'].packageBaselinePath, undefined);
   assert.equal(byPath['files/lua/z2k-detectors.lua'], undefined);
+});
+
+test('production classification does not present fixture-only list or Detect digests as verified bytes', () => {
+  for (const sourcePath of [
+    'files/lists/sni_wl_candidates.txt',
+    'files/lists/tcp16_targets.txt',
+    'files/lists/tcp16_nets.txt',
+    'z2k-detect/builds/z2k-detect-linux-arm64',
+  ]) {
+    assert.equal(byPath[sourcePath].basedOnSha256, null, sourcePath);
+    assert.equal(byPath[sourcePath].digestStatus, 'unverified', sourcePath);
+  }
+});
+
+test('classification generation rejects an unknown upstream path instead of ignoring it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2k-classification-'));
+  try {
+    const manifestPath = path.join(dir, 'UPDATES.json');
+    const outputPath = path.join(dir, 'classification.json');
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      schema: 1,
+      branch: 'z2k-enhanced',
+      seq: 1,
+      current: 'r-1.0',
+      files_sha256: { 'files/new-consumed.dat': 'a'.repeat(64) },
+    }));
+    const result = spawnSync(process.execPath, [
+      'tools/generate-z2k-classification.mjs', manifestPath, outputPath,
+    ], { cwd: root, encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Unknown upstream classification/);
+    assert.equal(fs.existsSync(outputPath), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('resource manifest points at the canonical classification while legacy removal stays explicit', () => {
