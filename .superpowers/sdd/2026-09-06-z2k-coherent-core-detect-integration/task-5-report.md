@@ -97,3 +97,55 @@ Implementation commit: `5a604265` (`fix: publish Z2K Detect through Core transac
 ### Scope rulings and deferred findings
 
 The independent review's old scanner production imports remain pre-existing and are explicitly deferred to the planned Task 8/10/11/14 closure. Task 5 adds no scanner fallback, parallel RPC, separate Detect updater, or second database. No unrelated failures were fixed or reclassified.
+
+## Fix round 2: rollback-complete lifecycle, staging cleanup, and path boundaries
+
+Status: IMPLEMENTED — bounded focused evidence green; no router/browser acceptance.
+
+### RED
+
+The first bounded RED run after adding the fix-round-2 regressions used:
+
+```text
+wsl.exe -e sh -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 60s node --test tests/product/z2k-detect-artifact.test.mjs tests/product/z2k-update-transaction.test.mjs'
+```
+
+Exact result: `22` tests, `19` passed, `3` failed, `0` skipped, `0` todo.
+
+- Partial fetch/SHA/chmod/preflight failures left simulated stage bytes behind.
+- Traversal input returned `EVERIFY` instead of the required `EINPUT` because `..` was still accepted by the lexical prefix check.
+- The COMMITTED/late post-Registry source assertion found a direct guard-finish path without the lifecycle rollback routine.
+
+After the production patch, the same bounded command was rerun once before correcting two test-harness expectations: `22` tests, `20` passed, `2` failed. The remaining failures were the test's backslash escaping in generated UCode and an owner-order assertion searching for `let applied` after the implementation's predeclared `applied` variable. No production failure remained in that intermediate run.
+
+### Implementation
+
+- Every post-Registry failure path now calls the single `z2k_rollback_after_runtime_failure` before `z2k_runtime_guard_finish`, including partial Registry apply mutation, COMMITTED evidence, post-commit read, MATERIALIZED/PROCESS_VERIFIED/SOURCE_ACTIVATED evidence, postflight/runtime/activation/finalization, catalog publication, late FINALIZED evidence, reconciliation, Detect finalization, and unexpected exceptions.
+- Detect finalization now occurs while the durable `FINALIZED` receipt is present. If pending-marker clearing fails after Detect rollback state is closed, the transaction returns `ERECOVERY_REQUIRED` with a durable invariant: Registry receipt, runtime/source activation, and stable Detect bytes remain the same candidate. It does not restore Detect alone; `resource_center_recover_pending()` can verify the receipt and close the marker.
+- The internal Detect stage path is registered before staging, and every fetch/SHA/chmod/preflight exception removes partial bytes. Production staging remains under the fixed Resource Center prefix.
+- Production/test seams reject `..` segments, backslashes, and symlink/non-regular files; test target overrides remain limited to the controlled `/tmp/z2m-z2k-detect-test-*` prefix. The production runtime target remains fixed at `/usr/libexec/zapret2-manager/z2k-detect`.
+- The Resource Center owner assertion covers Detect publication before Registry apply and stage-path registration before staging. The worker remains a coordinator and `resource-update-worker.uc` was not changed.
+
+### GREEN and required gates
+
+Final bounded focused WSL run:
+
+```text
+22 tests, 22 passed, 0 failed, 0 skipped, 0 todo
+```
+
+This includes architecture/path/commit/SHA identity, wrong SHA/fetch/chmod/preflight failures, partial-stage cleanup, traversal/backslash/non-regular boundaries, stable publication and restore, and Resource Center/worker ownership and post-Registry rollback assertions.
+
+Additional bounded checks:
+
+- UCode imports: `detect-import-ok`, `resource-import-ok`.
+- `node --check tests/product/z2k-detect-artifact.test.mjs`: passed.
+- `node scripts/validate-knowledge.mjs`: `Knowledge validation passed.`
+- `node scripts/docs.mjs verify`: `Quartz SHA verified: ab346fa66a895e12d63a308e70ce330ba795822a`.
+- `git diff --check`: passed.
+
+Implementation commit: `bb6b907d` (`fix: complete Z2K Detect rollback transaction`). The prior fix-round-1 commit remains `5a604265` (`fix: publish Z2K Detect through Core transaction`).
+
+### Scope rulings
+
+Pre-existing legacy scanner production imports remain deferred to planned Tasks 8/10/11/14. This round adds no scanner fallback, parallel RPC, second Detect updater, second database, router deployment, browser acceptance, or package-E2E claim. No unrelated failures were fixed or reclassified.
