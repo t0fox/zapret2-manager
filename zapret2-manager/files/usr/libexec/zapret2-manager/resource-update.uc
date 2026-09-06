@@ -21,7 +21,7 @@ import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
 import { strategy_catalog_generation_read, strategy_catalog_generation_publish } from './strategy-catalog-generation.uc';
 import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore } from './strategy-state.uc';
 import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
-import { z2k_migration_state, z2k_lua_function_closure } from './z2k-migration.uc';
+import { z2k_migration_state, z2k_lua_function_closure, z2k_migration_prepare, z2k_migration_commit, z2k_migration_rollback } from './z2k-migration.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -58,14 +58,73 @@ let z2k_active_detect_publication = null;
 // migration itself remains inside the ordinary Asset Registry transaction.
 export const resource_center_z2k_migration_state = function(input) { return z2k_migration_state(input); };
 export const resource_center_test_lua_function_closure = function(input) {
-	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Lua closure test seam is restricted to controlled tests.');
+	if (type(input) != 'object' || input == null || input.testOnly !== true) return { ok: false, error: { code: 'EINPUT', message: 'Lua closure test seam is restricted to controlled tests.' } };
 	return z2k_lua_function_closure(input);
+};
+export const resource_center_test_migration_transaction = function(input) {
+	if (type(input) != 'object' || input == null || input.testOnly !== true || type(input.phase) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'Migration transaction test seam is restricted to controlled tests.' } };
+	if (input.phase == 'prepare') return z2k_migration_prepare(input);
+	if (type(input.prepared) != 'object' || input.prepared == null) return { ok: false, error: { code: 'EINPUT', message: 'Migration transaction test seam has no prepared evidence.' } };
+	if (input.phase == 'failure') return z2k_migration_rollback({ prepared: input.prepared, reason: input.reason });
+	if (input.phase == 'commit') return z2k_migration_commit({ prepared: input.prepared, finalReceipt: input.finalReceipt, activeReceipt: input.activeReceipt, preserved: input });
+	return { ok: false, error: { code: 'EINPUT', message: 'Migration transaction phase is unsupported.' } };
 };
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function array(value) { return type(value) == 'array'; }
 function text(value) { return value == null ? '' : '' + value; }
+function z2k_copy(value) { try { return json(sprintf('%J', value)); } catch (e) { return value; } }
+function z2k_migration_discovered_domains(listed, priorRuntimeComposition) {
+	let result = [], assets = listed && array(listed.assets) ? listed.assets : [];
+	for (let asset in assets) {
+		if (!object(asset) || (asset.id != 'dynamic:discovered-domains' && asset.role != 'z2k-discovered-domains')) continue;
+		let paths = [asset.path, asset.runtimeTarget];
+		for (let path in paths) {
+			if (!string(path) || !regular(path)) continue;
+			let raw = null; try { raw = readfile(path); } catch (e) { raw = null; }
+			for (let line in split(raw || '', '\n')) {
+				line = trim(line);
+				if (length(line) && substr(line, 0, 1) != '#') push(result, line);
+			}
+			if (length(result)) return result;
+		}
+	}
+	for (let runtime in priorRuntimeComposition && priorRuntimeComposition.runtimeAssets || []) {
+		if (!object(runtime) || (runtime.id != 'dynamic:discovered-domains' && runtime.role != 'z2k-discovered-domains')) continue;
+		let path = runtime.runtimeTarget;
+		if (!string(path) || !regular(path)) continue;
+		let raw = null; try { raw = readfile(path); } catch (e) { raw = null; }
+		for (let line in split(raw || '', '\n')) {
+			line = trim(line);
+			if (length(line) && substr(line, 0, 1) != '#') push(result, line);
+		}
+		if (length(result)) return result;
+	}
+	return result;
+}
+function z2k_migration_exclusions(priorActivation) {
+	let result = [], entries = priorActivation && priorActivation.catalog && priorActivation.catalog.index && priorActivation.catalog.index.entries;
+	if (!array(entries)) return result;
+	for (let entry in entries) if (object(entry) && (entry.mode == 'excluded' || entry.excluded === true)) push(result, z2k_copy(entry));
+	return result;
+}
+function z2k_migration_input(priorActivation, priorRuntimeComposition, listed) {
+	let catalog = priorActivation && priorActivation.catalog || {}, selected = priorActivation && priorActivation.selected || null;
+	let enabledSources = {};
+	for (let id in catalog.sourceInputs || {}) enabledSources[id] = catalog.sourceInputs[id] && catalog.sourceInputs[id].enabled === true;
+	return {
+		discoveredDomains: z2k_migration_discovered_domains(listed, priorRuntimeComposition),
+		sourceSelection: { selected: z2k_copy(selected), enabledSources: enabledSources },
+		exclusions: z2k_migration_exclusions(priorActivation),
+		userStrategies: z2k_copy(catalog.userEntries || []),
+		runtimeData: {
+			config: z2k_copy(priorActivation && priorActivation.config || null),
+			runtimeEnabled: priorActivation && priorActivation.runtimeEnabled,
+			runtimeEnabledPresent: priorActivation && priorActivation.runtimeEnabledPresent
+		}
+	};
+}
 // UCode does not hoist function declarations when a later-defined helper is
 // first resolved from a lifecycle callback. Keep identity validators before
 // Core snapshot preparation, which calls them during prepare/preview.
@@ -1011,7 +1070,7 @@ function z2k_target_token(target, preparedAt) {
 		push(removalIdentity, item.id + '|' + item.type + '|' + item.sourcePath + '|' + item.runtimeTarget + '|' + item.expectedRevision + '|' + item.expectedContentSha256 + '|' + item.expectedByteSize + '|' + item.bundleId + '|' + item.version + '|' + item.sourceCommit);
 	}
 	sort(removalIdentity);
-	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.classificationSha256 + '|' + (target.runtimeBundleDigest || '') + '|' + (target.compilerSnapshotDigest || '') + '|' + (target.compatibilityIdentity || '') + '|' + (z2k_prior_activation_token(target.priorActivation) || '') + '|' + target.operation + '|' + join(',', removeIds) + '|' + join(',', removalIdentity) + '|' + preparedAt;
+	canonical = target.targetVersion + '|' + target.targetCommitSha + '|' + target.manifestSha256 + '|' + target.localFingerprint + '|' + target.classificationSha256 + '|' + (target.runtimeBundleDigest || '') + '|' + (target.compilerSnapshotDigest || '') + '|' + (target.compatibilityIdentity || '') + '|' + (z2k_prior_activation_token(target.priorActivation) || '') + '|migration:' + sprintf('%J', target.migration || null) + '|' + target.operation + '|' + join(',', removeIds) + '|' + join(',', removalIdentity) + '|' + preparedAt;
 	let digest = digest_text(canonical, 'z2m-z2k-token');
 	return digest == null ? null : 'z2k-target-v2:' + digest;
 }
@@ -2110,6 +2169,14 @@ export const resource_center_prepare_version = function(request) {
 	target.priorActivation = priorStrategy.activation;
 	target.activeStrategy = priorStrategy.activation.selected;
 	target.candidateCatalog = priorStrategy.activation.catalog;
+	let priorRuntimeComposition = resolveInstalled({ registry: listed });
+	if (!priorRuntimeComposition || priorRuntimeComposition.ok !== true) return fail('ESNAPSHOT', 'Installed runtime composition could not be snapshotted for Z2K migration.', { runtime: priorRuntimeComposition });
+	let priorReceiptState = z2k_registry_receipt_state(listed), migrationPrepared = z2k_migration_prepare({
+		activeReceipt: priorReceiptState && priorReceiptState.receipt,
+		...z2k_migration_input(priorStrategy.activation, priorRuntimeComposition, listed)
+	});
+	if (!migrationPrepared.ok) return migrationPrepared;
+	target.migration = migrationPrepared.migration;
 	target.candidateRuntime = { closureReady: false, nativeReady: false };
 	// Compose once to obtain the membership identity, then bind the final
 	// plan token and resolve again so the persisted candidate snapshot carries
@@ -2335,6 +2402,16 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	let priorAuthority = z2k_registry_receipt_state(listed);
 	let priorRuntimeComposition = resolveInstalled({ registry: listed });
 	if (!priorRuntimeComposition || priorRuntimeComposition.ok !== true) return z2k_runtime_guard_finish(guard, root, paths, fail('ESNAPSHOT', 'Installed runtime composition could not be snapshotted before Z2K mutation.', { runtime: priorRuntimeComposition }));
+	let migration = target.migration;
+	if (!object(migration)) {
+		let preparedMigration = z2k_migration_prepare({ activeReceipt: priorAuthority && priorAuthority.receipt,
+			...z2k_migration_input(priorActivation, priorRuntimeComposition, listed) });
+		if (!preparedMigration.ok) return z2k_runtime_guard_finish(guard, root, paths, preparedMigration);
+		migration = preparedMigration.migration;
+	}
+	if (!object(migration) || migration.schema != 'z2k-migration-prepared.v1') return z2k_runtime_guard_finish(guard, root, paths, fail('ESNAPSHOT', 'Prepared Z2K migration evidence is incomplete; prepare the release again.'));
+	if (migration.required === true && (!object(priorAuthority) || sprintf('%J', migration.legacyReceipt) != sprintf('%J', priorAuthority.receipt)))
+		return z2k_runtime_guard_finish(guard, root, paths, fail('ECHECK_STALE', 'The active legacy receipt changed after migration preparation; prepare the release again.'));
 	// Capture the old stable Detect state before writing the single durable Core
 	// intent. The target move is deliberately after PREPARED is durable.
 	detectPrepared = z2k_detect_prepare(detectStaged.candidate, detectStage);
@@ -2348,6 +2425,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		priorReceipt: priorAuthority.receipt || null, priorRegistryRevision: listed.revision, priorRegistryMembership: listed.assets || [],
 		priorRuntimeComposition: priorRuntimeComposition,
 		priorActivation: priorActivation,
+		migration: migration,
 		priorDetect: detectPrepared.prior || null,
 		priorCatalog: priorActivation.catalog, priorActiveStrategy: priorActivation.selected || null,
 		priorSelectionRevision: priorActivation.selectionRevision, priorConfig: priorActivation.config,
@@ -2502,11 +2580,22 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ESTALE' : 'EROLLBACK', rollback.ok ? 'Z2K activation finalization lost its Registry CAS.' : 'Z2K activation finalization failed and rollback could not be completed.', { finalize: finalized.error, rollback: rollback, diagnostics: diagnostics }));
 	}
-	let finalizedListed = asset_registry_list(null), finalizedRuntime = finalizedListed.ok ? resolveInstalled({ registry: finalizedListed }) : fail('ESTATE', 'Z2K installed runtime authority could not be read after receipt finalization.');
+	let finalizedListed = asset_registry_list(null), finalizedReceiptState = finalizedListed.ok ? z2k_registry_receipt_state(finalizedListed) : null;
+	let finalizedRuntime = finalizedListed && finalizedListed.ok ? resolveInstalled({ registry: finalizedListed }) : fail('ESTATE', 'Z2K installed runtime authority could not be read after receipt finalization.');
 	if (!finalizedRuntime.ok || finalizedRuntime.lifecycleState != 'installed' || finalizedRuntime.compositionStatus != 'canonical'
 		|| finalizedRuntime.membershipDigest != committedCandidate.membershipDigest) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K finalized receipt could not be bound to the canonical installed runtime identity.' : 'Z2K finalized receipt/runtime identity failed and rollback could not be completed.', { runtime: finalizedRuntime, rollback: rollback, diagnostics: diagnostics }));
+	}
+	let currentActivationAfter = z2k_active_strategy_snapshot(), migrationPreservedAfter = currentActivationAfter.ok
+		? z2k_migration_input(currentActivationAfter.activation, finalizedRuntime, finalizedListed) : null;
+	let migrationCommitted = z2k_migration_commit({ prepared: pending.migration,
+		finalReceipt: finalizedReceiptState && finalizedReceiptState.receipt,
+		preserved: migrationPreservedAfter });
+	diagnostics.migration = migrationCommitted;
+	if (!migrationCommitted.ok) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K migration preservation or receipt evidence failed after finalization; the legacy transaction was rolled back.' : 'Z2K migration evidence failed and rollback could not be completed.', { migration: migrationCommitted.error, currentActivation: currentActivationAfter, rollback: rollback, diagnostics: diagnostics }));
 	}
 	pending.runtimeSnapshotId = finalizedRuntime.snapshotId;
 	// The receipt now carries the exact catalog digest. Clearing the catalog

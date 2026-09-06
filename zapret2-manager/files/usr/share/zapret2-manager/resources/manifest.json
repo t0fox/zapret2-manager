@@ -64,18 +64,6 @@
         },
         {
           "type": "lua",
-          "id": "lua:z2k-detectors",
-          "name": "Z2K detectors",
-          "sourcePath": "files/lua/z2k-detectors.lua",
-          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-detectors.lua",
-          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-detectors.lua",
-          "sha256": "c7702b2f1adb007176fe25ebe25cfedfd24827891e7883477340479fadf3eac4",
-          "byteSize": 92129,
-          "dependencies": [],
-          "compatibility": { "consumer": "legacy removal lifecycle", "requires": [] }
-        },
-        {
-          "type": "lua",
           "id": "lua:z2k-fooling-ext",
           "name": "Z2K fooling extensions",
           "sourcePath": "files/lua/z2k-fooling-ext.lua",

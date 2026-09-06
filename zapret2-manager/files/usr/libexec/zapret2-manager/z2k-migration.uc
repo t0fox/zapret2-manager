@@ -1,8 +1,9 @@
 'use strict';
 
-// Legacy-to-coherent migration is a projection over the existing Registry /
-// receipt transaction. It never mutates an active owner by itself. The normal
-// Resource Center transaction supplies the commit and rollback authorities.
+// Z2K migration is an evidence contract inside the existing Resource Center
+// transaction. It does not write receipts, Registry state, runtime bytes, or
+// user data. Asset Registry finalization and the existing pending-activation
+// rollback remain the only mutation authorities.
 
 import { asset_registry_list } from './asset-registry.uc';
 import { z2k_registry_receipt_state } from './z2k-installed-release.uc';
@@ -35,19 +36,31 @@ function receipt_from(input) {
 	} catch (e) { return null; }
 }
 
+// This is deliberately stricter than the state label used by older code. A
+// V3 schema/bundle pair without its release, digest, runtime, Detect, and
+// authority identity is not coherent and must not authorize migration state.
 function v3_shape(receipt) {
 	return object(receipt) && receipt.schema == 'asset-activation-receipt.v3' && receipt.bundleId == 'z2k-curated-lua'
-		&& release(receipt.release || receipt.version) && commit(receipt.sourceCommit)
-		&& array(receipt.runtimeMembership) && length(receipt.runtimeMembership)
-		&& object(receipt.detect) && string(receipt.detect.arch) && digest(receipt.detect.digest);
+		&& release(receipt.release) && receipt.version == receipt.release && commit(receipt.sourceCommit)
+		&& integer(receipt.manifestSeq) && digest(receipt.manifestSha256) && digest(receipt.classificationSha256)
+		&& digest(receipt.runtimeBundleDigest) && digest(receipt.compilerInputsDigest) && digest(receipt.catalogDigest)
+		&& digest(receipt.compatibilityIdentity) && array(receipt.runtimeMembership) && length(receipt.runtimeMembership)
+		&& object(receipt.detect) && string(receipt.detect.arch) && digest(receipt.detect.digest)
+		&& integer(receipt.detect.size) && receipt.detect.size >= 0
+		&& (receipt.detect.sourceCommit == null || lc(receipt.detect.sourceCommit) == lc(receipt.sourceCommit));
+}
+function legacy_shape(receipt) {
+	return object(receipt) && (receipt.schema == 'asset-activation-receipt.v1' || receipt.schema == 'asset-activation-receipt.v2')
+		&& receipt.bundleId == 'z2k-curated-lua';
 }
 
 // Canonical state classifier. V1/V2 are evidence for the legacy contract;
-// only a complete V3 receipt proves the coherent contract.
+// only a complete V3 receipt proves the coherent contract. Malformed V3 is
+// NONE, not legacy and never an implicit migration success.
 export const z2k_migration_state = function(input) {
 	let receipt = receipt_from(input);
-	if (object(receipt) && receipt.schema == 'asset-activation-receipt.v3' && receipt.bundleId == 'z2k-curated-lua') return 'COHERENT_Z2K';
-	if (object(receipt) && (receipt.schema == 'asset-activation-receipt.v1' || receipt.schema == 'asset-activation-receipt.v2')) return 'LEGACY_Z2K';
+	if (v3_shape(receipt)) return 'COHERENT_Z2K';
+	if (legacy_shape(receipt)) return 'LEGACY_Z2K';
 	return 'NONE';
 };
 
@@ -67,26 +80,60 @@ export const z2k_lua_function_closure = function(input) {
 };
 
 function preserved(input) {
-	return { discoveredDomains: copy(input.discoveredDomains || []), sourceSelection: copy(input.sourceSelection || null),
-		exclusions: copy(input.exclusions || []), userStrategies: copy(input.userStrategies || []) };
+	let value = object(input) ? input : {};
+	return {
+		discoveredDomains: copy(value.discoveredDomains == null ? [] : value.discoveredDomains),
+		sourceSelection: copy(value.sourceSelection == null ? null : value.sourceSelection),
+		exclusions: copy(value.exclusions == null ? [] : value.exclusions),
+		userStrategies: copy(value.userStrategies == null ? [] : value.userStrategies),
+		runtimeData: copy(value.runtimeData == null ? {} : value.runtimeData)
+	};
 }
-function equal_array(left, right) {
-	if (!array(left) || !array(right) || length(left) != length(right)) return false;
-	for (let i = 0; i < length(left); i++) if (text(left[i]) != text(right[i])) return false;
-	return true;
+function same_value(left, right) { return sprintf('%J', left) == sprintf('%J', right); }
+function preserved_equal(left, right) {
+	return object(left) && object(right)
+		&& same_value(left.discoveredDomains, right.discoveredDomains)
+		&& same_value(left.sourceSelection, right.sourceSelection)
+		&& same_value(left.exclusions, right.exclusions)
+		&& same_value(left.userStrategies, right.userStrategies)
+		&& same_value(left.runtimeData, right.runtimeData);
+}
+function prepared_shape(value) {
+	return object(value) && value.schema == 'z2k-migration-prepared.v1' && object(value.preserved)
+		&& ((value.required === true && legacy_shape(value.legacyReceipt)) || (value.required === false && string(value.state)));
 }
 
-export const z2k_migration_apply = function(input) {
-	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Migration projection is restricted to the lifecycle transaction.');
-	let before = receipt_from(input), data = preserved(input);
-	if (z2k_migration_state({ activeReceipt: before }) != 'LEGACY_Z2K') return fail('EINCONSISTENT', 'Only V1/V2 active Z2K receipts can be migrated.');
-	if (input.migrationCommit !== true) return { ok: false, mutated: false, activeReceipt: copy(before), preserved: data, error: { code: 'EMIGRATION', message: 'Coherent activation did not commit; legacy LKG remains active.' } };
-	let candidate = input.candidate;
-	if (!object(candidate) || !array(candidate.runtimeMembership) || !length(candidate.runtimeMembership) || !object(candidate.detect))
-		return { ok: false, mutated: false, activeReceipt: copy(before), preserved: data, error: { code: 'EINPUT', message: 'Coherent candidate evidence is incomplete.' } };
-	let after = copy(candidate);
-	after.schema = 'asset-activation-receipt.v3'; after.bundleId = 'z2k-curated-lua'; after.version = candidate.release;
-	after.release = candidate.release; after.z2kMembership = copy(candidate.runtimeMembership);
-	return { ok: true, mutated: true, activeReceipt: after, preserved: data,
-		discoveredDomainsPreserved: array(data.discoveredDomains) && array(input.discoveredDomains || []) };
+// Prepare captures the legacy receipt and every user/runtime preservation
+// field before the transaction starts. It is pure and can be persisted in the
+// ordinary target/pending records without creating another authority.
+export const z2k_migration_prepare = function(input) {
+	if (!object(input)) return fail('EINPUT', 'Z2K migration prepare input is incomplete.');
+	let before = receipt_from(input), state = z2k_migration_state({ activeReceipt: before });
+	if (state == 'COHERENT_Z2K') return { ok: true, migration: { schema: 'z2k-migration-prepared.v1', required: false, state: state, preserved: preserved(input) } };
+	if (state != 'LEGACY_Z2K') return { ok: true, migration: { schema: 'z2k-migration-prepared.v1', required: false, state: state, preserved: preserved(input) } };
+	return { ok: true, migration: { schema: 'z2k-migration-prepared.v1', required: true, state: state, legacyReceipt: copy(before), preserved: preserved(input) } };
+};
+
+// Commit verifies the receipt already written by Asset Registry finalization.
+// It never constructs or writes a V3 receipt; a candidate that is not a strict
+// V3 shape is a blocking failure.
+export const z2k_migration_commit = function(input) {
+	if (!object(input) || !prepared_shape(input.prepared)) return fail('EINPUT', 'Z2K migration commit has no prepared legacy evidence.');
+	let prepared = input.prepared;
+	if (prepared.required !== true) return { ok: true, required: false, state: prepared.state, preserved: copy(prepared.preserved) };
+	let finalReceipt = object(input.finalReceipt) ? input.finalReceipt : input.activeReceipt;
+	if (!v3_shape(finalReceipt)) return fail('EVERIFY', 'Asset Registry finalization did not produce a complete V3 receipt.', { blocking: true, state: 'LEGACY_Z2K' });
+	let actual = object(input.preserved) ? input.preserved : preserved(input);
+	if (!preserved_equal(prepared.preserved, actual)) return fail('EVERIFY', 'Legacy user/runtime preservation evidence changed during coherent activation.', { blocking: true });
+	return { ok: true, required: true, state: 'COHERENT_Z2K', activeReceipt: copy(finalReceipt), preserved: copy(prepared.preserved) };
+};
+
+// Rollback is evidence only. The caller invokes the existing pending
+// activation rollback, which restores the captured Registry receipt, runtime,
+// Detect, source/catalog, and config authorities.
+export const z2k_migration_rollback = function(input) {
+	if (!object(input) || !prepared_shape(input.prepared)) return fail('EINPUT', 'Z2K migration rollback has no prepared legacy evidence.');
+	return { ok: false, mutated: false, rolledBack: true, state: 'LEGACY_Z2K',
+		activeReceipt: copy(input.prepared.legacyReceipt), preserved: copy(input.prepared.preserved),
+		error: { code: 'EMIGRATION', message: input.reason || 'Coherent activation did not commit; the legacy receipt remains active.' } };
 };
