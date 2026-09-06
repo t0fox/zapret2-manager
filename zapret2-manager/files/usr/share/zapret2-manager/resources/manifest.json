@@ -3,6 +3,7 @@
   "bundleId": "z2m-resources-catalog",
   "version": "2026.08.21.1",
   "generatedAt": "2026-08-21T00:00:00Z",
+  "z2kClassificationPath": "upstreams/z2k-integration.json",
   "sources": [
     {
       "id": "avatar-strategy-source",
@@ -71,7 +72,7 @@
           "sha256": "c7702b2f1adb007176fe25ebe25cfedfd24827891e7883477340479fadf3eac4",
           "byteSize": 92129,
           "dependencies": [],
-          "compatibility": { "consumer": "z2k detector strategies", "requires": [] }
+          "compatibility": { "consumer": "legacy removal lifecycle", "requires": [] }
         },
         {
           "type": "lua",

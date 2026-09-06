@@ -8,7 +8,7 @@
     "seq": 46
   },
   "manifestSchema": 1,
-  "manifestFileCount": 143,
+  "manifestFileCount": 147,
   "compilerInputs": [
     {
       "sourcePath": "strats_new2.txt",
@@ -377,6 +377,42 @@
       "requiredCapabilities": []
     },
     {
+      "sourcePath": "files/lists/sni_wl_candidates.txt",
+      "class": "exact-managed",
+      "dependencyClass": "runtime-exact",
+      "type": "txt",
+      "basedOnSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "localName": "runtime-assets/lists/sni_wl_candidates.txt",
+      "runtimeTarget": "/runtime-assets/lists/sni_wl_candidates.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/sni_wl_candidates.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/tcp16_targets.txt",
+      "class": "exact-managed",
+      "dependencyClass": "runtime-exact",
+      "type": "txt",
+      "basedOnSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "localName": "runtime-assets/lists/tcp16_targets.txt",
+      "runtimeTarget": "/runtime-assets/lists/tcp16_targets.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/tcp16_targets.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "files/lists/tcp16_nets.txt",
+      "class": "exact-managed",
+      "dependencyClass": "runtime-exact",
+      "type": "txt",
+      "basedOnSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "localName": "runtime-assets/lists/tcp16_nets.txt",
+      "runtimeTarget": "/runtime-assets/lists/tcp16_nets.txt",
+      "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lists/tcp16_nets.txt",
+      "consumer": "Z2M managed runtime asset resolver",
+      "requiredCapabilities": []
+    },
+    {
       "sourcePath": "files/lists/extra-domains.txt",
       "class": "exact-managed",
       "dependencyClass": "runtime-exact",
@@ -542,6 +578,18 @@
       "runtimeTarget": "/runtime-assets/lua/z2k-alert.lua",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-alert.lua",
       "consumer": "Z2M runtime Lua asset resolver",
+      "requiredCapabilities": []
+    },
+    {
+      "sourcePath": "z2k-detect/builds/z2k-detect-linux-arm64",
+      "class": "exact-managed",
+      "dependencyClass": "detect-arch",
+      "type": "file",
+      "basedOnSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "localName": null,
+      "runtimeTarget": null,
+      "packageBaselinePath": null,
+      "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },
     {

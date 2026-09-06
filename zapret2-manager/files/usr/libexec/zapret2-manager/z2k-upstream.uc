@@ -148,7 +148,7 @@ function plan(value) {
 			push(reviewDetails, detail);
 			push(blockingReasons, detail);
 		}
-		else if (klass == 'runtime-exact') {
+		else if (klass == 'runtime-exact' || klass == 'detect-arch') {
 			targetPaths[path] = true;
 			let installedAsset = registry_asset_for(path, assets), installed = installedAsset && installedAsset.contentSha256 || installedShaFor(path, assets);
 			let needsUpdate = (installed == null) || (installed != digest);

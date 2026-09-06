@@ -26,6 +26,7 @@ function error(code, message, details) {
 function dependency_class(item) {
 	if (!object(item)) return 'unknown';
 	if (item.dependencyClass == 'runtime-exact') return 'runtime-exact';
+	if (item.dependencyClass == 'detect-arch') return 'detect-arch';
 	if (item.dependencyClass == 'compiler-input') return 'compiler-input';
 	if (item.dependencyClass == 'adapted') return 'adapted';
 	if (item.dependencyClass == 'watched') return 'watched';
@@ -53,7 +54,7 @@ export const z2k_dependency_graph = function(input) {
 	input = object(input) ? input : {};
 	let files = classification_files(input.classification);
 	if (files == null) return error('EDEPENDENCY', 'Z2K dependency classification is unavailable');
-	let graph = { schema: 'z2m.z2k-dependency-graph.v1', compilerInputs: {}, runtimeExact: {}, adapted: {}, watched: {}, ignored: {}, known: {}, consumed: {}, registryAvailable: false };
+	let graph = { schema: 'z2m.z2k-dependency-graph.v1', compilerInputs: {}, runtimeExact: {}, detectArch: {}, adapted: {}, watched: {}, ignored: {}, known: {}, consumed: {}, registryAvailable: false };
 	for (let item in COMPILER_INPUTS) {
 		let record = copy(item);
 		record.required = true;
@@ -66,6 +67,7 @@ export const z2k_dependency_graph = function(input) {
 		record.dependencyClass = klass;
 		graph.known[item.sourcePath] = record;
 		if (klass == 'runtime-exact') graph.runtimeExact[item.sourcePath] = record;
+		else if (klass == 'detect-arch') graph.detectArch[item.sourcePath] = record;
 		else if (klass == 'adapted') graph.adapted[item.sourcePath] = record;
 		else if (klass == 'watched') graph.watched[item.sourcePath] = record;
 		else if (klass == 'ignored-platform') graph.ignored[item.sourcePath] = record;
