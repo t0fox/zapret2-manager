@@ -155,3 +155,100 @@ commits. The worktree is clean. No router, browser,
 package-E2E, deployment, or live Detect acceptance was run. The one unrelated
 runtime-composition static mismatch and the existing Task 4 TODO remain open
 and were not changed.
+
+## Fix-round 2 — re-review Important findings
+
+### RED evidence
+
+The focused regressions were first run against the pre-fix-round production
+paths. The bounded WSL UCode RED output was:
+
+```text
+V3 canonical-member regression: failed true !== false
+production-shaped finalization: Type error, missing coherent-finalization export
+canonical LEGACY_VERIFIED reconciliation: Type error, missing reconciliation export
+```
+
+These failures identified the missing production finalization evidence path,
+the stale V1 consumer contract, and the incomplete shared member validator.
+The FINALIZED runtime-proof regression was then kept fail-closed until its
+fixture supplied a real canonical package composition and complete materialized
+and process evidence.
+
+### Changes
+
+1. `resource-update.uc` now builds the sole finalization request from the
+   committed candidate, activation process proof, Detect identity, native
+   source validation, and the real `catalog_refresh_rebuild().indexDigest`.
+   Missing evidence aborts and compensates before receipt mutation. The
+   existing wire bundle id remains `z2k-curated-lua`; no second receipt or
+   database was introduced.
+2. The durable pending record carries `catalogRestoreRequired` across source
+   activation and rollback. Rollback rebuilds the catalog before Detect
+   restoration is closed, preserving atomic recovery when catalog mutation has
+   already occurred.
+3. V1 reconciliation consumes canonical `LEGACY_VERIFIED`; V1/V2 remain
+   readable but cannot satisfy V3 coherent FINALIZED recovery.
+4. Installed-release, Registry, and runtime-composition validation now require
+   Core-owned canonical lifecycle members (`owner=z2k-core`, allowed kind,
+   canonical role/order) and bind every V3 member to receipt release/source
+   provenance.
+5. FINALIZED recovery now requires a `COHERENT_VERIFIED` V3 receipt and
+   independently verifies resolved composition, materialized bytes, process
+   identity, runtime hashes, queue readiness, config identity, and Lua init
+   order before clearing the marker.
+
+### GREEN evidence
+
+Implementation commit: `5878dcfb` (`fix: close Task 6 coherent activation lifecycle`).
+
+Each suite was run separately with an explicit 30-second WSL timeout:
+
+```text
+z2k-receipt-v3.test.mjs:             9 passed, 0 failed
+z2k-v1-reconciliation.test.mjs:      6 passed, 0 failed, 3 existing TODOs
+z2k-installed-release-authority:    17 passed, 0 failed
+z2k-lifecycle-transaction.test.mjs: 14 passed, 0 failed
+z2k-runtime-summary.test.mjs:        5 passed, 0 failed
+z2k-update-transaction.test.mjs:    9 passed, 0 failed
+z2k-detect-artifact.test.mjs:       2 passed, 0 failed, 18 skipped on this host
+```
+
+The physical UCode recovery regression passed independently: valid
+materialized/runtime/process evidence closed the restricted recovery seam, and
+mutated runtime identity returned failure without closure. The production-
+shaped finalization regression produced `asset-activation-receipt.v3`,
+`COHERENT_VERIFIED`, the complete Detect/catalog/runtime evidence, and retained
+`z2k-curated-lua`.
+
+`z2k-runtime-composition.test.mjs` remained at `26 passed, 1 failed, 1 TODO`.
+The one failure is the pre-existing static expectation for
+`target.runtimeBundleDigest = target.dependencyClosure`; it is unrelated to
+this fix-round and was not weakened or changed.
+
+Additional bounded gates passed:
+
+```text
+node --check: all changed product test modules passed
+UCode imports: asset-registry.uc, z2k-installed-release.uc,
+               runtime-composition.uc, resource-update.uc all passed
+git diff --check: passed
+scripts/validate-knowledge.mjs: Knowledge validation passed
+scripts/docs.mjs verify: Quartz SHA verified
+```
+
+### Scope and remaining boundaries
+
+The implementation scope is the four Task 6 authority/lifecycle modules plus
+the focused receipt, reconciliation, Detect rollback, and lifecycle-order
+regressions required by the review. Adjacent `resource-update.uc` changes are
+limited to the canonical activation/finalization and rollback/recovery
+consumers. Registry/receipt authority remains singular, and no second database
+or alternate wire bundle id was added.
+
+No router deployment, browser acceptance, package-E2E acceptance, live Detect
+process acceptance, or router crash/reboot test was run. The host-skipped Detect
+behavioral cases, the unrelated runtime-composition static mismatch, and the
+existing TODOs remain explicit verification boundaries.
+
+Report evidence commit: `c8529d8e` (`docs: record Task 6 fix-round 2 evidence`).
