@@ -1779,20 +1779,22 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	try { sourceBefore = strategy_sources.strategy_sources_get(); } catch (e) { sourceBefore = null; }
 	let consumed = consume_prepared_target(state, target);
 	if (!consumed.ok) return consumed;
-	let root = null, paths = [], guard = null, staged = [], diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), removePlanned: length(target.removeIds || []), downloaded: 0, verified: 0, staged: 0, applied: 0, removed: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
+	let root = null, paths = [], guard = null, staged = [], applied = null, committedAssetRevision = null, registryCommitted = false, runtimeActivated = false,
+		diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), removePlanned: length(target.removeIds || []), downloaded: 0, verified: 0, staged: 0, applied: 0, removed: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
 	try {
 		guard = z2k_runtime_guard_acquire();
 		if (!guard.ok) return z2k_runtime_guard_finish(guard, root, paths, guard);
 		root = make_stage_root();
 		if (root == null) return z2k_runtime_guard_finish(guard, root, paths, fail('ETARGET', 'resource staging directory is unavailable'));
 		let detectStage = root + '/z2k-detect', detectCandidate = target.detectArtifact;
+		push(paths, detectStage);
 		if (!object(detectCandidate) || detectCandidate.runtimeTarget != Z2K_DETECT_TARGET) return z2k_runtime_guard_finish(guard, root, paths, fail('EDETECT_UNAVAILABLE', 'prepared Core target has no Detect artifact.'));
 		let detectStaged = z2k_detect_stage(detectCandidate, detectStage);
 		if (!detectStaged.ok) return z2k_runtime_guard_finish(guard, root, paths, detectStaged);
 		let detectPublished = z2k_detect_publish(detectStaged.candidate, detectStage);
 		if (!detectPublished.ok) return z2k_runtime_guard_finish(guard, root, paths, detectPublished);
 		z2k_active_detect_publication = detectPublished;
-		push(paths, detectStage); diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'published', prior: detectPublished.prior };
+		diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'published', prior: detectPublished.prior };
 	for (let i = 0; i < length(target.assets); i++) {
 		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
 		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
@@ -1824,17 +1826,29 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		} : { currentSnapshotId: null, lastKnownGoodSnapshotId: null },
 		sourceRestoreRequired: true, phase: 'PREPARED' };
 	if (!z2k_pending_write(pending, 'PREPARED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Durable pending activation evidence could not be persisted.'));
-	let applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit, expectedRegistryRevision: target.baseRegistryRevision, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
-	if (!applied.ok) return z2k_runtime_guard_finish(guard, root, paths, applied);
-	diagnostics.applied = applied.updated || length(staged);
-	diagnostics.removed = applied.removed || 0;
-	let committedAssetRevision = applied.committedAssetRevision || applied.revision;
-	pending.committedAssetRevision = committedAssetRevision;
-	if (!z2k_pending_write(pending, 'COMMITTED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Committed activation evidence could not be persisted.'));
+		applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit, expectedRegistryRevision: target.baseRegistryRevision, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
+		if (!applied.ok) {
+			let appliedRevision = applied && (applied.committedAssetRevision || applied.revision);
+			if (type(appliedRevision) == 'int') {
+				registryCommitted = true;
+				let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: appliedRevision }, diagnostics, false);
+				return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? (applied.error && applied.error.code || 'EWRITE') : 'EROLLBACK', rollback.ok ? 'Z2K Registry apply failed after mutation and was rolled back.' : 'Z2K Registry apply failed after mutation and rollback could not be completed.', { apply: applied, rollback: rollback, diagnostics: diagnostics }));
+			}
+			return z2k_runtime_guard_finish(guard, root, paths, applied);
+		}
+		registryCommitted = true;
+		diagnostics.applied = applied.updated || length(staged);
+		diagnostics.removed = applied.removed || 0;
+		committedAssetRevision = applied.committedAssetRevision || applied.revision;
+		pending.committedAssetRevision = committedAssetRevision;
+		if (!z2k_pending_write(pending, 'COMMITTED')) {
+			let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, false);
+			return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Committed activation evidence could not be persisted; Registry state was rolled back.' : 'Committed activation evidence failed and Registry/runtime/source rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+		}
 	let after = asset_registry_list(null), committedCandidate = after.ok ? resolveCandidate(target, { observedRegistryRevision: after.revision, phase: 'post-commit', committedAssetRevision: committedAssetRevision }) : fail('ESTALE', 'Z2K Registry could not be read after bundle commit.');
 	if (!committedCandidate.ok) {
-		let rollback = asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: committedAssetRevision });
-		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ESTALE' : 'EROLLBACK', rollback.ok ? 'Z2K Registry changed during candidate commit.' : 'Z2K Registry changed and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, false);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ESTALE' : 'EROLLBACK', rollback.ok ? 'Z2K Registry changed after commit and all lifecycle owners were rolled back.' : 'Z2K Registry changed after commit and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
 	}
 	let registryPostflight = z2k_target_postflight(after, target, diagnostics);
 	diagnostics.registryPostflight = registryPostflight;
@@ -1850,7 +1864,11 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtime.activated === true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ERUNTIME' : 'EROLLBACK', rollback.ok ? 'Z2K runtime activation was rolled back; Registry state was restored.' : 'Z2K runtime activation failed and rollback could not be completed.', { runtime: runtime.error || null, rollback: rollback, diagnostics: diagnostics }));
 	}
-	if (!z2k_pending_write(pending, 'MATERIALIZED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Materialized activation evidence could not be persisted.'));
+	runtimeActivated = true;
+	if (!z2k_pending_write(pending, 'MATERIALIZED')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Materialized activation evidence failed and all lifecycle owners were rolled back.' : 'Materialized activation evidence failed and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+	}
 	let materialized = verifyMaterialized(committedCandidate, z2k_materialized_evidence(committedCandidate, target));
 	diagnostics.materializedVerification = materialized;
 	if (!materialized.ok) {
@@ -1888,7 +1906,10 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EPREFLIGHT' : 'EROLLBACK', rollback.ok ? 'Z2K official strategy snapshot failed native validation after runtime activation and was rolled back.' : 'Z2K official strategy snapshot failed native validation and rollback could not be completed.', { source: finalizedSource || null, rollback: rollback, diagnostics: diagnostics }));
 	}
 	core.snapshot = finalizedSource.snapshot;
-	if (!z2k_pending_write(pending, 'PROCESS_VERIFIED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Process verification evidence could not be persisted.'));
+	if (!z2k_pending_write(pending, 'PROCESS_VERIFIED')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Process verification evidence failed and all lifecycle owners were rolled back.' : 'Process verification evidence failed and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+	}
 	let sourceInstalled = null;
 	try { sourceInstalled = strategy_sources.strategy_source_install_verified_snapshot('z2k', { verified: true, snapshot: core.snapshot }); }
 	catch (e) { sourceInstalled = null; }
@@ -1896,20 +1917,45 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K strategy source activation failed and was rolled back.' : 'Z2K strategy source activation failed and rollback could not be completed.', { source: sourceInstalled, rollback: rollback, diagnostics: diagnostics }));
 	}
-	if (!z2k_pending_write(pending, 'SOURCE_ACTIVATED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Z2K source activation evidence could not be persisted.'));
+	if (!z2k_pending_write(pending, 'SOURCE_ACTIVATED')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K source activation evidence failed and all lifecycle owners were rolled back.' : 'Z2K source activation evidence failed and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+	}
 	let catalogRebuilt = null;
 	try { catalogRebuilt = catalog_refresh_rebuild(); } catch (e) { catalogRebuilt = null; }
 	if (!catalogRebuilt || catalogRebuilt.ok !== true) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EINDEX' : 'EROLLBACK', rollback.ok ? 'Z2K catalog publication failed and was rolled back.' : 'Z2K catalog publication failed and rollback could not be completed.', { catalog: catalogRebuilt, rollback: rollback, diagnostics: diagnostics }));
 	}
-	if (!z2k_pending_write(pending, 'FINALIZED') || !z2k_pending_clear()) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Z2K activation finalized but durable evidence could not be closed.', { mutationCompleted: true, diagnostics: diagnostics }));
+	if (!z2k_pending_write(pending, 'FINALIZED')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Finalized activation evidence could not be persisted; Registry/runtime/source state was rolled back.' : 'Finalized activation evidence failed and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+	}
 	let reconciled = z2k_reconcile_after_mutation(target);
 	diagnostics.postMutationCheckState = reconciled;
-	if (!reconciled.ok) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Z2K update completed, but its persisted status could not be reconciled; check the state before retrying.', { mutationCompleted: true, diagnostics: diagnostics }));
+	if (!reconciled.ok) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K post-mutation reconciliation failed and was rolled back.' : 'Z2K post-mutation reconciliation failed and rollback could not be completed.', { mutationCompleted: true, reconciliation: reconciled, rollback: rollback, diagnostics: diagnostics }));
+	}
+	let detectFinalized = z2k_detect_finalize(z2k_active_detect_publication);
+	if (!detectFinalized.ok) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K Detect finalization failed and the lifecycle was rolled back.' : 'Z2K Detect finalization failed and rollback could not be completed.', { detect: detectFinalized, rollback: rollback, diagnostics: diagnostics }));
+	}
+	// Once Detect rollback state is closed, the FINALIZED pending record is the
+	// durable coherent pair: Registry receipt, runtime/source activation, and the
+	// stable Detect bytes all describe the same candidate. If clearing it fails,
+	// leave that record for recovery instead of restoring Detect alone.
+	z2k_active_detect_publication = null;
+	if (!z2k_pending_clear()) return z2k_runtime_guard_finish(guard, root, paths, fail('ERECOVERY_REQUIRED', 'Z2K activation is coherent but finalized evidence could not be cleared; recovery must verify the receipt and stable Detect identity.', { mutationCompleted: true, durableRecovery: 'FINALIZED', invariant: 'Registry receipt, runtime/source activation, and stable Detect candidate remain paired.', detect: detectFinalized, diagnostics: diagnostics }));
 	return z2k_runtime_guard_finish(guard, root, paths, { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: finalized.installedAuthorityRevision, committedAssetRevision: committedAssetRevision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null });
 	} catch (e) {
-		return z2k_runtime_guard_finish(guard, root, paths, fail('EINTERNAL', 'Z2K lifecycle failed while the intentional runtime guard was active.', { detail: text(e), diagnostics: diagnostics }));
+		let failure = fail('EINTERNAL', 'Z2K lifecycle failed while the intentional runtime guard was active.', { detail: text(e), diagnostics: diagnostics });
+		if (registryCommitted) {
+			let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+			failure = fail(rollback.ok ? 'EINTERNAL' : 'EROLLBACK', rollback.ok ? failure.error.message : 'Z2K lifecycle failed after Registry mutation and rollback could not be completed.', { detail: failure.error.detail, rollback: rollback, diagnostics: diagnostics });
+		}
+		return z2k_runtime_guard_finish(guard, root, paths, failure);
 	}
 }
 export const resource_center_status = function () {

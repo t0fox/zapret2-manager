@@ -2,7 +2,7 @@
 
 // Z2K Core owns the exact upstream Detect artifact. This module only resolves,
 // stages and validates the binary; Detect itself remains the upstream algorithm.
-import { popen, stat, writefile } from 'fs';
+import { popen, stat, readlink, writefile } from 'fs';
 
 const RUNTIME_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
 const REPOSITORY = 'necronicle/z2k';
@@ -32,7 +32,7 @@ function command(value) {
 	return { rc: rc, out: out };
 }
 function regular(path) {
-	try { let value = stat(path); return object(value) && value.type == 'file' && type(value.size) == 'int'; }
+	try { let value = stat(path); return object(value) && value.type == 'file' && readlink(path) == null && type(value.size) == 'int'; }
 	catch (e) { return false; }
 }
 function digest(path) {
@@ -41,10 +41,13 @@ function digest(path) {
 	return result.rc == 0 && valid_digest(value) ? lc(value) : null;
 }
 function allowed_stage(path, testOnly) {
-	return string(path) && (testOnly === true ? substr(path, 0, length(TEST_PATH_PREFIX)) == TEST_PATH_PREFIX
-		: substr(path, 0, length(PRODUCTION_STAGE_PREFIX)) == PRODUCTION_STAGE_PREFIX);
+	let prefix = testOnly === true ? TEST_PATH_PREFIX : PRODUCTION_STAGE_PREFIX;
+	if (!string(path) || index(path, '\\') >= 0 || substr(path, 0, length(prefix)) != prefix) return false;
+	let parts = split(path, '/');
+	for (let i = 0; i < length(parts); i++) if (parts[i] == '..') return false;
+	return true;
 }
-function allowed_test_target(path) { return string(path) && substr(path, 0, length(TEST_PATH_PREFIX)) == TEST_PATH_PREFIX; }
+function allowed_test_target(path) { return allowed_stage(path, true); }
 function resolve_target(input) {
 	if (object(input) && input.testOnly === true) return allowed_test_target(input.target) ? input.target : null;
 	return RUNTIME_TARGET;
@@ -83,6 +86,7 @@ function hooks_for(input) {
 		copy: type(seams.copy) == 'function' ? seams.copy : default_copy,
 		move: type(seams.move) == 'function' ? seams.move : default_move,
 		remove: type(seams.remove) == 'function' ? seams.remove : default_remove,
+		regular: type(seams.regular) == 'function' ? seams.regular : regular,
 		sha256: type(seams.sha256) == 'function' ? seams.sha256 : digest,
 		chmod: type(seams.chmod) == 'function' ? seams.chmod : default_chmod,
 		size: type(seams.size) == 'function' ? seams.size : default_size,
@@ -90,6 +94,7 @@ function hooks_for(input) {
 		check: type(seams.check) == 'function' ? seams.check : null
 	};
 }
+function stage_failure(remove, path, result) { try { remove(path); } catch (e) {} return result; }
 function executable_result(path, runner) {
 	let result;
 	try { result = type(runner) == 'function' ? runner(path) : default_check(path); }
@@ -133,20 +138,23 @@ export const z2k_detect_stage = function(candidate, stagePath, seams) {
 		return fail('EINPUT', 'Detect staging candidate is invalid.');
 	let url = 'https://raw.githubusercontent.com/' + REPOSITORY + '/' + candidate.sourceCommit + '/' + candidate.sourcePath;
 	let fetch = type(input.fetch) == 'function' ? input.fetch : default_fetch;
+	let isRegular = type(input.regular) == 'function' ? input.regular : regular;
+	let remove = type(input.remove) == 'function' ? input.remove : default_remove;
 	let hash = type(input.sha256) == 'function' ? input.sha256 : digest;
 	let chmod = type(input.chmod) == 'function' ? input.chmod : default_chmod;
 	let check = type(input.check) == 'function' ? input.check : null;
 	try {
-		if (!fetch(url, stagePath)) return fail('EUNAVAILABLE', 'Selected Detect artifact could not be fetched.', { sourcePath: candidate.sourcePath, url: url });
+		if (!fetch(url, stagePath)) return stage_failure(remove, stagePath, fail('EUNAVAILABLE', 'Selected Detect artifact could not be fetched.', { sourcePath: candidate.sourcePath, url: url }));
+		if (!isRegular(stagePath)) return stage_failure(remove, stagePath, fail('EDETECT_INCOMPATIBLE', 'Selected Detect stage is not a regular non-symlink file.', { path: stagePath }));
 		let actual = hash(stagePath);
-		if (actual == null || lc(actual) != lc(candidate.sha256)) return fail('EVERIFY', 'Fetched Detect bytes do not match the selected manifest SHA-256.', { expectedSha256: candidate.sha256, actualSha256: actual, sourcePath: candidate.sourcePath });
-		if (!chmod(stagePath)) return fail('EDETECT_INCOMPATIBLE', 'Fetched Detect artifact could not be marked executable.', { path: stagePath });
+		if (actual == null || lc(actual) != lc(candidate.sha256)) return stage_failure(remove, stagePath, fail('EVERIFY', 'Fetched Detect bytes do not match the selected manifest SHA-256.', { expectedSha256: candidate.sha256, actualSha256: actual, sourcePath: candidate.sourcePath }));
+		if (!chmod(stagePath)) return stage_failure(remove, stagePath, fail('EDETECT_INCOMPATIBLE', 'Fetched Detect artifact could not be marked executable.', { path: stagePath }));
 		let executable = check != null ? executable_result(stagePath, check) : executable_result(stagePath);
-		if (!executable.ok) return executable;
+		if (!executable.ok) return stage_failure(remove, stagePath, executable);
 		let size = null;
 		try { size = stat(stagePath); } catch (e) { }
 		return { ok: true, candidate: { ...candidate, byteSize: size && type(size.size) == 'int' ? size.size : null, executable: true }, stagePath: stagePath, url: url };
-	} catch (e) { return fail('EDETECT_INCOMPATIBLE', 'Detect staging failed closed.', { detail: text(e) }); }
+	} catch (e) { return stage_failure(remove, stagePath, fail('EDETECT_INCOMPATIBLE', 'Detect staging failed closed.', { detail: text(e) })); }
 };
 
 function detect_restore(publication, seams) {
@@ -168,8 +176,9 @@ export const z2k_detect_publish = function(candidate, stagePath, seams) {
 	let input = object(seams) ? seams : {}, target = resolve_target(input), hooks = hooks_for(input);
 	if (!object(candidate) || candidate.ok !== true || candidate.runtimeTarget != RUNTIME_TARGET || target == null
 		|| !allowed_stage(stagePath, input.testOnly === true)) return fail('EINPUT', 'Detect publication target is not the fixed Core target.');
-	if (!hooks.exists(stagePath)) return fail('EUNAVAILABLE', 'Verified Detect staging bytes are absent.', { stagePath: stagePath });
-	let backup = resolve_backup(input, target), priorExists = hooks.exists(target), prior = { exists: priorExists, sha256: null, byteSize: null, mode: null };
+	if (!hooks.regular(stagePath)) return fail('EUNAVAILABLE', 'Verified Detect staging bytes are absent or not a regular file.', { stagePath: stagePath });
+	if (hooks.exists(target) && !hooks.regular(target)) return fail('EDETECT_INCOMPATIBLE', 'Stable Detect target is not a regular non-symlink file.', { target: target });
+	let backup = resolve_backup(input, target), priorExists = hooks.regular(target), prior = { exists: priorExists, sha256: null, byteSize: null, mode: null };
 	if (priorExists) {
 		prior.sha256 = hooks.sha256(target); prior.byteSize = hooks.size(target); prior.mode = hooks.mode(target);
 		if (!valid_digest(prior.sha256) || !hooks.copy(target, backup)) return fail('EVERIFY', 'Prior stable Detect state could not be captured.', { target: target });
