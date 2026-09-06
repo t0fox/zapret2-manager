@@ -10,6 +10,7 @@ import { z2k_candidate_identity_gate } from './z2k-compat.uc';
 import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { z2k_candidate_build } from './z2k-coherent-candidate.uc';
 import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
+import { z2k_lua_function_closure } from './z2k-migration.uc';
 
 const BUNDLE_ID = 'z2k-curated-lua';
 const MAX_ENTRIES = 128;
@@ -362,6 +363,10 @@ export const resolveCandidate = function(preparedTarget, context) {
 	let coherent = null;
 	if (object(preparedTarget.candidateInput)) {
 		let candidateInput = copy(preparedTarget.candidateInput);
+		if (candidateInput.luaFunctionClosure != null) {
+			let closure = z2k_lua_function_closure(candidateInput.luaFunctionClosure);
+			if (!closure.ok) return closure;
+		}
 		candidateInput.release = candidateInput.release || preparedTarget.targetVersion;
 		candidateInput.sourceCommit = candidateInput.sourceCommit || preparedTarget.targetCommit || preparedTarget.targetCommitSha;
 		candidateInput.manifestSeq = candidateInput.manifestSeq == null ? (preparedTarget.manifestSeq == null ? preparedTarget.manifestRevision : preparedTarget.manifestSeq) : candidateInput.manifestSeq;

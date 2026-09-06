@@ -21,6 +21,7 @@ import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
 import { strategy_catalog_generation_read, strategy_catalog_generation_publish } from './strategy-catalog-generation.uc';
 import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore } from './strategy-state.uc';
 import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
+import { z2k_migration_state, z2k_lua_function_closure } from './z2k-migration.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -52,6 +53,14 @@ const Z2K_STATUS_RPC_MAX_BYTES = 64 * 1024;
 const Z2K_PACKAGE_LUA_ORDER_BASE = 100;
 const Z2K_DETECT_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
 let z2k_active_detect_publication = null;
+
+// Read-only boundary used by status/transaction tests and future callers. The
+// migration itself remains inside the ordinary Asset Registry transaction.
+export const resource_center_z2k_migration_state = function(input) { return z2k_migration_state(input); };
+export const resource_center_test_lua_function_closure = function(input) {
+	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Lua closure test seam is restricted to controlled tests.');
+	return z2k_lua_function_closure(input);
+};
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
