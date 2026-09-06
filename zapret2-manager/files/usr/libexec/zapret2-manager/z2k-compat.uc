@@ -1,5 +1,6 @@
 'use strict';
 import { readfile, stat, popen } from 'fs';
+import { z2k_candidate_compatibility_identity_valid } from './z2k-coherent-candidate.uc';
 
 function fail(code, message, details) {
   let v = { ok: false, error: { code: code, message: message } };
@@ -65,5 +66,13 @@ export const z2k_candidate_gate = function(sourcePath, candidatePath, expectedSh
       return { ok: false, status: 'review-required', error: { code: 'EZ2K_REVIEW_REQUIRED', message: 'state-persist candidate incompatible with sidecar seam', details: { missing: missing } }, sourcePath: sourcePath, expectedSha256: expected, actualSha256: actual, missing: missing, code: 'EZ2K_REVIEW_REQUIRED' };
     }
   }
-  return { ok: true, sourcePath: sourcePath, sha256: actual, expectedSha256: expected, actualSha256: actual };
+	return { ok: true, sourcePath: sourcePath, sha256: actual, expectedSha256: expected, actualSha256: actual };
+};
+
+// Compatibility validation delegates to the immutable candidate boundary;
+// this module remains responsible only for staged-byte semantic gates.
+export const z2k_candidate_identity_gate = function(candidate) {
+	return z2k_candidate_compatibility_identity_valid(candidate)
+		? { ok: true, compatibilityIdentity: candidate.compatibilityIdentity }
+		: { ok: false, error: { code: 'ECOMPATIBILITY', message: 'coherent candidate identity is invalid' } };
 };

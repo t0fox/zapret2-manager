@@ -268,7 +268,7 @@ export const z2k_dependency_closure = function(input) {
 	sort(state.items, function(a, b) { let left = a.class + ':' + a.reference, right = b.class + ':' + b.reference; return left == right ? 0 : left < right ? -1 : 1; });
 	return {
 		schema: SCHEMA, available: state.available, resolution: 'complete', items: state.items, missing: state.missing,
-		counts: state.counts, runtimeBundleDigest: bundle_digest(state.items),
+		counts: state.counts, runtimeBundleDigest: bundle_digest(state.items), runtimeMembership: state.items,
 		sourceCommit: input.sourceCommit || null, compilerSnapshotDigest: input.compilerSnapshotDigest || null,
 		nfqws2OptSha256: input.nfqws2OptSha256 || null, structurallyCompilable: true
 	};
