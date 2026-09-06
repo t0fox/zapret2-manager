@@ -68,4 +68,4 @@ support remains owned by the existing `z2k-versions.uc` release authority.
 
 Commit message: `fix: bind Z2K strategies to Core release`
 
-Commit hash: recorded after the final commit and clean-worktree verification.
+Commit hash: `4b469b50` (final commit after report inclusion).
