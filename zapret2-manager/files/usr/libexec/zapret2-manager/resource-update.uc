@@ -1514,12 +1514,23 @@ function z2k_pending_legacy_reconciliation_eligible(pending, listed) {
 		&& receipt.version == pending.targetVersion && receipt.sourceCommit == pending.targetCommit
 		&& receipt.schema == 'asset-activation-receipt.v1';
 }
+function z2k_rollback_expected_revision(applied, listed, pending) {
+	let expected = applied && (applied.committedAssetRevision || applied.revision);
+	if (type(expected) != 'int' || !object(listed) || listed.ok !== true || listed.revision != expected + 1 || !object(pending)
+		|| pending.phase == 'COMMITTED') return expected;
+	let authority = z2k_registry_receipt_state(listed), receipt = authority && authority.receipt;
+	if (authority && authority.state == 'confirmed' && object(receipt)
+		&& receipt.version == pending.targetVersion && receipt.sourceCommit == pending.targetCommit
+		&& receipt.committedRegistryRevision == expected) return listed.revision;
+	return expected;
+}
 function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated) {
 	let pending = z2k_pending_load(), journal = pending == null || z2k_pending_write(pending, 'ROLLING_BACK');
 	let runtimeRollback = runtimeActivated ? z2k_runtime_rollback() : { ok: true, skipped: true };
 	let listed = asset_registry_list(null), alreadyRestored = z2k_rollback_registry_already_restored(pending, listed);
+	let expectedRevision = z2k_rollback_expected_revision(applied, listed, pending);
 	let registryRollback = alreadyRestored ? { ok: true, skipped: true, alreadyRestored: true, revision: listed.revision }
-		: asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: applied.committedAssetRevision || applied.revision });
+		: asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: expectedRevision });
 	let sourceRollback = { ok: true, skipped: true };
 	if (pending && pending.sourceRestoreRequired === true && object(pending.sourceActivation)) {
 		try { sourceRollback = strategy_sources.strategy_source_restore_activation('z2k', pending.sourceActivation); }

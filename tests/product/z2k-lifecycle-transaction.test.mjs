@@ -90,6 +90,13 @@ test('post-activation native validation resolves the installed receipt and compe
     'native validation failure must restore the previous runtime and source');
 });
 
+test('rollback accounts for the Registry revision added by activation finalization', () => {
+  assert.match(coordinator, /function z2k_rollback_expected_revision\(applied, listed, pending\)/);
+  assert.match(coordinator, /z2k_rollback_expected_revision\(applied, listed, pending\)/);
+  assert.match(coordinator, /pending\.targetVersion.*receipt\.version|receipt\.version.*pending\.targetVersion/s);
+  assert.match(coordinator, /listed\.revision != expected \+ 1/);
+});
+
 test('same-release V1 reconciliation uses FRESH resolution and the normal reinstall transaction', () => {
   assert.match(coordinator, /V1_VERIFIED_MEMBERSHIP|reconciliationRequired/);
   assert.match(coordinator, /z2k_resolve_version|z2k_upstream_check/);
