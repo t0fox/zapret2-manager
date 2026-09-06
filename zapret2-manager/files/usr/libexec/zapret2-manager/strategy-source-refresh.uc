@@ -151,14 +151,6 @@ export const strategy_source_z2k_compile_exact = function(input) {
 	return compile_z2k_exact(input.sourceCommit);
 };
 
-// Called only after the Core candidate runtime has been materialized. The
-// native evidence is therefore bound to the staged release, and the source
-// pointer is still untouched if this gate rejects the candidate.
-export const strategy_source_z2k_finalize_core_snapshot = function(input) {
-	if (!object(input) || !object(input.snapshot)) return error('EINPUT', 'Core Z2K snapshot is required');
-	let inventory = object(input.dependencyInventory) ? input.dependencyInventory : z2k_dependency_inventory();
-	return validate_z2k_candidate(input.snapshot, inventory);
-};
 function cleanup_staging(path) {
 	if (!string(path) || !match(path, /^\/tmp\/z2m-avatar-refresh\.[A-Za-z0-9]+$/)) return;
 	run('rm -rf ' + quote(path));
@@ -227,6 +219,17 @@ function validate_z2k_candidate(snapshot, dependencyInventory) {
 	if (!finalized.ok) return finalized;
 	return { ok: true, validation: all.validation, snapshot: finalized.snapshot };
 }
+
+// Called only after the Core candidate runtime has been materialized. The
+// native evidence is therefore bound to the staged release, and the source
+// pointer is still untouched if this gate rejects the candidate. Keep this
+// export below its UCode function dependencies: UCode does not hoist function
+// declarations referenced by an exported function closure.
+export const strategy_source_z2k_finalize_core_snapshot = function(input) {
+	if (!object(input) || !object(input.snapshot)) return error('EINPUT', 'Core Z2K snapshot is required');
+	let inventory = object(input.dependencyInventory) ? input.dependencyInventory : z2k_dependency_inventory();
+	return validate_z2k_candidate(input.snapshot, inventory);
+};
 function extract_avatar_archive(archive) {
 	if (!object(archive) || !string(archive.path)) return error('EINPUT', 'Avatar source archive is missing');
 	let staging = run('umask 077; mktemp -d /tmp/z2m-avatar-refresh.XXXXXX');

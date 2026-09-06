@@ -11,6 +11,7 @@ const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/reso
 const worker = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc');
 const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc');
 const recovery = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-lifecycle-recovery.uc');
+const sourceRefresh = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
 
 function functionBody(source, marker, nextMarker) {
   const start = source.indexOf(marker);
@@ -100,6 +101,14 @@ test('rollback accounts for the Registry revision added by activation finalizati
 test('native finalization exceptions remain visible in the bounded RPC result', () => {
   assert.match(coordinator, /catch \(e\) \{ finalizedSource = fail\('EINTERNAL'/);
   assert.match(coordinator, /finalizedSource = fail\('EINTERNAL',[\s\S]*detail: text\(e\)/);
+});
+
+test('UCode finalization export is declared after its helper dependencies', () => {
+  const exported = sourceRefresh.indexOf('export const strategy_source_z2k_finalize_core_snapshot');
+  assert.ok(exported > sourceRefresh.indexOf('function z2k_dependency_inventory'),
+    'finalization export must not reference a helper declared later in UCode');
+  assert.ok(exported > sourceRefresh.indexOf('function validate_z2k_candidate'),
+    'finalization export must not reference validation declared later in UCode');
 });
 
 test('same-release V1 reconciliation uses FRESH resolution and the normal reinstall transaction', () => {
