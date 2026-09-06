@@ -346,5 +346,5 @@ process acceptance, or router crash/reboot test was run. The host-skipped
 Detect cases, the one pre-existing runtime-composition static mismatch, and
 existing TODOs remain explicit boundaries.
 
-Report evidence commit: documentation commit following `e70fc8f5`; the final
-handoff records its exact hash.
+Report evidence commit: `abf00d81` (the initial Fix-round 3 report commit).
+The final clean HEAD is recorded by the bounded post-commit handoff.
