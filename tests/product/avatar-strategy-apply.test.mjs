@@ -64,6 +64,14 @@ test('Strategy Apply revalidation accepts both canonical catalog origins', () =>
   assert.match(source, /value\.origin == 'avatar_builtin'\s*\|\|\s*value\.origin == 'z2k_builtin'/);
 });
 
+test('strict Strategy state reads rebind legacy Z2K selection from verified catalog identity', () => {
+  const source = fs.readFileSync(STATE, 'utf8');
+  assert.match(source, /function rebind_legacy_z2k_selection\(selected\)/);
+  assert.match(source, /strategy_catalog_load\(null\)/);
+  assert.match(source, /z2kCompatibilityIdentity/);
+  assert.match(source, /canonicalize_state[\s\S]*rebind_legacy_z2k_selection/);
+});
+
 test('transient Strategy Apply projection persists a canonical revision for inline compositions', () => {
   const source = fs.readFileSync(CLI, 'utf8');
   const projection = source.slice(source.indexOf('function strategy_apply_projection'), source.indexOf('function strategy_apply_candidate'));

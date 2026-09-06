@@ -114,12 +114,49 @@ function canonical_catalog_id(id, origin) {
 	}
 	return id;
 }
+
+function rebind_legacy_z2k_selection(selected) {
+	if (!is_object(selected) || selected.sourceId != 'z2k'
+		|| exists(selected, 'z2kCompatibilityIdentity') || exists(selected, 'compatibilityIdentity')) return selected;
+	// Older lifecycle commits persisted the Z2K selection provenance before the
+	// Core compatibility identity became mandatory. Rebind only from the
+	// currently verified catalog entry; never accept an identity supplied by the
+	// caller or infer one from the stale selection itself.
+	let loaded = null, entry = null, strategy = null, compatibility = null;
+	try { loaded = strategy_catalog_load(null); } catch (e) { loaded = null; }
+	if (!is_object(loaded) || loaded.ok != true || !is_object(loaded.catalog)
+		|| !is_object(loaded.catalog.winners)) return selected;
+	entry = loaded.catalog.winners[selected.id];
+	if (entry == null) return selected;
+	// Generation entries are already verified index projections and carry the
+	// lifecycle identity directly. Fall back to normalization for package
+	// catalog entries, whose semantic fields still need the model boundary.
+	compatibility = entry.z2kCompatibilityIdentity || null;
+	if (!is_object(compatibility)) {
+		try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
+		compatibility = is_object(strategy) ? strategy.z2kCompatibilityIdentity : null;
+	}
+	if (!is_object(compatibility) || !z2k_compatibility_identity_valid(compatibility)
+		|| (entry.compatibilityIdentity || (strategy && strategy.compatibilityIdentity)) != compatibility.digest) return selected;
+	selected.z2kCompatibilityIdentity = json(sprintf('%J', compatibility));
+	selected.compatibilityIdentity = compatibility.digest;
+	let sourceSnapshotId = entry.sourceSnapshotId || (strategy && strategy.sourceSnapshotId);
+	let sourceCommit = entry.sourceCommit || (strategy && strategy.sourceCommit);
+	if (is_string(sourceSnapshotId) && safe_strategy_id(sourceSnapshotId)) selected.sourceSnapshotId = sourceSnapshotId;
+	if (is_string(sourceCommit) && match(sourceCommit, /^[a-f0-9]{7,40}$/)) selected.sourceCommit = sourceCommit;
+	return selected;
+}
+
 function canonicalize_state(value) {
 	if (!is_object(value)) return value;
 	let result = null;
 	try { result = json(sprintf('%J', value)); } catch (e) { return null; }
 	let selected = result && result.selected;
-	if (is_object(selected)) selected.id = canonical_catalog_id(selected.id, selected.origin);
+	if (is_object(selected)) {
+		selected.id = canonical_catalog_id(selected.id, selected.origin);
+		selected = rebind_legacy_z2k_selection(selected);
+		result.selected = selected;
+	}
 	let favorites = [], seen = {};
 	for (let id in result.favorites || []) {
 		let canonical = canonical_catalog_id(id, 'avatar_builtin');
