@@ -12,6 +12,7 @@ const sourceStore = read('zapret2-manager/files/usr/libexec/zapret2-manager/stra
 const resourceUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const strategyState = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const strategyCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const compatibility = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-compatibility.uc');
 
 test('Z2K lifecycle resolver declares digest helpers before Core snapshot preparation', () => {
   assert.ok(versions.length > 0);
@@ -27,6 +28,15 @@ test('Z2K snapshot builder binds the imported entry before deriving its digest',
   const builder = source.slice(source.indexOf('export const strategy_source_z2k_prepare_snapshot'));
   assert.ok(builder.indexOf('let entry = copy(imported.entry)') < builder.indexOf('entry.z2kCompatibilityIdentity'),
     'snapshot identity derivation must not read entry before it is declared');
+});
+
+test('Z2K compatibility identity has a local digest implementation', () => {
+  assert.match(compatibility, /import \{[^}]*popen[^}]*writefile[^}]*\} from ['"]fs['"]/,
+    'compatibility identity hashing must use the UCode filesystem boundary');
+  const digestAt = compatibility.indexOf('function digest');
+  const identityAt = compatibility.indexOf('export const z2k_compatibility_identity');
+  assert.ok(digestAt >= 0 && digestAt < identityAt,
+    'compatibility identity must not call an undeclared digest helper');
 });
 
 test('release catalog accepts r and p families and exposes authoritative identity fields', () => {
