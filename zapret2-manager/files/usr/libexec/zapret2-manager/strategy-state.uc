@@ -937,8 +937,11 @@ function same_selection(left, right) {
 	if (left == null || right == null) return left == right;
 	if (left.id != right.id || left.origin != right.origin || left.revision != right.revision
 		|| left.candidateSha256 != right.candidateSha256) return false;
-	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest'])
-		if (left[key] != right[key]) return false;
+	for (let key in ['canonicalStrategyId', 'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest']) {
+		if (key == 'z2kCompatibilityIdentity' && (is_object(left[key]) || is_object(right[key]))) {
+			if (!is_object(left[key]) || !is_object(right[key]) || left[key].digest != right[key].digest) return false;
+		} else if (left[key] != right[key]) return false;
+	}
 	return true;
 }
 

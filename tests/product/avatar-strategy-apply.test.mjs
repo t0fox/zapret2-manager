@@ -72,6 +72,12 @@ test('strict Strategy state reads rebind legacy Z2K selection from verified cata
   assert.match(source, /canonicalize_state[\s\S]*rebind_legacy_z2k_selection/);
 });
 
+test('Strategy Apply compares Z2K compatibility identity semantically across state reads', () => {
+  const source = fs.readFileSync(STATE, 'utf8');
+  const equality = source.slice(source.indexOf('function same_selection'), source.indexOf('export const strategy_apply_revalidate'));
+  assert.match(equality, /z2kCompatibilityIdentity[\s\S]*\.digest/);
+});
+
 test('transient Strategy Apply projection persists a canonical revision for inline compositions', () => {
   const source = fs.readFileSync(CLI, 'utf8');
   const projection = source.slice(source.indexOf('function strategy_apply_projection'), source.indexOf('function strategy_apply_candidate'));
