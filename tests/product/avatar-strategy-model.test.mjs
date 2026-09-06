@@ -211,6 +211,15 @@ test('catalog conversion preserves canonical source snapshot identity for Apply'
     sourceSnapshotId: 'z2k-snapshot-1',
     sourceCommit: 'a'.repeat(40),
     contentDigest: 'b'.repeat(64),
+    z2kRelease: 'p-82.15',
+    manifestRevision: 77,
+    runtimeBundleDigest: 'c'.repeat(64),
+    compilerSnapshotDigest: 'd'.repeat(64),
+    z2kCompatibilityIdentity: {
+      release: 'p-82.15', sourceCommit: 'a'.repeat(40), manifestRevision: 77,
+      runtimeBundleDigest: 'c'.repeat(64), compilerSnapshotDigest: 'd'.repeat(64), digest: 'e'.repeat(64),
+    },
+    compatibilityIdentity: 'e'.repeat(64),
     provenance: { repository: 'necronicle/z2k', sourcePath: 'strats_new2.txt', sourceId: 'z2k' },
   }));
   assert.equal(result.id, 'z2k_all_in_one');
@@ -219,6 +228,15 @@ test('catalog conversion preserves canonical source snapshot identity for Apply'
   assert.equal(result.sourceSnapshotId, 'z2k-snapshot-1');
   assert.equal(result.sourceCommit, 'a'.repeat(40));
   assert.equal(result.contentDigest, 'b'.repeat(64));
+  assert.equal(result.z2kRelease, 'p-82.15');
+  assert.equal(result.manifestRevision, 77);
+  assert.equal(result.runtimeBundleDigest, 'c'.repeat(64));
+  assert.equal(result.compilerSnapshotDigest, 'd'.repeat(64));
+  assert.deepEqual(result.z2kCompatibilityIdentity, {
+    release: 'p-82.15', sourceCommit: 'a'.repeat(40), manifestRevision: 77,
+    runtimeBundleDigest: 'c'.repeat(64), compilerSnapshotDigest: 'd'.repeat(64), digest: 'e'.repeat(64),
+  });
+  assert.equal(result.compatibilityIdentity, 'e'.repeat(64));
   assert.deepEqual(result.provenance, {
     repository: 'necronicle/z2k', sourcePath: 'strats_new2.txt', sourceId: 'z2k',
   });

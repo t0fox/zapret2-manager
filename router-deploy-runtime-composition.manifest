@@ -7,6 +7,7 @@ zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc|/usr/li
 zapret2-manager/files/usr/share/zapret2-manager/runtime-composition-package.json|/usr/share/zapret2-manager/runtime-composition-package.json|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition-api.uc|/usr/libexec/zapret2-manager/runtime-composition-api.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc|/usr/libexec/zapret2-manager/strategy-cli.uc|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/strategy-model.uc|/usr/libexec/zapret2-manager/strategy-model.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc|/usr/libexec/zapret2-manager/strategy-compiler.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/native-preflight.uc|/usr/libexec/zapret2-manager/native-preflight.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc|/usr/libexec/zapret2-manager/scanner-planner.uc|0644

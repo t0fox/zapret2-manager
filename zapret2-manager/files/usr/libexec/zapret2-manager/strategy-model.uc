@@ -212,6 +212,11 @@ function copy_catalog_provenance(strategy, entry) {
 	if (entry.rawArgs != null) strategy.rawArgs = entry.rawArgs;
 	if (entry.dependencyClosure != null) strategy.dependencyClosure = entry.dependencyClosure;
 	if (entry.runtimeBundleDigest != null) strategy.runtimeBundleDigest = entry.runtimeBundleDigest;
+	if (entry.z2kRelease != null) strategy.z2kRelease = entry.z2kRelease;
+	if (entry.manifestRevision != null) strategy.manifestRevision = entry.manifestRevision;
+	if (entry.compilerSnapshotDigest != null) strategy.compilerSnapshotDigest = entry.compilerSnapshotDigest;
+	if (entry.z2kCompatibilityIdentity != null) strategy.z2kCompatibilityIdentity = entry.z2kCompatibilityIdentity;
+	if (entry.compatibilityIdentity != null) strategy.compatibilityIdentity = entry.compatibilityIdentity;
 }
 
 // Convert one physical CatalogEntry without applying compiler transforms. The
