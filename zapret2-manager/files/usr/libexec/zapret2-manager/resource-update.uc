@@ -597,6 +597,8 @@ function z2k_canonical_local_projection(listed, resolved) {
 		revision: resolved.observedRegistryRevision,
 		installedAuthorityRevision: resolved.installedAuthorityRevision || null,
 		commit: authority.sourceCommit || null,
+		z2kCompatibilityIdentity: authority.z2kCompatibilityIdentity || null,
+		compatibilityIdentity: authority.compatibilityIdentity || null,
 		provenance: provenance,
 		checkedAt: checkedAt,
 		installedRelease: installedRelease || { value: null, confidence: 'unknown', authority: null },

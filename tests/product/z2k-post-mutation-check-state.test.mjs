@@ -69,3 +69,14 @@ test('canonical v2 local projection verifies the resolved runtime closure, not t
 	assert.doesNotMatch(projection, /baselineMatched\s*===\s*total/,
 		'v2 canonical status must not use the legacy package-manifest count as integrity authority');
 });
+
+test('canonical v2 local projection exposes the exact activation compatibility identity', () => {
+	const start = resourceUpdate.indexOf('function z2k_canonical_local_projection');
+	const end = resourceUpdate.indexOf('function z2k_local_projection', start);
+	const projection = resourceUpdate.slice(start, end);
+
+	assert.match(projection, /z2kCompatibilityIdentity:\s*authority\.z2kCompatibilityIdentity/,
+		'resources_status must expose the compatibility identity recorded by the activation receipt');
+	assert.match(projection, /compatibilityIdentity:\s*authority\.compatibilityIdentity/,
+		'resources_status must expose the compatibility identity projection for compatibility checks');
+});
