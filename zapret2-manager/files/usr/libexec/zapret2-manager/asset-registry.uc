@@ -541,13 +541,30 @@ export const asset_registry_finalize_activation = function(request) {
 	if (request.baseRegistryRevision != null && (type(request.baseRegistryRevision) != 'int' || request.baseRegistryRevision >= request.committedAssetRevision)) return fail('ESTALE', 'candidate base revision is not before its committed revision');
 	let evidence = request.activationEvidence;
 	if (evidence.verified !== true && evidence.ok !== true && evidence.processVerified !== true) return fail('EVERIFY', 'activation evidence is not verified');
-	let receipt = { schema: 'asset-activation-receipt.v2', bundleId: request.bundleId, version: request.version, source: request.source || 'necronicle/z2k', sourceCommit: request.sourceCommit,
+	let coherentV3 = request.runtimeMembership != null || request.detect != null || request.compilerInputsDigest != null || request.catalogDigest != null || request.manifestSeq != null;
+	if (coherentV3 && (type(request.manifestSeq) != 'int' || !valid_sha(request.compilerInputsDigest) || !valid_sha(request.catalogDigest)
+		|| !valid_sha(request.runtimeBundleDigest) || !object(request.detect) || !string(request.detect.arch) || !valid_sha(request.detect.digest)
+		|| (request.detect.sourceCommit != null && request.detect.sourceCommit != request.sourceCommit) || !valid_sha(request.compatibilityIdentity || (request.z2kCompatibilityIdentity && request.z2kCompatibilityIdentity.digest))
+		|| type(request.detect.size) != 'int' || (request.detectIdentity != null && (!object(request.detectIdentity) || request.detectIdentity.arch != request.detect.arch || request.detectIdentity.digest != request.detect.digest || request.detectIdentity.size != request.detect.size))
+		|| type(request.runtimeMembership) != 'array' || !length(request.runtimeMembership)
+		|| (evidence.detectDigest != null && evidence.detectDigest != request.detect.digest))) return fail('EINPUT', 'coherent Z2K activation evidence is incomplete');
+	let receipt = { schema: coherentV3 ? 'asset-activation-receipt.v3' : 'asset-activation-receipt.v2', bundleId: request.bundleId, version: request.version, release: request.release || request.version, source: request.source || 'necronicle/z2k', sourceCommit: request.sourceCommit,
 		manifestSha256: request.manifestSha256, classificationSha256: request.classificationSha256, membershipDigest: request.membershipDigest,
 		z2kCompatibilityIdentity: request.z2kCompatibilityIdentity || null,
 		compatibilityIdentity: request.z2kCompatibilityIdentity && request.z2kCompatibilityIdentity.digest || null,
 		candidateSnapshotId: request.candidateSnapshotId, baseRegistryRevision: request.baseRegistryRevision == null ? null : request.baseRegistryRevision,
 		committedRegistryRevision: request.committedAssetRevision, installedAuthorityRevision: state.revision + 1,
 		z2kMembership: copy_array(request.z2kMembership), activationEvidence: copy(evidence), activatedAt: time() };
+	if (coherentV3) {
+		receipt.manifestSeq = request.manifestSeq;
+		receipt.runtimeMembership = copy_array(request.runtimeMembership);
+		receipt.detect = copy(request.detect);
+		receipt.detectIdentity = copy(request.detectIdentity || request.detect);
+		receipt.compilerInputsDigest = request.compilerInputsDigest;
+		receipt.catalogDigest = request.catalogDigest;
+		receipt.runtimeBundleDigest = request.runtimeBundleDigest;
+		receipt.compatibilityIdentity = request.compatibilityIdentity || receipt.compatibilityIdentity;
+	}
 	let receipts = copy_array(state.activationReceipts); push(receipts, receipt);
 	while (length(receipts) > MAX_ACTIVATION_RECEIPTS) { let bounded = []; for (let i = 1; i < length(receipts); i++) push(bounded, receipts[i]); receipts = bounded; }
 	state.activationReceipts = receipts;

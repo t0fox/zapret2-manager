@@ -111,6 +111,11 @@ function identity_authority(authority) {
 		result.sourceCommit = authority.sourceCommit;
 		result.manifestSha256 = authority.manifestSha256;
 		result.classificationSha256 = authority.classificationSha256;
+		result.manifestSeq = authority.manifestSeq;
+		result.runtimeBundleDigest = authority.runtimeBundleDigest;
+		result.detect = authority.detect || null;
+		result.compilerInputsDigest = authority.compilerInputsDigest;
+		result.catalogDigest = authority.catalogDigest;
 		result.receiptId = authority.receiptId || null;
 		result.installedAuthorityRevision = authority.installedAuthorityRevision;
 		result.z2kCompatibilityIdentity = authority.z2kCompatibilityIdentity || null;
@@ -261,6 +266,24 @@ function v2_authority(receipt, listed) {
 	if (!membership.ok) return membership;
 	return { ok: true, receipt: receipt, entries: membership.entries };
 }
+
+function v3_authority(receipt, listed) {
+	let release = receipt && (receipt.release || receipt.version), membership = receipt && (receipt.runtimeMembership || receipt.z2kMembership);
+	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v3' || receipt.bundleId != BUNDLE_ID
+		|| !z2k_release_valid(release) || receipt.version != release || !valid_commit(receipt.sourceCommit)
+		|| !integer(receipt.manifestSeq) || !valid_digest(receipt.manifestSha256) || !valid_digest(receipt.classificationSha256)
+		|| !valid_digest(receipt.runtimeBundleDigest) || !valid_digest(receipt.compilerInputsDigest) || !valid_digest(receipt.catalogDigest)
+		|| !valid_digest(receipt.compatibilityIdentity) || !integer(receipt.installedAuthorityRevision)
+		|| !object(listed) || !integer(listed.revision) || receipt.installedAuthorityRevision > listed.revision
+		|| !object(receipt.detect) || !string(receipt.detect.arch) || !valid_digest(receipt.detect.digest) || !integer(receipt.detect.size)
+		|| (receipt.detect.sourceCommit != null && lc(receipt.detect.sourceCommit) != lc(receipt.sourceCommit))) return fail('EINCONSISTENT', 'v3 installed authority identity is invalid');
+	if (receipt.detectIdentity != null && (!object(receipt.detectIdentity) || receipt.detectIdentity.digest != receipt.detect.digest
+		|| receipt.detectIdentity.arch != receipt.detect.arch || receipt.detectIdentity.size != receipt.detect.size)) return fail('EINCONSISTENT', 'v3 Detect identity is invalid');
+	if (object(receipt.activationEvidence) && receipt.activationEvidence.detectDigest != null && receipt.activationEvidence.detectDigest != receipt.detect.digest) return fail('EINCONSISTENT', 'v3 Detect digest evidence is invalid');
+	let membershipResult = registry_match_membership(membership, listed, receipt);
+	if (!membershipResult.ok) return membershipResult;
+	return { ok: true, receipt: receipt, entries: membershipResult.entries };
+}
 function v1_membership(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != BUNDLE_ID
 		|| !z2k_release_valid(receipt.version) || !valid_commit(receipt.sourceCommit) || !array(receipt.assets) || !length(receipt.assets)) return fail('RECONCILIATION_REQUIRED', 'V1 installed membership is not verified');
@@ -295,6 +318,17 @@ export const resolveInstalled = function(input) {
 			legacyMembership: legacy.recorded, dependencyIndex: {}, scannerOverlay: scanner.entries,
 			blockingReasons: ['RECONCILIATION_REQUIRED'], reconciliation: { required: true, mode: 'same-release FRESH', operation: 'reinstall' },
 			authority: { kind: 'installed', release: receipt.version, sourceCommit: receipt.sourceCommit, receiptId: receipt.receiptId || null, observedRegistryRevision: listed.revision } };
+	}
+	let coherent = v3_authority(receipt, listed);
+	if (coherent.ok) {
+		let installedAuthority = { kind: 'installed', release: receipt.release, sourceCommit: receipt.sourceCommit,
+			manifestSeq: receipt.manifestSeq, manifestSha256: receipt.manifestSha256, classificationSha256: receipt.classificationSha256,
+			runtimeBundleDigest: receipt.runtimeBundleDigest, detect: receipt.detect,
+			compilerInputsDigest: receipt.compilerInputsDigest, catalogDigest: receipt.catalogDigest,
+			receiptId: receipt.receiptId || null, installedAuthorityRevision: receipt.installedAuthorityRevision,
+			observedRegistryRevision: listed.revision, z2kMembership: coherent.entries,
+			compatibilityIdentity: receipt.compatibilityIdentity || null, coherenceStatus: 'coherent' };
+		return compose('installed', installedAuthority, coherent.entries, staticBase, scanner.entries, []);
 	}
 	let authority = v2_authority(receipt, listed);
 	if (!authority.ok) return authority;

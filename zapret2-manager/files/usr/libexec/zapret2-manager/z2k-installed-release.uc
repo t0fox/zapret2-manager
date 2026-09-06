@@ -13,6 +13,7 @@ function string(value) { return type(value) == 'string'; }
 function copy_array(value) { let result = []; for (let i = 0; type(value) == 'array' && i < length(value); i++) push(result, value[i]); return result; }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function valid_integer(value) { return type(value) == 'int' && value >= 0; }
 function valid_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function valid_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function asset_by_id(assets, id) { for (let i = 0; i < length(assets || []); i++) if (assets[i] && assets[i].id == id) return assets[i]; return null; }
@@ -82,11 +83,56 @@ function v2_receipt_valid(receipt, listed) {
 	return length(current) == length(receipt.z2kMembership);
 }
 
+function v3_detect_valid(receipt) {
+	let detect = receipt && receipt.detect, evidence = receipt && receipt.activationEvidence;
+	if (!object(detect) || !string(detect.arch) || !valid_sha(detect.digest) || !valid_integer(detect.size)) return false;
+	if (detect.sourceCommit != null && lc(detect.sourceCommit) != lc(receipt.sourceCommit)) return false;
+	if (receipt.detectIdentity != null && (!object(receipt.detectIdentity) || receipt.detectIdentity.arch != detect.arch
+		|| receipt.detectIdentity.digest != detect.digest || receipt.detectIdentity.size != detect.size)) return false;
+	if (object(evidence) && evidence.detectDigest != null && evidence.detectDigest != detect.digest) return false;
+	return true;
+}
+
+function v3_membership_valid(receipt, listed) {
+	let expectedMembers = receipt.runtimeMembership || receipt.z2kMembership;
+	if (type(expectedMembers) != 'array' || !length(expectedMembers)) return false;
+	let current = [], byId = {}, seen = {};
+	for (let i = 0; i < length(listed.assets || []); i++) {
+		let asset = listed.assets[i], provenance = asset && asset.provenance;
+		if (object(provenance) && provenance.kind == 'catalog/upstream' && provenance.bundleId == receipt.bundleId) { push(current, asset); byId[asset.id] = asset; }
+	}
+	if (length(current) != length(expectedMembers)) return false;
+	for (let i = 0; i < length(expectedMembers); i++) {
+		let expected = expectedMembers[i], actual = expected && byId[expected.id], provenance = actual && actual.provenance;
+		if (!object(expected) || !string(expected.id) || seen[expected.id] || actual == null || expected.type != 'lifecycle-managed'
+			|| physical_registry_type(expected) != actual.type || !valid_sha(expected.contentSha256) || expected.contentSha256 != actual.contentSha256
+			|| expected.byteSize != actual.byteSize || !valid_source_path(expected.sourcePath) || !valid_runtime_target(expected.runtimeTarget)
+			|| expected.version != receipt.release || expected.sourceCommit != receipt.sourceCommit
+			|| !object(provenance) || provenance.sourcePath != expected.sourcePath || provenance.version != receipt.release
+			|| provenance.sourceCommit != receipt.sourceCommit || provenance.bundleId != receipt.bundleId) return false;
+		seen[expected.id] = true;
+	}
+	return true;
+}
+
+function v3_receipt_valid(receipt, listed) {
+	let release = receipt && (receipt.release || receipt.version);
+	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v3' || receipt.bundleId != 'z2k-curated-lua'
+		|| !z2k_release_valid(release) || receipt.version != release || !valid_commit(receipt.sourceCommit)
+		|| !valid_integer(receipt.manifestSeq) || !valid_sha(receipt.manifestSha256) || !valid_sha(receipt.classificationSha256)
+		|| !valid_sha(receipt.compilerInputsDigest) || !valid_sha(receipt.catalogDigest) || !valid_sha(receipt.runtimeBundleDigest)
+		|| !valid_sha(receipt.compatibilityIdentity) || !valid_integer(receipt.installedAuthorityRevision)
+		|| !object(listed) || !valid_integer(listed.revision) || receipt.installedAuthorityRevision > listed.revision
+		|| !v3_detect_valid(receipt) || !v3_membership_valid(receipt, listed)) return false;
+	return true;
+}
+
 export const z2k_registry_installed_release = function(listed) {
 	let value = listed || asset_registry_list(null);
 	if (!object(value) || value.ok !== true || type(value.activationReceipts) != 'array' || type(value.assets) != 'array') return { value: null, confidence: 'unknown', authority: null };
 	for (let i = length(value.activationReceipts) - 1; i >= 0; i--) {
 		let receipt = value.activationReceipts[i];
+		if (v3_receipt_valid(receipt, value)) return { value: receipt.release, confidence: 'confirmed', authority: 'activation-receipt-v3' };
 		if (v2_receipt_valid(receipt, value)) return { value: receipt.version, confidence: 'confirmed', authority: 'activation-receipt-v2' };
 		if (receipt_valid(receipt, value)) return { value: receipt.version, confidence: 'confirmed', authority: 'activation-receipt' };
 	}
@@ -95,7 +141,7 @@ export const z2k_registry_installed_release = function(listed) {
 
 export const z2k_registry_receipt_valid = function(receipt, listed) {
 	let value = listed || asset_registry_list(null);
-	return object(value) && value.ok === true && (receipt_valid(receipt, value) || v2_receipt_valid(receipt, value));
+	return object(value) && value.ok === true && (v3_receipt_valid(receipt, value) || receipt_valid(receipt, value) || v2_receipt_valid(receipt, value));
 };
 
 export const z2k_registry_receipt_state = function(listed) {
@@ -103,8 +149,9 @@ export const z2k_registry_receipt_state = function(listed) {
 	if (!object(value) || value.ok !== true || type(value.activationReceipts) != 'array' || type(value.assets) != 'array') return { state: 'unknown', receipt: null };
 	for (let i = length(value.activationReceipts) - 1; i >= 0; i--) {
 		let receipt = value.activationReceipts[i];
-		if (v2_receipt_valid(receipt, value)) return { state: 'confirmed', receipt: receipt, version: receipt.version };
-		if (receipt_valid(receipt, value)) return { state: 'V1_VERIFIED_MEMBERSHIP', reconciliationRequired: true, receipt: receipt, version: receipt.version };
+		if (v3_receipt_valid(receipt, value)) return { state: 'COHERENT_VERIFIED', receipt: receipt, version: receipt.release };
+		if (v2_receipt_valid(receipt, value)) return { state: 'LEGACY_VERIFIED', receipt: receipt, version: receipt.version };
+		if (receipt_valid(receipt, value)) return { state: 'LEGACY_VERIFIED', reconciliationRequired: true, receipt: receipt, version: receipt.version };
 	}
 	return { state: 'unknown', receipt: null };
 };
