@@ -35,6 +35,9 @@ function error(code, message, path) {
 	if (path != null) result.error.path = path;
 	return result;
 }
+function managed_z2k() {
+	return { ok: false, error: { code: 'EMANAGED', owner: 'z2k-core', message: 'Official Z2K strategies are managed by Z2K Core.' } };
+}
 function copy(value) {
 	try { return json(sprintf('%J', value)); } catch (e) { return null; }
 }
@@ -364,6 +367,8 @@ export const strategy_source_restore_activation = function(id, activation) {
 export const strategy_source_install_verified_snapshot = function(id, prepared) {
 	if (!known_source(id) || !object(prepared) || !object(prepared.snapshot))
 		return error('EINPUT', 'A verified prepared source snapshot is required');
+	if (id == 'z2k' && prepared.managedBy != 'z2k-core' && prepared.snapshot.z2kCompatibilityIdentity == null)
+		return managed_z2k();
 	if (prepared.verified != true) return error('EVERIFY', 'Prepared source snapshot is not verified');
 	let snapshot = copy(prepared.snapshot);
 	if (!valid_snapshot(id, snapshot)) return error('EVERIFY', 'Prepared source snapshot failed immutable identity validation');

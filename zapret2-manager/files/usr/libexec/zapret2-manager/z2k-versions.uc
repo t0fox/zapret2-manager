@@ -35,6 +35,7 @@ const MAX_SUMMARY = 1000;
 const MAX_VERSIONS = 10;
 const MAX_TAGS = 256;
 const MAX_CATALOG_EVIDENCE_REQUESTS = 4;
+const Z2K_COMPILER_FILES = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
 const MAX_MANIFEST = 512 * 1024;
 const MAX_API_RESPONSE = 512 * 1024;
 const MAX_PATH = 256;
@@ -42,9 +43,20 @@ let REQUEST_COUNT = 0, REST_REQUEST_COUNT = 0, COMPARE_REQUEST_COUNT = 0, COMPAR
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
+function compiler_source_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function text(value) { return value == null ? '' : '' + value; }
 function text_compare(a, b) { if (a == b) return 0; let limit = length(a) < length(b) ? length(a) : length(b); for (let i = 0; i < limit; i++) { let left = ord(substr(a, i, 1)), right = ord(substr(b, i, 1)); if (left != right) return left < right ? -1 : 1; } return length(a) < length(b) ? -1 : 1; }
 function fail(code, message, details) { let out = { ok: false, error: { code: code, message: message } }; for (let k in details || {}) out.error[k] = details[k]; return out; }
+// Core candidate preparation owns the exact compiler revision. This helper is
+// pure: it does not resolve a branch, fetch metadata, or create another catalog.
+export const z2k_strategy_compiler_plan = function(selected) {
+	let sourceCommit = object(selected) ? selected.sourceCommit : null;
+	if (!compiler_source_commit(sourceCommit)) return fail('EINPUT', 'Selected Z2K sourceCommit is required for compiler preparation.');
+	let sourceUrls = {};
+	for (let relative in Z2K_COMPILER_FILES)
+		sourceUrls[relative] = RAW_ROOT + '/' + sourceCommit + '/' + relative;
+	return { ok: true, compilerSourceCommit: sourceCommit, sourceFiles: Z2K_COMPILER_FILES, sourceUrls: sourceUrls };
+};
 function quote(value) { let raw = text(value); if (index(raw, "'") >= 0 || index(raw, '\n') >= 0 || index(raw, '\r') >= 0) return null; return "'" + raw + "'"; }
 function command(value) { let p = popen(value + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
 function regular(path) { try { let value = stat(path); return object(value) && value.type == 'file' && type(value.size) == 'int'; } catch (e) { return false; } }
