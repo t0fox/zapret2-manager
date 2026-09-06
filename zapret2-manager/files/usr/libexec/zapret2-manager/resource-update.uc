@@ -825,6 +825,15 @@ export const resource_center_enqueue_update = function(request) {
 	}
 	return { ok: true, accepted: true, operationId: operationId, state: 'queued', phase: 'queued', targetVersion: request.targetVersion };
 };
+function z2k_prepare_job_result_reusable(version, result) {
+	if (!object(result) || result.ok !== true || !object(result.target) || result.target.targetVersion != version
+		|| !string(result.planToken) || !length(result.planToken)) return false;
+	let raw = readfile(CHECK_STATE), state = null;
+	if (raw == null || length(raw) > MAX_CHECK_STATE_BYTES) return false;
+	try { state = json(raw); } catch (e) { return false; }
+	let persisted = state && state.schema == 2 ? state.preparedTarget : null;
+	return object(persisted) && persisted.targetVersion == version && persisted.planToken == result.planToken;
+}
 function z2k_prepare_job_existing(version) {
 	let names = lsdir(Z2K_OPERATION_PARENT) || [];
 	for (let i = 0; i < length(names); i++) {
@@ -836,6 +845,9 @@ function z2k_prepare_job_existing(version) {
 		let answer = { ok: true, accepted: true, operationId: name, targetVersion: version, phase: job.phase || 'queued', state: job.phase || 'queued', finished: job.finished === true };
 		if (job.finished === true) {
 			answer.completed = true;
+			if (job.result != null && job.result.ok === true) {
+				if (!z2k_prepare_job_result_reusable(version, job.result)) continue;
+			}
 			if (job.result != null) answer.result = job.result;
 			if (job.error != null) answer.error = job.error;
 		}

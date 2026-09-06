@@ -44,6 +44,13 @@ test('Z2K prepare is queued outside the 30-second rpcd request and exposes its r
   assert.ok(acl.read.ubus['zapret2-manager'].includes('z2k_prepare_version_status'));
 });
 
+test('completed prepare jobs are reused only while their prepared target is still persisted', () => {
+  assert.match(coordinator, /function z2k_prepare_job_result_reusable\(version, result\)/);
+  assert.match(coordinator, /z2k_prepare_job_result_reusable\(version, job\.result\)/);
+  assert.match(coordinator, /if \(!z2k_prepare_job_result_reusable\(version, job\.result\)\) continue;/);
+  assert.match(coordinator, /persisted\.planToken == result\.planToken/);
+});
+
 test('Components UI polls the backend-owned Z2K operation before reporting success', () => {
   assert.match(api, /resourcesUpdateStatus/);
   assert.match(api, /updateStatus:/);
