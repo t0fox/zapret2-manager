@@ -455,6 +455,7 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 		runtimeBundleDigest: input.runtimeBundleDigest
 	});
 	if (!imported.ok) return imported;
+	let entry = copy(imported.entry);
 	let identity = COMPILER_SCHEMA + '\n' + REPOSITORY + '\n' + sourceCommit + '\n'
 		+ compiled.compilerSnapshotDigest + '\n' + compiled.nfqws2OptSha256 + '\n';
 	if (entry.z2kCompatibilityIdentity != null)
@@ -462,7 +463,7 @@ export const strategy_source_z2k_prepare_snapshot = function(input) {
 	for (let relative in REQUIRED_FILES) identity += relative + '\n' + fileSha256[relative] + '\n';
 	let contentDigest = digest(identity);
 	if (!contentDigest) return error('EDIGEST', 'Z2K snapshot content digest could not be computed');
-	let snapshotId = 'z2k-' + contentDigest, entry = copy(imported.entry);
+	let snapshotId = 'z2k-' + contentDigest;
 	entry.sourceSnapshotId = snapshotId;
 	entry.provenance.sourceSnapshotId = snapshotId;
 	let entryDigest = digest(sprintf('%J', entry)), allInOneDigest = entry.semanticDigest;

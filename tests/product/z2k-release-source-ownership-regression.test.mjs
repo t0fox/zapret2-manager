@@ -22,6 +22,13 @@ test('Z2K lifecycle resolver declares digest helpers before Core snapshot prepar
     'UCode does not hoist the commit helper used by Core snapshot preparation');
 });
 
+test('Z2K snapshot builder binds the imported entry before deriving its digest', () => {
+  const source = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-z2k.uc');
+  const builder = source.slice(source.indexOf('export const strategy_source_z2k_prepare_snapshot'));
+  assert.ok(builder.indexOf('let entry = copy(imported.entry)') < builder.indexOf('entry.z2kCompatibilityIdentity'),
+    'snapshot identity derivation must not read entry before it is declared');
+});
+
 test('release catalog accepts r and p families and exposes authoritative identity fields', () => {
   assert.match(versions, /\/(?:\^)?\(\[rp\]\)/,
     'release parser must accept both r-* and p-* families');
