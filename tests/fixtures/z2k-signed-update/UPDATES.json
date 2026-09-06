@@ -3,6 +3,12 @@
   "branch": "z2k-enhanced",
   "seq": 46,
   "current": "r-80.1",
+  "unverifiedPaths": [
+    "files/lists/sni_wl_candidates.txt",
+    "files/lists/tcp16_targets.txt",
+    "files/lists/tcp16_nets.txt",
+    "z2k-detect/builds/z2k-detect-linux-arm64"
+  ],
   "install_map": {
   "files/000-zapret2.sh": ["/opt/etc/ndm/netfilter.d/000-zapret2.sh"],
   "files/S99zapret2.new": ["/opt/etc/init.d/S99zapret2"],

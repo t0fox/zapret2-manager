@@ -5,6 +5,10 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
 const [manifestPath = path.join(root, 'tests/fixtures/z2k-signed-update/UPDATES.json'), outputPath] = process.argv.slice(2);
+const destination = outputPath ? path.resolve(outputPath) : path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json');
+const tempDestination = `${destination}.tmp-${process.pid}`;
+fs.rmSync(destination, { force: true });
+fs.rmSync(tempDestination, { force: true });
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const localRoot = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager');
 const compilerInputs = [
@@ -15,12 +19,7 @@ const compilerInputs = [
   ['lib/config_official.sh', 'official Z2K compiler'],
 ];
 const DETECT_RE = /^z2k-detect\/builds\/z2k-detect-linux-[A-Za-z0-9_-]+$/;
-const UNVERIFIED_FIXTURE_PATHS = new Set([
-  'files/lists/sni_wl_candidates.txt',
-  'files/lists/tcp16_targets.txt',
-  'files/lists/tcp16_nets.txt',
-  'z2k-detect/builds/z2k-detect-linux-arm64',
-]);
+const unverifiedPaths = new Set(Array.isArray(manifest.unverifiedPaths) ? manifest.unverifiedPaths : []);
 
 function sha256(file) { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); }
 function localPath(sourcePath) {
@@ -51,7 +50,7 @@ function dependencyClass(sourcePath, klass) {
 function entry(sourcePath, digest) {
   const klass = classify(sourcePath), local = localPath(sourcePath);
   if (klass === 'unknown') throw new Error(`Unknown upstream classification: ${sourcePath}`);
-  const base = { sourcePath, class: klass, dependencyClass: dependencyClass(sourcePath, klass), type: path.extname(sourcePath).replace('.', '') || 'file', basedOnSha256: UNVERIFIED_FIXTURE_PATHS.has(sourcePath) ? null : digest };
+  const base = { sourcePath, class: klass, dependencyClass: dependencyClass(sourcePath, klass), type: path.extname(sourcePath).replace('.', '') || 'file', basedOnSha256: unverifiedPaths.has(sourcePath) ? null : digest };
   if (klass === 'exact-managed') {
     base.localName = local ? path.relative(localRoot, local).replaceAll(path.sep, '/') : null;
     base.runtimeTarget = local ? '/' + base.localName : null;
@@ -67,7 +66,7 @@ function entry(sourcePath, digest) {
     base.consumer = sourcePath.includes('update-pub') ? 'pinned trust root audit' : 'upstream semantic review only';
     base.reviewPolicy = reviewPolicy(sourcePath);
   }
-  if (UNVERIFIED_FIXTURE_PATHS.has(sourcePath)) {
+  if (unverifiedPaths.has(sourcePath)) {
     base.digestStatus = 'unverified';
   }
   if (klass === 'ignored-platform') {
@@ -92,7 +91,13 @@ const output = {
   })),
   files
 };
-const destination = outputPath ? path.resolve(outputPath) : path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json');
-fs.mkdirSync(path.dirname(destination), { recursive: true });
-fs.writeFileSync(destination, `${JSON.stringify(output, null, 2)}\n`);
+try {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(tempDestination, `${JSON.stringify(output, null, 2)}\n`);
+  fs.renameSync(tempDestination, destination);
+} catch (error) {
+  fs.rmSync(tempDestination, { force: true });
+  fs.rmSync(destination, { force: true });
+  throw error;
+}
 console.log(JSON.stringify({ destination, fileCount: files.length, classes: files.reduce((a, x) => (a[x.class] = (a[x.class] || 0) + 1, a), {}) }, null, 2));
