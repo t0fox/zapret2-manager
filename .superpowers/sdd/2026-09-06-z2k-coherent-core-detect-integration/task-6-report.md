@@ -136,7 +136,7 @@ not a production failure.
 
 ### Commit and remaining boundaries
 
-Fix-round commit: `46ebfdc8` (`fix: reconcile coherent Z2K receipt recovery`).
+Fix-round implementation commit: `0b6b0f02` (`fix: reconcile coherent Z2K receipt recovery`).
 
 `node --check`, all four modified UCode imports, knowledge/Quartz validators,
 and `git diff --check` remain required before commit. No router, browser,
