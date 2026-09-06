@@ -42,6 +42,7 @@ let REQUEST_COUNT = 0, REST_REQUEST_COUNT = 0, COMPARE_REQUEST_COUNT = 0, COMPAR
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function text(value) { return value == null ? '' : '' + value; }
+function text_compare(a, b) { if (a == b) return 0; let limit = length(a) < length(b) ? length(a) : length(b); for (let i = 0; i < limit; i++) { let left = ord(substr(a, i, 1)), right = ord(substr(b, i, 1)); if (left != right) return left < right ? -1 : 1; } return length(a) < length(b) ? -1 : 1; }
 function fail(code, message, details) { let out = { ok: false, error: { code: code, message: message } }; for (let k in details || {}) out.error[k] = details[k]; return out; }
 function quote(value) { let raw = text(value); if (index(raw, "'") >= 0 || index(raw, '\n') >= 0 || index(raw, '\r') >= 0) return null; return "'" + raw + "'"; }
 function command(value) { let p = popen(value + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
@@ -77,10 +78,7 @@ function release_compare(a, b) {
 		let leftPublished = text(a.publishedAt || a.commitPublishedAt || a.commitDate);
 		let rightPublished = text(b.publishedAt || b.commitPublishedAt || b.commitDate);
 		if (length(leftPublished) && length(rightPublished) && leftPublished != rightPublished)
-			return leftPublished > rightPublished ? -1 : 1;
-		let leftCommit = a.commitSha || a.resolvedCommitSha, rightCommit = b.commitSha || b.resolvedCommitSha;
-		if (valid_sha(leftCommit) && valid_sha(rightCommit) && leftCommit != rightCommit)
-			return text(leftCommit) < text(rightCommit) ? -1 : 1;
+			return text_compare(leftPublished, rightPublished) < 0 ? 1 : -1;
 		return 0;
 	}
 	if (left.major != right.major) return right.major - left.major;
@@ -96,6 +94,30 @@ function resolve_tag_commit(version, tagSha, objectType, mode) {
 	let tag = source_payload(result), target = object(tag) && object(tag.object) ? tag.object : null;
 	if (target != null && target.type == 'commit' && valid_sha(target.sha)) return { commitSha: lc(target.sha), publishedAt: object(tag.tagger) && tag.tagger.date || null, tagSha: lc(tagSha) };
 	return null;
+}
+function commit_payload(value) { return object(value) && object(value.commit) && object(value.commit.committer) && string(value.commit.committer.date); }
+function resolve_commit_evidence(commitSha, mode) {
+	if (!valid_sha(commitSha)) return null;
+	let request = source_request('z2k:' + REPOSITORY + ':commit:' + lc(commitSha), 'github-rest', API_ROOT + '/commits/' + lc(commitSha), MAX_API_RESPONSE, commit_payload);
+	let result = source_call(request, mode || 'browse'); record_source(result, 'github-rest');
+	let commit = source_payload(result);
+	return !commit_payload(commit) ? null : { commitSha: lc(commitSha), commitDate: commit.commit.committer.date };
+}
+function resolve_cross_family_evidence(candidates, mode) {
+	let families = {};
+	for (let i = 0; i < length(candidates); i++) { let identity = z2k_release_parse(candidates[i].version); if (identity != null) families[identity.family] = true; }
+	if (length(keys(families)) < 2) return;
+	for (let i = 0; i < length(candidates); i++) {
+		let candidate = candidates[i], resolved = candidate.objectType == 'tag' ? resolve_tag_commit(candidate.version, candidate.tagSha, candidate.objectType, mode) : { commitSha: candidate.commitSha, publishedAt: candidate.publishedAt };
+		if (resolved == null) continue;
+		candidate.commitSha = resolved.commitSha;
+		candidate.publishedAt = resolved.publishedAt || candidate.publishedAt || null;
+		let evidence = resolve_commit_evidence(candidate.commitSha, mode);
+		if (evidence != null) {
+			candidate.commitDate = evidence.commitDate;
+			if (!candidate.publishedAt) candidate.publishedAt = evidence.commitDate;
+		}
+	}
 }
 function read_classification() {
 	try {
@@ -398,6 +420,7 @@ function fetch_refs(mode) {
 	let seen = {}, candidates = [];
 	for (let i = 0; i < length(refs); i++) { let version = tag_name(refs[i]); if (version == null || seen[version]) continue; let sha = refs[i].object && refs[i].object.sha, objectType = refs[i].object && refs[i].object.type; if (!valid_sha(sha) || (objectType != 'commit' && objectType != 'tag')) continue; seen[version] = true; push(candidates, { version: version, tagSha: lc(sha), commitSha: objectType == 'commit' ? lc(sha) : null, objectType: objectType, publishedAt: refs[i].publishedAt || refs[i].published_at || null }); }
 	let manifest = fetch_catalog_manifest(mode);
+	resolve_cross_family_evidence(candidates, mode);
 	sort(candidates, function(a, b) { return release_compare(a, b); }); return { ok: true, refs: candidates, manifestCurrent: manifest.current, stale: result.ok !== true || result.stale === true || manifest.stale === true, source: result, manifestSource: manifest.source };
 }
 function catalog_row(candidate, installed) {
@@ -405,10 +428,10 @@ function catalog_row(candidate, installed) {
 	return { version: candidate.version, family: identity.family, lineage: identity.family,
 		major: identity.major, minor: identity.minor, numericMajor: identity.major,
 		numericMinor: identity.minor, latest: false, installed: candidate.version == installed,
-		commitSha: candidate.objectType == 'commit' ? candidate.tagSha : null, publishedAt: 0,
+		commitSha: candidate.commitSha || null, publishedAt: candidate.publishedAt || 0,
 		installable: true, unavailableReason: null, tagSha: candidate.tagSha,
 		objectType: candidate.objectType, authoritative: { tagVersion: candidate.version,
-			tagSha: candidate.tagSha, commitSha: candidate.objectType == 'commit' ? candidate.tagSha : null } };
+			tagSha: candidate.tagSha, commitSha: candidate.commitSha || null } };
 }
 function installed_only_row(version) {
 	let identity = z2k_release_parse(version);

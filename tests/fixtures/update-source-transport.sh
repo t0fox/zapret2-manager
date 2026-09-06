@@ -69,6 +69,29 @@ case "$mode" in
 		esac
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
+	z2k_catalog_evidence)
+		case "$url" in
+			*/git/refs/tags\?per_page=100)
+				printf '%s' '[{"ref":"refs/tags/r-90.1","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}},{"ref":"refs/tags/p-80.3","object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"tag"}}]' > "$output"
+				;;
+			*/z2k-enhanced/UPDATES.json)
+				printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":90,"current":"p-80.3","files_sha256":{"files/lua/example.lua":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}' > "$output"
+				;;
+			*/git/tags/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
+				printf '%s' '{"object":{"sha":"cccccccccccccccccccccccccccccccccccccccc","type":"commit"},"tagger":{"date":"2026-09-02T00:00:00Z"}}' > "$output"
+				;;
+			*/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
+				printf '%s' '{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commit":{"committer":{"date":"2026-09-01T00:00:00Z"}}}' > "$output"
+				;;
+			*/commits/cccccccccccccccccccccccccccccccccccccccc)
+				printf '%s' '{"sha":"cccccccccccccccccccccccccccccccccccccccc","commit":{"committer":{"date":"2026-09-02T00:00:00Z"}}}' > "$output"
+				;;
+			*)
+				printf '%s' '{}' > "$output"
+				;;
+		esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
 	z2k_no_releases)
 		printf '%s' '[]' > "$output"
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"

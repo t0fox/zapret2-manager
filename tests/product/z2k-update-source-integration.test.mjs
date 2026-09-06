@@ -85,6 +85,17 @@ test('Z2K catalog browse is cold-once, warm-zero, and stale LKG remains displaya
 	assert.equal(requestUrls(s).length, 2);
 });
 
+test('Z2K cross-family catalog ordering resolves direct and annotated tag publication evidence', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const catalog = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog_evidence', Z2M_UPDATE_SOURCE_NOW: '1000' });
+	assert.equal(catalog.ok, true, JSON.stringify(catalog));
+	const urls = requestUrls(s);
+	assert.deepEqual(catalog.versions.map(row => row.version), ['p-80.3', 'r-90.1'], `${urls.join('\n')}\n${JSON.stringify(catalog)}`);
+	assert.ok(urls.some(url => url.endsWith('/git/tags/' + 'b'.repeat(40))), urls.join('\n'));
+	assert.ok(urls.some(url => url.endsWith('/commits/' + 'a'.repeat(40))), urls.join('\n'));
+	assert.ok(urls.some(url => url.endsWith('/commits/' + 'c'.repeat(40))), urls.join('\n'));
+});
+
 test('Z2K explicit catalog refresh makes one controlled request and keeps an LKG on failure', { skip: !hasUcode }, () => {
 	const s = sandbox();
 	invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog', Z2M_UPDATE_SOURCE_NOW: '1000' });
