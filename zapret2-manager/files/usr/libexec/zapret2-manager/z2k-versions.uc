@@ -34,6 +34,7 @@ const MAX_COMPARE_PARAGRAPHS = 64;
 const MAX_SUMMARY = 1000;
 const MAX_VERSIONS = 10;
 const MAX_TAGS = 256;
+const MAX_CATALOG_EVIDENCE_REQUESTS = 4;
 const MAX_MANIFEST = 512 * 1024;
 const MAX_API_RESPONSE = 512 * 1024;
 const MAX_PATH = 256;
@@ -71,6 +72,7 @@ function source_error(result, message, resolution) {
 	return fail(code, message, { diagnostics: network_diagnostics(resolution) });
 }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
+function reserve_catalog_evidence(budget) { if (!object(budget) || budget.remaining < 1) return false; budget.remaining--; return true; }
 function release_compare(a, b) {
 	let left = z2k_release_parse(a.version || a), right = z2k_release_parse(b.version || b);
 	if (left == null || right == null) return null;
@@ -86,9 +88,10 @@ function release_compare(a, b) {
 	return text(left.version) == text(right.version) ? 0 : (text(left.version) < text(right.version) ? -1 : 1);
 }
 function tag_name(ref) { if (!object(ref) || !string(ref.ref)) return null; let prefix = 'refs/tags/'; if (substr(ref.ref, 0, length(prefix)) != prefix) return null; let value = substr(ref.ref, length(prefix)); return z2k_release_valid(value) ? value : null; }
-function resolve_tag_commit(version, tagSha, objectType, mode) {
+function resolve_tag_commit(version, tagSha, objectType, mode, budget) {
 	if (z2k_release_parse(version) == null || !valid_sha(tagSha)) return null;
 	if (objectType == 'commit') return { commitSha: lc(tagSha), publishedAt: null, tagSha: lc(tagSha) };
+	if (!reserve_catalog_evidence(budget)) return null;
 	let request = source_request('z2k:' + REPOSITORY + ':tag-object:' + lc(tagSha), 'github-rest', API_ROOT + '/git/tags/' + tagSha, MAX_API_RESPONSE, function(value) { return object(value); });
 	let result = source_call(request, mode || 'fresh'); record_source(result, 'github-rest');
 	let tag = source_payload(result), target = object(tag) && object(tag.object) ? tag.object : null;
@@ -96,8 +99,9 @@ function resolve_tag_commit(version, tagSha, objectType, mode) {
 	return null;
 }
 function commit_payload(value) { return object(value) && object(value.commit) && object(value.commit.committer) && string(value.commit.committer.date); }
-function resolve_commit_evidence(commitSha, mode) {
+function resolve_commit_evidence(commitSha, mode, budget) {
 	if (!valid_sha(commitSha)) return null;
+	if (!reserve_catalog_evidence(budget)) return null;
 	let request = source_request('z2k:' + REPOSITORY + ':commit:' + lc(commitSha), 'github-rest', API_ROOT + '/commits/' + lc(commitSha), MAX_API_RESPONSE, commit_payload);
 	let result = source_call(request, mode || 'browse'); record_source(result, 'github-rest');
 	let commit = source_payload(result);
@@ -107,12 +111,13 @@ function resolve_cross_family_evidence(candidates, mode) {
 	let families = {};
 	for (let i = 0; i < length(candidates); i++) { let identity = z2k_release_parse(candidates[i].version); if (identity != null) families[identity.family] = true; }
 	if (length(keys(families)) < 2) return;
+	let budget = { remaining: MAX_CATALOG_EVIDENCE_REQUESTS };
 	for (let i = 0; i < length(candidates); i++) {
-		let candidate = candidates[i], resolved = candidate.objectType == 'tag' ? resolve_tag_commit(candidate.version, candidate.tagSha, candidate.objectType, mode) : { commitSha: candidate.commitSha, publishedAt: candidate.publishedAt };
+		let candidate = candidates[i], resolved = candidate.objectType == 'tag' ? resolve_tag_commit(candidate.version, candidate.tagSha, candidate.objectType, mode, budget) : { commitSha: candidate.commitSha, publishedAt: candidate.publishedAt };
 		if (resolved == null) continue;
 		candidate.commitSha = resolved.commitSha;
 		candidate.publishedAt = resolved.publishedAt || candidate.publishedAt || null;
-		let evidence = resolve_commit_evidence(candidate.commitSha, mode);
+		let evidence = resolve_commit_evidence(candidate.commitSha, mode, budget);
 		if (evidence != null) {
 			candidate.commitDate = evidence.commitDate;
 			if (!candidate.publishedAt) candidate.publishedAt = evidence.commitDate;

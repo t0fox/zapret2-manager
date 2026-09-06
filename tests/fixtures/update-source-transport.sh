@@ -92,6 +92,23 @@ case "$mode" in
 		esac
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
+	z2k_catalog_evidence_bounded)
+		case "$url" in
+			*/git/refs/tags\?per_page=100)
+				printf '%s' '[{"ref":"refs/tags/r-90.1","object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","type":"commit"}},{"ref":"refs/tags/r-90.2","object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"commit"}},{"ref":"refs/tags/r-90.3","object":{"sha":"cccccccccccccccccccccccccccccccccccccccc","type":"commit"}},{"ref":"refs/tags/r-90.4","object":{"sha":"dddddddddddddddddddddddddddddddddddddddd","type":"commit"}},{"ref":"refs/tags/p-80.1","object":{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","type":"commit"}},{"ref":"refs/tags/p-80.2","object":{"sha":"ffffffffffffffffffffffffffffffffffffffff","type":"commit"}},{"ref":"refs/tags/p-80.3","object":{"sha":"1111111111111111111111111111111111111111","type":"commit"}}]' > "$output"
+				;;
+			*/z2k-enhanced/UPDATES.json)
+				printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":90,"current":"p-80.3","files_sha256":{"files/lua/example.lua":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}' > "$output"
+				;;
+			*/commits/*)
+				printf '%s' '{"commit":{"committer":{"date":"2026-09-01T00:00:00Z"}}}' > "$output"
+				;;
+			*)
+				printf '%s' '{}' > "$output"
+				;;
+		esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
 	z2k_no_releases)
 		printf '%s' '[]' > "$output"
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"

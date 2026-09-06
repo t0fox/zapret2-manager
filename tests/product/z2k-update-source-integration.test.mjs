@@ -96,6 +96,16 @@ test('Z2K cross-family catalog ordering resolves direct and annotated tag public
 	assert.ok(urls.some(url => url.endsWith('/commits/' + 'c'.repeat(40))), urls.join('\n'));
 });
 
+test('Z2K catalog evidence lookups stay within the bounded browse budget', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const catalog = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog_evidence_bounded', Z2M_UPDATE_SOURCE_NOW: '1000' });
+	assert.equal(catalog.ok, true, JSON.stringify(catalog));
+	assert.equal(catalog.versions.length, 7, JSON.stringify(catalog));
+	assert.equal(catalog.diagnostics.requestCount, 6, JSON.stringify(catalog));
+	assert.equal(catalog.diagnostics.restRequestCount, 5, JSON.stringify(catalog));
+	assert.ok(requestUrls(s).length < catalog.versions.length + 2, requestUrls(s).join('\n'));
+});
+
 test('Z2K explicit catalog refresh makes one controlled request and keeps an LKG on failure', { skip: !hasUcode }, () => {
 	const s = sandbox();
 	invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog', Z2M_UPDATE_SOURCE_NOW: '1000' });
