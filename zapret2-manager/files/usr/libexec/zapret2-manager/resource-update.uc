@@ -1687,6 +1687,11 @@ function z2k_finalized_runtime_matches(pending, listed, suppliedProof) {
 	if (object(suppliedProof) && array(suppliedProof.staticBase)) runtimeInput.staticBase = suppliedProof.staticBase;
 	let resolved = resolveInstalled(runtimeInput);
 	if (!resolved.ok || resolved.lifecycleState != 'installed' || resolved.compositionStatus != 'canonical') return fail('ERECOVERY_REQUIRED', 'FINALIZED recovery could not resolve the canonical installed runtime composition.', { resolved: resolved });
+	if (!string(pending.runtimeSnapshotId)
+		|| resolved.snapshotId != pending.runtimeSnapshotId
+		|| resolved.membershipDigest != pending.membershipDigest
+		|| resolved.membershipDigest != receipt.membershipDigest)
+		return fail('ERECOVERY_REQUIRED', 'FINALIZED recovery runtime identity is not bound to the durable candidate receipt.', { runtimeSnapshotId: resolved.snapshotId, expectedRuntimeSnapshotId: pending.runtimeSnapshotId, runtimeMembershipDigest: resolved.membershipDigest });
 	let materializedEvidence = object(suppliedProof) && object(suppliedProof.materialized) ? suppliedProof.materialized : z2k_materialized_evidence(resolved, { removeTargets: [] });
 	let materialized = verifyMaterialized(resolved, materializedEvidence);
 	if (!materialized.ok) return fail('ERECOVERY_REQUIRED', 'FINALIZED recovery runtime materialization does not match the installed receipt.', { materialized: materialized.error });
@@ -1868,7 +1873,7 @@ function z2k_coherent_finalize_request(input) {
 	let target = input.target, candidate = input.candidate, detect = input.detectStaged.candidate;
 	let sourceCommit = target.targetCommitSha || target.targetCommit, release = target.targetVersion;
 	let manifestSeq = target.manifestSeq == null ? target.manifestRevision : target.manifestSeq;
-	let membershipDigest = target.membershipDigest || candidate.membershipDigest, candidateSnapshotId = target.candidateSnapshotId || candidate.snapshotId;
+	let membershipDigest = candidate.membershipDigest, candidateSnapshotId = candidate.snapshotId;
 	if (!string(release) || !valid_commit(sourceCommit) || type(manifestSeq) != 'int' || !valid_digest(target.manifestSha256)
 		|| !valid_digest(target.classificationSha256) || !valid_digest(target.compilerSnapshotDigest)
 		|| !valid_digest(target.runtimeBundleDigest) || !valid_digest(input.catalogDigest)
@@ -1876,7 +1881,10 @@ function z2k_coherent_finalize_request(input) {
 		|| target.z2kCompatibilityIdentity.release != release || target.z2kCompatibilityIdentity.sourceCommit != lc(sourceCommit)
 		|| target.z2kCompatibilityIdentity.compilerSnapshotDigest != target.compilerSnapshotDigest
 		|| target.z2kCompatibilityIdentity.runtimeBundleDigest != target.runtimeBundleDigest
-		|| !string(candidateSnapshotId) || !string(membershipDigest) || type(target.baseRegistryRevision) != 'int'
+		|| !string(candidateSnapshotId) || !string(membershipDigest)
+		|| !string(target.candidateSnapshotId) || target.candidateSnapshotId != candidateSnapshotId
+		|| !string(target.membershipDigest) || target.membershipDigest != membershipDigest
+		|| type(target.baseRegistryRevision) != 'int'
 		|| type(input.committedAssetRevision) != 'int' || input.committedAssetRevision <= target.baseRegistryRevision
 		|| input.activationEvidence.verified !== true || !string(detect.arch) || !valid_digest(detect.sha256)
 		|| type(detect.byteSize) != 'int' || detect.byteSize < 1 || !valid_commit(detect.sourceCommit)
@@ -2096,6 +2104,13 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ESTALE' : 'EROLLBACK', rollback.ok ? 'Z2K activation finalization lost its Registry CAS.' : 'Z2K activation finalization failed and rollback could not be completed.', { finalize: finalized.error, rollback: rollback, diagnostics: diagnostics }));
 	}
+	let finalizedListed = asset_registry_list(null), finalizedRuntime = finalizedListed.ok ? resolveInstalled({ registry: finalizedListed }) : fail('ESTATE', 'Z2K installed runtime authority could not be read after receipt finalization.');
+	if (!finalizedRuntime.ok || finalizedRuntime.lifecycleState != 'installed' || finalizedRuntime.compositionStatus != 'canonical'
+		|| finalizedRuntime.membershipDigest != committedCandidate.membershipDigest) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K finalized receipt could not be bound to the canonical installed runtime identity.' : 'Z2K finalized receipt/runtime identity failed and rollback could not be completed.', { runtime: finalizedRuntime, rollback: rollback, diagnostics: diagnostics }));
+	}
+	pending.runtimeSnapshotId = finalizedRuntime.snapshotId;
 	// The receipt now carries the exact catalog digest. Clearing the catalog
 	// restore obligation before FINALIZED is durable makes recovery a proof of
 	// the new catalog rather than an instruction to rebuild the old one.

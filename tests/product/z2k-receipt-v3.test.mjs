@@ -180,13 +180,22 @@ test('production-shaped finalization carries all coherent evidence into the sole
     activationEvidence: { verified: true, detectDigest: value.receipt.detect.digest },
     committedAssetRevision: 4, catalogDigest: value.receipt.catalogDigest,
   };
+  const snapshotMismatchInput = JSON.parse(JSON.stringify(input));
+  snapshotMismatchInput.target.candidateSnapshotId = 'stale-candidate-snapshot';
+  const membershipMismatchInput = JSON.parse(JSON.stringify(input));
+  membershipMismatchInput.target.membershipDigest = digest('x');
+  const missingIdentityInput = JSON.parse(JSON.stringify(input));
+  delete missingIdentityInput.target.candidateSnapshotId;
   const state = { schema: 1, revision: 4, assets: [asset], activationReceipts: [] };
   fs.writeFileSync(registryStatePath, JSON.stringify(state));
   try {
-    const rerun = invokeModules(`(() => { let request = resource.resource_center_test_coherent_finalize_request(${JSON.stringify(input)}); if (!request.ok) return { request: request }; let finalized = registry.asset_registry_finalize_activation(request.request); let listed = registry.asset_registry_list(null); return { request: request, finalized: finalized, authority: authority.z2k_registry_receipt_state(listed), bundleId: finalized.receipt && finalized.receipt.bundleId, schema: finalized.receipt && finalized.receipt.schema }; })()`, {
+    const rerun = invokeModules(`(() => { let identityMismatch = resource.resource_center_test_coherent_finalize_request(${JSON.stringify(snapshotMismatchInput)}); let membershipMismatch = resource.resource_center_test_coherent_finalize_request(${JSON.stringify(membershipMismatchInput)}); let missingIdentity = resource.resource_center_test_coherent_finalize_request(${JSON.stringify(missingIdentityInput)}); let request = resource.resource_center_test_coherent_finalize_request(${JSON.stringify(input)}); if (!request.ok) return { identityMismatch: identityMismatch, membershipMismatch: membershipMismatch, missingIdentity: missingIdentity, request: request }; let finalized = registry.asset_registry_finalize_activation(request.request); let listed = registry.asset_registry_list(null); return { identityMismatch: identityMismatch, membershipMismatch: membershipMismatch, missingIdentity: missingIdentity, request: request, finalized: finalized, authority: authority.z2k_registry_receipt_state(listed), bundleId: finalized.receipt && finalized.receipt.bundleId, schema: finalized.receipt && finalized.receipt.schema }; })()`, {
       Z2M_ASSET_REGISTRY_STATE: registryStatePath,
       Z2M_UPDATE_SOURCE_TEST: '1',
     });
+    assert.equal(rerun.identityMismatch.ok, false, JSON.stringify(rerun));
+    assert.equal(rerun.membershipMismatch.ok, false, JSON.stringify(rerun));
+    assert.equal(rerun.missingIdentity.ok, false, JSON.stringify(rerun));
     assert.equal(rerun.request.ok, true, JSON.stringify(rerun));
     assert.equal(rerun.finalized.ok, true, JSON.stringify(rerun));
     assert.equal(rerun.schema, 'asset-activation-receipt.v3', JSON.stringify(rerun));
@@ -228,13 +237,28 @@ test('FINALIZED recovery independently verifies materialized runtime and process
     let process = { snapshotId: installed.snapshotId, membershipDigest: installed.membershipDigest, queueReady: true, pid: 321, processStarttime: '654', processGeneration: 'generation-proof', configHash: 'config-proof', activeConfigHash: 'config-proof', runtimeHashes, luaInitIds };
     let direct = runtime.verifyMaterialized(installed, materialized);
     if (!direct.ok) return { diagnostic: direct };
-    let good = resource.resource_center_test_finalized_recovery({ testOnly: true, pending: ${JSON.stringify(pending)}, listed: ${JSON.stringify(value.registry)}, runtimeProof: { staticBase, materialized, process } });
+    let listed = ${JSON.stringify(value.registry)}, coherentPending = ${JSON.stringify(pending)};
+    let receipt = listed.activationReceipts[0];
+    coherentPending.runtimeSnapshotId = installed.snapshotId;
+    coherentPending.membershipDigest = installed.membershipDigest;
+    receipt.membershipDigest = installed.membershipDigest;
+    let good = resource.resource_center_test_finalized_recovery({ testOnly: true, pending: coherentPending, listed: listed, runtimeProof: { staticBase, materialized, process } });
+    coherentPending.runtimeSnapshotId = 'snapshot-mismatch';
+    let snapshotMismatch = resource.resource_center_test_finalized_recovery({ testOnly: true, pending: coherentPending, listed: listed, runtimeProof: { staticBase, materialized, process } });
+    coherentPending.runtimeSnapshotId = installed.snapshotId;
+    receipt.membershipDigest = ${JSON.stringify(digest('m'))};
+    coherentPending.membershipDigest = ${JSON.stringify(digest('m'))};
+    let membershipMismatch = resource.resource_center_test_finalized_recovery({ testOnly: true, pending: coherentPending, listed: listed, runtimeProof: { staticBase, materialized, process } });
+    receipt.membershipDigest = installed.membershipDigest;
+    coherentPending.membershipDigest = installed.membershipDigest;
     process.runtimeHashes[installed.runtimeAssets[0].id] = ${JSON.stringify('e'.repeat(64))};
-    let bad = resource.resource_center_test_finalized_recovery({ testOnly: true, pending: ${JSON.stringify(pending)}, listed: ${JSON.stringify(value.registry)}, runtimeProof: { staticBase, materialized, process } });
-    return { installed: installed, direct: direct, good: good, bad: bad };
+    let bad = resource.resource_center_test_finalized_recovery({ testOnly: true, pending: coherentPending, listed: listed, runtimeProof: { staticBase, materialized, process } });
+    return { installed: installed, direct: direct, good: good, snapshotMismatch: snapshotMismatch, membershipMismatch: membershipMismatch, bad: bad };
   })()`, { Z2M_UPDATE_SOURCE_TEST: '1', Z2M_RUNTIME_PACKAGE_COMPOSITION: packageCompositionPath });
   assert.equal(result.installed.ok, true, JSON.stringify(result));
   assert.equal(result.good.ok, true, JSON.stringify(result));
+  assert.equal(result.snapshotMismatch.ok, false, JSON.stringify(result));
+  assert.equal(result.membershipMismatch.ok, false, JSON.stringify(result));
   assert.equal(result.bad.ok, false, JSON.stringify(result));
   try { fs.unlinkSync(packageCompositionPath); } catch {}
 });

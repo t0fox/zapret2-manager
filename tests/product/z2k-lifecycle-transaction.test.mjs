@@ -44,6 +44,8 @@ test('candidate transaction persists durable evidence before the first irreversi
   assert.match(apply, /asset_registry_finalize_activation/);
   assert.match(apply, /verifyMaterialized|z2k_target_postflight/);
   assert.match(apply, /verifyActivationProcess|PROCESS_VERIFIED/);
+  assert.match(apply, /finalizedRuntime = .*resolveInstalled\(\{ registry: finalizedListed \}\)/);
+  assert.match(apply, /pending\.runtimeSnapshotId = finalizedRuntime\.snapshotId/);
 });
 
 test('worker job is only a progress mirror and recovery is a separate durable consumer', () => {
