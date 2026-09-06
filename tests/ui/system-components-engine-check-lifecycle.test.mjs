@@ -187,7 +187,13 @@ async function runScenario(mode) {
   assert.equal(ctx.dom.busy, true, `${mode}: busy must be visible while pending`);
   assert.match(ctx.dom.operationText, /Проверка обновлений…Проверяем доступные версии…/, `${mode}: current busy copy must be visible`);
 
-  if (mode === 'success') ctx.capture.engineCheck.resolve({ ok: true, checkedAt: ctx.capture.freshEngineCheckAt });
+  if (mode === 'success') ctx.capture.engineCheck.resolve({
+    ok: true,
+    checkedAt: ctx.capture.freshEngineCheckAt,
+    installed: { version: 'v1.0.5' },
+    available: { version: 'v1.0.5' },
+    updateState: 'current',
+  });
   if (mode === 'error') ctx.capture.engineCheck.reject({ code: 'EUPSTREAM', message: 'upstream failed' });
   await waitForRefresh(ctx);
 
@@ -198,6 +204,14 @@ async function runScenario(mode) {
 
   if (mode === 'success') {
     assert.equal(modelInputs.at(-1).checkedAt, ctx.capture.freshEngineCheckAt, 'successful Engine check must advance the canonical last-check timestamp');
+    assert.equal(modelInputs.at(-1).engine.check.checkedAt, ctx.capture.freshEngineCheckAt,
+      'successful Engine check must remain the canonical Engine check input after refresh');
+    assert.equal(modelInputs.at(-1).engine.check.installed.version, 'v1.0.5',
+      'Components must project the installed Engine release from the fresh check');
+    assert.equal(modelInputs.at(-1).engine.check.available.version, 'v1.0.5',
+      'Components must project the available Engine release from the fresh check');
+    assert.equal(modelInputs.at(-1).engine.check.updateState, 'current',
+      'Components must project the fresh Engine update state');
   } else {
     assert.ok(ctx.toasts.some(toast => toast.kind === 'err'), `${mode}: error must be visible`);
   }

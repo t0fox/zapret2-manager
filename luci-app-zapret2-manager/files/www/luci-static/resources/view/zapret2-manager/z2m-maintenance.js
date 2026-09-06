@@ -81,6 +81,10 @@ var state = {
   engineSelectedVersion: null,
   engineCheck: null,
   engineCheckVersion: null,
+  // The last successful generic Engine check is a page-session snapshot. It
+  // must survive the follow-up status refresh so Components can project the
+  // checked release facts instead of reverting to the initial unknown state.
+  engineLastCheck: null,
   engineComponent: null,
   z2kCheck: null,
   z2kCatalog: null,
@@ -715,6 +719,8 @@ function checkUpdates(ctx, scope) {
           manifest: object(z2k.manifest)
         };
       }
+      if (result && result.status === 'fulfilled' && promiseScopes[index] === 'engine')
+        state.engineLastCheck = result.value || null;
     });
     ctx.shell.showToast(_('Проверка обновлений завершена.'), 'ok');
     return true;
@@ -2135,7 +2141,7 @@ function renderComponents(ctx, data) {
   }
   var page = ComponentsModel.normalizePage({
     versions: payload.versions && payload.versions.value || {},
-    engine: { status: engineStatus, catalog: engineCatalog },
+    engine: { status: engineStatus, catalog: engineCatalog, check: state.engineLastCheck },
     z2k: Object.assign({}, resourceZ2K, {
       catalog: catalogRows,
       remoteState: catalogState,
@@ -2453,6 +2459,7 @@ function unmount(ctx) {
   state.componentHydrationToken = null;
   state.componentLoadToken++;
   state.componentMetadata = {};
+  state.engineLastCheck = null;
   if (ctx && ctx.enginePanelContext && ctx.enginePanelContext.engineState)
     EnginePanel.unmount(ctx.enginePanelContext);
 }

@@ -110,6 +110,27 @@ test('unknown compatibility does not poison independently proven runtime health'
   assert.equal(page2.health.ready, 1);
 });
 
+test('fresh Engine check supplies release facts when the status snapshot has no identity', () => {
+  const page = model.normalizePage({
+    engine: {
+      status: engine({ installedRelease: null, packageVersion: null }),
+      check: {
+        ok: true,
+        checkedAt: 200,
+        installed: { version: 'v1.0.5' },
+        available: { version: 'v1.0.5' },
+        updateState: 'current',
+      },
+    },
+    z2k: z2k(),
+  });
+
+  assert.equal(page.components[0].installed.version, 'v1.0.5');
+  assert.equal(page.components[0].available.version, 'v1.0.5');
+  assert.equal(page.components[0].updateState, 'current');
+  assert.equal(page.components[0].checkedAt, 200);
+});
+
 test('Z2K becomes ready only with materialized Lua evidence once the engine is ready', () => {
   const partial = model.normalizePage({
     engine: { status: engine() },

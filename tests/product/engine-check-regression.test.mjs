@@ -55,6 +55,13 @@ test('Fresh Engine check preserves canonical checkedAt and updateState in its re
   assert.match(check, /answer\.available\s*=\s*\{/);
 });
 
+test('official runtime version is the installed Engine release when no manager receipt exists', () => {
+  assert.match(catalog, /function runtime_release\s*\(/,
+    'Engine must parse the release identity from the verified official runtime banner');
+  assert.match(catalog, /saved\.installedRelease[^\n]*runtime_release\(meta\.runtimeVersion\)/,
+    'runtime identity must fill the missing receipt only from the verified runtime');
+});
+
 test('Engine check accepts the public v-prefixed release tag from the UI', () => {
   const backendCheck = catalog.slice(catalog.indexOf('export const engine_check'), catalog.indexOf('export const load_checked_candidate'));
   assert.match(backendCheck, /version\s*=\s*substr\(version,\s*1\)/,

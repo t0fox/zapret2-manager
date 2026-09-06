@@ -125,7 +125,9 @@ function normalizeEngine(input) {
 	    || candidate.compatibility || candidate.compatibilityState
 	    || catalogCandidate.compatibility || catalogCandidate.compatibilityState;
 	var candidateCompatibility = compatibilityRecord(candidateCompatibilityValue);
-	var installedVersion = first(status.installedRelease || status.packageVersion, null);
+	var installedVersion = versionFrom(check.installed)
+		|| first(check.installedRelease, null)
+		|| first(status.installedRelease || status.packageVersion, null);
 	var artifactKind = first(status.artifactKind || status.artifact || (status.patchSeries && status.patchSeries.length ? 'legacy-compatibility-build' : null), null);
 	var availableVersion = versionFrom(check.available) || first(check.availableRelease || check.latestRelease || check.latestVersion, null);
 	if (availableVersion === null && !remoteBlocked) availableVersion = versionFrom(status.available) || versionFrom(catalog.available) || versionFrom(candidate) || versionFrom(catalogCandidate);
