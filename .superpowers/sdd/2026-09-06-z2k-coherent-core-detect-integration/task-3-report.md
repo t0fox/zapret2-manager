@@ -204,7 +204,7 @@ runtime (`UCODE_BIN=/opt/ucode/bin/ucode`, `LD_LIBRARY_PATH=/opt/ucode/lib`):
 - `node --test tests/product/z2k-coherent-candidate.test.mjs` exited `0`:
   `8` passed, `0` failed, `0` skipped, `0` todo.
 - `node --test tests/product/z2k-runtime-composition.test.mjs` exited `1`:
-  `23` passed, `1` failed, `1` skipped, `1` todo. The exact failure is
+  `23` passed, `1` failed, `0` skipped, `1` todo. The exact failure is
   subtest 2 at `tests/product/z2k-runtime-composition.test.mjs:112`: the
   existing regex `/target\.runtimeBundleDigest = target\.dependencyClosure/`
   does not match `resource-update.uc`. All Task 3 candidate/resolver
