@@ -157,57 +157,101 @@ export const z2k_detect_stage = function(candidate, stagePath, seams) {
 	} catch (e) { return stage_failure(remove, stagePath, fail('EDETECT_INCOMPATIBLE', 'Detect staging failed closed.', { detail: text(e) })); }
 };
 
+function publication_valid(publication) {
+	return object(publication) && (publication.prepared === true || publication.published === true) && string(publication.target)
+		&& (publication.testOnly === true ? allowed_test_target(publication.target) : publication.target == RUNTIME_TARGET)
+		&& object(publication.prior) && string(publication.backupPath) && object(publication.candidate)
+		&& valid_digest(publication.candidate.sha256);
+}
+function publication_state(publication, hooks) {
+	let target = publication.target, prior = publication.prior, present = hooks.exists(target);
+	if (!present) return prior.exists === true ? 'absent-after-prior' : 'prior-absent';
+	if (!hooks.regular(target)) return 'invalid';
+	let actual = hooks.sha256(target);
+	if (actual != null && lc(actual) == lc(publication.candidate.sha256)) return 'candidate';
+	if (prior.exists === true && actual != null && lc(actual) == lc(prior.sha256)) return 'prior';
+	return 'unknown';
+}
+function close_backup(publication, hooks) {
+	if (hooks.exists(publication.backupPath) && !hooks.remove(publication.backupPath)) return false;
+	return !hooks.exists(publication.backupPath);
+}
 function detect_restore(publication, seams) {
-	let input = object(seams) ? seams : {}, target = object(publication) ? publication.target : null, hooks = hooks_for(input), prior = object(publication) ? publication.prior : null;
-	if (!object(publication) || publication.published !== true || !string(target) || (publication.testOnly === true ? !allowed_test_target(target) : target != RUNTIME_TARGET)
-		|| !prior || !string(publication.backupPath)) return fail('EINPUT', 'Detect rollback state is invalid.');
-	if (prior.exists === true) {
-		if (!hooks.exists(publication.backupPath)) return hooks.exists(target) && hooks.sha256(target) == prior.sha256 ? { ok: true, restored: true, alreadyRestored: true } : fail('EROLLBACK', 'Prior stable Detect bytes are unavailable for restoration.');
-		if (!hooks.remove(target) || !hooks.copy(publication.backupPath, target) || !hooks.chmod(target, prior.mode)) return fail('EROLLBACK', 'Prior stable Detect state could not be restored.', { target: target });
-		if (hooks.sha256(target) != prior.sha256) return fail('EROLLBACK', 'Restored stable Detect bytes do not match the captured state.', { target: target });
-		if (!hooks.remove(publication.backupPath) || hooks.exists(publication.backupPath)) return fail('EROLLBACK', 'Restored Detect rollback state could not be closed.', { target: target });
-		return { ok: true, restored: true, target: target, sha256: prior.sha256 };
+	let input = object(seams) ? seams : {}, hooks = hooks_for(input);
+	if (!publication_valid(publication)) return fail('EINPUT', 'Detect rollback state is invalid.');
+	let prior = publication.prior, state = publication_state(publication, hooks), target = publication.target;
+	// A completed publication can fail its post-move verification with bytes
+	// that are neither the candidate nor the captured prior bytes. The backup
+	// still belongs to this Core transaction, so restore it; a PREPARED intent
+	// with an unknown target remains fail-closed for recovery instead.
+	if ((state == 'invalid' || state == 'unknown') && publication.published === true) state = 'candidate';
+	if (state == 'invalid' || state == 'unknown') return fail('EROLLBACK', 'Stable Detect state is neither the captured prior bytes nor the selected candidate.', { target: target, state: state });
+	if (state == 'candidate' || state == 'absent-after-prior') {
+		if (prior.exists === true) {
+			if (!hooks.exists(publication.backupPath) || !hooks.remove(target) || !hooks.copy(publication.backupPath, target) || !hooks.chmod(target, prior.mode)) return fail('EROLLBACK', 'Prior stable Detect state could not be restored.', { target: target });
+			if (!hooks.regular(target) || hooks.sha256(target) != prior.sha256) return fail('EROLLBACK', 'Restored stable Detect bytes do not match the captured state.', { target: target });
+		} else if (!hooks.remove(target) || hooks.exists(target)) return fail('EROLLBACK', 'Absent prior Detect state could not be restored.', { target: target });
 	}
-	if (!hooks.remove(target) || hooks.exists(target)) return fail('EROLLBACK', 'Absent prior Detect state could not be restored.', { target: target });
-	return { ok: true, restored: true, target: target, absent: true };
+	if (state == 'prior' && (prior.exists !== true || hooks.sha256(target) != prior.sha256)) return fail('EROLLBACK', 'Stable Detect prior state verification failed.', { target: target });
+	if (!close_backup(publication, hooks)) return fail('EROLLBACK', 'Detect rollback state could not be closed.', { target: target });
+	return { ok: true, restored: true, target: target, sha256: prior.exists === true ? prior.sha256 : null, absent: prior.exists !== true, state: state };
 }
 
-export const z2k_detect_publish = function(candidate, stagePath, seams) {
+export const z2k_detect_prepare = function(candidate, stagePath, seams) {
 	let input = object(seams) ? seams : {}, target = resolve_target(input), hooks = hooks_for(input);
-	if (!object(candidate) || candidate.ok !== true || candidate.runtimeTarget != RUNTIME_TARGET || target == null
+	if (!object(candidate) || candidate.ok !== true || candidate.runtimeTarget != RUNTIME_TARGET || !valid_digest(candidate.sha256) || target == null
 		|| !allowed_stage(stagePath, input.testOnly === true)) return fail('EINPUT', 'Detect publication target is not the fixed Core target.');
 	if (!hooks.regular(stagePath)) return fail('EUNAVAILABLE', 'Verified Detect staging bytes are absent or not a regular file.', { stagePath: stagePath });
+	let stagedSha = hooks.sha256(stagePath);
+	if (stagedSha == null || lc(stagedSha) != lc(candidate.sha256)) return fail('EVERIFY', 'Detect staging bytes do not match the selected candidate.', { stagePath: stagePath });
 	if (hooks.exists(target) && !hooks.regular(target)) return fail('EDETECT_INCOMPATIBLE', 'Stable Detect target is not a regular non-symlink file.', { target: target });
 	let backup = resolve_backup(input, target), priorExists = hooks.regular(target), prior = { exists: priorExists, sha256: null, byteSize: null, mode: null };
 	if (priorExists) {
 		prior.sha256 = hooks.sha256(target); prior.byteSize = hooks.size(target); prior.mode = hooks.mode(target);
 		if (!valid_digest(prior.sha256) || !hooks.copy(target, backup)) return fail('EVERIFY', 'Prior stable Detect state could not be captured.', { target: target });
 	} else if (!hooks.remove(backup)) return fail('EWRITE', 'Stale Detect rollback state could not be cleared.', { backup: backup });
-	let temp = target + '.candidate.' + time();
-	if (!hooks.copy(stagePath, temp)) { if (priorExists) hooks.remove(backup); return fail('EWRITE', 'Detect candidate could not be copied into the stable target filesystem.'); }
+	return { ok: true, prepared: true, published: false, target: target, backupPath: backup, prior: prior, candidate: candidate, testOnly: input.testOnly === true };
+};
+
+function publication_failure(publication, hooks, code, message, details) {
+	let restored = detect_restore(publication, hooks), result = fail(restored.ok ? code : 'EROLLBACK', restored.ok ? message : 'Detect publication failed and stable state could not be restored.', details || {});
+	result.error.restore = restored;
+	return result;
+}
+
+export const z2k_detect_publish_prepared = function(publication, stagePath, seams) {
+	let input = object(seams) ? seams : {}, hooks = hooks_for(input);
+	if (!publication_valid(publication) || publication.prepared !== true || !allowed_stage(stagePath, input.testOnly === true)) return fail('EINPUT', 'Detect prepared publication state is invalid.');
+	if (!hooks.regular(stagePath)) return publication_failure(publication, hooks, 'EUNAVAILABLE', 'Verified Detect staging bytes are absent or not a regular file.', { stagePath: stagePath });
+	let temp = publication.target + '.candidate.' + time();
+	if (!hooks.copy(stagePath, temp)) return publication_failure(publication, hooks, 'EWRITE', 'Detect candidate could not be copied into the stable target filesystem.');
 	let actual = hooks.sha256(temp);
-	if (actual == null || lc(actual) != lc(candidate.sha256)) { hooks.remove(temp); if (priorExists) hooks.remove(backup); return fail('EVERIFY', 'Detect candidate bytes changed before publication.', { expectedSha256: candidate.sha256, actualSha256: actual }); }
-	if (!hooks.chmod(temp)) { hooks.remove(temp); if (priorExists) hooks.remove(backup); return fail('EDETECT_INCOMPATIBLE', 'Detect candidate could not be marked executable.'); }
+	if (actual == null || lc(actual) != lc(publication.candidate.sha256)) { hooks.remove(temp); return publication_failure(publication, hooks, 'EVERIFY', 'Detect candidate bytes changed before publication.', { expectedSha256: publication.candidate.sha256, actualSha256: actual }); }
+	if (!hooks.chmod(temp)) { hooks.remove(temp); return publication_failure(publication, hooks, 'EDETECT_INCOMPATIBLE', 'Detect candidate could not be marked executable.'); }
 	let checked = hooks.check != null ? executable_result(temp, hooks.check) : executable_result(temp);
-	if (!checked.ok) { hooks.remove(temp); if (priorExists) hooks.remove(backup); return checked; }
-	if (!hooks.move(temp, target)) { hooks.remove(temp); if (priorExists) hooks.remove(backup); return fail('EWRITE', 'Detect candidate could not be atomically published.'); }
-	actual = hooks.sha256(target);
-	if (actual == null || lc(actual) != lc(candidate.sha256)) {
-		let publication = { published: true, target: target, testOnly: input.testOnly === true, backupPath: backup, prior: prior, candidate: candidate };
-		let restored = detect_restore(publication, input);
-		return restored.ok ? fail('EVERIFY', 'Stable Detect target did not retain the verified candidate bytes.', { expectedSha256: candidate.sha256, actualSha256: actual })
-			: fail('EROLLBACK', 'Stable Detect target verification failed and the prior state could not be restored.', { expectedSha256: candidate.sha256, actualSha256: actual, restore: restored });
+	if (!checked.ok) { hooks.remove(temp); return publication_failure(publication, hooks, checked.error.code, checked.error.message); }
+	if (type(input.beforeMove) == 'function') {
+		try { if (input.beforeMove(publication) === false) { hooks.remove(temp); return publication_failure(publication, hooks, 'EWRITE', 'Detect publication was interrupted before the stable target move.'); } }
+		catch (e) { hooks.remove(temp); return publication_failure(publication, hooks, 'EWRITE', 'Detect publication callback failed before the stable target move.', { detail: text(e) }); }
 	}
-	return { ok: true, published: true, target: target, backupPath: backup, prior: prior, candidate: candidate, testOnly: input.testOnly === true };
+	let moving = { ...publication, published: true };
+	if (!hooks.move(temp, publication.target)) { hooks.remove(temp); return publication_failure(moving, hooks, 'EWRITE', 'Detect candidate could not be atomically published.'); }
+	actual = hooks.sha256(publication.target);
+	if (actual == null || lc(actual) != lc(publication.candidate.sha256)) return publication_failure(moving, hooks, 'EVERIFY', 'Stable Detect target did not retain the verified candidate bytes.', { expectedSha256: publication.candidate.sha256, actualSha256: actual });
+	return moving;
+};
+
+export const z2k_detect_publish = function(candidate, stagePath, seams) {
+	let prepared = z2k_detect_prepare(candidate, stagePath, seams);
+	return prepared.ok ? z2k_detect_publish_prepared(prepared, stagePath, seams) : prepared;
 };
 
 export const z2k_detect_restore = function(publication, seams) { return detect_restore(publication, seams); };
 
 export const z2k_detect_finalize = function(publication, seams) {
 	let input = object(seams) ? seams : {}, hooks = hooks_for(input), target = object(publication) ? publication.target : null;
-	if (!object(publication) || publication.published !== true || !string(publication.backupPath)
-		|| (publication.testOnly === true ? !allowed_test_target(target) : target != RUNTIME_TARGET)) return fail('EINPUT', 'Detect publication state is invalid.');
+	if (!publication_valid(publication)) return fail('EINPUT', 'Detect publication state is invalid.');
 	if (object(publication.candidate) && hooks.sha256(target) != publication.candidate.sha256) return fail('EVERIFY', 'Stable Detect target changed before transaction finalization.', { target: target });
-	if (!hooks.remove(publication.backupPath) || hooks.exists(publication.backupPath)) return fail('EWRITE', 'Detect rollback state could not be closed.');
+	if (!close_backup(publication, hooks)) return fail('EWRITE', 'Detect rollback state could not be closed.');
 	return { ok: true, finalized: true, target: target };
 };

@@ -149,3 +149,40 @@ Implementation commit: `bb6b907d` (`fix: complete Z2K Detect rollback transactio
 ### Scope rulings
 
 Pre-existing legacy scanner production imports remain deferred to planned Tasks 8/10/11/14. This round adds no scanner fallback, parallel RPC, second Detect updater, second database, router deployment, browser acceptance, or package-E2E claim. No unrelated failures were fixed or reclassified.
+
+## Fix round 3: durable PREPARED journal before Detect publication and recovery
+
+Status: IMPLEMENTED — bounded focused Detect/Resource Center evidence green; no router/browser acceptance.
+
+### RED
+
+The bounded RED run before the round-3 production implementation used:
+
+```text
+wsl.exe -e sh -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 60s node --test tests/product/z2k-detect-artifact.test.mjs tests/product/z2k-update-transaction.test.mjs'
+```
+
+Exact result: `26` tests, `22` passed, `4` failed, `0` skipped, `0` todo. The four failures were the intentionally missing pre-publication journal/publication seam, Resource Center PREPARED recovery behavior, FINALIZED recovery coverage, and rollback-coordinator test seam.
+
+### Implementation
+
+- `z2k-detect.uc` now separates capture from publication. `z2k_detect_prepare()` validates the fixed target/seam, captures prior stable bytes/state into the backup path, and returns the candidate identity, target, backup, and recovery state. `z2k_detect_publish_prepared()` verifies the staged bytes again, atomically moves them to the stable target, and restores the captured prior state on move/post-move failure.
+- `resource-update.uc` writes the existing Core pending record at durable `PREPARED` before calling `z2k_detect_publish_prepared()`. The record contains the candidate Detect identity, fixed runtime target, prior state, backup path, and recovery metadata. Registry apply starts only after the stable publication succeeds.
+- `resource_center_recover_pending()` now recovers a PREPARED publication when the stable target is new, old, or absent; it restores prior bytes or absence, removes the backup and pending marker only after verification, and fails closed for ambiguous state. FINALIZED recovery remains receipt-gated and keeps Detect/Registry coherent.
+- Existing post-Registry rollback paths continue to use the single Core rollback routine; the controlled rollback integration seam verifies Registry, runtime, source, Detect, journal, and cleanup ownership together. Stage cleanup, path-boundary checks, fixed target semantics, worker coordination, and deferred legacy scanner scope remain unchanged.
+
+### GREEN and required gates
+
+The final bounded focused WSL command in this round was:
+
+```text
+wsl.exe -e sh -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 20s node --test tests/product/z2k-detect-artifact.test.mjs'
+```
+
+Exact result: `17` tests, `17` passed, `0` failed, `0` skipped, `0` todo. Recovery coverage includes PREPARED target-new/old/absent cases, receipt-gated FINALIZED recovery, interrupted publication capture/restore, and the Core rollback coordinator's Registry/runtime/source/Detect coherence. The same focused test also covers architecture/path/commit/SHA identity, wrong SHA/fetch/chmod/preflight failures, partial-stage cleanup, traversal/backslash/non-regular boundaries, stable publication, post-publication restore, and worker ownership.
+
+The combined `z2k-update-transaction.test.mjs` suite was not rerun in fix round 3; its prior fix-round-2 evidence remains `22` passed, `0` failed. No broad suite was run. No router, browser, package-E2E, or deployment acceptance was run.
+
+### Scope rulings
+
+The pre-existing legacy scanner production imports remain deferred to planned Tasks 8/10/11/14. This round adds no scanner fallback, parallel RPC, second Detect updater, or second database. No unrelated failures were fixed or reclassified.

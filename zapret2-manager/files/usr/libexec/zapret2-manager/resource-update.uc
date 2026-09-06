@@ -18,7 +18,7 @@ import * as z2k_source_refresh from './strategy-source-refresh.uc';
 import * as z2k_source from './strategy-source-z2k.uc';
 import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
-import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_publish, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
+import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -32,7 +32,11 @@ const LIFECYCLE_LOCK = '/tmp/z2m-z2k-lifecycle.lock';
 const Z2K_PAUSE_FILE = '/tmp/zapret2-manager/paused';
 const Z2K_OPERATION_PARENT = STAGE_PARENT + '/jobs';
 const Z2K_OPERATION_WORKER = '/usr/libexec/zapret2-manager/resource-update-worker.uc';
-const Z2K_PENDING_ACTIVATION = '/etc/zapret2-manager/z2k-pending-activation.json';
+const Z2K_PENDING_ACTIVATION_TEST_PREFIX = '/tmp/z2m-z2k-detect-recovery-test-';
+const Z2K_PENDING_ACTIVATION_OVERRIDE = getenv('Z2M_RESOURCE_UPDATE_PENDING_TEST_PATH');
+const Z2K_PENDING_ACTIVATION = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && type(Z2K_PENDING_ACTIVATION_OVERRIDE) == 'string'
+	&& substr(Z2K_PENDING_ACTIVATION_OVERRIDE, 0, length(Z2K_PENDING_ACTIVATION_TEST_PREFIX)) == Z2K_PENDING_ACTIVATION_TEST_PREFIX
+	? Z2K_PENDING_ACTIVATION_OVERRIDE : '/etc/zapret2-manager/z2k-pending-activation.json';
 const Z2K_RUNTIME_READY_TIMEOUT_MS = 12000;
 const Z2K_RUNTIME_READY_POLL_MS = 1000;
 // rpcd/ubus has a materially smaller response budget than the full local
@@ -1553,24 +1557,34 @@ function z2k_rollback_expected_revision(applied, listed, pending) {
 		&& receipt.committedRegistryRevision == expected) return listed.revision;
 	return expected;
 }
-function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated) {
-	let pending = z2k_pending_load(), journal = pending == null || z2k_pending_write(pending, 'ROLLING_BACK');
-	let runtimeRollback = runtimeActivated ? z2k_runtime_rollback() : { ok: true, skipped: true };
-	let listed = asset_registry_list(null), alreadyRestored = z2k_rollback_registry_already_restored(pending, listed);
-	let expectedRevision = z2k_rollback_expected_revision(applied, listed, pending);
+function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated, testSeams) {
+	let testing = object(testSeams) && testSeams.testOnly === true;
+	let pending = testing ? testSeams.pendingLoad() : z2k_pending_load(), journal = pending == null || (testing ? testSeams.pendingWrite(pending, 'ROLLING_BACK') : z2k_pending_write(pending, 'ROLLING_BACK'));
+	let runtimeRollback = runtimeActivated ? (testing ? testSeams.runtimeRollback() : z2k_runtime_rollback()) : { ok: true, skipped: true };
+	let listed = testing ? testSeams.registryList() : asset_registry_list(null), alreadyRestored = testing ? testSeams.registryAlreadyRestored(pending, listed) : z2k_rollback_registry_already_restored(pending, listed);
+	let expectedRevision = testing ? applied && (applied.committedAssetRevision || applied.revision) : z2k_rollback_expected_revision(applied, listed, pending);
 	let registryRollback = alreadyRestored ? { ok: true, skipped: true, alreadyRestored: true, revision: listed.revision }
-		: asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: expectedRevision });
+		: (testing ? testSeams.registryRollback({ bundleId: selected.id, expectedRevision: expectedRevision }) : asset_registry_rollback_bundle({ bundleId: selected.id, expectedRevision: expectedRevision }));
 	let sourceRollback = { ok: true, skipped: true };
 	if (pending && pending.sourceRestoreRequired === true && object(pending.sourceActivation)) {
-		try { sourceRollback = strategy_sources.strategy_source_restore_activation('z2k', pending.sourceActivation); }
+		try { sourceRollback = testing ? testSeams.sourceRestore('z2k', pending.sourceActivation) : strategy_sources.strategy_source_restore_activation('z2k', pending.sourceActivation); }
 		catch (e) { sourceRollback = fail('EROLLBACK', 'Z2K strategy source activation rollback raised an exception.'); }
 	}
 	let detectPublication = pending && object(pending.detectPublication) ? pending.detectPublication : z2k_active_detect_publication;
-	let detectRollback = object(detectPublication) ? z2k_detect_restore(detectPublication) : { ok: true, skipped: true };
+	let detectRollback = object(detectPublication) ? (testing ? testSeams.detectRestore(detectPublication) : z2k_detect_restore(detectPublication)) : { ok: true, skipped: true };
 	let okResult = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && detectRollback.ok;
-	if (okResult && pending != null) okResult = z2k_pending_write(pending, 'ROLLED_BACK') && z2k_pending_clear();
+	if (okResult && pending != null) okResult = (testing ? testSeams.pendingWrite(pending, 'ROLLED_BACK') : z2k_pending_write(pending, 'ROLLED_BACK')) && (testing ? testSeams.pendingClear() : z2k_pending_clear());
 	return { ok: okResult, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, detect: detectRollback, journal: journal };
 }
+export const resource_center_test_rollback_transaction = function(input) {
+	if (!object(input) || input.testOnly !== true || !object(input.seams)) return fail('EINPUT', 'Internal rollback test seam is restricted to controlled tests.');
+	let seams = input.seams;
+	if (type(seams.pendingLoad) != 'function' || type(seams.pendingWrite) != 'function' || type(seams.pendingClear) != 'function'
+		|| type(seams.runtimeRollback) != 'function' || type(seams.registryList) != 'function' || type(seams.registryAlreadyRestored) != 'function'
+		|| type(seams.registryRollback) != 'function' || type(seams.sourceRestore) != 'function' || type(seams.detectRestore) != 'function') return fail('EINPUT', 'Internal rollback test seam is incomplete.');
+	seams.testOnly = true;
+	return z2k_rollback_after_runtime_failure(input.selected || { id: 'z2k-curated-lua' }, input.applied || {}, input.diagnostics || {}, input.runtimeActivated === true, seams);
+};
 function z2k_pending_identity_valid(pending) {
 	if (!object(pending) || !string(pending.candidateSnapshotId) || !string(pending.membershipDigest)
 		|| !string(pending.targetVersion) || !string(pending.targetCommit) || !string(pending.planToken)
@@ -1779,7 +1793,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	try { sourceBefore = strategy_sources.strategy_sources_get(); } catch (e) { sourceBefore = null; }
 	let consumed = consume_prepared_target(state, target);
 	if (!consumed.ok) return consumed;
-	let root = null, paths = [], guard = null, staged = [], applied = null, committedAssetRevision = null, registryCommitted = false, runtimeActivated = false,
+	let root = null, paths = [], guard = null, staged = [], detectPrepared = null, detectIntentWritten = false, applied = null, committedAssetRevision = null, registryCommitted = false, runtimeActivated = false,
 		diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), removePlanned: length(target.removeIds || []), downloaded: 0, verified: 0, staged: 0, applied: 0, removed: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
 	try {
 		guard = z2k_runtime_guard_acquire();
@@ -1791,10 +1805,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		if (!object(detectCandidate) || detectCandidate.runtimeTarget != Z2K_DETECT_TARGET) return z2k_runtime_guard_finish(guard, root, paths, fail('EDETECT_UNAVAILABLE', 'prepared Core target has no Detect artifact.'));
 		let detectStaged = z2k_detect_stage(detectCandidate, detectStage);
 		if (!detectStaged.ok) return z2k_runtime_guard_finish(guard, root, paths, detectStaged);
-		let detectPublished = z2k_detect_publish(detectStaged.candidate, detectStage);
-		if (!detectPublished.ok) return z2k_runtime_guard_finish(guard, root, paths, detectPublished);
-		z2k_active_detect_publication = detectPublished;
-		diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'published', prior: detectPublished.prior };
+		diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'staged' };
 	for (let i = 0; i < length(target.assets); i++) {
 		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
 		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
@@ -1813,19 +1824,34 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	let beforeCommit = asset_registry_list(null), cas = beforeCommit.ok ? runtime_composition_candidate_cas(candidate, beforeCommit.revision, 'pre-commit', null) : fail('ESTALE', 'Z2K Registry could not be re-read before commit.');
 	if (!cas.ok) return z2k_runtime_guard_finish(guard, root, paths, cas);
 	let priorAuthority = z2k_registry_receipt_state(listed);
+	// Capture the old stable Detect state before writing the single durable Core
+	// intent. The target move is deliberately after PREPARED is durable.
+	detectPrepared = z2k_detect_prepare(detectStaged.candidate, detectStage);
+	if (!detectPrepared.ok) return z2k_runtime_guard_finish(guard, root, paths, detectPrepared);
 	// The /tmp/z2m-resource-update/jobs worker file is only a progress mirror;
 	// this durable pending-activation record is the recovery authority.
 	let pending = { schema: 1, candidateSnapshotId: candidate.snapshotId, compositionSnapshotId: candidate.compositionSnapshotId, membershipDigest: candidate.membershipDigest,
 		baseRegistryRevision: target.baseRegistryRevision, targetVersion: target.targetVersion, targetCommit: target.targetCommitSha || target.targetCommit,
 		planToken: target.planToken, z2kCompatibilityIdentity: target.z2kCompatibilityIdentity,
 		rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' },
-		detectPublication: z2k_active_detect_publication,
+		detectPublication: detectPrepared,
 		sourceActivation: sourceBefore && sourceBefore.sources && sourceBefore.sources.z2k ? {
 			currentSnapshotId: sourceBefore.sources.z2k.currentSnapshotId || null,
 			lastKnownGoodSnapshotId: sourceBefore.sources.z2k.lastKnownGoodSnapshotId || null
 		} : { currentSnapshotId: null, lastKnownGoodSnapshotId: null },
 		sourceRestoreRequired: true, phase: 'PREPARED' };
-	if (!z2k_pending_write(pending, 'PREPARED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Durable pending activation evidence could not be persisted.'));
+	if (!z2k_pending_write(pending, 'PREPARED')) {
+		let detectDiscard = z2k_detect_restore(detectPrepared), pendingDiscard = z2k_pending_clear();
+		return z2k_runtime_guard_finish(guard, root, paths, fail(detectDiscard.ok && pendingDiscard ? 'EWRITE' : 'EROLLBACK', 'Durable PREPARED Detect intent could not be persisted; no stable Detect move was committed.', { detect: detectDiscard, pendingCleared: pendingDiscard }));
+	}
+	detectIntentWritten = true;
+	let detectPublished = z2k_detect_publish_prepared(detectPrepared, detectStage);
+	if (!detectPublished.ok) {
+		let detectRollback = z2k_detect_restore(detectPrepared), pendingCleared = z2k_pending_clear();
+		return z2k_runtime_guard_finish(guard, root, paths, fail(detectRollback.ok && pendingCleared ? (detectPublished.error && detectPublished.error.code || 'EWRITE') : 'EROLLBACK', detectRollback.ok && pendingCleared ? 'Detect publication failed and its PREPARED journal was restored and cleared.' : 'Detect publication failed and its PREPARED journal could not be safely closed.', { detect: detectPublished, restore: detectRollback, pendingCleared: pendingCleared }));
+	}
+	z2k_active_detect_publication = detectPublished;
+	diagnostics.detect.result = 'published'; diagnostics.detect.prior = detectPublished.prior;
 		applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit, expectedRegistryRevision: target.baseRegistryRevision, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
 		if (!applied.ok) {
 			let appliedRevision = applied && (applied.committedAssetRevision || applied.revision);
@@ -1951,6 +1977,10 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	return z2k_runtime_guard_finish(guard, root, paths, { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: finalized.installedAuthorityRevision, committedAssetRevision: committedAssetRevision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null });
 	} catch (e) {
 		let failure = fail('EINTERNAL', 'Z2K lifecycle failed while the intentional runtime guard was active.', { detail: text(e), diagnostics: diagnostics });
+		if (object(detectPrepared) && registryCommitted !== true && z2k_active_detect_publication == null) {
+			let detectDiscard = z2k_detect_restore(detectPrepared), pendingDiscard = z2k_pending_clear();
+			failure = fail(detectDiscard.ok && pendingDiscard ? 'EINTERNAL' : 'EROLLBACK', failure.error.message, { detail: failure.error.detail, detect: detectDiscard, pendingCleared: pendingDiscard, diagnostics: diagnostics });
+		}
 		if (registryCommitted) {
 			let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
 			failure = fail(rollback.ok ? 'EINTERNAL' : 'EROLLBACK', rollback.ok ? failure.error.message : 'Z2K lifecycle failed after Registry mutation and rollback could not be completed.', { detail: failure.error.detail, rollback: rollback, diagnostics: diagnostics });

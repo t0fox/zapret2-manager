@@ -1,19 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const modulePath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-detect.uc');
+const resourceModulePath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const ucode = process.env.UCODE_BIN;
 const ucodeAvailable = ucode && fs.existsSync(ucode);
 const commit = 'a'.repeat(40);
 const digest = 'b'.repeat(64);
+const newDetectBytes = 'new-detect-bytes';
+const oldDetectBytes = 'old-detect-bytes';
+const newDetectSha = crypto.createHash('sha256').update(newDetectBytes).digest('hex');
+const oldDetectSha = crypto.createHash('sha256').update(oldDetectBytes).digest('hex');
+const registryBytes = 'registry-asset';
+const registrySha = crypto.createHash('sha256').update(registryBytes).digest('hex');
 
 function invoke(expression, extra = '') {
   const source = `import * as detect from ${JSON.stringify(modulePath)}; ${extra} print(sprintf('%J', ${expression}));`;
   const result = spawnSync(ucode, ['-e', source], { cwd: root, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout);
+}
+
+function invokeResource(expression, extra = '', env = {}) {
+  const source = `import * as resource from ${JSON.stringify(resourceModulePath)}; import * as detect from ${JSON.stringify(modulePath)}; ${extra} print(sprintf('%J', ${expression}));`;
+  const result = spawnSync(ucode, ['-e', source], {
+    cwd: root,
+    env: { ...process.env, Z2M_UPDATE_SOURCE_TEST: '1', LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH || '/opt/ucode/lib', ...env },
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout);
 }
@@ -214,15 +234,155 @@ test('publish rejects an absent staged file and never changes the stable target'
   assert.equal(result.error.code, 'EUNAVAILABLE');
 });
 
+test('prepared publication captures rollback state before move and clears it after an interrupted move', { skip: !ucodeAvailable }, () => {
+  const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
+  candidate.sha256 = newDetectSha;
+  const result = invoke(`({ prepared: prepared, failed: failed, target: files[target], backup: files[backup] })`, `
+    let candidate = ${JSON.stringify(candidate)};
+    let stage = '/tmp/z2m-z2k-detect-test-prepared-stage', target = '/tmp/z2m-z2k-detect-test-prepared-target', backup = '/tmp/z2m-z2k-detect-test-prepared-backup';
+    let files = {}; files[stage] = ${JSON.stringify(newDetectBytes)}; files[target] = ${JSON.stringify(oldDetectBytes)};
+    function regular(path) { return files[path] != null; }
+    function exists(path) { return files[path] != null; }
+    function copy(from, to) { if (!exists(from)) return false; files[to] = files[from]; return true; }
+    function move(from, to) { if (!exists(from)) return false; files[to] = files[from]; files[from] = null; return false; }
+    function remove(path) { files[path] = null; return true; }
+    function hash(path) { return files[path] == ${JSON.stringify(newDetectBytes)} ? ${JSON.stringify(newDetectSha)} : files[path] == ${JSON.stringify(oldDetectBytes)} ? ${JSON.stringify(oldDetectSha)} : null; }
+    function chmod() { return true; }
+    function check() { return { ok: true }; }
+    let hooks = { testOnly: true, target: target, backup: backup, exists: exists, regular: regular, copy: copy, move: move, remove: remove, sha256: hash, size: function(path) { return files[path] == null ? null : length(files[path]); }, mode: function() { return 493; }, chmod: chmod, check: check };
+    let prepared = detect.z2k_detect_prepare(candidate, stage, hooks);
+    let failed = detect.z2k_detect_publish_prepared(prepared, stage, hooks);
+  `);
+  assert.equal(result.prepared.ok, true);
+  assert.equal(result.prepared.prepared, true);
+  assert.equal(result.prepared.published, false);
+  assert.equal(result.prepared.prior.sha256, oldDetectSha);
+  assert.equal(result.failed.ok, false);
+  assert.equal(result.target, oldDetectBytes);
+  assert.equal(result.backup, null);
+});
+
+function recoveryPending(mode) {
+  const suffix = `${process.pid}-${mode}`;
+  const pendingPath = `/tmp/z2m-z2k-detect-recovery-test-${suffix}.json`;
+  const target = `/tmp/z2m-z2k-detect-test-recovery-target-${suffix}`;
+  const stage = `/tmp/z2m-z2k-detect-test-recovery-stage-${suffix}`;
+  const backup = `/tmp/z2m-z2k-detect-test-recovery-backup-${suffix}`;
+  const candidate = { ok: true, sourceCommit: commit, sourcePath: 'z2k-detect/builds/z2k-detect-linux-arm64', sha256: newDetectSha, runtimeTarget: '/usr/libexec/zapret2-manager/z2k-detect', byteSize: newDetectBytes.length, executable: true, arch: 'arm64' };
+  const result = invokeResource('result', `
+    import { readfile, writefile, unlink, stat } from 'fs';
+    let candidate = ${JSON.stringify(candidate)}, stage = ${JSON.stringify(stage)}, target = ${JSON.stringify(target)}, backup = ${JSON.stringify(backup)}, pendingPath = ${JSON.stringify(pendingPath)};
+    writefile(stage, ${JSON.stringify(newDetectBytes)});
+    try { unlink(target); } catch (e) {}
+    if (${JSON.stringify(mode)} != 'absent') writefile(target, ${JSON.stringify(oldDetectBytes)});
+    let prepared = detect.z2k_detect_prepare(candidate, stage, { testOnly: true, target: target, backup: backup });
+    if (${JSON.stringify(mode)} == 'new') writefile(target, ${JSON.stringify(newDetectBytes)});
+    if (${JSON.stringify(mode)} == 'absent') { try { unlink(target); } catch (e) {} }
+    let pending = { schema: 1, candidateSnapshotId: 'snapshot-${suffix}', compositionSnapshotId: 'composition-${suffix}', membershipDigest: '${'m'.repeat(64)}', baseRegistryRevision: 1, targetVersion: 'p-82.14', targetCommit: ${JSON.stringify(commit)}, planToken: 'plan-${suffix}', rollbackIdentity: { registryRevision: 1, receipt: null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' }, detectPublication: prepared, sourceActivation: { currentSnapshotId: null, lastKnownGoodSnapshotId: null }, sourceRestoreRequired: false, phase: 'PREPARED' };
+    writefile(pendingPath, sprintf('%J', pending) + '\\n');
+    let recovered = resource.resource_center_recover_pending();
+    let result = { recovered: recovered, target: readfile(target), backupPresent: stat(backup) != null, pendingPresent: stat(pendingPath) != null, prepared: prepared };
+    try { unlink(stage); } catch (e) {}
+    try { unlink(target); } catch (e) {}
+    try { unlink(backup); } catch (e) {}
+  `, { Z2M_RESOURCE_UPDATE_PENDING_TEST_PATH: pendingPath });
+  return result;
+}
+
+test('resource recovery restores a prepared Detect publication after new, old, or absent target state', { skip: !ucodeAvailable }, () => {
+  const recoveredNew = recoveryPending('new');
+  const recoveredOld = recoveryPending('old');
+  const recoveredAbsent = recoveryPending('absent');
+  for (const result of [recoveredNew, recoveredOld, recoveredAbsent]) {
+    assert.equal(result.recovered.ok, true, JSON.stringify(result));
+    assert.equal(result.recovered.state, 'prepared-cleared', JSON.stringify(result));
+    assert.equal(result.backupPresent, false, JSON.stringify(result));
+    assert.equal(result.pendingPresent, false, JSON.stringify(result));
+  }
+  assert.equal(recoveredNew.target, oldDetectBytes);
+  assert.equal(recoveredOld.target, oldDetectBytes);
+  assert.equal(recoveredAbsent.target, null);
+});
+
+test('resource recovery closes a FINALIZED marker only when the Registry receipt and Detect bytes agree', { skip: !ucodeAvailable }, () => {
+  const suffix = `${process.pid}-finalized`;
+  const pendingPath = `/tmp/z2m-z2k-detect-recovery-test-${suffix}.json`;
+  const registryPath = `/tmp/z2m-z2k-detect-recovery-test-${suffix}-registry.json`;
+  const target = `/tmp/z2m-z2k-detect-test-recovery-target-${suffix}`;
+  const stage = `/tmp/z2m-z2k-detect-test-recovery-stage-${suffix}`;
+  const backup = `/tmp/z2m-z2k-detect-test-recovery-backup-${suffix}`;
+  const registryAssetPath = `/tmp/z2m-z2k-detect-recovery-asset-${suffix}`;
+  const candidate = { ok: true, sourceCommit: commit, sourcePath: 'z2k-detect/builds/z2k-detect-linux-arm64', sha256: newDetectSha, runtimeTarget: '/usr/libexec/zapret2-manager/z2k-detect', byteSize: newDetectBytes.length, executable: true, arch: 'arm64' };
+  const result = invokeResource('result', `
+    import { readfile, writefile, unlink, stat } from 'fs';
+    let candidate = ${JSON.stringify(candidate)}, stage = ${JSON.stringify(stage)}, target = ${JSON.stringify(target)}, backup = ${JSON.stringify(backup)}, pendingPath = ${JSON.stringify(pendingPath)}, registryPath = ${JSON.stringify(registryPath)}, registryAssetPath = ${JSON.stringify(registryAssetPath)};
+    writefile(stage, ${JSON.stringify(newDetectBytes)}); writefile(target, ${JSON.stringify(oldDetectBytes)});
+    let prepared = detect.z2k_detect_prepare(candidate, stage, { testOnly: true, target: target, backup: backup });
+    writefile(target, ${JSON.stringify(newDetectBytes)}); try { unlink(backup); } catch (e) {}
+    writefile(registryAssetPath, ${JSON.stringify(registryBytes)});
+    let membership = [{ id: 'lua:core', type: 'lifecycle-managed', owner: 'z2k-core', role: 'lua-init', kind: 'lua', sourcePath: 'files/lua/core.lua', runtimeTarget: '/runtime-assets/lua/core.lua', runtimeOrder: 1, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, version: 'p-82.14', sourceCommit: ${JSON.stringify(commit)} }];
+    let asset = { schema: 1, type: 'lua', id: 'lua:core', name: 'core.lua', ownership: 'manager', mutable: true, provenance: { kind: 'catalog/upstream', source: 'fixture', sourceCommit: ${JSON.stringify(commit)}, sourcePath: 'files/lua/core.lua', bundleId: 'z2k-curated-lua', version: 'p-82.14' }, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, revision: 1, path: registryAssetPath, legacyPath: null, references: [], validation: { status: 'passed', errors: [] } };
+    let receipt = { schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'p-82.14', sourceCommit: ${JSON.stringify(commit)}, manifestSha256: ${JSON.stringify(digest)}, classificationSha256: ${JSON.stringify(digest)}, candidateSnapshotId: 'snapshot-${suffix}', membershipDigest: '${'m'.repeat(64)}', committedRegistryRevision: 2, installedAuthorityRevision: 3, z2kMembership: membership };
+    writefile(registryPath, sprintf('%J', { schema: 1, revision: 3, assets: [asset], activationReceipts: [receipt] }));
+    let pending = { schema: 1, candidateSnapshotId: 'snapshot-${suffix}', compositionSnapshotId: 'composition-${suffix}', membershipDigest: '${'m'.repeat(64)}', baseRegistryRevision: 1, committedAssetRevision: 2, targetVersion: 'p-82.14', targetCommit: ${JSON.stringify(commit)}, planToken: 'plan-${suffix}', rollbackIdentity: { registryRevision: 1, receipt: null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' }, detectPublication: prepared, sourceActivation: { currentSnapshotId: null, lastKnownGoodSnapshotId: null }, sourceRestoreRequired: false, phase: 'FINALIZED' };
+    writefile(pendingPath, sprintf('%J', pending) + '\\n');
+    let recovered = resource.resource_center_recover_pending();
+    let result = { recovered: recovered, target: readfile(target), backupPresent: stat(backup) != null, pendingPresent: stat(pendingPath) != null };
+    try { unlink(stage); } catch (e) {} try { unlink(target); } catch (e) {} try { unlink(backup); } catch (e) {} try { unlink(registryPath); } catch (e) {} try { unlink(registryAssetPath); } catch (e) {}
+  `, { Z2M_RESOURCE_UPDATE_PENDING_TEST_PATH: pendingPath, Z2M_ASSET_REGISTRY_STATE: registryPath });
+  assert.equal(result.recovered.ok, true, JSON.stringify(result));
+  assert.equal(result.recovered.state, 'finalized-cleared', JSON.stringify(result));
+  assert.equal(result.target, newDetectBytes);
+  assert.equal(result.backupPresent, false);
+  assert.equal(result.pendingPresent, false);
+});
+
+test('rollback coordinator restores Registry/runtime/source/Detect owners as one coherent result', { skip: !ucodeAvailable }, () => {
+  const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
+  candidate.sha256 = newDetectSha;
+  const result = invokeResource(`({ result: result, target: files[target], backup: files[backup], calls: calls, phase: pending.phase, cleared: cleared })`, `
+    let candidate = ${JSON.stringify(candidate)}, target = '/tmp/z2m-z2k-detect-test-rollback-target', backup = '/tmp/z2m-z2k-detect-test-rollback-backup';
+    let files = {}; files[target] = ${JSON.stringify(newDetectBytes)}; files[backup] = ${JSON.stringify(oldDetectBytes)};
+    let publication = { ok: true, prepared: true, published: true, target: target, backupPath: backup, prior: { exists: true, regular: true, sha256: ${JSON.stringify(oldDetectSha)}, byteSize: ${oldDetectBytes.length}, mode: 493 }, candidate: candidate }, calls = { load: false, journal: false, clear: false, runtime: false, registryList: false, registry: false, source: false, detect: false }, cleared = false;
+    let pending = { phase: 'COMMITTED', detectPublication: publication, sourceActivation: { currentSnapshotId: 'new', lastKnownGoodSnapshotId: 'old' }, sourceRestoreRequired: true };
+    let seams = {
+      pendingLoad: function() { calls.load = true; return pending; },
+      pendingWrite: function(value, phase) { calls.journal = true; value.phase = phase; return true; },
+      pendingClear: function() { calls.clear = true; cleared = true; return true; },
+      runtimeRollback: function() { calls.runtime = true; return { ok: true, restored: true }; },
+      registryList: function() { calls.registryList = true; return { ok: true, revision: 3, assets: [], activationReceipts: [] }; },
+      registryAlreadyRestored: function() { return false; },
+      registryRollback: function() { calls.registry = true; return { ok: true, restored: true }; },
+      sourceRestore: function() { calls.source = true; return { ok: true, restored: true }; },
+      detectRestore: function(value) { calls.detect = true; files[target] = files[backup]; files[backup] = null; return { ok: true, restored: true }; }
+    };
+    let result = resource.resource_center_test_rollback_transaction({ testOnly: true, selected: { id: 'z2k-curated-lua' }, applied: { committedAssetRevision: 2 }, diagnostics: {}, runtimeActivated: true, seams: seams });
+  `);
+  assert.equal(result.result.ok, true, JSON.stringify(result));
+  assert.equal(result.target, oldDetectBytes);
+  assert.equal(result.backup, null);
+  assert.equal(result.phase, 'ROLLED_BACK');
+  assert.equal(result.cleared, true);
+  assert.equal(result.calls.runtime, true);
+  assert.equal(result.calls.registry, true);
+  assert.equal(result.calls.source, true);
+  assert.equal(result.calls.detect, true);
+});
+
 test('production owners include Detect in the Core transaction and worker remains a coordinator', () => {
   const coordinator = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc'), 'utf8');
   const worker = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc'), 'utf8');
   assert.match(coordinator, /z2k_detect_candidate/);
-  assert.match(coordinator, /z2k_detect_publish/);
+  assert.match(coordinator, /z2k_detect_prepare/);
+  assert.match(coordinator, /z2k_detect_publish_prepared/);
   assert.match(coordinator, /z2k_detect_restore/);
   assert.match(coordinator, /z2k_detect_finalize/);
   assert.match(coordinator, /detectPublication/);
-  assert.ok(coordinator.indexOf('let detectPublished = z2k_detect_publish') < coordinator.indexOf('applied = asset_registry_apply_bundle'), 'Detect must publish before Registry apply');
+  const prepared = coordinator.indexOf('detectPrepared = z2k_detect_prepare');
+  const journaled = coordinator.indexOf("z2k_pending_write(pending, 'PREPARED')");
+  const published = coordinator.indexOf('let detectPublished = z2k_detect_publish_prepared');
+  const registryApply = coordinator.indexOf('applied = asset_registry_apply_bundle');
+  assert.ok(prepared > 0 && prepared < journaled && journaled < published && published < registryApply, 'Detect must journal PREPARED before stable publication and Registry apply');
   assert.ok(coordinator.indexOf('push(paths, detectStage)') < coordinator.indexOf('let detectStaged = z2k_detect_stage'), 'Detect stage path must be registered before staging');
   assert.ok(coordinator.includes('/usr/libexec/zapret2-manager/z2k-detect'));
   assert.doesNotMatch(worker, /uclient-fetch|asset_registry_apply_bundle/);
