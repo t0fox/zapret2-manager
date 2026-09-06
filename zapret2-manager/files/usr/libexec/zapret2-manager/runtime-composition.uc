@@ -7,6 +7,7 @@
 import { asset_registry_list } from './asset-registry.uc';
 import { readfile } from 'fs';
 import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
+import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
 
 const BUNDLE_ID = 'z2k-curated-lua';
 const MAX_ENTRIES = 128;
@@ -28,7 +29,6 @@ function copy(value) { let out = {}; for (let key in value || {}) out[key] = val
 function copy_array(value) { let out = []; for (let i = 0; array(value) && i < length(value); i++) push(out, value[i]); return out; }
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
-function valid_release(value) { return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/); }
 function contains(arrayValue, wanted) { for (let i = 0; array(arrayValue) && i < length(arrayValue); i++) if (arrayValue[i] == wanted) return true; return false; }
 function valid_kind(value) { return contains(KINDS, value); }
 function valid_entry_type(value) { return contains(ENTRY_TYPES, value); }
@@ -47,7 +47,7 @@ function normalized_entry(raw, expectedType) {
 	if (entry.type == 'package-static' && entry.owner != 'package') return fail('EOWNERSHIP', 'package-static entry has a non-package owner', { id: raw.id });
 	if (entry.type == 'lifecycle-managed' && entry.owner != 'z2k-core') return fail('EOWNERSHIP', 'lifecycle-managed entry has a non-Z2K owner', { id: raw.id });
 	if (entry.type == 'scanner-overlay' && entry.owner != 'scanner') return fail('EOWNERSHIP', 'scanner overlay has a non-scanner owner', { id: raw.id });
-	if (entry.type == 'lifecycle-managed' && (!valid_release(entry.version) || !valid_commit(entry.sourceCommit)
+	if (entry.type == 'lifecycle-managed' && (!z2k_release_valid(entry.version) || !valid_commit(entry.sourceCommit)
 		|| !valid_digest(entry.manifestSha256) || !valid_digest(entry.classificationSha256))) return fail('EINPUT', 'lifecycle entry identity is incomplete', { id: raw.id });
 	if (entry.z2kCompatibilityIdentity != null &&
 		(!z2k_compatibility_identity_valid(entry.z2kCompatibilityIdentity)
@@ -242,7 +242,7 @@ function latest_receipt(listed) {
 }
 function v2_authority(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v2' || receipt.bundleId != BUNDLE_ID
-		|| !valid_release(receipt.version) || !valid_commit(receipt.sourceCommit) || !valid_digest(receipt.manifestSha256)
+		|| !z2k_release_valid(receipt.version) || !valid_commit(receipt.sourceCommit) || !valid_digest(receipt.manifestSha256)
 		|| !valid_digest(receipt.classificationSha256) || !integer(receipt.installedAuthorityRevision)
 		|| !object(listed) || !integer(listed.revision) || receipt.installedAuthorityRevision > listed.revision) return fail('EINCONSISTENT', 'v2 installed authority identity is invalid');
 	if (receipt.z2kCompatibilityIdentity != null &&
@@ -256,7 +256,7 @@ function v2_authority(receipt, listed) {
 }
 function v1_membership(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != BUNDLE_ID
-		|| !valid_release(receipt.version) || !valid_commit(receipt.sourceCommit) || !array(receipt.assets) || !length(receipt.assets)) return fail('RECONCILIATION_REQUIRED', 'V1 installed membership is not verified');
+		|| !z2k_release_valid(receipt.version) || !valid_commit(receipt.sourceCommit) || !array(receipt.assets) || !length(receipt.assets)) return fail('RECONCILIATION_REQUIRED', 'V1 installed membership is not verified');
 	let current = registry_z2k_assets(listed), byId = {}, seen = {}, recorded = [];
 	for (let i = 0; i < length(current); i++) byId[current[i].id] = current[i];
 	for (let i = 0; i < length(receipt.assets); i++) {
@@ -302,7 +302,7 @@ export const resolveInstalled = function(input) {
 
 export const resolveCandidate = function(preparedTarget, context) {
 	let preparing = object(context) && context.phase == 'prepare';
-	if (!object(preparedTarget) || (preparedTarget.schema != 'z2k-target-v2' && preparedTarget.schema != 2) || !valid_release(preparedTarget.targetVersion)
+	if (!object(preparedTarget) || (preparedTarget.schema != 'z2k-target-v2' && preparedTarget.schema != 2) || !z2k_release_valid(preparedTarget.targetVersion)
 		|| !valid_commit(preparedTarget.targetCommit || preparedTarget.targetCommitSha) || !valid_digest(preparedTarget.manifestSha256)
 		|| !valid_digest(preparedTarget.classificationSha256) || (!preparing && (!string(preparedTarget.planToken) || !length(preparedTarget.planToken)))
 		|| !integer(preparedTarget.baseRegistryRevision) || preparedTarget.baseRegistryRevision < 0) return fail('EINPUT', 'prepared Z2K target is incomplete');

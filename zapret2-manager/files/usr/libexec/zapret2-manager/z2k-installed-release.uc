@@ -6,18 +6,18 @@
 // an extra active asset from the same managed bundle invalidates the receipt.
 import { asset_registry_list } from './asset-registry.uc';
 import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
+import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function copy_array(value) { let result = []; for (let i = 0; type(value) == 'array' && i < length(value); i++) push(result, value[i]); return result; }
-function parse_release(value) { return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/) ? value : null; }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function valid_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function valid_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function asset_by_id(assets, id) { for (let i = 0; i < length(assets || []); i++) if (assets[i] && assets[i].id == id) return assets[i]; return null; }
 function receipt_valid(receipt, listed) {
-	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != 'z2k-curated-lua' || parse_release(receipt.version) == null || !valid_commit(receipt.sourceCommit) || type(receipt.assets) != 'array' || !length(receipt.assets)) return false;
+	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != 'z2k-curated-lua' || !z2k_release_valid(receipt.version) || !valid_commit(receipt.sourceCommit) || type(receipt.assets) != 'array' || !length(receipt.assets)) return false;
 	let seen = {};
 	let mode = null;
 	for (let i = 0; i < length(receipt.assets); i++) {
@@ -52,7 +52,7 @@ function physical_registry_type(entry) {
 
 function v2_receipt_valid(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v2' || receipt.bundleId != 'z2k-curated-lua'
-		|| parse_release(receipt.version) == null || !valid_commit(receipt.sourceCommit) || !valid_sha(receipt.manifestSha256)
+		|| z2k_release_parse(receipt.version) == null || !valid_commit(receipt.sourceCommit) || !valid_sha(receipt.manifestSha256)
 		|| !valid_sha(receipt.classificationSha256) || type(receipt.installedAuthorityRevision) != 'int'
 		|| !object(listed) || type(listed.revision) != 'int' || receipt.installedAuthorityRevision > listed.revision
 		|| type(receipt.z2kMembership) != 'array' || !length(receipt.z2kMembership)) return false;
