@@ -18,7 +18,7 @@ import * as z2k_source_refresh from './strategy-source-refresh.uc';
 import * as z2k_source from './strategy-source-z2k.uc';
 import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
-import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_executable_check } from './z2k-detect.uc';
+import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_publish, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -45,6 +45,7 @@ const Z2K_STATUS_RPC_MAX_BYTES = 64 * 1024;
 // deterministic sort cannot interleave the two ownership domains.
 const Z2K_PACKAGE_LUA_ORDER_BASE = 100;
 const Z2K_DETECT_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
+let z2k_active_detect_publication = null;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -770,13 +771,32 @@ function z2k_runtime_guard_finish(guard, root, paths, result) {
 	cleanup(root, paths);
 	let pause = z2k_runtime_guard_release(guard), lock = z2k_lifecycle_lock_release();
 	let answer = object(result) ? result : fail('EINTERNAL', 'Z2K lifecycle returned an invalid result.');
-	answer.lifecycleCleanup = { pause: pause, lock: lock };
 	if (!pause.ok || !lock.ok) {
-		if (answer.ok === true) return fail('ERUNTIME', 'Z2K lifecycle cleanup could not release an owned resource.', { result: answer, lifecycleCleanup: answer.lifecycleCleanup });
+		if (answer.ok === true) answer = fail('ERUNTIME', 'Z2K lifecycle cleanup could not release an owned resource.', { result: answer });
 		answer.error = answer.error || { code: 'ERUNTIME', message: 'Z2K lifecycle cleanup failed.' };
-		answer.error.lifecycleCleanup = answer.lifecycleCleanup;
 		answer.ok = false;
 	}
+	let detectPublication = z2k_active_detect_publication, detectTransaction = { ok: true, skipped: true };
+	if (object(detectPublication) && detectPublication.published === true) {
+		if (answer.ok === true) {
+			detectTransaction = z2k_detect_finalize(detectPublication);
+			if (!detectTransaction.ok) {
+				let restored = z2k_detect_restore(detectPublication);
+				detectTransaction.restore = restored;
+				answer = fail(restored.ok ? 'EWRITE' : 'EROLLBACK', restored.ok ? 'Z2K Detect publication could not be finalized.' : 'Z2K Detect publication finalization failed and stable state could not be restored.', { detect: detectTransaction });
+			}
+		} else {
+			detectTransaction = z2k_detect_restore(detectPublication);
+			if (!detectTransaction.ok) {
+				answer.error = answer.error || { code: 'EROLLBACK', message: 'Z2K transaction failed and Detect stable state could not be restored.' };
+				answer.error.detect = detectTransaction;
+				answer.ok = false;
+			}
+		}
+	}
+	answer.lifecycleCleanup = { pause: pause, lock: lock };
+	answer.detectTransaction = detectTransaction;
+	z2k_active_detect_publication = null;
 	return answer;
 }
 function digest_text(value, prefix) {
@@ -1545,9 +1565,11 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 		try { sourceRollback = strategy_sources.strategy_source_restore_activation('z2k', pending.sourceActivation); }
 		catch (e) { sourceRollback = fail('EROLLBACK', 'Z2K strategy source activation rollback raised an exception.'); }
 	}
-	let okResult = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok;
+	let detectPublication = pending && object(pending.detectPublication) ? pending.detectPublication : z2k_active_detect_publication;
+	let detectRollback = object(detectPublication) ? z2k_detect_restore(detectPublication) : { ok: true, skipped: true };
+	let okResult = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && detectRollback.ok;
 	if (okResult && pending != null) okResult = z2k_pending_write(pending, 'ROLLED_BACK') && z2k_pending_clear();
-	return { ok: okResult, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, journal: journal };
+	return { ok: okResult, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, detect: detectRollback, journal: journal };
 }
 function z2k_pending_identity_valid(pending) {
 	if (!object(pending) || !string(pending.candidateSnapshotId) || !string(pending.membershipDigest)
@@ -1573,6 +1595,9 @@ function z2k_finalized_pending_matches(pending, listed) {
 		&& receipt.committedRegistryRevision == pending.committedAssetRevision
 		&& type(receipt.installedAuthorityRevision) == 'int'
 		&& receipt.installedAuthorityRevision <= listed.revision;
+}
+function z2k_pending_detect_restore(pending) {
+	return object(pending) && object(pending.detectPublication) ? z2k_detect_restore(pending.detectPublication) : { ok: true, skipped: true };
 }
 function z2k_target_summary(target) {
 	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), runtimeBundleDigest: target.runtimeBundleDigest || null, dependencyClosure: target.dependencyClosure || null, strategyCount: target.strategyCount || null, z2kRelease: target.z2kRelease || null, manifestRevision: target.manifestRevision == null ? null : target.manifestRevision, compilerSnapshotDigest: target.compilerSnapshotDigest || null, nfqws2OptSha256: target.nfqws2OptSha256 || null, z2kCompatibilityIdentity: target.z2kCompatibilityIdentity || null, compatibilityIdentity: target.compatibilityIdentity || null, preparedAt: target.preparedAt };
@@ -1764,8 +1789,10 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		if (!object(detectCandidate) || detectCandidate.runtimeTarget != Z2K_DETECT_TARGET) return z2k_runtime_guard_finish(guard, root, paths, fail('EDETECT_UNAVAILABLE', 'prepared Core target has no Detect artifact.'));
 		let detectStaged = z2k_detect_stage(detectCandidate, detectStage);
 		if (!detectStaged.ok) return z2k_runtime_guard_finish(guard, root, paths, detectStaged);
-		if (detectStaged.candidate.byteSize == null || !z2k_detect_executable_check(detectStage).ok) return z2k_runtime_guard_finish(guard, root, paths, fail('EDETECT_INCOMPATIBLE', 'staged Detect artifact failed executable preflight.'));
-		push(paths, detectStage); diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'staged' };
+		let detectPublished = z2k_detect_publish(detectStaged.candidate, detectStage);
+		if (!detectPublished.ok) return z2k_runtime_guard_finish(guard, root, paths, detectPublished);
+		z2k_active_detect_publication = detectPublished;
+		push(paths, detectStage); diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'published', prior: detectPublished.prior };
 	for (let i = 0; i < length(target.assets); i++) {
 		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
 		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
@@ -1790,6 +1817,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		baseRegistryRevision: target.baseRegistryRevision, targetVersion: target.targetVersion, targetCommit: target.targetCommitSha || target.targetCommit,
 		planToken: target.planToken, z2kCompatibilityIdentity: target.z2kCompatibilityIdentity,
 		rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' },
+		detectPublication: z2k_active_detect_publication,
 		sourceActivation: sourceBefore && sourceBefore.sources && sourceBefore.sources.z2k ? {
 			currentSnapshotId: sourceBefore.sources.z2k.currentSnapshotId || null,
 			lastKnownGoodSnapshotId: sourceBefore.sources.z2k.lastKnownGoodSnapshotId || null
@@ -2131,10 +2159,18 @@ export const resource_center_recover_pending = function() {
 	let pending = z2k_pending_load();
 	if (pending == null) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is unreadable; refusing to infer recovery from runtime files.');
 	if (!z2k_pending_identity_valid(pending)) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is incomplete; refusing recovery.');
-	if (pending.phase == 'PREPARED') return z2k_pending_clear() ? { ok: true, recovered: true, state: 'prepared-cleared' } : fail('ERECOVERY_REQUIRED', 'Prepared Z2K activation evidence could not be closed.');
-	if (pending.phase == 'ROLLED_BACK') return z2k_pending_clear() ? { ok: true, recovered: true, state: 'rolled-back-cleared' } : fail('ERECOVERY_REQUIRED', 'Rolled-back Z2K activation evidence could not be closed.');
-	if (pending.phase == 'FINALIZED') return z2k_finalized_pending_matches(pending, asset_registry_list(null))
-		&& z2k_pending_clear() ? { ok: true, recovered: true, state: 'finalized-cleared' } : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence does not match the installed authority.');
+	if (pending.phase == 'PREPARED') {
+		let detect = z2k_pending_detect_restore(pending);
+		return detect.ok && z2k_pending_clear() ? { ok: true, recovered: true, state: 'prepared-cleared', detect: detect } : fail('ERECOVERY_REQUIRED', 'Prepared Z2K activation evidence could not be safely closed.', { detect: detect });
+	}
+	if (pending.phase == 'ROLLED_BACK') {
+		let detect = z2k_pending_detect_restore(pending);
+		return detect.ok && z2k_pending_clear() ? { ok: true, recovered: true, state: 'rolled-back-cleared', detect: detect } : fail('ERECOVERY_REQUIRED', 'Rolled-back Z2K activation evidence could not be safely closed.', { detect: detect });
+	}
+	if (pending.phase == 'FINALIZED') {
+		let matches = z2k_finalized_pending_matches(pending, asset_registry_list(null)), detect = matches ? (object(pending.detectPublication) ? z2k_detect_finalize(pending.detectPublication) : { ok: true, skipped: true }) : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence does not match the installed authority.');
+		return matches && detect.ok && z2k_pending_clear() ? { ok: true, recovered: true, state: 'finalized-cleared', detect: detect } : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence could not be safely closed.', { detect: detect });
+	}
 	if (pending.phase != 'COMMITTED' && pending.phase != 'MATERIALIZED' && pending.phase != 'PROCESS_VERIFIED' && pending.phase != 'ROLLING_BACK') return fail('ERECOVERY_REQUIRED', 'Unknown Z2K activation phase cannot be recovered safely.', { phase: pending.phase });
 	let runtimeActivated = pending.phase == 'MATERIALIZED' || pending.phase == 'PROCESS_VERIFIED' || pending.phase == 'ROLLING_BACK';
 	let rollback = z2k_rollback_after_runtime_failure({ id: 'z2k-curated-lua' }, { committedAssetRevision: pending.committedAssetRevision }, { recovery: true, phase: pending.phase }, runtimeActivated);

@@ -61,20 +61,20 @@ test('candidate rejects missing selected architecture and invalid source commit'
 });
 
 test('fixed executable preflight passes no user argv and rejects ENOEXEC or permission errors', { skip: !ucodeAvailable }, () => {
-  const ok = invoke(`detect.z2k_detect_executable_check('/tmp/fixed-detect', function(path, argv) { return { rc: argv == null ? 0 : 1 }; })`);
-  assert.deepEqual(ok, { ok: true, path: '/tmp/fixed-detect' });
+  const ok = invoke(`detect.z2k_detect_executable_check('/tmp/z2m-z2k-detect-test-fixed', function(path, argv) { return { rc: argv == null ? 0 : 1 }; }, { testOnly: true })`);
+  assert.deepEqual(ok, { ok: true, path: '/tmp/z2m-z2k-detect-test-fixed' });
 
-  const enoexec = invoke(`detect.z2k_detect_executable_check('/tmp/fixed-detect', function(path) { return { rc: 126, error: 'ENOEXEC' }; })`);
+  const enoexec = invoke(`detect.z2k_detect_executable_check('/tmp/z2m-z2k-detect-test-fixed', function(path) { return { rc: 126, error: 'ENOEXEC' }; }, { testOnly: true })`);
   assert.equal(enoexec.ok, false);
   assert.equal(enoexec.error.code, 'EDETECT_INCOMPATIBLE');
-  const denied = invoke(`detect.z2k_detect_executable_check('/tmp/fixed-detect', function(path) { return { rc: 126, error: 'EACCES' }; })`);
+  const denied = invoke(`detect.z2k_detect_executable_check('/tmp/z2m-z2k-detect-test-fixed', function(path) { return { rc: 126, error: 'EACCES' }; }, { testOnly: true })`);
   assert.equal(denied.ok, false);
   assert.equal(denied.error.code, 'EDETECT_INCOMPATIBLE');
 });
 
 test('staging fetches only the selected source path, verifies bytes, chmods, and preflights', { skip: !ucodeAvailable }, () => {
   const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
-  const result = invoke(`({ result: detect.z2k_detect_stage(candidate, '/tmp/staged-detect', { fetch: fetchFile, sha256: hashFile, chmod: markExecutable, check: checkExecutable }), url: fetched })`, `
+  const result = invoke(`({ result: detect.z2k_detect_stage(candidate, '/tmp/z2m-z2k-detect-test-stage', { testOnly: true, fetch: fetchFile, sha256: hashFile, chmod: markExecutable, check: checkExecutable }), url: fetched })`, `
     let fetched = null;
     let candidate = ${JSON.stringify(candidate)};
     function fetchFile(url, path) { fetched = url; return true; }
@@ -88,11 +88,97 @@ test('staging fetches only the selected source path, verifies bytes, chmods, and
   assert.equal(result.url, `https://raw.githubusercontent.com/necronicle/z2k/${commit}/z2k-detect/builds/z2k-detect-linux-arm64`);
 });
 
+test('staging rejects fetch, SHA, and executable preflight failures', { skip: !ucodeAvailable }, () => {
+  const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
+  const result = invoke(`({
+    fetch: detect.z2k_detect_stage(candidate, '/tmp/z2m-z2k-detect-test-fetch', { testOnly: true, fetch: function() { return false; } }),
+    sha: detect.z2k_detect_stage(candidate, '/tmp/z2m-z2k-detect-test-sha', { testOnly: true, fetch: function() { return true; }, sha256: function() { return ${JSON.stringify('d'.repeat(64))}; } }),
+    exec: detect.z2k_detect_stage(candidate, '/tmp/z2m-z2k-detect-test-exec', { testOnly: true, fetch: function() { return true; }, sha256: function() { return ${JSON.stringify(digest)}; }, chmod: function() { return true; }, check: function() { return { ok: false, error: { code: 'EDETECT_INCOMPATIBLE' } }; } })
+  })`, `let candidate = ${JSON.stringify(candidate)};`);
+  assert.equal(result.fetch.error.code, 'EUNAVAILABLE');
+  assert.equal(result.sha.error.code, 'EVERIFY');
+  assert.equal(result.exec.error.code, 'EDETECT_INCOMPATIBLE');
+});
+
+test('publish installs exact bytes at the controlled stable target and restores prior state', { skip: !ucodeAvailable }, () => {
+  const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
+  const result = invoke(`({ publication: publication, before: before, restored: restored, afterRestore: files[target] })`, `
+    let candidate = ${JSON.stringify(candidate)};
+    let target = '/tmp/z2m-z2k-detect-test-stable';
+    let stage = '/tmp/z2m-z2k-detect-test-stage';
+    let backup = '/tmp/z2m-z2k-detect-test-backup';
+    let files = {};
+    files[stage] = 'new-bytes';
+    files[target] = 'old-bytes';
+    function exists(path) { return files[path] != null; }
+    function copy(from, to) { if (!exists(from)) return false; files[to] = files[from]; return true; }
+    function move(from, to) { if (!exists(from)) return false; files[to] = files[from]; files[from] = null; return true; }
+    function remove(path) { files[path] = null; return true; }
+    function hash(path) { return files[path] == 'new-bytes' ? ${JSON.stringify(digest)} : ${JSON.stringify('e'.repeat(64))}; }
+    function chmod(path, mode) { return mode == null || mode == 493; }
+    function check() { return { ok: true }; }
+    let hooks = { testOnly: true, target: target, backup: backup, exists: exists, copy: copy, move: move, remove: remove, sha256: hash, chmod: chmod, check: check };
+    let publication = detect.z2k_detect_publish(candidate, stage, hooks);
+    let before = files[target];
+    let restored = detect.z2k_detect_restore(publication, hooks);
+  `);
+  assert.equal(result.publication.ok, true);
+  assert.equal(result.publication.published, true);
+  assert.equal(result.before, 'new-bytes');
+  assert.equal(result.restored.ok, true);
+  assert.equal(result.afterRestore, 'old-bytes');
+});
+
+test('publish restores prior stable bytes when post-publication verification fails', { skip: !ucodeAvailable }, () => {
+  const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
+  const result = invoke(`({ publication: publication, after: files[target] })`, `
+    let candidate = ${JSON.stringify(candidate)};
+    let target = '/tmp/z2m-z2k-detect-test-stable-verify';
+    let stage = '/tmp/z2m-z2k-detect-test-stage-verify';
+    let backup = '/tmp/z2m-z2k-detect-test-backup-verify';
+    let files = {};
+    files[stage] = 'new-bytes';
+    files[target] = 'old-bytes';
+    function exists(path) { return files[path] != null; }
+    function copy(from, to) { if (!exists(from)) return false; files[to] = files[from]; return true; }
+    function move(from, to) { if (!exists(from)) return false; files[to] = files[from]; files[from] = null; return true; }
+    function remove(path) { files[path] = null; return true; }
+    function hash(path) {
+      if (path == target && files[path] == 'new-bytes') return ${JSON.stringify('d'.repeat(64))};
+      return files[path] == 'new-bytes' ? ${JSON.stringify(digest)} : ${JSON.stringify('e'.repeat(64))};
+    }
+    function chmod() { return true; }
+    function check() { return { ok: true }; }
+    let hooks = { testOnly: true, target: target, backup: backup, exists: exists, copy: copy, move: move, remove: remove, sha256: hash, chmod: chmod, check: check };
+    let publication = detect.z2k_detect_publish(candidate, stage, hooks);
+  `);
+  assert.equal(result.publication.ok, false);
+  assert.equal(result.publication.error.code, 'EVERIFY');
+  assert.equal(result.after, 'old-bytes');
+});
+
+test('publish rejects an absent staged file and never changes the stable target', { skip: !ucodeAvailable }, () => {
+  const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
+  const result = invoke(`detect.z2k_detect_publish(candidate, '/tmp/z2m-z2k-detect-test-missing', hooks)`, `
+    let candidate = ${JSON.stringify(candidate)};
+    let target = '/tmp/z2m-z2k-detect-test-stable-missing';
+    function exists(path) { return path == target; }
+    function copy() { return false; }
+    let hooks = { testOnly: true, target: target, exists: exists, copy: copy };
+  `);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EUNAVAILABLE');
+});
+
 test('production owners include Detect in the Core transaction and worker remains a coordinator', () => {
   const coordinator = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc'), 'utf8');
   const worker = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc'), 'utf8');
   assert.match(coordinator, /z2k_detect_candidate/);
-  assert.match(coordinator, /z2k_detect_executable_check/);
+  assert.match(coordinator, /z2k_detect_publish/);
+  assert.match(coordinator, /z2k_detect_restore/);
+  assert.match(coordinator, /z2k_detect_finalize/);
+  assert.match(coordinator, /detectPublication/);
+  assert.ok(coordinator.indexOf('let detectPublished = z2k_detect_publish') < coordinator.indexOf('let applied = asset_registry_apply_bundle'), 'Detect must publish before Registry apply');
   assert.ok(coordinator.includes('/usr/libexec/zapret2-manager/z2k-detect'));
   assert.doesNotMatch(worker, /uclient-fetch|asset_registry_apply_bundle/);
   assert.match(worker, /resource_center_update/);
