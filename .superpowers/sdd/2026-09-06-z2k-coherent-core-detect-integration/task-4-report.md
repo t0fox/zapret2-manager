@@ -69,3 +69,51 @@ support remains owned by the existing `z2k-versions.uc` release authority.
 Commit message: `fix: bind Z2K strategies to Core release`
 
 Commit hash: `4b469b50` (final commit after report inclusion).
+
+## Fix round 1 — durable Z2K source identity
+
+Independent review finding addressed: durable Z2K snapshots now require an
+exact 40-character source commit. Every official entry and provenance record
+must carry the same exact commit as the snapshot. Supplied compatibility
+identity and optional `selectedCoreIdentity` are validated against that
+commit before persistence. Avatar's 7–40 character independent source
+semantics are unchanged.
+
+### Fix-round TDD evidence
+
+RED command (bounded WSL/native ucode):
+
+```text
+wsl.exe -e sh -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 60s node --test tests/product/z2k-managed-strategy-source.test.mjs"
+```
+
+Outcome: exit 1, 3 passed, 2 failed. The abbreviated snapshot case was
+persisted with `ok:true`; the compatibility/selected-Core identity case was
+also persisted with `ok:true`. Both failures were the intended pre-fix
+review regressions, proving the tests exercised the missing validation.
+
+GREEN/focused command:
+
+```text
+wsl.exe -e sh -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 90s node --test tests/product/z2k-managed-strategy-source.test.mjs tests/product/z2k-official-compiler*.test.mjs tests/product/z2k-release-identity.test.mjs tests/product/z2k-runtime-summary.test.mjs"
+```
+
+Outcome: exit 0, 22 passed, 0 failed, 0 skipped, 0 todo. The Task 4
+regression file alone passed 5/5. Avatar independent refresh passed 1/1
+with the bounded `--test-name-pattern='Avatar refresh validates accepted metadata'`
+run. Changed-module Ucode imports passed (`okokok`), JavaScript syntax check
+passed, and `git diff --check` passed.
+
+One intermediate stdin-based WSL wrapper emitted a CRLF path error
+(`Could not find 'tests/product/strategy-source-refresh.test.mjs\r'`); this
+was a command-wrapper quoting/line-ending issue, not a product/test failure.
+The direct bounded Avatar command above passed.
+
+### Fix-round gate status
+
+- Focused Task 4, official compiler, and r/p release gates: PASS.
+- Validator/docs verification: run after this report append before commit.
+- Full repository harness: NOT RUN; unrelated baseline failures remain as
+  recorded in the prior report and were not changed.
+- Router deployment/runtime and browser acceptance: NOT RUN and not claimed.
+- Fix-round implementation commit: `7d9d0033`.
