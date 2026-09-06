@@ -1975,6 +1975,19 @@ function z2k_status_graph(value) {
 	}
 	return out;
 }
+function z2k_status_installed(value) {
+	if (!array(value)) return value;
+	let out = [];
+	for (let i = 0; i < length(value); i++) {
+		let row = value[i];
+		if (!object(row)) continue;
+		push(out, z2k_status_copy(row, ['id', 'type', 'name', 'sourcePath', 'path', 'ownership',
+			'packageBaseline', 'revision', 'contentSha256', 'byteSize', 'lastChecked', 'lastUpdated',
+			'state', 'status', 'compatibility', 'source', 'sourceCommit', 'safeToUpdate', 'semanticKind',
+			'dependencyClass', 'runtimeTarget', 'runtimeRole', 'semanticOwner']));
+	}
+	return out;
+}
 function z2k_status_projection(value) {
 	if (!object(value)) return value;
 	let out = z2k_status_copy(value, ['status', 'updateState', 'attentionState', 'canApply', 'updates',
@@ -1999,7 +2012,7 @@ export const resource_center_status_summary = function () {
 		checkedAt: answer.checkedAt == null ? null : answer.checkedAt,
 		manifest: answer.manifest,
 		sources: answer.sources,
-		installed: answer.installed,
+		installed: z2k_status_installed(answer.installed),
 		updates: answer.updates,
 		summary: answer.summary,
 		autoCheck: answer.autoCheck,
