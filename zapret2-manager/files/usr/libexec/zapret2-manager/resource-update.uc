@@ -1982,9 +1982,18 @@ function z2k_status_installed(value) {
 		let row = value[i];
 		if (!object(row)) continue;
 		push(out, z2k_status_copy(row, ['id', 'type', 'name', 'sourcePath', 'path', 'ownership',
-			'packageBaseline', 'revision', 'contentSha256', 'byteSize', 'lastChecked', 'lastUpdated',
-			'state', 'status', 'compatibility', 'source', 'sourceCommit', 'safeToUpdate', 'semanticKind',
+			'revision', 'contentSha256', 'byteSize', 'state', 'status', 'source', 'sourceCommit', 'semanticKind',
 			'dependencyClass', 'runtimeTarget', 'runtimeRole', 'semanticOwner']));
+	}
+	return out;
+}
+function z2k_status_review_details(value) {
+	if (!array(value)) return value;
+	let out = [];
+	for (let i = 0; i < length(value); i++) {
+		let row = value[i];
+		if (!object(row)) continue;
+		push(out, z2k_status_copy(row, ['id', 'path', 'type', 'summary', 'summarySource']));
 	}
 	return out;
 }
@@ -1997,6 +2006,7 @@ function z2k_status_projection(value) {
 		'z2kCompatibilityIdentity', 'compatibilityIdentity', 'candidateStrategyRevision', 'manifest',
 		'availableRelease', 'health', 'integrity', 'integrityOk', 'installedRelease', 'staticManagedCount',
 		'checkedAt', 'preparedTarget', 'reconciliation', 'coherence', 'selectedVersion']);
+	if (value.reviewDetails != null) out.reviewDetails = z2k_status_review_details(value.reviewDetails);
 	if (value.dependencyGraph != null) out.dependencyGraph = z2k_status_graph(value.dependencyGraph);
 	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
 	if (value.local != null) out.local = z2k_status_local(value.local);

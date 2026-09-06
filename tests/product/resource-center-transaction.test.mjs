@@ -80,6 +80,8 @@ test('REGRESSION: resources_status uses the bounded status projection at the RPC
     /\bundefined\b/, 'the UCode projection must not use the JavaScript-only undefined literal');
   assert.match(coordinator, /function z2k_status_installed/,
     'installed resource rows must be projected instead of sending repeated dependency payloads');
+  assert.match(coordinator, /function z2k_status_review_details/,
+    'review details must keep only bounded UI evidence');
 });
 
 test('Package-owned resource content is read-only and hash-verified from the package baseline', () => {
