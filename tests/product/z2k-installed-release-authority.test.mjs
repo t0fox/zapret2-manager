@@ -12,6 +12,7 @@ const authority = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/lib
 const engine = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc'), 'utf8');
 const versions = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc'), 'utf8');
 const runtimeCoordinator = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
+const resourceModule = runtimeCoordinator;
 const runtimeSource = fs.readFileSync(runtimeCoordinator, 'utf8');
 const authorityModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc');
 const versionsModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
@@ -140,7 +141,7 @@ test('v2 installed receipt remains valid after an unrelated Registry revision', 
   value.assets.push({ id: 'user:note', type: 'other', contentSha256: '9'.repeat(64), byteSize: 1,
     provenance: { kind: 'user', sourcePath: 'user/note' } });
   const result = invoke(authorityModule, `mod.z2k_registry_receipt_state(${JSON.stringify(value)})`);
-  assert.equal(result.state, 'confirmed', JSON.stringify(result));
+  assert.equal(result.state, 'LEGACY_VERIFIED', JSON.stringify(result));
 });
 
 test('v2 installed receipt preserves semantic hostlist and ipset kinds in the blob Registry namespace', { skip: !hasUcode }, () => {
@@ -158,7 +159,27 @@ test('v2 installed receipt preserves semantic hostlist and ipset kinds in the bl
     provenance: { kind: 'catalog/upstream', source: 'necronicle/z2k', sourceCommit: SOURCE_COMMIT, sourcePath: entry.sourcePath, bundleId: 'z2k-curated-lua', version: 'r-80.3' },
   }));
   const result = invoke(authorityModule, `mod.z2k_registry_receipt_state(${JSON.stringify({ ok: true, schema: 1, revision: 3, assets, activationReceipts: [receipt] })})`);
-  assert.equal(result.state, 'confirmed', JSON.stringify(result));
+  assert.equal(result.state, 'LEGACY_VERIFIED', JSON.stringify(result));
+});
+
+test('legacy V2 state remains eligible for rollback revision and finalized recovery', { skip: !hasUcode }, () => {
+  const membership = BASE_ASSETS.map(asset => ({ id: asset.id, type: 'lifecycle-managed', owner: 'z2k-core',
+    kind: asset.type, role: asset.type == 'lua' ? 'lua-init' : 'dependency', sourcePath: asset.sourcePath,
+    runtimeTarget: `/runtime-assets/${asset.type}/${asset.id.split(':')[1]}`, contentSha256: asset.contentSha256,
+    byteSize: asset.byteSize, ...(asset.type == 'lua' ? { runtimeOrder: 0 } : {}), version: 'r-80.3', sourceCommit: SOURCE_COMMIT }));
+  const receipt = {
+    schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'r-80.3',
+    source: 'necronicle/z2k', sourceCommit: SOURCE_COMMIT, manifestSha256: '3'.repeat(64), classificationSha256: '4'.repeat(64),
+    installedAuthorityRevision: 7, membershipDigest: '5'.repeat(64), candidateSnapshotId: 'snapshot-v2',
+    baseRegistryRevision: 6, committedRegistryRevision: 7, z2kMembership: membership,
+  };
+  const value = listed(receipt, BASE_ASSETS.map(asset => ({ ...asset, version: 'r-80.3' })));
+  value.revision = 8;
+  const pending = { testOnly: true, phase: 'ROLLING_BACK', targetVersion: 'r-80.3', targetCommit: SOURCE_COMMIT,
+    planToken: 'plan-v2', candidateSnapshotId: 'snapshot-v2', membershipDigest: '5'.repeat(64), baseRegistryRevision: 6,
+    committedAssetRevision: 7, rollbackIdentity: { registryRevision: 6, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' } };
+  assert.equal(invoke(resourceModule, `mod.resource_center_test_rollback_expected_revision({ testOnly: true, applied: { committedAssetRevision: 7 }, listed: ${JSON.stringify(value)}, pending: ${JSON.stringify(pending)} })`), 8);
+  assert.equal(invoke(resourceModule, `mod.resource_center_test_finalized_pending_matches(${JSON.stringify({ ...pending, phase: 'FINALIZED' })}, ${JSON.stringify(value)})`), true);
 });
 
 const currentClassification = {

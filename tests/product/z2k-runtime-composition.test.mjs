@@ -82,6 +82,18 @@ function v2Fixture() {
   };
 }
 
+function v3Fixture() {
+  const fixture = v2Fixture();
+  fixture.receipt = {
+    ...fixture.receipt, schema: 'asset-activation-receipt.v3', release: fixture.receipt.version, manifestSeq: 80,
+    runtimeMembership: fixture.receipt.z2kMembership, detect: { arch: 'aarch64', digest: HASH('d'), size: 1234, sourceCommit: 'c'.repeat(40) },
+    detectIdentity: { arch: 'aarch64', digest: HASH('d'), size: 1234 }, compilerInputsDigest: HASH('e'),
+    catalogDigest: HASH('f'), runtimeBundleDigest: HASH('a'), compatibilityIdentity: HASH('b'),
+  };
+  fixture.registry.activationReceipts = [fixture.receipt];
+  return fixture;
+}
+
 function candidateFixture() {
   const lua = lifecycle('lua:alpha', 'lua', 'lua-init', 10, 'a');
   const blob = lifecycle('blob:beta', 'blob', 'dependency', 20, 'b');
@@ -146,6 +158,22 @@ test('installed authority revision remains distinct from later observed Registry
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.installedAuthorityRevision, 17);
   assert.equal(result.observedRegistryRevision, 18);
+});
+
+test('V3 installed resolution requires runtimeMembership instead of V2 membership fallback', { skip: !HAS_UCODE }, () => {
+  const fixture = v3Fixture();
+  delete fixture.receipt.runtimeMembership;
+  const result = invoke(`composition.resolveInstalled(${JSON.stringify({ registry: fixture.registry, receipt: fixture.receipt, staticBase: fixture.staticBase })})`);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'EINCONSISTENT');
+});
+
+test('V3 installed resolution rejects a runtime member from another release identity', { skip: !HAS_UCODE }, () => {
+  const fixture = v3Fixture();
+  fixture.receipt.runtimeMembership[0].sourceCommit = 'd'.repeat(40);
+  const result = invoke(`composition.resolveInstalled(${JSON.stringify({ registry: fixture.registry, receipt: fixture.receipt, staticBase: fixture.staticBase })})`);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'EINCONSISTENT');
 });
 
 test('installed resolver accepts semantic list kinds stored in the blob Registry namespace', { skip: !HAS_UCODE }, () => {

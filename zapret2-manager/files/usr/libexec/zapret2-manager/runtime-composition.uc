@@ -268,7 +268,7 @@ function v2_authority(receipt, listed) {
 }
 
 function v3_authority(receipt, listed) {
-	let release = receipt && (receipt.release || receipt.version), membership = receipt && (receipt.runtimeMembership || receipt.z2kMembership);
+	let release = receipt && (receipt.release || receipt.version), membership = receipt && receipt.runtimeMembership;
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v3' || receipt.bundleId != BUNDLE_ID
 		|| !z2k_release_valid(release) || receipt.version != release || !valid_commit(receipt.sourceCommit)
 		|| !integer(receipt.manifestSeq) || !valid_digest(receipt.manifestSha256) || !valid_digest(receipt.classificationSha256)
@@ -276,7 +276,8 @@ function v3_authority(receipt, listed) {
 		|| !valid_digest(receipt.compatibilityIdentity) || !integer(receipt.installedAuthorityRevision)
 		|| !object(listed) || !integer(listed.revision) || receipt.installedAuthorityRevision > listed.revision
 		|| !object(receipt.detect) || !string(receipt.detect.arch) || !valid_digest(receipt.detect.digest) || !integer(receipt.detect.size)
-		|| (receipt.detect.sourceCommit != null && lc(receipt.detect.sourceCommit) != lc(receipt.sourceCommit))) return fail('EINCONSISTENT', 'v3 installed authority identity is invalid');
+		|| (receipt.detect.sourceCommit != null && lc(receipt.detect.sourceCommit) != lc(receipt.sourceCommit))
+		|| !array(membership) || !length(membership)) return fail('EINCONSISTENT', 'v3 installed authority identity is invalid');
 	if (receipt.detectIdentity != null && (!object(receipt.detectIdentity) || receipt.detectIdentity.digest != receipt.detect.digest
 		|| receipt.detectIdentity.arch != receipt.detect.arch || receipt.detectIdentity.size != receipt.detect.size)) return fail('EINCONSISTENT', 'v3 Detect identity is invalid');
 	if (object(receipt.activationEvidence) && receipt.activationEvidence.detectDigest != null && receipt.activationEvidence.detectDigest != receipt.detect.digest) return fail('EINCONSISTENT', 'v3 Detect digest evidence is invalid');

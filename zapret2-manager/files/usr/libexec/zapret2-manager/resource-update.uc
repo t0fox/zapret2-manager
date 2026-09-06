@@ -1539,8 +1539,21 @@ function z2k_rollback_receipt_matches(expected, actual) {
 	}
 	if (expected.schema == 'asset-activation-receipt.v1') return z2k_rollback_membership_matches(expected.assets, actual.assets);
 	if (expected.schema == 'asset-activation-receipt.v2') return z2k_rollback_membership_matches(expected.z2kMembership, actual.z2kMembership);
+	if (expected.schema == 'asset-activation-receipt.v3') {
+		if (expected.release != null && expected.release != actual.release) return false;
+		if (expected.manifestSeq != null && expected.manifestSeq != actual.manifestSeq) return false;
+		if (expected.runtimeBundleDigest != null && expected.runtimeBundleDigest != actual.runtimeBundleDigest) return false;
+		if (expected.compilerInputsDigest != null && expected.compilerInputsDigest != actual.compilerInputsDigest) return false;
+		if (expected.catalogDigest != null && expected.catalogDigest != actual.catalogDigest) return false;
+		if (expected.compatibilityIdentity != null && expected.compatibilityIdentity != actual.compatibilityIdentity) return false;
+		let expectedDetect = expected.detect, actualDetect = actual.detect;
+		if (object(expectedDetect) && (!object(actualDetect) || expectedDetect.arch != actualDetect.arch || expectedDetect.digest != actualDetect.digest
+			|| expectedDetect.size != actualDetect.size || expectedDetect.sourceCommit != actualDetect.sourceCommit)) return false;
+		return z2k_rollback_membership_matches(expected.runtimeMembership, actual.runtimeMembership);
+	}
 	return false;
 }
+function z2k_receipt_state_verified(state) { return object(state) && (state.state == 'LEGACY_VERIFIED' || state.state == 'COHERENT_VERIFIED'); }
 function z2k_rollback_registry_already_restored(pending, listed) {
 	if (!object(pending) || !object(pending.rollbackIdentity) || !object(listed) || listed.ok !== true
 		|| listed.revision != pending.rollbackIdentity.registryRevision) return false;
@@ -1552,7 +1565,7 @@ function z2k_pending_legacy_reconciliation_eligible(pending, listed) {
 	if (!object(pending) || pending.phase != 'ROLLING_BACK' || !object(pending.rollbackIdentity)
 		|| !z2k_rollback_registry_already_restored(pending, listed)) return false;
 	let state = z2k_registry_receipt_state(listed), receipt = state && state.receipt;
-	return state && state.state == 'V1_VERIFIED_MEMBERSHIP' && object(receipt)
+	return state && state.state == 'LEGACY_VERIFIED' && object(receipt)
 		&& receipt.version == pending.targetVersion && receipt.sourceCommit == pending.targetCommit
 		&& receipt.schema == 'asset-activation-receipt.v1';
 }
@@ -1561,7 +1574,7 @@ function z2k_rollback_expected_revision(applied, listed, pending) {
 	if (type(expected) != 'int' || !object(listed) || listed.ok !== true || listed.revision != expected + 1 || !object(pending)
 		|| pending.phase == 'COMMITTED') return expected;
 	let authority = z2k_registry_receipt_state(listed), receipt = authority && authority.receipt;
-	if (authority && authority.state == 'confirmed' && object(receipt)
+	if (z2k_receipt_state_verified(authority) && object(receipt)
 		&& receipt.version == pending.targetVersion && receipt.sourceCommit == pending.targetCommit
 		&& receipt.committedRegistryRevision == expected) return listed.revision;
 	return expected;
@@ -1625,6 +1638,10 @@ export const resource_center_test_guard_finish = function(input) {
 	z2k_active_detect_publication = null;
 	return answer;
 };
+export const resource_center_test_rollback_expected_revision = function(input) {
+	if (!object(input) || input.testOnly !== true || !object(input.applied) || !object(input.listed) || !object(input.pending)) return fail('EINPUT', 'Internal rollback revision test seam is restricted to controlled tests.');
+	return z2k_rollback_expected_revision(input.applied, input.listed, input.pending);
+};
 function z2k_pending_identity_valid(pending) {
 	if (!object(pending) || !string(pending.candidateSnapshotId) || !string(pending.membershipDigest)
 		|| !string(pending.targetVersion) || !string(pending.targetCommit) || !string(pending.planToken)
@@ -1642,14 +1659,18 @@ function z2k_pending_identity_valid(pending) {
 function z2k_finalized_pending_matches(pending, listed) {
 	if (!z2k_pending_identity_valid(pending) || !object(listed) || listed.ok !== true) return false;
 	let state = z2k_registry_receipt_state(listed), receipt = state && state.receipt;
-	return state && state.state == 'confirmed' && object(receipt)
-		&& receipt.schema == 'asset-activation-receipt.v2' && receipt.bundleId == 'z2k-curated-lua'
+	return z2k_receipt_state_verified(state) && object(receipt)
+		&& (receipt.schema == 'asset-activation-receipt.v2' || receipt.schema == 'asset-activation-receipt.v3') && receipt.bundleId == 'z2k-curated-lua'
 		&& receipt.version == pending.targetVersion && receipt.sourceCommit == pending.targetCommit
 		&& receipt.candidateSnapshotId == pending.candidateSnapshotId && receipt.membershipDigest == pending.membershipDigest
 		&& receipt.committedRegistryRevision == pending.committedAssetRevision
 		&& type(receipt.installedAuthorityRevision) == 'int'
 		&& receipt.installedAuthorityRevision <= listed.revision;
 }
+export const resource_center_test_finalized_pending_matches = function(pending, listed) {
+	if (!object(pending) || pending.testOnly !== true) return false;
+	return z2k_finalized_pending_matches(pending, listed);
+};
 function z2k_pending_detect_restore(pending) {
 	return object(pending) && object(pending.detectPublication) ? z2k_detect_restore(pending.detectPublication) : { ok: true, skipped: true };
 }

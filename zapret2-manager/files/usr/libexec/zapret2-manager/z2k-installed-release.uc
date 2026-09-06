@@ -94,7 +94,7 @@ function v3_detect_valid(receipt) {
 }
 
 function v3_membership_valid(receipt, listed) {
-	let expectedMembers = receipt.runtimeMembership || receipt.z2kMembership;
+	let expectedMembers = receipt.runtimeMembership;
 	if (type(expectedMembers) != 'array' || !length(expectedMembers)) return false;
 	let current = [], byId = {}, seen = {};
 	for (let i = 0; i < length(listed.assets || []); i++) {

@@ -88,6 +88,18 @@ test('V3 receipt rejects extra or missing lifecycle assets', { skip: !hasUcode }
   assert.equal(invoke(`authority.z2k_registry_receipt_valid(${JSON.stringify(missing.receipt)}, ${JSON.stringify(missing.registry)})`), false);
 });
 
+test('V3 receipt requires canonical runtimeMembership and binds every member to release/source', { skip: !hasUcode }, () => {
+  const missing = fixture();
+  delete missing.receipt.runtimeMembership;
+  assert.equal(invoke(`authority.z2k_registry_receipt_valid(${JSON.stringify(missing.receipt)}, ${JSON.stringify(missing.registry)})`), false);
+  const crossIdentity = fixture();
+  crossIdentity.receipt.runtimeMembership[0].sourceCommit = 'b'.repeat(40);
+  assert.equal(invoke(`authority.z2k_registry_receipt_valid(${JSON.stringify(crossIdentity.receipt)}, ${JSON.stringify(crossIdentity.registry)})`), false);
+  const crossRelease = fixture();
+  crossRelease.receipt.runtimeMembership[0].version = 'p-80.9';
+  assert.equal(invoke(`authority.z2k_registry_receipt_valid(${JSON.stringify(crossRelease.receipt)}, ${JSON.stringify(crossRelease.registry)})`), false);
+});
+
 test('V3 receipt rejects release/source provenance mismatch and preserves V1/V2 legacy state', { skip: !hasUcode }, () => {
   const mismatch = fixture();
   mismatch.registry.assets[0].provenance.sourceCommit = 'b'.repeat(40);
