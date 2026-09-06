@@ -210,6 +210,23 @@ export const config_sha256 = function() {
 	return r.rc == 0 && length(digest) == 64 ? digest : null;
 };
 
+// Resource Center uses the same Apply writer for transaction evidence.  These
+// helpers only capture/restore the canonical config file; they do not create a
+// second config authority or bypass the existing lock/CAS boundary.
+export const transaction_config_snapshot = function() {
+	let bytes = read_config_bytes(), digest = config_sha256();
+	return digest == null ? { ok: false, error: { code: 'ESNAPSHOT', message: 'authoritative active config is unavailable' } }
+		: { ok: true, bytes: bytes, sha256: digest };
+};
+
+export const restore_transaction_config = function(snapshot, lockedOverride) {
+	if (!snapshot || snapshot.sha256 == null || snapshot.bytes == null) return { ok: false, error: { code: 'EINPUT', message: 'active config rollback evidence is incomplete' } };
+	let restored = restore_whole_file('/opt/zapret2/config', snapshot.bytes, lockedOverride === true);
+	if (restored == null || config_sha256() != snapshot.sha256)
+		return { ok: false, error: { code: 'EROLLBACK', message: 'active config could not be restored to its recorded digest' } };
+	return { ok: true, restored: true, sha256: snapshot.sha256 };
+};
+
 const APPLIED_IDENTITY = getenv('Z2M_APPLIED_IDENTITY') || '/tmp/zapret2-manager/applied.sha256';
 
 function file_sha256(path) {

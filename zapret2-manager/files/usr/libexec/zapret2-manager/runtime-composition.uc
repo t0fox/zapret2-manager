@@ -453,3 +453,32 @@ export const runtime_composition_candidate_cas = function(candidate, observedReg
 	if (phase == 'post-commit' && integer(committedAssetRevision) && committedAssetRevision == observedRegistryRevision) return { ok: true, committedAssetRevision: committedAssetRevision };
 	return fail('ESTALE', 'candidate Registry revision changed before commit');
 };
+
+// Candidate strategy selection is part of the Core transaction preflight.  A
+// catalog may change only after this gate has accepted the exact candidate
+// runtime; callers must not silently replace the user's selected strategy.
+export const runtime_strategy_preflight = function(input) {
+	if (!object(input)) return fail('EINPUT', 'strategy preflight input is invalid');
+	let selected = input.activeStrategy || null;
+	if (selected == null) return { ok: true, skipped: true, reason: 'no-active-strategy' };
+	if (!string(selected.id) || selected.selected !== true) return fail('ECOMPATIBILITY', 'active strategy selection is not preserved');
+	let catalog = input.candidateCatalog || {}, ids = catalog.ids || catalog.canonicalIds || [];
+	let found = false;
+	for (let i = 0; array(ids) && i < length(ids); i++) if (ids[i] == (selected.canonicalStrategyId || selected.id)) found = true;
+	if (selected.sourceId == 'z2k' && !found) return fail('ECOMPATIBILITY', 'official Z2K strategy canonical ID is absent from the candidate catalog', { id: selected.canonicalStrategyId || selected.id });
+	if ((selected.sourceId == 'avatar' || selected.sourceId == 'user') && (!object(input.candidateRuntime) || input.candidateRuntime.closureReady !== true || input.candidateRuntime.nativeReady !== true))
+		return fail('ECOMPATIBILITY', 'selected Avatar/User strategy does not close over the candidate runtime');
+	return { ok: true, selectedId: selected.canonicalStrategyId || selected.id, sourceId: selected.sourceId || null };
+};
+
+// Test-only production seam for the post-materialize failure boundary.  It
+// models the physical runtime owner: readiness failure must restore the prior
+// snapshot before the transaction can report a closed rollback.
+export const runtime_materialize_failure_rollback = function(input) {
+	if (!object(input) || input.testOnly !== true || input.failure != 'readiness') return fail('EINPUT', 'runtime rollback seam is restricted to readiness injection');
+	let physical = input.materializedIdentity || 'Y', prior = input.priorIdentity || 'X';
+	if (type(input.restore) != 'function') return fail('EINPUT', 'runtime rollback seam is incomplete');
+	let restored = input.restore(prior);
+	if (!restored || restored.ok !== true) return fail('EROLLBACK', 'physical runtime rollback failed', { recoveryRequired: true });
+	return { ok: false, error: { code: 'ERUNTIME', message: 'post-materialize runtime readiness failed' }, restored: true, physicalIdentity: prior, recoveryRequired: false };
+};

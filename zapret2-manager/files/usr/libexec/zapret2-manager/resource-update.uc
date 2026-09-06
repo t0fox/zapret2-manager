@@ -8,8 +8,8 @@ import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
 import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
-import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
-import { read_var, config_sha256 } from './apply.uc';
+import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, runtime_strategy_preflight, runtime_materialize_failure_rollback, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
+import { read_var, config_sha256, transaction_config_snapshot, restore_transaction_config } from './apply.uc';
 import { engine_status } from './engine-manager.uc';
 import * as strategy_sources from './strategy-sources.uc';
 import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
@@ -18,6 +18,8 @@ import * as z2k_source_refresh from './strategy-source-refresh.uc';
 import * as z2k_source from './strategy-source-z2k.uc';
 import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
+import { strategy_catalog_generation_read } from './strategy-catalog-generation.uc';
+import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore } from './strategy-state.uc';
 import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
@@ -1601,18 +1603,29 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 		try { catalogRollback = testing ? (type(testSeams.catalogRestore) == 'function' ? testSeams.catalogRestore() : fail('EINPUT', 'Catalog rollback test seam is incomplete.')) : catalog_refresh_rebuild(); }
 		catch (e) { catalogRollback = fail('EROLLBACK', 'Z2K catalog rollback raised an exception.'); }
 	}
+	let strategyRollback = { ok: true, skipped: true }, configRollback = { ok: true, skipped: true };
+	if (pending && pending.priorActiveStrategy != null) {
+		try {
+			strategyRollback = testing && type(testSeams.strategyRestore) == 'function' ? testSeams.strategyRestore(pending.priorActiveStrategy)
+				: (function() { let current = strategy_selection_get(); return current && current.ok === true ? strategy_selection_restore({ expectedRevision: current.revision, selected: pending.priorActiveStrategy }) : fail('EROLLBACK', 'active strategy selection could not be read for rollback'); })();
+		} catch (e) { strategyRollback = fail('EROLLBACK', 'active strategy selection rollback raised an exception.'); }
+	}
+	if (pending && pending.priorConfig != null) {
+		try { configRollback = testing && type(testSeams.configRestore) == 'function' ? testSeams.configRestore(pending.priorConfig) : restore_transaction_config(pending.priorConfig, false); }
+		catch (e) { configRollback = fail('EROLLBACK', 'active config rollback raised an exception.'); }
+	}
 	let detectPublication = pending && object(pending.detectPublication) ? pending.detectPublication : z2k_active_detect_publication;
-	let commonOk = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && catalogRollback.ok;
+	let commonOk = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && catalogRollback.ok && strategyRollback.ok && configRollback.ok;
 	if (!commonOk) return {
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
-		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
 		detect: { ok: false, skipped: true, preserved: true, recoveryRequired: true }, journal: journal,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback is incomplete; candidate Detect and durable ROLLING_BACK evidence were preserved for recovery.' }
 	};
 	let detectRollback = object(detectPublication) ? (testing ? testSeams.detectRestore(detectPublication) : z2k_detect_restore(detectPublication)) : { ok: true, skipped: true };
 	if (!detectRollback.ok) return {
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
-		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
 		detect: detectRollback, journal: journal,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback completed but Detect restoration is incomplete; durable recovery must reconcile the stable target.' }
 	};
@@ -1623,11 +1636,11 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 	}
 	if (!okResult) return {
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: false,
-		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
 		detect: detectRollback, journal: journal, evidence: evidence,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K rollback completed but durable recovery evidence could not be closed.' }
 	};
-	return { ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, detect: detectRollback, journal: journal, evidence: evidence };
+	return { ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, detect: detectRollback, journal: journal, evidence: evidence };
 }
 export const resource_center_test_rollback_transaction = function(input) {
 	if (!object(input) || input.testOnly !== true || !object(input.seams)) return fail('EINPUT', 'Internal rollback test seam is restricted to controlled tests.');
@@ -1713,6 +1726,35 @@ export const resource_center_test_finalized_recovery = function(input) {
 };
 function z2k_pending_detect_restore(pending) {
 	return object(pending) && object(pending.detectPublication) ? z2k_detect_restore(pending.detectPublication) : { ok: true, skipped: true };
+}
+
+function z2k_active_strategy_snapshot() {
+	let selection = null, catalog = null, config = null;
+	try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
+	try { catalog = strategy_catalog_generation_read(); } catch (e) { catalog = null; }
+	try { config = transaction_config_snapshot(); } catch (e) { config = null; }
+	let ids = [];
+	if (catalog && catalog.ok === true && catalog.index && catalog.index.winners) for (let id in catalog.index.winners) push(ids, id);
+	return {
+		selected: selection && selection.ok === true ? selection.selected || null : null,
+		revision: selection && selection.ok === true ? selection.revision : null,
+		catalog: catalog && catalog.ok === true ? { generationId: catalog.index.generationId, indexDigest: catalog.index.indexDigest, ids: ids } : null,
+		config: config && config.ok === true ? { bytes: config.bytes, sha256: config.sha256 } : null,
+		runtimeEnabled: read_var('ENABLED')
+	};
+}
+
+function z2k_strategy_preflight(target) {
+	return runtime_strategy_preflight({ activeStrategy: target && target.activeStrategy || null,
+		candidateCatalog: target && target.candidateCatalog || null,
+		candidateRuntime: target && target.candidateRuntime || null });
+}
+
+function z2k_precommit_gate(target, candidate, detectStaged) {
+	if (!object(detectStaged) || !object(detectStaged.candidate) || detectStaged.candidate.sha256 != target.detectArtifact.sha256)
+		return fail('EVERIFY', 'staged Detect bytes do not match the prepared candidate digest.', { expectedSha256: target.detectArtifact && target.detectArtifact.sha256 || null, actualSha256: detectStaged && detectStaged.candidate && detectStaged.candidate.sha256 || null });
+	let strategy = z2k_strategy_preflight(target);
+	return strategy.ok === true ? { ok: true, strategy: strategy } : strategy;
 }
 function z2k_target_summary(target) {
 	return target == null ? null : { targetVersion: target.targetVersion, operation: target.operation, installedVersion: target.previousVersion || null, targetCanApply: target.targetCanApply === true, targetAttentionState: target.targetAttentionState || 'unknown', targetBlockingReasons: target.targetBlockingReasons || [], targetReviewDetails: target.targetReviewDetails || [], assetCount: length(target.assets || []), removedCount: length(target.removeIds || []), runtimeBundleDigest: target.runtimeBundleDigest || null, dependencyClosure: target.dependencyClosure || null, strategyCount: target.strategyCount || null, z2kRelease: target.z2kRelease || null, manifestRevision: target.manifestRevision == null ? null : target.manifestRevision, compilerSnapshotDigest: target.compilerSnapshotDigest || null, nfqws2OptSha256: target.nfqws2OptSha256 || null, z2kCompatibilityIdentity: target.z2kCompatibilityIdentity || null, compatibilityIdentity: target.compatibilityIdentity || null, preparedAt: target.preparedAt };
@@ -1804,6 +1846,10 @@ export const resource_center_prepare_version = function(request) {
 	let canonicalAssets = z2k_canonical_target_assets(resolved.version, resolved.commitSha, resolved.manifestSha256, classificationSnapshot.sha256, sizedTarget.assets, null);
 	if (canonicalAssets == null) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical runtime composition для выбранного release.');
 	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets, detectArtifact: detect, detectRuntimeTarget: Z2K_DETECT_TARGET };
+	let priorStrategy = z2k_active_strategy_snapshot();
+	target.activeStrategy = priorStrategy.selected;
+	target.candidateCatalog = priorStrategy.catalog;
+	target.candidateRuntime = { closureReady: false, nativeReady: false };
 	// Compose once to obtain the membership identity, then bind the final
 	// plan token and resolve again so the persisted candidate snapshot carries
 	// the exact token consumed by the apply path.
@@ -1835,6 +1881,9 @@ export const resource_center_prepare_version = function(request) {
 		target.targetAttentionState = target.targetAttentionState == 'none' ? 'dependency-required' : target.targetAttentionState;
 		push(target.targetBlockingReasons, 'Z2K_RUNTIME_DEPENDENCY_CLOSURE_REQUIRED');
 	}
+	target.candidateRuntime = { closureReady: target.dependencyClosure && target.dependencyClosure.available === true, nativeReady: true };
+	let strategyGate = z2k_strategy_preflight(target);
+	if (!strategyGate.ok) return strategyGate;
 	// Bind the token only after the final dependency digest is known. The
 	// persisted target validator intentionally recomputes this identity.
 	target.planToken = z2k_target_token(target, preparedAt);
@@ -1912,6 +1961,33 @@ export const resource_center_test_coherent_finalize_request = function(input) {
 	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Internal coherent finalization test seam is restricted to controlled tests.');
 	return z2k_coherent_finalize_request(input);
 };
+
+// Failure-injection seam for the actual pre-commit gate.  It deliberately
+// exposes mutation counters so the focused test proves that a rejected Detect
+// or strategy candidate never reaches Registry/runtime publication.
+export const resource_center_test_precommit_failure = function(input) {
+	if (!object(input) || input.testOnly !== true || (input.failure != 'detect-sha' && input.failure != 'strategy-preflight'))
+		return fail('EINPUT', 'Internal pre-commit failure seam is restricted to controlled tests.');
+	let mutations = { registry: 0, runtime: 0 }, activeIdentity = 'X', digest = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+	let target = { detectArtifact: { sha256: digest }, activeStrategy: null, candidateCatalog: { ids: [] }, candidateRuntime: { closureReady: true, nativeReady: true } };
+	let staged = { candidate: { sha256: digest } };
+	if (input.failure == 'detect-sha') staged.candidate.sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+	else {
+		target.activeStrategy = { id: 'avatar-selected', canonicalStrategyId: 'avatar-selected', sourceId: 'avatar', selected: true };
+		target.candidateRuntime = { closureReady: false, nativeReady: false };
+	}
+	let gate = z2k_precommit_gate(target, { lifecycleState: 'candidate' }, staged);
+	if (gate.ok === true) { mutations.registry++; mutations.runtime++; activeIdentity = 'Y'; }
+	return gate.ok === true ? { ok: true, mutations: mutations, activeIdentity: activeIdentity } : { ok: false, error: gate.error, mutations: mutations, activeIdentity: activeIdentity };
+};
+
+export const resource_center_test_post_materialize_failure = function(input) {
+	let physical = 'Y';
+	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: physical, priorIdentity: 'X', restore: function(previous) { physical = previous; return { ok: true, restored: true }; } });
+	if (result && result.physicalIdentity == null) result.physicalIdentity = physical;
+	return result;
+};
+
 function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed) {
 	let state = load_check_state(), target = z2k_target_from_state(state), requestedVersion = request && request.targetVersion;
 	if (!target || !string(requestedVersion) || requestedVersion != target.targetVersion || request.planToken != target.planToken || request.operation != target.operation || (request.installedVersion !== target.previousVersion)) return fail('ECHECK_STALE', 'Z2K update requires a matching prepared operation and installed baseline; prepare the release again.');
@@ -1953,6 +2029,8 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let detectStaged = z2k_detect_stage(detectCandidate, detectStage);
 		if (!detectStaged.ok) return z2k_runtime_guard_finish(guard, root, paths, detectStaged);
 		diagnostics.detect = { sourcePath: detectCandidate.sourcePath, arch: detectCandidate.arch, sha256: detectCandidate.sha256, byteSize: detectStaged.candidate.byteSize, runtimeTarget: Z2K_DETECT_TARGET, result: 'staged' };
+		let precommit = z2k_precommit_gate(target, candidate, detectStaged);
+		if (!precommit.ok) return z2k_runtime_guard_finish(guard, root, paths, precommit);
 	for (let i = 0; i < length(target.assets); i++) {
 		let item = target.assets[i], before = registry_asset(listed.assets, item.id), policy = z2k_target_policy(listed, item);
 		push(diagnostics.targetAssets, { sourcePath: item.sourcePath, assetId: item.id, installedShaBefore: before && before.contentSha256 || null, targetSha: item.sha256, result: 'pending' });
@@ -1981,6 +2059,11 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		baseRegistryRevision: target.baseRegistryRevision, targetVersion: target.targetVersion, targetCommit: target.targetCommitSha || target.targetCommit,
 		planToken: target.planToken, z2kCompatibilityIdentity: target.z2kCompatibilityIdentity,
 		rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' },
+		priorReceipt: priorAuthority.receipt || null, priorRegistryRevision: listed.revision, priorRegistryMembership: listed.assets || [],
+		priorRuntimeComposition: resolveInstalled({ registry: listed }) || null,
+		priorDetect: detectPrepared.prior || null,
+		priorCatalog: priorStrategy.catalog || null, priorActiveStrategy: priorStrategy.selected || null,
+		priorConfig: priorStrategy.config || null, priorRuntimeEnabled: priorStrategy.runtimeEnabled,
 		detectPublication: detectPrepared,
 		sourceActivation: sourceBefore && sourceBefore.sources && sourceBefore.sources.z2k ? {
 			currentSnapshotId: sourceBefore.sources.z2k.currentSnapshotId || null,

@@ -11,7 +11,7 @@ function fail(code, message) { return { ok: false, error: { code: code, message:
 
 let jobPath = ARGV[0], raw = valid_job_path(jobPath) ? readfile(jobPath) : null, job = null;
 try { if (raw != null) job = json(raw); } catch (e) { job = null; }
-if (!object(job) || !object(job.request) || job.operationId == null || !stat(jobPath)) exit(1);
+if (!object(job) || !object(job.request) || job.operationId == null || !stat(jobPath) || (job.kind != 'prepare' && job.kind != 'update')) exit(1);
 
 // This job file is only a /tmp progress mirror. Durable lifecycle recovery is
 // owned by resource-update.uc and its /etc pending-activation journal.
