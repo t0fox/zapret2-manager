@@ -76,6 +76,8 @@ test('REGRESSION: resources_status uses the bounded status projection at the RPC
     'the CLI must project status through the coordinator-owned summary');
   assert.match(coordinator, /resource_center_status_summary/,
     'the bounded projection must remain owned by the Resource Center coordinator');
+  assert.doesNotMatch(coordinator.slice(coordinator.indexOf('function z2k_status_collection')),
+    /\bundefined\b/, 'the UCode projection must not use the JavaScript-only undefined literal');
 });
 
 test('Package-owned resource content is read-only and hash-verified from the package baseline', () => {

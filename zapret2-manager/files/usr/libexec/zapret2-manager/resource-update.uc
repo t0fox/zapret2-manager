@@ -1931,7 +1931,7 @@ function z2k_status_copy(value, names) {
 	if (!object(value)) return out;
 	for (let i = 0; i < length(names); i++) {
 		let key = names[i];
-		if (value[key] !== undefined) out[key] = value[key];
+		out[key] = value[key];
 	}
 	return out;
 }
@@ -1940,7 +1940,7 @@ function z2k_status_closure(value) {
 	let out = z2k_status_copy(value, ['schema', 'available', 'resolution', 'missing', 'counts',
 		'runtimeBundleDigest', 'sourceCommit', 'compilerSnapshotDigest', 'nfqws2OptSha256',
 		'structurallyCompilable']);
-	if (value.missing !== undefined) out.missing = z2k_status_collection(value.missing);
+	if (value.missing != null) out.missing = z2k_status_collection(value.missing);
 	return out;
 }
 function z2k_status_runtime(value) {
@@ -1949,11 +1949,11 @@ function z2k_status_runtime(value) {
 		'updateState', 'attentionState', 'integrity', 'integrityOk', 'strategies', 'counts',
 		'staticManagedCount', 'runtimeBundleDigest', 'sourceCommit', 'blockingReviews',
 		'advisoryReviews', 'unknownUnconsumed', 'rebases', 'canApply']);
-	if (value.dependencyClosure !== undefined) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
+	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
 	let nested = ['engine', 'reconciliation', 'coherence', 'identity'];
 	for (let i = 0; i < length(nested); i++) {
 		let key = nested[i];
-		if (value[key] !== undefined) out[key] = value[key];
+		if (value[key] != null) out[key] = value[key];
 	}
 	return out;
 }
@@ -1962,8 +1962,8 @@ function z2k_status_local(value) {
 	let out = z2k_status_copy(value, ['installed', 'integrity', 'integrityOk', 'lua', 'baselineMatched',
 		'runtimeMatched', 'revision', 'installedAuthorityRevision', 'commit', 'provenance',
 		'checkedAt', 'installedRelease', 'runtimeBundleDigest', 'strategyCount']);
-	if (value.dependencyClosure !== undefined) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
-	if (value.runtimeSummary !== undefined) out.runtimeSummary = z2k_status_runtime(value.runtimeSummary);
+	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
+	if (value.runtimeSummary != null) out.runtimeSummary = z2k_status_runtime(value.runtimeSummary);
 	return out;
 }
 function z2k_status_graph(value) {
@@ -1984,10 +1984,10 @@ function z2k_status_projection(value) {
 		'z2kCompatibilityIdentity', 'compatibilityIdentity', 'candidateStrategyRevision', 'manifest',
 		'availableRelease', 'health', 'integrity', 'integrityOk', 'installedRelease', 'staticManagedCount',
 		'checkedAt', 'preparedTarget', 'reconciliation', 'coherence', 'selectedVersion']);
-	if (value.dependencyGraph !== undefined) out.dependencyGraph = z2k_status_graph(value.dependencyGraph);
-	if (value.dependencyClosure !== undefined) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
-	if (value.local !== undefined) out.local = z2k_status_local(value.local);
-	if (value.runtimeSummary !== undefined) out.runtimeSummary = z2k_status_runtime(value.runtimeSummary);
+	if (value.dependencyGraph != null) out.dependencyGraph = z2k_status_graph(value.dependencyGraph);
+	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
+	if (value.local != null) out.local = z2k_status_local(value.local);
+	if (value.runtimeSummary != null) out.runtimeSummary = z2k_status_runtime(value.runtimeSummary);
 	return out;
 }
 export const resource_center_status_summary = function () {
@@ -1996,7 +1996,7 @@ export const resource_center_status_summary = function () {
 	let out = {
 		ok: true,
 		schema: answer.schema,
-		checkedAt: answer.checkedAt === undefined ? null : answer.checkedAt,
+		checkedAt: answer.checkedAt == null ? null : answer.checkedAt,
 		manifest: answer.manifest,
 		sources: answer.sources,
 		installed: answer.installed,
