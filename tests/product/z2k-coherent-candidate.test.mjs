@@ -110,6 +110,23 @@ test('supplied runtime bundle digest must match canonical membership evidence', 
   assert.equal(result.error.code, 'ECOMPATIBILITY');
 });
 
+test('closure runtime bundle digest must match canonical closure membership', { skip: !ucodeAvailable }, () => {
+  const forged = '2'.repeat(64);
+  const result = invoke({
+    ...base,
+    runtimeBundleDigest: forged,
+    dependencyClosure: {
+      available: true,
+      resolution: 'complete',
+      counts: { missing: 0 },
+      items: base.runtimeMembership,
+      runtimeBundleDigest: forged,
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'ECOMPATIBILITY');
+});
+
 test('semantic compatibility identity ignores staging, timestamps, and Registry revisions', { skip: !ucodeAvailable }, () => {
   const first = invoke({ ...base, stagingPath: '/tmp/first', preparedAt: 1, registryRevision: 10 });
   const second = invoke({ ...base, stagingPath: '/tmp/second', preparedAt: 2, registryRevision: 11 });

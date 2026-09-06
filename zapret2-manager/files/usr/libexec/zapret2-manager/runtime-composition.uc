@@ -307,6 +307,12 @@ export const resolveInstalled = function(input) {
 	return compose('installed', installedAuthority, authority.entries, staticBase, scanner.entries, []);
 };
 
+function resource_center_target(value) {
+	return object(value) && (value.targetSchema == 'z2k-target-v2'
+		|| (value.schema == 2 && string(value.operation) && string(value.localFingerprint)
+			&& array(value.targetBlockingReasons) && array(value.targetReviewDetails) && value.targetCanApply != null));
+}
+
 export const resolveCandidate = function(preparedTarget, context) {
 	let preparing = object(context) && context.phase == 'prepare';
 	if (!object(preparedTarget) || (preparedTarget.schema != 'z2k-target-v2' && preparedTarget.schema != 2) || !z2k_release_valid(preparedTarget.targetVersion)
@@ -330,6 +336,11 @@ export const resolveCandidate = function(preparedTarget, context) {
 		if (!gated.ok) return gated;
 		built.compatibilityIdentity = gated.compatibilityIdentity;
 		coherent = built;
+	} else if (resource_center_target(preparedTarget)) {
+		// Resource Center targets are mutation authorities. They may not use the
+		// fixture-only unverified composition seam while staging or activating.
+		// Detect/compiler tasks must provide the complete canonical input first.
+		return fail('ECOHERENCE', 'canonical coherent candidate input is required before Z2K mutation');
 	}
 	let current = object(context) && integer(context.observedRegistryRevision) ? context.observedRegistryRevision : preparedTarget.baseRegistryRevision;
 	let committed = object(context) && integer(context.committedAssetRevision) ? context.committedAssetRevision : preparedTarget.committedAssetRevision;

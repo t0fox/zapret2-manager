@@ -129,10 +129,11 @@ function runtime_bundle_digest(input, closure, membership) {
 	if (input.runtimeBundleDigest != null && !valid_digest(input.runtimeBundleDigest)) return fail('EINPUT', 'runtime bundle digest is invalid');
 	if (closureDigest != null && input.runtimeBundleDigest != null && lc(closureDigest) != lc(input.runtimeBundleDigest))
 		return fail('ECOMPATIBILITY', 'supplied runtime bundle digest disagrees with dependency closure');
-	if (closureDigest != null) return { ok: true, digest: lc(closureDigest) };
+	if (closureDigest != null && lc(closureDigest) != computed)
+		return fail('ECOMPATIBILITY', 'dependency closure runtime bundle digest disagrees with canonical membership');
 	if (input.runtimeBundleDigest != null && lc(input.runtimeBundleDigest) != computed)
 		return fail('ECOMPATIBILITY', 'supplied runtime bundle digest disagrees with canonical membership');
-	return { ok: true, digest: input.runtimeBundleDigest == null ? computed : lc(input.runtimeBundleDigest) };
+	return { ok: true, digest: computed };
 }
 
 function detect_identity(value) {

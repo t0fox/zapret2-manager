@@ -94,6 +94,14 @@ function candidateFixture() {
   };
 }
 
+function productionIncompleteCandidateFixture() {
+  return {
+    ...candidateFixture(), schema: 2, targetSchema: 'z2k-target-v2', operation: 'update',
+    targetCanApply: true, targetAttentionState: 'none', targetBlockingReasons: [],
+    targetReviewDetails: [], preparedAt: 100, localFingerprint: HASH('l'), removeTargets: [],
+  };
+}
+
 test('canonical runtime composition module exposes the five planned lifecycle functions', () => {
   assert.ok(exists(compositionPath), 'runtime-composition.uc must be created before implementation');
   const source = read(compositionPath);
@@ -112,6 +120,18 @@ test('candidate preparation can bind the final plan token after composing member
   assert.match(coordinator, /target\.runtimeBundleDigest = target\.dependencyClosure/);
   assert.match(coordinator, /target\.runtimeBundleDigest[\s\S]*target\.planToken = z2k_target_token/);
   assert.match(coordinator, /target\.planToken = z2k_target_token/);
+});
+
+test('production-shaped incomplete target cannot resolve an unverified candidate for mutation', { skip: !HAS_UCODE }, () => {
+  const targets = [productionIncompleteCandidateFixture()];
+  const persisted = productionIncompleteCandidateFixture();
+  delete persisted.targetSchema;
+  targets.push(persisted);
+  for (const target of targets) {
+    const result = invoke(`composition.resolveCandidate(${JSON.stringify(target)})`);
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.error.code, 'ECOHERENCE');
+  }
 });
 
 test('installed authority revision remains distinct from later observed Registry revision', () => {
