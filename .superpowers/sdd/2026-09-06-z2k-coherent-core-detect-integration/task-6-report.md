@@ -2,7 +2,7 @@
 
 ## Scope and ruling
 
-Implemented only the Task 6 receipt authority changes in `asset-registry.uc`,
+The initial Task 6 receipt authority changes were limited to `asset-registry.uc`,
 `z2k-installed-release.uc`, `runtime-composition.uc`, and the executable
 `z2k-receipt-v3.test.mjs`. The SDD report is included as required evidence.
 The Registry wire bundle ID remains `z2k-curated-lua`; no second Registry,
@@ -117,6 +117,16 @@ assertions were updated to the canonical state.
 - Focused regressions were added to the existing authority, receipt, and
   runtime-composition tests.
 
+Fix-round files:
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc`
+- `tests/product/z2k-installed-release-authority.test.mjs`
+- `tests/product/z2k-receipt-v3.test.mjs`
+- `tests/product/z2k-runtime-composition.test.mjs`
+- this report
+
 Fresh bounded WSL results:
 
 ```text
@@ -137,9 +147,11 @@ not a production failure.
 ### Commit and remaining boundaries
 
 Fix-round implementation commit: `0b6b0f02` (`fix: reconcile coherent Z2K receipt recovery`).
+Report evidence commit: `da03f653` (`docs: record Task 6 fix-round evidence`).
 
-`node --check`, all four modified UCode imports, knowledge/Quartz validators,
-and `git diff --check` remain required before commit. No router, browser,
+`node --check` for all three changed test modules, all four modified UCode
+imports, knowledge/Quartz validators, and `git diff --check` passed before the
+commits. The worktree is clean. No router, browser,
 package-E2E, deployment, or live Detect acceptance was run. The one unrelated
 runtime-composition static mismatch and the existing Task 4 TODO remain open
 and were not changed.
