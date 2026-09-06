@@ -253,3 +253,98 @@ existing TODOs remain explicit verification boundaries.
 
 Report evidence commits: the documentation commits following `5878dcfb`; the
 final handoff records their exact hashes.
+
+## Fix-round 3 — finalized identity binding
+
+### RED evidence
+
+The new focused regressions were run before the production changes with an
+explicit 30-second WSL timeout:
+
+```text
+timeout 30s node --test --test-name-pattern='production-shaped finalization|FINALIZED recovery' tests/product/z2k-receipt-v3.test.mjs
+```
+
+RED was exact: production-shaped finalization accepted stale target snapshot
+and membership identities, and FINALIZED recovery accepted runtime proof after
+the durable runtime snapshot or membership identity was changed. The failures
+were assertion failures for the expected `ok: false` results, not timeout or
+syntax failures.
+
+### Changes
+
+1. `resource-update.uc` now binds `target.candidateSnapshotId` and
+   `target.membershipDigest` to the canonical committed candidate before the
+   sole `asset_registry_finalize_activation()` call. Missing, stale, or
+   caller-supplied mismatches fail before receipt mutation.
+2. After Registry receipt finalization, the production transaction resolves the
+   installed runtime from that same Registry authority, requires canonical
+   composition and the committed membership digest, and persists the resolved
+   installed `runtimeSnapshotId` in the durable pending record before clearing
+   the catalog-restore obligation and writing `FINALIZED`. Failure compensates
+   Registry/runtime/source/Detect owners through the existing rollback path.
+3. FINALIZED recovery now requires the resolved runtime snapshot identity to
+   equal the durable `pending.runtimeSnapshotId`, and independently requires
+   the resolved membership digest to equal both pending and V3 receipt
+   membership identities before materialized/process verification or marker
+   clearing. Snapshot and membership mismatch regressions fail closed.
+4. The receipt regression covers valid finalization, stale and missing target
+   identity, valid FINALIZED recovery, snapshot mismatch, membership mismatch,
+   and process mismatch. The lifecycle regression proves the production path
+   resolves and persists the installed runtime identity after finalization.
+5. The minor physical-extra-file note remains outside this round's safe scope.
+   `runtime-composition.uc` has no safe complete enumeration of all physical
+   runtime files: package-static and lifecycle ownership are distinct. Registry
+   V3 membership validation is the authoritative boundary for rejecting extra
+   managed lifecycle assets, while recovery verifies every expected mapped
+   asset and process identity. No unrelated filesystem policy was added.
+
+### GREEN evidence
+
+Implementation commit: `e70fc8f5` (`fix: bind Task 6 finalized runtime identity`).
+
+Each focused suite was run separately with an explicit 30-second WSL timeout:
+
+```text
+z2k-receipt-v3.test.mjs:             9 passed, 0 failed
+z2k-installed-release-authority:    17 passed, 0 failed
+z2k-lifecycle-transaction.test.mjs: 14 passed, 0 failed
+z2k-update-transaction.test.mjs:    9 passed, 0 failed
+z2k-runtime-summary.test.mjs:        5 passed, 0 failed
+z2k-v1-reconciliation.test.mjs:      6 passed, 0 failed, 3 existing TODOs
+z2k-detect-artifact.test.mjs:        2 passed, 0 failed, 18 skipped on this host
+```
+
+The valid and mismatch branches in the receipt regression all passed. The
+runtime-composition suite remained at `26 passed, 1 failed, 1 TODO`; the sole
+failure is the pre-existing static expectation for
+`target.runtimeBundleDigest = target.dependencyClosure`, unchanged by this
+round. This is the previously recorded baseline mismatch, not a new failure.
+
+Additional bounded gates passed:
+
+```text
+node --check: changed receipt/lifecycle test modules passed
+UCode imports: asset-registry.uc, z2k-installed-release.uc,
+               runtime-composition.uc, resource-update.uc all passed
+git diff --check: passed
+scripts/validate-knowledge.mjs: Knowledge validation passed
+scripts/docs.mjs verify: Quartz SHA verified
+```
+
+### Scope and remaining boundaries
+
+Files changed in this round are `resource-update.uc`,
+`z2k-receipt-v3.test.mjs`, `z2k-lifecycle-transaction.test.mjs`, and this
+report. The single Registry/receipt authority, existing wire bundle id
+`z2k-curated-lua`, and atomic rollback/recovery contract remain intact. V1/V2
+remain readable as legacy authority; V3 FINALIZED recovery is deliberately
+fail-closed without the new durable runtime identity.
+
+No router deployment, browser acceptance, package-E2E acceptance, live Detect
+process acceptance, or router crash/reboot test was run. The host-skipped
+Detect cases, the one pre-existing runtime-composition static mismatch, and
+existing TODOs remain explicit boundaries.
+
+Report evidence commit: documentation commit following `e70fc8f5`; the final
+handoff records its exact hash.
