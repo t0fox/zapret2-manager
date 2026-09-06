@@ -33,5 +33,6 @@ zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc|/usr/libexec/z
 zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc|/usr/share/rpcd/ucode/zapret2-manager.uc|0644
 luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json|/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json|0644
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js|/www/luci-static/resources/view/zapret2-manager/z2m-api.js|0644
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js|/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js|0644
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js|/www/luci-static/resources/view/zapret2-manager/z2m-assets.js|0644
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|0644
