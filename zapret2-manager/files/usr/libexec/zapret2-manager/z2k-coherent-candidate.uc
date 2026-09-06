@@ -57,7 +57,8 @@ function membership_rows(membership) {
 		// destination. Neither stagingPath nor Registry metadata is included.
 		push(rows, 'member|' + text(item.id) + '|' + text(item.kind) + '|' + text(item.class)
 			+ '|' + text(item.sourcePath) + '|' + text(item.runtimeTarget) + '|'
-			+ text(item.contentSha256 || item.sha256) + '|' + text(item.byteSize));
+			+ text(item.contentSha256 || item.sha256) + '|' + text(item.byteSize)
+			+ '|' + text(item.sourceCommit) + '|' + text(item.release || item.version));
 	}
 	return sorted_copy(rows);
 }
@@ -67,11 +68,6 @@ function member_matches(item, wanted) {
 		|| item.reference == wanted || item.name == wanted);
 }
 
-function contains(values, wanted) {
-	for (let value in values || []) if (value == wanted) return true;
-	return false;
-}
-
 function missing_members(input, membership) {
 	let required = [];
 	for (let value in input.requiredMembers || input.requiredLists || []) if (string(value)) push(required, value);
@@ -79,7 +75,7 @@ function missing_members(input, membership) {
 	for (let wanted in required) {
 		let found = false;
 		for (let item in membership) if (member_matches(item, wanted)) { found = true; break; }
-		if (!found && array(input.presentLists) && !contains(input.presentLists, wanted)) push(missing, wanted);
+		if (!found) push(missing, wanted);
 	}
 	return sorted_copy(missing);
 }
@@ -89,6 +85,54 @@ function same_revision(sourceCommit, input) {
 		object(input.detect) ? input.detect.sourceCommit : null];
 	for (let commit in commits) if (commit != null && (!valid_commit(commit) || lc(commit) != lc(sourceCommit))) return false;
 	return true;
+}
+
+function member_identity_error(item, release, sourceCommit) {
+	let provenance = object(item.provenance) ? item.provenance : {};
+	let commits = [item.sourceCommit, provenance.sourceCommit, provenance.commit];
+	for (let commit in commits) if (commit != null && (!valid_commit(commit) || lc(commit) != lc(sourceCommit)))
+		return { code: 'ECOMPATIBILITY', message: 'runtime member belongs to another source commit', member: item.id || item.sourcePath || null };
+	let releases = [item.release, item.version, provenance.release, provenance.version];
+	for (let value in releases) if (value != null && (!valid_release(value) || value != release))
+		return { code: 'ECOMPATIBILITY', message: 'runtime member belongs to another release', member: item.id || item.sourcePath || null };
+	return null;
+}
+
+function verify_membership_identity(membership, release, sourceCommit) {
+	for (let item in membership || []) {
+		if (!object(item)) return fail('ECOMPATIBILITY', 'runtime membership contains a non-object member');
+		let error = member_identity_error(item, release, sourceCommit);
+		if (error != null) return fail(error.code, error.message, { member: error.member });
+	}
+	return { ok: true };
+}
+
+function closure_membership(input) {
+	let closure = object(input.dependencyClosure) ? input.dependencyClosure : null;
+	if (closure == null) return { ok: true, closure: null, membership: array(input.runtimeMembership) ? copy(input.runtimeMembership) : [] };
+	let missingCount = array(closure.missing) ? length(closure.missing)
+		: object(closure.counts) && integer(closure.counts.missing) ? closure.counts.missing : null;
+	if (closure.available !== true || (closure.resolution != null && closure.resolution != 'complete') || missingCount != 0)
+		return fail('EINCONSISTENT', 'dependency closure is incomplete');
+	let membership = array(closure.runtimeMembership) ? copy(closure.runtimeMembership) : array(closure.items) ? copy(closure.items) : null;
+	if (!array(membership)) return fail('EINCONSISTENT', 'dependency closure has no canonical runtime membership');
+	if (array(input.runtimeMembership) && join('\n', membership_rows(input.runtimeMembership)) != join('\n', membership_rows(membership)))
+		return fail('ECOMPATIBILITY', 'runtime membership evidence disagrees with dependency closure');
+	return { ok: true, closure: copy(closure), membership: membership };
+}
+
+function runtime_bundle_digest(input, closure, membership) {
+	let computed = digest_text(join('\n', membership_rows(membership)));
+	if (!valid_digest(computed)) return fail('EINTERNAL', 'runtime bundle digest is unavailable');
+	let closureDigest = closure && closure.runtimeBundleDigest;
+	if (closureDigest != null && !valid_digest(closureDigest)) return fail('EINCONSISTENT', 'dependency closure runtime bundle digest is invalid');
+	if (input.runtimeBundleDigest != null && !valid_digest(input.runtimeBundleDigest)) return fail('EINPUT', 'runtime bundle digest is invalid');
+	if (closureDigest != null && input.runtimeBundleDigest != null && lc(closureDigest) != lc(input.runtimeBundleDigest))
+		return fail('ECOMPATIBILITY', 'supplied runtime bundle digest disagrees with dependency closure');
+	if (closureDigest != null) return { ok: true, digest: lc(closureDigest) };
+	if (input.runtimeBundleDigest != null && lc(input.runtimeBundleDigest) != computed)
+		return fail('ECOMPATIBILITY', 'supplied runtime bundle digest disagrees with canonical membership');
+	return { ok: true, digest: input.runtimeBundleDigest == null ? computed : lc(input.runtimeBundleDigest) };
 }
 
 function detect_identity(value) {
@@ -125,25 +169,31 @@ export const z2k_candidate_build = function(input) {
 	let detect = detect_identity(input.detect);
 	if (detect == null) return fail('EDETECT_UNAVAILABLE', 'matching Z2K Detect identity is unavailable');
 	if (detect.sourceCommit != null && detect.sourceCommit != lc(sourceCommit)) return fail('ECOMPATIBILITY', 'Detect belongs to another revision');
-	let membership = array(input.runtimeMembership) ? copy(input.runtimeMembership)
-		: object(input.dependencyClosure) && array(input.dependencyClosure.items) ? copy(input.dependencyClosure.items) : [];
+	let selected = closure_membership(input);
+	if (!selected.ok) return selected;
+	let membership = selected.membership, closure = selected.closure;
 	let missing = missing_members(input, membership);
 	if (length(missing)) return fail('EMISSING_MEMBER', 'required release members are missing', { members: missing });
 	if (!length(membership)) return fail('EMISSING_MEMBER', 'runtime membership is empty');
+	let membershipIdentity = verify_membership_identity(membership, input.release, sourceCommit);
+	if (!membershipIdentity.ok) return membershipIdentity;
+	if (closure != null) {
+		let closureError = member_identity_error(closure, input.release, sourceCommit);
+		if (closureError != null) return fail(closureError.code, closureError.message, { member: closureError.member });
+	}
 	let manifestSeq = input.manifestSeq == null ? input.manifestRevision : input.manifestSeq;
 	if (!integer(manifestSeq) || !valid_digest(input.manifestSha256) || !valid_digest(input.classificationSha256)) return fail('EINPUT', 'manifest identity is incomplete');
 	let compilerInputsDigest = input.compilerInputsDigest || input.compilerSnapshotDigest;
 	if (!valid_digest(compilerInputsDigest) || !valid_digest(input.catalogDigest)) return fail('EINPUT', 'compiler or catalog identity is incomplete');
-	let runtimeBundleDigest = input.runtimeBundleDigest;
-	if (!valid_digest(runtimeBundleDigest)) runtimeBundleDigest = digest_text(join('\n', membership_rows(membership)));
-	if (!valid_digest(runtimeBundleDigest)) return fail('EINTERNAL', 'runtime bundle digest is unavailable');
+	let bundle = runtime_bundle_digest(input, closure, membership);
+	if (!bundle.ok) return bundle;
 	let result = {
 		ok: true, schema: 'z2m.z2k-coherent-candidate.v1', immutable: true,
 		release: input.release, sourceCommit: lc(sourceCommit), manifestSeq: manifestSeq,
 		manifestSha256: lc(input.manifestSha256), classificationSha256: lc(input.classificationSha256),
 		runtimeMembership: membership, detect: detect, detectIdentity: copy(detect),
 		compilerInputsDigest: lc(compilerInputsDigest), catalogDigest: lc(input.catalogDigest),
-		runtimeBundleDigest: lc(runtimeBundleDigest),
+		runtimeBundleDigest: bundle.digest, dependencyClosure: closure,
 		runtimeMembershipRows: membership_rows(membership),
 	};
 	result.compatibilityIdentity = semantic_identity(result);

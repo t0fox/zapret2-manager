@@ -6,6 +6,7 @@
 // the only lifecycle inputs accepted by the two resolver entry points.
 import { asset_registry_list } from './asset-registry.uc';
 import { readfile } from 'fs';
+import { z2k_candidate_identity_gate } from './z2k-compat.uc';
 import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { z2k_candidate_build } from './z2k-coherent-candidate.uc';
 import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
@@ -115,6 +116,7 @@ function identity_authority(authority) {
 		result.z2kCompatibilityIdentity = authority.z2kCompatibilityIdentity || null;
 		result.compatibilityIdentity = authority.compatibilityIdentity || null;
 		result.coherentCandidate = authority.coherentCandidate || null;
+		result.coherenceStatus = authority.coherenceStatus || 'unverified';
 	} else if (authority.kind == 'candidate') {
 		// observedRegistryRevision and committedAssetRevision are transport/CAS
 		// observations. The candidate's semantic identity must survive its own
@@ -129,6 +131,7 @@ function identity_authority(authority) {
 		result.z2kCompatibilityIdentity = authority.z2kCompatibilityIdentity || null;
 		result.compatibilityIdentity = authority.compatibilityIdentity || null;
 		result.coherentCandidate = authority.coherentCandidate || null;
+		result.coherenceStatus = authority.coherenceStatus || 'unverified';
 	}
 	return result;
 }
@@ -189,6 +192,7 @@ function compose(state, authority, lifecycleEntries, staticEntries, scannerEntri
 	let result = {
 		ok: true, schemaVersion: 2, snapshotId: lifecycleIdentity, compositionSnapshotId: compositionIdentity,
 		lifecycleState: state, state: state, compositionStatus: 'canonical',
+		coherenceStatus: authority.coherenceStatus || (authority.coherentCandidate ? 'coherent' : 'unverified'),
 		lifecycleIdentity: authority, receiptIdentity: authority.receiptId || null,
 		z2kCompatibilityIdentity: authority.z2kCompatibilityIdentity || null,
 		compatibilityIdentity: authority.compatibilityIdentity || null,
@@ -309,15 +313,24 @@ export const resolveCandidate = function(preparedTarget, context) {
 		|| !valid_commit(preparedTarget.targetCommit || preparedTarget.targetCommitSha) || !valid_digest(preparedTarget.manifestSha256)
 		|| !valid_digest(preparedTarget.classificationSha256) || (!preparing && (!string(preparedTarget.planToken) || !length(preparedTarget.planToken)))
 		|| !integer(preparedTarget.baseRegistryRevision) || preparedTarget.baseRegistryRevision < 0) return fail('EINPUT', 'prepared Z2K target is incomplete');
-	let candidateInput = object(preparedTarget.candidateInput) ? copy(preparedTarget.candidateInput) : copy(preparedTarget);
-	candidateInput.release = candidateInput.release || preparedTarget.targetVersion;
-	candidateInput.sourceCommit = candidateInput.sourceCommit || preparedTarget.targetCommit || preparedTarget.targetCommitSha;
-	candidateInput.manifestSeq = candidateInput.manifestSeq == null ? (preparedTarget.manifestSeq == null ? preparedTarget.manifestRevision : preparedTarget.manifestSeq) : candidateInput.manifestSeq;
-	candidateInput.manifestSha256 = candidateInput.manifestSha256 || preparedTarget.manifestSha256;
-	candidateInput.classificationSha256 = candidateInput.classificationSha256 || preparedTarget.classificationSha256;
-	candidateInput.runtimeMembership = candidateInput.runtimeMembership || preparedTarget.runtimeMembership || preparedTarget.assets;
-	let coherent = z2k_candidate_build(candidateInput);
-	if (!coherent.ok) return coherent;
+	// Existing runtime-composition callers may resolve ordering/CAS before the
+	// Detect staging task supplies a complete candidateInput. That compatibility
+	// path is explicitly unverified and never claims a coherent identity.
+	let coherent = null;
+	if (object(preparedTarget.candidateInput)) {
+		let candidateInput = copy(preparedTarget.candidateInput);
+		candidateInput.release = candidateInput.release || preparedTarget.targetVersion;
+		candidateInput.sourceCommit = candidateInput.sourceCommit || preparedTarget.targetCommit || preparedTarget.targetCommitSha;
+		candidateInput.manifestSeq = candidateInput.manifestSeq == null ? (preparedTarget.manifestSeq == null ? preparedTarget.manifestRevision : preparedTarget.manifestSeq) : candidateInput.manifestSeq;
+		candidateInput.manifestSha256 = candidateInput.manifestSha256 || preparedTarget.manifestSha256;
+		candidateInput.classificationSha256 = candidateInput.classificationSha256 || preparedTarget.classificationSha256;
+		let built = z2k_candidate_build(candidateInput);
+		if (!built.ok) return built;
+		let gated = z2k_candidate_identity_gate(built);
+		if (!gated.ok) return gated;
+		built.compatibilityIdentity = gated.compatibilityIdentity;
+		coherent = built;
+	}
 	let current = object(context) && integer(context.observedRegistryRevision) ? context.observedRegistryRevision : preparedTarget.baseRegistryRevision;
 	let committed = object(context) && integer(context.committedAssetRevision) ? context.committedAssetRevision : preparedTarget.committedAssetRevision;
 	let ownCommit = object(context) && context.phase == 'post-commit' && committed != null && current == committed;
@@ -332,7 +345,8 @@ export const resolveCandidate = function(preparedTarget, context) {
 		observedRegistryRevision: current, committedAssetRevision: committed == null ? null : committed,
 		removeIds: removals.ids, contentIdentity: preparedTarget.contentIdentity || null, receiptIdentity: null,
 		z2kCompatibilityIdentity: preparedTarget.z2kCompatibilityIdentity || null,
-		compatibilityIdentity: coherent.compatibilityIdentity, coherentCandidate: coherent };
+		compatibilityIdentity: coherent ? coherent.compatibilityIdentity : null,
+		coherentCandidate: coherent, coherenceStatus: coherent ? 'coherent' : 'unverified' };
 	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase, preparedTarget.scannerOverlay || [], removals.ids);
 };
 

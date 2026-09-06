@@ -28,12 +28,14 @@ const base = {
   compilerCommit: commitA,
   catalogCommit: commitA,
   detect: { arch: 'arm64', digest: 'c'.repeat(64), size: 1234, sourceCommit: commitA },
-  runtimeMembership: [{ id: 'lua:core', sourcePath: 'files/lua/core.lua', contentSha256: digestA, byteSize: 12 }],
+  runtimeMembership: [
+    { id: 'lua:core', sourcePath: 'files/lua/core.lua', contentSha256: digestA, byteSize: 12, sourceCommit: commitA, version: 'p-82.14' },
+    { id: 'list:sni', sourcePath: 'sni_wl_candidates.txt', contentSha256: '1'.repeat(64), byteSize: 13, sourceCommit: commitA, version: 'p-82.14' },
+  ],
   requiredLists: ['sni_wl_candidates.txt'],
   presentLists: ['sni_wl_candidates.txt'],
   compilerInputsDigest: 'd'.repeat(64),
   catalogDigest: 'e'.repeat(64),
-  runtimeBundleDigest: 'f'.repeat(64),
 };
 
 test('coherent candidate module exposes one immutable candidate builder', () => {
@@ -45,6 +47,7 @@ test('coherent candidate module exposes one immutable candidate builder', () => 
   assert.match(compat, /z2k_candidate_identity_gate/);
   assert.match(closure, /runtimeMembership/);
   assert.match(composition, /z2k_candidate_build\(/);
+  assert.match(composition, /z2k_candidate_identity_gate\(/);
 });
 
 test('mixed release revisions fail closed with ECOMPATIBILITY', { skip: !ucodeAvailable }, () => {
@@ -60,9 +63,51 @@ test('missing Detect fails closed with EDETECT_UNAVAILABLE', { skip: !ucodeAvail
 });
 
 test('missing required release member rejects candidate', { skip: !ucodeAvailable }, () => {
-  const result = invoke({ ...base, presentLists: [] });
+  const result = invoke({
+    ...base,
+    presentLists: ['sni_wl_candidates.txt'],
+    runtimeMembership: base.runtimeMembership.filter(item => item.sourcePath !== 'sni_wl_candidates.txt'),
+  });
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EMISSING_MEMBER');
+});
+
+test('runtime member commit and release provenance must match the candidate revision', { skip: !ucodeAvailable }, () => {
+  for (const mutation of [
+    { sourceCommit: 'b'.repeat(40) },
+    { version: 'p-82.15' },
+  ]) {
+    const result = invoke({
+      ...base,
+      runtimeMembership: base.runtimeMembership.map(item => item.id === 'lua:core'
+        ? { ...item, ...mutation }
+        : item),
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'ECOMPATIBILITY');
+  }
+});
+
+test('incomplete dependency closure fails closed even with non-empty membership', { skip: !ucodeAvailable }, () => {
+  const result = invoke({
+    ...base,
+    dependencyClosure: {
+      available: false,
+      resolution: 'incomplete',
+      missing: [{ reference: 'tcp16_targets.txt' }],
+      counts: { missing: 1 },
+      items: base.runtimeMembership,
+      runtimeBundleDigest: '2'.repeat(64),
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EINCONSISTENT');
+});
+
+test('supplied runtime bundle digest must match canonical membership evidence', { skip: !ucodeAvailable }, () => {
+  const result = invoke({ ...base, runtimeBundleDigest: 'f'.repeat(64) });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'ECOMPATIBILITY');
 });
 
 test('semantic compatibility identity ignores staging, timestamps, and Registry revisions', { skip: !ucodeAvailable }, () => {
@@ -71,6 +116,6 @@ test('semantic compatibility identity ignores staging, timestamps, and Registry 
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
   assert.equal(first.compatibilityIdentity, second.compatibilityIdentity);
-  assert.equal(first.runtimeBundleDigest, base.runtimeBundleDigest);
+  assert.match(first.runtimeBundleDigest, /^[a-f0-9]{64}$/);
   assert.deepEqual(first.detect, base.detect);
 });
