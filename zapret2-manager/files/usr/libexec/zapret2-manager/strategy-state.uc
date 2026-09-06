@@ -495,9 +495,24 @@ function state_valid(value) {
 }
 
 function selected_readonly_valid(value) {
-	return value == null || (selection_provenance_valid(value) &&
-		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension') &&
-		integer(value.revision) && sha256(value.candidateSha256));
+	if (value == null) return true;
+	// Releases before Z2K Core ownership persisted the source provenance but
+	// could not persist the Core compatibility identity. Keep that state
+	// readable for list/detail/status projections; strict state_valid() still
+	// rejects it for every mutation and apply path until Core rebinds it.
+	let legacyZ2k = is_object(value) && value.sourceId == 'z2k'
+		&& !exists(value, 'z2kCompatibilityIdentity') && !exists(value, 'compatibilityIdentity');
+	if (legacyZ2k) {
+		if (!exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256', 'canonicalStrategyId',
+			'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'])) return false;
+		if (!safe_strategy_id(value.canonicalStrategyId) || value.canonicalStrategyId != value.id
+			|| !safe_strategy_id(value.sourceSnapshotId) || (value.sourceCommit != null
+				&& (!is_string(value.sourceCommit) || !match(value.sourceCommit, /^[a-f0-9]{7,40}$/)))
+			|| !sha256(value.strategyDigest)) return false;
+	} else if (!selection_provenance_valid(value)) return false;
+	return safe_strategy_id(value.id)
+		&& (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension')
+		&& integer(value.revision) && sha256(value.candidateSha256);
 }
 
 function state_readonly_valid(value) {
@@ -741,6 +756,12 @@ export const strategy_selection_get = function() {
 export const strategy_selection_get_readonly = function() {
 	let state = read_state_readonly();
 	return state.ok ? { ok: true, revision: state.state.revision, selected: state.state.selected } : state;
+};
+
+export const strategy_selection_get_readonly_full = function() {
+	let state = read_state_readonly();
+	return state.ok ? { ok: true, revision: state.state.revision,
+		favorites: state.state.favorites, selected: state.state.selected } : state;
 };
 
 export const strategy_selection_set = function(input) {

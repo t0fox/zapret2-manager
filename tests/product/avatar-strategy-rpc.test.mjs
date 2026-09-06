@@ -825,6 +825,31 @@ test('Strategy list resolves legacy persisted catalog identities after namespace
   }
 });
 
+test('Strategy list remains readable with pre-Core Z2K selection provenance', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-pre-core-state-'));
+  const strategies = path.join(root, 'strategies');
+  const state = path.join(root, 'strategy-state.json');
+  fs.mkdirSync(strategies, { mode: 0o700 });
+  fs.chmodSync(root, 0o700);
+  fs.chmodSync(strategies, 0o700);
+  fs.writeFileSync(state, JSON.stringify({ schema: 1, revision: 5,
+    favorites: [], selected: {
+      id: 'z2k_all_in_one', origin: 'z2k_builtin', revision: 0,
+      candidateSha256: 'a'.repeat(64), canonicalStrategyId: 'z2k_all_in_one',
+      sourceId: 'z2k', sourceSnapshotId: 'z2k-legacy',
+      sourceCommit: 'b'.repeat(40), strategyDigest: 'c'.repeat(64),
+    } }), { mode: 0o600 });
+  try {
+    const result = invokeValues('strategy_cli_dispatch', ['list', {}], {
+      Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies, Z2M_STRATEGY_STATE: state,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.state, { revision: 5, favorites: [] });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Strategy RPC registration keeps fixed CLI modes and explicit error envelopes', () => {
   assert.match(RPC, /STRATEGY_CLI\s*=\s*['"]\/usr\/libexec\/zapret2-manager\/strategy-cli\.uc/);
   assert.match(RPC, /error:\s*\{\s*code:\s*'EINPUT'/);

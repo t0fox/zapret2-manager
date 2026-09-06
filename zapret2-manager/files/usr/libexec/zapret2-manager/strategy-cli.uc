@@ -7,7 +7,7 @@ import { readfile, writefile, unlink, stat, readlink, lsdir, popen } from 'fs';
 import { strategy_catalog_read_index, strategy_catalog_load, strategy_catalog_get_detail,
  strategy_catalog_status, strategy_catalog_reload, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
- strategy_selection_get, strategy_apply_uncertain_get,
+ strategy_selection_get_readonly_full, strategy_apply_uncertain_get,
  strategy_apply_uncertain_record, strategy_apply_reconcile, strategy_apply_guard_status, strategy_apply_begin, strategy_apply_end } from './strategy-state.uc';
 import * as strategy_state from './strategy-state.uc';
 import { load_state } from './profiles-draft.uc';
@@ -1573,7 +1573,7 @@ function strategy_list() {
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
 	let selection = null;
-	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
+	try { selection = strategy_selection_get_readonly_full(); } catch (e) { selection = null; }
 	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
 		return error_result('EIO', 'Strategy favorites state is unavailable');
 	let strategies = [];
@@ -1633,7 +1633,7 @@ function strategy_get(input) {
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
 	let selection = null;
-	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
+	try { selection = strategy_selection_get_readonly_full(); } catch (e) { selection = null; }
 	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
 		return error_result('EIO', 'Strategy favorites state is unavailable');
 	// The active generation is the normal read authority. This also avoids
