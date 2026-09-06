@@ -99,3 +99,99 @@ process acceptance, crash/reboot recovery test, or full baseline harness was
 run. Existing baseline failures remain outside Task 7 scope. The Windows host
 cannot execute UCode directly; behavioral evidence above comes from the
 bounded WSL run. Final human/router acceptance remains required by the plan.
+
+## Fix-round 1 — independent-review findings
+
+Fix-round started from `93f9cf00` with the existing Task 7 changes retained.
+The implementation and focused-test changes are committed as
+`c4956c09` (`fix: close Task 7 transaction crash windows`).
+
+Critical findings closed:
+
+- Apply now consumes `target.priorActivation`, persisted during prepare; the
+  apply path has no free-scope `priorStrategy` reference.
+- Registry mutation intent and expected revision are durable in
+  `REGISTRY_COMMITTING` before the Registry writer. Recovery handles this and
+  the later `RUNTIME_ACTIVATING`, `SOURCE_ACTIVATING`, and source/catalog
+  phases conservatively, preserving the marker until Registry/runtime/catalog/
+  Detect/receipt evidence is coherent or compensation succeeds.
+- Runtime activation intent is durable before physical activation, so a crash
+  before `MATERIALIZED` is treated as physically activated and is rolled back
+  against the captured prior runtime composition.
+
+Important findings closed:
+
+- Source/catalog rollback intent is journaled before source activation.
+- Candidate strategy preflight uses the new Core snapshot catalog: the
+  official canonical ID must be present, and Avatar/User selections must remain
+  present and pass candidate closure/native readiness.
+- Selection, compiled catalog identity/source inputs, config bytes/digest and
+  runtime enable state are snapshotted fail-closed; null/failed snapshots do
+  not proceed to mutation.
+- Catalog rollback restores the captured generation/index identity and
+  verifies it, rather than rebuilding an unrelated catalog.
+- Focused regression seams now cover Detect SHA, active-strategy preflight,
+  post-materialize readiness, Registry intent crash, runtime intent crash,
+  ambiguous PREPARED recovery retention, and catalog identity mismatch.
+
+### Fix-round TDD and bounded verification
+
+RED was reproduced before the production implementation:
+
+```text
+node --test tests/product/z2k-coherent-transaction.test.mjs
+3 passed, 4 failed, 5 skipped
+```
+
+The failures were the new missing crash-window/prior-snapshot contracts; the
+Windows host skipped UCode behavioral cases because `/opt/ucode/bin/ucode` is
+not available there.
+
+GREEN focused result under WSL UCode:
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  14 passed, 0 failed, 0 skipped
+```
+
+The final Windows-host run is intentionally honest:
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  7 passed, 0 failed, 7 skipped
+```
+
+Supporting bounded WSL results:
+
+```text
+tests/product/z2k-update-transaction.test.mjs          9 passed, 0 failed
+tests/product/z2k-post-mutation-check-state.test.mjs   5 passed, 0 failed
+tests/product/z2k-lifecycle-transaction.test.mjs      14 passed, 0 failed
+tests/product/z2k-receipt-v3.test.mjs                  9 passed, 0 failed
+tests/product/z2k-detect-artifact.test.mjs             20 passed, 0 failed
+tests/product/z2k-runtime-composition.test.mjs         26 passed, 1 failed, 1 TODO
+```
+
+The runtime-composition failure remains the known unrelated static mismatch
+for `target.runtimeBundleDigest = target.dependencyClosure`; the TODO remains
+the pre-existing Task 4 transaction slice. No unrelated test or Scanner work
+was changed.
+
+Additional checks:
+
+- `node --check tests/product/z2k-coherent-transaction.test.mjs` passed.
+- `git diff --check` passed before commit.
+- WSL UCode `/opt/ucode/bin/ucode` with `/opt/ucode/lib` was available;
+  `resource-update.uc`, `runtime-composition.uc`, and `apply.uc` imported
+  successfully. The worker is an executable UCode script with a shebang, so a
+  module-import check is not applicable.
+- `node scripts/validate-knowledge.mjs` passed.
+- `node scripts/docs.mjs verify` passed with Quartz SHA
+  `ab346fa66a895e12d63a308e70ce330ba795822a`.
+- Knowledge tests: 29 passed, 4 failed because the checked-out public Quartz
+  build artifact was absent; no public build was generated in this scoped fix.
+
+### Fix-round boundaries
+
+No router/browser/deployment/push/merge, live crash/reboot, live Detect process,
+or full baseline harness was run. Public Quartz build output and its four
+artifact-dependent leak tests remain unverified. Final report evidence commit
+is the separate report commit following implementation `c4956c09`.
