@@ -1795,18 +1795,32 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K activation process verification failed and was rolled back.' : 'Z2K activation process verification failed and rollback could not be completed.', { activation: activationProof.error, rollback: rollback, diagnostics: diagnostics }));
 	}
+	let z2kMembership = [];
+	for (let i = 0; i < length(committedCandidate.runtimeAssets || []); i++) if (committedCandidate.runtimeAssets[i].type == 'lifecycle-managed') push(z2kMembership, committedCandidate.runtimeAssets[i]);
+	let finalized = asset_registry_finalize_activation({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit,
+		manifestSha256: target.manifestSha256, classificationSha256: target.classificationSha256, candidateSnapshotId: target.candidateSnapshotId || committedCandidate.snapshotId,
+		membershipDigest: target.membershipDigest || committedCandidate.membershipDigest, baseRegistryRevision: target.baseRegistryRevision,
+		z2kCompatibilityIdentity: target.z2kCompatibilityIdentity,
+		committedAssetRevision: committedAssetRevision, z2kMembership: z2kMembership, activationEvidence: activationEvidence });
+	if (!finalized.ok) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ESTALE' : 'EROLLBACK', rollback.ok ? 'Z2K activation finalization lost its Registry CAS.' : 'Z2K activation finalization failed and rollback could not be completed.', { finalize: finalized.error, rollback: rollback, diagnostics: diagnostics }));
+	}
+	// Native validation resolves the canonical installed composition. Publish the
+	// Registry receipt first so resolveInstalled() no longer sees the candidate
+	// as an incomplete activation.
 	let finalizedSource = null;
 	try { finalizedSource = z2k_source_refresh.strategy_source_z2k_finalize_core_snapshot({
 		snapshot: core.snapshot, dependencyInventory: z2k_target_dependency_inventory(committedCandidate)
 	}); } catch (e) { finalizedSource = null; }
 	if (!finalizedSource || finalizedSource.ok !== true || !object(finalizedSource.snapshot)
 		|| !z2k_compatibility_equal(finalizedSource.snapshot.z2kCompatibilityIdentity, target.z2kCompatibilityIdentity)
-		|| finalizedSource.snapshot.entryCount != target.strategyCount)
-		return z2k_runtime_guard_finish(guard, root, paths, fail('EPREFLIGHT', 'Z2K official strategy snapshot failed native validation after runtime activation.', { source: finalizedSource || null, diagnostics: diagnostics }));
+		|| finalizedSource.snapshot.entryCount != target.strategyCount) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EPREFLIGHT' : 'EROLLBACK', rollback.ok ? 'Z2K official strategy snapshot failed native validation after runtime activation and was rolled back.' : 'Z2K official strategy snapshot failed native validation and rollback could not be completed.', { source: finalizedSource || null, rollback: rollback, diagnostics: diagnostics }));
+	}
 	core.snapshot = finalizedSource.snapshot;
 	if (!z2k_pending_write(pending, 'PROCESS_VERIFIED')) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Process verification evidence could not be persisted.'));
-	let z2kMembership = [];
-	for (let i = 0; i < length(committedCandidate.runtimeAssets || []); i++) if (committedCandidate.runtimeAssets[i].type == 'lifecycle-managed') push(z2kMembership, committedCandidate.runtimeAssets[i]);
 	let sourceInstalled = null;
 	try { sourceInstalled = strategy_sources.strategy_source_install_verified_snapshot('z2k', { verified: true, snapshot: core.snapshot }); }
 	catch (e) { sourceInstalled = null; }
@@ -1820,15 +1834,6 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	if (!catalogRebuilt || catalogRebuilt.ok !== true) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EINDEX' : 'EROLLBACK', rollback.ok ? 'Z2K catalog publication failed and was rolled back.' : 'Z2K catalog publication failed and rollback could not be completed.', { catalog: catalogRebuilt, rollback: rollback, diagnostics: diagnostics }));
-	}
-	let finalized = asset_registry_finalize_activation({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit,
-		manifestSha256: target.manifestSha256, classificationSha256: target.classificationSha256, candidateSnapshotId: target.candidateSnapshotId || committedCandidate.snapshotId,
-		membershipDigest: target.membershipDigest || committedCandidate.membershipDigest, baseRegistryRevision: target.baseRegistryRevision,
-		z2kCompatibilityIdentity: target.z2kCompatibilityIdentity,
-		committedAssetRevision: committedAssetRevision, z2kMembership: z2kMembership, activationEvidence: activationEvidence });
-	if (!finalized.ok) {
-		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);
-		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'ESTALE' : 'EROLLBACK', rollback.ok ? 'Z2K activation finalization lost its Registry CAS.' : 'Z2K activation finalization failed and rollback could not be completed.', { finalize: finalized.error, rollback: rollback, diagnostics: diagnostics }));
 	}
 	if (!z2k_pending_write(pending, 'FINALIZED') || !z2k_pending_clear()) return z2k_runtime_guard_finish(guard, root, paths, fail('EWRITE', 'Z2K activation finalized but durable evidence could not be closed.', { mutationCompleted: true, diagnostics: diagnostics }));
 	let reconciled = z2k_reconcile_after_mutation(target);

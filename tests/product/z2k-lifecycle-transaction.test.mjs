@@ -78,6 +78,18 @@ test('pre-commit CAS rejects unrelated Registry changes but accepts the transact
   assert.match(apply, /expectedRegistryRevision:\s*target\.baseRegistryRevision/);
 });
 
+test('post-activation native validation resolves the installed receipt and compensates on failure', () => {
+  const apply = functionBody(coordinator, 'function z2k_apply_prepared', 'export const resource_center_status');
+  const finalizedRegistry = apply.indexOf('asset_registry_finalize_activation(');
+  const finalizedSource = apply.indexOf('strategy_source_z2k_finalize_core_snapshot(');
+  assert.ok(finalizedRegistry >= 0, 'activation must publish the installed Registry authority');
+  assert.ok(finalizedSource > finalizedRegistry,
+    'native source validation must run after the installed Registry authority is published');
+  const validationFailure = apply.slice(finalizedSource, apply.indexOf('core.snapshot = finalizedSource.snapshot', finalizedSource));
+  assert.match(validationFailure, /z2k_rollback_after_runtime_failure/,
+    'native validation failure must restore the previous runtime and source');
+});
+
 test('same-release V1 reconciliation uses FRESH resolution and the normal reinstall transaction', () => {
   assert.match(coordinator, /V1_VERIFIED_MEMBERSHIP|reconciliationRequired/);
   assert.match(coordinator, /z2k_resolve_version|z2k_upstream_check/);
