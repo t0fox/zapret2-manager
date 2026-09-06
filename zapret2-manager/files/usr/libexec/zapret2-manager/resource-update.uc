@@ -18,7 +18,7 @@ import * as z2k_source_refresh from './strategy-source-refresh.uc';
 import * as z2k_source from './strategy-source-z2k.uc';
 import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
-import { strategy_catalog_generation_read } from './strategy-catalog-generation.uc';
+import { strategy_catalog_generation_read, strategy_catalog_generation_publish } from './strategy-catalog-generation.uc';
 import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore } from './strategy-state.uc';
 import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
 
@@ -1563,6 +1563,7 @@ function z2k_receipt_state_verified(state) { return object(state) && (state.stat
 function z2k_rollback_registry_already_restored(pending, listed) {
 	if (!object(pending) || !object(pending.rollbackIdentity) || !object(listed) || listed.ok !== true
 		|| listed.revision != pending.rollbackIdentity.registryRevision) return false;
+	if (type(pending.priorRegistryMembership) == 'array' && !z2k_rollback_membership_matches(pending.priorRegistryMembership, listed.assets || [])) return false;
 	let expected = pending.rollbackIdentity.receipt || null, state = z2k_registry_receipt_state(listed);
 	if (expected == null) return state.state == 'unknown' && state.receipt == null;
 	return state.receipt != null && z2k_rollback_receipt_matches(expected, state.receipt);
@@ -1585,6 +1586,29 @@ function z2k_rollback_expected_revision(applied, listed, pending) {
 		&& receipt.committedRegistryRevision == expected) return listed.revision;
 	return expected;
 }
+function z2k_catalog_identity_matches(actual, expected) {
+	return object(actual) && actual.ok === true && object(actual.index) && object(expected)
+		&& actual.index.generationId == expected.generationId && actual.index.indexDigest == expected.indexDigest;
+}
+function z2k_catalog_restore(pending, testSeams) {
+	let testing = object(testSeams) && testSeams.testOnly === true;
+	if (testing && type(testSeams.catalogRestore) == 'function') {
+		let restored = pending && pending.priorCatalog != null ? testSeams.catalogRestore(pending.priorCatalog) : testSeams.catalogRestore(null);
+		if (pending && pending.priorCatalog != null && restored && restored.ok === true && ((restored.generationId != null && restored.generationId != pending.priorCatalog.generationId) || (restored.indexDigest != null && restored.indexDigest != pending.priorCatalog.indexDigest))) return fail('ERECOVERY_REQUIRED', 'Catalog rollback test evidence does not match the captured prior identity.');
+		return restored;
+	}
+	let prior = pending && pending.priorCatalog;
+	if (!object(prior) || !string(prior.generationId) || !valid_digest(prior.indexDigest) || !object(prior.sourceInputs)) return fail('ERECOVERY_REQUIRED', 'Exact prior Strategy catalog identity is unavailable for rollback.');
+	let current = null;
+	try { current = strategy_catalog_generation_read(); } catch (e) { current = null; }
+	if (z2k_catalog_identity_matches(current, prior)) return { ok: true, alreadyRestored: true, generationId: prior.generationId, indexDigest: prior.indexDigest };
+	let restored = null;
+	try { restored = strategy_catalog_generation_publish({ generatedAt: prior.generatedAt, sources: prior.sourceInputs, userRevision: prior.index && prior.index.userRevision || 0, userEntries: prior.userEntries || [] }); } catch (e) { restored = null; }
+	if (!restored || restored.ok !== true || restored.generationId != prior.generationId || restored.indexDigest != prior.indexDigest) return fail('ERECOVERY_REQUIRED', 'Prior Strategy catalog could not be restored with its captured identity.', { expectedGenerationId: prior.generationId, actualGenerationId: restored && restored.generationId || null, expectedIndexDigest: prior.indexDigest, actualIndexDigest: restored && restored.indexDigest || null });
+	let verified = null;
+	try { verified = strategy_catalog_generation_read(); } catch (e) { verified = null; }
+	return z2k_catalog_identity_matches(verified, prior) ? { ok: true, restored: true, generationId: prior.generationId, indexDigest: prior.indexDigest } : fail('ERECOVERY_REQUIRED', 'Restored Strategy catalog identity could not be verified.');
+}
 function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated, testSeams) {
 	let testing = object(testSeams) && testSeams.testOnly === true;
 	let pending = testing ? testSeams.pendingLoad() : z2k_pending_load(), journal = pending == null || (testing ? testSeams.pendingWrite(pending, 'ROLLING_BACK') : z2k_pending_write(pending, 'ROLLING_BACK'));
@@ -1600,8 +1624,8 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 	}
 	let catalogRollback = { ok: true, skipped: true };
 	if (pending && pending.catalogRestoreRequired === true && sourceRollback.ok === true) {
-		try { catalogRollback = testing ? (type(testSeams.catalogRestore) == 'function' ? testSeams.catalogRestore() : fail('EINPUT', 'Catalog rollback test seam is incomplete.')) : catalog_refresh_rebuild(); }
-		catch (e) { catalogRollback = fail('EROLLBACK', 'Z2K catalog rollback raised an exception.'); }
+		try { catalogRollback = z2k_catalog_restore(pending, testSeams); }
+		catch (e) { catalogRollback = fail('EROLLBACK', 'Z2K catalog rollback raised an exception.', { detail: text(e) }); }
 	}
 	let strategyRollback = { ok: true, skipped: true }, configRollback = { ok: true, skipped: true };
 	if (pending && pending.priorActiveStrategy != null) {
@@ -1614,6 +1638,7 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 		try { configRollback = testing && type(testSeams.configRestore) == 'function' ? testSeams.configRestore(pending.priorConfig) : restore_transaction_config(pending.priorConfig, false); }
 		catch (e) { configRollback = fail('EROLLBACK', 'active config rollback raised an exception.'); }
 	}
+	if (configRollback.ok === true && pending && pending.priorRuntimeEnabledPresent === true && read_var('ENABLED') != pending.priorRuntimeEnabled) configRollback = fail('EROLLBACK', 'runtime enable state was not restored to the captured prior value.');
 	let detectPublication = pending && object(pending.detectPublication) ? pending.detectPublication : z2k_active_detect_publication;
 	let commonOk = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && catalogRollback.ok && strategyRollback.ok && configRollback.ok;
 	if (!commonOk) return {
@@ -1664,6 +1689,39 @@ export const resource_center_test_rollback_expected_revision = function(input) {
 	if (!object(input) || input.testOnly !== true || !object(input.applied) || !object(input.listed) || !object(input.pending)) return fail('EINPUT', 'Internal rollback revision test seam is restricted to controlled tests.');
 	return z2k_rollback_expected_revision(input.applied, input.listed, input.pending);
 };
+function z2k_pending_prior_state_matches(pending) {
+	if (!object(pending)) return fail('ERECOVERY_REQUIRED', 'Prior activation evidence is missing.');
+	let listed = asset_registry_list(null);
+	if (!listed || listed.ok !== true || listed.revision != pending.priorRegistryRevision) return fail('ERECOVERY_REQUIRED', 'Registry prior revision is not proven stable.');
+	if (type(pending.priorRegistryMembership) != 'array' || !z2k_rollback_membership_matches(pending.priorRegistryMembership, listed.assets || [])) return fail('ERECOVERY_REQUIRED', 'Registry prior membership is not proven stable.');
+	let authority = z2k_registry_receipt_state(listed);
+	if (pending.priorReceipt == null) {
+		if (!authority || authority.receipt != null) return fail('ERECOVERY_REQUIRED', 'Prior Registry receipt state is not proven stable.');
+	} else if (!authority || !object(authority.receipt) || !z2k_rollback_receipt_matches(pending.priorReceipt, authority.receipt)) return fail('ERECOVERY_REQUIRED', 'Prior Registry receipt identity is not proven stable.');
+	let config = null, selection = null, catalog = null, enabled = null;
+	try { config = transaction_config_snapshot(); } catch (e) { config = null; }
+	try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
+	try { catalog = strategy_catalog_generation_read(); } catch (e) { catalog = null; }
+	try { enabled = read_var('ENABLED'); } catch (e) { enabled = null; }
+	if (!config || config.ok !== true || !object(pending.priorConfig) || config.sha256 != pending.priorConfig.sha256) return fail('ERECOVERY_REQUIRED', 'Prior runtime config digest is not proven stable.');
+	if (!selection || selection.ok !== true || selection.revision != pending.priorSelectionRevision) return fail('ERECOVERY_REQUIRED', 'Prior active strategy revision is not proven stable.');
+	if (pending.priorActiveStrategy == null ? selection.selected != null : !object(selection.selected) || selection.selected.id != pending.priorActiveStrategy.id || selection.selected.sourceId != pending.priorActiveStrategy.sourceId) return fail('ERECOVERY_REQUIRED', 'Prior active strategy identity is not proven stable.');
+	if (!z2k_catalog_identity_matches(catalog, pending.priorCatalog)) return fail('ERECOVERY_REQUIRED', 'Prior Strategy catalog identity is not proven stable.');
+	if (pending.priorRuntimeEnabledPresent === true && enabled != pending.priorRuntimeEnabled) return fail('ERECOVERY_REQUIRED', 'Prior runtime enable state is not proven stable.');
+	let runtime = null;
+	try { runtime = resolveInstalled({ registry: listed }); } catch (e) { runtime = null; }
+	if (!runtime || runtime.ok !== true || !object(pending.priorRuntimeComposition) || (pending.priorRuntimeComposition.snapshotId != null && runtime.snapshotId != pending.priorRuntimeComposition.snapshotId) || (pending.priorRuntimeComposition.membershipDigest != null && runtime.membershipDigest != pending.priorRuntimeComposition.membershipDigest)) return fail('ERECOVERY_REQUIRED', 'Prior runtime composition identity is not proven stable.');
+	return { ok: true, registry: true, receipt: true, config: true, selection: true, catalog: true, runtime: true };
+}
+
+export const resource_center_test_recovery_contract = function(input) {
+	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Internal recovery contract seam is restricted to controlled tests.');
+	let pending = object(input.pending) ? input.pending : input, phase = pending.phase, runtimeActivated = pending.runtimeActivationIntent === true || phase == 'RUNTIME_ACTIVATING' || phase == 'MATERIALIZED' || phase == 'PROCESS_VERIFIED' || phase == 'SOURCE_ACTIVATING' || phase == 'SOURCE_ACTIVATED' || phase == 'ROLLING_BACK';
+	let stable = input.priorStateProven === true || (input.detectMatchesPrior === true && input.receiptMatchesPrior === true && input.registryMatchesPrior === true && input.runtimeMatchesPrior === true && input.catalogMatchesPrior === true);
+	if (phase == 'PREPARED' && pending.registryMutationIntent !== false) { let blocked = fail('ERECOVERY_REQUIRED', 'Ambiguous PREPARED evidence is retained until Registry/runtime/catalog/receipt state is proven.'); blocked.cleared = false; blocked.rollbackRequired = true; blocked.runtimeActivated = runtimeActivated; return blocked; }
+	if (!stable) { let blocked = fail('ERECOVERY_REQUIRED', 'Recovery evidence is incomplete; the pending marker must remain durable.'); blocked.cleared = false; blocked.rollbackRequired = phase != 'PREPARED'; blocked.runtimeActivated = runtimeActivated; return blocked; }
+	return { ok: true, cleared: true, rollbackRequired: false, runtimeActivated: runtimeActivated };
+};
 function z2k_pending_identity_valid(pending) {
 	if (!object(pending) || !string(pending.candidateSnapshotId) || !string(pending.membershipDigest)
 		|| !string(pending.targetVersion) || !string(pending.targetCommit) || !string(pending.planToken)
@@ -1671,10 +1729,18 @@ function z2k_pending_identity_valid(pending) {
 		|| type(pending.rollbackIdentity.registryRevision) != 'int'
 		|| pending.rollbackIdentity.registryRevision != pending.baseRegistryRevision
 		|| pending.rollbackIdentity.runtimeSnapshot != '/etc/zapret2-manager/runtime-assets.snapshot') return false;
-	// PREPARED is written before the first irreversible Registry commit, so it
-	// intentionally has no committed revision and can be safely abandoned on
-	// recovery. Every later phase must carry the exact N+1 bundle revision.
+	let phases = ['PREPARED', 'REGISTRY_COMMITTING', 'COMMITTED', 'RUNTIME_ACTIVATING', 'MATERIALIZED', 'PROCESS_VERIFIED', 'SOURCE_ACTIVATING', 'SOURCE_ACTIVATED', 'ROLLING_BACK', 'FINALIZED', 'ROLLED_BACK'];
+	let knownPhase = false;
+	for (let phase in phases) if (phase == pending.phase) knownPhase = true;
+	if (!knownPhase) return false;
+	// PREPARED has no Registry revision, but a new writer must explicitly say
+	// that no irreversible owner intent has been journaled. Missing intent is
+	// intentionally ambiguous and recovery will retain the marker.
 	if (pending.phase == 'PREPARED') return pending.committedAssetRevision == null;
+	if (pending.phase == 'FINALIZED' || pending.phase == 'ROLLED_BACK') return type(pending.committedAssetRevision) == 'int' && pending.committedAssetRevision > pending.baseRegistryRevision;
+	if (pending.phase == 'REGISTRY_COMMITTING') return pending.registryMutationIntent === true && type(pending.expectedRegistryRevision) == 'int';
+	if (pending.registryMutationIntent !== true) return false;
+	// Every later phase must carry the exact N+1 bundle revision.
 	return type(pending.committedAssetRevision) == 'int'
 		&& pending.committedAssetRevision > pending.baseRegistryRevision;
 }
@@ -1729,19 +1795,57 @@ function z2k_pending_detect_restore(pending) {
 }
 
 function z2k_active_strategy_snapshot() {
-	let selection = null, catalog = null, config = null;
+	let selection = null, catalog = null, config = null, sources = null, enabled = null;
 	try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
 	try { catalog = strategy_catalog_generation_read(); } catch (e) { catalog = null; }
 	try { config = transaction_config_snapshot(); } catch (e) { config = null; }
-	let ids = [];
-	if (catalog && catalog.ok === true && catalog.index && catalog.index.winners) for (let id in catalog.index.winners) push(ids, id);
-	return {
-		selected: selection && selection.ok === true ? selection.selected || null : null,
-		revision: selection && selection.ok === true ? selection.revision : null,
-		catalog: catalog && catalog.ok === true ? { generationId: catalog.index.generationId, indexDigest: catalog.index.indexDigest, ids: ids } : null,
-		config: config && config.ok === true ? { bytes: config.bytes, sha256: config.sha256 } : null,
-		runtimeEnabled: read_var('ENABLED')
-	};
+	try { sources = strategy_sources.strategy_sources_get(); } catch (e) { sources = null; }
+	try { enabled = read_var('ENABLED'); } catch (e) { enabled = null; }
+	if (!selection || selection.ok !== true || type(selection.revision) != 'int') return fail('ESNAPSHOT', 'Active strategy selection could not be snapshotted before Z2K mutation.');
+	if (!catalog || catalog.ok !== true || !object(catalog.index) || !string(catalog.index.generationId) || !valid_digest(catalog.index.indexDigest)) return fail('ESNAPSHOT', 'Active Strategy catalog identity could not be snapshotted before Z2K mutation.');
+	if (!config || config.ok !== true || !string(config.sha256) || !valid_digest(config.sha256) || !string(config.bytes)) return fail('ESNAPSHOT', 'Active runtime configuration could not be snapshotted before Z2K mutation.');
+	if (!sources || sources.ok !== true || !object(sources.sources)) return fail('ESNAPSHOT', 'Strategy source activation state could not be snapshotted before Z2K mutation.');
+	let sourceInputs = {}, userEntries = [];
+	if (type(catalog.index.entries) == 'array') for (let entry in catalog.index.entries) if (object(entry) && entry.sourceId == 'user') push(userEntries, copy(entry));
+	for (let id in sources.sources) {
+		let row = sources.sources[id];
+		if (!object(row) || type(row.enabled) != 'bool') return fail('ESNAPSHOT', 'Strategy source activation state is incomplete before Z2K mutation.', { sourceId: id });
+		if (row.enabled === true) {
+			let current = null;
+			try { current = strategy_sources.strategy_source_current_snapshot(id); } catch (e) { current = null; }
+			if (!current || current.ok !== true || !object(current.snapshot) || current.snapshot.snapshotId != row.currentSnapshotId) return fail('ESNAPSHOT', 'Enabled strategy source has no authoritative current snapshot before Z2K mutation.', { sourceId: id });
+			sourceInputs[id] = { enabled: true, currentSnapshotId: row.currentSnapshotId, snapshot: copy(current.snapshot) };
+		} else sourceInputs[id] = { enabled: false, currentSnapshotId: null, snapshot: null };
+	}
+	return { ok: true, activation: {
+		selected: selection.selected || null, selectionRevision: selection.revision,
+		catalog: { generationId: catalog.index.generationId, indexDigest: catalog.index.indexDigest, generatedAt: catalog.index.generatedAt,
+			index: copy(catalog.index), sourceInputs: sourceInputs, userEntries: userEntries },
+		config: { bytes: config.bytes, sha256: config.sha256 }, runtimeEnabled: enabled,
+		runtimeEnabledPresent: enabled != null
+	} };
+}
+
+function z2k_prior_activation_valid(prior) {
+	return object(prior) && type(prior.selectionRevision) == 'int' && object(prior.catalog)
+		&& string(prior.catalog.generationId) && valid_digest(prior.catalog.indexDigest) && object(prior.catalog.index)
+		&& prior.catalog.index.generationId == prior.catalog.generationId && prior.catalog.index.indexDigest == prior.catalog.indexDigest
+		&& string(prior.config && prior.config.bytes) && valid_digest(prior.config && prior.config.sha256)
+		&& type(prior.runtimeEnabledPresent) == 'bool';
+}
+
+function z2k_candidate_catalog(priorCatalog, coreSnapshot) {
+	let ids = [], seen = {};
+	if (object(priorCatalog) && object(priorCatalog.index) && type(priorCatalog.index.entries) == 'array') for (let priorEntry in priorCatalog.index.entries) {
+		if (object(priorEntry) && priorEntry.sourceId != 'z2k' && string(priorEntry.canonicalId) && !seen[priorEntry.canonicalId]) { seen[priorEntry.canonicalId] = true; push(ids, priorEntry.canonicalId); }
+	}
+	if (object(coreSnapshot) && type(coreSnapshot.entries) == 'array') for (let entry in coreSnapshot.entries) {
+		if (object(entry) && string(entry.canonicalId) && !seen[entry.canonicalId]) { seen[entry.canonicalId] = true; push(ids, entry.canonicalId); }
+	}
+	if (object(coreSnapshot) && type(coreSnapshot.standaloneCandidates) == 'array') for (let candidate in coreSnapshot.standaloneCandidates) {
+		if (object(candidate) && string(candidate.canonicalId) && !seen[candidate.canonicalId]) { seen[candidate.canonicalId] = true; push(ids, candidate.canonicalId); }
+	}
+	return { ids: ids, canonicalIds: ids };
 }
 
 function z2k_strategy_preflight(target) {
@@ -1847,8 +1951,10 @@ export const resource_center_prepare_version = function(request) {
 	if (canonicalAssets == null) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical runtime composition для выбранного release.');
 	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets, detectArtifact: detect, detectRuntimeTarget: Z2K_DETECT_TARGET };
 	let priorStrategy = z2k_active_strategy_snapshot();
-	target.activeStrategy = priorStrategy.selected;
-	target.candidateCatalog = priorStrategy.catalog;
+	if (!priorStrategy.ok || !z2k_prior_activation_valid(priorStrategy.activation)) return priorStrategy.ok ? fail('ESNAPSHOT', 'The active Z2K transaction baseline is incomplete.') : priorStrategy;
+	target.priorActivation = priorStrategy.activation;
+	target.activeStrategy = priorStrategy.activation.selected;
+	target.candidateCatalog = priorStrategy.activation.catalog;
 	target.candidateRuntime = { closureReady: false, nativeReady: false };
 	// Compose once to obtain the membership identity, then bind the final
 	// plan token and resolve again so the persisted candidate snapshot carries
@@ -1876,6 +1982,7 @@ export const resource_center_prepare_version = function(request) {
 	target.compilerFileSha256 = core.snapshot.fileSha256;
 	target.membershipDigest = candidate.membershipDigest; target.candidateSnapshotId = candidate.snapshotId; target.compositionSnapshotId = candidate.compositionSnapshotId;
 	target.dependencyClosure = core.snapshot.entries[0].dependencyClosure;
+	target.candidateCatalog = z2k_candidate_catalog(priorStrategy.activation.catalog, core.snapshot);
 	if (!object(target.dependencyClosure) || target.dependencyClosure.available !== true || !valid_digest(target.runtimeBundleDigest)) {
 		target.targetCanApply = false;
 		target.targetAttentionState = target.targetAttentionState == 'none' ? 'dependency-required' : target.targetAttentionState;
@@ -1991,6 +2098,8 @@ export const resource_center_test_post_materialize_failure = function(input) {
 function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed) {
 	let state = load_check_state(), target = z2k_target_from_state(state), requestedVersion = request && request.targetVersion;
 	if (!target || !string(requestedVersion) || requestedVersion != target.targetVersion || request.planToken != target.planToken || request.operation != target.operation || (request.installedVersion !== target.previousVersion)) return fail('ECHECK_STALE', 'Z2K update requires a matching prepared operation and installed baseline; prepare the release again.');
+	let priorActivation = target.priorActivation;
+	if (!z2k_prior_activation_valid(priorActivation)) return fail('ESNAPSHOT', 'Prepared Z2K operation has no complete prior activation snapshot; prepare the release again.');
 	listed = asset_registry_list(null);
 	if (!listed.ok || type(target.baseRegistryRevision) != 'int') return fail('ECHECK_STALE', 'Z2K prepared operation has no authoritative Registry baseline; prepare the release again.');
 	let candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision });
@@ -2004,6 +2113,8 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		|| core.snapshot.nfqws2OptSha256 != target.nfqws2OptSha256
 		|| !object(dependencyClosure) || dependencyClosure.available !== true || dependencyClosure.runtimeBundleDigest != target.runtimeBundleDigest)
 		return fail('EDEPENDENCY', 'Z2K runtime dependency closure changed or is unavailable; prepare the release again.', { expectedRuntimeBundleDigest: target.runtimeBundleDigest, actualRuntimeBundleDigest: dependencyClosure && dependencyClosure.runtimeBundleDigest || null });
+	target.candidateCatalog = z2k_candidate_catalog(priorActivation.catalog, core.snapshot);
+	target.candidateRuntime = { closureReady: dependencyClosure.available === true, nativeReady: true };
 	let fingerprint = z2k_local_fingerprint(target.assets, listed, target.removeIds);
 	if (fingerprint == null || fingerprint != target.localFingerprint) return fail('ECHECK_STALE', 'Z2K local resources changed after preparation; prepare the release again.');
 	let classificationSnapshot = z2k_read_classification_snapshot(), classification = classificationSnapshot && classificationSnapshot.value;
@@ -2014,9 +2125,10 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	if (!removals.ok || !same_id_set(removals.ids, target.removeIds) || !same_removal_descriptors(removals.targets, target.removeTargets)) return fail('ECHECK_STALE', 'Z2K managed membership or removal mapping changed after preparation; prepare the release again.');
 	let sourceBefore = null;
 	try { sourceBefore = strategy_sources.strategy_sources_get(); } catch (e) { sourceBefore = null; }
+	if (!sourceBefore || sourceBefore.ok !== true || !object(sourceBefore.sources)) return fail('ESNAPSHOT', 'Strategy source activation state could not be read before Z2K mutation.');
 	let consumed = consume_prepared_target(state, target);
 	if (!consumed.ok) return consumed;
-	let root = null, paths = [], guard = null, staged = [], detectPrepared = null, detectIntentWritten = false, applied = null, committedAssetRevision = null, registryCommitted = false, runtimeActivated = false,
+	let root = null, paths = [], guard = null, staged = [], detectPrepared = null, detectIntentWritten = false, applied = null, committedAssetRevision = null, registryCommitted = false, runtimeActivated = false, pending = null,
 		diagnostics = { pathUsed: diagPathUsed, targetVersion: target.targetVersion, operation: target.operation, planned: length(target.assets), removePlanned: length(target.removeIds || []), downloaded: 0, verified: 0, staged: 0, applied: 0, removed: 0, postflightMatched: 0, skipped: [], targetAssets: [] };
 	try {
 		guard = z2k_runtime_guard_acquire();
@@ -2048,28 +2160,34 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	diagnostics.staged = length(staged);
 	let beforeCommit = asset_registry_list(null), cas = beforeCommit.ok ? runtime_composition_candidate_cas(candidate, beforeCommit.revision, 'pre-commit', null) : fail('ESTALE', 'Z2K Registry could not be re-read before commit.');
 	if (!cas.ok) return z2k_runtime_guard_finish(guard, root, paths, cas);
+	let strategyGate = z2k_strategy_preflight(target);
+	if (!strategyGate.ok) return z2k_runtime_guard_finish(guard, root, paths, strategyGate);
 	let priorAuthority = z2k_registry_receipt_state(listed);
+	let priorRuntimeComposition = resolveInstalled({ registry: listed });
+	if (!priorRuntimeComposition || priorRuntimeComposition.ok !== true) return z2k_runtime_guard_finish(guard, root, paths, fail('ESNAPSHOT', 'Installed runtime composition could not be snapshotted before Z2K mutation.', { runtime: priorRuntimeComposition }));
 	// Capture the old stable Detect state before writing the single durable Core
 	// intent. The target move is deliberately after PREPARED is durable.
 	detectPrepared = z2k_detect_prepare(detectStaged.candidate, detectStage);
 	if (!detectPrepared.ok) return z2k_runtime_guard_finish(guard, root, paths, detectPrepared);
 	// The /tmp/z2m-resource-update/jobs worker file is only a progress mirror;
 	// this durable pending-activation record is the recovery authority.
-	let pending = { schema: 1, candidateSnapshotId: candidate.snapshotId, compositionSnapshotId: candidate.compositionSnapshotId, membershipDigest: candidate.membershipDigest,
+	pending = { schema: 1, candidateSnapshotId: candidate.snapshotId, compositionSnapshotId: candidate.compositionSnapshotId, membershipDigest: candidate.membershipDigest,
 		baseRegistryRevision: target.baseRegistryRevision, targetVersion: target.targetVersion, targetCommit: target.targetCommitSha || target.targetCommit,
 		planToken: target.planToken, z2kCompatibilityIdentity: target.z2kCompatibilityIdentity,
 		rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' },
 		priorReceipt: priorAuthority.receipt || null, priorRegistryRevision: listed.revision, priorRegistryMembership: listed.assets || [],
-		priorRuntimeComposition: resolveInstalled({ registry: listed }) || null,
+		priorRuntimeComposition: priorRuntimeComposition,
 		priorDetect: detectPrepared.prior || null,
-		priorCatalog: priorStrategy.catalog || null, priorActiveStrategy: priorStrategy.selected || null,
-		priorConfig: priorStrategy.config || null, priorRuntimeEnabled: priorStrategy.runtimeEnabled,
+		priorCatalog: priorActivation.catalog, priorActiveStrategy: priorActivation.selected || null,
+		priorSelectionRevision: priorActivation.selectionRevision, priorConfig: priorActivation.config,
+		priorRuntimeEnabled: priorActivation.runtimeEnabled, priorRuntimeEnabledPresent: priorActivation.runtimeEnabledPresent,
 		detectPublication: detectPrepared,
 		sourceActivation: sourceBefore && sourceBefore.sources && sourceBefore.sources.z2k ? {
 			currentSnapshotId: sourceBefore.sources.z2k.currentSnapshotId || null,
 			lastKnownGoodSnapshotId: sourceBefore.sources.z2k.lastKnownGoodSnapshotId || null
 		} : { currentSnapshotId: null, lastKnownGoodSnapshotId: null },
-		sourceRestoreRequired: true, phase: 'PREPARED' };
+		sourceRestoreRequired: true, sourceMutationIntent: false, catalogRestoreRequired: false,
+		registryMutationIntent: false, expectedRegistryRevision: null, runtimeActivationIntent: false, phase: 'PREPARED' };
 	if (!z2k_pending_write(pending, 'PREPARED')) {
 		let detectDiscard = z2k_detect_restore(detectPrepared), pendingDiscard = z2k_pending_clear();
 		return z2k_runtime_guard_finish(guard, root, paths, fail(detectDiscard.ok && pendingDiscard ? 'EWRITE' : 'EROLLBACK', 'Durable PREPARED Detect intent could not be persisted; no stable Detect move was committed.', { detect: detectDiscard, pendingCleared: pendingDiscard }));
@@ -2082,6 +2200,15 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	}
 	z2k_active_detect_publication = detectPublished;
 	diagnostics.detect.result = 'published'; diagnostics.detect.prior = detectPublished.prior;
+	// Registry mutation is irreversible from the transaction's point of view.
+	// Persist the intent before calling the sole Registry writer so recovery can
+	// conservatively compensate both sides of the crash window.
+	pending.registryMutationIntent = true;
+	pending.expectedRegistryRevision = listed.revision + 1;
+	if (!z2k_pending_write(pending, 'REGISTRY_COMMITTING')) {
+		let detectRollback = z2k_detect_restore(detectPrepared), pendingCleared = detectRollback.ok && z2k_pending_clear();
+		return z2k_runtime_guard_finish(guard, root, paths, fail(pendingCleared ? 'EWRITE' : 'EROLLBACK', pendingCleared ? 'Registry mutation intent could not be persisted; no Registry mutation was attempted.' : 'Registry mutation intent could not be persisted and Detect rollback evidence remains open.', { detect: detectRollback, pendingCleared: pendingCleared }));
+	}
 		applied = asset_registry_apply_bundle({ bundleId: selected.id, version: target.targetVersion, source: 'necronicle/z2k', sourceCommit: target.targetCommitSha || target.targetCommit, expectedRegistryRevision: target.baseRegistryRevision, assets: staged, removeIds: target.removeIds, removals: target.removeTargets });
 		if (!applied.ok) {
 			let appliedRevision = applied && (applied.committedAssetRevision || applied.revision);
@@ -2114,6 +2241,12 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	}
 	let runtimeSpecPath = root + '/runtime-activation.tsv';
 	push(paths, runtimeSpecPath);
+	pending.runtimeActivationIntent = true;
+	pending.expectedRuntimeSnapshotId = candidate.snapshotId;
+	if (!z2k_pending_write(pending, 'RUNTIME_ACTIVATING')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, false);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Runtime activation intent could not be persisted; Registry/Detect state was rolled back.' : 'Runtime activation intent could not be persisted and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+	}
 	let runtime = z2k_runtime_activate(target, after, classification, root, diagnostics);
 	diagnostics.runtimePostflight = runtime.postflight || { verified: false, reason: runtime.error && runtime.error.code || 'runtime-activation-failed' };
 	if (!runtime.ok) {
@@ -2136,6 +2269,14 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	if (!activationProof.ok) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, applied, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K activation process verification failed and was rolled back.' : 'Z2K activation process verification failed and rollback could not be completed.', { activation: activationProof.error, rollback: rollback, diagnostics: diagnostics }));
+	}
+	// Source activation changes the catalog inputs. Journal both the source
+	// mutation and the exact prior catalog before publishing either one.
+	pending.catalogRestoreRequired = true;
+	pending.sourceMutationIntent = true;
+	if (!z2k_pending_write(pending, 'SOURCE_ACTIVATING')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Source/catalog rollback intent could not be persisted; all lifecycle owners were rolled back.' : 'Source/catalog rollback intent could not be persisted and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
 	}
 	// Native validation resolves the canonical installed composition. Publish the
 	// source only after the candidate/runtime proof is complete.
@@ -2162,9 +2303,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K strategy source activation failed and was rolled back.' : 'Z2K strategy source activation failed and rollback could not be completed.', { source: sourceInstalled, rollback: rollback, diagnostics: diagnostics }));
 	}
 	// Catalog publication follows source activation and is itself a lifecycle
-	// owner. Persist the restore obligation before publishing so a crash in the
-	// following window cannot leave a new catalog paired with restored sources.
-	pending.catalogRestoreRequired = true;
+	// owner. The restore obligation was persisted before source mutation above.
 	if (!z2k_pending_write(pending, 'SOURCE_ACTIVATED')) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, true);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K source activation evidence failed and all lifecycle owners were rolled back.' : 'Z2K source activation evidence failed and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
@@ -2222,7 +2361,10 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	return z2k_runtime_guard_finish(guard, root, paths, { ok: true, bundleId: selected.id, targetVersion: target.targetVersion, operation: target.operation, updated: diagnostics.applied, revision: finalized.installedAuthorityRevision, committedAssetRevision: committedAssetRevision, rollbackAvailable: true, diagnostics: diagnostics, planToken: null });
 	} catch (e) {
 		let failure = fail('EINTERNAL', 'Z2K lifecycle failed while the intentional runtime guard was active.', { detail: text(e), diagnostics: diagnostics });
-		if (object(detectPrepared) && registryCommitted !== true && z2k_active_detect_publication == null) {
+		if (object(pending) && pending.registryMutationIntent === true) {
+			let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision || pending.expectedRegistryRevision }, diagnostics, runtimeActivated || pending.runtimeActivationIntent === true);
+			failure = fail(rollback.ok ? 'EINTERNAL' : 'EROLLBACK', rollback.ok ? failure.error.message : 'Z2K lifecycle failed in an irreversible mutation window and rollback could not be completed.', { detail: failure.error.detail, rollback: rollback, diagnostics: diagnostics });
+		} else if (object(detectPrepared) && registryCommitted !== true && z2k_active_detect_publication == null) {
 			let detectDiscard = z2k_detect_restore(detectPrepared), pendingDiscard = z2k_pending_clear();
 			failure = fail(detectDiscard.ok && pendingDiscard ? 'EINTERNAL' : 'EROLLBACK', failure.error.message, { detail: failure.error.detail, detect: detectDiscard, pendingCleared: pendingDiscard, diagnostics: diagnostics });
 		}
@@ -2481,8 +2623,11 @@ export const resource_center_recover_pending = function() {
 	if (pending == null) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is unreadable; refusing to infer recovery from runtime files.');
 	if (!z2k_pending_identity_valid(pending)) return fail('ERECOVERY_REQUIRED', 'Durable Z2K activation evidence is incomplete; refusing recovery.');
 	if (pending.phase == 'PREPARED') {
-		let detect = z2k_pending_detect_restore(pending);
-		return detect.ok && z2k_pending_clear() ? { ok: true, recovered: true, state: 'prepared-cleared', detect: detect } : fail('ERECOVERY_REQUIRED', 'Prepared Z2K activation evidence could not be safely closed.', { detect: detect });
+		let legacyDetectOnly = pending.schema == 1 && pending.sourceRestoreRequired !== true && pending.priorRegistryRevision == null && pending.priorRuntimeComposition == null && pending.priorCatalog == null && pending.priorConfig == null;
+		if (!legacyDetectOnly && (pending.registryMutationIntent !== false || pending.runtimeActivationIntent !== false || pending.sourceMutationIntent !== false || pending.catalogRestoreRequired !== false)) return fail('ERECOVERY_REQUIRED', 'Ambiguous PREPARED Z2K activation evidence is retained; irreversible owner intent was not proven absent.', { phase: pending.phase, cleared: false, rollbackRequired: true });
+		let detect = z2k_pending_detect_restore(pending), prior = detect.ok ? z2k_pending_prior_state_matches(pending) : fail('ERECOVERY_REQUIRED', 'Prepared Detect restoration failed.');
+		if (legacyDetectOnly) prior = { ok: true, legacyDetectOnly: true };
+		return detect.ok && prior.ok && z2k_pending_clear() ? { ok: true, recovered: true, state: 'prepared-cleared', detect: detect, prior: prior } : fail('ERECOVERY_REQUIRED', 'Prepared Z2K activation evidence could not be safely closed.', { detect: detect, prior: prior, cleared: false });
 	}
 	if (pending.phase == 'ROLLED_BACK') {
 		let detect = z2k_pending_detect_restore(pending);
@@ -2492,9 +2637,10 @@ export const resource_center_recover_pending = function() {
 		let listedFinalized = asset_registry_list(null), matches = z2k_finalized_pending_matches(pending, listedFinalized), runtime = matches ? z2k_finalized_runtime_matches(pending, listedFinalized, null) : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence does not match the installed authority.'), detect = matches && runtime.ok ? (object(pending.detectPublication) ? z2k_detect_finalize(pending.detectPublication) : { ok: true, skipped: true }) : fail('ERECOVERY_REQUIRED', 'Finalized Z2K runtime evidence could not be verified.');
 		return matches && runtime.ok && detect.ok && z2k_pending_clear() ? { ok: true, recovered: true, state: 'finalized-cleared', runtime: runtime, detect: detect } : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence could not be safely closed.', { runtime: runtime, detect: detect });
 	}
-	if (pending.phase != 'COMMITTED' && pending.phase != 'MATERIALIZED' && pending.phase != 'PROCESS_VERIFIED' && pending.phase != 'ROLLING_BACK') return fail('ERECOVERY_REQUIRED', 'Unknown Z2K activation phase cannot be recovered safely.', { phase: pending.phase });
-	let runtimeActivated = pending.phase == 'MATERIALIZED' || pending.phase == 'PROCESS_VERIFIED' || pending.phase == 'ROLLING_BACK';
-	let rollback = z2k_rollback_after_runtime_failure({ id: 'z2k-curated-lua' }, { committedAssetRevision: pending.committedAssetRevision }, { recovery: true, phase: pending.phase }, runtimeActivated);
+	if (pending.phase != 'REGISTRY_COMMITTING' && pending.phase != 'COMMITTED' && pending.phase != 'RUNTIME_ACTIVATING' && pending.phase != 'MATERIALIZED' && pending.phase != 'PROCESS_VERIFIED' && pending.phase != 'SOURCE_ACTIVATING' && pending.phase != 'SOURCE_ACTIVATED' && pending.phase != 'ROLLING_BACK') return fail('ERECOVERY_REQUIRED', 'Unknown Z2K activation phase cannot be recovered safely.', { phase: pending.phase });
+	let runtimeActivated = pending.runtimeActivationIntent === true || pending.phase == 'RUNTIME_ACTIVATING' || pending.phase == 'MATERIALIZED' || pending.phase == 'PROCESS_VERIFIED' || pending.phase == 'SOURCE_ACTIVATING' || pending.phase == 'SOURCE_ACTIVATED' || pending.phase == 'ROLLING_BACK';
+	let appliedRevision = pending.committedAssetRevision == null ? pending.expectedRegistryRevision : pending.committedAssetRevision;
+	let rollback = z2k_rollback_after_runtime_failure({ id: 'z2k-curated-lua' }, { committedAssetRevision: appliedRevision }, { recovery: true, phase: pending.phase }, runtimeActivated);
 	if (!rollback.ok && rollback.runtime && rollback.runtime.restored === true && z2k_pending_legacy_reconciliation_eligible(pending, asset_registry_list(null))) {
 		let reconciled = z2k_reconcile_legacy_pending(pending);
 		if (reconciled && reconciled.ok === true) return { ok: true, recovered: true, state: 'reconciled-v2', reconciliation: reconciled, rollback: rollback };

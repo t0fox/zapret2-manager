@@ -466,6 +466,7 @@ export const runtime_strategy_preflight = function(input) {
 	let found = false;
 	for (let i = 0; array(ids) && i < length(ids); i++) if (ids[i] == (selected.canonicalStrategyId || selected.id)) found = true;
 	if (selected.sourceId == 'z2k' && !found) return fail('ECOMPATIBILITY', 'official Z2K strategy canonical ID is absent from the candidate catalog', { id: selected.canonicalStrategyId || selected.id });
+	if ((selected.sourceId == 'avatar' || selected.sourceId == 'user') && !found) return fail('ECOMPATIBILITY', 'selected Avatar/User strategy canonical ID is absent from the candidate catalog', { id: selected.canonicalStrategyId || selected.id });
 	if ((selected.sourceId == 'avatar' || selected.sourceId == 'user') && (!object(input.candidateRuntime) || input.candidateRuntime.closureReady !== true || input.candidateRuntime.nativeReady !== true))
 		return fail('ECOMPATIBILITY', 'selected Avatar/User strategy does not close over the candidate runtime');
 	return { ok: true, selectedId: selected.canonicalStrategyId || selected.id, sourceId: selected.sourceId || null };
