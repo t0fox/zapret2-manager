@@ -186,3 +186,66 @@ The combined `z2k-update-transaction.test.mjs` suite was not rerun in fix round 
 ### Scope rulings
 
 The pre-existing legacy scanner production imports remain deferred to planned Tasks 8/10/11/14. This round adds no scanner fallback, parallel RPC, second Detect updater, or second database. No unrelated failures were fixed or reclassified.
+
+## Fix round 4: common rollback failure preserves candidate Detect
+
+Status: IMPLEMENTED — bounded focused lifecycle evidence green; no router/browser acceptance.
+
+### RED
+
+The first bounded RED run after adding the rollback-failure and negative FINALIZED-recovery regressions was:
+
+```text
+wsl.exe -e sh -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 30s node --test tests/product/z2k-detect-artifact.test.mjs'
+```
+
+Exact result: `19` tests, `18` passed, `1` failed, `0` skipped, `0` todo. The injected runtime-failure case demonstrated the defect: Detect restore ran and changed the target to old bytes while common rollback was incomplete. The new negative FINALIZED receipt-mismatch recovery test passed and established the retained-marker baseline.
+
+After adding the explicit guard regression, the generated UCode fixture's inline-object syntax was corrected, then the required RED run was:
+
+```text
+20 tests, 19 passed, 1 failed, 0 skipped, 0 todo
+```
+
+The remaining failure was the expected missing `resource_center_test_guard_finish` seam, before adding the controlled seam around the real guard policy.
+
+### Implementation
+
+- `z2k_rollback_after_runtime_failure()` now treats journal/runtime/Registry/source compensation as the common rollback boundary. If any common owner fails, it returns `ERECOVERY_REQUIRED` with `detectHandled=true` and `detectPreserved=true`, does not call Detect restore, does not write `ROLLED_BACK`, and leaves the durable pending record in its existing recovery state (normally `ROLLING_BACK`).
+- Detect restoration runs only after common rollback succeeds. If Detect restoration or closing the rollback evidence fails, the coordinator also returns an explicit recovery-required result and marks the Detect decision as handled.
+- `z2k_runtime_guard_finish()` now honors the coordinator decision and does not restore Detect a second time when rollback is incomplete or already handled. A controlled internal guard seam exercises this exact behavior; production target and argv contracts remain unchanged.
+- Added executable failure injection for runtime, Registry, and source rollback failures, asserting candidate Detect bytes, backup, pending phase, and no cleanup/restore mutation. Added negative FINALIZED receipt-mismatch recovery coverage asserting the candidate target and durable marker remain intact.
+
+### GREEN and required gates
+
+Final bounded WSL command:
+
+```text
+wsl.exe -e sh -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 60s node --test tests/product/z2k-detect-artifact.test.mjs tests/product/z2k-update-transaction.test.mjs'
+```
+
+Exact result: `29` tests, `29` passed, `0` failed, `0` skipped, `0` todo (`20` Detect/Resource Center tests and `9` update-transaction tests).
+
+Additional bounded gates:
+
+- UCode imports: `detect-import-ok`, `resource-import-ok`.
+- `node --check tests/product/z2k-detect-artifact.test.mjs`: passed.
+- `node scripts/validate-knowledge.mjs`: `Knowledge validation passed.`
+- `node scripts/docs.mjs verify`: `Quartz SHA verified: ab346fa66a895e12d63a308e70ce330ba795822a`.
+- `git diff --check`: passed.
+
+### Scope rulings
+
+Pre-existing legacy scanner production imports remain deferred to planned Tasks 8/10/11/14. This round adds no scanner fallback, parallel RPC, second Detect updater, or second database. No router, browser, package-E2E, or deployment acceptance was run. No unrelated failures were fixed or reclassified.
+
+### Final guard-contract correction
+
+The production callers place rollback evidence under `error.rollback` because they use the existing `fail(..., extra)` helper. A final executable RED check changed the guard fixture to that real response shape and caught the missed lookup: `20` tests, `19` passed, `1` failed, `0` skipped, `0` todo; Detect was restored by the guard. The guard now reads both direct and `error.rollback` evidence and skips Detect restore when `detectHandled/recoveryRequired` is present.
+
+Final bounded focused WSL check after that correction:
+
+```text
+20 tests, 20 passed, 0 failed, 0 skipped, 0 todo
+```
+
+The earlier bounded combined check before this final nested-evidence correction was `29/29`; it was not rerun afterward to keep the final verification bounded. The final focused run directly covers the corrected guard path, runtime/Registry/source rollback injection, negative FINALIZED recovery, PREPARED recovery, publication/restore, identity, stage cleanup, and worker boundary. Worktree was left clean after commit.

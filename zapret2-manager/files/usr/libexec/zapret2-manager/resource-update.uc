@@ -771,26 +771,35 @@ function z2k_lifecycle_lock_release() {
 	}
 }
 function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
-function z2k_runtime_guard_finish(guard, root, paths, result) {
+function z2k_runtime_guard_finish(guard, root, paths, result, testSeams) {
+	let testing = object(testSeams) && testSeams.testOnly === true;
 	cleanup(root, paths);
-	let pause = z2k_runtime_guard_release(guard), lock = z2k_lifecycle_lock_release();
+	let pause = testing ? (type(testSeams.pauseRelease) == 'function' ? testSeams.pauseRelease() : { ok: true, skipped: true }) : z2k_runtime_guard_release(guard);
+	let lock = testing ? (type(testSeams.lockRelease) == 'function' ? testSeams.lockRelease() : { ok: true, skipped: true }) : z2k_lifecycle_lock_release();
 	let answer = object(result) ? result : fail('EINTERNAL', 'Z2K lifecycle returned an invalid result.');
 	if (!pause.ok || !lock.ok) {
 		if (answer.ok === true) answer = fail('ERUNTIME', 'Z2K lifecycle cleanup could not release an owned resource.', { result: answer });
 		answer.error = answer.error || { code: 'ERUNTIME', message: 'Z2K lifecycle cleanup failed.' };
 		answer.ok = false;
 	}
-	let detectPublication = z2k_active_detect_publication, detectTransaction = { ok: true, skipped: true };
+	let detectPublication = z2k_active_detect_publication, rollbackContract = object(answer.rollback) ? answer.rollback : (answer.error && object(answer.error.rollback) ? answer.error.rollback : null), detectTransaction = { ok: true, skipped: true };
 	if (object(detectPublication) && detectPublication.published === true) {
 		if (answer.ok === true) {
-			detectTransaction = z2k_detect_finalize(detectPublication);
+			detectTransaction = testing ? testSeams.detectFinalize(detectPublication) : z2k_detect_finalize(detectPublication);
 			if (!detectTransaction.ok) {
-				let restored = z2k_detect_restore(detectPublication);
+				let restored = testing ? testSeams.detectRestore(detectPublication) : z2k_detect_restore(detectPublication);
 				detectTransaction.restore = restored;
 				answer = fail(restored.ok ? 'EWRITE' : 'EROLLBACK', restored.ok ? 'Z2K Detect publication could not be finalized.' : 'Z2K Detect publication finalization failed and stable state could not be restored.', { detect: detectTransaction });
 			}
+		} else if (object(rollbackContract) && rollbackContract.detectHandled === true) {
+			detectTransaction = rollbackContract.detect || { ok: false, skipped: true, preserved: rollbackContract.detectPreserved === true, recoveryRequired: rollbackContract.recoveryRequired === true };
+			if (rollbackContract.recoveryRequired === true) {
+				answer.error = answer.error || { code: 'ERECOVERY_REQUIRED', message: 'Z2K lifecycle rollback is incomplete; durable recovery must reconcile all lifecycle owners before Detect changes.' };
+				answer.error.code = 'ERECOVERY_REQUIRED';
+				answer.error.recoveryRequired = true;
+			}
 		} else {
-			detectTransaction = z2k_detect_restore(detectPublication);
+			detectTransaction = testing ? testSeams.detectRestore(detectPublication) : z2k_detect_restore(detectPublication);
 			if (!detectTransaction.ok) {
 				answer.error = answer.error || { code: 'EROLLBACK', message: 'Z2K transaction failed and Detect stable state could not be restored.' };
 				answer.error.detect = detectTransaction;
@@ -1571,10 +1580,32 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 		catch (e) { sourceRollback = fail('EROLLBACK', 'Z2K strategy source activation rollback raised an exception.'); }
 	}
 	let detectPublication = pending && object(pending.detectPublication) ? pending.detectPublication : z2k_active_detect_publication;
+	let commonOk = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok;
+	if (!commonOk) return {
+		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback,
+		detect: { ok: false, skipped: true, preserved: true, recoveryRequired: true }, journal: journal,
+		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback is incomplete; candidate Detect and durable ROLLING_BACK evidence were preserved for recovery.' }
+	};
 	let detectRollback = object(detectPublication) ? (testing ? testSeams.detectRestore(detectPublication) : z2k_detect_restore(detectPublication)) : { ok: true, skipped: true };
-	let okResult = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && detectRollback.ok;
-	if (okResult && pending != null) okResult = (testing ? testSeams.pendingWrite(pending, 'ROLLED_BACK') : z2k_pending_write(pending, 'ROLLED_BACK')) && (testing ? testSeams.pendingClear() : z2k_pending_clear());
-	return { ok: okResult, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, detect: detectRollback, journal: journal };
+	if (!detectRollback.ok) return {
+		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback,
+		detect: detectRollback, journal: journal,
+		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback completed but Detect restoration is incomplete; durable recovery must reconcile the stable target.' }
+	};
+	let okResult = true, evidence = { ok: true, skipped: true };
+	if (pending != null) {
+		evidence = { ok: (testing ? testSeams.pendingWrite(pending, 'ROLLED_BACK') : z2k_pending_write(pending, 'ROLLED_BACK')), phase: 'ROLLED_BACK' };
+		okResult = evidence.ok && (testing ? testSeams.pendingClear() : z2k_pending_clear());
+	}
+	if (!okResult) return {
+		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: false,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback,
+		detect: detectRollback, journal: journal, evidence: evidence,
+		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K rollback completed but durable recovery evidence could not be closed.' }
+	};
+	return { ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, detect: detectRollback, journal: journal, evidence: evidence };
 }
 export const resource_center_test_rollback_transaction = function(input) {
 	if (!object(input) || input.testOnly !== true || !object(input.seams)) return fail('EINPUT', 'Internal rollback test seam is restricted to controlled tests.');
@@ -1584,6 +1615,15 @@ export const resource_center_test_rollback_transaction = function(input) {
 		|| type(seams.registryRollback) != 'function' || type(seams.sourceRestore) != 'function' || type(seams.detectRestore) != 'function') return fail('EINPUT', 'Internal rollback test seam is incomplete.');
 	seams.testOnly = true;
 	return z2k_rollback_after_runtime_failure(input.selected || { id: 'z2k-curated-lua' }, input.applied || {}, input.diagnostics || {}, input.runtimeActivated === true, seams);
+};
+export const resource_center_test_guard_finish = function(input) {
+	if (!object(input) || input.testOnly !== true || !object(input.publication) || !object(input.result) || !object(input.seams)
+		|| type(input.seams.detectRestore) != 'function' || type(input.seams.detectFinalize) != 'function') return fail('EINPUT', 'Internal guard test seam is incomplete.');
+	z2k_active_detect_publication = input.publication;
+	let seams = { testOnly: true, detectRestore: input.seams.detectRestore, detectFinalize: input.seams.detectFinalize };
+	let answer = z2k_runtime_guard_finish({ ok: true, owned: false }, null, [], input.result, seams);
+	z2k_active_detect_publication = null;
+	return answer;
 };
 function z2k_pending_identity_valid(pending) {
 	if (!object(pending) || !string(pending.candidateSnapshotId) || !string(pending.membershipDigest)
