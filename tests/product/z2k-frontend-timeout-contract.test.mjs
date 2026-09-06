@@ -26,7 +26,7 @@ function loadTimeoutInternals() {
     },
   };
   const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { boundedLoad, checkedResult, Z2K_MUTATION_TIMEOUT_MS };\n})()`, {
-    baseclass: { extend: value => value },
+      baseclass: { extend: value => value },
     _: value => value,
     window,
     Promise,
@@ -61,7 +61,8 @@ function loadApi(requests) {
   };
   return {
     api: vm.runInNewContext(`(function () {\n${apiSource}\n})()`, {
-      baseclass: { extend: value => value },
+    baseclass: { extend: value => value },
+      _: value => value,
       rpc,
       request,
       Promise,
@@ -140,6 +141,18 @@ test('Z2K prepare uses the explicit long-read transport timeout in the browser',
   assert.equal(requests[0].body[0].params[1], 'zapret2-manager');
   assert.equal(requests[0].body[0].params[2], 'z2k_prepare_version_start');
   assert.deepEqual(JSON.parse(JSON.stringify(requests[0].body[0].params[3])), { version: 'p-82.14' });
+});
+
+test('backend EINPUT keeps the exact lifecycle detail instead of provider-only UI text', () => {
+  const { api } = loadApi([]);
+  const normalized = api.normalizeError({
+    code: 'EINPUT',
+    message: 'Подготовленный target Z2K не совпадает с выбранной операцией.',
+  });
+
+  assert.equal(normalized.message, 'Подготовленный target Z2K не совпадает с выбранной операцией.');
+  assert.notEqual(normalized.message, 'Проверьте данные провайдера.');
+  assert.equal(normalized.technical, 'Подготовленный target Z2K не совпадает с выбранной операцией.');
 });
 
 test('strategy Preview uses a real transport timeout instead of rpc.declare options', async () => {

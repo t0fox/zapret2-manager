@@ -198,7 +198,7 @@ function normalizeError(error){
  else if (code === 'ECONFLICT') { kind='revision_conflict'; message=_('Каталог изменился. Обновите данные и повторите действие.'); retryable=true; }
  else if (code === 'EDEPENDENCY') { kind='dependency_blocked'; message=_('Действие остановлено: провайдер используется конфигурацией.'); retryable=false; }
  else if (code === 'EWRITE') { kind='backend_io'; message=_('Каталог не сохранён: backend не смог записать overlay.'); retryable=true; }
- else if (code === 'EINPUT') { kind='request_rejected'; message=_('Проверьте данные провайдера.'); retryable=false; }
+ else if (code === 'EINPUT') { kind='request_rejected'; message=raw || _('Запрос отклонён backend. Проверьте введённые данные.'); retryable=false; }
  else if (/not.?installed|component.?missing|package.?missing|enoent/.test(hay)) { kind='component_not_installed'; message=_('Компонент не установлен.'); retryable=false; }
  else if (/provider|backend provider/.test(hay) && /unavailable|missing|not found|object not found|disabled/.test(hay)) { kind='provider_unavailable'; message=_('Backend provider недоступен.'); retryable=true; }
  else if (/dependency|epref|eprobe|missing dependency|requires/.test(hay)) { kind='dependency_unavailable'; message=_('Зависимость недоступна.'); retryable=true; }
