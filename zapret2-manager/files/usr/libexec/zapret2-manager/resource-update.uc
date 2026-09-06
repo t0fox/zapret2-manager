@@ -34,6 +34,11 @@ const Z2K_OPERATION_WORKER = '/usr/libexec/zapret2-manager/resource-update-worke
 const Z2K_PENDING_ACTIVATION = '/etc/zapret2-manager/z2k-pending-activation.json';
 const Z2K_RUNTIME_READY_TIMEOUT_MS = 12000;
 const Z2K_RUNTIME_READY_POLL_MS = 1000;
+// rpcd/ubus has a materially smaller response budget than the full local
+// Resource Center diagnostic (the latter includes every dependency detail).
+// Keep the RPC projection bounded and fail explicitly if a future field grows
+// beyond this contract instead of allowing rpcd to truncate it into ECHILD.
+const Z2K_STATUS_RPC_MAX_BYTES = 64 * 1024;
 // Package-static Lua is a verified prefix supplied by the package composition
 // descriptor.  Keep lifecycle Lua in a disjoint order range so the resolver's
 // deterministic sort cannot interleave the two ownership domains.
@@ -1913,6 +1918,99 @@ export const resource_center_status = function () {
 		}
 	}
 	return answer;
+};
+function z2k_status_collection(value) {
+	if (array(value)) return value;
+	if (!object(value)) return value;
+	let out = {};
+	for (let key in value) out[key] = null;
+	return out;
+}
+function z2k_status_copy(value, names) {
+	let out = {};
+	if (!object(value)) return out;
+	for (let i = 0; i < length(names); i++) {
+		let key = names[i];
+		if (value[key] !== undefined) out[key] = value[key];
+	}
+	return out;
+}
+function z2k_status_closure(value) {
+	if (!object(value)) return value;
+	let out = z2k_status_copy(value, ['schema', 'available', 'resolution', 'missing', 'counts',
+		'runtimeBundleDigest', 'sourceCommit', 'compilerSnapshotDigest', 'nfqws2OptSha256',
+		'structurallyCompilable']);
+	if (value.missing !== undefined) out.missing = z2k_status_collection(value.missing);
+	return out;
+}
+function z2k_status_runtime(value) {
+	if (!object(value)) return value;
+	let out = z2k_status_copy(value, ['schema', 'installedRelease', 'availableRelease', 'health',
+		'updateState', 'attentionState', 'integrity', 'integrityOk', 'strategies', 'counts',
+		'staticManagedCount', 'runtimeBundleDigest', 'sourceCommit', 'blockingReviews',
+		'advisoryReviews', 'unknownUnconsumed', 'rebases', 'canApply']);
+	if (value.dependencyClosure !== undefined) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
+	let nested = ['engine', 'reconciliation', 'coherence', 'identity'];
+	for (let i = 0; i < length(nested); i++) {
+		let key = nested[i];
+		if (value[key] !== undefined) out[key] = value[key];
+	}
+	return out;
+}
+function z2k_status_local(value) {
+	if (!object(value)) return value;
+	let out = z2k_status_copy(value, ['installed', 'integrity', 'integrityOk', 'lua', 'baselineMatched',
+		'runtimeMatched', 'revision', 'installedAuthorityRevision', 'commit', 'provenance',
+		'checkedAt', 'installedRelease', 'runtimeBundleDigest', 'strategyCount']);
+	if (value.dependencyClosure !== undefined) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
+	if (value.runtimeSummary !== undefined) out.runtimeSummary = z2k_status_runtime(value.runtimeSummary);
+	return out;
+}
+function z2k_status_graph(value) {
+	if (!object(value)) return value;
+	let out = {};
+	for (let key in value) {
+		if (key == 'schema' || key == 'registryAvailable') out[key] = value[key];
+		else out[key] = z2k_status_collection(value[key]);
+	}
+	return out;
+}
+function z2k_status_projection(value) {
+	if (!object(value)) return value;
+	let out = z2k_status_copy(value, ['status', 'updateState', 'attentionState', 'canApply', 'updates',
+		'removedItems', 'rebases', 'reviews', 'advisoryReviews', 'blockingReviews', 'blockingReasons',
+		'reviewDetails', 'unknownUnconsumed', 'compilerInputs', 'runtimeBundleDigest', 'strategyCount',
+		'planToken', 'trustMode', 'verified', 'source', 'sourceCommit', 'manifestRevision',
+		'z2kCompatibilityIdentity', 'compatibilityIdentity', 'candidateStrategyRevision', 'manifest',
+		'availableRelease', 'health', 'integrity', 'integrityOk', 'installedRelease', 'staticManagedCount',
+		'checkedAt', 'preparedTarget', 'reconciliation', 'coherence', 'selectedVersion']);
+	if (value.dependencyGraph !== undefined) out.dependencyGraph = z2k_status_graph(value.dependencyGraph);
+	if (value.dependencyClosure !== undefined) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
+	if (value.local !== undefined) out.local = z2k_status_local(value.local);
+	if (value.runtimeSummary !== undefined) out.runtimeSummary = z2k_status_runtime(value.runtimeSummary);
+	return out;
+}
+export const resource_center_status_summary = function () {
+	let answer = resource_center_status();
+	if (!object(answer) || answer.ok !== true) return answer;
+	let out = {
+		ok: true,
+		schema: answer.schema,
+		checkedAt: answer.checkedAt === undefined ? null : answer.checkedAt,
+		manifest: answer.manifest,
+		sources: answer.sources,
+		installed: answer.installed,
+		updates: answer.updates,
+		summary: answer.summary,
+		autoCheck: answer.autoCheck,
+		z2k: z2k_status_projection(answer.z2k),
+		signedSources: answer.signedSources,
+		bounded: true
+	};
+	if (length(sprintf('%J', out)) > Z2K_STATUS_RPC_MAX_BYTES)
+		return fail('EBOUNDS', 'resource center status exceeds the bounded RPC response budget',
+			{ maxBytes: Z2K_STATUS_RPC_MAX_BYTES });
+	return out;
 };
 export const resource_center_check = function () {
 	let loaded = load_manifest(); if (!loaded.ok) return loaded;

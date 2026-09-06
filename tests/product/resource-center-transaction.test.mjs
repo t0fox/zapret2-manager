@@ -7,6 +7,7 @@ const registry = read('zapret2-manager/files/usr/libexec/zapret2-manager/asset-r
 const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const strategyUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-update.uc');
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
+const resourceCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc');
 const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
 const z2kComponentPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-component.uc';
 const z2kComponent = fs.existsSync(z2kComponentPath) ? read(z2kComponentPath) : '';
@@ -64,6 +65,17 @@ test('Resource Center RPCs and ACL expose read checks separately from update', (
     assert.match(rpc, new RegExp(method));
     assert.match(acl, new RegExp(method));
   }
+});
+
+test('REGRESSION: resources_status uses the bounded status projection at the RPC boundary', () => {
+  assert.match(rpc, /resources_status_method\(req\).*resource_cli_action\('status-summary'\)/s,
+    'resources_status must not send the unbounded lifecycle status through rpcd');
+  assert.match(resourceCli, /mode == 'status-summary'/,
+    'the resource CLI must expose the RPC-safe status mode');
+  assert.match(resourceCli, /resource_center_status_summary/,
+    'the CLI must project status through the coordinator-owned summary');
+  assert.match(coordinator, /resource_center_status_summary/,
+    'the bounded projection must remain owned by the Resource Center coordinator');
 });
 
 test('Package-owned resource content is read-only and hash-verified from the package baseline', () => {

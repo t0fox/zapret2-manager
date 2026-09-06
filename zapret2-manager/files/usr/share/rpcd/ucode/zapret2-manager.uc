@@ -299,7 +299,7 @@ function resource_cli_action(mode, argument, secondary) {
 	try { let result = json(out); return result != null ? result : { ok: false, error: { code: 'EINTERNAL', message: 'resource center returned no response' } }; }
 	catch (e) { return { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'resource center response was malformed' } }; }
 }
-function resources_status_method(req) { return resource_cli_action('status'); }
+function resources_status_method(req) { return resource_cli_action('status-summary'); }
 function resources_check_method(req) { return resource_cli_action('check'); }
 function resource_version_arg(req) {
 	let version = null;
