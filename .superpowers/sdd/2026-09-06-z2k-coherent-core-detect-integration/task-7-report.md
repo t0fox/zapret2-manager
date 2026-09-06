@@ -286,3 +286,101 @@ required `/opt/ucode/bin/ucode` binary is unavailable on the host. No
 router/browser/deployment/push/merge, live crash/reboot, live Detect process,
 or full baseline harness was run. Public Quartz artifact checks, router
 acceptance, and end-to-end prepare/apply remain unverified.
+
+## Fix-round 3 — provenance-bound strategy admission
+
+Fix-round 3 started from `fb85c35a` after independent re-review identified
+that the active strategy gate preserved only a flat canonical-ID list. The
+implementation and production-shaped regression tests are committed as
+`61fdc917` (`fix: bind strategy provenance in Task 7 preflight`). The sole
+Asset Registry, Detect authority, V3 receipt authority, transaction journal,
+and strategy-state authority remain unchanged; no second ownership mechanism
+was introduced.
+
+### Finding closed
+
+`runtime_strategy_preflight` now requires a canonical `entries` or
+`canonicalEntries` collection and binds the selected `id`/`canonicalStrategyId`
+to one entry whose derived `origin`, `owner`, and strategy class agree with
+the selected `sourceId`. It also validates the source-specific repository,
+provenance kind, canonical namespace, and source snapshot identity for Avatar
+and official Z2K. User entries retain their existing user semantics while
+requiring the user provenance kind. Flat `ids`/`canonicalIds` alone no longer
+authorize a selected strategy.
+
+`resource-update.uc` now projects only verified provenance-bearing catalog
+entries into the candidate catalog and retains their provenance identity. The
+transaction precommit seam uses that projection and the same runtime gate,
+so Avatar/User source swaps fail before Registry or runtime mutation.
+
+### Fix-round TDD
+
+The new bounded WSL/UCode focused run reproduced the defects before the
+production changes:
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  20 tests, 17 passed, 3 failed
+```
+
+The RED failures were the old flat-list acceptance (`ok:true`), the missing
+transaction provenance failure mode (`EINPUT`), and the expected mismatch
+between the newly entry-shaped candidate fixture and the old gate. After the
+implementation commit:
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  20 passed, 0 failed, 0 skipped
+```
+
+The passing behavioral cases cover both Avatar→User and User→Avatar
+provenance mismatches, flat-list-only attribution, and zero Registry/runtime
+mutation with active identity remaining `X`.
+
+### Bounded verification
+
+Under WSL Ubuntu UCode (`/opt/ucode/bin/ucode`, `/opt/ucode/lib`):
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  20 passed, 0 failed
+tests/product/z2k-update-transaction.test.mjs      9 passed, 0 failed
+tests/product/z2k-post-mutation-check-state.test.mjs  5 passed, 0 failed
+tests/product/z2k-lifecycle-transaction.test.mjs  14 passed, 0 failed
+tests/product/z2k-receipt-v3.test.mjs               9 passed, 0 failed
+tests/product/z2k-detect-artifact.test.mjs         20 passed, 0 failed
+tests/product/z2k-runtime-composition.test.mjs     26 passed, 1 failed, 1 TODO
+```
+
+The runtime-composition failure is the pre-existing unrelated static
+expectation for `target.runtimeBundleDigest = target.dependencyClosure`; its
+Task 4 TODO remains. A first Detect invocation exposed that this older test
+harness does not forward `UCODE_LIBRARY_PATH` into its direct child UCode
+calls; 13 loader-error failures (`libucode.so.0`) were corrected by rerunning
+with explicit `LD_LIBRARY_PATH=/opt/ucode/lib`, after which Detect was 20/20.
+
+Additional bounded checks passed:
+
+- direct UCode imports for `resource-update.uc`, `runtime-composition.uc`, and
+  `apply.uc`; `resource-update-worker.uc` remains an executable shebang
+  coordinator rather than an importable module;
+- `node --check tests/product/z2k-coherent-transaction.test.mjs`;
+- `git diff --check`;
+- `node scripts/validate-knowledge.mjs`;
+- `node scripts/docs.mjs verify`, Quartz SHA
+  `ab346fa66a895e12d63a308e70ce330ba795822a`.
+
+The Windows-host focused run is not behavioral evidence:
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  7 passed, 0 failed, 13 skipped
+```
+
+The 13 UCode cases were skipped because `/opt/ucode/bin/ucode` is unavailable
+on Windows. Knowledge tests remain a baseline boundary: `29 passed, 4 failed`
+because the checked-out `.artifacts/docs-public` Quartz build is absent; no
+public build was generated in this scoped fix.
+
+### Fix-round boundaries and concerns
+
+No router/browser/deployment/push/merge, live crash/reboot recovery, live
+Detect-process acceptance, or full baseline harness was run. Scanner work and
+unrelated baseline failures were preserved. Final router acceptance and
+end-to-end prepare/apply behavior remain unverified.
