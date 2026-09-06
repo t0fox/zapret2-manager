@@ -1835,7 +1835,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	let finalizedSource = null;
 	try { finalizedSource = z2k_source_refresh.strategy_source_z2k_finalize_core_snapshot({
 		snapshot: core.snapshot, dependencyInventory: z2k_target_dependency_inventory(committedCandidate)
-	}); } catch (e) { finalizedSource = null; }
+	}); } catch (e) { finalizedSource = fail('EINTERNAL', 'Z2K source snapshot native validation raised an exception.', { detail: text(e) }); }
 	if (!finalizedSource || finalizedSource.ok !== true || !object(finalizedSource.snapshot)
 		|| !z2k_compatibility_equal(finalizedSource.snapshot.z2kCompatibilityIdentity, target.z2kCompatibilityIdentity)
 		|| finalizedSource.snapshot.entryCount != target.strategyCount) {

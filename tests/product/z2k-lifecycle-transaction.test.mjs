@@ -97,6 +97,11 @@ test('rollback accounts for the Registry revision added by activation finalizati
   assert.match(coordinator, /listed\.revision != expected \+ 1/);
 });
 
+test('native finalization exceptions remain visible in the bounded RPC result', () => {
+  assert.match(coordinator, /catch \(e\) \{ finalizedSource = fail\('EINTERNAL'/);
+  assert.match(coordinator, /finalizedSource = fail\('EINTERNAL',[\s\S]*detail: text\(e\)/);
+});
+
 test('same-release V1 reconciliation uses FRESH resolution and the normal reinstall transaction', () => {
   assert.match(coordinator, /V1_VERIFIED_MEMBERSHIP|reconciliationRequired/);
   assert.match(coordinator, /z2k_resolve_version|z2k_upstream_check/);
