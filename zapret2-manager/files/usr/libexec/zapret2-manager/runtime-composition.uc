@@ -462,14 +462,16 @@ export const runtime_strategy_preflight = function(input) {
 	let selected = input.activeStrategy || null;
 	if (selected == null) return { ok: true, skipped: true, reason: 'no-active-strategy' };
 	if (!string(selected.id) || selected.selected !== true) return fail('ECOMPATIBILITY', 'active strategy selection is not preserved');
+	let sourceId = selected.sourceId;
+	if (sourceId != 'z2k' && sourceId != 'avatar' && sourceId != 'user')
+		return fail('ECOMPATIBILITY', 'active strategy source is unknown or missing; candidate validation cannot be proven', { sourceId: sourceId == null ? null : sourceId });
 	let catalog = input.candidateCatalog || {}, ids = catalog.ids || catalog.canonicalIds || [];
 	let found = false;
 	for (let i = 0; array(ids) && i < length(ids); i++) if (ids[i] == (selected.canonicalStrategyId || selected.id)) found = true;
-	if (selected.sourceId == 'z2k' && !found) return fail('ECOMPATIBILITY', 'official Z2K strategy canonical ID is absent from the candidate catalog', { id: selected.canonicalStrategyId || selected.id });
-	if ((selected.sourceId == 'avatar' || selected.sourceId == 'user') && !found) return fail('ECOMPATIBILITY', 'selected Avatar/User strategy canonical ID is absent from the candidate catalog', { id: selected.canonicalStrategyId || selected.id });
-	if ((selected.sourceId == 'avatar' || selected.sourceId == 'user') && (!object(input.candidateRuntime) || input.candidateRuntime.closureReady !== true || input.candidateRuntime.nativeReady !== true))
-		return fail('ECOMPATIBILITY', 'selected Avatar/User strategy does not close over the candidate runtime');
-	return { ok: true, selectedId: selected.canonicalStrategyId || selected.id, sourceId: selected.sourceId || null };
+	if (!found) return fail('ECOMPATIBILITY', 'active strategy canonical ID is absent from the candidate catalog', { sourceId: sourceId, id: selected.canonicalStrategyId || selected.id });
+	if (!object(input.candidateRuntime) || input.candidateRuntime.closureReady !== true || input.candidateRuntime.nativeReady !== true)
+		return fail('ECOMPATIBILITY', 'active strategy does not close over the candidate runtime or pass native preflight', { sourceId: sourceId, id: selected.canonicalStrategyId || selected.id });
+	return { ok: true, selectedId: selected.canonicalStrategyId || selected.id, sourceId: sourceId };
 };
 
 // Test-only production seam for the post-materialize failure boundary.  It
