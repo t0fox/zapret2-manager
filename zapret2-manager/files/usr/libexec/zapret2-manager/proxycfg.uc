@@ -26,6 +26,7 @@
 
 import { readfile, writefile, stat, popen, unlink, mkdir } from 'fs';
 import { append_ndjson, event_id } from './events.uc';
+import { proxy_upstream_log_evidence } from './proxy-upstream-evidence.uc';
 
 const CFG_SCHEMA = 1;
 
@@ -42,6 +43,7 @@ const EVENTS_NDJSON = '/tmp/zapret2-manager/events.ndjson';
 const PROC_NAME = 'tg-ws-proxy';
 const UPSTREAM_HOST = 'kws2.web.telegram.org';
 const UPSTREAM_PORT = 443;
+const UPSTREAM_LOG_MAX_AGE_SEC = 300;
 
 const MAX_CONFIG_BYTES = 16384;
 const MAX_NETSTAT_LINES = 512;
@@ -1524,12 +1526,28 @@ function route_local(config) {
 	return { attempted: true, ok: false, detail: 'connect refused/timeout (rc ' + r.rc + ')' };
 }
 
+function configured_cf_route(config) {
+	return config != null && (config.defaultDomains == true ||
+		(type(config.cfDomains) == 'array' && length(config.cfDomains) > 0) ||
+		(type(config.cfWorkerDomains) == 'array' && length(config.cfWorkerDomains) > 0));
+}
+
 function route_upstream(config) {
 	let active = run("netstat -tnp | awk '$6 == \"ESTABLISHED\" && $7 ~ /tg-ws-proxy/ && $5 ~ /:443$/ { print $5; exit }'");
 	let activeTarget = trim(active.out);
 	if (active.rc == 0 && activeTarget != '') return {
-		attempted: true, ok: true, target: activeTarget, detail: 'established upstream socket owned by tg-ws-proxy'
+		attempted: true, ok: true, method: 'socket', target: activeTarget, detail: 'established upstream socket owned by tg-ws-proxy'
 	};
+	// A direct DC probe is not representative when the configured provider
+	// route deliberately prioritizes the built-in Cloudflare fallback. Accept
+	// that route only after the provider itself logged a recent positive
+	// connection. Configuration alone never turns a failed route green.
+	if (configured_cf_route(config)) {
+		let log = run('tail -c ' + MAX_LOG_BYTES + ' ' + LOG_FILE);
+		let lines = split(log.out || '', '\n');
+		let evidence = proxy_upstream_log_evidence({ lines: lines, maxAgeSec: UPSTREAM_LOG_MAX_AGE_SEC });
+		if (evidence.ok == true) return evidence;
+	}
 	if (!have_nc()) return { attempted: false, ok: false, detail: 'nc unavailable', target: null };
 	// Probe by IP: busybox nc cannot resolve names reliably on every build,
 	// and the DC address is exactly what the provider itself uses as its
@@ -1542,8 +1560,8 @@ function route_upstream(config) {
 	}
 	let r = nc_probe(host, UPSTREAM_PORT, 3);
 	let target = host + ':' + UPSTREAM_PORT;
-	if (r.rc == 0) return { attempted: true, ok: true, detail: 'tcp connected', target: target };
-	return { attempted: true, ok: false, detail: 'tcp refused/timeout (rc ' + r.rc + ')', target: target };
+	if (r.rc == 0) return { attempted: true, ok: true, method: 'direct-tcp', detail: 'tcp connected', target: target };
+	return { attempted: true, ok: false, method: 'direct-tcp', detail: 'tcp refused/timeout (rc ' + r.rc + ')', target: target };
 }
 
 // ---- health -------------------------------------------------------------------
@@ -1779,9 +1797,13 @@ function assemble_health(ev, rt) {
 			},
 			upstream: {
 				attempted: upstream.attempted == true, ok: upstream.ok == true,
+				method: (upstream.method != null ? upstream.method : null),
 				target: (upstream.target != null ? upstream.target : null),
+				observedAt: (upstream.observedAt != null ? upstream.observedAt : null),
+				ageSec: (upstream.ageSec != null ? upstream.ageSec : null),
+				evidence: (upstream.evidence != null ? upstream.evidence : null),
 				detail: (upstream.detail != null ? upstream.detail : (upstream.attempted == true ? '' : 'not attempted')),
-				meaning: 'TCP 443 reachability of a Telegram edge — NOT an MTProto handshake; degraded/informational only, never gates health',
+				meaning: 'Provider route evidence or TCP 443 reachability — NOT an MTProto handshake; degraded/informational only, never gates health',
 				informational: true,
 				degraded: true
 			}
