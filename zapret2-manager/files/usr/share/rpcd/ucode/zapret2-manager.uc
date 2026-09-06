@@ -314,7 +314,8 @@ function resource_include_compare_arg(req) {
 }
 function z2k_versions_method(req) { let refresh = false; try { refresh = req && req.args && req.args.refresh === true; } catch (e) { } try { if (req && req.refresh === true) refresh = true; } catch (e) { } return resource_cli_action(refresh ? 'versions-refresh' : 'versions'); }
 function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version, resource_include_compare_arg(req) ? 'compare' : null); }
-function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare', version); }
+function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare-async', version); }
+function z2k_prepare_version_start_method(req) { return z2k_prepare_version_method(req); }
 function resource_operation_arg(req) {
 	let operationId = null;
 	try { if (req && req.args && req.args.operationId != null) operationId = req.args.operationId; } catch (e) { }
@@ -322,6 +323,7 @@ function resource_operation_arg(req) {
 	return type(operationId) == 'string' ? operationId : null;
 }
 function resources_update_status_method(req) { let operationId = resource_operation_arg(req); return operationId == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K lifecycle operation id is required' } } : resource_cli_action('update-status', operationId); }
+function z2k_prepare_version_status_method(req) { return resources_update_status_method(req); }
 function resource_edit_action(req) {
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
@@ -1295,6 +1297,8 @@ return {
 		z2k_versions: { call: function (req) { return z2k_versions_method(req); } },
 		z2k_version_details: { args: { version: 'string', includeCompare: 'string' }, call: function (req) { return z2k_version_details_method(req); } },
 		z2k_prepare_version: { args: { version: 'string' }, call: function (req) { return z2k_prepare_version_method(req); } },
+		z2k_prepare_version_start: { args: { version: 'string' }, call: function (req) { return z2k_prepare_version_start_method(req); } },
+		z2k_prepare_version_status: { args: { operationId: 'string' }, call: function (req) { return z2k_prepare_version_status_method(req); } },
 		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
 		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
 		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },

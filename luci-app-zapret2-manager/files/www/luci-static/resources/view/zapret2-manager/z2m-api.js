@@ -4,6 +4,7 @@
 'require baseclass';
 var Z2K_MUTATION_TIMEOUT_MS = 180000;
 var Z2K_READ_TIMEOUT_MS = 15000;
+var Z2K_PREPARE_POLL_MS = 1000;
 var z2kRpcRequestId = 100000;
 
 function z2kRpcError(code, message) {
@@ -52,8 +53,30 @@ function z2kReadRpc(method, params, timeoutMs) {
   }).then(z2kParseRpcResponse);
 }
 
+function z2kPrepareStatus(value) {
+  return z2kReadRpc('z2k_prepare_version_status', { operationId: value && value.operationId || value });
+}
+
+function z2kPrepareWait(operationId, elapsedMs) {
+  return z2kPrepareStatus(operationId).then(function (status) {
+    if (!status || status.ok === false) return status;
+    if (status.finished === true || status.phase === 'completed' || status.phase === 'failed') {
+      if (status.result != null) return status.result;
+      return { ok: false, error: status.error || { code: 'EINTERNAL', message: 'Z2K prepare operation finished without a result.' } };
+    }
+    if (elapsedMs >= 120000)
+      return { ok: false, error: { code: 'ETIMEDOUT', message: 'Z2K prepare operation exceeded its bounded wait.' } };
+    return new Promise(function (resolve) { setTimeout(resolve, Z2K_PREPARE_POLL_MS); })
+      .then(function () { return z2kPrepareWait(operationId, elapsedMs + Z2K_PREPARE_POLL_MS); });
+  });
+}
+
 function z2kPrepareVersion(value) {
-  return z2kReadRpc('z2k_prepare_version', { version: value && value.version || value }, 120000);
+  return z2kReadRpc('z2k_prepare_version_start', { version: value && value.version || value }).then(function (started) {
+    if (!started || started.ok === false || started.completed !== true && !started.operationId) return started;
+    if (started.completed === true) return started.result != null ? started.result : { ok: false, error: started.error || { code: 'EINTERNAL', message: 'Z2K prepare operation finished without a result.' } };
+    return z2kPrepareWait(started.operationId, 0);
+  });
 }
 
 function z2kRead(method) {
@@ -214,7 +237,7 @@ function tgCheckUpdates(selection) {
  domainHub:{get:calls.domainHubGet,preview:calls.domainHubPreview,apply:calls.domainHubApply},
   services:{catalogList:calls.catalogList,catalogStatus:calls.catalogStatus,catalogGet:calls.catalogGet,catalogPreview:calls.catalogPreview,catalogApply:calls.catalogApply},
    assets:{list:calls.assetsList,get:calls.assetsGet,content:calls.assetsContent,validate:calls.assetsValidate,validateContent:calls.assetsValidateContent,resolve:calls.assetsResolve,import:calls.assetsImport,importUrl:calls.assetsImportUrl,asn:calls.assetsAsn,update:calls.assetsUpdate,registerBuiltin:calls.assetsRegisterBuiltin,delete:calls.assetsDelete,references:calls.assetsReferences},
- resources:{status:calls.resourcesStatus,check:calls.resourcesCheck,update:calls.resourcesUpdate,updateStatus:function(value){return calls.resourcesUpdateStatus(value&&value.operationId||value);},versions:calls.z2kVersions,versionDetails:function(value){return value&&typeof value==='object'?calls.z2kVersionDetails(value.version,value.includeCompare):calls.z2kVersionDetails(value);},prepareVersion:z2kPrepareVersion},
+ resources:{status:calls.resourcesStatus,check:calls.resourcesCheck,update:calls.resourcesUpdate,updateStatus:function(value){return calls.resourcesUpdateStatus(value&&value.operationId||value);},versions:calls.z2kVersions,versionDetails:function(value){return value&&typeof value==='object'?calls.z2kVersionDetails(value.version,value.includeCompare):calls.z2kVersionDetails(value);},prepareVersion:z2kPrepareVersion,prepareStatus:z2kPrepareStatus},
  routing:{list:calls.routeList,get:function(value){return tgEdit(calls.routeGet,value);},create:function(value){return tgEdit(calls.routeCreate,value);},update:function(value){return tgEdit(calls.routeUpdate,value);},preview:function(value){return tgEdit(calls.routePreview,value);},validate:function(value){return tgEdit(calls.routeValidate,value);},apply:function(value){return tgEdit(calls.routeApply,value);},status:function(value){return tgEdit(calls.routeStatus,value);},remove:function(value){return tgEdit(calls.routeRemove,value);},reconcile:calls.routeReconcile},
   dns:{get:calls.dnsGet,set:calls.dnsSet,validate:calls.dnsValidate,apply:calls.dnsApply,check:calls.dnsCheck,rollback:calls.dnsRollback,restoreAuto:calls.dnsRestoreAuto,global:{get:calls.dnsGlobalGet,set:calls.dnsGlobalSet,apply:calls.dnsGlobalApply},product:{get:calls.dnsProductGet,providers:calls.dnsProductProviders,providerSave:calls.dnsProductProviderSave,providerReset:calls.dnsProductProviderReset,providerDelete:calls.dnsProductProviderDelete,status:calls.dnsProductStatus,preview:calls.dnsProductPreview,validate:calls.dnsProductValidate,apply:calls.dnsProductApply,rollback:calls.dnsProductRollback},components:calls.dnsprovComponents,providers:calls.dnsprovProviders,diagnose:calls.dnsprovDiagnose,selectProvider:calls.dnsSelectProvider,serviceProviders:calls.serviceDnsProviders,serviceStatus:calls.serviceDnsStatus,servicePreview:calls.serviceDnsPreview,serviceSet:calls.serviceDnsSet,serviceApply:calls.serviceDnsApply,serviceApplyAsync:calls.serviceDnsApplyAsync,serviceApplyStatus:calls.serviceDnsApplyStatus,serviceTiktokSet:calls.serviceDnsTiktokSet,serviceTiktokSetAsync:calls.serviceDnsTiktokSetAsync,serviceTiktokStatus:calls.serviceDnsTiktokStatus,serviceTiktokCheck:calls.serviceDnsTiktokCheck,serviceRollback:calls.serviceDnsRollback},
  proxy:{capabilities:calls.proxyCapabilities,status:calls.proxyStatus,configGet:calls.proxyConfigGet,configValidate:calls.proxyConfigValidate,configPreview:calls.proxyConfigPreview,configApply:calls.proxyConfigApply,start:calls.proxyStart,stop:calls.proxyStop,restart:calls.proxyRestart,autostartSet:calls.proxyAutostartSet,secretRotate:calls.proxySecretRotate,logsTail:calls.proxyLogsTail,health:calls.proxyHealth,linkInfo:calls.proxyLinkInfo,quickInstall:calls.proxyQuickInstall},

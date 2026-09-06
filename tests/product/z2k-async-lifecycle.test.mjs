@@ -32,6 +32,16 @@ test('Z2K resource update is queued outside the bounded rpcd request and exposes
   assert.ok(acl.read.ubus['zapret2-manager'].includes('resources_update_status'));
 });
 
+test('Z2K prepare is queued outside the 30-second rpcd request and exposes its result', () => {
+  assert.match(coordinator, /resource_center_enqueue_prepare/);
+  assert.match(worker, /job\.kind == 'prepare'/);
+  assert.match(worker, /resource_center_prepare_version\(job\.request\)/);
+  assert.match(rpc, /z2k_prepare_version_start/);
+  assert.match(rpc, /z2k_prepare_version_status/);
+  assert.ok(acl.write.ubus['zapret2-manager'].includes('z2k_prepare_version_start'));
+  assert.ok(acl.read.ubus['zapret2-manager'].includes('z2k_prepare_version_status'));
+});
+
 test('Components UI polls the backend-owned Z2K operation before reporting success', () => {
   assert.match(api, /resourcesUpdateStatus/);
   assert.match(api, /updateStatus:/);
@@ -39,4 +49,12 @@ test('Components UI polls the backend-owned Z2K operation before reporting succe
   assert.match(maintenance, /updateStatus/);
   assert.match(maintenance, /setTimeout/);
   assert.match(maintenance, /accepted/);
+});
+
+test('Components UI treats Z2K prepare as a bounded operation and waits for its result', () => {
+  assert.match(api, /z2k_prepare_version_start/);
+  assert.match(api, /z2k_prepare_version_status/);
+  assert.match(api, /prepareVersion:z2kPrepareVersion/);
+  assert.match(api, /prepareStatus/);
+  assert.match(maintenance, /Z2K_PREPARE_TIMEOUT_MS/);
 });

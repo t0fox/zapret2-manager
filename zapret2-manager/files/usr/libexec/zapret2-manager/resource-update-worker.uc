@@ -2,7 +2,7 @@
 'use strict';
 
 import { readfile, stat } from 'fs';
-import { resource_center_update, resource_center_operation_write } from './resource-update.uc';
+import { resource_center_update, resource_center_prepare_version, resource_center_operation_write } from './resource-update.uc';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function text(value) { return value == null ? '' : '' + value; }
@@ -22,7 +22,7 @@ job.updatedAt = time();
 if (!resource_center_operation_write(jobPath, job)) exit(1);
 
 let result;
-try { result = resource_center_update(job.request); }
+try { result = job.kind == 'prepare' ? resource_center_prepare_version(job.request) : resource_center_update(job.request); }
 catch (e) { result = fail('EINTERNAL', 'Z2K lifecycle worker failed unexpectedly: ' + text(e)); }
 
 job.result = result;

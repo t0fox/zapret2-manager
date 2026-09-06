@@ -2,7 +2,7 @@
 
 // Resource Center coordinator. It owns source/bundle policy and staging, while
 // Asset Registry remains the only writer of managed asset metadata and bytes.
-import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
+import { readfile, writefile, stat, unlink, mkdir, lsdir, popen } from 'fs';
 import { asset_registry_list, asset_registry_apply_bundle, asset_registry_finalize_activation, asset_registry_rollback_bundle } from './asset-registry.uc';
 import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
@@ -824,6 +824,47 @@ export const resource_center_enqueue_update = function(request) {
 		return spawned;
 	}
 	return { ok: true, accepted: true, operationId: operationId, state: 'queued', phase: 'queued', targetVersion: request.targetVersion };
+};
+function z2k_prepare_job_existing(version) {
+	let names = lsdir(Z2K_OPERATION_PARENT) || [];
+	for (let i = 0; i < length(names); i++) {
+		let name = names[i];
+		if (!string(name) || !match(name, /^z2k-[0-9]+-[a-f0-9]{16}$/)) continue;
+		let path = z2k_operation_path(name), raw = readfile(path), job = null;
+		try { if (raw != null && length(raw) <= MAX_REQUEST_BYTES) job = json(raw); } catch (e) { job = null; }
+		if (!object(job) || job.kind != 'prepare' || !object(job.request) || job.request.version != version) continue;
+		let answer = { ok: true, accepted: true, operationId: name, targetVersion: version, phase: job.phase || 'queued', state: job.phase || 'queued', finished: job.finished === true };
+		if (job.finished === true) {
+			answer.completed = true;
+			if (job.result != null) answer.result = job.result;
+			if (job.error != null) answer.error = job.error;
+		}
+		return answer;
+	}
+	return null;
+}
+export const resource_center_enqueue_prepare = function(request) {
+	let version = object(request) ? request.version : request;
+	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Z2K prepare version is invalid.');
+	let existing = z2k_prepare_job_existing(version);
+	if (existing != null) return existing;
+	let operationId = z2k_operation_id({ planToken: 'prepare|' + version + '|' + time() });
+	if (!operationId) return fail('EIO', 'Z2K prepare operation identity could not be created.');
+	try { mkdir(STAGE_PARENT); } catch (e) {}
+	try { mkdir(Z2K_OPERATION_PARENT); } catch (e) {}
+	let dir = Z2K_OPERATION_PARENT + '/' + operationId, jobPath = dir + '/job.json';
+	try { mkdir(dir); } catch (e) {}
+	if (stat(jobPath) != null) return fail('EBUSY', 'Z2K prepare operation identity is already in use.');
+	let now = time(), job = { schema: 1, kind: 'prepare', operationId: operationId, phase: 'queued', finished: false, request: { version: version }, createdAt: now, updatedAt: now, pid: null };
+	if (!z2k_operation_write(jobPath, job)) return fail('EWRITE', 'Z2K prepare operation could not be queued.');
+	let spawned = z2k_operation_spawn(jobPath);
+	if (!spawned.ok) {
+		job.phase = 'failed'; job.finished = true; job.error = spawned.error; job.updatedAt = time(); job.finishedAt = job.updatedAt;
+		z2k_operation_write(jobPath, job);
+		return spawned;
+	}
+	job.pid = spawned.pid; z2k_operation_write(jobPath, job);
+	return { ok: true, accepted: true, operationId: operationId, targetVersion: version, state: 'queued', phase: 'queued', finished: false };
 };
 export const resource_center_update_status = function(request) {
 	let operationId = object(request) ? request.operationId : request;

@@ -10,6 +10,7 @@ var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var LOAD_TIMEOUT_MS = 30000;
 var Z2K_COMPARE_LOAD_TIMEOUT_MS = 30000;
 var Z2K_MUTATION_TIMEOUT_MS = 180000;
+var Z2K_PREPARE_TIMEOUT_MS = 180000;
 var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
@@ -750,7 +751,7 @@ function updateZ2K(ctx, component) {
   }
   state.componentOperation = { kind: 'prepare', scope: 'z2k', targetVersion: targetRelease };
   rerender(ctx);
-  var prepare = ctx.api.resources.prepareVersion ? checkedResult(ctx.api.resources.prepareVersion({ version: targetRelease }), _('Подготовка Z2K'))
+  var prepare = ctx.api.resources.prepareVersion ? checkedResult(ctx.api.resources.prepareVersion({ version: targetRelease }), _('Подготовка Z2K'), Z2K_PREPARE_TIMEOUT_MS)
     : Promise.reject({ code: 'EINPUT', message: 'z2k_prepare_version unavailable' });
   prepare.then(function (prepared) {
     var preparedTarget = prepared && prepared.target;

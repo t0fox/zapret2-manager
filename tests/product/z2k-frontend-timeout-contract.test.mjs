@@ -134,11 +134,11 @@ test('Z2K prepare uses the explicit long-read transport timeout in the browser',
 
   assert.deepEqual(result, { ok: true, applied: 1 });
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].options.timeout, 120000);
+  assert.equal(requests[0].options.timeout, 15000);
   assert.equal(requests[0].options.nobatch, true);
   assert.equal(requests[0].body[0].params[0], 'session-id');
   assert.equal(requests[0].body[0].params[1], 'zapret2-manager');
-  assert.equal(requests[0].body[0].params[2], 'z2k_prepare_version');
+  assert.equal(requests[0].body[0].params[2], 'z2k_prepare_version_start');
   assert.deepEqual(JSON.parse(JSON.stringify(requests[0].body[0].params[3])), { version: 'p-82.14' });
 });
 
