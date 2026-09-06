@@ -195,3 +195,94 @@ No router/browser/deployment/push/merge, live crash/reboot, live Detect process,
 or full baseline harness was run. Public Quartz build output and its four
 artifact-dependent leak tests remain unverified. Final report evidence commit
 is the separate report commit following implementation `c4956c09`.
+
+## Fix-round 2 — re-review Important findings
+
+Fix-round 2 started from `39efac3b` with the existing implementation and
+fix-round 1 evidence preserved. The implementation/test commit is
+`686a9166` (`fix: bind Task 7 apply to active strategy state`).
+
+### Findings closed
+
+- `runtime_strategy_preflight` now rejects unknown, missing, and malformed
+  `sourceId` values with `ECOMPATIBILITY`. Official Z2K, Avatar, and User
+  selections must each be present in the candidate catalog and pass candidate
+  closure/native readiness evidence. The focused UCode cases cover both
+  rejection and valid paths.
+- The persisted Z2K plan token now includes a bounded digest of the prior
+  selected strategy identity, selection revision, compiled catalog identity and
+  source inputs, config SHA, and runtime-enable presence/value. Apply reads a
+  fresh fail-closed active snapshot and compares it to the prepared snapshot
+  before consuming the prepared target or performing mutation.
+- Pending activation carries the prior activation snapshot plus the
+  transaction-owned source snapshot and candidate catalog identity. A durable
+  `CATALOG_ACTIVATED` phase is written before receipt finalization, including
+  the crash window after catalog publication. Rollback uses an active-state
+  guard: it restores only prior or transaction-owned source/catalog state and
+  refuses to overwrite a newer user strategy/config/enabled state, preserving
+  `ERECOVERY_REQUIRED` evidence instead.
+
+### Fix-round TDD
+
+Before the production changes, the bounded WSL/UCode focused test reproduced
+the defects:
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  14 passed, 3 failed, 0 skipped
+```
+
+The three failures were the unknown/missing-source preflight bypass, the
+recognized-source closure bypass, and the absent prepare-state guard seam.
+The Windows host run remains a host-precondition check only because
+`/opt/ucode/bin/ucode` is unavailable there.
+
+After implementation, the focused GREEN run was:
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  18 passed, 0 failed, 0 skipped
+```
+
+It covers unknown, missing, and malformed source IDs; valid official/Avatar/
+User candidate paths; selection/catalog/config/enabled stale changes with zero
+mutation count; token rebinding; and rollback refusal when a newer user config
+is observed.
+
+### Bounded verification
+
+Under WSL UCode (`/opt/ucode/bin/ucode`, `/opt/ucode/lib`):
+
+```text
+tests/product/z2k-coherent-transaction.test.mjs  18 passed, 0 failed
+tests/product/z2k-update-transaction.test.mjs      9 passed, 0 failed
+tests/product/z2k-post-mutation-check-state.test.mjs  5 passed, 0 failed
+tests/product/z2k-lifecycle-transaction.test.mjs  14 passed, 0 failed
+tests/product/z2k-receipt-v3.test.mjs               9 passed, 0 failed
+tests/product/z2k-detect-artifact.test.mjs         20 passed, 0 failed
+tests/product/z2k-runtime-composition.test.mjs     26 passed, 1 failed, 1 TODO
+```
+
+The runtime-composition failure is the previously recorded unrelated static
+expectation for `target.runtimeBundleDigest = target.dependencyClosure`; the
+TODO remains the pre-existing Task 4 transaction slice. No unrelated Scanner
+work was changed.
+
+Additional checks passed:
+
+- `node --check tests/product/z2k-coherent-transaction.test.mjs`.
+- `git diff --check` before implementation commit.
+- UCode imports for `resource-update.uc`, `runtime-composition.uc`, and
+  `apply.uc`; the worker remains an executable shebang coordinator rather than
+  an importable module.
+- `node scripts/validate-knowledge.mjs`.
+- `node scripts/docs.mjs verify`, Quartz SHA
+  `ab346fa66a895e12d63a308e70ce330ba795822a`.
+- `node --test tests/knowledge/*.test.mjs`: 29 passed, 4 failed because the
+  checked-out `.artifacts/docs-public` build is absent; no public build was
+  generated in this scoped fix.
+
+The final Windows-host focused run is intentionally not behavioral evidence:
+`7 passed, 0 failed, 11 skipped`; the UCode cases are skipped because the
+required `/opt/ucode/bin/ucode` binary is unavailable on the host. No
+router/browser/deployment/push/merge, live crash/reboot, live Detect process,
+or full baseline harness was run. Public Quartz artifact checks, router
+acceptance, and end-to-end prepare/apply remain unverified.
