@@ -55,4 +55,4 @@ The required combined suite includes the Task 3 cases: mixed revisions, unavaila
 
 No router deployment, browser acceptance, Detect process/service acceptance, package E2E, or real `z2k-detect` command was run. Those remain unverified and belong to later integration/acceptance work. The local WSL ucode runtime was used only for host/native module and focused product tests.
 
-Commit hash: TBD before the final amend.
+Implementation commit hash: `9883e1ac`.
