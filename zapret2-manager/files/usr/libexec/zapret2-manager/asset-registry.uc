@@ -508,6 +508,12 @@ function lifecycle_physical_type(entry) {
 	if (substr(entry.id, 0, 5) == 'blob:') return 'blob';
 	return entry.kind;
 }
+function lifecycle_member_canonical(entry) {
+	if (!object(entry) || entry.type != 'lifecycle-managed' || entry.owner != 'z2k-core'
+		|| !string(entry.kind) || (entry.kind != 'lua' && entry.kind != 'blob' && entry.kind != 'hostlist' && entry.kind != 'ipset')) return false;
+	if (entry.kind == 'lua') return entry.role == 'lua-init' && type(entry.runtimeOrder) == 'int' && entry.runtimeOrder >= 0;
+	return entry.role == 'dependency' && entry.runtimeOrder == null;
+}
 function lifecycle_membership_matches(state, request) {
 	if (!object(request) || request.bundleId != 'z2k-curated-lua' || type(request.z2kMembership) != 'array' || !length(request.z2kMembership)) return fail('EINPUT', 'Z2K activation membership is required');
 	let current = [], byId = {}, seen = {};
@@ -518,7 +524,7 @@ function lifecycle_membership_matches(state, request) {
 	if (length(current) != length(request.z2kMembership)) return fail('ESTALE', 'committed Registry membership does not equal the candidate');
 	for (let i = 0; i < length(request.z2kMembership); i++) {
 		let expected = request.z2kMembership[i], actual = expected && byId[expected.id], provenance = actual && actual.provenance;
-		if (!object(expected) || seen[expected.id] || actual == null || expected.type != 'lifecycle-managed'
+		if (!object(expected) || seen[expected.id] || actual == null || !lifecycle_member_canonical(expected)
 			|| lifecycle_physical_type(expected) != actual.type || expected.contentSha256 != actual.contentSha256 || expected.byteSize != actual.byteSize
 			|| expected.sourcePath != provenance.sourcePath || expected.version != request.version
 			|| expected.sourceCommit != request.sourceCommit || provenance.version != request.version

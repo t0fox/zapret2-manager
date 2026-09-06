@@ -304,7 +304,7 @@ test('resource recovery restores a prepared Detect publication after new, old, o
   assert.equal(recoveredAbsent.target, null);
 });
 
-test('resource recovery closes a FINALIZED marker only when the Registry receipt and Detect bytes agree', { skip: !ucodeAvailable }, () => {
+test('resource recovery keeps a legacy FINALIZED marker pending without coherent runtime proof', { skip: !ucodeAvailable }, () => {
   const suffix = `${process.pid}-finalized`;
   const pendingPath = `/tmp/z2m-z2k-detect-recovery-test-${suffix}.json`;
   const registryPath = `/tmp/z2m-z2k-detect-recovery-test-${suffix}-registry.json`;
@@ -330,11 +330,11 @@ test('resource recovery closes a FINALIZED marker only when the Registry receipt
     let result = { recovered: recovered, target: readfile(target), backupPresent: stat(backup) != null, pendingPresent: stat(pendingPath) != null };
     try { unlink(stage); } catch (e) {} try { unlink(target); } catch (e) {} try { unlink(backup); } catch (e) {} try { unlink(registryPath); } catch (e) {} try { unlink(registryAssetPath); } catch (e) {}
   `, { Z2M_RESOURCE_UPDATE_PENDING_TEST_PATH: pendingPath, Z2M_ASSET_REGISTRY_STATE: registryPath });
-  assert.equal(result.recovered.ok, true, JSON.stringify(result));
-  assert.equal(result.recovered.state, 'finalized-cleared', JSON.stringify(result));
+  assert.equal(result.recovered.ok, false, JSON.stringify(result));
+  assert.equal(result.recovered.error.code, 'ERECOVERY_REQUIRED', JSON.stringify(result));
   assert.equal(result.target, newDetectBytes);
   assert.equal(result.backupPresent, false);
-  assert.equal(result.pendingPresent, false);
+  assert.equal(result.pendingPresent, true);
 });
 
 test('incomplete common rollback preserves candidate Detect and durable recovery state', { skip: !ucodeAvailable }, () => {
@@ -428,8 +428,8 @@ test('rollback coordinator restores Registry/runtime/source/Detect owners as one
   const result = invokeResource(`({ result: result, target: files[target], backup: files[backup], calls: calls, phase: pending.phase, cleared: cleared })`, `
     let candidate = ${JSON.stringify(candidate)}, target = '/tmp/z2m-z2k-detect-test-rollback-target', backup = '/tmp/z2m-z2k-detect-test-rollback-backup';
     let files = {}; files[target] = ${JSON.stringify(newDetectBytes)}; files[backup] = ${JSON.stringify(oldDetectBytes)};
-    let publication = { ok: true, prepared: true, published: true, target: target, backupPath: backup, prior: { exists: true, regular: true, sha256: ${JSON.stringify(oldDetectSha)}, byteSize: ${oldDetectBytes.length}, mode: 493 }, candidate: candidate }, calls = { load: false, journal: false, clear: false, runtime: false, registryList: false, registry: false, source: false, detect: false }, cleared = false;
-    let pending = { phase: 'COMMITTED', detectPublication: publication, sourceActivation: { currentSnapshotId: 'new', lastKnownGoodSnapshotId: 'old' }, sourceRestoreRequired: true };
+    let publication = { ok: true, prepared: true, published: true, target: target, backupPath: backup, prior: { exists: true, regular: true, sha256: ${JSON.stringify(oldDetectSha)}, byteSize: ${oldDetectBytes.length}, mode: 493 }, candidate: candidate }, calls = { load: false, journal: false, clear: false, runtime: false, registryList: false, registry: false, source: false, catalog: false, detect: false }, cleared = false;
+    let pending = { phase: 'COMMITTED', detectPublication: publication, sourceActivation: { currentSnapshotId: 'new', lastKnownGoodSnapshotId: 'old' }, sourceRestoreRequired: true, catalogRestoreRequired: true };
     let seams = {
       pendingLoad: function() { calls.load = true; return pending; },
       pendingWrite: function(value, phase) { calls.journal = true; value.phase = phase; return true; },
@@ -439,6 +439,7 @@ test('rollback coordinator restores Registry/runtime/source/Detect owners as one
       registryAlreadyRestored: function() { return false; },
       registryRollback: function() { calls.registry = true; return { ok: true, restored: true }; },
       sourceRestore: function() { calls.source = true; return { ok: true, restored: true }; },
+      catalogRestore: function() { calls.catalog = true; return { ok: true, rebuilt: true }; },
       detectRestore: function(value) { calls.detect = true; files[target] = files[backup]; files[backup] = null; return { ok: true, restored: true }; }
     };
     let result = resource.resource_center_test_rollback_transaction({ testOnly: true, selected: { id: 'z2k-curated-lua' }, applied: { committedAssetRevision: 2 }, diagnostics: {}, runtimeActivated: true, seams: seams });
@@ -451,6 +452,7 @@ test('rollback coordinator restores Registry/runtime/source/Detect owners as one
   assert.equal(result.calls.runtime, true);
   assert.equal(result.calls.registry, true);
   assert.equal(result.calls.source, true);
+  assert.equal(result.calls.catalog, true);
   assert.equal(result.calls.detect, true);
 });
 

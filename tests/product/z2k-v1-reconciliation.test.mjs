@@ -29,6 +29,18 @@ function invoke(expression) {
   return JSON.parse(result.stdout);
 }
 
+function invokeCoordinator(expression) {
+  const source = `import * as coordinator from ${JSON.stringify(coordinatorPath)}; print(sprintf('%J', ${expression}));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+    cwd: root,
+    env: { ...process.env, Z2M_UPDATE_SOURCE_TEST: '1', LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0,
+    `${result.stderr || result.stdout}\n${ucodeDiagnostic([UCODE_BIN, ...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], UCODE_MODULE_PATTERN)}`);
+  return JSON.parse(result.stdout);
+}
+
 const digest = value => value.repeat(64);
 const legacyEntry = (id, type, sha, byteSize, sourcePath) => ({ id, type, sha256: digest(sha), byteSize, sourcePath });
 const legacy = {
@@ -89,6 +101,20 @@ test('same-release FRESH reconciliation requires exact v1 version/sourceCommit a
   assert.match(coordinator, /RECONCILIATION_REQUIRED/);
   assert.match(coordinator, /membership|sourcePath|contentSha256|byteSize/);
   assert.doesNotMatch(coordinator, /current.*classification.*historical|historical.*current.*classification/i);
+});
+
+test('canonical LEGACY_VERIFIED state still requires the exact V1 reconciliation check', { skip: !HAS_UCODE }, () => {
+  const value = fixture([]);
+  const result = invokeCoordinator(`coordinator.resource_center_test_v1_reconciliation_check(${JSON.stringify({
+    testOnly: true,
+    listed: value.registry,
+    resolved: { version: legacy.version, commitSha: legacy.sourceCommit, assets: legacy.assets.map(entry => ({
+      id: entry.id, type: entry.type, sha256: entry.sha256, sourcePath: entry.sourcePath,
+    })) },
+  })})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.required, true, JSON.stringify(result));
+  assert.equal(result.operation, 'reinstall', JSON.stringify(result));
 });
 
 test('same-release V1 reconciliation takes byte size from the Registry-backed membership', () => {

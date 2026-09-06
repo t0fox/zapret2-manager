@@ -16,6 +16,13 @@ function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{
 function valid_integer(value) { return type(value) == 'int' && value >= 0; }
 function valid_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function valid_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
+function contains(values, wanted) { for (let i = 0; i < length(values || []); i++) if (values[i] == wanted) return true; return false; }
+function canonical_lifecycle_member(value) {
+	if (!object(value) || value.type != 'lifecycle-managed' || value.owner != 'z2k-core'
+		|| !string(value.kind) || !contains(['lua', 'blob', 'hostlist', 'ipset'], value.kind)) return false;
+	if (value.kind == 'lua') return value.role == 'lua-init' && valid_integer(value.runtimeOrder);
+	return value.role == 'dependency' && value.runtimeOrder == null;
+}
 function asset_by_id(assets, id) { for (let i = 0; i < length(assets || []); i++) if (assets[i] && assets[i].id == id) return assets[i]; return null; }
 function receipt_valid(receipt, listed) {
 	if (!object(receipt) || receipt.schema != 'asset-activation-receipt.v1' || receipt.bundleId != 'z2k-curated-lua' || !z2k_release_valid(receipt.version) || !valid_commit(receipt.sourceCommit) || type(receipt.assets) != 'array' || !length(receipt.assets)) return false;
@@ -23,7 +30,7 @@ function receipt_valid(receipt, listed) {
 	let mode = null;
 	for (let i = 0; i < length(receipt.assets); i++) {
 		let expected = receipt.assets[i], fields = object(expected) ? { sourceCommit: expected.sourceCommit != null, sourcePath: expected.sourcePath != null, bundleId: expected.bundleId != null, version: expected.version != null } : null;
-		let currentMode = fields == null ? null : (fields.sourceCommit || fields.sourcePath || fields.bundleId || fields.version ? (fields.sourceCommit && fields.sourcePath && fields.bundleId && fields.version ? 'new' : null) : 'legacy');
+		let currentMode = fields == null ? null : (fields.sourceCommit || fields.bundleId || fields.version ? (fields.sourceCommit && fields.sourcePath && fields.bundleId && fields.version ? 'new' : null) : (fields.sourcePath ? 'path' : 'legacy'));
 		if (currentMode == null || (mode != null && mode != currentMode)) return false;
 		mode = currentMode;
 		let current = object(expected) ? asset_by_id(listed.assets, expected.id) : null, provenance = current && current.provenance;
@@ -31,7 +38,8 @@ function receipt_valid(receipt, listed) {
 			|| expected.type != current.type || expected.sha256 != current.contentSha256 || expected.byteSize != current.byteSize
 			|| provenance.kind != 'catalog/upstream' || !string(provenance.sourcePath) || !length(provenance.sourcePath)
 			|| provenance.bundleId != receipt.bundleId || provenance.version != receipt.version || provenance.sourceCommit != receipt.sourceCommit) return false;
-		if (mode == 'new' && (expected.sourceCommit != receipt.sourceCommit || expected.bundleId != receipt.bundleId || expected.version != receipt.version
+		if ((mode == 'new' || mode == 'path') && (mode == 'new' && (expected.sourceCommit != receipt.sourceCommit || expected.bundleId != receipt.bundleId || expected.version != receipt.version)
+			|| mode == 'path' && expected.sourcePath != provenance.sourcePath
 			|| !string(expected.sourcePath) || !length(expected.sourcePath) || expected.sourcePath != provenance.sourcePath)) return false;
 		seen[expected.id] = true;
 	}
@@ -105,6 +113,7 @@ function v3_membership_valid(receipt, listed) {
 	for (let i = 0; i < length(expectedMembers); i++) {
 		let expected = expectedMembers[i], actual = expected && byId[expected.id], provenance = actual && actual.provenance;
 		if (!object(expected) || !string(expected.id) || seen[expected.id] || actual == null || expected.type != 'lifecycle-managed'
+			|| !canonical_lifecycle_member(expected)
 			|| physical_registry_type(expected) != actual.type || !valid_sha(expected.contentSha256) || expected.contentSha256 != actual.contentSha256
 			|| expected.byteSize != actual.byteSize || !valid_source_path(expected.sourcePath) || !valid_runtime_target(expected.runtimeTarget)
 			|| expected.version != receipt.release || expected.sourceCommit != receipt.sourceCommit

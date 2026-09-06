@@ -49,6 +49,8 @@ function normalized_entry(raw, expectedType) {
 	if (entry.type == 'package-static' && entry.owner != 'package') return fail('EOWNERSHIP', 'package-static entry has a non-package owner', { id: raw.id });
 	if (entry.type == 'lifecycle-managed' && entry.owner != 'z2k-core') return fail('EOWNERSHIP', 'lifecycle-managed entry has a non-Z2K owner', { id: raw.id });
 	if (entry.type == 'scanner-overlay' && entry.owner != 'scanner') return fail('EOWNERSHIP', 'scanner overlay has a non-scanner owner', { id: raw.id });
+	if (entry.type == 'lifecycle-managed' && ((entry.kind == 'lua' && entry.role != 'lua-init')
+		|| (entry.kind != 'lua' && entry.role != 'dependency'))) return fail('EINPUT', 'lifecycle entry role is not canonical for its kind', { id: raw.id });
 	if (entry.type == 'lifecycle-managed' && (!z2k_release_valid(entry.version) || !valid_commit(entry.sourceCommit)
 		|| !valid_digest(entry.manifestSha256) || !valid_digest(entry.classificationSha256))) return fail('EINPUT', 'lifecycle entry identity is incomplete', { id: raw.id });
 	if (entry.z2kCompatibilityIdentity != null &&
