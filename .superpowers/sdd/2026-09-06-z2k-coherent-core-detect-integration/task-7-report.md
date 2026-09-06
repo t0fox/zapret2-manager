@@ -90,7 +90,7 @@ Additional gates passed:
 ## Commits
 
 - `46d29b00` — `feat: activate Z2K as one coherent transaction`
-- report evidence commit: will be recorded by the commit that adds this file
+- report evidence commit: `524ddca6` — `docs: record Task 7 transaction evidence`
 
 ## Unverified boundaries and concerns
 
