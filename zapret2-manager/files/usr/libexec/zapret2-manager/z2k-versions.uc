@@ -73,12 +73,18 @@ function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{
 function release_compare(a, b) {
 	let left = z2k_release_parse(a.version || a), right = z2k_release_parse(b.version || b);
 	if (left == null || right == null) return null;
+	if (left.family != right.family) {
+		let leftPublished = text(a.publishedAt || a.commitPublishedAt || a.commitDate);
+		let rightPublished = text(b.publishedAt || b.commitPublishedAt || b.commitDate);
+		if (length(leftPublished) && length(rightPublished) && leftPublished != rightPublished)
+			return leftPublished > rightPublished ? -1 : 1;
+		let leftCommit = a.commitSha || a.resolvedCommitSha, rightCommit = b.commitSha || b.resolvedCommitSha;
+		if (valid_sha(leftCommit) && valid_sha(rightCommit) && leftCommit != rightCommit)
+			return text(leftCommit) < text(rightCommit) ? -1 : 1;
+		return 0;
+	}
 	if (left.major != right.major) return right.major - left.major;
 	if (left.minor != right.minor) return right.minor - left.minor;
-	// A p-line is a later upstream lineage than an r-line at the same numeric
-	// release. This is only a deterministic tie-break; numeric release fields
-	// remain authoritative when they differ.
-	if (left.family != right.family) return left.family == 'p' ? -1 : 1;
 	return text(left.version) == text(right.version) ? 0 : (text(left.version) < text(right.version) ? -1 : 1);
 }
 function tag_name(ref) { if (!object(ref) || !string(ref.ref)) return null; let prefix = 'refs/tags/'; if (substr(ref.ref, 0, length(prefix)) != prefix) return null; let value = substr(ref.ref, length(prefix)); return z2k_release_valid(value) ? value : null; }
@@ -119,6 +125,16 @@ function validate_manifest(value, rawSize, requested) {
 	let names = keys(value.files_sha256); if (!length(names) || length(names) > MAX_TAGS) return fail('EZ2K_MANIFEST_SCHEMA', 'UPDATES.json file count is invalid.');
 	for (let i = 0; i < length(names); i++) { let path = names[i], digest = value.files_sha256[path]; if (!safe_path(path) || !valid_digest(digest)) return fail('EVERIFY', 'UPDATES.json contains an unsafe path or invalid SHA-256.', { path: path }); value.files_sha256[path] = lc(digest); }
 	return { ok: true, manifest: value };
+}
+function fetch_catalog_manifest(mode) {
+	let request = source_request('z2k:' + REPOSITORY + ':manifest-current', 'raw-content', RAW_ROOT + '/' + BRANCH + '/UPDATES.json', MAX_MANIFEST, function(value) {
+		return validate_manifest(value, length(sprintf('%J', value)), null);
+	});
+	let result = source_call(request, mode || 'browse'); record_source(result, 'raw-content');
+	let manifest = source_payload(result);
+	if (result.ok !== true || manifest == null) return { current: null, stale: result.stale === true, source: result };
+	let checked = validate_manifest(manifest, length(sprintf('%J', manifest)), null);
+	return checked.ok === true ? { current: checked.manifest.current, stale: result.stale === true, source: result } : { current: null, stale: result.stale === true, source: result };
 }
 function utf8_codepoints(value) { let count = 0; for (let i = 0; i < length(value); i++) { let byte = ord(substr(value, i, 1)); if (byte < 128 || byte > 191) count++; } return count; }
 function bounded_text(value, limit) {
@@ -380,8 +396,9 @@ function fetch_refs(mode) {
 	let result = source_call(request, mode || 'browse'); record_source(result, 'github-rest');
 	let refs = source_payload(result); if (!catalog_payload(refs)) return source_error(result, 'Не удалось получить каталог Z2K releases.', 'catalog');
 	let seen = {}, candidates = [];
-	for (let i = 0; i < length(refs); i++) { let version = tag_name(refs[i]); if (version == null || seen[version]) continue; let sha = refs[i].object && refs[i].object.sha, objectType = refs[i].object && refs[i].object.type; if (!valid_sha(sha) || (objectType != 'commit' && objectType != 'tag')) continue; seen[version] = true; push(candidates, { version: version, tagSha: lc(sha), objectType: objectType }); }
-	sort(candidates, function(a, b) { return release_compare(a, b); }); return { ok: true, refs: candidates, stale: result.ok !== true || result.stale === true, source: result };
+	for (let i = 0; i < length(refs); i++) { let version = tag_name(refs[i]); if (version == null || seen[version]) continue; let sha = refs[i].object && refs[i].object.sha, objectType = refs[i].object && refs[i].object.type; if (!valid_sha(sha) || (objectType != 'commit' && objectType != 'tag')) continue; seen[version] = true; push(candidates, { version: version, tagSha: lc(sha), commitSha: objectType == 'commit' ? lc(sha) : null, objectType: objectType, publishedAt: refs[i].publishedAt || refs[i].published_at || null }); }
+	let manifest = fetch_catalog_manifest(mode);
+	sort(candidates, function(a, b) { return release_compare(a, b); }); return { ok: true, refs: candidates, manifestCurrent: manifest.current, stale: result.ok !== true || result.stale === true || manifest.stale === true, source: result, manifestSource: manifest.source };
 }
 function catalog_row(candidate, installed) {
 	let identity = z2k_release_parse(candidate.version);
@@ -421,7 +438,7 @@ export const z2k_versions = function(options) {
 		}
 	}
 	let latestVersion = null;
-	for (let i = 0; i < length(refs.refs); i++) if (latestVersion == null || release_compare(refs.refs[i], { version: latestVersion }) < 0) latestVersion = refs.refs[i].version;
+	if (z2k_release_valid(refs.manifestCurrent)) latestVersion = refs.manifestCurrent;
 	for (let i = 0; i < length(rows); i++) if (rows[i].version == latestVersion) rows[i].latest = true;
 	if (fresh && refs.stale) return fail('ESTALE', 'Каталог release устарел; повторите подготовку после свежей проверки.', { diagnostics: network_diagnostics('catalog') });
 	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed,
@@ -673,4 +690,5 @@ export const z2k_compare_versions = function(left, right) {
 	if (a.minor != b.minor) return a.minor < b.minor ? -1 : 1;
 	return 0;
 };
+export const z2k_compare_release_records = function(left, right) { return release_compare(left, right); };
 export const z2k_installed_release = function() { return installed_release(); };

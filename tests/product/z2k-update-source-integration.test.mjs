@@ -68,7 +68,7 @@ test('Z2K catalog browse is cold-once, warm-zero, and stale LKG remains displaya
 	const s = sandbox();
 	const cold = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog', Z2M_UPDATE_SOURCE_NOW: '1000' });
 	assert.equal(cold.ok, true, JSON.stringify(cold));
-	assert.equal(cold.diagnostics.requestCount, 1, JSON.stringify(cold));
+	assert.equal(cold.diagnostics.requestCount, 2, JSON.stringify(cold));
 	assert.equal(cold.diagnostics.restRequestCount, 1, JSON.stringify(cold));
 	assert.equal(cold.versions[0].version, 'r-80.3');
 
@@ -82,7 +82,7 @@ test('Z2K catalog browse is cold-once, warm-zero, and stale LKG remains displaya
 	assert.equal(stale.stale, true, JSON.stringify(stale));
 	assert.equal(stale.diagnostics.requestCount, 0, JSON.stringify(stale));
 	assert.deepEqual(stale.versions.map(row => row.version), ['r-80.3', 'r-79.7']);
-	assert.equal(requestUrls(s).length, 1);
+	assert.equal(requestUrls(s).length, 2);
 });
 
 test('Z2K explicit catalog refresh makes one controlled request and keeps an LKG on failure', { skip: !hasUcode }, () => {
@@ -91,8 +91,8 @@ test('Z2K explicit catalog refresh makes one controlled request and keeps an LKG
 	const refreshed = invoke(s, 'mod.z2k_versions({ refresh: true })', { Z2M_FIXTURE_MODE: 'error', Z2M_UPDATE_SOURCE_NOW: '2000' });
 	assert.equal(refreshed.ok, true, JSON.stringify(refreshed));
 	assert.equal(refreshed.stale, true, JSON.stringify(refreshed));
-	assert.equal(refreshed.diagnostics.requestCount, 1, JSON.stringify(refreshed));
-	assert.equal(requestUrls(s).length, 2);
+	assert.equal(refreshed.diagnostics.requestCount, 2, JSON.stringify(refreshed));
+	assert.equal(requestUrls(s).length, 4);
 });
 
 test('Z2K catalog without an LKG exposes remote unavailability without hiding local-release fields', { skip: !hasUcode }, () => {
@@ -183,7 +183,7 @@ test('Z2K version details cold presentation uses shared browse metadata and warm
 	assert.equal(cold.ok, true, JSON.stringify(cold));
 	assert.equal(cold.installable, true, JSON.stringify(cold));
 	assert.equal(cold.diagnostics.requestCount, 5, JSON.stringify(cold));
-	assert.equal(cold.diagnostics.restRequestCount, 3, JSON.stringify(cold));
+	assert.equal(cold.diagnostics.restRequestCount, 2, JSON.stringify(cold));
 	assert.equal(cold.compareDiagnostics.requestCount, 1, JSON.stringify(cold));
 	assert.equal(cold.deviceChanges.modifiedItems.length, 1, JSON.stringify(cold));
 	assert.equal(cold.deviceChanges.modifiedItems[0].summarySource, 'repository-compare', JSON.stringify(cold));
