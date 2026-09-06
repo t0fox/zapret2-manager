@@ -251,5 +251,5 @@ process acceptance, or router crash/reboot test was run. The host-skipped Detect
 behavioral cases, the unrelated runtime-composition static mismatch, and the
 existing TODOs remain explicit verification boundaries.
 
-Report evidence commit: the documentation commit immediately following
-`5878dcfb`; the final handoff records its exact HEAD hash.
+Report evidence commits: the documentation commits following `5878dcfb`; the
+final handoff records their exact hashes.
