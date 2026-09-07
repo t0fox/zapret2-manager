@@ -122,7 +122,12 @@
           "scanner_status",
           "scanner_results",
           "scanner_history_list",
-          "scanner_history_get"
+          "scanner_history_get",
+          "z2k_detect_probe",
+          "z2k_detect_classify",
+          "z2k_detect_quic",
+          "z2k_detect_voice",
+          "z2k_detect_tcp16"
         ],
         "zapret2-manager-orchestra": [
           "orchestra_catalog",

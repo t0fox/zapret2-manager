@@ -57,6 +57,9 @@ test('exports typed operations and sends exact closed helper requests', async ()
     [`native.atomic_write_json_revision('runtime', 'scanner/scan.record.json', { revision: 2 }, false, 1)`, 'atomic_write_json_revision',
       { root: 'runtime', path: 'scanner/scan.record.json', value: { revision: 2 }, mode: '0600', uid: 0, gid: 0, allowCreate: false, expectedRevision: 1 }, 30000,
       { byteLength: 15, committed: true, durability: 'tmpfs_visible' }],
+    [`native.z2k_detect('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`, 'z2k_detect_probe',
+      { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 2000,
+      { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '1s', '-json'], exitCode: 0, stdout: '{}', stderr: '', timedOut: false, outputTruncated: false }],
   ];
   const ids = new Set();
   for (const [expression, operation, args, timeoutMs, data] of cases) {
@@ -75,7 +78,7 @@ test('exports typed operations and sends exact closed helper requests', async ()
     ids.add(request.header.requestId);
   }
   assert.deepEqual(await invoke(`sort(keys(native))`),
-    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular']);
+    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular', 'z2k_detect']);
 });
 
 test('rejects invalid typed arguments before opening the fixed socket', async () => {
@@ -316,6 +319,13 @@ test('validates exact operation success schemas and rejects wrong fields types a
       [{ sha256: 'A'.repeat(64), byteLength: 0 }, { sha256: '0'.repeat(64), byteLength: -1 }]],
     [`native.atomic_write('runtime', 'x', 'YQ==', true)`, { byteLength: 1, committed: true, durability: 'tmpfs_visible' },
       [{ byteLength: -1, committed: true, durability: 'tmpfs_visible' }, { byteLength: 1, committed: true, durability: 'unknown' }]],
+    [`native.z2k_detect('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`,
+      { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '1s', '-json'], exitCode: 137, stdout: 'x', stderr: '', timedOut: false, outputTruncated: true },
+      [{ argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443'], exitCode: 137, stdout: 'x', stderr: '', timedOut: false, outputTruncated: true },
+       { argv: ['/bin/sh', 'probe'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
+       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '33', '-timeout', '1s', '-json'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
+       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '121s', '-json'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
+       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '1s', '-json'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: 'true' }]],
   ];
   for (const [expression, valid, invalid] of cases) {
     const accepted = await roundTrip(expression, ({ header }) =>

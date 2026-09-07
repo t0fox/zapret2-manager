@@ -70,15 +70,39 @@ static bool host_value(const char *value)
 #define Z2K_DETECT_OUTPUT_LIMIT 65536U
 #define Z2K_DETECT_MAX_REPEATS 32
 
+static bool detect_dns_value(const char *value)
+{
+	size_t length = strlen(value), start = 0;
+	bool dotted_numeric = false, has_dot = false;
+	if (length < 1 || length > 253) return false;
+	for (size_t i = 0; i <= length; i++) {
+		unsigned char c = (unsigned char)value[i];
+		if (i == length || c == '.') {
+			size_t label_length = i - start;
+			if (label_length < 1 || label_length > 63 || value[start] == '-' || value[i - 1] == '-') return false;
+			if (i < length) has_dot = true;
+			start = i + 1;
+			continue;
+		}
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-')) return false;
+	}
+	if (has_dot) {
+		dotted_numeric = true;
+		for (size_t i = 0; i < length; i++)
+			if (value[i] != '.' && (value[i] < '0' || value[i] > '9')) { dotted_numeric = false; break; }
+	}
+	return !dotted_numeric;
+}
+
 static bool detect_host_value(const char *value)
 {
-	if (value == NULL || strlen(value) < 1 || strlen(value) > 253 || strchr(value, '\0') != value + strlen(value)) return false;
-	for (size_t i = 0; value[i]; i++) {
-		unsigned char c = (unsigned char)value[i];
-		if (c == '\n' || c == '\r' || c == '\t' || c == ' ' || c == '/' || c == '\\' || c == ';' || c == '|') return false;
-		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == ':')) return false;
-	}
-	return value[0] != '-' && value[strlen(value) - 1] != '-';
+	struct in_addr ipv4;
+	struct in6_addr ipv6;
+	if (value == NULL) return false;
+	if (inet_pton(AF_INET, value, &ipv4) == 1) return true;
+	if (strchr(value, ':') != NULL) return inet_pton(AF_INET6, value, &ipv6) == 1;
+	return detect_dns_value(value);
 }
 
 static int64_t now_ms(void);
@@ -98,34 +122,42 @@ static bool detect_int(json_object *args, const char *name, int64_t minimum, int
 }
 
 static int detect_run(char *const argv[], unsigned int timeout_ms, unsigned char **stdout_data, size_t *stdout_length,
-	unsigned char **stderr_data, size_t *stderr_length, int *exit_code, bool *timed_out)
+	unsigned char **stderr_data, size_t *stderr_length, int *exit_code, bool *timed_out, bool *output_truncated)
 {
 	int out[2] = {-1, -1}, err[2] = {-1, -1}; pid_t child; int status = 0; bool reaped = false;
-	*stdout_data = NULL; *stderr_data = NULL; *stdout_length = 0; *stderr_length = 0; *exit_code = -1; *timed_out = false;
+	*stdout_data = NULL; *stderr_data = NULL; *stdout_length = 0; *stderr_length = 0; *exit_code = -1; *timed_out = false; *output_truncated = false;
 	if (pipe(out) < 0 || pipe(err) < 0) { if (out[0] >= 0) { close(out[0]); close(out[1]); } return -1; }
 	child = fork();
 	if (child < 0) { close(out[0]); close(out[1]); close(err[0]); close(err[1]); return -1; }
 	if (child == 0) {
-		setpgid(0, 0); dup2(out[1], STDOUT_FILENO); dup2(err[1], STDERR_FILENO);
+		if (setpgid(0, 0) < 0) _exit(126);
+		dup2(out[1], STDOUT_FILENO); dup2(err[1], STDERR_FILENO);
 		close(out[0]); close(out[1]); close(err[0]); close(err[1]);
 		execve(Z2K_DETECT_PATH, argv, (char *const[]){"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", NULL}); _exit(127);
 	}
-	close(out[1]); close(err[1]); fcntl(out[0], F_SETFL, fcntl(out[0], F_GETFL) | O_NONBLOCK); fcntl(err[0], F_SETFL, fcntl(err[0], F_GETFL) | O_NONBLOCK);
-	int64_t deadline = now_ms() + timeout_ms; unsigned char *outbuf = malloc(Z2K_DETECT_OUTPUT_LIMIT + 1), *errbuf = malloc(Z2K_DETECT_OUTPUT_LIMIT + 1);
+	if (setpgid(child, child) < 0 && errno != EACCES && errno != ESRCH) { kill(child, SIGKILL); waitpid(child, NULL, 0); close(out[0]); close(out[1]); close(err[0]); close(err[1]); return -1; }
+	close(out[1]); close(err[1]);
+	int out_flags = fcntl(out[0], F_GETFL), err_flags = fcntl(err[0], F_GETFL);
+	if (out_flags < 0 || err_flags < 0 || fcntl(out[0], F_SETFL, out_flags | O_NONBLOCK) < 0 || fcntl(err[0], F_SETFL, err_flags | O_NONBLOCK) < 0) {
+		kill(-child, SIGKILL); kill(child, SIGKILL); waitpid(child, NULL, 0); close(out[0]); close(err[0]); return -1;
+	}
+	int64_t started = now_ms();
+	if (started < 0) { kill(-child, SIGKILL); kill(child, SIGKILL); waitpid(child, NULL, 0); close(out[0]); close(err[0]); return -1; }
+	int64_t deadline = started + timeout_ms; unsigned char *outbuf = malloc(Z2K_DETECT_OUTPUT_LIMIT + 1), *errbuf = malloc(Z2K_DETECT_OUTPUT_LIMIT + 1);
 	if (!outbuf || !errbuf) { free(outbuf); free(errbuf); kill(-child, SIGKILL); waitpid(child, NULL, 0); close(out[0]); close(err[0]); return -1; }
-	bool out_open = true, err_open = true;
+	bool out_open = true, err_open = true, stopping = false;
 	while (out_open || err_open || !reaped) {
 		struct pollfd fds[2]; nfds_t count = 0;
 		if (out_open) fds[count++] = (struct pollfd){out[0], POLLIN | POLLHUP | POLLERR, 0};
 		if (err_open) fds[count++] = (struct pollfd){err[0], POLLIN | POLLHUP | POLLERR, 0};
 		int64_t remaining = deadline - now_ms();
-		if (remaining <= 0 && !reaped) { *timed_out = true; kill(-child, SIGKILL); kill(child, SIGKILL); }
+		if (remaining <= 0 && !reaped && !stopping) { *timed_out = true; stopping = true; kill(-child, SIGKILL); kill(child, SIGKILL); }
 		if (count) poll(fds, count, remaining > 20 ? 20 : remaining > 0 ? (int)remaining : 0);
 		unsigned char buffer[4096]; ssize_t got;
-		if (out_open) { while ((got = read(out[0], buffer, sizeof(buffer))) > 0) { size_t keep = (size_t)got > Z2K_DETECT_OUTPUT_LIMIT - *stdout_length ? Z2K_DETECT_OUTPUT_LIMIT - *stdout_length : (size_t)got; memcpy(outbuf + *stdout_length, buffer, keep); *stdout_length += keep; if ((size_t)got > keep) { *timed_out = true; kill(-child, SIGKILL); } } if (got == 0) { out_open = false; close(out[0]); } }
-		if (err_open) { while ((got = read(err[0], buffer, sizeof(buffer))) > 0) { size_t keep = (size_t)got > Z2K_DETECT_OUTPUT_LIMIT - *stderr_length ? Z2K_DETECT_OUTPUT_LIMIT - *stderr_length : (size_t)got; memcpy(errbuf + *stderr_length, buffer, keep); *stderr_length += keep; if ((size_t)got > keep) { *timed_out = true; kill(-child, SIGKILL); } } if (got == 0) { err_open = false; close(err[0]); } }
+		if (out_open) { while ((got = read(out[0], buffer, sizeof(buffer))) > 0) { size_t keep = (size_t)got > Z2K_DETECT_OUTPUT_LIMIT - *stdout_length ? Z2K_DETECT_OUTPUT_LIMIT - *stdout_length : (size_t)got; memcpy(outbuf + *stdout_length, buffer, keep); *stdout_length += keep; if ((size_t)got > keep) { *output_truncated = true; stopping = true; kill(-child, SIGKILL); kill(child, SIGKILL); } } if (got == 0) { out_open = false; close(out[0]); } }
+		if (err_open) { while ((got = read(err[0], buffer, sizeof(buffer))) > 0) { size_t keep = (size_t)got > Z2K_DETECT_OUTPUT_LIMIT - *stderr_length ? Z2K_DETECT_OUTPUT_LIMIT - *stderr_length : (size_t)got; memcpy(errbuf + *stderr_length, buffer, keep); *stderr_length += keep; if ((size_t)got > keep) { *output_truncated = true; stopping = true; kill(-child, SIGKILL); kill(child, SIGKILL); } } if (got == 0) { err_open = false; close(err[0]); } }
 		if (!reaped && waitpid(child, &status, WNOHANG) == child) reaped = true;
-		if (*timed_out && !reaped) { kill(-child, SIGKILL); if (waitpid(child, &status, 0) == child) reaped = true; }
+		if (stopping && !reaped) { kill(-child, SIGKILL); if (waitpid(child, &status, 0) == child) reaped = true; }
 	}
 	if (reaped && WIFEXITED(status)) *exit_code = WEXITSTATUS(status); else if (reaped && WIFSIGNALED(status)) *exit_code = 128 + WTERMSIG(status);
 	outbuf[*stdout_length] = 0; errbuf[*stderr_length] = 0; *stdout_data = outbuf; *stderr_data = errbuf; return 0;
@@ -147,16 +179,16 @@ int z2m_detect_operation(const struct z2m_request *request)
 	else if (!strcmp(request->operation, "z2k_detect_voice")) kind = "voice";
 	else if (!strcmp(request->operation, "z2k_detect_tcp16")) kind = "tcp16";
 	else return z2m_fail(request->request_id, "ESCHEMA", "schema");
-	if (snprintf(endpoint, sizeof(endpoint), "%s:%lld", host, (long long)port) < 0 || snprintf(repeats_text, sizeof(repeats_text), "%lld", (long long)repeats) < 0 || snprintf(timeout_text, sizeof(timeout_text), "%llds", (long long)((timeout + 999) / 1000)) < 0) return z2m_fail(request->request_id, "EINTERNAL", "argv");
+	if (snprintf(endpoint, sizeof(endpoint), strchr(host, ':') != NULL ? "[%s]:%lld" : "%s:%lld", host, (long long)port) < 0 || snprintf(repeats_text, sizeof(repeats_text), "%lld", (long long)repeats) < 0 || snprintf(timeout_text, sizeof(timeout_text), "%llds", (long long)((timeout + 999) / 1000)) < 0) return z2m_fail(request->request_id, "EINTERNAL", "argv");
 	argv[argc++] = (char *)Z2K_DETECT_EXEC_PATH; argv[argc++] = (char *)kind; argv[argc++] = endpoint;
 	if (hello) { argv[argc++] = "-hello"; argv[argc++] = (char *)hello; }
 	argv[argc++] = "-repeats"; argv[argc++] = repeats_text; argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json"; argv[argc] = NULL;
-	unsigned char *out, *err; size_t out_len, err_len; int exit_code; bool timed_out;
-	if (detect_run(argv, (unsigned int)timeout + 1000U, &out, &out_len, &err, &err_len, &exit_code, &timed_out) < 0) return z2m_fail(request->request_id, "EINTERNAL", "supervise");
+	unsigned char *out, *err; size_t out_len, err_len; int exit_code; bool timed_out, output_truncated;
+	if (detect_run(argv, (unsigned int)timeout, &out, &out_len, &err, &err_len, &exit_code, &timed_out, &output_truncated) < 0) return z2m_fail(request->request_id, "EINTERNAL", "supervise");
 	json_object *data = z2m_json_object(), *argv_data = json_object_new_array();
 	if (!data || !argv_data) { json_object_put(data); json_object_put(argv_data); free(out); free(err); return z2m_fail(request->request_id, "EINTERNAL", "response_encode"); }
 	for (size_t i = 0; i < argc; i++) json_object_array_add(argv_data, z2m_json_string(argv[i]));
-	bool ok = z2m_json_add(data, "argv", argv_data) && z2m_json_add(data, "exitCode", z2m_json_int(exit_code)) && z2m_json_add(data, "stdout", z2m_json_string((char *)out)) && z2m_json_add(data, "stderr", z2m_json_string((char *)err)) && z2m_json_add(data, "timedOut", z2m_json_bool(timed_out));
+	bool ok = z2m_json_add(data, "argv", argv_data) && z2m_json_add(data, "exitCode", z2m_json_int(exit_code)) && z2m_json_add(data, "stdout", z2m_json_string((char *)out)) && z2m_json_add(data, "stderr", z2m_json_string((char *)err)) && z2m_json_add(data, "timedOut", z2m_json_bool(timed_out)) && z2m_json_add(data, "outputTruncated", z2m_json_bool(output_truncated));
 	free(out); free(err); if (!ok) { json_object_put(data); return z2m_fail(request->request_id, "EINTERNAL", "response_encode"); } return z2m_success(request->request_id, data);
 }
 

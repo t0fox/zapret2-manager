@@ -180,7 +180,7 @@ int z2m_read_request(int client, struct z2m_request *request)
 	    !json_object_is_type(timeout, json_type_int) ||
 	    strcmp(json_object_get_string(protocol), Z2M_PROTOCOL) ||
 	    !valid_request_id(json_object_get_string(request_id)) ||
-	    json_object_get_int64(timeout) < 1 || json_object_get_int64(timeout) > 30000)
+	    json_object_get_int64(timeout) < 1 || json_object_get_int64(timeout) > Z2M_REQUEST_TIMEOUT_MAX)
 		goto reject;
 	strcpy(request->request_id, json_object_get_string(request_id));
 	request->timeout_ms = (unsigned int)json_object_get_int(timeout);

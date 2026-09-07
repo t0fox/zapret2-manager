@@ -26,7 +26,7 @@
       "properties": {
         "protocolVersion": { "const": 1 },
         "requestId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
-        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "atomic_write_json_revision", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status", "scanner_probe", "ownership_create", "ownership_ready", "ownership_delete", "ownership_status"] },
+        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "atomic_write_json_revision", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status", "scanner_probe", "z2k_detect_probe", "z2k_detect_classify", "z2k_detect_quic", "z2k_detect_voice", "z2k_detect_tcp16", "ownership_create", "ownership_ready", "ownership_delete", "ownership_status"] },
         "arguments": { "type": "object" }
       }
     },
@@ -255,6 +255,51 @@
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["content", "byteLength", "exitCode", "signal", "startedAt", "finishedAt", "complete", "cancelled"], "properties": { "content": { "type": "string", "encoding": "canonical_base64" }, "byteLength": { "type": "integer", "minimum": 0 }, "exitCode": { "type": "integer" }, "signal": { "type": "integer", "minimum": 0 }, "startedAt": { "type": "integer", "minimum": 0 }, "finishedAt": { "type": "integer", "minimum": 0 }, "complete": { "type": "boolean" }, "cancelled": { "type": "boolean" } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 131072, "timeoutMsMax": 120000 },
       "ownership": "Server-owned fixed ncat operation; no filesystem root and no caller-selected executable.", "crashSemantics": "Nonzero, signal, parse, truncation, or supervision failures are typed dependency outcomes and never candidate evidence.", "idempotency": "One bounded network observation per request; retries are explicitly descriptor-controlled."
+    },
+    "z2k_detect_probe": {
+      "milestone": 10, "status": "implemented", "roots": [],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["host", "port", "repeats", "timeoutMs"], "properties": { "host": { "type": "string", "minLength": 1, "maxLength": 253 }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "repeats": { "type": "integer", "minimum": 1, "maximum": 32 }, "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["argv", "exitCode", "stdout", "stderr", "timedOut", "outputTruncated"], "properties": { "argv": { "type": "array", "minItems": 8, "maxItems": 8, "items": { "type": "string", "maxLength": 128 } }, "exitCode": { "type": "integer" }, "stdout": { "type": "string", "maxLength": 65536 }, "stderr": { "type": "string", "maxLength": 65536 }, "timedOut": { "type": "boolean" }, "outputTruncated": { "type": "boolean" } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 131072, "timeoutMsMax": 120000 },
+      "ownership": "Z2K Core fixed upstream Detect executable; no caller-selected process boundary.",
+      "crashSemantics": "Timeout and bounded-output truncation are distinct typed outcomes; the child process group is killed and reaped.",
+      "idempotency": "One bounded Detect observation per request."
+    },
+    "z2k_detect_classify": {
+      "milestone": 10, "status": "implemented", "roots": [],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["host", "port", "hello", "repeats", "timeoutMs"], "properties": { "host": { "type": "string", "minLength": 1, "maxLength": 253 }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "hello": { "const": "modern" }, "repeats": { "type": "integer", "minimum": 1, "maximum": 32 }, "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["argv", "exitCode", "stdout", "stderr", "timedOut", "outputTruncated"], "properties": { "argv": { "type": "array", "minItems": 10, "maxItems": 10, "items": { "type": "string", "maxLength": 128 } }, "exitCode": { "type": "integer" }, "stdout": { "type": "string", "maxLength": 65536 }, "stderr": { "type": "string", "maxLength": 65536 }, "timedOut": { "type": "boolean" }, "outputTruncated": { "type": "boolean" } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 131072, "timeoutMsMax": 120000 },
+      "ownership": "Z2K Core fixed upstream Detect executable; no caller-selected process boundary.",
+      "crashSemantics": "Timeout and bounded-output truncation are distinct typed outcomes; the child process group is killed and reaped.",
+      "idempotency": "One bounded Detect observation per request."
+    },
+    "z2k_detect_quic": {
+      "milestone": 10, "status": "implemented", "roots": [],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["host", "port", "repeats", "timeoutMs"], "properties": { "host": { "type": "string", "minLength": 1, "maxLength": 253 }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "repeats": { "type": "integer", "minimum": 1, "maximum": 32 }, "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["argv", "exitCode", "stdout", "stderr", "timedOut", "outputTruncated"], "properties": { "argv": { "type": "array", "minItems": 8, "maxItems": 8, "items": { "type": "string", "maxLength": 128 } }, "exitCode": { "type": "integer" }, "stdout": { "type": "string", "maxLength": 65536 }, "stderr": { "type": "string", "maxLength": 65536 }, "timedOut": { "type": "boolean" }, "outputTruncated": { "type": "boolean" } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 131072, "timeoutMsMax": 120000 },
+      "ownership": "Z2K Core fixed upstream Detect executable; no caller-selected process boundary.",
+      "crashSemantics": "Timeout and bounded-output truncation are distinct typed outcomes; the child process group is killed and reaped.",
+      "idempotency": "One bounded Detect observation per request."
+    },
+    "z2k_detect_voice": {
+      "milestone": 10, "status": "implemented", "roots": [],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["host", "port", "repeats", "timeoutMs"], "properties": { "host": { "type": "string", "minLength": 1, "maxLength": 253 }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "repeats": { "type": "integer", "minimum": 1, "maximum": 32 }, "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["argv", "exitCode", "stdout", "stderr", "timedOut", "outputTruncated"], "properties": { "argv": { "type": "array", "minItems": 8, "maxItems": 8, "items": { "type": "string", "maxLength": 128 } }, "exitCode": { "type": "integer" }, "stdout": { "type": "string", "maxLength": 65536 }, "stderr": { "type": "string", "maxLength": 65536 }, "timedOut": { "type": "boolean" }, "outputTruncated": { "type": "boolean" } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 131072, "timeoutMsMax": 120000 },
+      "ownership": "Z2K Core fixed upstream Detect executable; no caller-selected process boundary.",
+      "crashSemantics": "Timeout and bounded-output truncation are distinct typed outcomes; the child process group is killed and reaped.",
+      "idempotency": "One bounded Detect observation per request."
+    },
+    "z2k_detect_tcp16": {
+      "milestone": 10, "status": "implemented", "roots": [],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["host", "port", "repeats", "timeoutMs"], "properties": { "host": { "type": "string", "minLength": 1, "maxLength": 253 }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "repeats": { "type": "integer", "minimum": 1, "maximum": 32 }, "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["argv", "exitCode", "stdout", "stderr", "timedOut", "outputTruncated"], "properties": { "argv": { "type": "array", "minItems": 8, "maxItems": 8, "items": { "type": "string", "maxLength": 128 } }, "exitCode": { "type": "integer" }, "stdout": { "type": "string", "maxLength": 65536 }, "stderr": { "type": "string", "maxLength": 65536 }, "timedOut": { "type": "boolean" }, "outputTruncated": { "type": "boolean" } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 131072, "timeoutMsMax": 120000 },
+      "ownership": "Z2K Core fixed upstream Detect executable; no caller-selected process boundary.",
+      "crashSemantics": "Timeout and bounded-output truncation are distinct typed outcomes; the child process group is killed and reaped.",
+      "idempotency": "One bounded Detect observation per request."
     }
   },
   "rpcMapping": {

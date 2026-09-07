@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-z2k-detect-'));
 const helper = path.join(root, 'z2m-core-helper');
 const fakeDetect = path.join(root, 'z2k-detect');
+const lateMarker = path.join(root, 'late-marker');
 const source = 'zapret2-manager/src/z2m-core-helper';
 
 function compile() {
@@ -38,7 +39,9 @@ function invoke(operation, args) {
 }
 
 test.before(() => {
-  fs.writeFileSync(fakeDetect, '#!/bin/sh\nif [ "$1" = probe ]; then sleep 3; fi\nprintf \'%s\\n\' "$@"\n', { mode: 0o755 });
+  fs.rmSync(lateMarker, { force: true });
+  const marker = lateMarker.replaceAll('\\', '/');
+  fs.writeFileSync(fakeDetect, `#!/bin/sh\nif [ "$1" = probe ] && [ "$2" = sleep.example.com:443 ]; then (sleep 0.2; printf late > ${marker}) & wait; fi\nif [ "$1" = probe ] && [ "$2" = overflow.example.com:443 ]; then yes x | head -c 70000; exit 0; fi\nprintf '%s\\n' "$@"\n`, { mode: 0o755 });
   compile();
 });
 
@@ -62,7 +65,19 @@ test('rejects shell and process-boundary fields, unknown flags, and unsafe value
     { host: 'example.com', port: 443, timeoutMs: 120001 },
     { host: 'example.com', port: 443, repeats: 0 },
     { host: 'bad host', port: 443 },
+    { host: '', port: 443 },
+    { host: ':', port: 443 },
+    { host: 'a:b:c', port: 443 },
+    { host: 'a..example.com', port: 443 },
+    { host: '-example.com', port: 443 },
+    { host: 'example-.com', port: 443 },
+    { host: '999.1.1.1', port: 443 },
+    { host: '1:2:3', port: 443 },
+    { host: ':1:2:3:4:5:6:7:8', port: 443 },
+    { host: '1:2:3:4:5:6:7:8:', port: 443 },
+    { host: 'example\u0000.com', port: 443 },
     { host: 'example.com', port: 0 },
+    { host: 'example.com', port: 65536 },
     { host: 'example.com\n-id', port: 443 },
   ]) {
     const response = invoke('z2k_detect_probe', args);
@@ -71,13 +86,30 @@ test('rejects shell and process-boundary fields, unknown flags, and unsafe value
   }
 });
 
+test('accepts valid IPv6 and brackets it in the endpoint without changing the fixed argv', () => {
+  const response = invoke('z2k_detect_probe', { host: '2001:db8::1', port: 443, repeats: 1, timeoutMs: 1000 });
+  assert.equal(response.ok, true);
+  assert.equal(response.data.argv[2], '[2001:db8::1]:443');
+});
+
 test('returns bounded process result fields and kills a timed-out process group', () => {
-  const response = invoke('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 100 });
+  const response = invoke('z2k_detect_probe', { host: 'sleep.example.com', port: 443, repeats: 1, timeoutMs: 25 });
   assert.equal(response.ok, true);
   assert.equal(response.data.timedOut, true);
+  assert.equal(response.data.outputTruncated, false);
   assert.equal(typeof response.data.exitCode, 'number');
   assert.equal(typeof response.data.stdout, 'string');
   assert.equal(typeof response.data.stderr, 'string');
   assert.ok(response.data.stdout.length <= 65536);
   assert.ok(response.data.stderr.length <= 65536);
+  spawnSync('sleep', ['0.35']);
+  assert.equal(fs.existsSync(lateMarker), false, 'timed-out process-group descendant must not survive');
+});
+
+test('reports bounded-output truncation separately from wall-time timeout', () => {
+  const response = invoke('z2k_detect_probe', { host: 'overflow.example.com', port: 443, repeats: 1, timeoutMs: 1000 });
+  assert.equal(response.ok, true);
+  assert.equal(response.data.timedOut, false);
+  assert.equal(response.data.outputTruncated, true);
+  assert.ok(response.data.stdout.length <= 65536);
 });

@@ -27,6 +27,7 @@ import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli
 import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild, catalog_refresh_source, catalog_source_set_enabled } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
 import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
 import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
+import { z2k_detect_probe, z2k_detect_classify, z2k_detect_quic, z2k_detect_voice, z2k_detect_tcp16 } from '/usr/libexec/zapret2-manager/z2k-detect.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
 	dns_product_rollback, dns_product_provider_save, dns_product_provider_reset,
@@ -686,6 +687,16 @@ function scanner_resume_method(req) { return scanner_edit_action('resume', req, 
 function scanner_save_generated_method(req) { return scanner_edit_action('save-generated', req, 'save-generated'); }
 function scanner_history_list_method(req) { return scanner_edit_action('history', req, 'history'); }
 function scanner_history_get_method(req) { return scanner_edit_action('history-get', req, 'history-get'); }
+
+function z2k_detect_input(req) {
+	try { if (req && req.args != null) return req.args; } catch (e) { }
+	return req;
+}
+function z2k_detect_probe_method(req) { return z2k_detect_probe(z2k_detect_input(req)); }
+function z2k_detect_classify_method(req) { return z2k_detect_classify(z2k_detect_input(req)); }
+function z2k_detect_quic_method(req) { return z2k_detect_quic(z2k_detect_input(req)); }
+function z2k_detect_voice_method(req) { return z2k_detect_voice(z2k_detect_input(req)); }
+function z2k_detect_tcp16_method(req) { return z2k_detect_tcp16(z2k_detect_input(req)); }
 
 function job_get_method(req) { return jobs_edit_action('get', req); }
 function job_list_method(req) { return jobs_action('list'); }
@@ -1486,6 +1497,11 @@ return {
 		catalog_preview:   { args: { edit: 'string' }, call: function (req) { return catalog_preview_method(req); } },
 		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } },
 		scanner_start:     { args: { edit: 'string' }, call: function (req) { return scanner_start_method(req); } },
+		z2k_detect_probe: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_probe_method(req); } },
+		z2k_detect_classify: { args: { host: 'string', port: 'integer', hello: 'string', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_classify_method(req); } },
+		z2k_detect_quic: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_quic_method(req); } },
+		z2k_detect_voice: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_voice_method(req); } },
+		z2k_detect_tcp16: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_tcp16_method(req); } },
 		scanner_status:    { args: { edit: 'string' }, call: function (req) { return scanner_status_method(req); } },
 		scanner_results:   { args: { edit: 'string' }, call: function (req) { return scanner_results_method(req); } },
 		scanner_stop:      { args: { edit: 'string' }, call: function (req) { return scanner_stop_method(req); } },

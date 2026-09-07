@@ -3,6 +3,7 @@
 // Z2K Core owns the exact upstream Detect artifact. This module only resolves,
 // stages and validates the binary; Detect itself remains the upstream algorithm.
 import { popen, stat, readlink, writefile } from 'fs';
+import * as native_helper from '/usr/libexec/zapret2-manager/core/native-helper.uc';
 
 const RUNTIME_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
 const REPOSITORY = 'necronicle/z2k';
@@ -10,29 +11,111 @@ const TEST_PATH_PREFIX = '/tmp/z2m-z2k-detect-test-';
 const PRODUCTION_STAGE_PREFIX = '/tmp/z2m-resource-update/';
 const PRODUCTION_ROLLBACK = '/etc/zapret2-manager/z2k-detect.rollback';
 
-// The native helper is the only process-launch owner. This pure adapter seam
-// keeps the operation vocabulary and executable identity shared with RPC
-// callers without accepting a command, executable, argv, env or cwd.
-export const z2k_detect_fixed_argv = function(operation, input) {
-	let args = object(input) ? input : {}, host = args.host, port = args.port;
-	if (!string(operation) || !match(operation, /^z2k_detect_(probe|classify|quic|voice|tcp16)$/) || !string(host) || !match(host, /^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$/)
-		|| type(port) != 'int' || port < 1 || port > 65535 || type(args.repeats) != 'int' || args.repeats < 1 || args.repeats > 32
-		|| type(args.timeoutMs) != 'int' || args.timeoutMs < 1 || args.timeoutMs > 120000) return null;
-	let kind = substr(operation, 11), endpoint = host + ':' + port, seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind, endpoint];
-	if (kind == 'classify') { if (args.hello != 'modern') return null; out = push(out, '-hello', 'modern'); }
-	return push(out, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json');
-};
+const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function text(value) { return value == null ? '' : '' + value; }
-function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
-function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function fail(code, message, details) {
 	let out = { ok: false, error: { code: code, message: message } };
 	for (let key in details || {}) out.error[key] = details[key];
 	return out;
 }
+
+function detect_ipv4(value) {
+	if (!string(value) || !match(value, /^[0-9]+(\.[0-9]+){3}$/)) return false;
+	for (let part in split(value, '.')) {
+		if (length(part) > 1 && substr(part, 0, 1) == '0') return false;
+		if (int(part) > 255) return false;
+	}
+	return true;
+}
+
+function detect_hex_group(value) { return length(value) >= 1 && length(value) <= 4 && match(value, /^[0-9A-Fa-f]+$/); }
+
+function detect_ipv6(value) {
+	if (!string(value) || length(value) < 2 || !match(value, /^[0-9A-Fa-f:.]+$/)) return false;
+	let compression = index(value, '::'), left = [], right = [], groups = 0;
+	if (compression < 0 && (substr(value, 0, 1) == ':' || substr(value, -1) == ':')) return false;
+	if (compression >= 0) {
+		if (index(substr(value, compression + 2), '::') >= 0 || substr(value, compression + 2, 1) == ':') return false;
+		left = split(substr(value, 0, compression), ':');
+		right = split(substr(value, compression + 2), ':');
+	} else left = split(value, ':');
+	let parts = [...left, ...right];
+	for (let i = 0; i < length(parts); i++) {
+		let part = parts[i];
+		if (!length(part)) continue;
+		if (index(part, '.') >= 0) {
+			if (i != length(parts) - 1 || !detect_ipv4(part)) return false;
+			groups += 2;
+		} else {
+			if (!detect_hex_group(part)) return false;
+			groups++;
+		}
+	}
+	return compression >= 0 ? groups < 8 : groups == 8;
+}
+
+function detect_dns(value) {
+	if (!string(value) || length(value) < 1 || length(value) > 253 || !match(value, /^[A-Za-z0-9.-]+$/)) return false;
+	let labels = split(value, '.'), numeric = length(labels) > 1;
+	for (let label in labels) {
+		if (length(label) < 1 || length(label) > 63 || substr(label, 0, 1) == '-' || substr(label, -1) == '-' ||
+			!match(label, /^[A-Za-z0-9-]+$/)) return false;
+		if (!match(label, /^[0-9]+$/)) numeric = false;
+	}
+	return !numeric;
+}
+
+function detect_host(value) {
+	if (!string(value) || index(value, sprintf('%c', 0)) >= 0 || index(value, '\n') >= 0 || index(value, '\r') >= 0 || index(value, '\t') >= 0) return false;
+	return detect_ipv4(value) || (index(value, ':') >= 0 ? detect_ipv6(value) : detect_dns(value));
+}
+
+function detect_operation(value) { return string(value) && index(DETECT_OPERATIONS, value) >= 0; }
+function detect_exact_fields(value, names) {
+	if (!object(value) || length(value) != length(names)) return false;
+	for (let name in names) if (!exists(value, name)) return false;
+	return true;
+}
+function detect_args_valid(operation, value) {
+	let names = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
+	return detect_operation(operation) && detect_exact_fields(value, names) && detect_host(value.host) && type(value.port) == 'int' &&
+		value.port >= 1 && value.port <= 65535 && type(value.repeats) == 'int' && value.repeats >= 1 && value.repeats <= 32 &&
+		type(value.timeoutMs) == 'int' && value.timeoutMs >= 1 && value.timeoutMs <= 120000 &&
+		(operation != 'z2k_detect_classify' || value.hello == 'modern');
+}
+
+// The native helper is the only process-launch owner. This adapter validates
+// and normalizes the typed boundary, then forwards exactly one fixed operation
+// to that owner without accepting a command, executable, argv, env or cwd.
+export const z2k_detect_fixed_argv = function(operation, input) {
+	let args = object(input) ? input : {};
+	if (!detect_args_valid(operation, args)) return null;
+	let kind = substr(operation, 11), endpoint = index(args.host, ':') >= 0 ? '[' + args.host + ']:' + args.port : args.host + ':' + args.port;
+	let seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind, endpoint];
+	if (kind == 'classify') { if (args.hello != 'modern') return null; out = push(out, '-hello', 'modern'); }
+	return push(out, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json');
+};
+
+export const z2k_detect_execute = function(operation, input, seams) {
+	if (!detect_args_valid(operation, input)) return fail('EINPUT', 'Z2K Detect input contains unsupported or invalid fields.');
+	let normalized = { host: input.host, port: input.port, repeats: input.repeats, timeoutMs: input.timeoutMs };
+	if (operation == 'z2k_detect_classify') normalized.hello = input.hello;
+	let hooks = object(seams) ? seams : {}, invoke = type(hooks.invoke) == 'function' ? hooks.invoke : native_helper.z2k_detect;
+	try { return invoke(operation, normalized, normalized.timeoutMs); }
+	catch (e) { return fail('EDEPENDENCY', 'Native Z2K Detect invocation failed.', { detail: text(e) }); }
+};
+
+export const z2k_detect_probe = function(input) { return z2k_detect_execute('z2k_detect_probe', input); };
+export const z2k_detect_classify = function(input) { return z2k_detect_execute('z2k_detect_classify', input); };
+export const z2k_detect_quic = function(input) { return z2k_detect_execute('z2k_detect_quic', input); };
+export const z2k_detect_voice = function(input) { return z2k_detect_execute('z2k_detect_voice', input); };
+export const z2k_detect_tcp16 = function(input) { return z2k_detect_execute('z2k_detect_tcp16', input); };
+
+function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function shell_quote(value) {
 	let out = "'", raw = text(value);
 	for (let i = 0; i < length(raw); i++) out += substr(raw, i, 1) == "'" ? "'\\''" : substr(raw, i, 1);

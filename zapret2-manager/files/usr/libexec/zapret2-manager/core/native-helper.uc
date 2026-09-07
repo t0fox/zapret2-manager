@@ -24,6 +24,9 @@ const EXIT_CODES = {
 };
 const ERROR_CODES = keys(EXIT_CODES);
 const RETRYABLE_ERRORS = ['ELOCKED', 'ETIMEOUT'];
+const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
+const DETECT_EXECUTABLE = '/usr/libexec/zapret2-manager/z2k-detect';
+const DETECT_BROKER_GRACE_MS = 1000;
 const ERROR_STAGES = {
 	EMALFORMED: ['framing', 'utf8', 'json_decode', 'trailing_data'],
 	ESCHEMA: ['schema', 'request_id', 'canonical_validate'], EREQUESTTOOBIG: ['request_size'],
@@ -79,6 +82,88 @@ function exact_fields(value, names) {
 	if (type(value) != 'object' || value == null || length(value) != length(names)) return false;
 	for (let name in names) if (!exists(value, name)) return false;
 	return true;
+}
+
+function detect_ipv4(value) {
+	if (type(value) != 'string' || !match(value, /^[0-9]+(\.[0-9]+){3}$/)) return false;
+	for (let part in split(value, '.')) {
+		if (length(part) > 1 && substr(part, 0, 1) == '0') return false;
+		if (int(part) > 255) return false;
+	}
+	return true;
+}
+
+function detect_hex_group(value) {
+	return length(value) >= 1 && length(value) <= 4 && match(value, /^[0-9A-Fa-f]+$/);
+}
+
+function detect_ipv6(value) {
+	if (type(value) != 'string' || length(value) < 2 || !match(value, /^[0-9A-Fa-f:.]+$/)) return false;
+	let compression = index(value, '::'), left = [], right = [], groups = 0;
+	if (compression >= 0) {
+		if (index(substr(value, compression + 2), '::') >= 0 || substr(value, compression + 2, 1) == ':') return false;
+		left = split(substr(value, 0, compression), ':');
+		right = split(substr(value, compression + 2), ':');
+	} else {
+		left = split(value, ':');
+	}
+	let parts = [...left, ...right];
+	for (let i = 0; i < length(parts); i++) {
+		let part = parts[i];
+		if (!length(part)) continue;
+		if (index(part, '.') >= 0) {
+			if (i != length(parts) - 1 || !detect_ipv4(part)) return false;
+			groups += 2;
+		} else {
+			if (!detect_hex_group(part)) return false;
+			groups++;
+		}
+	}
+	return compression >= 0 ? groups < 8 : groups == 8;
+}
+
+function detect_dns(value) {
+	if (type(value) != 'string' || length(value) < 1 || length(value) > 253 || !match(value, /^[A-Za-z0-9.-]+$/)) return false;
+	let labels = split(value, '.'), numeric = length(labels) > 1;
+	for (let label in labels) {
+		if (length(label) < 1 || length(label) > 63 || substr(label, 0, 1) == '-' || substr(label, -1) == '-' ||
+			!match(label, /^[A-Za-z0-9-]+$/)) return false;
+		if (!match(label, /^[0-9]+$/)) numeric = false;
+	}
+	return !numeric;
+}
+
+function detect_host(value) {
+	if (type(value) != 'string' || index(value, sprintf('%c', 0)) >= 0 || index(value, '\n') >= 0 || index(value, '\r') >= 0 || index(value, '\t') >= 0) return false;
+	return detect_ipv4(value) || (index(value, ':') >= 0 ? detect_ipv6(value) : detect_dns(value));
+}
+
+function detect_operation(value) { return type(value) == 'string' && index(DETECT_OPERATIONS, value) >= 0; }
+
+function detect_string_array(value) {
+	if (type(value) != 'array') return false;
+	for (let item in value) if (type(item) != 'string' || length(item) > 128) return false;
+	return true;
+}
+
+function detect_argv_valid(operation, value) {
+	let kind = substr(operation, 11), classify = operation == 'z2k_detect_classify', expected = classify ? 10 : 8;
+	if (!detect_string_array(value) || length(value) != expected || value[0] != DETECT_EXECUTABLE || value[1] != kind ||
+		type(value[2]) != 'string' || index(value[2], '\n') >= 0 || index(value[2], '\r') >= 0 || index(value[2], '\t') >= 0 ||
+		value[expected - 1] != '-json') return false;
+	let offset = 3;
+	if (classify) { if (value[3] != '-hello' || value[4] != 'modern') return false; offset = 5; }
+	return value[offset] == '-repeats' && match(value[offset + 1], /^[1-9][0-9]*$/) &&
+		int(value[offset + 1]) <= 32 && value[offset + 2] == '-timeout' && match(value[offset + 3], /^[1-9][0-9]*s$/) &&
+		int(substr(value[offset + 3], 0, length(value[offset + 3]) - 1)) <= 120;
+}
+
+function detect_args_valid(operation, value) {
+	let names = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
+	return detect_operation(operation) && exact_fields(value, names) && detect_host(value.host) && type(value.port) == 'int' &&
+		value.port >= 1 && value.port <= 65535 && type(value.repeats) == 'int' && value.repeats >= 1 && value.repeats <= 32 &&
+		type(value.timeoutMs) == 'int' && value.timeoutMs >= 1 && value.timeoutMs <= 120000 &&
+		(operation != 'z2k_detect_classify' || value.hello == 'modern');
 }
 
 function valid_root(value) {
@@ -327,7 +412,7 @@ function scan_json(raw, operation) {
 	let data_fields = operation == 'stat_regular' ? ['type', 'size', 'mode', 'uid', 'gid', 'mtimeSec', 'mtimeNsec'] :
 		(operation == 'read_regular' ? ['content', 'byteLength'] :
 		(operation == 'mkdir_private' ? ['created', 'committed', 'durability'] :
-		(operation == 'sha256_regular' ? ['sha256', 'byteLength'] : (operation == 'scanner_probe' ? ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete', 'cancelled'] : ['byteLength', 'committed', 'durability']))));
+		(operation == 'sha256_regular' ? ['sha256', 'byteLength'] : (operation == 'scanner_probe' ? ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete', 'cancelled'] : (index(DETECT_OPERATIONS, operation) >= 0 ? ['argv', 'exitCode', 'stdout', 'stderr', 'timedOut', 'outputTruncated'] : ['byteLength', 'committed', 'durability'])))));
 	while (true) {
 		while (at < size && whitespace(ord(raw, at))) at++;
 		if (!depth && root_state == 'done')
@@ -511,6 +596,11 @@ function success_data_valid(operation, data) {
 			type(data.exitCode) == 'int' && data.exitCode >= -1 && type(data.signal) == 'int' &&
 			data.signal >= 0 && type(data.startedAt) == 'int' && data.startedAt >= 0 &&
 			type(data.finishedAt) == 'int' && data.finishedAt >= data.startedAt && type(data.complete) == 'bool' && type(data.cancelled) == 'bool';
+	if (index(DETECT_OPERATIONS, operation) >= 0)
+		return exact_fields(data, ['argv', 'exitCode', 'stdout', 'stderr', 'timedOut', 'outputTruncated']) &&
+			type(data.argv) == 'array' && detect_argv_valid(operation, data.argv) && type(data.exitCode) == 'int' && data.exitCode >= -1 &&
+			type(data.stdout) == 'string' && length(data.stdout) <= 65536 && type(data.stderr) == 'string' &&
+			length(data.stderr) <= 65536 && type(data.timedOut) == 'bool' && type(data.outputTruncated) == 'bool';
 	return false;
 }
 
@@ -574,7 +664,7 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 	if (value.ok) {
 		if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'data']) ||
 		    !success_data_valid(operation, value.data)) return helper_invalid(mutation, 'envelope');
-		if (exitCode != 0 && operation != 'scanner_probe') return helper_invalid(mutation, 'exit');
+		if (exitCode != 0 && operation != 'scanner_probe' && index(DETECT_OPERATIONS, operation) < 0) return helper_invalid(mutation, 'exit');
 		return { ok: true, data: value.data };
 	}
 	if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'error']) ||
@@ -723,6 +813,13 @@ export const scanner_probe = function(authority, adapterDigest, targetProfileDig
 	let remaining = request.deadlineMs - int(time() * 1000), timeout = request.timeoutMs > 0 && request.timeoutMs < remaining ? request.timeoutMs : remaining;
 	try { return invoke_private('scanner_probe', arguments, timeout > 0 ? timeout : 1); }
 	catch (exception) { return dependency('Native scanner probe transport is unavailable.'); }
+};
+
+export const z2k_detect = function(operation, arguments, timeoutMs) {
+	if (!detect_args_valid(operation, arguments)) return invalid('Z2K Detect arguments are invalid.');
+	if (type(timeoutMs) != 'int' || timeoutMs < 1 || timeoutMs > 120000) return invalid('Z2K Detect timeout is invalid.');
+	try { return invoke_private(operation, arguments, timeoutMs + DETECT_BROKER_GRACE_MS); }
+	catch (exception) { return dependency('Native Z2K Detect transport is unavailable.'); }
 };
 
 export const atomic_write = function(root, path, content, allowCreate) {

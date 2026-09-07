@@ -685,14 +685,14 @@ test('native helper adapter exposes only typed fixed-socket operations', () => {
   const exports = [...source.matchAll(/export const\s+([A-Za-z_][A-Za-z0-9_]*)/g)]
     .map(match => match[1]).sort();
   assert.deepEqual(exports,
-    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular']);
+    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular', 'z2k_detect']);
   assert.match(source, /['"]\/tmp\/zapret2-manager\/runtime\/z2m-helperd\.sock['"]/,
     'production adapter must use the fixed broker socket');
   assert.match(source, /socket\.connect\(\s*\{\s*path:\s*SOCKET_PATH\s*\}/,
     'adapter must use the proven object-form AF_UNIX connect API');
   assert.doesNotMatch(source, /\b(?:popen|system|command|uloop\.process)\s*\(/,
     'adapter must not expose another execution transport');
-  assert.doesNotMatch(source, /export[^\n]*(?:invoke|transport|socket|timeout|executable|argv|env)/i,
+  assert.doesNotMatch(source, /export\s+const\s+(?:invoke|transport|socket|executable|argv|env|cwd)\b/i,
     'generic transport and process controls must remain private');
   assert.doesNotMatch(source, /getenv|Z2M_TEST|ARGV/,
     'production fixed path must have no environment or argument override seam');

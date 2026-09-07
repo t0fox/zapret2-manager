@@ -12,7 +12,8 @@ const roots = [
 const operations = [
   'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
   'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned',
-  'lock_acquire', 'lock_release', 'lock_status', 'scanner_probe'
+  'lock_acquire', 'lock_release', 'lock_status', 'scanner_probe',
+  'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'
 ];
 const exits = {
   success: 0,
@@ -286,7 +287,7 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
     assert.deepEqual(sorted(Object.keys(operation)), sorted(requiredKeys), name);
     assert.ok(Number.isInteger(operation.milestone) && operation.milestone > 0, name);
     assert.ok(['milestone_1', 'milestone_2', 'implemented', 'reserved_unsupported'].includes(operation.status), name);
-    if (name !== 'scanner_probe') assert.ok(operation.roots.length > 0, name);
+    if (!['scanner_probe', 'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) assert.ok(operation.roots.length > 0, name);
     assert.ok(operation.roots.every((root) => roots.includes(root)), name);
     assert.equal(operation.requestSchema.type, 'object', name);
     assert.equal(operation.requestSchema.additionalProperties, false, name);
@@ -311,9 +312,9 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.mkdir_private.status, 'milestone_2');
   assert.equal(value.operations.sha256_regular.status, 'milestone_2');
   for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name)))
-    if (name !== 'scanner_probe') assert.equal(value.operations[name].status, 'reserved_unsupported', name);
+    if (!['scanner_probe', 'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) assert.equal(value.operations[name].status, 'reserved_unsupported', name);
   for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name))) {
-    if (name === 'scanner_probe') continue;
+    if (['scanner_probe', 'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) continue;
     assert.deepEqual(value.operations[name].unsupportedBehavior, {
       errorCode: 'EUNSUPPORTED',
       dispatch: 'reject_before_operation_dispatch',
