@@ -422,7 +422,7 @@
 .z2m-scanner-stage{display:grid;grid-template-columns:140px 1fr 90px;gap:12px;align-items:center}
 .z2m-scanner-stage-label{color:var(--tx2);font-size:13px}
 .z2m-scanner-stage-bar{height:8px;border-radius:999px;background:var(--panel2);overflow:hidden;border:1px solid var(--border)}
-.z2m-scanner-stage-fill{height:100%;background:var(--green);transition:width .5s ease}
+.z2m-scanner-stage-fill{height:100%;background:var(--green);transition:width .24s ease-out}
 .z2m-scanner-stage.is-done .z2m-scanner-stage-fill{background:var(--green)}
 .z2m-scanner-progress-meta{display:flex;justify-content:space-between;gap:12px;color:var(--tx3);font-size:12px;flex-wrap:wrap}
 .z2m-scanner-best-card{padding:18px;display:grid;gap:10px;border-color:var(--green)!important;box-shadow:inset 3px 0 0 var(--green)}
