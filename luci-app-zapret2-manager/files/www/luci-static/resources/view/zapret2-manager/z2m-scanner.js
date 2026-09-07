@@ -116,71 +116,9 @@ function phaseLabel(value) {
 function statusLabel(value) {
   return ({ starting: _('Подготовка'), running: _('Проверяем'), completed: _('Завершена'), cancelled: _('Остановлена'), error: _('Ошибка') })[value] || _('Состояние уточняется');
 }
-function reportRows(report, key) {
-  report = object(report);
-  var evidence = object(report.evidence);
-  var rows = array(report[key]).concat(array(report[key + 'Results'])).concat(array(evidence[key]));
-  // also support finalists/top3
-  if (key === 'ranked' || key === 'working') {
-    rows = rows.concat(array(report.finalists)).concat(array(report.topCandidates));
-  }
-  // dedup by candidateId
-  var seen = {}, out = [];
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i]; if (!r) continue;
-    var id = r.candidateId || r.id || r.strategyId || '';
-    if (id && seen[id]) continue;
-    if (id) seen[id] = true;
-    out.push(r);
-  }
-  return out;
-}
-function reportBest(report) { return reference(object(report).bestReference || object(report).best || object(report).top3 && report.top3[0] || {}); }
-function reportTested(report) { return Number(object(report).tested || object(report).total || object(report).summary && report.summary.tested || 0); }
-function candidateName(row, index) { return text(row.name || row.strategyName || row.strategyId || row.candidateId || row.id || _('Вариант ') + String(index + 1)); }
-function candidateFamily(row) {
-  var tokens = array(row.compiledTokens).join(' ').toLowerCase();
-  var t = tokens + ' ' + text(row.candidateId).toLowerCase();
-  if (t.indexOf('multisplit') >= 0) return 'multisplit';
-  if (t.indexOf('fake') >= 0) return 'fake';
-  if (t.indexOf('split') >= 0) return 'split';
-  if (t.indexOf('disorder') >= 0) return 'disorder';
-  if (t.indexOf('autottl') >= 0) return 'autottl';
-  if (t.indexOf('hostfake') >= 0) return 'hostfake';
-  if (t.indexOf('oob') >= 0) return 'oob';
-  return 'desync';
-}
-function candidateShort(row) {
-  var fam = candidateFamily(row);
-  var protocol = text(row.protocol || state.request.protocol).toUpperCase();
-  // show short family like "TLS/HTTP auto", "z2k split", etc.
-  if (fam === 'multisplit') return protocol + ' multisplit';
-  if (fam === 'fake') return protocol + ' fake';
-  if (fam === 'split') return protocol + ' split';
-  if (fam === 'disorder') return protocol + ' disorder';
-  return protocol + ' ' + fam;
-}
-function openInStrategies(ctx, ref) {
-  ref = reference(ref);
-  var id = ref.id || ref.strategyId || ref.strategy_id || ref.candidateId;
-  if (!id || typeof sessionStorage === 'undefined') return;
-  var strategy = object(ref.strategy || ref.generatedStrategy || ref);
-  strategy.id = text(strategy.id || id);
-  strategy.name = text(strategy.name || _('Стратегия из проверки'));
-  strategy.profiles = array(strategy.profiles).length ? strategy.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(strategy.args || (strategy.compiledTokens ? strategy.compiledTokens.join(' ') : '')) }];
-  strategy.metadata = Object.assign({}, object(strategy.metadata), { provenance: Object.assign({}, object(strategy.metadata).provenance, { source: 'scanner', scanId: state.scanId, target: state.request.target }) });
-  try {
-    sessionStorage.setItem('z2m.strategy.scanner-handoff.v1', JSON.stringify({ version: 1, strategy: strategy, provenance: strategy.metadata.provenance }));
-    if (ctx && ctx.navigate) ctx.navigate('strategy');
-  } catch (error) { state.error = error; refresh(ctx); }
-}
 function errorText(value) {
   value = object(value);
   return text(value.message || value.error && (value.error.message || value.error.code) || value.code || value.error);
-}
-function reference(value) {
-  value = object(value);
-  return object(value.strategy || value.best || value.bestReference || value.strategyReference || value);
 }
 function refresh(ctx) {
   return ctx.refresh('scan');

@@ -38,8 +38,7 @@ var state = {
   modalResize: null, editorMaximized: false, editorSidebarCollapsed: false,
   editorLoadFrame: null, editorLoadingSlowTimer: null,
   clickHandler: null, changeHandler: null, inputHandler: null,
-  keyHandler: null, beforeUnloadHandler: null,
-  handoffConsumed: false
+  keyHandler: null, beforeUnloadHandler: null
 };
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -2066,25 +2065,6 @@ function openCreate() {
   renderEditorForm();
   state.root.querySelector('#strategy-modal').style.display = 'flex';
 }
-function consumeScannerHandoff() {
-  if (state.handoffConsumed || typeof sessionStorage === 'undefined') return;
-  state.handoffConsumed = true;
-  var raw = null;
-  try { raw = sessionStorage.getItem('z2m.strategy.scanner-handoff.v1'); } catch (_e) { raw = null; }
-  if (!raw) return;
-  try {
-    var payload = JSON.parse(raw), source = object(payload.strategy), metadata = object(source.metadata);
-    if (!source.id || !Array.isArray(source.profiles)) return;
-    source.origin = 'user'; source.isBuiltin = false; source.is_builtin = false;
-    source.description = text(source.description || metadata.description);
-    source.provenance = object(payload.provenance || source.provenance || metadata.provenance);
-    source.metadata = Object.assign({}, metadata, { provenance: source.provenance });
-    state.editor = { mode: 'create', viewByProfile: {}, strategy: source, dirty: false, handoff: true };
-    sessionStorage.removeItem('z2m.strategy.scanner-handoff.v1');
-    renderEditorForm();
-    state.root.querySelector('#strategy-modal').style.display = 'flex';
-  } catch (_error) { try { sessionStorage.removeItem('z2m.strategy.scanner-handoff.v1'); } catch (_ignore) {} }
-}
 function openEdit(id) {
   var source = strategyById(id); if (!source || state.editorLoadingId || state.pending) return;
   if (state.strategyEditor) { state.strategyEditor.destroy(); state.strategyEditor = null; }
@@ -2722,7 +2702,7 @@ function render(ctx) {
   var ops = root.querySelectorAll('.strategy-ops-card');
   if (ops[0]) ops[0].querySelector('.card-title').innerHTML = svgIcon('activity', 16) + '<span>Авто-починка (healthcheck)</span><span class="strategy-ops-subtitle">проверяет связь и обновляет circular при провалах</span>';
   if (ops[1]) ops[1].querySelector('.card-title').innerHTML = svgIcon('refresh', 16) + '<span>Выученные стратегии (autocircular)</span><span class="strategy-ops-subtitle">circular подобрал и закрепил</span>';
-  state.root = root; state.rows = buildRows(state.data); bindEvents(); renderAll(); consumeScannerHandoff(); return root;
+  state.root = root; state.rows = buildRows(state.data); bindEvents(); renderAll(); return root;
 }
 function boundedRead(method, timeout, message) {
   return new Promise(function (resolve, reject) {
@@ -2783,7 +2763,7 @@ function unmount() {
   state.disposed = true; if (state.pollTimer) window.clearTimeout(state.pollTimer); state.pollTimer = null;
   if (state.listUI) state.listUI.destroy(); state.listUI = null; unbindEvents(); closeModal(); closePreview(); closeConfirm(); closeLearnedModal(); closeStratPicker();
   state.modalResize = null; state.selectedIds = {}; state.applyIdentity = null; /* donor selectedIds.clear() boundary */
-  state.root = null; state.ctx = null; state.handoffConsumed = false;
+  state.root = null; state.ctx = null;
 }
 return baseclass.extend({
   id: 'strategy', title: _('Стратегии'), subtitle: _('Настройка способов обхода DPI'),

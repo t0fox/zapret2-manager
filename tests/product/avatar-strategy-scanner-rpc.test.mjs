@@ -45,8 +45,8 @@ test('Scanner API and view use only the canonical typed Detect boundary', () => 
   for (const hook of ['load:', 'render:', 'mount:', 'unmount:']) assert.match(ui, new RegExp(hook), hook);
   assert.match(ui, /setTimeout|setInterval/);
   assert.match(ui, /disposed|unmounted|generation|token/);
-  assert.match(ui, /Save as Strategy|Preview|Validate|Apply|handoff/i);
-  assert.match(ui, /Use Strategy|strategyId/);
+  assert.match(ui, /typedDetect|z2m-detect-history\.v1/);
+  assert.doesNotMatch(ui, /scanner-handoff\.v1|openInStrategies|reportRows|reportBest/);
   assert.doesNotMatch(ui, /nfqws|raw command|effectiveArgv|join\(['"] --new ['"]|\.sort\(/i);
   assert.match(app, /z2m-scanner as Scanner/);
   assert.match(app, /z2m-scanner-product as ScannerProduct/);

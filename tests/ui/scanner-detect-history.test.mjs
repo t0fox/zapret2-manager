@@ -7,6 +7,8 @@ import { loadLuCIModule, baseclass } from './support/luci-loader-harness.mjs';
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const VIEW = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
 const source = fs.readFileSync(path.join(VIEW, 'z2m-scanner-product.js'), 'utf8');
+const scannerSource = fs.readFileSync(path.join(VIEW, 'z2m-scanner.js'), 'utf8');
+const strategiesSource = fs.readFileSync(path.join(VIEW, 'z2m-strategies.js'), 'utf8');
 const HISTORY_SCHEMA = 'z2m-detect-history.v1';
 
 function node(tag, attrs, children) {
@@ -93,4 +95,18 @@ test('Scanner history has no legacy evidence or strategy handoff reader', () => 
 	assert.match(source, /normalizeDetectHistory|typedDetect/);
 	assert.doesNotMatch(source, /report\.evidence|evidence\.ranked|best_strategy|generatedStrategy|compiledTokens/);
 	assert.doesNotMatch(source, /z2m\.strategy\.scanner-handoff\.v1/);
+});
+
+test('legacy scanner handoff cannot create a Strategies draft', () => {
+	assert.doesNotMatch(scannerSource, /z2m\.strategy\.scanner-handoff\.v1|openInStrategies|reportRows|reportBest/);
+	assert.doesNotMatch(strategiesSource, /z2m\.strategy\.scanner-handoff\.v1|consumeScannerHandoff|handoffConsumed/);
+});
+
+test('typed Detect history remains the only current Scanner result handoff', async () => {
+	const result = await loadProduct([typedHistory({ verdict: 'detected', provenance: { source: 'z2k-detect' } })]);
+
+	assert.equal(result.history.length, 1);
+	assert.equal(result.history[0].schema, HISTORY_SCHEMA);
+	assert.equal(result.history[0].report.typedDetect, true);
+	assert.equal(result.history[0].provenance.source, 'z2k-detect');
 });
