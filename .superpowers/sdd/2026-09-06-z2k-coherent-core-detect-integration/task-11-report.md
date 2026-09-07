@@ -69,3 +69,94 @@ evidence-only amend; the final HEAD is reported by the handoff below.
 
 Router/OpenWrt deployment, live network Detect, authenticated ubus/RPC
 acceptance, browser acceptance, package-E2E, merge, and push remain NOT_RUN.
+
+## Fix-round 1 — independent-review corrections
+
+### Findings addressed
+
+- Removed the production rpcd Scanner adapter/import, all eight legacy Scanner
+  registrations, their ACL entries, and the LuCI RPC declarations. The existing
+  Scanner compatibility surface now returns a local canonical
+  `EDETECT_UNAVAILABLE` result and cannot invoke the removed RPC or raw shell.
+  Scanner state/worker modules remain untouched for the later UI/compatibility
+  slice; the one changed Scanner UI line only removes stale legacy `nfqws2`
+  wording from the bounded error hint.
+- Replaced exact-field rejection with per-operation input normalization. Missing
+  or mistyped required semantic fields return `EDETECT_SCHEMA`; safe additive
+  fields survive the adapter result but are excluded from the fixed native
+  argument object. Executable/argv/command/env/cwd/raw/shell/flags/path fields
+  remain rejected as `EINPUT`.
+- Added a bounded status normalizer requiring real `ok/coherent/schema/state`,
+  installed release/source identity, fixed Detect path/architecture/digest,
+  matching source commit, and runtime compatibility/bundle digests. Malformed
+  or fake success cannot pass; bounded additive status fields survive. Unknown
+  native error codes normalize to `EDETECT_FAILED`, while the nine canonical
+  Detect/Z2K error codes are preserved.
+- Removed duplicate `detectStatus`/`detectProbe`/`detectClassify`/
+  `detectQuic`/`detectVoice`/`detectTcp16` client declarations. The six typed
+  client methods now each declare exactly one canonical `z2k_detect_*` RPC.
+
+### Fix-round TDD evidence
+
+RED after adding the independent-review fixtures/assertions and before the
+fix-round production changes:
+
+```text
+wsl.exe -e bash -lc "set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 180s node --test tests/product/z2k-detect-rpc.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs"
+exit 1; 20 tests: 14 passed, 6 failed.
+Failures were the still-registered legacy Scanner/raw-shell boundary, the
+missing input normalizer export, and status success accepted without typed
+identity validation (plus dependent assertions).
+```
+
+GREEN focused RPC/Scanner command after the fixes:
+
+```text
+20 passed, 0 failed
+node --test tests/product/z2k-detect-rpc.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs
+```
+
+GREEN Scanner production-boundary/package regressions:
+
+```text
+17 passed, 0 failed
+node --test tests/native/avatar-strategy-scanner-package.test.mjs tests/product/scanner-history-nfqueue-contract.test.mjs tests/product/scanner-start-order.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs
+```
+
+GREEN bounded Task 10/helper and receipt/lifecycle/runtime support gates:
+
+```text
+146 tests: 145 passed, 0 failed, 1 existing TODO
+node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-detect-artifact.test.mjs tests/product/z2k-receipt-v3.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-runtime-composition.test.mjs tests/product/z2k-runtime-readiness.test.mjs tests/product/z2k-runtime-summary.test.mjs
+```
+
+Additional checks passed: `node --check` for the changed client and focused
+tests; ACL JSON parse; `git diff --check`; `node scripts/validate-knowledge.mjs`
+(`Knowledge validation passed.`); and `node scripts/docs.mjs verify`
+(`Quartz SHA verified: ab346fa66a895e12d63a308e70ce330ba795822a`). The focused
+WSL runs imported the changed UCode adapter with
+`/opt/ucode/bin/ucode` and `LD_LIBRARY_PATH=/opt/ucode/lib`.
+
+### Fix-round files
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/z2k-detect.uc`
+- `zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc`
+- `luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js`
+- `tests/product/z2k-detect-rpc.test.mjs`
+- `tests/product/avatar-strategy-scanner-rpc.test.mjs`
+- `tests/native/avatar-strategy-scanner-package.test.mjs`
+- `tests/product/scanner-history-nfqueue-contract.test.mjs`
+- `tests/product/scanner-start-order.test.mjs`
+- this report
+
+Implementation commit: `59d636e8` (`fix: close Task 11 Detect RPC review findings`).
+The report is committed separately as the final handoff commit shown below.
+
+### Fix-round boundaries
+
+No router/OpenWrt deployment, live RPC/ubus invocation, live network Detect,
+browser acceptance, package-E2E, merge, push, or model delegation was run.
+The worktree remains limited to the typed Detect production boundary, its ACL/
+client wiring, the required legacy-boundary assertions, and this evidence.
