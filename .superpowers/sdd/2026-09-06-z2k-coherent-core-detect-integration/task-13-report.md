@@ -1,6 +1,6 @@
 # Task 13 report: integrate Z2K data and diagnostics
 
-Status: IMPLEMENTED; focused Task 13 and relevant combined gates pass. The
+Status: IMPLEMENTED; focused Task 13 and authority/lifecycle gates pass. The
 full resource-pattern gate retains one unrelated baseline failure (`expected
 7`, observed `6`). Router deployment, live rpcd/OpenWrt acceptance, browser
 acceptance, merge and push were not run.
@@ -54,12 +54,13 @@ GREEN focused UCode gate after the follow-up fixes:
 
 ```text
 wsl bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/z2k-data-diagnostics.test.mjs"
-12 passed, 0 failed, 0 skipped
+15 passed, 0 failed, 0 skipped
 ```
 
 The focused suite exercises real UCode imports and includes identity, schema,
 strict authority, staging/publish failure, atomic dataset, compensation,
-diagnostics error bounds and the typed RPC parser.
+filesystem stat/read uncertainty, partial-stage cleanup, diagnostics error
+bounds and the typed RPC parser.
 
 ## Bounded verification
 
@@ -68,16 +69,17 @@ diagnostics error bounds and the typed RPC parser.
 - `node scripts/docs.mjs verify`: passed; Quartz SHA
   `ab346fa66a895e12d63a308e70ce330ba795822a`.
 - `git diff --check`: passed.
-- Relevant combined gate (Task 13 plus resource authority/tooling/transaction,
-  promotion, strategy override and resource-model tests): `88 passed, 0
-  failed, 0 skipped`.
+- Relevant resource combined gate (Task 13 plus resource authority/tooling/
+  transaction, promotion, strategy override and resource-model tests): `93
+  tests; 92 passed, 1 failed, 0 skipped`. The one failure is the unrelated
+  baseline manifest count below.
 - Relevant authority/lifecycle combined gate (Task 13 plus receipt, installed
   authority, runtime composition/readiness, lifecycle transaction, Detect RPC
-  and autocircular identity): `112 tests; 111 passed, 0 failed, 1 TODO`.
+  and autocircular identity): `115 tests; 114 passed, 0 failed, 1 TODO`.
 - Full bounded resource-pattern gate:
   `node --test tests/product/z2k-data-diagnostics.test.mjs
-  tests/product/*resource*.test.mjs` with the pinned UCode runtime -> `89
-  passed, 1 failed` out of `90`.
+  tests/product/*resource*.test.mjs` with the pinned UCode runtime -> `92
+  passed, 1 failed` out of `93`.
   The only failure is the unrelated baseline assertion at
   `tests/product/resource-center-manifest.test.mjs:49`: `expected 7`, actual
   `6`. The manifest currently contains six IDs (`lua:z2k-modern-core`,
@@ -148,3 +150,57 @@ Fix-round commits:
 6dfaac94 fix: bind Task 13 refresh to internal authority owners
 cadfb4c4 fix: accept only nested owner data identities
 ```
+
+## Fix-round 3 — filesystem certainty and partial-stage cleanup
+
+The filesystem abstraction now returns explicit results instead of conflating
+missing with inaccessible/error: stat distinguishes `{ok:true, exists:false}`
+from `EFS_STAT`, reads distinguish a proven value from `EFS_READ`, and unlink,
+rmdir, write, mkdir and rename operations verify their result. Deletion only
+accepts an already-absent path when absence is the expected state; any stat,
+read, permission or verification failure is carried into the compensation
+result. Pointer snapshots and restoration verify the temporary path, pointer
+existence and restored bytes. If that proof fails, publication returns
+`EROLLBACK_FAILED` with `state: "uncertain"`.
+
+`internal_stage` now computes the manifest before creating the revision and
+uses the same default production cleanup path on every mkdir/write failure.
+Successful cleanup returns `EIO/state: "unchanged"`; cleanup that cannot be
+proven returns `EROLLBACK_FAILED/state: "uncertain"`, without claiming the
+stage was removed.
+
+TDD evidence:
+
+```text
+RED, before the production correction:
+node --test --test-name-pattern='default production' tests/product/z2k-data-diagnostics.test.mjs
+1 passed, 3 failed, 0 skipped.
+Failures: stat failure lost its EFS_STAT cause; pointer read failure returned
+EWRITE instead of EROLLBACK_FAILED; write failure left three stage directories
+and had no unchanged state.
+
+GREEN after the correction:
+wsl bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/z2k-data-diagnostics.test.mjs"
+15 passed, 0 failed, 0 skipped.
+```
+
+The new focused production-path tests use the filesystem seam, not cleanup
+hooks, to trigger stat/read faults after pointer failure and a write failure
+after stage directories exist. They prove fail-closed uncertainty or removal
+of every `.stage-*` directory. `node --check tests/product/z2k-data-diagnostics.test.mjs`
+and `git diff --check` also passed.
+
+Fix-round 3 commit:
+
+```text
+90e6ec80 fix: prove Task 13 filesystem rollback certainty
+```
+
+Post-fix bounded gates were run sequentially because concurrent UCode test
+processes can collide on the pre-existing `/tmp/z2m-data-refresh.<time>.<sequence>`
+digest filename. The sequential resource gate was `93 tests; 92 passed, 1
+failed`; the sole failure remains the baseline `tests/product/resource-center-manifest.test.mjs:49`
+assertion (`expected 7`, actual `6`). The sequential authority/lifecycle gate
+was `115 tests; 114 passed, 0 failed, 1 TODO`. The concurrent attempt produced
+only additional Task 13 `EIO` digest-file collisions and is not counted as
+product evidence.
