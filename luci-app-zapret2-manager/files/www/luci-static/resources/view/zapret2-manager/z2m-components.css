@@ -397,8 +397,8 @@
 .z2m-app .z2m-scanner-segmented button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .z2m-scanner-segmented button.on{border-color:var(--blue);background:var(--panel);color:var(--blue);font-weight:600}
 @media (hover:hover) and (pointer:fine){
-  .z2m-app .z2m-scanner-segmented button:hover{border-color:transparent!important;box-shadow:none;outline:none;background:rgba(255,255,255,.05);color:var(--tx)}
-  .z2m-app .z2m-scanner-segmented button.on:hover{border-color:var(--blue)!important;box-shadow:none;background:var(--panel);color:var(--blue)}
+  .z2m-app .z2m-scanner-segmented button:hover:not(:focus-visible){border-color:transparent!important;box-shadow:none;outline:none;background:rgba(255,255,255,.05);color:var(--tx)}
+  .z2m-app .z2m-scanner-segmented button.on:hover:not(:focus-visible){border-color:var(--blue)!important;box-shadow:none;background:var(--panel);color:var(--blue)}
 }
 .z2m-scanner-budget-hint{color:var(--tx3);font-size:12px;line-height:18px}
 .z2m-scanner-advanced{border:1px solid var(--border);border-radius:7px;overflow:hidden}

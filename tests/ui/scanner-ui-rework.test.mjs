@@ -131,6 +131,9 @@ test('Scanner UI keeps semantic form/error states and calm accessible motion rul
   assert.match(componentsCss, /:focus-visible/);
   assert.match(componentsCss, /@media \(hover:hover\) and \(pointer:fine\)/);
   assert.match(componentsCss, /@media\(prefers-reduced-motion:reduce\)/);
+  assert.match(componentsCss, /\.z2m-app \.z2m-scanner-segmented button:hover:not\(:focus-visible\)\{[^}]*outline:none/);
+  assert.match(componentsCss, /\.z2m-app \.z2m-scanner-segmented button\.on:hover:not\(:focus-visible\)/);
+  assert.doesNotMatch(componentsCss, /\.z2m-app \.z2m-scanner-segmented button:hover\{[^}]*outline:none/);
   assert.doesNotMatch(componentsCss + uiCss, /transition\s*:\s*all/);
   assert.doesNotMatch(componentsCss + uiCss, /scale\(0\)/);
 });
