@@ -61,3 +61,8 @@ test('Scanner completion path declares a monotonic generation and disposed guard
   assert.match(scanner, /state\.generation\+\+/,
     'unmount must invalidate in-flight Detect generations');
 });
+
+test('Scanner load budget covers the real low-end router RPC handshake', () => {
+  assert.match(product, /var SCANNER_LOAD_WAIT_MS = 5000;/);
+  assert.match(product, /SCANNER_LOAD_WAIT_MS\)/);
+});

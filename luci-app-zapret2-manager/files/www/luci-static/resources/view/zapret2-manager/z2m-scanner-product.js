@@ -7,6 +7,7 @@ var TABS = [
   { id: 'search', label: _('Диагностика и классификация') },
   { id: 'history', label: _('История') }
 ];
+var SCANNER_LOAD_WAIT_MS = 5000;
 var state = { activeTab: 'search', child: null, childContext: null, host: null, nav: null, root: null, ctx: null, history: [], detail: null, historyError: null };
 var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
 var DETECT_OPERATIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
@@ -105,7 +106,7 @@ function childFor(tab) { return tab === 'search' ? Scanner : null; }
 function activeLabel(tab) { return (TABS.filter(function (item) { return item.id === tab; })[0] || TABS[0]).label; }
 function boundedChildLoad(child, ctx) {
   var work = child && child.load ? child.load(ctx) : Promise.resolve({});
-  return Promise.race([Promise.resolve(work), new Promise(function (resolve, reject) { window.setTimeout(function () { reject({ code: 'EDETECT_TIMEOUT', message: _('Загрузка Scanner превысила ограниченное время.') }); }, 1500); })]);
+  return Promise.race([Promise.resolve(work), new Promise(function (resolve, reject) { window.setTimeout(function () { reject({ code: 'EDETECT_TIMEOUT', message: _('Загрузка Scanner превысила ограниченное время.') }); }, SCANNER_LOAD_WAIT_MS); })]);
 }
 function historyList(ctx) {
   return Promise.resolve().then(function () {
