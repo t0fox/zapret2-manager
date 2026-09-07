@@ -100,6 +100,7 @@ function detect_hex_group(value) {
 function detect_ipv6(value) {
 	if (type(value) != 'string' || length(value) < 2 || !match(value, /^[0-9A-Fa-f:.]+$/)) return false;
 	let compression = index(value, '::'), left = [], right = [], groups = 0;
+	if (compression < 0 && (substr(value, 0, 1) == ':' || substr(value, -1) == ':')) return false;
 	if (compression >= 0) {
 		if (index(substr(value, compression + 2), '::') >= 0 || substr(value, compression + 2, 1) == ':') return false;
 		left = split(substr(value, 0, compression), ':');

@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <math.h>
 #include <netdb.h>
 #include <poll.h>
 #include <signal.h>
@@ -164,7 +165,142 @@ static int detect_run(char *const argv[], unsigned int timeout_ms, unsigned char
 	outbuf[*stdout_length] = 0; errbuf[*stderr_length] = 0; *stdout_data = outbuf; *stderr_data = errbuf; return 0;
 }
 
-static bool detect_json_object(const unsigned char *data, size_t length)
+static bool detect_result_has(json_object *object, const char *const names[], size_t count)
+{
+	if (object == NULL || !json_object_is_type(object, json_type_object)) return false;
+	for (size_t i = 0; i < count; i++) {
+		json_object *value;
+		if (!json_object_object_get_ex(object, names[i], &value)) return false;
+	}
+	return true;
+}
+
+static bool detect_result_type(json_object *object, const char *name, enum json_type type)
+{
+	json_object *value;
+	return json_object_object_get_ex(object, name, &value) && json_object_is_type(value, type);
+}
+
+static bool detect_result_string(json_object *object, const char *name)
+{
+	return detect_result_type(object, name, json_type_string);
+}
+
+static bool detect_result_bool(json_object *object, const char *name)
+{
+	return detect_result_type(object, name, json_type_boolean);
+}
+
+static bool detect_result_nullable_bool(json_object *object, const char *name)
+{
+	json_object *value;
+	return json_object_object_get_ex(object, name, &value) &&
+		(json_object_is_type(value, json_type_null) || json_object_is_type(value, json_type_boolean));
+}
+
+static bool detect_result_int(json_object *object, const char *name, int64_t minimum)
+{
+	json_object *value;
+	return json_object_object_get_ex(object, name, &value) && json_object_is_type(value, json_type_int) &&
+		json_object_get_int64(value) >= minimum;
+}
+
+static bool detect_result_number(json_object *object, const char *name, double minimum)
+{
+	json_object *value;
+	if (!json_object_object_get_ex(object, name, &value) ||
+		(!json_object_is_type(value, json_type_int) && !json_object_is_type(value, json_type_double))) return false;
+	double number = json_object_get_double(value);
+	return isfinite(number) && number >= minimum;
+}
+
+static bool detect_result_object_field(json_object *object, const char *name)
+{
+	return detect_result_type(object, name, json_type_object);
+}
+
+static bool detect_result_string_array(json_object *object, const char *name)
+{
+	json_object *value;
+	if (!json_object_object_get_ex(object, name, &value) || !json_object_is_type(value, json_type_array)) return false;
+	for (size_t i = 0; i < json_object_array_length(value); i++)
+		if (!json_object_is_type(json_object_array_get_idx(value, i), json_type_string)) return false;
+	return true;
+}
+
+static bool detect_result_object_array(json_object *object, const char *name, bool required)
+{
+	json_object *value;
+	if (!json_object_object_get_ex(object, name, &value)) return !required;
+	if (!json_object_is_type(value, json_type_array)) return false;
+	for (size_t i = 0; i < json_object_array_length(value); i++)
+		if (!json_object_is_type(json_object_array_get_idx(value, i), json_type_object)) return false;
+	return true;
+}
+
+static bool detect_probe_result_valid(json_object *value)
+{
+	static const char *const required[] = {
+		"Domain", "DNSOK", "TCPOK", "TLSOK", "TLS12OK", "TLS13OK", "HTTPOK",
+		"ResolvedIPs", "FailureCode", "FailureReason", "LatencyMS", "PathVerdict", "PathReason"
+	};
+	return detect_result_has(value, required, sizeof(required) / sizeof(required[0])) &&
+		detect_result_string(value, "Domain") && detect_result_bool(value, "DNSOK") &&
+		detect_result_bool(value, "TCPOK") && detect_result_bool(value, "TLSOK") &&
+		detect_result_nullable_bool(value, "TLS12OK") && detect_result_nullable_bool(value, "TLS13OK") &&
+		detect_result_nullable_bool(value, "HTTPOK") && detect_result_string_array(value, "ResolvedIPs") &&
+		detect_result_string(value, "FailureCode") && detect_result_string(value, "FailureReason") &&
+		detect_result_int(value, "LatencyMS", 0) && detect_result_string(value, "PathVerdict") &&
+		detect_result_string(value, "PathReason");
+}
+
+static bool detect_classify_result_valid(json_object *value)
+{
+	static const char *const required[] = {
+		"target", "verdict", "reason", "repeats", "probes", "duration", "trigger_len",
+		"props", "composed", "raw_usable", "trace"
+	};
+	return detect_result_has(value, required, sizeof(required) / sizeof(required[0])) &&
+		detect_result_string(value, "target") && detect_result_string(value, "verdict") &&
+		detect_result_string(value, "reason") && detect_result_int(value, "repeats", 1) &&
+		detect_result_int(value, "probes", 0) && detect_result_string(value, "duration") &&
+		detect_result_int(value, "trigger_len", 0) && detect_result_object_field(value, "props") &&
+		detect_result_bool(value, "composed") && detect_result_bool(value, "raw_usable") &&
+		detect_result_object_array(value, "trace", true);
+}
+
+static bool detect_quic_result_valid(json_object *value)
+{
+	static const char *const required[] = { "target", "addr", "verdict", "reason", "repeats", "probes", "duration", "props" };
+	return detect_result_has(value, required, sizeof(required) / sizeof(required[0])) &&
+		detect_result_string(value, "target") && detect_result_string(value, "addr") &&
+		detect_result_string(value, "verdict") && detect_result_string(value, "reason") &&
+		detect_result_int(value, "repeats", 1) && detect_result_int(value, "probes", 0) &&
+		detect_result_string(value, "duration") && detect_result_object_field(value, "props") &&
+		detect_result_object_array(value, "trace", false);
+}
+
+static bool detect_voice_result_valid(json_object *value)
+{
+	static const char *const required[] = { "target", "verdict", "reason", "repeats", "probes", "duration", "marked" };
+	return detect_result_has(value, required, sizeof(required) / sizeof(required[0])) &&
+		detect_result_string(value, "target") && detect_result_string(value, "verdict") &&
+		detect_result_string(value, "reason") && detect_result_int(value, "repeats", 1) &&
+		detect_result_int(value, "probes", 0) && detect_result_string(value, "duration") &&
+		detect_result_bool(value, "marked") && detect_result_object_array(value, "trace", false);
+}
+
+static bool detect_tcp16_result_valid(json_object *value)
+{
+	static const char *const required[] = { "Target", "SNI", "Alive", "Detected", "DiedAtKB", "Err", "RTT" };
+	return detect_result_has(value, required, sizeof(required) / sizeof(required[0])) &&
+		detect_result_object_field(value, "Target") && detect_result_string(value, "SNI") &&
+		detect_result_bool(value, "Alive") && detect_result_bool(value, "Detected") &&
+		detect_result_int(value, "DiedAtKB", 0) && detect_result_string(value, "Err") &&
+		detect_result_number(value, "RTT", 0);
+}
+
+static bool detect_json_result_valid(const char *kind, const unsigned char *data, size_t length)
 {
 	struct json_tokener *tokener = json_tokener_new();
 	if (tokener == NULL || data == NULL || length == 0 || length > Z2K_DETECT_OUTPUT_LIMIT) {
@@ -181,6 +317,12 @@ static bool detect_json_object(const unsigned char *data, size_t length)
 		unsigned char c = data[parsed++];
 		if (c != ' ' && c != '\t' && c != '\n' && c != '\r') valid = false;
 	}
+	if (valid && !strcmp(kind, "probe")) valid = detect_probe_result_valid(value);
+	else if (valid && !strcmp(kind, "classify")) valid = detect_classify_result_valid(value);
+	else if (valid && !strcmp(kind, "quic")) valid = detect_quic_result_valid(value);
+	else if (valid && !strcmp(kind, "voice")) valid = detect_voice_result_valid(value);
+	else if (valid && !strcmp(kind, "tcp16")) valid = detect_tcp16_result_valid(value);
+	else valid = false;
 	if (value != NULL) json_object_put(value);
 	json_tokener_free(tokener);
 	return valid;
@@ -208,7 +350,7 @@ int z2m_detect_operation(const struct z2m_request *request)
 	argv[argc++] = "-repeats"; argv[argc++] = repeats_text; argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json"; argv[argc] = NULL;
 	unsigned char *out, *err; size_t out_len, err_len; int exit_code; bool timed_out, output_truncated;
 	if (detect_run(argv, (unsigned int)timeout, &out, &out_len, &err, &err_len, &exit_code, &timed_out, &output_truncated) < 0) return z2m_fail(request->request_id, "EINTERNAL", "supervise");
-	if (!timed_out && !output_truncated && !detect_json_object(out, out_len)) {
+	if (!timed_out && !output_truncated && !detect_json_result_valid(kind, out, out_len)) {
 		free(out); free(err); return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 	}
 	json_object *data = z2m_json_object(), *argv_data = json_object_new_array();

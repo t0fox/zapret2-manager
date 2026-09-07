@@ -41,7 +41,7 @@ function invoke(operation, args) {
 test.before(() => {
   fs.rmSync(lateMarker, { force: true });
   const marker = lateMarker.replaceAll('\\', '/');
-  fs.writeFileSync(fakeDetect, `#!/bin/sh\nif [ "$1" = probe ] && [ "$2" = sleep.example.com:443 ]; then (sleep 0.2; printf late > ${marker}) & wait; fi\nif [ "$1" = probe ] && [ "$2" = overflow.example.com:443 ]; then yes x | head -c 70000; exit 0; fi\nif [ "$2" = malformed.example.com:443 ]; then printf 'not-json'; exit 0; fi\nif [ "$2" = truncated.example.com:443 ]; then printf '{"fixture":true'; exit 0; fi\nif [ "$2" = array.example.com:443 ]; then printf '[]'; exit 0; fi\nprintf '{"fixture":true}\\n'\n`, { mode: 0o755 });
+  fs.writeFileSync(fakeDetect, `#!/bin/sh\nif [ "$1" = probe ] && [ "$2" = sleep.example.com:443 ]; then (sleep 0.2; printf late > ${marker}) & wait; fi\nif [ "$1" = probe ] && [ "$2" = overflow.example.com:443 ]; then yes x | head -c 70000; exit 0; fi\nif [ "$2" = malformed.example.com:443 ]; then printf 'not-json'; exit 0; fi\nif [ "$2" = truncated.example.com:443 ]; then printf '{"fixture":true'; exit 0; fi\nif [ "$2" = array.example.com:443 ]; then printf '[]'; exit 0; fi\ncase "$2" in\n  invalid-probe.example.com:443|invalid-classify.example.com:443|invalid-quic.example.com:443|invalid-voice.example.com:443|invalid-tcp16.example.com:443) printf '{"fixture":true}\\n'; exit 0 ;;\nesac\ncase "$1" in\n  probe) printf '%s\\n' '{"Domain":"example.com","DNSOK":true,"TCPOK":true,"TLSOK":true,"TLS12OK":true,"TLS13OK":true,"HTTPOK":true,"ResolvedIPs":["192.0.2.1"],"FailureCode":"","FailureReason":"","LatencyMS":12,"PathVerdict":"clear","PathReason":""}' ;;\n  classify) printf '%s\\n' '{"target":"example.com:443","verdict":"clear","reason":"fixture","repeats":3,"probes":3,"duration":"1s","trigger_len":0,"props":{},"composed":false,"raw_usable":true,"trace":[]}' ;;\n  quic) printf '%s\\n' '{"target":"example.com:443","addr":"192.0.2.1:443","verdict":"clear","reason":"fixture","repeats":1,"probes":1,"duration":"1s","props":{},"trace":[]}' ;;\n  voice) printf '%s\\n' '{"target":"example.com:443","verdict":"clear","reason":"fixture","repeats":1,"probes":1,"duration":"1s","marked":false,"trace":[]}' ;;\n  tcp16) printf '%s\\n' '{"Target":{"ID":"fixture","ASN":64500,"Provider":"fixture","IP":"192.0.2.1","Port":443,"SNI":"example.com"},"SNI":"example.com","Alive":true,"Detected":false,"DiedAtKB":0,"Err":"","RTT":1000}' ;;\n  *) printf '{"fixture":true}\\n' ;;\nesac\n`, { mode: 0o755 });
   compile();
 });
 
@@ -122,5 +122,31 @@ test('rejects malformed, truncated, and non-object Detect JSON before returning 
   }
   const valid = invoke('z2k_detect_probe', { host: 'valid.example.com', port: 443, repeats: 1, timeoutMs: 1000 });
   assert.equal(valid.ok, true);
-  assert.equal(valid.data.stdout, '{"fixture":true}\n');
+  assert.equal(JSON.parse(valid.data.stdout).Domain, 'example.com');
+});
+
+test('enforces operation-specific native Detect result schemas for every operation', () => {
+  for (const kind of ['probe', 'classify', 'quic', 'voice', 'tcp16']) {
+    const operation = `z2k_detect_${kind}`;
+    const args = { host: `invalid-${kind}.example.com`, port: 443, repeats: kind === 'classify' ? 3 : 1, timeoutMs: 1000 };
+    if (kind === 'classify') args.hello = 'modern';
+    const invalid = invoke(operation, args);
+    assert.equal(invalid.ok, false, operation);
+    assert.equal(invalid.error.code, 'ESCHEMA', operation);
+    const valid = invoke(operation, { ...args, host: 'valid.example.com' });
+    assert.equal(valid.ok, true, operation);
+    assert.equal(valid.data.outputTruncated, false, operation);
+    assert.equal(valid.data.timedOut, false, operation);
+    assert.equal(valid.data.argv[1], kind, operation);
+  }
+});
+
+test('accepts a maximum-length hostname and rejects an overlong hostname at the native boundary', () => {
+  const maxHost = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+  const valid = invoke('z2k_detect_probe', { host: maxHost, port: 443, repeats: 1, timeoutMs: 1000 });
+  assert.equal(valid.ok, true);
+  assert.equal(valid.data.argv[2], `${maxHost}:443`);
+  const invalid = invoke('z2k_detect_probe', { host: `${maxHost}a`, port: 443, repeats: 1, timeoutMs: 1000 });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error.code, 'ESCHEMA');
 });

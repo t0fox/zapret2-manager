@@ -2,6 +2,7 @@
 
 const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
 const DETECT_EXECUTABLE = '/usr/libexec/zapret2-manager/z2k-detect';
+const DETECT_ARG_MAX = 320;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function exact_fields(value, names) {
@@ -11,7 +12,7 @@ function exact_fields(value, names) {
 }
 function string_array(value) {
 	if (type(value) != 'array') return false;
-	for (let item in value) if (type(item) != 'string' || length(item) > 128) return false;
+	for (let item in value) if (type(item) != 'string' || length(item) > DETECT_ARG_MAX) return false;
 	return true;
 }
 export const detect_argv_valid = function(operation, value) {

@@ -158,6 +158,24 @@ test('keeps timeout and bounded-output metadata valid without requiring complete
   assert.equal(overflowResult.result.data.outputTruncated, true);
 });
 
+test('keeps native IPv6 prevalidation aligned with the adapter', async () => {
+  fs.rmSync(SOCKET_PATH, { force: true });
+  const result = await invoke(`native.z2k_detect('z2k_detect_probe', { host: '1:2:3:4:5:6:7:8:', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`);
+  assert.equal(result.error.code, 'EINPUT');
+});
+
+test('accepts a maximum-length hostname and rejects an overlong hostname in native-helper', async () => {
+  const maxHost = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+  const data = detectData('probe');
+  data.argv[2] = `${maxHost}:443`;
+  const expression = `native.z2k_detect('z2k_detect_probe', ${JSON.stringify({ host: maxHost, port: 443, repeats: 1, timeoutMs: 1000 })}, 1000)`;
+  const valid = await roundTrip(expression, ({ header }) => childExited(header.requestId, success(header.requestId, data)));
+  assert.equal(valid.result.ok, true);
+  const overlong = `${maxHost}a`;
+  const invalid = await invoke(`native.z2k_detect('z2k_detect_probe', ${JSON.stringify({ host: overlong, port: 443, repeats: 1, timeoutMs: 1000 })}, 1000)`);
+  assert.equal(invalid.error.code, 'EINPUT');
+});
+
 test('rejects invalid typed arguments before opening the fixed socket', async () => {
   fs.rmSync(SOCKET_PATH, { force: true });
   for (const expression of [

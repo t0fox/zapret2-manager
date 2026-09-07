@@ -110,6 +110,16 @@ test('Detect adapter applies strict host and endpoint validation before its nati
   assert.deepEqual(result, { ok: true, data });
 });
 
+test('Detect adapter accepts the maximum hostname and rejects an overlong hostname', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  const maxHost = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+  const data = detectData('probe', undefined, {}, `${maxHost}:443`);
+  const valid = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ host: maxHost, port: 443, repeats: 1, timeoutMs: 1000 })}, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
+  assert.equal(valid.ok, true);
+  const invalid = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ host: `${maxHost}a`, port: 443, repeats: 1, timeoutMs: 1000 })}, { invoke: function() { return { ok: true, data: ${JSON.stringify(data)} }; } })`);
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error.code, 'EINPUT');
+});
+
 test('Detect adapter validates bounded operation-specific JSON before returning success', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   for (const kind of operations) {
     const operation = `z2k_detect_${kind}`;
