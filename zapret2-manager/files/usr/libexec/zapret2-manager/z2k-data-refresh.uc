@@ -101,6 +101,9 @@ function owner_data_identity(value) {
 	if (!object(value)) return null;
 	if (valid_digest(value.releaseDataIdentity)) return value.releaseDataIdentity;
 	if (object(value.activationEvidence) && valid_digest(value.activationEvidence.releaseDataIdentity)) return value.activationEvidence.releaseDataIdentity;
+	if (object(value.authority) && valid_digest(value.authority.releaseDataIdentity)) return value.authority.releaseDataIdentity;
+	if (object(value.runtime) && valid_digest(value.runtime.releaseDataIdentity)) return value.runtime.releaseDataIdentity;
+	if (object(value.installed) && valid_digest(value.installed.releaseDataIdentity)) return value.installed.releaseDataIdentity;
 	return null;
 }
 function internal_authority(seams) {
