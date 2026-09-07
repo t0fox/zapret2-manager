@@ -229,3 +229,82 @@ all Task 10 native/helper/broker/adapter/RPC/artifact tests passed.
   the handoff below.
 - Not run: router/OpenWrt deployment, live network Detect, browser acceptance,
   merge, push, or deployment. Unrelated Scanner work was preserved.
+
+## Fix-round 3 — native result schemas and boundary consistency
+
+Status: IMPLEMENTED. This round addresses the final re-review findings only;
+router deployment, browser acceptance, live Detect execution, merge and push
+remain intentionally out of scope.
+
+### Corrections
+
+- `scanner.c` now parses and validates the existing operation-specific Detect
+  result contract before emitting native `ok: true`: required fields and
+  types are enforced for `probe`, `classify`, `quic`, `voice`, and `tcp16`.
+  Unknown/incompatible or missing-field fixtures therefore fail at the
+  native boundary with `ESCHEMA`; the ucode/RPC validator remains strict and
+  unchanged as the typed adapter check. Timeout and bounded-output paths keep
+  their incomplete stdout and metadata semantics.
+- `core/detect-result.uc` raises the argv element bound to 320, covering the
+  actual 253-character hostname plus endpoint suffix and fixed options while
+  retaining fixed argv structure and control-character rejection. Maximum
+  valid and overlong hostname tests cover native, helper and adapter seams.
+- `core/native-helper.uc` now applies the same leading/trailing-colon guard
+  as `z2k-detect.uc` for uncompressed IPv6 values.
+
+### TDD evidence
+
+RED was captured after adding the fix-round regressions and before the
+implementation:
+
+```text
+wsl.exe -e bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 180s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs'
+```
+
+Result: 54 tests, 50 passed, 4 failed. The failures were native operation
+specific fixture acceptance, native-helper max-length hostname rejection,
+native-helper trailing-colon IPv6 acceptance, and adapter max-length
+hostname rejection.
+
+GREEN focused run:
+
+```text
+wsl.exe -e bash -lc 'set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 180s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs'
+```
+
+Result: 54 tests, 54 passed, 0 failed. The focused product RPC suite was
+also run independently: 7 passed, 0 failed.
+
+### Verification
+
+Final bounded aggregate:
+
+```text
+wsl.exe -e bash -lc 'set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 240s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/fs-helper-protocol.test.mjs tests/native/core/native-helper.test.mjs tests/native/core/scanner-probe-native.test.mjs tests/native/core/native-helper-broker.test.mjs tests/native/package-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs tests/product/z2k-detect-artifact.test.mjs'
+```
+
+Result: 180 tests, 177 passed, 3 failed. The same unrelated baseline failures
+remain: `package and service lifecycle fail closed when bootstrap fails`,
+`native bootstrap solely owns managed roots and recursive parent traversal`,
+and `Task 4 source hashes bind the recorded executed input commit blobs`.
+The last is the Windows linked-worktree Git-pointer boundary; all Task 10
+native C, helper, broker, adapter/RPC and artifact tests passed.
+
+- Focused WSL compilation passed with `cc -std=c11 -Wall -Wextra -Werror`,
+  `pkg-config json-c`, and the native Detect fixture for all five operations.
+- `node --check` passed for all changed `.mjs` tests.
+- `protocol-v1.json` parsed successfully; canonical operation registrations
+  remain unchanged and include all five `z2k_detect_*` names.
+- `node scripts/validate-knowledge.mjs` passed: `Knowledge validation passed.`
+- PowerShell `git diff --check` and staged diff check passed. UCode imports and
+  seams passed with `/opt/ucode/bin/ucode` and `LD_LIBRARY_PATH=/opt/ucode/lib`.
+
+### Commits and boundaries
+
+- Fix-round 3 implementation/tests: `74bd5984e57f338185034c7c314a4d0146bdcca1`
+  (`fix: validate Detect results at native boundary`).
+- Report: separate final report commit; exact hash is the final HEAD returned
+  in the handoff below.
+- Base before this round: `f4cb82d0be707866a2b556446961e16fcb562ba9`.
+- Not run: router/OpenWrt deployment, live network Detect, browser acceptance,
+  merge, push, or deployment. Unrelated Scanner work was preserved.
