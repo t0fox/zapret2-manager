@@ -357,3 +357,101 @@ browser acceptance, package-E2E, merge, push, delegation, or other model was
 run. Task 14 remains the owner of broader Scanner/shell compatibility cleanup;
 this round only closed the Task 11 async UI boundary and typed evidence
 rendering.
+
+## Fix-round 4 — guarded status loads and canonical typed Detect history
+
+### Findings addressed
+
+- `z2m-scanner.js` now assigns every status load a monotonic generation and
+  re-opens the module only for the active load. The success and error branches
+  check both generation and `disposed` before every post-await status/error
+  mutation. A newer load supersedes an older one, and unmount discards a late
+  status result without publishing an error or repainting the UI.
+- Scanner history writes a bounded `z2m-detect-history.v1` envelope containing
+  the typed Detect operation, request target, provenance, and typed report
+  data. `z2m-scanner-product.js` accepts only that exact schema, one of the
+  five typed Detect operations, a valid target/timestamp, matching
+  `z2k-detect` provenance, and an object-valued typed report. Unknown, legacy,
+  stale-provenance, malformed, and non-envelope records are dropped before
+  rendering.
+- History detail is typed-only and presents the canonical operation/verdict
+  envelope. The legacy evidence/ranking/best/generated-strategy reader and
+  Scanner-to-Strategy handoff button are removed from the product history
+  boundary; no `api.scanner` or raw Scanner history shape was restored.
+
+### Fix-round TDD evidence
+
+RED after adding the status-load race and typed-history tests, before the
+production changes:
+
+```text
+node --test tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-history.test.mjs
+exit 1; 8 tests: 4 passed, 4 failed.
+Failures: an older status load and an unmounted status load still published;
+legacy/stale/malformed history was still exposed; and the product still had
+the legacy history reader.
+```
+
+GREEN focused UI/API and production-shaped history gate:
+
+```text
+node --test tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-history.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs
+13 tests: 13 passed, 0 failed.
+```
+
+The focused Scanner/package/history/start-order gate also passed:
+
+```text
+node --test tests/native/avatar-strategy-scanner-package.test.mjs tests/product/scanner-history-nfqueue-contract.test.mjs tests/product/scanner-start-order.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-history.test.mjs
+30 tests: 30 passed, 0 failed.
+```
+
+### Bounded verification and boundaries
+
+The bounded WSL UCode gate covered Detect RPC/helper/native validation,
+receipt/installed authority, lifecycle/runtime, Scanner RPC/API boundary, and
+the new status/history UI regressions:
+
+```text
+wsl.exe -e bash -lc "set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 240s node --test tests/product/z2k-detect-rpc.test.mjs tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-receipt-v3.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-runtime-composition.test.mjs tests/product/z2k-runtime-readiness.test.mjs tests/product/z2k-runtime-summary.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-history.test.mjs"
+159 tests: 158 passed, 0 failed, 1 existing TODO.
+```
+
+The unchanged broad Scanner characterization gate remained non-green:
+
+```text
+node --test tests/ui/scanner-start-race.test.mjs tests/ui/perf-2-regression.test.mjs tests/ui/scanner-ui-rework.test.mjs tests/product/scanner-budget-contract.test.mjs tests/product/scanner-start-envelope.test.mjs
+39 tests: 29 passed, 10 failed.
+```
+
+Those ten failures are retained and classified as existing characterization
+boundaries: retired Scanner record/polling/cancel expectations, old Avatar
+layout/result strings, and the absent Scanner-product BlockCheck child
+artifact; one PERF-2 Telegram-navigation assertion is unrelated to this
+scope. The separate Scanner Hub test remains an honest baseline failure:
+`tests/ui/scanner-hub-ui.test.mjs` cannot open the absent
+`z2m-scanner-hub.js` artifact. The WSL TODO remains the existing Task 4
+transaction-slice TODO (`candidate CAS distinguishes unrelated revision
+changes`). No assertion was weakened and no fallback was restored.
+
+`node --check` passed for both changed production JS files and both changed UI
+test modules. `node scripts/validate-knowledge.mjs` passed with
+`Knowledge validation passed.`; `node scripts/docs.mjs verify` passed with
+Quartz SHA `ab346fa66a895e12d63a308e70ce330ba795822a`; `git diff --check`
+passed. UCode imports were exercised by the bounded WSL gate.
+
+### Fix-round 4 files and commits
+
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner-product.js`
+- `tests/ui/scanner-detect-generation.test.mjs`
+- `tests/ui/scanner-detect-history.test.mjs`
+- this report
+
+Implementation commit: `ef93df89` (`fix: close Task 11 Scanner load and history races`).
+The report is committed separately immediately after this implementation
+commit; the final HEAD and worktree state are recorded in the handoff.
+
+No router/OpenWrt deployment, live RPC/ubus invocation, live network Detect,
+browser acceptance, package-E2E, merge, push, delegation, or other model was
+run. Router/browser/live acceptance remains intentionally unrun.
