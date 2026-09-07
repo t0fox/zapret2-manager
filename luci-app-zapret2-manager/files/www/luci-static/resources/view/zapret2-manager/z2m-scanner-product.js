@@ -8,6 +8,8 @@ var TABS = [
   { id: 'history', label: _('История') }
 ];
 var state = { activeTab: 'search', child: null, childContext: null, host: null, nav: null, root: null, ctx: null, history: [], detail: null, historyError: null };
+var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
+var DETECT_OPERATIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -16,46 +18,50 @@ function dateValue(value) { if (typeof value === 'number' && isFinite(value)) re
 function icon(name, className) { return Icons.wrappedNode(name, { size: 18, wrapperClass: 'z2m-scanner-icon' + (className ? ' ' + className : '') }); }
 function statusLabel(value) { return ({ completed: _('Завершено'), running: _('Выполняется'), probing: _('Выполняется'), starting: _('Подготавливается'), cancelled: _('Остановлено'), stopped: _('Остановлено'), error: _('Ошибка') })[text(value)] || _('Состояние уточняется'); }
 function statusClass(value) { return ({ completed: 'is-success', running: 'is-running', probing: 'is-running', starting: 'is-running', cancelled: 'is-stopped', stopped: 'is-stopped', error: 'is-error' })[text(value)] || 'is-unknown'; }
+function validHistoryTarget(value) {
+  var target = text(value).trim().toLowerCase();
+  if (!target || target.length > 253 || target.indexOf('://') >= 0 || target.indexOf('/') >= 0 || target.indexOf(':') >= 0 || target.indexOf(' ') >= 0 || target.indexOf('.') < 0) return null;
+  var labels = target.split('.');
+  for (var i = 0; i < labels.length; i++) {
+    if (!labels[i] || labels[i].length > 63 || labels[i].startsWith('-') || labels[i].endsWith('-') || !/^[a-z0-9-]+$/.test(labels[i])) return null;
+  }
+  return target;
+}
+function normalizeDetectHistory(value) {
+  value = object(value);
+  var report = object(value.report), provenance = object(value.provenance), request = object(value.request), data = report.data;
+  var operation = text(value.operation).toLowerCase();
+  var target = validHistoryTarget(request.target);
+  if (value.schema !== DETECT_HISTORY_SCHEMA || !text(value.id) || text(value.id).length > 128 || value.status !== 'completed' || !dateValue(value.createdAt) || !target || DETECT_OPERATIONS.indexOf(operation) < 0 || provenance.source !== 'z2k-detect' || provenance.schema !== DETECT_HISTORY_SCHEMA || provenance.operation !== operation || report.typedDetect !== true || report.operation !== operation || !data || typeof data !== 'object' || Array.isArray(data)) return null;
+  return {
+    schema: DETECT_HISTORY_SCHEMA,
+    id: text(value.id),
+    status: 'completed',
+    createdAt: value.createdAt,
+    request: { target: target },
+    operation: operation,
+    provenance: { source: 'z2k-detect', schema: DETECT_HISTORY_SCHEMA, operation: operation },
+    report: { typedDetect: true, operation: operation, data: data }
+  };
+}
+function detectVerdict(record) {
+  var normalized = normalizeDetectHistory(record), data = normalized ? object(normalized.report.data) : {};
+  return text(data.verdict || data.PathVerdict || (data.Detected === true ? 'detected' : data.Detected === false ? 'clear' : data.FailureCode || 'observed'));
+}
 function historyStatusLabel(item) {
-  item = object(item);
-  var counts = object(item.counts);
-  var working = counts.working != null ? counts.working : 0;
-  var status = text(item.status);
-  if (status === 'completed' && working > 0) return _('Найдено');
-  if (status === 'completed' && working === 0) return _('Не найдено');
-  if (status === 'cancelled' || status === 'stopped') return _('Остановлено');
-  if (status === 'error') return _('Ошибка');
-  return statusLabel(status);
+  var normalized = normalizeDetectHistory(item);
+  return normalized ? statusLabel(normalized.status) : _('История недоступна');
 }
 function historyStatusClass(item) {
-  item = object(item);
-  var counts = object(item.counts);
-  var working = counts.working != null ? counts.working : 0;
-  var status = text(item.status);
-  if (status === 'completed' && working > 0) return 'is-success';
-  if (status === 'completed' && working === 0) return 'is-stopped';
-  if (status === 'cancelled' || status === 'stopped') return 'is-stopped';
-  if (status === 'error') return 'is-error';
-  return statusClass(status);
-}
-function isObviouslyInvalidHistory(item) {
-  item = object(item);
-  var req = object(item.request);
-  var target = text(req.target);
-  if (!target) return false;
-  var hasUrl = target.indexOf('://') >= 0 || target.indexOf(' ') >= 0 || target.indexOf('/') >= 0 && target.length > 253;
-  if (!hasUrl) return false;
-  var progress = item.progress != null ? item.progress : 0;
-  var total = item.total != null ? item.total : 0;
-  return progress === 0 && total === 0 && text(item.status) === 'error';
+  var normalized = normalizeDetectHistory(item);
+  return normalized ? statusClass(normalized.status) : 'is-error';
 }
 function humanDate(value) { var time = dateValue(value); return time ? new Date(time).toLocaleString() : _('Дата неизвестна'); }
-function historyTimestamp(item) { item = object(item); return item.startedAt || item.createdAt || item.updatedAt || item.finishedAt || item.completedAt; }
+function historyTimestamp(item) { var normalized = normalizeDetectHistory(item); return normalized ? normalized.createdAt : null; }
 function historyTime(value) { var time = dateValue(value); return time ? new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : _('Время неизвестно'); }
-function diagnosticRecord(item) { item = object(item); var provenance = object(item.provenance || object(item.metadata).provenance); return item.debug === true || item.kind === 'diagnostic' || item.source === 'diagnostic' || provenance.source === 'diagnostic' || /^scan-debug-/i.test(text(item.id)); }
+function diagnosticRecord() { return false; }
 function historySort(items) {
-  var filtered = array(items).filter(function (it) { return !isObviouslyInvalidHistory(it); });
-  return filtered.slice().sort(function (a, b) { return Number(diagnosticRecord(a)) - Number(diagnosticRecord(b)) || dateValue(historyTimestamp(b)) - dateValue(historyTimestamp(a)); });
+  return array(items).map(normalizeDetectHistory).filter(function (item) { return !!item; }).sort(function (a, b) { return Number(diagnosticRecord(a)) - Number(diagnosticRecord(b)) || dateValue(historyTimestamp(b)) - dateValue(historyTimestamp(a)); });
 }
 function historyGroupKey(value) { var time = dateValue(value); return time ? new Date(time).toISOString().slice(0, 10) : 'undated'; }
 function historyGroupLabel(key) {
@@ -68,62 +74,23 @@ function historyGroupLabel(key) {
   return date.toLocaleDateString([], { day: 'numeric', month: 'long', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 function historyCounts(item) {
-  var counts = object(item.counts), tested = counts.tested !== undefined ? counts.tested : (item.progress !== undefined ? item.progress : item.tested), total = counts.total !== undefined ? counts.total : item.total, values = [];
-  if (tested !== undefined && total !== undefined && (text(item.status) === 'running' || text(item.status) === 'probing')) values.push(String(tested) + ' ' + _('из') + ' ' + String(total) + ' ' + _('проверено'));
-  else if (tested !== undefined) values.push(_('Проверено ') + String(tested) + ' ' + _('вариантов'));
-  if (counts.working !== undefined) values.push(_('рабочих ') + String(counts.working));
-  if (counts.failed !== undefined) values.push(_('ошибок ') + String(counts.failed));
-  return values.join(' · ') || _('Результаты уточняются');
+  var normalized = normalizeDetectHistory(item);
+  return normalized ? normalized.operation.toUpperCase() + ' · ' + detectVerdict(normalized) : _('История недоступна');
 }
-function historyBest(record) { var report = object(object(record).report), evidence = object(report.evidence); return object(report.bestReference || report.best_strategy || report.best || evidence.best || (array(evidence.ranked)[0])); }
-function isGeneratedCandidate(cand) {
-  cand = object(cand);
-  var id = cand.candidateId || cand.scannerId || cand.id || cand.strategyId || '';
-  return cand.saveRequired === true || cand.identityKind === 'generated' || String(id).indexOf('generated:') === 0;
-}
-function handoffStrategy(ctx, strategy, provenance) {
-  if (typeof sessionStorage === 'undefined') return;
-  strategy.metadata = Object.assign({}, object(strategy.metadata), { provenance: Object.assign({}, object(strategy.metadata).provenance, provenance) });
-  sessionStorage.setItem('z2m.strategy.scanner-handoff.v1', JSON.stringify({ version: 1, strategy: strategy, provenance: strategy.metadata.provenance }));
-  ctx.shell.closeModal();
-  if (ctx.navigate) ctx.navigate('strategy');
-}
-function openHistoryStrategy(ctx, record) {
-  var best = historyBest(record);
-  var candidateId = best.candidateId || best.scannerId || best.id || best.strategyId || best.strategy_id;
-  if (!candidateId || typeof sessionStorage === 'undefined') return;
-  var isGen = isGeneratedCandidate(best);
-  var target = object(record.request).target || '';
-  // Typed Detect returns observations, not a mutation-capable Scanner record. Handoff
-  // remains local and explicit; the Strategy subsystem owns any later mutation.
-  if (isGen) {
-    var generated = object(best.strategy || best.generatedStrategy || best);
-    generated.id = text(generated.id || candidateId);
-    generated.name = text(generated.name || best.strategyName || _('Стратегия из проверки'));
-    var generatedTokens = array(generated.compiledTokens || best.compiledTokens);
-    generated.profiles = array(generated.profiles).length ? generated.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(generated.args || (generatedTokens.length ? generatedTokens.join(' ') : '')) }];
-    handoffStrategy(ctx, generated, { source: 'scanner', scanId: record.id, candidateId: candidateId, target: target });
-    return;
-  }
-  // Catalog/user Strategy: use existing Strategy reference – no creation, handoff to preview/validate/apply
-  var strategyId = best.strategyId || best.id || candidateId;
-  var strategy = object(best.strategy || best.generatedStrategy || best);
-  strategy.id = text(strategy.id || strategyId);
-  strategy.name = text(strategy.name || best.strategyName || _('Стратегия из проверки'));
-  if (best.strategyRevision != null) strategy.revision = best.strategyRevision;
-  var tokens = array(strategy.compiledTokens || best.compiledTokens);
-  strategy.profiles = array(strategy.profiles).length ? strategy.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(strategy.args || (tokens.length ? tokens.join(' ') : '')) }];
-  handoffStrategy(ctx, strategy, { source: 'scanner', scanId: record.id, strategyId: strategyId, candidateId: candidateId, target: target });
-}
+function historyBest(record) { var normalized = normalizeDetectHistory(record); return normalized ? normalized.report.data : {}; }
 function historyDetailBody(ctx, record) {
-  record = object(record); var request = object(record.request), counts = object(record.counts), report = object(record.report), best = historyBest(record), tested = counts.tested !== undefined ? counts.tested : (record.tested || report.tested || report.total_tested || 0), working = counts.working !== undefined ? counts.working : (report.working_count !== undefined ? report.working_count : array(object(report.evidence).ranked).length), failed = counts.failed !== undefined ? counts.failed : (report.failed_count !== undefined ? report.failed_count : array(object(report.evidence).failed).length), technical = { id: record.id, generation: record.generation, phase: record.phase, revision: record.revision, paths: record.paths, runtime: record.runtime };
-  return E('div', { 'class': 'z2m-scanner-detail' }, [E('div', { 'class': 'z2m-scanner-detail-heading' }, [icon(statusClass(record.status) === 'is-error' ? 'warning' : 'history'), E('div', {}, [E('strong', {}, request.target || _('Сайт не указан')), E('span', {}, statusLabel(record.status) + ' · ' + humanDate(record.startedAt || record.createdAt))])]), E('div', { 'class': 'z2m-scanner-detail-grid' }, [E('div', {}, [E('span', {}, _('Проверено')), E('strong', {}, String(tested))]), E('div', {}, [E('span', {}, _('Рабочих')), E('strong', {}, String(working))]), E('div', {}, [E('span', {}, _('Ошибок')), E('strong', {}, String(failed))])]), best && (best.id || best.strategyId || best.candidateId) ? E('div', { 'class': 'z2m-scanner-detail-best' }, [icon('strategy', 'is-success'), E('div', {}, [E('span', {}, _('Лучший результат')), E('strong', {}, text(best.name || best.strategyName || best.candidateId || _('Вариант найден')))])]) : null, E('details', { 'class': 'z2m-scanner-technical' }, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, JSON.stringify(technical, null, 2))])]);
+  var normalized = normalizeDetectHistory(record);
+  if (!normalized) return ctx.shell.statePanel({ title: _('История недоступна'), message: _('Запись не содержит подтверждённого результата Z2K Detect.'), kind: 'info' });
+  var data = object(normalized.report.data);
+  var verdict = detectVerdict(normalized);
+  var reason = text(data.reason || data.PathReason || data.FailureReason || data.Err || _('Результат получен от Z2K Detect.'));
+  var technical = { schema: normalized.schema, id: normalized.id, operation: normalized.operation, provenance: normalized.provenance, report: normalized.report };
+  return E('div', { 'class': 'z2m-scanner-detail' }, [E('div', { 'class': 'z2m-scanner-detail-heading' }, [icon('history'), E('div', {}, [E('strong', {}, normalized.request.target), E('span', {}, normalized.operation.toUpperCase() + ' · ' + verdict + ' · ' + humanDate(normalized.createdAt))])]), E('div', { 'class': 'z2m-scanner-detail-grid' }, [E('div', {}, [E('span', {}, _('Операция')), E('strong', {}, normalized.operation.toUpperCase())]), E('div', {}, [E('span', {}, _('Результат')), E('strong', {}, verdict)]), E('div', {}, [E('span', {}, _('Состояние')), E('strong', {}, statusLabel(normalized.status))])]), E('p', { 'class': 'z2m-scanner-detail-reason' }, reason), E('details', { 'class': 'z2m-scanner-technical' }, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, JSON.stringify(technical, null, 2))])]);
 }
 function openHistoryDetail(ctx, item, button) {
   button.disabled = true;
   Promise.resolve(object(item)).then(function (record) {
     var footer = [ctx.shell.button(_('Закрыть'), '', ctx.shell.closeModal)];
-    if (historyBest(record).id || historyBest(record).strategyId || historyBest(record).candidateId) footer.push(ctx.shell.button(_('Открыть в Стратегиях'), 'primary sm', function () { openHistoryStrategy(ctx, record); }));
     footer.push(ctx.shell.button(_('Проверить снова'), 'sm', function () { ctx.shell.closeModal(); if (ctx.navigate) ctx.navigate('scan'); }));
     ctx.shell.openModal(_('Подробности проверки'), historyDetailBody(ctx, record), footer);
     button.disabled = false;
@@ -143,7 +110,7 @@ function historyList(ctx) {
   return Promise.resolve().then(function () {
     var value = typeof sessionStorage === 'undefined' ? [] : JSON.parse(sessionStorage.getItem('z2m.detect.history.v1') || '[]');
     state.historyError = null;
-    state.history = historySort(array(value).slice(0, 50));
+    state.history = historySort(array(value)).slice(0, 50);
     return { history: state.history };
   }).catch(function (error) {
     state.historyError = ctx.api.normalizeError ? ctx.api.normalizeError({ code: 'EDETECT_SCHEMA', message: 'Detect history is malformed.' }) : { message: _('История проверки повреждена.') };

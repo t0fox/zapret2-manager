@@ -10,6 +10,7 @@ var state = {
 };
 var DETECT_WAIT_MS = 120000;
 var MODE_BUDGETS = { quick: 30, standard: 60, full: 80 };
+var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -233,7 +234,16 @@ function rememberDetectResult(result, request, generation) {
   if (!currentDetectGeneration(generation)) return false;
   if (typeof sessionStorage === 'undefined') return;
   try {
-    var item = { id: state.scanId, status: 'completed', createdAt: Date.now(), request: request, operation: result.operation, report: result.data };
+    var item = {
+      schema: DETECT_HISTORY_SCHEMA,
+      id: state.scanId,
+      status: 'completed',
+      createdAt: Date.now(),
+      request: { target: request.target, protocol: request.protocol, mode: request.mode, dpi_type: request.dpi_type },
+      operation: result.operation,
+      provenance: { source: 'z2k-detect', schema: DETECT_HISTORY_SCHEMA, operation: result.operation },
+      report: { typedDetect: true, operation: result.operation, data: result.data }
+    };
     var previous = JSON.parse(sessionStorage.getItem('z2m.detect.history.v1') || '[]');
     if (!Array.isArray(previous)) previous = [];
     if (!currentDetectGeneration(generation)) return false;
@@ -267,15 +277,26 @@ function runDetect(ctx, request, generation) {
   });
 }
 function load(ctx) {
+  var generation = ++state.generation;
+  state.disposed = false;
   if (state.report) return Promise.resolve({ scanId: state.scanId, status: state.status, report: state.report });
   return ctx.api.z2kDetectStatus().then(function (value) {
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     if (!value || value.ok !== true || value.coherent !== true) return detectFailure(ctx, value, 'EDETECT_INCOMPATIBLE');
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     state.status = { status: 'ready', authority: value };
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     state.error = null;
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     return { scanId: null, status: state.status, report: null };
   }).catch(function (error) {
-    state.error = normalizedDetectError(ctx, error, 'EDETECT_FAILED');
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
+    var normalized = normalizedDetectError(ctx, error, 'EDETECT_FAILED');
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
+    state.error = normalized;
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     state.status = { status: 'error', error: state.error.message, code: state.error.code };
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     return { scanId: null, status: state.status, report: null };
   });
 }

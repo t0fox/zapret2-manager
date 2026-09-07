@@ -47,12 +47,15 @@ function makeStorage() {
 	};
 }
 
-function makeScanner(storage, gates) {
+function makeScanner(storage, gates, statusGates) {
 	const buttons = [];
 	const calls = { status: 0, probe: 0, refresh: 0 };
+	const statusQueue = (statusGates || []).slice();
 	const api = {
 		z2kDetectStatus() {
 			calls.status++;
+			const statusGate = statusQueue.shift();
+			if (statusGate) return statusGate.promise;
 			return Promise.resolve({ ok: true, coherent: true, installed: { version: '2.0' }, service: { running: true } });
 		},
 		z2kDetectProbe() {
@@ -102,6 +105,16 @@ function hasTag(value, tag) {
 	return Array.isArray(value.children) && value.children.some(child => hasTag(child, tag));
 }
 
+function hasClass(value, className) {
+	if (!value || typeof value !== 'object') return false;
+	if (String(value.attrs && value.attrs.class || '').split(/\s+/).includes(className)) return true;
+	return Array.isArray(value.children) && value.children.some(child => hasClass(child, className));
+}
+
+function detectStatus(overrides) {
+	return Object.assign({ ok: true, coherent: true, installed: { version: '2.0' }, service: { running: true } }, overrides || {});
+}
+
 test('Scanner does not render legacy-shaped evidence without a typed Detect envelope', () => {
 	const storage = makeStorage();
 	const gates = [];
@@ -138,7 +151,9 @@ test('Scanner ignores out-of-order Detect completion from an older generation', 
 
 	const entries = history(storage);
 	assert.equal(entries.length, 1, 'only the current generation may publish history');
-	assert.equal(entries[0].report.verdict, 'new', 'older completion must not overwrite current evidence');
+	assert.equal(entries[0].report.data.verdict, 'new', 'older completion must not overwrite current evidence');
+	assert.equal(entries[0].report.typedDetect, true, 'history must retain the typed Detect envelope');
+	assert.equal(entries[0].provenance.source, 'z2k-detect', 'history must retain Detect provenance');
 	assert.equal(calls.refresh, 3, 'stale completion must not trigger a repaint');
 });
 
@@ -158,4 +173,44 @@ test('Scanner discards a typed Detect completion after unmount', async () => {
 
 	assert.deepEqual(history(storage), [], 'unmounted Scanner must not publish late history');
 	assert.equal(calls.refresh, 1, 'unmounted Scanner must not repaint from late Detect completion');
+});
+
+test('Scanner discards an older status load after a newer load completes', async () => {
+	const storage = makeStorage();
+	const statusGates = [deferred(), deferred()];
+	const { module, ctx, calls } = makeScanner(storage, [], statusGates);
+
+	const first = module.load(ctx);
+	await flush();
+	const second = module.load(ctx);
+	await flush();
+	statusGates[1].resolve(detectStatus());
+	const ready = await second;
+	assert.equal(ready.status.status, 'ready');
+	assert.equal(ready.status.authority.ok, true);
+	statusGates[0].resolve(detectStatus({ ok: false, coherent: false }));
+	const stale = await first;
+
+	assert.equal(stale.discarded, true, 'older load must resolve as discarded');
+	assert.equal(calls.status, 2);
+	const root = module.render(ctx, {});
+	assert.equal(hasClass(root, 'z2m-scanner-error-card'), false,
+		'older load must not overwrite the newer ready state with an error');
+});
+
+test('Scanner discards a status load that resolves after unmount', async () => {
+	const storage = makeStorage();
+	const statusGates = [deferred()];
+	const { module, ctx } = makeScanner(storage, [], statusGates);
+
+	const pending = module.load(ctx);
+	await flush();
+	module.unmount();
+	statusGates[0].resolve(detectStatus({ ok: false, coherent: false }));
+	const stale = await pending;
+
+	assert.equal(stale.discarded, true, 'unmounted load must resolve as discarded');
+	const root = module.render(ctx, {});
+	assert.equal(hasClass(root, 'z2m-scanner-error-card'), false,
+		'unmounted load must not publish an error state');
 });
