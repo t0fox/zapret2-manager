@@ -148,7 +148,7 @@ function renderHistory(ctx) {
     return E('section', { 'class': 'z2m-scanner-history-group' }, [E('h3', {}, historyGroupLabel(key)), E('div', { 'class': 'z2m-scanner-history-list' }, rows)]);
   });
   var content = state.historyError ? ctx.shell.statePanel({ title: _('История недоступна'), message: state.historyError.message, kind: 'error' }) : (groupNodes.length ? E('div', { 'class': 'z2m-scanner-history-groups' }, groupNodes) : ctx.shell.statePanel({ message: _('Сканирования ещё не выполнялись.'), kind: 'info' }));
-  return E('section', { 'class': 'z2m-panel z2m-scanner-history', id: 'z2m-scanner-history' }, [E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('history'), E('strong', {}, _('История проверок'))]), E('span', { 'class': 'z2m-dim' }, _('Предыдущие проверки сайтов'))]), content]);
+  return E('section', { 'class': 'z2m-panel z2m-scanner-history', id: 'z2m-scanner-history' }, [E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('history'), E('strong', {}, _('История проверок Z2K Detect'))]), E('span', { 'class': 'z2m-dim' }, _('Предыдущие типизированные действия Detect'))]), content]);
 }
 function renderNavigation(ctx) {
   return E('nav', { 'class': 'z2m-subtabs', 'aria-label': _('Разделы сканирования') }, TABS.map(function (item) {

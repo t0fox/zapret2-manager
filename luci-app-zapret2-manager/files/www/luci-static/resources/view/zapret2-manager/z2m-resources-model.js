@@ -501,28 +501,9 @@ function buildModel(resources, assets, opts) {
 	if (maxSummaryRank === -1) summary.state = 'current';
 	summary.stateLabel = humanStateLabel(summary.state);
 
-	// Global update callout (only for z2k product)
+	// Z2K resources are lifecycle-managed and never expose an independent
+	// refresh/update callout. Components owns the coherent Core transaction.
 	var updateCallout = null;
-	var z2kStatus = z2kUpdateState(z2k);
-	if (['update-available', 'rebase-required', 'review-required', 'integration-required'].indexOf(z2kStatus) >= 0) {
-		var localCommit = null;
-		var localProv = object(object(z2k.local).provenance);
-		localCommit = text(object(z2k.local).commit) || text(localProv.commit) || null;
-		var remoteCurrent = text(object(z2k.manifest).current) || null;
-		var installedRelease = releaseValue(runtimeSummary && runtimeSummary.installedRelease || object(z2k.local).installedRelease || z2k.installedRelease);
-		var availableRelease = releaseValue(runtimeSummary && runtimeSummary.availableRelease || z2k.availableRelease || z2k.available);
-		updateCallout = {
-			sourceId: 'z2k-resources',
-			status: z2kStatus,
-			presentation: UpdatePresentation.describe(z2kStatus),
-			from: installedRelease,
-			to: availableRelease,
-			technicalFrom: localCommit,
-			technicalTo: remoteCurrent,
-			label: 'Z2K Core',
-			targetRoute: 'components'
-		};
-	}
 	summary.updateCallout = updateCallout;
 
 	// For UI filtering: expose classification counts per group not needed separately

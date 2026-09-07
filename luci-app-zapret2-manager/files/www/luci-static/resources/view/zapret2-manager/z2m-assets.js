@@ -543,13 +543,6 @@ function render(ctx) {
     { id: 'user', label: _('Мои · ' + summaryForRoute.user) }
   ], filter, function (id) { filter = id; body.replaceChildren(renderBody()); }, { 'aria-label': _('Фильтр ресурсов') });
 
-  var checkBtn = ctx.shell.button(_('Проверить обновления'), 'sm', function () {
-    checkBtn.disabled = true;
-    ctx.api.resources.check().then(function (answer) { if (!answer || answer.ok === false || answer.error) throw answer; return ctx.refresh(ctx.route); }).catch(function (error) {
-      ctx.shell.openModal(_('Проверка обновлений не выполнена'), resourceErrorBody(ctx, error), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal));
-    }).then(function () { checkBtn.disabled = false; });
-  });
-
   var addBtn = ctx.shell.button(_('+ Добавить ресурс'), 'primary sm', openImport);
 
   var header = E('div', { 'class': 'z2m-phead z2m-resource-head' }, [
@@ -557,7 +550,7 @@ function render(ctx) {
         E('h1', {}, _('Ресурсы')),
         E('p', {}, _('Файлы и данные, используемые Zapret2 Manager'))
     ]),
-    E('div', { 'class': 'sp' }, [addBtn, checkBtn])
+    E('div', { 'class': 'sp' }, [addBtn, E('span', { 'class': 'z2m-dim' }, _('Состояние Z2K ресурсов управляется через Компоненты'))])
   ]);
 
   var controls = E('div', { 'class': 'z2m-resource-controls' }, [

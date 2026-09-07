@@ -688,7 +688,8 @@ function checkUpdates(ctx, scope) {
     promiseScopes.push(checkScope);
     promises.push(promise);
   }
-  if (scope === 'all' || scope === 'z2k') addCheck('z2k', checkedResult(ctx.api.resources.check(), 'Проверка Z2K'));
+  // Z2K is checked and mutated only through its coherent Core lifecycle;
+  // Resources must never become a second Z2K update authority.
   if (scope === 'all' || scope === 'engine') {
     addCheck('engine', checkedResult(ctx.api.engine.check({ forceRefresh: true }), 'Проверка движка'));
     if (ctx.api.engine.gateStatus) addCheck('engine-gate', checkedResult(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
@@ -1093,6 +1094,12 @@ function z2kMetaRows(component) {
     rows.push({ label: _('Strategies'), value: strategies });
   if (runtimeEvidenceAuthoritative && (counters.lua || compiled.lua !== undefined && compiled.lua !== null))
     rows.push({ label: _('Lua'), value: counters.lua || compiled.lua });
+  if (component.detectArchitecture || component.detect && component.detect.architecture)
+    rows.push({ label: _('Detect architecture'), value: component.detectArchitecture || component.detect.architecture });
+  if (component.detectStatus || component.detect && component.detect.status)
+    rows.push({ label: _('Detect status'), value: component.detectStatus || component.detect.status });
+  if (component.compatibilityIdentity)
+    rows.push({ label: _('Compatibility identity'), value: component.compatibilityIdentity });
   rows.push({ label: _('Целостность'), value: (component.runtimeHealth || component.health) === 'ready' ? _('✓ Подтверждена') : _('Требует проверки') });
   return rows;
 }
@@ -1901,7 +1908,7 @@ function renderZ2KDetails(ctx, component) {
     ]), 'z2m-z2k-release-selection-section'),
     E('div', { 'class': 'z2m-z2k-release-check' }, [
       E('span', { 'class': 'z2m-dim' }, _('Последняя проверка: ') + formatLastCheck(shell, component.checkedAt)),
-      shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))
+      E('span', { 'class': 'z2m-dim' }, _('Состояние и обновление управляются Z2K Core'))
     ]),
     renderReviewCallout(component),
     E('details', { 'class': 'z2m-component-technical' }, [
@@ -2029,7 +2036,7 @@ function renderZ2KCard(ctx, component) {
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = z2kMetaRows(component);
-  var primaryActions = [shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core'))];
+  var primaryActions = [E('span', { 'class': 'z2m-dim' }, _('Проверка выполняется в составе Z2K Core'))];
   if (!state.z2kExpanded && z2kCanApply(component)) {
     var updateActionLabel = z2kUpdateActionLabel(component);
     var updateActionClass = updateActionLabel.indexOf(_('Переустановить')) === 0 ? 'sm' : 'primary sm';

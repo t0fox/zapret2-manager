@@ -723,3 +723,4 @@
 @media(prefers-reduced-motion:reduce){
   .z2m-components-page .z2m-z2k-release-panel-loading .spinner-inline,.z2m-components-page .z2m-z2k-release-details-status .spinner-inline{animation:none}
 }
+.z2m-scanner-detect-action-select { min-width: 10rem; text-transform: lowercase; }

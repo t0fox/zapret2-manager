@@ -3,13 +3,13 @@
 'require view.zapret2-manager.z2m-icons as Icons';
 
 var state = {
-  request: { target: 'youtube.com', protocol: 'tcp', mode: 'standard', dpi_type: '' },
+  request: { target: 'youtube.com', operation: 'probe', protocol: 'tcp', mode: 'standard' },
   scanId: null, status: null, report: null, error: null,
   disposed: true, generation: 0,
   showAll: false, targetError: null
 };
 var DETECT_WAIT_MS = 120000;
-var MODE_BUDGETS = { quick: 30, standard: 60, full: 80 };
+var DETECT_ACTIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
 var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -83,6 +83,7 @@ function normalizeTarget(input) {
 function safeRequest(value) {
   value = object(value);
   var mode = ['quick', 'standard', 'full'].indexOf(value.mode) >= 0 ? value.mode : 'standard';
+  var operation = DETECT_ACTIONS.indexOf(value.operation) >= 0 ? value.operation : 'probe';
   var protocol = value.protocol === 'udp' ? 'udp' : 'tcp';
   var rawTarget = text(value.target || 'youtube.com').trim();
   var normalized = normalizeTarget(rawTarget);
@@ -91,7 +92,7 @@ function safeRequest(value) {
     target: target,
     protocol: protocol,
     mode: mode,
-    dpi_type: text(value.dpi_type).trim(),
+    operation: operation,
     _normalized: normalized
   };
 }
@@ -101,7 +102,6 @@ function modeLabel(value) {
   return _('Обычно');
 }
 function protocolLabel(value) { return value === 'udp' ? 'UDP' : 'TCP'; }
-function budgetForMode(mode) { return MODE_BUDGETS[mode] || MODE_BUDGETS.standard; }
 function phaseLabel(value) {
   var map = {
     validating: _('Подготовка'), planning: _('Подготовка'), snapshotting: _('Подготовка'),
@@ -133,7 +133,8 @@ function normalizedDetectError(ctx, value, fallback) {
 }
 function detectFailure(ctx, value, fallback) { throw normalizedDetectError(ctx, value, fallback); }
 function detectOperation(request) {
-  var hint = text(request.dpi_type).toLowerCase();
+  if (DETECT_ACTIONS.indexOf(request.operation) >= 0) return request.operation;
+  var hint = '';
   if (hint.indexOf('voice') >= 0) return 'voice';
   if (hint.indexOf('tcp16') >= 0 || hint.indexOf('tcp-16') >= 0) return 'tcp16';
   if (request.protocol === 'udp') return 'quic';
@@ -177,7 +178,7 @@ function rememberDetectResult(result, request, generation) {
       id: state.scanId,
       status: 'completed',
       createdAt: Date.now(),
-      request: { target: request.target, protocol: request.protocol, mode: request.mode, dpi_type: request.dpi_type },
+      request: { target: request.target, operation: request.operation, protocol: request.protocol, mode: request.mode },
       operation: result.operation,
       provenance: { source: 'z2k-detect', schema: DETECT_HISTORY_SCHEMA, operation: result.operation },
       report: { typedDetect: true, operation: result.operation, data: result.data }
@@ -245,15 +246,6 @@ function formField(label, control, className, iconName) {
 function stat(label, value, className) {
   return E('div', { 'class': 'z2m-scanner-stat' + (className ? ' ' + className : '') }, [E('span', {}, label), E('strong', {}, String(value))]);
 }
-function candidateMeta(row) {
-  row = object(row);
-  var values = [];
-  if (row.protocol) values.push(text(row.protocol).toUpperCase());
-  if (row.evidence && row.evidence.metrics && row.evidence.metrics.averageLatencyMs != null) values.push(String(row.evidence.metrics.averageLatencyMs) + ' мс');
-  else if (row.latencyMs != null) values.push(String(row.latencyMs) + ' мс');
-  if (row.complexity) values.push('сложность ' + text(row.complexity[0] || 0));
-  return values.join(' · ');
-}
 function scannerErrorPanel(ctx, status, controls) {
   var detail = errorText(status) || errorText(state.error);
   var isInfra = detail.indexOf('Не удалось подготовить среду') >= 0;
@@ -280,7 +272,7 @@ function start(ctx, controls) {
   var protocolVal = controls.protocol.value;
   if (protocolVal === 'auto') protocolVal = 'tcp';
   var generation = ++state.generation;
-  var request = safeRequest({ target: normalized.hostname, protocol: protocolVal, mode: controls.mode.value, dpi_type: controls.dpi.value });
+  var request = safeRequest({ target: normalized.hostname, operation: controls.operation.value, protocol: protocolVal, mode: controls.mode.value });
   state.request = request;
   state.scanId = 'detect-' + String(generation) + '-' + String(Date.now());
   state.error = null; state.report = null; state.status = { status: 'running', phase: 'probing', operation: detectOperation(state.request) };
@@ -322,20 +314,20 @@ function renderTypedResult(ctx, report, controls) {
   ]);
 }
 function renderSearchForm(ctx, controls, title) {
-  var budget = budgetForMode(state.request.mode || 'standard');
-  var hint = _('Будет проверено до ') + String(budget) + ' ' + _('вариантов') + ', ' + _('отбор до 20 лучших');
+  var hint = _('Выполняется типизированное действие Z2K Detect.');
   return E('section', { 'class': 'z2m-scanner-search-body card' + (title === _('Проверить ещё раз') ? ' z2m-scanner-retry-panel' : '') }, [
     E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Найдём подходящую стратегию')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
     E('div', { 'class': 'z2m-scanner-form-grid' }, [
       formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network'),
       formField(_('Протокол'), controls.protocol, '', 'route'),
+      formField(_('Действие Detect'), controls.operation, '', 'scan'),
       formField(_('Глубина'), controls.mode, '', 'gauge')
     ]),
     E('div', { 'class': 'z2m-scanner-budget-hint' }, hint),
     E('details', { 'class': 'z2m-scanner-advanced' }, [
       E('summary', {}, [icon('settings'), E('span', {}, _('Дополнительные параметры'))]),
       E('div', { 'class': 'z2m-scanner-advanced-grid' }, [
-        formField(_('Подсказка DPI'), controls.dpi, '', 'settings')
+        E('p', { 'class': 'z2m-dim' }, _('probe, classify, quic, voice и tcp16 используют общий typed Detect API.'))
       ])
     ]),
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
@@ -373,7 +365,9 @@ function render(ctx, data) {
   // hidden compatibility: protocol/mode controls are custom segmented, so provide wrappers for start()
   controls.protocol.value = request.protocol;
   controls.mode.value = request.mode;
-  controls.dpi = E('input', { type: 'text', value: request.dpi_type, maxlength: '64', placeholder: 'например, tls_dpi', disabled: status.status === 'running' ? 'disabled' : null });
+  controls.operation = E('select', { class: 'z2m-select z2m-scanner-detect-action-select', disabled: status.status === 'running' ? 'disabled' : null });
+  DETECT_ACTIONS.forEach(function (operation) { controls.operation.appendChild(E('option', { value: operation }, operation)); });
+  controls.operation.value = request.operation;
   var running = status.status === 'running' || status.status === 'starting' || status.phase === 'cancelling';
   var progressPanel = running ? renderProgress(ctx, status, request) : null;
   var terminalResult = terminal(status) && report ? renderEvidence(ctx, report, controls) : null;
@@ -383,7 +377,7 @@ function render(ctx, data) {
     target: controls.target,
     protocol: protSelect,
     mode: modeSelect,
-    dpi: controls.dpi
+    operation: controls.operation
   };
   // Wrap segmented controls into fields manually
   // div, not label: Chromium forwards :hover from <label> to its labeled
@@ -397,9 +391,10 @@ function render(ctx, data) {
     formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network'),
     state.targetError ? E('div', { 'class': 'z2m-scanner-field-error', style: 'color:#d63638;font-size:0.9em;margin-top:4px' }, state.targetError) : null,
     segmentedField(_('Протокол'), protSelect, 'route'),
+    formField(_('Действие Detect'), controls.operation, '', 'scan'),
     segmentedField(_('Глубина'), modeSelect, 'gauge'),
-    E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Будет проверено до ') + String(budgetForMode(request.mode)) + ' ' + _('вариантов') + ', ' + _('отбор до 20 лучших')),
-    E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Дополнительные параметры'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [formField(_('Подсказка DPI'), controls.dpi, '', 'settings')])]),
+    E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Одно типизированное действие без legacy-планировщика.')),
+    E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Автоматическое обнаружение'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [E('p', {}, _('Autodiscovery управляется службой Z2K Detect.'))])]),
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
   ]) : null;
   var content = running ? progressPanel : (status.error || state.error ? scannerErrorPanel(ctx, status, controls) : (terminalResult || (terminal(status) ? ctx.shell.statePanel({ title: _('Результаты пока недоступны'), message: _('Попробуйте повторить проверку.'), kind: 'info', actions: [retry] }) : null)));
@@ -409,7 +404,7 @@ function render(ctx, data) {
     search
   ]);
   controls.target.addEventListener('input', function () { state.request.target = controls.target.value; if (state.targetError) { state.targetError = null; refresh(ctx); } });
-  controls.dpi.addEventListener('input', function () { state.request.dpi_type = controls.dpi.value; });
+  controls.operation.addEventListener('change', function () { state.request.operation = controls.operation.value; });
   return root;
 }
 function mount(ctx) {
