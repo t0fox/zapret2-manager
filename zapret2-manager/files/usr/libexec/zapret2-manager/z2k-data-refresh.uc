@@ -238,6 +238,34 @@ function remove_unpublished_revision(manifest, root, hooks, fs) {
 	if (!result.ok && first == null) first = result;
 	return first == null ? { ok: true } : fail('EROLLBACK_FAILED', 'unpublished dataset revision could not be removed', { cause: first });
 }
+function cleanup_revision_pair(manifest, firstRoot, secondRoot, hooks, fs) {
+	let first = remove_unpublished_revision(manifest, firstRoot, hooks, fs), second = remove_unpublished_revision(manifest, secondRoot, hooks, fs);
+	if (object(first) && first.ok === true && object(second) && second.ok === true) return { ok: true, first: first, second: second };
+	return fail('EROLLBACK_FAILED', 'dataset revision compensation could not be proven', { first: first, second: second });
+}
+function verify_revision_promotion(fs, source, destination, manifest) {
+	let sourceState = fs_stat(fs, source);
+	if (!sourceState.ok) return sourceState;
+	let destinationState = fs_stat(fs, destination);
+	if (!destinationState.ok) return destinationState;
+	if (sourceState.exists || !destinationState.exists) return fail('ERENAME_VERIFY', 'dataset revision promotion source/destination is incorrect');
+	let manifestState = fs_stat(fs, destination + '/manifest.json');
+	if (!manifestState.ok) return manifestState;
+	if (!manifestState.exists) return fail('ERENAME_VERIFY', 'dataset revision manifest is missing after promotion');
+	let manifestContent = fs_read(fs, destination + '/manifest.json');
+	if (!manifestContent.ok) return manifestContent;
+	return manifestContent.value == sprintf('%J', manifest) ? { ok: true } : fail('ERENAME_VERIFY', 'dataset revision manifest is incorrect after promotion');
+}
+function verify_pointer_commit(fs, source, expected) {
+	let sourceState = fs_stat(fs, source);
+	if (!sourceState.ok) return sourceState;
+	let destinationState = fs_stat(fs, DATA_CURRENT);
+	if (!destinationState.ok) return destinationState;
+	if (sourceState.exists || !destinationState.exists) return fail('ERENAME_VERIFY', 'dataset pointer source/destination is incorrect');
+	let destinationContent = fs_read(fs, DATA_CURRENT);
+	if (!destinationContent.ok) return destinationContent;
+	return destinationContent.value == expected ? { ok: true } : fail('ERENAME_VERIFY', 'dataset pointer content is incorrect after commit');
+}
 
 function stage_abort(manifest, root, fs, message) {
 	let cleanup = remove_unpublished_revision(manifest, root, {}, fs);
@@ -321,18 +349,31 @@ function internal_publish(staged, identity, hooks) {
 	else {
 		let promoted = fs_rename(fs, staged.root, finalRoot);
 		if (!promoted.ok) {
-			let cleanup = remove_unpublished_revision(manifest, staged.root, hooks, fs);
+			let cleanup = cleanup_revision_pair(manifest, staged.root, finalRoot, hooks, fs);
 			if (!object(cleanup) || cleanup.ok !== true) return rollback_failed('dataset revision rename failed and staging cleanup could not be proven', cleanup, { cause: promoted });
 			return unchanged_failed('EWRITE', 'dataset revision rename failed');
 		}
+		let promotion = verify_revision_promotion(fs, staged.root, finalRoot, manifest);
+		if (!promotion.ok) {
+			let cleanup = cleanup_revision_pair(manifest, staged.root, finalRoot, hooks, fs);
+			return rollback_failed('dataset revision promotion could not be proven', cleanup, { cause: promotion });
+		}
 		let pointer = DATA_CURRENT + '.stage-' + time() + '-' + (++sequence);
-		let pointerValue = fs_write(fs, pointer, sprintf('%J', { schema: 1, revision: manifest.revision, root: finalRoot, release: manifest.release, coreIdentity: manifest.coreIdentity, dynamicIdentity: manifest.dynamicIdentity }));
+		let pointerContent = sprintf('%J', { schema: 1, revision: manifest.revision, root: finalRoot, release: manifest.release, coreIdentity: manifest.coreIdentity, dynamicIdentity: manifest.dynamicIdentity });
+		let pointerValue = fs_write(fs, pointer, pointerContent);
 		if (!pointerValue.ok) {
 			let pointerRemoved = fs_unlink(fs, pointer), cleanup = remove_unpublished_revision(manifest, finalRoot, hooks, fs), restored = restore_pointer(fs, previousPointer);
 			if (!pointerRemoved.ok || !object(cleanup) || cleanup.ok !== true || !object(restored) || restored.ok !== true) return rollback_failed('dataset pointer failed and rollback could not be proven', cleanup, { pointerRemoved: pointerRemoved, restored: restored, cause: pointerValue });
 			return unchanged_failed('EWRITE', 'dataset pointer staging failed');
 		}
 		let pointerCommit = fs_rename(fs, pointer, DATA_CURRENT);
+		if (pointerCommit.ok) {
+			let pointerProof = verify_pointer_commit(fs, pointer, pointerContent);
+			if (!pointerProof.ok) {
+				let pointerRemoved = fs_unlink(fs, pointer), cleanup = remove_unpublished_revision(manifest, finalRoot, hooks, fs), restored = restore_pointer(fs, previousPointer);
+				return rollback_failed('dataset pointer commit could not be proven', cleanup, { pointerRemoved: pointerRemoved, restored: restored, cause: pointerProof });
+			}
+		}
 		committed = pointerCommit.ok ? { ok: true, revision: manifest.revision } : null;
 		if (committed == null) {
 			let pointerRemoved = fs_unlink(fs, pointer), cleanup = remove_unpublished_revision(manifest, finalRoot, hooks, fs), restored = restore_pointer(fs, previousPointer);
