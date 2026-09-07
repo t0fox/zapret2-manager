@@ -16,7 +16,8 @@ therefore not proven for this HEAD.
 
 - Worktree: `G:\zapret2-manager\.worktrees\z2k-coherent-core-detect`
 - Branch: `codex/z2k-coherent-core-detect`
-- Evidence-base HEAD: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7` (exact `git rev-parse HEAD` before this bookkeeping fix).
+- evidenceBaseHead: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7`.
+- finalHead: `b02bcd3833a637caa7ab1d1f1ed2891816f2a746` (exact current HEAD before this metadata commit; the artifact commit SHA is reported separately because Git commits cannot self-reference their own SHA).
 - Prior implementation HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`.
 - The final bookkeeping commit is reported separately because an artifact cannot contain its own commit SHA before that commit exists.
 - No merge or push was performed.
@@ -32,7 +33,8 @@ its control directory was not writable.
 
 The separate transaction/autocircular run produced **32 passed, 0 failed**,
 including pre-commit Detect SHA failure, post-materialization readiness
-failure, compensation, crash-window, and LKG restoration assertions.
+failure, compensation, crash-window, and captured-owner restoration
+assertions. It does not prove receipt/runtimeBundleDigest equality.
 
 ### Exact LKG rollback evidence
 
@@ -122,6 +124,5 @@ No old APK was installed. The target lacks
 
 ## Review boundary
 
-The requested code-review workflow remains pending; no reviewer approval is
-claimed. Review must inspect these evidence files for unsupported PASS language,
-second lifecycle owners, and accidental secrets before commit.
+Code review status: `PENDING`; no reviewer approval is claimed. A fresh Luna
+review is the next review action and is not represented as completed here.

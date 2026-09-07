@@ -12,7 +12,8 @@ live gate.
 
 - Worktree: `G:\zapret2-manager\.worktrees\z2k-coherent-core-detect`
 - Branch: `codex/z2k-coherent-core-detect`
-- Evidence-base HEAD: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7` (exact `git rev-parse HEAD` before this bookkeeping fix).
+- evidenceBaseHead: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7`.
+- finalHead: `b02bcd3833a637caa7ab1d1f1ed2891816f2a746` (exact current HEAD before this metadata commit; the artifact commit SHA is reported separately because Git commits cannot self-reference their own SHA).
 - Prior implementation HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`.
 - The final bookkeeping commit is reported separately because this report cannot self-reference a commit created after its content.
 - No merge or push.
@@ -34,7 +35,7 @@ Rollback/failure-injection command:
 
 Result: `32 passed, 0 failed, 0 skipped`. Captured assertions cover
 pre-commit Detect SHA failure, post-materialization readiness failure,
-compensation, crash windows, and exact LKG restoration across Registry,
+compensation, crash windows, and captured-owner restoration assertions across Registry,
 runtime, source/catalog, strategy/config, Detect, and learned state.
 
 Static/knowledge commands and results:
@@ -116,8 +117,8 @@ package deployment is also blocked.
 
 ## Commit boundary
 
-The separate Luna reviewer will perform code review after this commit. This
-turn performs no review approval, merge, or push. This fix commit contains
+Code review status remains `PENDING`; no review approval is claimed. This turn
+performs no review approval, merge, or push. This metadata commit contains
 only these three files with message:
 
 `docs: clarify coherent Z2K acceptance evidence`
