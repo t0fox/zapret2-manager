@@ -2,7 +2,7 @@
 
 // Z2K Core owns the exact upstream Detect artifact. This module only resolves,
 // stages and validates the binary; Detect itself remains the upstream algorithm.
-import { popen, stat, readlink, readfile, writefile } from 'fs';
+import { popen, stat, readlink, readfile, writefile, unlink } from 'fs';
 import * as native_helper from './core/native-helper.uc';
 import * as detect_result from './core/detect-result.uc';
 import { asset_registry_list } from './asset-registry.uc';
@@ -67,22 +67,66 @@ function discovery_config_normalize(value) {
 	return { ok: true, schema: 1, enabled: value.enabled, dnsSource: value.dnsSource };
 }
 
-function discovery_config_read() {
-	let raw = readfile(DISCOVERY_CONFIG);
-	if (!raw) return discovery_config_normalize(null);
+function discovery_config_read(seams) {
+	let hooks = object(seams) ? seams : {}, raw = null;
+	if (type(hooks.present) == 'bool') {
+		if (hooks.present !== true) return discovery_config_normalize(null);
+		if (hooks.readable === false || hooks.raw == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
+		raw = hooks.raw;
+	} else {
+		let st = null;
+		try { st = stat(DISCOVERY_CONFIG); } catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.'); }
+		if (st == null) {
+			// `stat()` cannot distinguish a missing path from a permission error on
+			// every supported OpenWrt fs. A fixed existence probe preserves the
+			// only safe default: absent means disabled; present-but-unreadable fails.
+			let probe = popen("test -e '/etc/zapret2-manager/z2k-detect-discovery.json' && printf present", 'r');
+			if (!probe) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
+			let result = trim(probe.read('all') || ''), rc = probe.close();
+			if (rc != 0 || result != 'present') return discovery_config_normalize(null);
+			return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
+		}
+		if (st.type != 'file' || readlink(DISCOVERY_CONFIG) != null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is not a regular file.');
+		raw = readfile(DISCOVERY_CONFIG);
+		if (raw == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
+	}
+	if (!string(raw) || !length(trim(raw))) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is empty.');
 	try { return discovery_config_normalize(json(raw)); }
 	catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is not valid JSON.'); }
 }
 
 export const z2k_detect_discovery_config = function(value) { return discovery_config_normalize(value); };
+export const z2k_detect_discovery_config_read = function(seams) { return discovery_config_read(seams); };
+
+function discovery_process_invalid(count) {
+	return { instance: DISCOVERY_INSTANCE, running: false, pid: null, count: type(count) == 'int' ? count : 0, validated: false, executable: null, outputOwned: false, command: [] };
+}
+
+function discovery_command_valid(argv) {
+	if (type(argv) != 'array' || length(argv) < 6 || argv[0] != RUNTIME_TARGET || argv[1] != 'run') return false;
+	let output = index(argv, '-output'), source = index(argv, '-dns-source');
+	return output >= 0 && output + 1 < length(argv) && argv[output + 1] == DISCOVERY_LIST &&
+		source >= 0 && source + 1 < length(argv) && index(DISCOVERY_SOURCES, argv[source + 1]) >= 0;
+}
 
 function discovery_process_default() {
-	let p = popen('pidof z2k-detect 2>/dev/null', 'r');
-	if (!p) return { running: false, pid: null, count: 0 };
-	let raw = trim(p.read('all') || ''), rc = p.close(), ids = [];
-	for (let part in (raw ? split(raw, ' ') : [])) if (length(trim(part))) push(ids, +trim(part));
-	if (rc != 0 || !length(ids)) return { running: false, pid: null, count: 0 };
-	return { running: length(ids) == 1, pid: length(ids) == 1 ? +ids[0] : null, count: length(ids) };
+	let p = popen("ubus call service list '{\"name\":\"zapret2-manager\"}' 2>/dev/null", 'r');
+	if (!p) return discovery_process_invalid(0);
+	let raw = p.read('all') || '', rc = p.close(), document = null;
+	if (rc != 0 || !length(trim(raw))) return discovery_process_invalid(0);
+	try { document = json(raw); } catch (e) { return discovery_process_invalid(0); }
+	let service = document && document['zapret2-manager'], instances = service && object(service.instances) ? service.instances : {}, instance = instances[DISCOVERY_INSTANCE];
+	if (!object(instance)) return discovery_process_invalid(0);
+	if (instance.running !== true || type(instance.pid) != 'int' || instance.pid <= 0) return discovery_process_invalid(1);
+	let pid = instance.pid, executable = null, command = [];
+	try {
+		executable = readlink('/proc/' + pid + '/exe');
+		let commandline = readfile('/proc/' + pid + '/cmdline') || '', fields = split(commandline, sprintf('%c', 0));
+		for (let field in fields) if (length(field)) push(command, field);
+	} catch (e) { return discovery_process_invalid(1); }
+	let validated = executable == RUNTIME_TARGET && discovery_command_valid(command);
+	return { instance: DISCOVERY_INSTANCE, running: validated, pid: validated ? pid : null, count: 1,
+		validated: validated, executable: executable, outputOwned: validated && index(command, DISCOVERY_LIST) >= 0, command: command };
 }
 
 function discovery_file_default() {
@@ -105,11 +149,11 @@ export const z2k_detect_discovery_status = function(seams) {
 	let hooks = object(seams) ? seams : {}, authority = discovery_authority(hooks);
 	if (!object(authority) || authority.ok !== true || authority.coherent !== true)
 		return authority && authority.ok === false ? detect_error_normalize(authority) : fail('EZ2K_INCOHERENT', 'Z2K Core installed authority is not coherent.');
-	let config = discovery_config_normalize(type(hooks.config) == 'function' ? hooks.config() : discovery_config_read());
+	let config = type(hooks.config) == 'function' ? discovery_config_normalize(hooks.config()) : discovery_config_read();
 	if (!object(config) || config.ok !== true) return config && config.ok === false ? config : fail('EDETECT_SCHEMA', 'Discovery configuration is invalid.');
 	let process = type(hooks.process) == 'function' ? hooks.process() : discovery_process_default();
 	let file = type(hooks.file) == 'function' ? hooks.file() : discovery_file_default();
-	if (!object(process) || type(process.running) != 'bool' || (process.pid != null && type(process.pid) != 'int')) return fail('EDETECT_SCHEMA', 'Discovery process status is invalid.');
+	if (!object(process) || process.instance != DISCOVERY_INSTANCE || process.count != 1 || process.running !== true || process.validated !== true || process.executable != RUNTIME_TARGET || process.outputOwned !== true || !discovery_command_valid(process.command)) process = discovery_process_invalid(object(process) ? process.count : 0);
 	if (!object(file) || type(file.count) != 'int' || file.count < 0 || (file.mtime != null && type(file.mtime) != 'int')) return fail('EDETECT_SCHEMA', 'Discovery list status is invalid.');
 	return { ok: true, schema: 1, enabled: config.enabled, dnsSource: config.dnsSource,
 		running: process.running, pid: process.pid == null ? null : process.pid,
@@ -123,28 +167,39 @@ export const z2k_detect_discovery_command = function(value) {
 	return { ok: true, enabled: true, command: [RUNTIME_TARGET, 'run', '-dns-source', config.dnsSource, '-output', DISCOVERY_LIST], instance: DISCOVERY_INSTANCE };
 };
 
-function discovery_write(config) {
-	let tmp = DISCOVERY_CONFIG + '.tmp';
-	if (!writefile(tmp, sprintf('%J', config) + '\n')) return fail('EIO', 'Discovery configuration could not be written.');
-	let p = popen("mv -f '" + tmp + "' '" + DISCOVERY_CONFIG + "'", 'r');
-	if (!p || p.close() != 0) return fail('EIO', 'Discovery configuration could not be committed.');
-	return { ok: true };
+function discovery_write(config, seams) {
+	let hooks = object(seams) ? seams : {}, temp = null;
+	if (type(hooks.temp) == 'function') temp = hooks.temp();
+	else {
+		let created = popen("umask 077; mktemp '/etc/zapret2-manager/.z2k-detect-discovery.XXXXXX' 2>/dev/null", 'r');
+		if (created) { temp = trim(created.read('all') || ''); created.close(); }
+	}
+	if (!string(temp) || !length(temp)) return fail('EIO', 'Discovery configuration temporary file could not be created.');
+	let content = sprintf('%J', config) + '\n';
+	let write = type(hooks.write) == 'function' ? hooks.write(temp, content) : writefile(temp, content);
+	if (!write) { try { if (type(hooks.remove) == 'function') hooks.remove(temp); else unlink(temp); } catch (e) { } return fail('EIO', 'Discovery configuration could not be written.'); }
+	let mode = type(hooks.chmod) == 'function' ? hooks.chmod(temp, 384) : (() => { let p = popen("chmod 600 '" + temp + "'", 'r'); return p && p.close() == 0; })();
+	if (!mode) { try { if (type(hooks.remove) == 'function') hooks.remove(temp); else unlink(temp); } catch (e) { } return fail('EIO', 'Discovery configuration permissions could not be secured.'); }
+	let moved = type(hooks.move) == 'function' ? hooks.move(temp, DISCOVERY_CONFIG) : (() => { let p = popen("mv -f '" + temp + "' '" + DISCOVERY_CONFIG + "'", 'r'); return p && p.close() == 0; })();
+	if (!moved) { try { if (type(hooks.remove) == 'function') hooks.remove(temp); else unlink(temp); } catch (e) { } return fail('EIO', 'Discovery configuration could not be committed.'); }
+	return { ok: true, path: DISCOVERY_CONFIG, mode: 384 };
 }
+
+export const z2k_detect_discovery_write = function(config, seams) { return discovery_write(config, seams); };
 
 export const z2k_detect_discovery_control = function(action, input, seams) {
 	if (index(['enable', 'disable', 'restart'], action) < 0) return fail('EINPUT', 'Unsupported discovery control action.');
 	let hooks = object(seams) ? seams : {}, authority = discovery_authority(hooks);
 	if (!object(authority) || authority.ok !== true || authority.coherent !== true)
 		return authority && authority.ok === false ? detect_error_normalize(authority) : fail('EZ2K_INCOHERENT', 'Z2K Core installed authority is not coherent.');
-	let current = discovery_config_normalize(type(hooks.config) == 'function' ? hooks.config() : discovery_config_read());
+	let current = type(hooks.config) == 'function' ? discovery_config_normalize(hooks.config()) : discovery_config_read();
 	if (!object(current) || current.ok !== true) return current && current.ok === false ? current : fail('EDETECT_SCHEMA', 'Discovery configuration is invalid.');
 	let args = object(input) ? input : {}, source = args.dnsSource == null ? current.dnsSource : args.dnsSource;
+	for (let key in args) if (key != 'dnsSource') return fail('EINPUT', 'Unsupported discovery control field.');
 	if (index(DISCOVERY_SOURCES, source) < 0) return fail('EINPUT', 'dnsSource must be auto, agh, dnsmasq or pkt.');
 	let next = { schema: 1, enabled: action == 'enable' ? true : action == 'disable' ? false : current.enabled, dnsSource: source };
-	if (action != 'restart') {
-		let saved = type(hooks.write) == 'function' ? hooks.write(next) : discovery_write(next);
-		if (!saved || saved.ok !== true) return saved && saved.ok === false ? saved : fail('EIO', 'Discovery configuration could not be saved.');
-	}
+	let saved = type(hooks.write) == 'function' ? hooks.write(next) : discovery_write(next, hooks);
+	if (!saved || saved.ok !== true) return saved && saved.ok === false ? saved : fail('EIO', 'Discovery configuration could not be saved.');
 	if (type(hooks.service) == 'function') return hooks.service(action, next);
 	let p = popen("/etc/init.d/zapret2-manager restart >/dev/null 2>&1", 'r');
 	if (!p || p.close() != 0) return fail('EIO', 'Z2K Detect discovery service restart failed.');
