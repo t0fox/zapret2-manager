@@ -71,9 +71,13 @@ function discovery_config_read(seams) {
 	let hooks = object(seams) ? seams : {}, raw = null;
 	if (type(hooks.present) == 'bool') {
 		if (hooks.present !== true) return discovery_config_normalize(null);
+		if (hooks.dangling === true || hooks.link != null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is a symlink.');
 		if (hooks.readable === false || hooks.raw == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
 		raw = hooks.raw;
 	} else {
+		let link = null;
+		try { link = readlink(DISCOVERY_CONFIG); } catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.'); }
+		if (link != null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is a symlink.');
 		let st = null;
 		try { st = stat(DISCOVERY_CONFIG); } catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.'); }
 		if (st == null) {
@@ -103,10 +107,9 @@ function discovery_process_invalid(count) {
 }
 
 function discovery_command_valid(argv) {
-	if (type(argv) != 'array' || length(argv) < 6 || argv[0] != RUNTIME_TARGET || argv[1] != 'run') return false;
-	let output = index(argv, '-output'), source = index(argv, '-dns-source');
-	return output >= 0 && output + 1 < length(argv) && argv[output + 1] == DISCOVERY_LIST &&
-		source >= 0 && source + 1 < length(argv) && index(DISCOVERY_SOURCES, argv[source + 1]) >= 0;
+	if (type(argv) != 'array' || length(argv) != 6 || argv[0] != RUNTIME_TARGET || argv[1] != 'run') return false;
+	return argv[2] == '-dns-source' && index(DISCOVERY_SOURCES, argv[3]) >= 0 &&
+		argv[4] == '-output' && argv[5] == DISCOVERY_LIST;
 }
 
 function discovery_process_default() {

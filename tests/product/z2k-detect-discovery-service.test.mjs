@@ -22,6 +22,34 @@ function invoke(expression) {
   return JSON.parse(result.stdout);
 }
 
+function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function invokeWithDanglingDiscoveryConfig() {
+  const source = `import * as detect from ${JSON.stringify(detectPath)}; print(sprintf('%J', detect.z2k_detect_discovery_config_read()));`;
+  const script = `
+set -eu
+path='/etc/zapret2-manager/z2k-detect-discovery.json'
+directory="$(dirname "$path")"
+if [ ! -d "$directory" ] || [ ! -w "$directory" ]; then
+  printf 'SKIP\\n'
+  exit 0
+fi
+if [ -e "$path" ] || [ -L "$path" ]; then
+  printf 'SKIP\\n'
+  exit 0
+fi
+trap 'rm -f "$path"' EXIT
+ln -s /tmp/z2k-detect-discovery-missing-target "$path"
+"$UCODE_BIN" -e ${shellQuote(source)}
+`;
+  const result = spawnSync('wsl.exe', ['-e', 'bash', '-s'], { input: script, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  if (result.stdout.trim() === 'SKIP') return null;
+  return JSON.parse(result.stdout);
+}
+
 function runInitHarness({ eligible, source = 'auto', discovered = 'keep.example\n' }) {
   const script = `
 set -eu
@@ -117,6 +145,16 @@ test('discovery status is actual process/file health, not config-only state', { 
   const duplicate = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify(base)}; }, process: function() { return { instance: 'z2k-detect', running: true, pid: 4321, count: 2, validated: false, executable: '/usr/bin/other', outputOwned: false }; }, file: function() { return { count: 3, mtime: 1700000000 }; } })`);
   assert.equal(duplicate.running, false, 'duplicate/unrelated process must not be reported as named instance');
   assert.equal(duplicate.pid, null);
+  for (const command of [
+    [...process.command, '--unexpected'],
+    process.command.slice(0, -1),
+    [process.command[0], 'run', '-output', process.command[5], '-dns-source', process.command[3]],
+  ]) {
+    const extraOrMalformed = { ...process, command };
+    const result = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify(base)}; }, process: function() { return ${JSON.stringify(extraOrMalformed)}; }, file: function() { return { count: 3, mtime: 1700000000 }; } })`);
+    assert.equal(result.running, false, `non-exact managed argv must not be running: ${JSON.stringify(command)}`);
+    assert.equal(result.pid, null);
+  }
 });
 
 test('config reader distinguishes absent control file from empty, unreadable, malformed and invalid files', { skip: !ucode || !fs.existsSync(ucode) }, () => {
@@ -124,6 +162,7 @@ test('config reader distinguishes absent control file from empty, unreadable, ma
   assert.deepEqual(absent, { ok: true, schema: 1, enabled: false, dnsSource: 'auto' });
   for (const input of [
     { present: true, readable: false },
+    { present: true, dangling: true, link: '/tmp/z2k-detect-discovery-missing-target', raw: JSON.stringify({ schema: 1, enabled: false, dnsSource: 'auto' }) },
     { present: true, raw: '' },
     { present: true, raw: '{' },
     { present: true, raw: JSON.stringify({ schema: 2, enabled: false, dnsSource: 'auto' }) },
@@ -134,6 +173,13 @@ test('config reader distinguishes absent control file from empty, unreadable, ma
     assert.equal(result.ok, false, JSON.stringify(input));
     assert.equal(result.error.code, 'EDETECT_SCHEMA', JSON.stringify(input));
   }
+});
+
+test('real control-path dangling symlink fails closed when the WSL harness can create it', (t) => {
+  const dangling = invokeWithDanglingDiscoveryConfig();
+  if (dangling == null) return t.skip('WSL control directory is not writable for a safe temporary symlink');
+  assert.equal(dangling.ok, false);
+  assert.equal(dangling.error.code, 'EDETECT_SCHEMA');
 });
 
 test('config writer uses same-directory atomic move and mode 0600 without adding non-schema fields', { skip: !ucode || !fs.existsSync(ucode) }, () => {

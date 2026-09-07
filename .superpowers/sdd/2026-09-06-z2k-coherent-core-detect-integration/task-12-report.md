@@ -145,3 +145,68 @@ ubus/rpcd calls, actual permissions and atomic rename on the router, live DNS
 observation, and a real Core update/restart with the discovered list are not
 claimed. Browser/package E2E, merge, push, router deploy, and final visual
 acceptance also remain unrun.
+
+## Fix-round 2 — re-review corrections
+
+Status: IMPLEMENTED; both new Important findings are covered by direct UCode
+regressions and the production-shaped service test. No router, browser, deploy,
+merge, or push actions were performed.
+
+### Corrections
+
+- `discovery_command_valid` now requires exactly six argv elements in the
+  managed order: the fixed executable, `run`, `-dns-source`, one typed source,
+  `-output`, and the fixed discovered-domains path. Extra, missing, or
+  reordered arguments are rejected and cannot produce `running: true`.
+- `discovery_config_read` checks `readlink()` before `stat()`. A symlink,
+  including a dangling symlink, is an `EDETECT_SCHEMA` failure; only a truly
+  absent non-symlink path reaches the disabled/`auto` default. The test seam
+  covers present dangling-link evidence even when the filesystem harness is
+  unavailable.
+
+### Fix-round TDD and verification
+
+RED after adding the two regression cases and before production changes:
+
+```text
+node --test tests/product/z2k-detect-discovery-service.test.mjs
+10 tests; 8 passed, 2 failed
+```
+
+The failures were exact: an extra `--unexpected` argv was reported running,
+and a present dangling-link seam carrying otherwise-valid JSON was accepted.
+The first real `/etc` symlink harness attempt also proved the WSL user lacks
+permission to create that system-path link; the final test reports this as an
+explicit skip rather than hiding the boundary.
+
+Focused GREEN:
+
+```text
+node --test tests/product/z2k-detect-discovery-service.test.mjs tests/product/z2k-detect-rpc.test.mjs
+25 tests; 24 passed, 0 failed, 1 skipped, 0 todo
+```
+
+The direct UCode status seam rejects extra, missing, and reordered argv. A
+default-path UCode smoke with no control file still returns schema 1,
+disabled/`auto`.
+
+Bounded Task 10/11 plus Detect/lifecycle/update gate:
+
+```text
+186 tests; 183 passed, 1 failed, 1 skipped, 1 todo
+```
+
+The one failure is the unchanged unrelated
+`z2k-update-source-integration` cold version-details assertion: expected five
+requests, observed three. The existing TODO remains the candidate-CAS test.
+
+Additional checks passed: init `sh -n`, Node syntax checks, UCode execution,
+ACL JSON parse, `git diff --check`, knowledge validation, and Quartz
+verification.
+
+### Explicitly unverified
+
+Real OpenWrt/router behavior remains unverified: live procd lifecycle and
+respawn, ubus/rpcd, actual router permissions/rename, live DNS observation,
+and a real Core update/restart preserving the discovered list. Browser/package
+E2E, deployment, merge, push, and final visual acceptance remain unrun.
