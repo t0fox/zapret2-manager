@@ -133,6 +133,23 @@ case "$mode" in
 		esac
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
+	z2k_selected_annotated)
+		case "$url" in
+			*/git/ref/tags/r-80.3)
+				printf '%s' '{"ref":"refs/tags/r-80.3","object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"tag"}}' > "$output"
+				;;
+			*/git/tags/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
+				printf '%s' '{"object":{"sha":"cccccccccccccccccccccccccccccccccccccccc","type":"commit"},"tagger":{"date":"2026-09-02T00:00:00Z"}}' > "$output"
+				;;
+			*/UPDATES.json*)
+				printf '%s' '{"schema":1,"branch":"z2k-enhanced","seq":1,"current":"r-80.3","files_sha256":{"files/lua/example.lua":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}' > "$output"
+				;;
+			*)
+				printf '%s' '{}' > "$output"
+				;;
+		esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
 	z2k_advisory_selected)
 		case "$url" in
 			*/git/refs/tags\?per_page=100)

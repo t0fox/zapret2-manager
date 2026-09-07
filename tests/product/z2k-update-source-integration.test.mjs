@@ -156,6 +156,33 @@ test('Z2K selected resolution uses one exact REST lookup plus one raw immutable 
 	assert.match(urls[1], new RegExp('/c{40}/UPDATES\\.json$'));
 });
 
+test('Z2K fresh selected resolution dereferences an annotated tag within a bounded request budget', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const selected = invoke(s, 'mod.z2k_resolve_version("r-80.3")', { Z2M_FIXTURE_MODE: 'z2k_selected_annotated' });
+	assert.equal(selected.ok, false, 'the fixture intentionally has no local classification for its path');
+	assert.equal(selected.error.code, 'EZ2K_UNCLASSIFIED_UPSTREAM_FILE', JSON.stringify(selected));
+	assert.equal(selected.error.diagnostics.requestCount, 3, JSON.stringify(selected));
+	assert.equal(selected.error.diagnostics.restRequestCount, 2, JSON.stringify(selected));
+	const urls = requestUrls(s);
+	assert.equal(urls.length, 3, urls.join('\n'));
+	assert.match(urls[0], /\/git\/ref\/tags\/r-80\.3$/);
+	assert.match(urls[1], new RegExp('/git/tags/' + 'b'.repeat(40) + '$'));
+	assert.match(urls[2], new RegExp('/c{40}/UPDATES\\.json$'));
+});
+
+test('Z2K browse selected resolution dereferences an annotated tag within a bounded request budget', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const selected = invoke(s, 'mod.z2k_resolve_version("r-79.7", "browse")', presentationEnv(s, '1000', 'z2k_presentation'));
+	assert.equal(selected.ok, true, JSON.stringify(selected));
+	assert.equal(selected.commitSha, 'd'.repeat(40), JSON.stringify(selected));
+	assert.equal(selected.diagnostics.requestCount, 4, JSON.stringify(selected));
+	assert.equal(selected.diagnostics.restRequestCount, 2, JSON.stringify(selected));
+	const urls = requestUrls(s);
+	assert.equal(urls.length, 4, urls.join('\n'));
+	assert.match(urls[2], new RegExp('/git/tags/' + 'b'.repeat(40) + '$'));
+	assert.match(urls[3], new RegExp('/d{40}/UPDATES\\.json$'));
+});
+
 test('Z2K selected details resolves through the initialized exact-version export', { skip: !hasUcode }, () => {
 	const s = sandbox();
 	const details = invoke(s, 'mod.z2k_version_details("r-80.3")', { Z2M_FIXTURE_MODE: 'z2k_selected' });
@@ -262,6 +289,9 @@ test('Z2K presentation and mutation entrypoints keep their explicit resolution b
 	assert.match(details, /z2k_resolve_version\(version, 'browse', catalog\)/);
 	assert.match(details, /release_manifest\(previous, 'browse'\)/);
 	assert.match(details, /release_manifest\(installedRow, 'browse'\)/);
+	const tagResolutionCalls = versions.split('\n').filter(line => line.includes('resolve_tag_commit(') && !line.includes('function resolve_tag_commit'));
+	assert.equal(tagResolutionCalls.length, 5);
+	assert.ok(tagResolutionCalls.every(line => line.includes(', budget)'), tagResolutionCalls.join('\n')));
 	assert.match(resourceUpdate, /let resolved = z2k_resolve_version\(version\)/);
 });
 

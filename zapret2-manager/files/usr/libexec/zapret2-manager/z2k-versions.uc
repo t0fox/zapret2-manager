@@ -502,7 +502,8 @@ function release_manifest(row, mode) {
 	if (row == null) return fail('EUNAVAILABLE', 'Выбранный release не имеет immutable commit.');
 	let commitSha = row.commitSha;
 	if (!valid_sha(commitSha) && row.objectType == 'tag' && valid_sha(row.tagSha)) {
-		let resolved = resolve_tag_commit(row.version, row.tagSha, row.objectType, mode || 'fresh');
+		let budget = { remaining: 1 };
+		let resolved = resolve_tag_commit(row.version, row.tagSha, row.objectType, mode || 'fresh', budget);
 		if (resolved == null) return fail('EUNAVAILABLE', 'Immutable tag выбранного release не указывает на commit.');
 		commitSha = resolved.commitSha; row.commitSha = commitSha; row.publishedAt = resolved.publishedAt || row.publishedAt;
 	}
@@ -655,7 +656,8 @@ function z2k_resolve_tag_fresh(version) {
 	let ref = source_payload(result), target = object(ref) && object(ref.object) ? ref.object : null;
 	if (!object(ref) || ref.ref != 'refs/tags/' + version || target == null || !valid_sha(target.sha)
 		|| (target.type != 'commit' && target.type != 'tag')) return source_error(result, 'Не удалось получить immutable tag выбранного release.', 'selected-tag');
-	let resolved = resolve_tag_commit(version, target.sha, target.type);
+	let budget = { remaining: 1 };
+	let resolved = resolve_tag_commit(version, target.sha, target.type, 'fresh', budget);
 	if (resolved == null) return fail('EUNAVAILABLE', 'Immutable tag выбранного release не указывает на commit.', { diagnostics: network_diagnostics('selected-tag') });
 	return { ok: true, version: version, tagSha: resolved.tagSha, commitSha: resolved.commitSha, publishedAt: resolved.publishedAt, diagnostics: network_diagnostics('selected-tag') };
 }
@@ -676,7 +678,8 @@ function z2k_resolve_version_browse(version, catalog) {
 	if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.', { diagnostics: network_diagnostics('selected-tag') });
 	let resolved = { ok: true, version: version, tagSha: row.tagSha, commitSha: row.commitSha, publishedAt: row.publishedAt };
 	if (row.objectType == 'tag') {
-		let tag = resolve_tag_commit(version, row.tagSha, row.objectType, 'browse');
+		let budget = { remaining: 1 };
+		let tag = resolve_tag_commit(version, row.tagSha, row.objectType, 'browse', budget);
 		if (tag == null) return fail('EUNAVAILABLE', 'Immutable tag выбранного release не указывает на commit.', { diagnostics: network_diagnostics('selected-tag') });
 		resolved.tagSha = tag.tagSha; resolved.commitSha = tag.commitSha; resolved.publishedAt = tag.publishedAt || row.publishedAt;
 		row.commitSha = resolved.commitSha; row.publishedAt = resolved.publishedAt;
@@ -715,7 +718,8 @@ export const z2k_version_details = function(version, options) {
 	// resolution. Compare is independent from historical manifest availability,
 	// so resolve the installed identity here when the user explicitly requests it.
 	if (includeCompare && installedRow != null && !valid_sha(installedCommit) && valid_sha(installedRow.tagSha) && installedRow.objectType == 'tag') {
-		let resolvedInstalled = resolve_tag_commit(installedVersion, installedRow.tagSha, installedRow.objectType, 'browse');
+		let budget = { remaining: 1 };
+		let resolvedInstalled = resolve_tag_commit(installedVersion, installedRow.tagSha, installedRow.objectType, 'browse', budget);
 		if (resolvedInstalled != null) installedCommit = resolvedInstalled.commitSha;
 	}
 	if (includeCompare && installedRow != null && valid_sha(installedCommit) && valid_sha(row.commitSha) && lc(installedCommit) != lc(row.commitSha)) compareEvidence = fetch_compare_evidence(installedCommit, row.commitSha);
