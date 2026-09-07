@@ -455,3 +455,102 @@ commit; the final HEAD and worktree state are recorded in the handoff.
 No router/OpenWrt deployment, live RPC/ubus invocation, live network Detect,
 browser acceptance, package-E2E, merge, push, delegation, or other model was
 run. Router/browser/live acceptance remains intentionally unrun.
+
+## Fix-round 5 — remove stale Scanner handoff and dead legacy helpers
+
+### Findings addressed
+
+- Removed the unreachable legacy `reportRows`, `reportBest`, `reportTested`,
+  candidate-formatting, `openInStrategies`, and `reference` helpers from
+  `z2m-scanner.js`. There is no remaining production producer for
+  `z2m.strategy.scanner-handoff.v1`.
+- Removed `handoffConsumed` and `consumeScannerHandoff()` from
+  `z2m-strategies.js`, including the render/unmount paths that consumed or
+  reset it. A stale `scanner-handoff.v1` session record therefore cannot be
+  converted into a Strategies draft.
+- Kept the current typed Detect boundary intact: valid
+  `z2m-detect-history.v1` records with `typedDetect` and coherent provenance
+  remain accepted; legacy, stale, and malformed records remain rejected. No
+  scanner fallback or second handoff schema was added.
+- Updated the focused product boundary assertion to require typed Detect
+  history and forbid the retired handoff/helpers, without weakening existing
+  assertions.
+
+### Fix-round TDD evidence
+
+RED after adding the legacy-handoff regression and typed-current-flow test,
+before removing the production code:
+
+```text
+node --test tests/ui/scanner-detect-history.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs
+exit 1; 10 tests: 9 passed, 1 failed.
+Failure: legacy scanner handoff cannot create a Strategies draft; the old
+scanner still contained scanner-handoff.v1/openInStrategies/reportRows/reportBest.
+```
+
+GREEN focused UI/API gate:
+
+```text
+node --test tests/ui/scanner-detect-history.test.mjs tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs
+15 tests: 15 passed, 0 failed.
+```
+
+GREEN focused Scanner/RPC/package gate:
+
+```text
+node --test tests/native/avatar-strategy-scanner-package.test.mjs tests/product/scanner-history-nfqueue-contract.test.mjs tests/product/scanner-start-order.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-history.test.mjs
+32 tests: 32 passed, 0 failed.
+```
+
+### Bounded verification and boundaries
+
+The bounded WSL gate covered typed Detect RPC/helper/native validation,
+receipt/installed authority, lifecycle/runtime, Scanner RPC/API boundary, and
+the Scanner generation/history regressions:
+
+```text
+wsl.exe -e bash -lc "set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 240s node --test tests/product/z2k-detect-rpc.test.mjs tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-receipt-v3.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-runtime-composition.test.mjs tests/product/z2k-runtime-readiness.test.mjs tests/product/z2k-runtime-summary.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-history.test.mjs"
+161 tests: 160 passed, 0 failed, 1 existing TODO.
+```
+
+The TODO is the pre-existing Task 4 transaction slice
+(`candidate CAS distinguishes unrelated revision changes`). The broad
+characterization gate remained intentionally non-green:
+
+```text
+node --test tests/ui/scanner-start-race.test.mjs tests/ui/perf-2-regression.test.mjs tests/ui/scanner-ui-rework.test.mjs tests/product/scanner-budget-contract.test.mjs tests/product/scanner-start-envelope.test.mjs
+39 tests: 29 passed, 10 failed.
+```
+
+Those ten failures are obsolete Scanner/Avatar characterization expectations
+(retired record/polling/cancel behavior, old layout/result strings, and the
+absent Scanner-product BlockCheck child artifact); one PERF-2 Telegram
+navigation assertion is unrelated to this scope. The separate Scanner Hub
+test remains an honest missing-artifact failure because
+`z2m-scanner-hub.js` is absent in this checkout. The additional bounded
+`scanner2-bounded-behavior` characterization gate was `19 tests: 13 passed,
+6 failed`, all old Scanner/Avatar complexity, ranking, progress, cancellation,
+and legacy `openInStrategies` expectations. These failures are not this
+fix-round regressions; no assertion was weakened and no fallback was restored.
+
+`node --check` passed for `z2m-scanner.js`, `z2m-scanner-product.js`,
+`z2m-strategies.js`, and both changed UI test modules. Knowledge validation
+passed; Quartz verification passed with SHA
+`ab346fa66a895e12d63a308e70ce330ba795822a`; `git diff --check` passed. UCode
+imports were exercised by the bounded WSL gate.
+
+### Fix-round 5 files and commits
+
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js`
+- `tests/product/avatar-strategy-scanner-rpc.test.mjs`
+- `tests/ui/scanner-detect-history.test.mjs`
+- this report
+
+Implementation commit: `27eb4e93` (`fix: remove stale Task 11 scanner handoff`).
+The report is committed separately immediately after this implementation
+commit; the final HEAD and clean-worktree state are recorded in the handoff.
+
+No router/OpenWrt deployment, live RPC/ubus invocation, live network Detect,
+browser acceptance, package-E2E, merge, push, delegation, or other model was
+run. Router/browser/live acceptance remains intentionally unrun.
