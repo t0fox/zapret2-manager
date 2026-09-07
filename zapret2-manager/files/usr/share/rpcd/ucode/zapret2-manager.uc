@@ -29,6 +29,7 @@ import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources
 import { z2k_detect_status, z2k_detect_probe, z2k_detect_classify, z2k_detect_quic, z2k_detect_voice, z2k_detect_tcp16,
 	z2k_detect_discovery_status, z2k_detect_discovery_control } from '/usr/libexec/zapret2-manager/z2k-detect.uc';
 import { z2k_data_refresh } from '/usr/libexec/zapret2-manager/z2k-data-refresh.uc';
+import { z2k_data_refresh_input as z2k_data_refresh_wire_input } from '/usr/libexec/zapret2-manager/z2k-data-refresh-rpc.uc';
 import { z2k_diagnostics_run } from '/usr/libexec/zapret2-manager/z2k-diagnostics.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
@@ -78,7 +79,11 @@ function tg_product_remove_method(req) { return tg_edit_call(tg_product_remove, 
 function tg_product_purge_method(req) { return tg_edit_call(tg_product_purge, req); }
 
 function z2k_diagnostics_method(req) { return z2k_diagnostics_run(); }
-function z2k_data_refresh_method(req) { return tg_edit_call(z2k_data_refresh, req); }
+function z2k_data_refresh_input(req) { return z2k_data_refresh_wire_input(req); }
+function z2k_data_refresh_method(req) {
+	let parsed = z2k_data_refresh_input(req);
+	return parsed.valid === true ? z2k_data_refresh(parsed.value) : parsed;
+}
 
 function shell_escape_early(value) {
 	let s = '' + (value == null ? '' : value), out = "'";

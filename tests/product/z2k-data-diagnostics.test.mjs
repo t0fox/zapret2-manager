@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 const root = path.resolve(import.meta.dirname, '../..');
 const dataPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-data-refresh.uc');
 const diagnosticsPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-diagnostics.uc');
+const rpcInputPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-data-refresh-rpc.uc');
 const rpcPath = path.join(root, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const aclPath = path.join(root, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
 const ucode = process.env.UCODE_BIN;
@@ -122,7 +123,7 @@ test('dataset publication uses one revision manifest and removes stale entries f
   assert.equal(manifest.ok, true);
   assert.equal(manifest.schema, 1);
   assert.equal(manifest.entries.some(entry => entry.path === 'sni_wl_candidates.txt'), false);
-  assert.deepEqual(manifest.entries.map(entry => entry.path), ['tcp16_targets.txt']);
+  assert.deepEqual(manifest.entries.map(entry => entry.path), ['release/tcp16_targets.txt']);
   const published = invoke(dataPath, `mod.z2k_data_publish(${JSON.stringify(next)}, { current: function() { return { schema: 1, revision: 'old', entries: [{ path: 'sni_wl_candidates.txt' }] }; }, commit: function(manifest) { return { ok: true, revision: manifest.revision }; } })`);
   assert.equal(published.ok, true);
   assert.equal(published.revision, manifest.revision);
@@ -168,11 +169,30 @@ test('diagnostic errors are bounded and oversized authority errors are replaced 
   assert.ok(JSON.stringify(row).length < 1024);
 });
 
-test('canonical data refresh RPC is typed and bounded rather than generic edit passthrough', () => {
+test('canonical data refresh RPC is typed and bounded rather than generic edit passthrough', { skip: !ucode || !fs.existsSync(rpcInputPath) }, () => {
   const rpc = fs.readFileSync(rpcPath, 'utf8');
+  const boundary = fs.readFileSync(rpcInputPath, 'utf8');
   assert.match(rpc, /function z2k_data_refresh_input\(/);
-  assert.match(rpc, /length\(edit\)\s*>\s*32768/);
+  assert.match(boundary, /length\(edit\)\s*>\s*MAX_BYTES/);
   assert.match(rpc, /z2k_data_refresh_input\(req\)/);
   assert.doesNotMatch(rpc, /function z2k_data_refresh_method\(req\) \{ return tg_edit_call/);
-  for (const field of ['executable', 'argv', 'command', 'raw', 'shell', 'cwd', 'env', 'path']) assert.match(rpc, new RegExp(`['"]${field}['"]`));
+  for (const field of ['executable', 'argv', 'command', 'raw', 'shell', 'cwd', 'env', 'path', 'environment']) assert.match(boundary, new RegExp(`['"]${field}['"]`));
+
+  const valid = { release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseOwned: [{ name: 'sni_wl_candidates.txt', content: 'example.com\n' }], dynamic: [], authority: {} };
+  const accepted = invoke(rpcInputPath, `mod.z2k_data_refresh_input({ args: { edit: ${JSON.stringify(JSON.stringify(valid))} } })`);
+  assert.equal(accepted.valid, true);
+  assert.equal(accepted.value.releaseOwned[0].path, 'sni_wl_candidates.txt');
+  for (const bad of [
+    { ...valid, path: 'caller-controlled' },
+    { ...valid, executable: '/bin/sh' },
+    { ...valid, environment: { HOME: '/tmp' } },
+    { ...valid, releaseOwned: [{ name: 'x', content: 'x', command: 'id' }] },
+    { ...valid, sourceCommit: 7 },
+  ]) {
+    const rejected = invoke(rpcInputPath, `mod.z2k_data_refresh_input({ args: { edit: ${JSON.stringify(JSON.stringify(bad))} } })`);
+    assert.equal(rejected.valid, undefined, JSON.stringify(rejected));
+    assert.equal(rejected.ok, false);
+  }
+  const oversized = invoke(rpcInputPath, `mod.z2k_data_refresh_input({ args: { edit: ${JSON.stringify('x'.repeat(32769))} } })`);
+  assert.equal(oversized.error.code, 'E2BIG');
 });

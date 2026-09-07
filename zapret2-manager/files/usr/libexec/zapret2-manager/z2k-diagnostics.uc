@@ -4,6 +4,7 @@
 // fixed status seam; this module never persists lifecycle truth.
 const IDS = ['release_identity', 'activation_receipt', 'runtime_composition', 'lua_function_closure', 'runtime_assets', 'runtime_lists', 'compiler_snapshot', 'strategy_catalog', 'compatibility_identity', 'detect_binary', 'detect_json_contract', 'autodiscovery', 'discovered_domains', 'autocircular', 'tcp16', 'nfqueue', 'firewall', 'nfqws2'];
 const MAX_EVIDENCE_BYTES = 8192;
+const MAX_ERROR_BYTES = 1024;
 import { z2k_registry_receipt_state } from './z2k-installed-release.uc';
 import * as runtime_composition from './runtime-composition.uc';
 import { asset_registry_list } from './asset-registry.uc';
@@ -15,10 +16,17 @@ function object(value) { return type(value) == 'object' && value != null && type
 function string(value) { return type(value) == 'string'; }
 function fail(code, message) { return { ok: false, error: { code: code, message: message } }; }
 function bounded(value) { try { return length(sprintf('%J', value)) <= MAX_EVIDENCE_BYTES; } catch (e) { return false; } }
+function bounded_error(value) {
+	if (!object(value) || !string(value.code) || !string(value.message) || length(value.code) > 96 || length(value.message) > 320) return null;
+	let projected = { code: value.code, message: value.message };
+	if (value.details != null) projected.details = value.details;
+	try { if (length(sprintf('%J', projected)) > MAX_ERROR_BYTES) return null; } catch (e) { return null; }
+	return projected;
+}
 function row(id, value) {
 	if (!object(value) || !string(value.status) || index(['ok', 'warning', 'error', 'unavailable'], value.status) < 0 || (value.evidence != null && !object(value.evidence)) || !bounded(value.evidence)) return { id: id, status: 'error', evidence: null, error: { code: 'ESCHEMA', message: 'diagnostic projection is malformed' } };
-	let error = value.error == null ? null : value.error;
-	if (error != null && !object(error)) return { id: id, status: 'error', evidence: null, error: { code: 'ESCHEMA', message: 'diagnostic error is malformed' } };
+	let error = value.error == null ? null : bounded_error(value.error);
+	if (value.error != null && error == null) return { id: id, status: 'error', evidence: null, error: { code: 'ESCHEMA', message: 'diagnostic error is malformed' } };
 	return { id: id, status: value.status, evidence: value.evidence == null ? null : value.evidence, error: error };
 }
 function projected(fn) {
