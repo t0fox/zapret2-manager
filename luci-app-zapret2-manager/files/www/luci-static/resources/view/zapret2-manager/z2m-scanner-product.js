@@ -12,7 +12,6 @@ var state = { activeTab: 'search', child: null, childContext: null, host: null, 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
 function text(value) { return value === null || value === undefined ? '' : String(value); }
-function edit(value) { return JSON.stringify(value || {}); }
 function dateValue(value) { if (typeof value === 'number' && isFinite(value)) return value < 100000000000 ? value * 1000 : value; var time = Date.parse(text(value)); return isNaN(time) ? 0 : time; }
 function icon(name, className) { return Icons.wrappedNode(name, { size: 18, wrapperClass: 'z2m-scanner-icon' + (className ? ' ' + className : '') }); }
 function statusLabel(value) { return ({ completed: _('Завершено'), running: _('Выполняется'), probing: _('Выполняется'), starting: _('Подготавливается'), cancelled: _('Остановлено'), stopped: _('Остановлено'), error: _('Ошибка') })[text(value)] || _('Состояние уточняется'); }
@@ -95,31 +94,15 @@ function openHistoryStrategy(ctx, record) {
   if (!candidateId || typeof sessionStorage === 'undefined') return;
   var isGen = isGeneratedCandidate(best);
   var target = object(record.request).target || '';
-  // Avatar handoff: apply_strategy idx → user strategy → preview/validate/apply existing Strategy, no second Apply
-  // Keep Z2M canonical identity where stricter: catalog/user Strategies use existing Strategy reference,
-  // generated unmatched use saveGenerated → Strategy subsystem for permanent mutation
+  // Typed Detect returns observations, not a mutation-capable Scanner record. Handoff
+  // remains local and explicit; the Strategy subsystem owns any later mutation.
   if (isGen) {
-    // Generated unmatched: create user Strategy via existing Strategy subsystem, then handoff
-    ctx.api.scanner.saveGenerated(edit({ scanId: record.id, candidateId: candidateId })).then(function (answer) {
-      var strat = object(answer).strategy || object(object(answer).payload) || object(answer);
-      // Backend returns {ok:true, strategy:{...}} with canonical user Strategy identity
-      if (strat && strat.id) {
-        handoffStrategy(ctx, strat, { source: 'scanner', scanId: record.id, candidateId: candidateId, target: target });
-        if (ctx.shell && ctx.shell.showToast) ctx.shell.showToast(_('Стратегия сохранена'), 'info');
-      } else {
-        // Fallback: craft local strategy if backend did not return one (should not happen)
-        var strategy = object(best.strategy || best.generatedStrategy || best);
-        strategy.id = text(strategy.id || candidateId);
-        strategy.name = text(strategy.name || best.strategyName || _('Стратегия из проверки'));
-        var tokens = array(strategy.compiledTokens || best.compiledTokens);
-        strategy.profiles = array(strategy.profiles).length ? strategy.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(strategy.args || (tokens.length ? tokens.join(' ') : '')) }];
-        handoffStrategy(ctx, strategy, { source: 'scanner', scanId: record.id, candidateId: candidateId, target: target });
-      }
-    }).catch(function (error) {
-      var msg = ctx.api.normalizeError ? ctx.api.normalizeError(error).message : String(error.message || error);
-      if (ctx.shell && ctx.shell.showToast) ctx.shell.showToast(msg, 'err');
-      else ctx.shell.openModal(_('Ошибка сохранения'), ctx.shell.statePanel({ title: _('Не удалось сохранить стратегию'), message: msg, kind: 'error' }));
-    });
+    var generated = object(best.strategy || best.generatedStrategy || best);
+    generated.id = text(generated.id || candidateId);
+    generated.name = text(generated.name || best.strategyName || _('Стратегия из проверки'));
+    var generatedTokens = array(generated.compiledTokens || best.compiledTokens);
+    generated.profiles = array(generated.profiles).length ? generated.profiles : [{ id: 'profile-1', name: _('Профиль проверки'), enabled: true, args: text(generated.args || (generatedTokens.length ? generatedTokens.join(' ') : '')) }];
+    handoffStrategy(ctx, generated, { source: 'scanner', scanId: record.id, candidateId: candidateId, target: target });
     return;
   }
   // Catalog/user Strategy: use existing Strategy reference – no creation, handoff to preview/validate/apply
@@ -138,8 +121,7 @@ function historyDetailBody(ctx, record) {
 }
 function openHistoryDetail(ctx, item, button) {
   button.disabled = true;
-  ctx.api.scanner.historyGet(edit({ id: item.id })).then(function (value) {
-    var record = object(value).record || value;
+  Promise.resolve(object(item)).then(function (record) {
     var footer = [ctx.shell.button(_('Закрыть'), '', ctx.shell.closeModal)];
     if (historyBest(record).id || historyBest(record).strategyId || historyBest(record).candidateId) footer.push(ctx.shell.button(_('Открыть в Стратегиях'), 'primary sm', function () { openHistoryStrategy(ctx, record); }));
     footer.push(ctx.shell.button(_('Проверить снова'), 'sm', function () { ctx.shell.closeModal(); if (ctx.navigate) ctx.navigate('scan'); }));
@@ -158,12 +140,13 @@ function boundedChildLoad(child, ctx) {
   return Promise.race([Promise.resolve(work), new Promise(function (resolve) { window.setTimeout(function () { resolve({}); }, 1500); })]);
 }
 function historyList(ctx) {
-  return ctx.api.scanner.historyList(edit({ limit: 50 })).then(function (value) {
+  return Promise.resolve().then(function () {
+    var value = typeof sessionStorage === 'undefined' ? [] : JSON.parse(sessionStorage.getItem('z2m.detect.history.v1') || '[]');
     state.historyError = null;
-    state.history = historySort(object(value).items);
+    state.history = historySort(array(value).slice(0, 50));
     return { history: state.history };
   }).catch(function (error) {
-    state.historyError = ctx.api.normalizeError(error);
+    state.historyError = ctx.api.normalizeError ? ctx.api.normalizeError({ code: 'EDETECT_SCHEMA', message: 'Detect history is malformed.' }) : { message: _('История проверки повреждена.') };
     state.history = [];
     return { history: [] };
   });

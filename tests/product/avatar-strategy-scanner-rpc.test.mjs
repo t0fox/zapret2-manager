@@ -32,13 +32,16 @@ test('legacy Scanner RPC methods have no ACL placement', () => {
   }
 });
 
-test('Scanner API and view use server-owned lifecycle data', () => {
-  assert.match(api, /EDETECT_UNAVAILABLE/);
-  assert.match(api, /scanner:\{start:scannerUnavailable/);
-  for (const control of ['target', 'protocol', 'mode', 'resume', 'dpi_type'])
+test('Scanner API and view use only the canonical typed Detect boundary', () => {
+  for (const method of ['z2kDetectStatus', 'z2kDetectProbe', 'z2kDetectClassify', 'z2kDetectQuic', 'z2kDetectVoice', 'z2kDetectTcp16'])
+    assert.match(api, new RegExp(`${method}:`), method);
+  assert.doesNotMatch(api, /scannerUnavailable|scanner:\{/);
+  for (const control of ['target', 'protocol', 'mode', 'dpi_type'])
     assert.match(ui, new RegExp(control), control);
-  for (const lifecycle of ['start', 'status', 'results', 'stop', 'resume', 'saveGenerated'])
-    assert.match(ui, new RegExp(`ctx\\.api\\.scanner(?:\\.${lifecycle}|\\[method\\])`), lifecycle);
+  assert.doesNotMatch(ui, /ctx\.api\.scanner|api\.scanner/);
+  assert.doesNotMatch(product, /ctx\.api\.scanner|api\.scanner/);
+  for (const method of ['z2kDetectStatus', 'z2kDetectProbe', 'z2kDetectClassify', 'z2kDetectQuic', 'z2kDetectVoice', 'z2kDetectTcp16'])
+    assert.match(ui + product, new RegExp(`ctx\\.api\\.${method}\\s*\\(`), method);
   for (const hook of ['load:', 'render:', 'mount:', 'unmount:']) assert.match(ui, new RegExp(hook), hook);
   assert.match(ui, /setTimeout|setInterval/);
   assert.match(ui, /disposed|unmounted|generation|token/);

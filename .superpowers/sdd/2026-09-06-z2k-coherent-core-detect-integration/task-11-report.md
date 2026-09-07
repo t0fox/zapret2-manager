@@ -160,3 +160,98 @@ No router/OpenWrt deployment, live RPC/ubus invocation, live network Detect,
 browser acceptance, package-E2E, merge, push, or model delegation was run.
 The worktree remains limited to the typed Detect production boundary, its ACL/
 client wiring, the required legacy-boundary assertions, and this evidence.
+
+## Fix-round 2 — typed Detect-only Scanner UI boundary
+
+### Findings addressed
+
+- Removed the last `scannerUnavailable` helper and `api.scanner` object from
+  `z2m-api.js`; the LuCI API now exposes no legacy Scanner compatibility
+  surface.
+- Replaced the Scanner view's old start/status/results/stop/resume/save flow
+  with a bounded one-shot typed Detect flow. Every Detect invocation first
+  calls `z2kDetectStatus` and requires the real coherent installed authority,
+  then dispatches only to `z2kDetectProbe`, `z2kDetectClassify`,
+  `z2kDetectQuic`, `z2kDetectVoice`, or `z2kDetectTcp16` with typed positional
+  arguments. The UI parses only the bounded typed result envelope and renders
+  actual returned fields; it does not synthesize strategy success or invoke a
+  Scanner fallback.
+- Removed all `ctx.api.scanner` consumers from `z2m-scanner.js` and
+  `z2m-scanner-product.js`. History is now a bounded session projection of
+  results produced by the typed Detect flow; generated-result handoff is local
+  and explicit, while Strategy remains the owner of later mutation.
+- Preserved canonical Detect error codes and bounded timeout/schema handling in
+  the Scanner UI. Existing broad Scanner characterization assertions were not
+  weakened.
+
+### Fix-round TDD evidence
+
+RED after adding the production-shaped UI/API assertions and before the
+production migration:
+
+```text
+node --test tests/ui/scanner-detect-api-boundary.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs
+exit 1; 9 tests: 5 passed, 4 failed.
+Failures: scannerUnavailable/api.scanner still present and the Scanner
+consumers had no typed Detect calls.
+```
+
+GREEN focused UI/API boundary:
+
+```text
+node --test tests/ui/scanner-detect-api-boundary.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs
+9 passed, 0 failed
+```
+
+GREEN bounded WSL RPC/helper/authority/lifecycle/Scanner gate:
+
+```text
+wsl.exe -e bash -lc "set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 240s node --test tests/product/z2k-detect-rpc.test.mjs tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-receipt-v3.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-runtime-composition.test.mjs tests/product/z2k-runtime-readiness.test.mjs tests/product/z2k-runtime-summary.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs"
+149 tests: 148 passed, 0 failed, 1 existing TODO.
+```
+
+GREEN Scanner package/history/start-order regressions:
+
+```text
+node --test tests/native/avatar-strategy-scanner-package.test.mjs tests/product/scanner-history-nfqueue-contract.test.mjs tests/product/scanner-start-order.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs
+20 passed, 0 failed
+```
+
+The unchanged broad Scanner characterization command remained non-green:
+
+```text
+node --test tests/ui/scanner-start-race.test.mjs tests/ui/perf-2-regression.test.mjs tests/ui/scanner-ui-rework.test.mjs tests/product/scanner-budget-contract.test.mjs tests/product/scanner-start-envelope.test.mjs
+39 tests: 29 passed, 10 failed.
+```
+
+Those failures are recorded as baseline/legacy characterization boundaries,
+not hidden: they assert the removed asynchronous Scanner record polling,
+cancel/resume lifecycle, old Avatar layout/result strings, or a missing
+BlockCheck child artifact; one PERF-2 Telegram-navigation failure is unrelated
+to the touched Scanner/API files. No assertions were weakened to make the
+typed boundary green.
+
+### Additional checks and boundaries
+
+- `node --check` passed for `z2m-api.js`, `z2m-scanner.js`,
+  `z2m-scanner-product.js`, and all changed focused test files.
+- `node scripts/validate-knowledge.mjs`: `Knowledge validation passed.`
+- `node scripts/docs.mjs verify`: Quartz SHA verified
+  `ab346fa66a895e12d63a308e70ce330ba795822a`.
+- `git diff --check` passed.
+- No router/OpenWrt deployment, live RPC/ubus invocation, live network Detect,
+  browser acceptance, package-E2E, merge, push, delegation, or other model was
+  run.
+
+### Fix-round 2 files and commit
+
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner-product.js`
+- `tests/product/z2k-detect-rpc.test.mjs`
+- `tests/product/avatar-strategy-scanner-rpc.test.mjs`
+- `tests/ui/scanner-detect-api-boundary.test.mjs`
+- this report
+
+Implementation/report commit: to be recorded in the final handoff after the
+bounded verification above.

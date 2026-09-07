@@ -221,9 +221,6 @@ function tgCheckUpdates(selection) {
   return tgEdit(calls.tgProductCheckUpdates, selection);
  return Promise.resolve({ok:false, error:{code:'EINPUT', message:'provider required'}});
 }
-function scannerUnavailable() {
- return Promise.resolve({ok:false, error:{code:'EDETECT_UNAVAILABLE', message:'Legacy Scanner RPC was removed; use typed Z2K Detect operations.'}});
-}
  return baseclass.extend({
   normalizeError:normalizeError,all:calls,
  service:{status:calls.status,statusFast:calls.statusFast,start:calls.start,stop:calls.stop,restart:calls.restart},
@@ -231,7 +228,6 @@ function scannerUnavailable() {
   strategy:{preview:calls.discordProfilePreview,apply:calls.discordProfileApply,rollback:calls.discordProfileRollback,confirmAlive:calls.confirmAlive,rollbackManager:calls.rollback},
   strategies:{list:calls.strategiesList,recommendations:calls.strategiesRecommendations,get:calls.strategiesGet,discordDonor:calls.strategiesDiscordDonor,create:calls.strategiesCreate,update:calls.strategiesUpdate,delete:calls.strategiesDelete,duplicate:calls.strategiesDuplicate,favorite:calls.strategiesFavorite,preview:calls.strategiesPreview,validate:calls.strategiesValidate,apply:calls.strategiesApply,catalogStatus:calls.strategiesCatalogStatus,catalogReload:calls.strategiesCatalogReload,catalogUpdate:calls.strategiesCatalogUpdate,catalogRefreshStart:calls.strategiesCatalogRefreshStart,catalogRefreshStatus:calls.strategiesCatalogRefreshStatus,sourcesGet:calls.strategiesSourcesGet,sourceRefresh:calls.strategiesSourceRefresh,sourceSetEnabled:calls.strategiesSourceSetEnabled,importProfiles:calls.strategiesImportProfiles,learnedState:calls.strategiesState,learnedReset:calls.strategiesStateClear,stateSet:calls.strategiesStateSet,customCreate:calls.strategiesStateSet,pools:calls.strategiesPools,debugGet:calls.strategiesDebugGet,debugSet:calls.strategiesDebugSet},
   healthcheck:{status:calls.healthcheckStatus,run:calls.healthcheckRun,enable:calls.healthcheckEnable,disable:calls.healthcheckDisable,config:calls.healthcheckConfig},
-  scanner:{start:scannerUnavailable,status:scannerUnavailable,results:scannerUnavailable,stop:scannerUnavailable,resume:scannerUnavailable,saveGenerated:scannerUnavailable,historyList:scannerUnavailable,historyGet:scannerUnavailable},
  blockcheck:{start:calls.blockcheckStart,status:calls.blockcheckStatus,results:calls.blockcheckStatus,stop:calls.blockcheckStop,domains:calls.blockcheckStatus,traceroute:calls.blockcheckStatus},
  blockcheck2:{script:calls.blockcheck2Script,start:calls.blockcheck2Start,status:calls.blockcheck2Status,output:calls.blockcheck2Output,results:calls.blockcheck2Results,stop:calls.blockcheck2Stop},blockcheckw:{providerStatus:calls.blockcheckwProviderStatus,updateCheck:calls.blockcheckwUpdateCheck,install:calls.blockcheckwInstall,script:calls.blockcheckwScript,start:calls.blockcheckwStart,status:calls.blockcheckwStatus,output:calls.blockcheckwOutput,results:calls.blockcheckwResults,stop:calls.blockcheckwStop},blockDetector:{start:calls.blockDetectorStart,status:calls.blockDetectorStatus,results:calls.blockDetectorResults,stop:calls.blockDetectorStop},
   orchestra:{runStart:calls.orchestraRunStart,runStatus:calls.orchestraRunStatus,probePreflight:calls.orchestraProbePreflight},

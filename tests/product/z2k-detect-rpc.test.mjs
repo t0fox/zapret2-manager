@@ -109,7 +109,7 @@ test('production boundary removes legacy Scanner RPC and raw-shell entry', () =>
   assert.doesNotMatch(rpc, /SCANNER_CLI|scanner-cli-entry|scanner_start_async_impl|scanner_edit_action|setsid sh -c/);
   const api = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js'), 'utf8');
   assert.doesNotMatch(api, /method:'scanner_/);
-  assert.match(api, /EDETECT_UNAVAILABLE/);
+  assert.doesNotMatch(api, /scannerUnavailable|\bscanner\s*:/, 'legacy Scanner compatibility surface must be absent');
 });
 
 test('Detect input normalizer returns schema errors for missing or mistyped semantics and preserves safe additive fields', { skip: !ucode || !fs.existsSync(ucode) }, () => {
