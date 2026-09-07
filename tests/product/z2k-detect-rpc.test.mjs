@@ -71,6 +71,18 @@ function invoke(expression) {
   return JSON.parse(result.stdout);
 }
 
+test('Detect module guards missing rpcd ARGV while retaining the CLI discovery probe', () => {
+  const source = fs.readFileSync(detectPath, 'utf8');
+  assert.match(source, /function detect_cli_argv\(\)\s*\{[\s\S]*?try\s*\{\s*return ARGV;\s*\}\s*catch\s*\(e\)\s*\{\s*return \[\];\s*\}/,
+    'module context must convert an undeclared rpcd ARGV into an empty CLI argument list');
+  assert.match(source, /let cliArgv = detect_cli_argv\(\);/,
+    'the optional CLI arguments must be captured through the safe probe');
+  assert.match(source, /if \(length\(cliArgv\) > 0 && \(cliArgv\[0\] == 'discovery-eligible' \|\| cliArgv\[0\] == 'discovery-source'\)\)/,
+    'the discovery CLI must still be reachable from real ARGV values');
+  assert.doesNotMatch(source, /if \(length\(ARGV\) > 0/,
+    'rpcd/module evaluation must not read ARGV directly at top level');
+});
+
 test('protocol manifest and production RPC register all typed Detect operations', () => {
   for (const kind of operations) {
     const operation = `z2k_detect_${kind}`;

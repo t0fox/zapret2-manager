@@ -28,6 +28,9 @@ const CANONICAL_DETECT_ERRORS = ['EZ2K_NOT_INSTALLED', 'EZ2K_INCOHERENT', 'EDETE
 const DETECT_UNSAFE_INPUT_FIELDS = ['executable', 'argv', 'command', 'env', 'cwd', 'raw', 'shell', 'flags', 'path'];
 
 function object(value) { return type(value) == 'object' && value != null; }
+function detect_cli_argv() {
+	try { return ARGV; } catch (e) { return []; }
+}
 function string(value) { return type(value) == 'string'; }
 function text(value) { return value == null ? '' : '' + value; }
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
@@ -631,10 +634,11 @@ function discovery_cli_emit(value, code) {
 // The init script uses these fixed, non-user-controlled probes before it
 // opens the one named procd instance. The upstream executable remains the
 // only owner of the long-running `run` process.
-if (length(ARGV) > 0 && (ARGV[0] == 'discovery-eligible' || ARGV[0] == 'discovery-source')) {
+let cliArgv = detect_cli_argv();
+if (length(cliArgv) > 0 && (cliArgv[0] == 'discovery-eligible' || cliArgv[0] == 'discovery-source')) {
 	let config = discovery_config_read(), authority = z2k_detect_status();
 	let eligible = config.ok === true && config.enabled === true && authority.ok === true && authority.coherent === true;
-	if (ARGV[0] == 'discovery-source') {
+	if (cliArgv[0] == 'discovery-source') {
 		if (!eligible) exit(1);
 		print(config.dnsSource + '\n');
 	} else discovery_cli_emit(eligible ? { ok: true, enabled: true, dnsSource: config.dnsSource, instance: DISCOVERY_INSTANCE } :
