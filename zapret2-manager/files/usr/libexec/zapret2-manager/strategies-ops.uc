@@ -8,7 +8,7 @@ import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
 import { read_var } from './apply.uc';
 import { append_ndjson, event_id } from './events.uc';
-import { z2k_pool_semantic_digest, z2k_learned_state_reconcile, z2k_autocircular_identity_load, z2k_autocircular_identity_save } from './z2k-autocircular-identity.uc';
+import { z2k_pool_semantic_digest, z2k_learned_state_reconcile, z2k_autocircular_identity_load, z2k_autocircular_identity_save, z2k_autocircular_identity_restore } from './z2k-autocircular-identity.uc';
 
 const CONFIG_PATH = getenv('Z2M_STRATEGY_HEALTHCHECK_CONFIG') || '/etc/zapret2-manager/strategy-healthcheck.json';
 const LEARNED_PATH = getenv('Z2M_STRATEGY_LEARNED_STATE') || '/etc/zapret2-manager/state/autocircular/state.tsv';
@@ -38,7 +38,7 @@ function load_json(path, fallback) {
 }
 let tmp_sequence = 0;
 function save_json(path, value) {
-	ensure_dir();
+	if (!ensure_dir()) return false;
 	let temporary = path + '.tmp.' + time() + '.' + (++tmp_sequence);
 	try { writefile(temporary, sprintf('%J', value)); } catch (e) { return false; }
 	let p = popen('mv -f ' + shell_escape(temporary) + ' ' + shell_escape(path) + ' 2>/dev/null', 'r');
@@ -430,7 +430,7 @@ function learned_state() {
 			}
 		}
 		if (modified) {
-			state_save_rows(normalized_rows);
+			if (!state_save_rows(normalized_rows)) return { ok: false, error: { code: 'EWRITE', message: 'autocircular state.tsv normalization could not be persisted' } };
 			rows = normalized_rows;
 		}
 	}
@@ -438,10 +438,7 @@ function learned_state() {
 	return { ok: true, source: LEARNED_PATH, entries: rows, summary: learned_summary(rows), empty: !length(rows), count: length(rows), pools: pools_info.pools || {} };
 }
 
-// Called by the Z2K Core transaction after its candidate is committed.  This
-// is the only state projection owner: state.tsv remains upstream-compatible,
-// while the Manager sidecar records the semantic pool identity.
-export const strategies_autocircular_reconcile = function(pools) {
+function autocircular_pool_identity(pools) {
 	if (!is_object(pools)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular pools must be an object' } };
 	let next = {};
 	for (let key in keys(pools)) {
@@ -453,20 +450,78 @@ export const strategies_autocircular_reconcile = function(pools) {
 		next[identityKey] = digest;
 	}
 	if (!length(keys(next))) return { ok: false, error: { code: 'ESTATE', message: 'active autocircular pools are unavailable; refusing reconciliation' } };
+	return { ok: true, identity: next };
+}
+
+// Prepare is read-only.  The returned evidence is carried by the Core
+// transaction so rollback can restore both Manager-owned files exactly.
+export const strategies_autocircular_prepare = function(pools) {
+	let identities = autocircular_pool_identity(pools);
+	if (!identities.ok) return identities;
 	let stored = z2k_autocircular_identity_load();
 	if (!stored.ok) return stored;
-	let rows = learned_rows(), reconciliation = z2k_learned_state_reconcile(stored.identity, next, rows);
+	let rows = learned_rows(), reconciliation = z2k_learned_state_reconcile(stored.identity, identities.identity, rows);
 	if (!reconciliation.ok) return reconciliation;
-	let changed = reconciliation.resetAllLegacy || length(reconciliation.reset) > 0;
-	if (changed && !state_save_rows(reconciliation.rows)) return { ok: false, error: { code: 'EWRITE', message: 'autocircular state.tsv could not be reconciled' } };
-	let saved = z2k_autocircular_identity_save(next);
-	if (!saved.ok) {
-		// The sidecar is the commit marker.  Restore the parsed prior rows if its
-		// atomic rename fails, so a partial state reset cannot become durable.
-		if (changed) state_save_rows(rows);
-		return saved;
+	return { ok: true, schema: 'z2m-autocircular-transaction.v1', nextIdentity: identities.identity,
+		priorIdentity: stored.identity, priorIdentityPresent: stored.present === true, priorRows: rows,
+		rows: reconciliation.rows, reset: reconciliation.reset, resetAllLegacy: reconciliation.resetAllLegacy,
+		changed: reconciliation.resetAllLegacy || length(reconciliation.reset) > 0 };
+};
+
+function autocircular_state_write(rows) { return state_save_rows(rows) ? { ok: true, committed: true } : { ok: false, error: { code: 'EWRITE', message: 'autocircular state.tsv write or permissions update failed' } }; }
+function autocircular_identity_write(identity) { return z2k_autocircular_identity_save(identity); }
+function autocircular_identity_restore(snapshot) { return z2k_autocircular_identity_restore(snapshot); }
+
+function autocircular_rollback(prepared, writers) {
+	let state = writers.state(prepared.priorRows), identity = writers.identity({ present: prepared.priorIdentityPresent, identity: prepared.priorIdentity });
+	let ok = state && state.ok === true && identity && identity.ok === true;
+	return { ok: ok, state: state, identity: identity, restored: ok };
+}
+
+export const strategies_autocircular_commit = function(prepared, testWriters) {
+	if (!is_object(prepared) || prepared.schema != 'z2m-autocircular-transaction.v1' || !is_object(prepared.nextIdentity)
+		|| !array(prepared.priorRows) || !array(prepared.rows)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular commit evidence is incomplete' } };
+	let writers = testWriters && testWriters.testOnly === true ? testWriters : { state: autocircular_state_write, identity: autocircular_identity_write };
+	let state = prepared.changed ? writers.state(prepared.rows) : { ok: true, skipped: true };
+	if (!state || state.ok !== true) {
+		let rollback = autocircular_rollback(prepared, writers), recoveryRequired = rollback.ok !== true;
+		return { ok: false, recoveryRequired: recoveryRequired, error: { code: recoveryRequired ? 'ERECOVERY_REQUIRED' : 'EWRITE', message: recoveryRequired ? 'autocircular state write failed and prior learned state could not be restored' : 'autocircular state write failed; prior learned state was restored' }, rollback: rollback };
 	}
-	return { ok: true, reset: reconciliation.reset, resetAllLegacy: reconciliation.resetAllLegacy, sidecar: saved, entries: reconciliation.rows };
+	let sidecar = writers.identity(prepared.nextIdentity);
+	if (!sidecar || sidecar.ok !== true) {
+		let rollback = autocircular_rollback(prepared, writers), recoveryRequired = rollback.ok !== true;
+		return { ok: false, recoveryRequired: recoveryRequired, error: { code: recoveryRequired ? 'ERECOVERY_REQUIRED' : 'EWRITE', message: recoveryRequired ? 'autocircular sidecar write failed and prior learned state could not be restored' : 'autocircular sidecar write failed; prior learned state was restored' }, rollback: rollback, sidecar: sidecar };
+	}
+	return { ok: true, committed: true, reset: prepared.reset, resetAllLegacy: prepared.resetAllLegacy, entries: prepared.rows, sidecar: sidecar };
+};
+
+export const strategies_autocircular_rollback = function(prepared) {
+	if (!is_object(prepared) || prepared.schema != 'z2m-autocircular-transaction.v1') return { ok: false, error: { code: 'ERECOVERY_REQUIRED', message: 'autocircular rollback evidence is incomplete' } };
+	return autocircular_rollback(prepared, { state: autocircular_state_write, identity: autocircular_identity_restore });
+};
+
+// Test-only production-shaped failure injection.  It uses the same commit and
+// compensation coordinator as production but replaces file writers with
+// explicit, bounded failures; no caller-controlled path or env is accepted.
+export const strategies_autocircular_test_transaction = function(input) {
+	if (!is_object(input) || input.testOnly !== true || !is_object(input.prepared)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular test transaction is restricted to controlled tests' } };
+	let prepared = input.prepared;
+	if (prepared.schema != 'z2m-autocircular-transaction.v1') prepared = { ...prepared, schema: 'z2m-autocircular-transaction.v1', nextIdentity: prepared.pools, rows: prepared.rows || [], reset: [], resetAllLegacy: false, priorIdentityPresent: prepared.priorIdentityPresent === true };
+	let stateCalls = 0, identityCalls = 0, failure = input.failure;
+	let writers = { testOnly: true,
+		state: function(rows) { stateCalls++; if (failure == 'primary-state-write' && stateCalls == 1 || failure == 'primary-state-write-and-restore') return { ok: false, error: { code: 'EWRITE', message: 'injected state writer failure' } }; return { ok: true, rows: rows }; },
+		identity: function(value) { identityCalls++; if (failure == 'sidecar-write' && identityCalls == 1) return { ok: false, error: { code: 'EWRITE', message: 'injected sidecar writer failure' } }; return { ok: true, value: value }; }
+	};
+	return strategies_autocircular_commit(prepared, writers);
+};
+
+// Called by the Z2K Core transaction after its candidate is committed.  This
+// is the only state projection owner: state.tsv remains upstream-compatible,
+// while the Manager sidecar records the semantic pool identity.
+export const strategies_autocircular_reconcile = function(pools) {
+	let prepared = strategies_autocircular_prepare(pools);
+	if (!prepared.ok) return prepared;
+	return strategies_autocircular_commit(prepared);
 };
 
 function state_set(input) {

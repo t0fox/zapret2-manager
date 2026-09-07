@@ -3,9 +3,9 @@
 // Manager-owned identity for the upstream-compatible five-column state.tsv.
 // The TSV remains unchanged; this sidecar binds learned rows to the semantic
 // pool that produced them.
-import { readfile, writefile, mkdir, unlink, popen } from 'fs';
+import { readfile, writefile, stat, unlink, popen } from 'fs';
 
-const IDENTITY_PATH = getenv('Z2M_AUTOCIRCULAR_IDENTITY_PATH') || '/etc/zapret2-manager/state/autocircular/pool-identity.json';
+const IDENTITY_PATH = '/etc/zapret2-manager/state/autocircular/pool-identity.json';
 let temp_sequence = 0;
 
 function object(value) { return type(value) == 'object' && value != null && type(value) != 'array'; }
@@ -107,12 +107,12 @@ function valid_map(value) { return identity_map(value) != null; }
 
 export const z2k_autocircular_identity_load = function() {
 	let raw = null;
-	try { raw = readfile(IDENTITY_PATH); } catch (e) { return { ok: true, identity: null, legacy: true, path: IDENTITY_PATH }; }
-	if (!string(raw) || !length(trim(raw))) return fail('ESTATE', 'autocircular pool identity sidecar is empty');
+	try { raw = readfile(IDENTITY_PATH); } catch (e) { return { ok: true, identity: null, legacy: true, present: false, path: IDENTITY_PATH }; }
+	if (!string(raw) || !length(trim(raw))) return { ...fail('ESTATE', 'autocircular pool identity sidecar is empty'), path: IDENTITY_PATH };
 	let value = null;
-	try { value = json(raw); } catch (e) { return fail('ESTATE', 'autocircular pool identity sidecar is malformed'); }
-	if (!object(value) || value.schema != 1 || !valid_map(value.pools)) return fail('ESTATE', 'autocircular pool identity sidecar has an unsupported schema');
-	return { ok: true, identity: value.pools, legacy: false, path: IDENTITY_PATH };
+	try { value = json(raw); } catch (e) { return { ...fail('ESTATE', 'autocircular pool identity sidecar is malformed'), path: IDENTITY_PATH }; }
+	if (!object(value) || value.schema != 1 || !valid_map(value.pools)) return { ...fail('ESTATE', 'autocircular pool identity sidecar has an unsupported schema'), path: IDENTITY_PATH };
+	return { ok: true, identity: value.pools, legacy: false, present: true, path: IDENTITY_PATH };
 };
 
 export const z2k_autocircular_identity_save = function(identity) {
@@ -126,4 +126,11 @@ export const z2k_autocircular_identity_save = function(identity) {
 	process.read('all');
 	if (process.close() != 0) { try { unlink(temporary); } catch (e) { } return fail('EWRITE', 'autocircular pool identity sidecar could not be committed'); }
 	return { ok: true, schema: 1, pools: pools, path: IDENTITY_PATH };
+};
+
+export const z2k_autocircular_identity_restore = function(snapshot) {
+	if (!object(snapshot) || snapshot.present !== true && snapshot.present !== false) return fail('EINPUT', 'autocircular identity restore evidence is incomplete');
+	if (snapshot.present === true) return z2k_autocircular_identity_save(snapshot.identity);
+	try { unlink(IDENTITY_PATH); } catch (e) { }
+	return stat(IDENTITY_PATH) == null ? { ok: true, removed: true, path: IDENTITY_PATH } : fail('ERECOVERY_REQUIRED', 'autocircular identity sidecar could not be removed during rollback');
 };

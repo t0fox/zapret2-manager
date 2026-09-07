@@ -1824,18 +1824,23 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 		catch (e) { configRollback = fail('EROLLBACK', 'active config rollback raised an exception.'); }
 	}
 	if (configRollback.ok === true && pending && pending.priorRuntimeEnabledPresent === true && read_var('ENABLED') != pending.priorRuntimeEnabled) configRollback = fail('EROLLBACK', 'runtime enable state was not restored to the captured prior value.');
+	let autocircularRollback = { ok: true, skipped: true };
+	if (pending && pending.autocircularCommitIntent === true && object(pending.autocircular)) {
+		try { autocircularRollback = testing && type(testSeams.autocircularRollback) == 'function' ? testSeams.autocircularRollback(pending.autocircular) : autocircular_ops.strategies_autocircular_rollback(pending.autocircular); }
+		catch (e) { autocircularRollback = fail('ERECOVERY_REQUIRED', 'autocircular learned-state rollback raised an exception.', { detail: text(e) }); }
+	}
 	let detectPublication = pending && object(pending.detectPublication) ? pending.detectPublication : z2k_active_detect_publication;
-	let commonOk = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && catalogRollback.ok && strategyRollback.ok && configRollback.ok;
+	let commonOk = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && catalogRollback.ok && strategyRollback.ok && configRollback.ok && autocircularRollback.ok;
 	if (!commonOk) return z2k_rollback_finish({
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
-		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, autocircularRollback: autocircularRollback,
 		detect: { ok: false, skipped: true, preserved: true, recoveryRequired: true }, journal: journal,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback is incomplete; candidate Detect and durable ROLLING_BACK evidence were preserved for recovery.' }
 	}, migrationRollback);
 	let detectRollback = object(detectPublication) ? (testing ? testSeams.detectRestore(detectPublication) : z2k_detect_restore(detectPublication)) : { ok: true, skipped: true };
 	if (!detectRollback.ok) return z2k_rollback_finish({
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
-		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, autocircularRollback: autocircularRollback,
 		detect: detectRollback, journal: journal,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback completed but Detect restoration is incomplete; durable recovery must reconcile the stable target.' }
 	}, migrationRollback);
@@ -1846,11 +1851,11 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 	}
 	if (!okResult) return z2k_rollback_finish({
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: false,
-		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
+		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, autocircularRollback: autocircularRollback,
 		detect: detectRollback, journal: journal, evidence: evidence,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K rollback completed but durable recovery evidence could not be closed.' }
 	}, migrationRollback);
-	return z2k_rollback_finish({ ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, detect: detectRollback, journal: journal, evidence: evidence }, migrationRollback);
+	return z2k_rollback_finish({ ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, autocircularRollback: autocircularRollback, detect: detectRollback, journal: journal, evidence: evidence }, migrationRollback);
 }
 export const resource_center_test_rollback_transaction = function(input) {
 	if (!object(input) || input.testOnly !== true || !object(input.seams)) return fail('EINPUT', 'Internal rollback test seam is restricted to controlled tests.');
@@ -2630,20 +2635,41 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K post-mutation reconciliation failed and was rolled back.' : 'Z2K post-mutation reconciliation failed and rollback could not be completed.', { mutationCompleted: true, reconciliation: reconciled, rollback: rollback, diagnostics: diagnostics }));
 	}
+	// Learned state is a Core lifecycle owner. Prepare and commit it while the
+	// Detect publication backup is still open; only the next explicit Detect
+	// finalize may close that backup. The pending record carries the exact prior
+	// rows/sidecar so the canonical rollback coordinator can restore the LKG.
+	let autocircularPrepared = null, autocircular = null;
+	try {
+		let pools = autocircular_ops.strategies_pools();
+		autocircularPrepared = pools && pools.ok === true ? autocircular_ops.strategies_autocircular_prepare(pools.pools || {}) : pools;
+	} catch (e) { autocircularPrepared = fail('EINTERNAL', 'Autocircular identity preparation raised an exception.', { detail: text(e) }); }
+	diagnostics.autocircularIdentity = autocircularPrepared;
+	if (!autocircularPrepared || autocircularPrepared.ok !== true) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Autocircular identity preparation failed and the lifecycle was rolled back.' : 'Autocircular identity preparation failed and rollback could not be completed.', { autocircular: autocircularPrepared, rollback: rollback, diagnostics: diagnostics }));
+	}
+	pending.autocircular = autocircularPrepared;
+	pending.autocircularCommitIntent = true;
+	if (!z2k_pending_write(pending, 'AUTOCIRCULAR_PREPARED')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Autocircular commit intent could not be persisted; the lifecycle was rolled back.' : 'Autocircular commit intent could not be persisted and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+	}
+	autocircular = autocircular_ops.strategies_autocircular_commit(autocircularPrepared);
+	diagnostics.autocircularIdentity = autocircular;
+	if (!autocircular || autocircular.ok !== true) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Autocircular identity commit failed and the lifecycle was rolled back.' : 'Autocircular identity commit failed and rollback could not be completed.', { autocircular: autocircular, rollback: rollback, diagnostics: diagnostics }));
+	}
+	pending.autocircularCommitted = true;
+	if (!z2k_pending_write(pending, 'AUTOCIRCULAR_COMMITTED')) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Autocircular commit evidence could not be persisted; the lifecycle was rolled back.' : 'Autocircular commit evidence failed and rollback could not be completed.', { rollback: rollback, diagnostics: diagnostics }));
+	}
 	let detectFinalized = z2k_detect_finalize(z2k_active_detect_publication);
 	if (!detectFinalized.ok) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K Detect finalization failed and the lifecycle was rolled back.' : 'Z2K Detect finalization failed and rollback could not be completed.', { detect: detectFinalized, rollback: rollback, diagnostics: diagnostics }));
-	}
-	let autocircular = null;
-	try {
-		let pools = autocircular_ops.strategies_pools();
-		autocircular = pools && pools.ok === true ? autocircular_ops.strategies_autocircular_reconcile(pools.pools || {}) : pools;
-	} catch (e) { autocircular = fail('EINTERNAL', 'Autocircular identity reconciliation raised an exception.', { detail: text(e) }); }
-	diagnostics.autocircularIdentity = autocircular;
-	if (!autocircular || autocircular.ok !== true) {
-		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
-		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Autocircular identity reconciliation failed and the lifecycle was rolled back.' : 'Autocircular identity reconciliation failed and rollback could not be completed.', { autocircular: autocircular, rollback: rollback, diagnostics: diagnostics }));
 	}
 	// Once Detect rollback state is closed, the FINALIZED pending record is the
 	// durable coherent pair: Registry receipt, runtime/source activation, and the
@@ -2930,8 +2956,8 @@ export const resource_center_recover_pending = function() {
 		let listedFinalized = asset_registry_list(null), matches = z2k_finalized_pending_matches(pending, listedFinalized), runtime = matches ? z2k_finalized_runtime_matches(pending, listedFinalized, null) : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence does not match the installed authority.'), detect = matches && runtime.ok ? (object(pending.detectPublication) ? z2k_detect_finalize(pending.detectPublication) : { ok: true, skipped: true }) : fail('ERECOVERY_REQUIRED', 'Finalized Z2K runtime evidence could not be verified.');
 		return matches && runtime.ok && detect.ok && z2k_pending_clear() ? { ok: true, recovered: true, state: 'finalized-cleared', runtime: runtime, detect: detect } : fail('ERECOVERY_REQUIRED', 'Finalized Z2K activation evidence could not be safely closed.', { runtime: runtime, detect: detect });
 	}
-	if (pending.phase != 'REGISTRY_COMMITTING' && pending.phase != 'COMMITTED' && pending.phase != 'RUNTIME_ACTIVATING' && pending.phase != 'MATERIALIZED' && pending.phase != 'PROCESS_VERIFIED' && pending.phase != 'SOURCE_ACTIVATING' && pending.phase != 'SOURCE_ACTIVATED' && pending.phase != 'CATALOG_ACTIVATED' && pending.phase != 'ROLLING_BACK') return fail('ERECOVERY_REQUIRED', 'Unknown Z2K activation phase cannot be recovered safely.', { phase: pending.phase });
-	let runtimeActivated = pending.runtimeActivationIntent === true || pending.phase == 'RUNTIME_ACTIVATING' || pending.phase == 'MATERIALIZED' || pending.phase == 'PROCESS_VERIFIED' || pending.phase == 'SOURCE_ACTIVATING' || pending.phase == 'SOURCE_ACTIVATED' || pending.phase == 'CATALOG_ACTIVATED' || pending.phase == 'ROLLING_BACK';
+	if (pending.phase != 'REGISTRY_COMMITTING' && pending.phase != 'COMMITTED' && pending.phase != 'RUNTIME_ACTIVATING' && pending.phase != 'MATERIALIZED' && pending.phase != 'PROCESS_VERIFIED' && pending.phase != 'SOURCE_ACTIVATING' && pending.phase != 'SOURCE_ACTIVATED' && pending.phase != 'CATALOG_ACTIVATED' && pending.phase != 'AUTOCIRCULAR_PREPARED' && pending.phase != 'AUTOCIRCULAR_COMMITTED' && pending.phase != 'ROLLING_BACK') return fail('ERECOVERY_REQUIRED', 'Unknown Z2K activation phase cannot be recovered safely.', { phase: pending.phase });
+	let runtimeActivated = pending.runtimeActivationIntent === true || pending.phase == 'RUNTIME_ACTIVATING' || pending.phase == 'MATERIALIZED' || pending.phase == 'PROCESS_VERIFIED' || pending.phase == 'SOURCE_ACTIVATING' || pending.phase == 'SOURCE_ACTIVATED' || pending.phase == 'CATALOG_ACTIVATED' || pending.phase == 'AUTOCIRCULAR_PREPARED' || pending.phase == 'AUTOCIRCULAR_COMMITTED' || pending.phase == 'ROLLING_BACK';
 	let appliedRevision = pending.committedAssetRevision == null ? pending.expectedRegistryRevision : pending.committedAssetRevision;
 	let rollback = z2k_rollback_after_runtime_failure({ id: 'z2k-curated-lua' }, { committedAssetRevision: appliedRevision }, { recovery: true, phase: pending.phase }, runtimeActivated);
 	if (!rollback.ok && rollback.runtime && rollback.runtime.restored === true && z2k_pending_legacy_reconciliation_eligible(pending, asset_registry_list(null))) {
