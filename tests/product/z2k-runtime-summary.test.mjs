@@ -53,18 +53,19 @@ const local = {
   commit: 'c'.repeat(40),
   dependencyClosure: closure,
   runtimeBundleDigest: digest,
-  detect: { arch: 'x86_64', digest: 'b'.repeat(64), sourceCommit: 'c'.repeat(40) },
+  detect: { arch: 'x86_64', digest: 'b'.repeat(64), sourceCommit: 'c'.repeat(40), status: 'ready', compatible: true },
   compatibilityIdentity: 'd'.repeat(64),
   strategyCount: 8,
 };
 const engine = { installed: true, compatible: true, serviceState: 'running', runtimeRunning: true, ready: true };
+const coherence = { coherenceStatus: 'aligned', compatibilityStatus: 'aligned', installedRuntimeRevision: local.commit };
 const installed = [
   { id: 'lua:core', provenance: { kind: 'catalog/upstream' } },
   { id: 'blob:user', ownership: 'user', provenance: { kind: 'imported' } },
 ];
 
 test('backend summary exposes one typed runtime reconciliation for Resources and Components', { skip: !fs.existsSync(ucode) }, () => {
-  const summary = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'update-available', canApply: true, advisoryReviews: ['files/lists/new.txt'] }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
+  const summary = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'update-available', canApply: true, advisoryReviews: ['files/lists/new.txt'], coherence: ${JSON.stringify(coherence)} }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
   assert.equal(summary.schema, 'z2m.z2k-runtime-summary.v1');
   assert.deepEqual(summary.counts, closure.counts);
   assert.equal(summary.staticManagedCount, 1);
@@ -87,7 +88,7 @@ test('backend summary exposes one typed runtime reconciliation for Resources and
 });
 
 test('consumed unresolved and adapted/rebase evidence remain blocking in the canonical summary', { skip: !fs.existsSync(ucode) }, () => {
-  const blocking = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'update-available', canApply: true, blockingReviews: ['files/lists/sni_wl_candidates.txt'], rebases: ['files/lists/tcp16_targets.txt'] }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
+  const blocking = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'update-available', canApply: true, blockingReviews: ['files/lists/sni_wl_candidates.txt'], rebases: ['files/lists/tcp16_targets.txt'], coherence: ${JSON.stringify(coherence)} }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
   assert.equal(blocking.canApply, false);
   assert.equal(blocking.attentionState, 'rebase-required');
   assert.deepEqual(blocking.blockingReviews, ['files/lists/sni_wl_candidates.txt']);
@@ -96,12 +97,12 @@ test('consumed unresolved and adapted/rebase evidence remain blocking in the can
 
 test('closure availability and digest are readiness gates independent of Lua totals', { skip: !fs.existsSync(ucode) }, () => {
   const brokenClosure = { ...closure, available: false, counts: { ...closure.counts, missing: 1 } };
-  const broken = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify({ ...local, dependencyClosure: brokenClosure })}, { updateState: 'current', canApply: false }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
+  const broken = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify({ ...local, dependencyClosure: brokenClosure })}, { updateState: 'current', canApply: false, coherence: ${JSON.stringify(coherence)} }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
   assert.equal(broken.health, 'degraded');
   assert.equal(broken.identity.coherent, false);
   assert.equal(broken.counts.missing, 1);
 
-  const mismatched = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify({ ...local, runtimeBundleDigest: 'b'.repeat(64) })}, { updateState: 'current', canApply: false }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
+  const mismatched = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify({ ...local, runtimeBundleDigest: 'b'.repeat(64) })}, { updateState: 'current', canApply: false, coherence: ${JSON.stringify(coherence)} }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
   assert.equal(mismatched.health, 'degraded');
   assert.equal(mismatched.identity.coherent, false);
   assert.equal(mismatched.detect.compatible, false);
@@ -109,11 +110,31 @@ test('closure availability and digest are readiness gates independent of Lua tot
 
 test('missing Engine cannot project a stale Z2K installed release from the Registry', { skip: !fs.existsSync(ucode) }, () => {
   const engineMissing = { installed: false, compatible: false, serviceState: 'engine_missing', runtimeRunning: false, ready: false };
-  const summary = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'unknown', canApply: false }, ${JSON.stringify(engineMissing)}, 0, ${JSON.stringify(installed)})`);
+  const summary = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'unknown', canApply: false, coherence: ${JSON.stringify(coherence)} }, ${JSON.stringify(engineMissing)}, 0, ${JSON.stringify(installed)})`);
   assert.equal(summary.health, 'missing');
   assert.deepEqual(summary.installedRelease, { value: null, confidence: 'unknown', authority: null });
 });
 
 test('runtime summary gates its installed release on Engine readiness', () => {
   assert.match(source, /installedRelease:\s*engineReady\s*\?/);
+});
+
+test('valid Detect identities do not override an incompatible local Detect contract', { skip: !fs.existsSync(ucode) }, () => {
+  const incompatibleLocal = { ...local, detect: { ...local.detect, status: 'ready', compatible: false } };
+  const summary = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(incompatibleLocal)}, { updateState: 'current', canApply: false, coherence: ${JSON.stringify(coherence)} }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
+
+  assert.equal(summary.health, 'degraded');
+  assert.equal(summary.detect.status, 'unknown');
+  assert.equal(summary.detect.compatible, false);
+  assert.equal(summary.detectCompatible, false);
+});
+
+test('aligned local Detect identities do not override divergent remote coherence', { skip: !fs.existsSync(ucode) }, () => {
+  const divergent = { coherenceStatus: 'diverged', compatibilityStatus: 'diverged', installedRuntimeRevision: local.commit };
+  const summary = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify(local)}, { updateState: 'current', canApply: false, coherence: ${JSON.stringify(divergent)} }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
+
+  assert.equal(summary.health, 'degraded');
+  assert.equal(summary.detect.status, 'unknown');
+  assert.equal(summary.detect.compatible, false);
+  assert.equal(summary.detectCompatible, false);
 });

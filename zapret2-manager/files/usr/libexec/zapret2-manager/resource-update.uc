@@ -20,7 +20,7 @@ import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k
 import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
 import { strategy_catalog_generation_read, strategy_catalog_generation_publish } from './strategy-catalog-generation.uc';
 import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore } from './strategy-state.uc';
-import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
+import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize, z2k_detect_status } from './z2k-detect.uc';
 import { z2k_migration_state, z2k_lua_function_closure, z2k_migration_prepare, z2k_migration_commit, z2k_migration_rollback } from './z2k-migration.uc';
 import * as autocircular_ops from './strategies-ops.uc';
 
@@ -583,11 +583,17 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 	let closureReady = z2k_runtime_closure_ready(closure, digest) && string(installedDigest) && closure && closure.runtimeBundleDigest == installedDigest, engineReady = engine.ready === true;
 	let localInstalled = local.installed === true;
 	let health = !engine.installed || !localInstalled ? 'missing' : local.integrityOk !== true ? 'broken' : !engineReady || !closureReady ? 'degraded' : 'ready';
-	let detect = object(local.detect) ? { arch: local.detect.arch || null, digest: local.detect.digest || null, sourceCommit: local.detect.sourceCommit || null } : null;
+	let localDetect = object(local.detect) ? local.detect : null;
+	let detect = object(localDetect) ? { arch: localDetect.arch || null, digest: localDetect.digest || null, sourceCommit: localDetect.sourceCommit || null, status: localDetect.status || 'unknown', compatible: localDetect.compatible === true } : null;
 	let compatibilityIdentity = local.compatibilityIdentity || (object(local.z2kCompatibilityIdentity) ? local.z2kCompatibilityIdentity.digest : null);
-	let detectCompatible = health == 'ready' && object(detect) && string(detect.arch) && valid_digest(detect.digest)
+	let coherence = object(remote.coherence) ? remote.coherence : null;
+	let detectContractReady = object(detect) && detect.status == 'ready' && detect.compatible === true;
+	let coherenceReady = object(coherence) && coherence.coherenceStatus == 'aligned' && coherence.compatibilityStatus == 'aligned'
+		&& string(coherence.installedRuntimeRevision) && string(local.commit) && coherence.installedRuntimeRevision == local.commit;
+	let detectCompatible = health == 'ready' && detectContractReady && coherenceReady && object(detect) && string(detect.arch) && valid_digest(detect.digest)
 		&& string(detect.sourceCommit) && detect.sourceCommit == local.commit && valid_digest(compatibilityIdentity) && valid_digest(digest);
 	detectCompatible = detectCompatible ? true : false;
+	if (health == 'ready' && !detectCompatible) health = 'degraded';
 	if (object(detect)) { detect.status = detectCompatible ? 'ready' : 'unknown'; detect.compatible = detectCompatible; }
 	let blockingReviews = remote.blockingReviews || [], advisoryReviews = remote.advisoryReviews || [], unknownUnconsumed = remote.unknownUnconsumed || [], rebases = remote.rebases || [];
 	let updateState = remote.updateState || remote.status || 'unknown', attentionState = remote.attentionState || 'none';
@@ -609,7 +615,7 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 		blockingReviews: blockingReviews, advisoryReviews: advisoryReviews,
 		unknownUnconsumed: unknownUnconsumed, rebases: rebases,
 		canApply: engineReady === true && remote.canApply === true && !length(blockingReviews) && !length(rebases) && !length(remote.compilerInputs || []),
-		coherence: remote.coherence || null,
+		coherence: coherence,
 		identity: { closureDigest: closure && closure.runtimeBundleDigest || null, installedDigest: local.runtimeBundleDigest || null, coherent: closureReady }
 	};
 }
@@ -663,6 +669,14 @@ function z2k_canonical_local_projection(listed, resolved) {
 		}
 	}
 	let authority = resolved.lifecycleIdentity || resolved.authority || {}, installedRelease = z2k_registry_installed_release(listed), checkedAt = null;
+	let detectAuthority = z2k_detect_status({ registry: function() { return listed; } });
+	let detectEvidence = detectAuthority && detectAuthority.ok === true && detectAuthority.coherent === true ? detectAuthority.detect : authority.detect;
+	let detect = object(detectEvidence) ? {
+		arch: detectEvidence.arch || null, digest: detectEvidence.digest || null,
+		sourceCommit: detectEvidence.sourceCommit || null,
+		status: detectAuthority && detectAuthority.ok === true ? 'ready' : 'unknown',
+		compatible: detectAuthority && detectAuthority.ok === true
+	} : null;
 	for (let i = 0; i < length(listed.assets || []); i++) {
 		let checked = listed.assets[i] && listed.assets[i].lastChecked;
 		if (checked != null && (checkedAt == null || checked > checkedAt)) checkedAt = checked;
@@ -693,7 +707,7 @@ function z2k_canonical_local_projection(listed, resolved) {
 		dependencyClosure: compiled.dependencyClosure,
 		runtimeBundleDigest: compiled.runtimeBundleDigest,
 		strategyCount: compiled.strategyCount,
-		detect: authority.detect || null
+		detect: detect
 	};
 }
 
@@ -2794,7 +2808,8 @@ function z2k_status_local(value) {
 	if (!object(value)) return value;
 	let out = z2k_status_copy(value, ['installed', 'integrity', 'integrityOk', 'lua', 'baselineMatched',
 		'runtimeMatched', 'revision', 'installedAuthorityRevision', 'commit', 'provenance',
-		'checkedAt', 'installedRelease', 'runtimeBundleDigest', 'strategyCount']);
+		'checkedAt', 'installedRelease', 'runtimeBundleDigest', 'strategyCount', 'detect',
+		'compatibilityIdentity', 'z2kCompatibilityIdentity']);
 	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
 	if (value.runtimeSummary != null) out.runtimeSummary = z2k_status_runtime(value.runtimeSummary);
 	return out;

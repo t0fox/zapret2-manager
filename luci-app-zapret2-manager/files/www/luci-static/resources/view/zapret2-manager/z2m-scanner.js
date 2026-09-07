@@ -326,10 +326,19 @@ function start(ctx, controls) {
   if (!normalized.ok) {
     state.targetError = normalized.error;
     state.error = null;
+    if (controls.target && typeof controls.target.setAttribute === 'function') {
+      controls.target.setAttribute('aria-invalid', 'true');
+      controls.target.setAttribute('aria-describedby', 'z2m-scanner-target-error');
+    }
+    if (controls.target && typeof controls.target.focus === 'function') controls.target.focus();
     refresh(ctx);
     return;
   }
   state.targetError = null;
+  if (controls.target && typeof controls.target.setAttribute === 'function') {
+    controls.target.setAttribute('aria-invalid', 'false');
+    if (typeof controls.target.removeAttribute === 'function') controls.target.removeAttribute('aria-describedby');
+  }
   controls.target.value = normalized.hostname;
   var protocolVal = controls.protocol.value;
   if (protocolVal === 'auto') protocolVal = 'tcp';
@@ -364,7 +373,7 @@ function renderTypedResult(ctx, report, controls) {
   var reason = text(data.reason || data.PathReason || data.FailureReason || data.Err || _('Результат получен от Z2K Detect.'));
   var details;
   try { details = JSON.stringify(data, null, 2); } catch (ignore) { details = _('Технические сведения недоступны.'); }
-  return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen' }, [
+  return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen', role: 'status' }, [
     E('article', { 'class': 'z2m-scanner-best-card card' }, [
       E('div', { 'class': 'z2m-scanner-best-kicker' }, [icon('circle-check', 'is-success'), E('span', {}, _('Проверка завершена'))]),
       E('strong', { 'class': 'z2m-scanner-best-title' }, state.request.target),
@@ -414,7 +423,7 @@ function discoveryPanel(ctx) {
 }
 function renderProgress(ctx, status, request) {
   var operation = text(status.operation || detectOperation(request)).toUpperCase();
-  return E('article', { 'class': 'z2m-scanner-progress-card card' }, [
+  return E('article', { 'class': 'z2m-scanner-progress-card card', role: 'status' }, [
     E('div', { 'class': 'z2m-scanner-progress-heading' }, [icon('activity'), E('div', {}, [E('strong', {}, _('Проверяем ') + request.target), E('span', {}, _('Запрос Z2K Detect выполняется'))])]),
     E('div', { 'class': 'z2m-scanner-progress-meta' }, [E('span', {}, _('Операция: ') + operation), E('span', {}, _('Ограничение времени: ') + String(DETECT_WAIT_MS / 1000) + ' с')]),
     null
