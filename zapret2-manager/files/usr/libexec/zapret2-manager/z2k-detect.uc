@@ -78,21 +78,16 @@ function discovery_config_read(seams) {
 		if (hooks.readable === false || hooks.raw == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
 		raw = hooks.raw;
 	} else {
-		let link = null;
-		try { link = readlink(DISCOVERY_CONFIG); } catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.'); }
-		if (link != null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is a symlink.');
+		let presence = popen("if [ -L '/etc/zapret2-manager/z2k-detect-discovery.json' ]; then printf symlink; elif [ -e '/etc/zapret2-manager/z2k-detect-discovery.json' ]; then printf present; else printf absent; fi", 'r');
+		if (!presence) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
+		let state = trim(presence.read('all') || ''), presenceRc = presence.close();
+		if (presenceRc != 0) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
+		if (state == 'symlink') return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is a symlink.');
+		if (state == 'absent') return discovery_config_normalize(null);
+		if (state != 'present') return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
 		let st = null;
 		try { st = stat(DISCOVERY_CONFIG); } catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.'); }
-		if (st == null) {
-			// `stat()` cannot distinguish a missing path from a permission error on
-			// every supported OpenWrt fs. A fixed existence probe preserves the
-			// only safe default: absent means disabled; present-but-unreadable fails.
-			let probe = popen("test -e '/etc/zapret2-manager/z2k-detect-discovery.json' && printf present", 'r');
-			if (!probe) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
-			let result = trim(probe.read('all') || ''), rc = probe.close();
-			if (rc != 0 || result != 'present') return discovery_config_normalize(null);
-			return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
-		}
+		if (st == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
 		if (st.type != 'file' || readlink(DISCOVERY_CONFIG) != null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is not a regular file.');
 		raw = readfile(DISCOVERY_CONFIG);
 		if (raw == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
