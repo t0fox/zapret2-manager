@@ -2391,14 +2391,21 @@ export const resource_center_test_post_materialize_failure = function(input) {
 	let priorReceipt = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-lkg', runtimeBundleDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', assets: [] };
 	let currentReceipt = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-candidate', runtimeBundleDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', assets: [] };
 	let rollbackIdentity = { receipt: priorReceipt, receiptId: priorReceipt.receiptId, runtimeBundleDigest: priorReceipt.runtimeBundleDigest };
-	let activeReceipt = currentReceipt;
-	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: physical, priorIdentity: 'X', restore: function(previous) { physical = previous; activeReceipt = rollbackIdentity.receipt; return { ok: true, restored: true }; } });
+	let priorState = { physicalIdentity: 'X', receipt: priorReceipt }, activeState = { physicalIdentity: physical, receipt: currentReceipt }, restoreInvoked = false;
+	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: activeState.physicalIdentity, priorIdentity: priorState.physicalIdentity, restore: function(previous) {
+		restoreInvoked = true;
+		if (previous != priorState.physicalIdentity) return { ok: false, restored: false };
+		activeState = { physicalIdentity: priorState.physicalIdentity, receipt: priorState.receipt };
+		physical = activeState.physicalIdentity;
+		return { ok: true, restored: true };
+	} });
 	if (result && result.physicalIdentity == null) result.physicalIdentity = physical;
-	if (result) result.lkgEvidence = { priorReceiptId: priorReceipt.receiptId, currentReceiptId: currentReceipt.receiptId,
-		restoredReceiptId: activeReceipt.receiptId, priorRuntimeBundleDigest: priorReceipt.runtimeBundleDigest,
-		currentRuntimeBundleDigest: currentReceipt.runtimeBundleDigest, restoredRuntimeBundleDigest: activeReceipt.runtimeBundleDigest,
-		restoredReceipt: activeReceipt, restoredByIdentity: z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeReceipt),
-		restored: z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeReceipt) };
+	if (result) result.lkgEvidence = { initialActiveReceiptId: currentReceipt.receiptId, initialActiveRuntimeBundleDigest: currentReceipt.runtimeBundleDigest, restoreInvoked: restoreInvoked,
+		priorReceiptId: priorReceipt.receiptId, currentReceiptId: currentReceipt.receiptId,
+		restoredReceiptId: activeState.receipt.receiptId, priorRuntimeBundleDigest: priorReceipt.runtimeBundleDigest,
+		currentRuntimeBundleDigest: currentReceipt.runtimeBundleDigest, restoredRuntimeBundleDigest: activeState.receipt.runtimeBundleDigest,
+		restoredReceipt: activeState.receipt, restoredByIdentity: z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeState.receipt),
+		restored: restoreInvoked && activeState.physicalIdentity == priorState.physicalIdentity && z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeState.receipt) };
 	return result;
 };
 

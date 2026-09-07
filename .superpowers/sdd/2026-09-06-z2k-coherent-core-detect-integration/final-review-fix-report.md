@@ -17,8 +17,10 @@ Worktree: `G:\zapret2-manager\.worktrees\z2k-coherent-core-detect`
   authoritative family-aware comparison and rejects unresolved ordering before
   mutation. Rollback verification consumes captured `receiptId` and
   `runtimeBundleDigest`; exact receipt/digest restoration passes while either
-  mismatch fails closed. The post-materialize failure seam verifies the exact
-  LKG receipt object and digest through the same identity matcher.
+  mismatch fails closed. The post-materialize failure seam now starts with an
+  independent candidate receipt/digest, invokes a stateful restore operation
+  against the separately saved LKG state, and verifies the resulting exact
+  receipt object and digest through the same identity matcher.
 
 ## Changed files
 
@@ -45,6 +47,10 @@ Focused regression and verification results:
 - Full `z2k-update-source-integration.test.mjs` under WSL/ucode — **13 passed, 1 failed, 0 skipped**. The new cross-family regression passes; the remaining failure is the pre-existing presentation request-count expectation (`3` actual vs `5` expected), present in the pre-fix RED run.
 - `node --check` on both changed UI model files — **passed**.
 - `git diff --check` — **passed**.
+- The exact-LKG regression records distinct initial candidate identity, confirms
+  restore invocation changed active state, and confirms the restored receipt ID
+  and runtime digest equal the saved prior values; altered receipt/digest cases
+  remain fail-closed.
 
 ## Design checklist
 

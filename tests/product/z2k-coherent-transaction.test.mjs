@@ -311,6 +311,7 @@ test('post-materialize readiness failure restores the physical X snapshot', { sk
   assert.equal(result.physicalIdentity, 'X', JSON.stringify(result));
   assert.equal(result.recoveryRequired, false, JSON.stringify(result));
   assert.deepEqual(result.lkgEvidence, {
+    initialActiveReceiptId: 'receipt-candidate', initialActiveRuntimeBundleDigest: 'b'.repeat(64), restoreInvoked: true,
     priorReceiptId: 'receipt-lkg', currentReceiptId: 'receipt-candidate', restoredReceiptId: 'receipt-lkg',
     priorRuntimeBundleDigest: 'a'.repeat(64), currentRuntimeBundleDigest: 'b'.repeat(64), restoredRuntimeBundleDigest: 'a'.repeat(64),
     restored: true, restoredByIdentity: true,
