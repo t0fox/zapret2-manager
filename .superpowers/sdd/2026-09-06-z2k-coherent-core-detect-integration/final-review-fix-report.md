@@ -10,12 +10,15 @@ Worktree: `G:\zapret2-manager\.worktrees\z2k-coherent-core-detect`
   `unassignedAssets` with `state: unknown`.
 - `z2m-components-model.js`: legacy Lua counts can no longer produce `ready`;
   canonical V3/runtime/Detect evidence remains the readiness gate.
-- `z2k-versions.uc`: unresolved cross-family publication ordering returns
-  `null`, so target operation cannot silently become `reinstall`.
-- `resource-update.uc`: rollback snapshots now capture receipt ID and
-  `runtimeBundleDigest`; receipt comparison checks both fields. The injected
-  post-materialize failure seam now asserts restoration of the LKG receipt and
-  digest exactly.
+- `z2k-versions.uc`: the production `z2k_compare_versions` comparator now
+  fails closed for unresolved cross-family ordering, preserving the existing
+  numeric sign convention for same-family versions.
+- `resource-update.uc`: the prepare path now routes target operation through
+  authoritative family-aware comparison and rejects unresolved ordering before
+  mutation. Rollback verification consumes captured `receiptId` and
+  `runtimeBundleDigest`; exact receipt/digest restoration passes while either
+  mismatch fails closed. The post-materialize failure seam verifies the exact
+  LKG receipt object and digest through the same identity matcher.
 
 ## Changed files
 
@@ -35,7 +38,9 @@ Focused regression and verification results:
 
 - `node --test tests/ui/components-truth-normalization.test.mjs` — **6 passed, 0 failed, 0 skipped**.
 - `wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode node --test --test-name-pattern="cross-family ordering fails closed" tests/product/z2k-update-source-integration.test.mjs'` — **1 passed, 0 failed, 0 skipped**.
-- `wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode node --test tests/product/z2k-coherent-transaction.test.mjs'` — **21 passed, 0 failed, 0 skipped**.
+- `wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode node --test --test-name-pattern="production target operation|rollback verification|post-materialize readiness" tests/product/z2k-coherent-transaction.test.mjs'` — **3 passed, 0 failed, 20 skipped**.
+- `wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode node --test tests/product/z2k-coherent-transaction.test.mjs'` — **23 passed, 0 failed, 0 skipped**.
+- `node --test tests/product/z2k-version-details-contract.test.mjs tests/product/z2k-target-lifecycle-contract.test.mjs` — **15 passed, 0 failed, 0 skipped**.
 - `node --test tests/product/z2m-resources-model.test.mjs` — **21 passed, 5 failed, 0 skipped**. The five failures are pre-existing Resources callout/count expectations; the new unresolved-asset regression passes. The same unrelated failures were present in the pre-fix RED run.
 - Full `z2k-update-source-integration.test.mjs` under WSL/ucode — **13 passed, 1 failed, 0 skipped**. The new cross-family regression passes; the remaining failure is the pre-existing presentation request-count expectation (`3` actual vs `5` expected), present in the pre-fix RED run.
 - `node --check` on both changed UI model files — **passed**.

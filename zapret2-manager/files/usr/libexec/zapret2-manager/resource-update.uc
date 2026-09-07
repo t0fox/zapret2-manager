@@ -6,7 +6,7 @@ import { readfile, writefile, stat, unlink, mkdir, lsdir, popen } from 'fs';
 import { asset_registry_list, asset_registry_apply_bundle, asset_registry_finalize_activation, asset_registry_rollback_bundle } from './asset-registry.uc';
 import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
-import { z2k_resolve_version, z2k_compare_versions, z2k_asset_id_from_classification } from './z2k-versions.uc';
+import { z2k_resolve_version, z2k_compare_versions, z2k_target_operation, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
 import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, runtime_strategy_preflight, runtime_materialize_failure_rollback, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
 import { read_var, config_sha256, transaction_config_snapshot, restore_transaction_config } from './apply.uc';
@@ -1338,11 +1338,6 @@ function z2k_local_fingerprint(targetAssets, listed, removeIds) {
 	}
 	sort(rows); return digest_text(join('\n', rows), 'z2m-z2k-fingerprint');
 }
-function z2k_target_operation(targetVersion, installedVersion) {
-	if (!installedVersion) return 'install';
-	let comparison = z2k_compare_versions(targetVersion, installedVersion); if (comparison == null) return null;
-	return comparison > 0 ? 'upgrade' : (comparison < 0 ? 'downgrade' : 'reinstall');
-}
 function z2k_classification_for(map, path) {
 	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) if (map.files[i] && map.files[i].sourcePath == path) return map.files[i];
 	return null;
@@ -1714,6 +1709,12 @@ function z2k_rollback_receipt_matches(expected, actual) {
 	}
 	return false;
 }
+function z2k_rollback_identity_matches(identity, expected, actual) {
+	if (!object(identity) || !object(expected) || !object(actual)) return false;
+	if (identity.receiptId != null && identity.receiptId != actual.receiptId) return false;
+	if (identity.runtimeBundleDigest != null && identity.runtimeBundleDigest != actual.runtimeBundleDigest) return false;
+	return z2k_rollback_receipt_matches(expected, actual);
+}
 function z2k_receipt_state_verified(state) { return object(state) && (state.state == 'LEGACY_VERIFIED' || state.state == 'COHERENT_VERIFIED'); }
 function z2k_rollback_registry_already_restored(pending, listed) {
 	if (!object(pending) || !object(pending.rollbackIdentity) || !object(listed) || listed.ok !== true
@@ -1721,7 +1722,7 @@ function z2k_rollback_registry_already_restored(pending, listed) {
 	if (type(pending.priorRegistryMembership) == 'array' && !z2k_rollback_membership_matches(pending.priorRegistryMembership, listed.assets || [])) return false;
 	let expected = pending.rollbackIdentity.receipt || null, state = z2k_registry_receipt_state(listed);
 	if (expected == null) return state.state == 'unknown' && state.receipt == null;
-	return state.receipt != null && z2k_rollback_receipt_matches(expected, state.receipt);
+	return state.receipt != null && z2k_rollback_identity_matches(pending.rollbackIdentity, expected, state.receipt);
 }
 function z2k_pending_legacy_reconciliation_eligible(pending, listed) {
 	if (!object(pending) || pending.phase != 'ROLLING_BACK' || !object(pending.rollbackIdentity)
@@ -1904,15 +1905,21 @@ export const resource_center_test_rollback_expected_revision = function(input) {
 	if (!object(input) || input.testOnly !== true || !object(input.applied) || !object(input.listed) || !object(input.pending)) return fail('EINPUT', 'Internal rollback revision test seam is restricted to controlled tests.');
 	return z2k_rollback_expected_revision(input.applied, input.listed, input.pending);
 };
+export const resource_center_test_rollback_identity = function(input) {
+	if (!object(input) || input.testOnly !== true || !object(input.pending) || !object(input.pending.rollbackIdentity) || !object(input.actualReceipt)) return fail('EINPUT', 'Internal rollback identity test seam is restricted to controlled tests.');
+	let identity = input.pending.rollbackIdentity, expected = identity.receipt || null;
+	return { ok: expected != null && z2k_rollback_identity_matches(identity, expected, input.actualReceipt), receiptId: input.actualReceipt.receiptId || null, runtimeBundleDigest: input.actualReceipt.runtimeBundleDigest || null };
+};
 function z2k_pending_prior_state_matches(pending) {
 	if (!object(pending)) return fail('ERECOVERY_REQUIRED', 'Prior activation evidence is missing.');
 	let listed = asset_registry_list(null);
 	if (!listed || listed.ok !== true || listed.revision != pending.priorRegistryRevision) return fail('ERECOVERY_REQUIRED', 'Registry prior revision is not proven stable.');
 	if (type(pending.priorRegistryMembership) != 'array' || !z2k_rollback_membership_matches(pending.priorRegistryMembership, listed.assets || [])) return fail('ERECOVERY_REQUIRED', 'Registry prior membership is not proven stable.');
 	let authority = z2k_registry_receipt_state(listed);
-	if (pending.priorReceipt == null) {
+	let rollbackIdentity = object(pending.rollbackIdentity) ? pending.rollbackIdentity : {}, expectedReceipt = rollbackIdentity.receipt || null;
+	if (expectedReceipt == null) {
 		if (!authority || authority.receipt != null) return fail('ERECOVERY_REQUIRED', 'Prior Registry receipt state is not proven stable.');
-	} else if (!authority || !object(authority.receipt) || !z2k_rollback_receipt_matches(pending.priorReceipt, authority.receipt)) return fail('ERECOVERY_REQUIRED', 'Prior Registry receipt identity is not proven stable.');
+	} else if (!authority || !object(authority.receipt) || !z2k_rollback_identity_matches(rollbackIdentity, expectedReceipt, authority.receipt)) return fail('ERECOVERY_REQUIRED', 'Prior Registry receipt identity is not proven stable.');
 	let config = null, selection = null, catalog = null, enabled = null;
 	try { config = transaction_config_snapshot(); } catch (e) { config = null; }
 	try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
@@ -2205,7 +2212,10 @@ export const resource_center_prepare_version = function(request) {
 	let authority = z2k_registry_installed_release(listed), installed = authority && authority.value || null;
 	let legacyReconciliation = z2k_v1_reconciliation_check(listed, resolved);
 	if (!legacyReconciliation.ok) return legacyReconciliation;
-	let operation = legacyReconciliation.required ? 'reinstall' : z2k_target_operation(version, installed), localFingerprint = z2k_local_fingerprint(resolved.assets, listed, removals.ids);
+	let operation = z2k_target_operation(version, installed);
+	if (operation == null) return fail('EORDER_UNRESOLVED', 'Z2K release family ordering is unresolved; refusing to prepare an update.');
+	if (legacyReconciliation.required) operation = 'reinstall';
+	let localFingerprint = z2k_local_fingerprint(resolved.assets, listed, removals.ids);
 	if (operation == null || localFingerprint == null) return fail('EIO', 'Не удалось построить Z2K target snapshot.');
 	let sizedTarget = z2k_target_assets_with_sizes(resolved.assets, listed, resolved.commitSha);
 	if (!sizedTarget.ok) return sizedTarget;
@@ -2369,17 +2379,26 @@ export const resource_center_test_precommit_failure = function(input) {
 	return gate.ok === true ? { ok: true, mutations: mutations, activeIdentity: activeIdentity } : { ok: false, error: gate.error, mutations: mutations, activeIdentity: activeIdentity };
 };
 
+export const resource_center_test_target_operation = function(input) {
+	if (!object(input) || input.testOnly !== true || !string(input.targetVersion) || !string(input.installedVersion)) return fail('EINPUT', 'Internal target operation test seam is restricted to controlled tests.');
+	let operation = z2k_target_operation(input.targetVersion, input.installedVersion);
+	if (operation == null) return { ok: false, error: { code: 'EORDER_UNRESOLVED', message: 'Z2K release family ordering is unresolved.' }, operation: null, mutations: 0 };
+	return { ok: true, operation: operation, mutations: 0 };
+};
+
 export const resource_center_test_post_materialize_failure = function(input) {
 	let physical = 'Y';
-	let priorReceipt = { receiptId: 'receipt-lkg', runtimeBundleDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' };
-	let currentReceipt = { receiptId: 'receipt-candidate', runtimeBundleDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' };
+	let priorReceipt = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-lkg', runtimeBundleDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', assets: [] };
+	let currentReceipt = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-candidate', runtimeBundleDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', assets: [] };
+	let rollbackIdentity = { receipt: priorReceipt, receiptId: priorReceipt.receiptId, runtimeBundleDigest: priorReceipt.runtimeBundleDigest };
 	let activeReceipt = currentReceipt;
-	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: physical, priorIdentity: 'X', restore: function(previous) { physical = previous; activeReceipt = priorReceipt; return { ok: true, restored: true }; } });
+	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: physical, priorIdentity: 'X', restore: function(previous) { physical = previous; activeReceipt = rollbackIdentity.receipt; return { ok: true, restored: true }; } });
 	if (result && result.physicalIdentity == null) result.physicalIdentity = physical;
 	if (result) result.lkgEvidence = { priorReceiptId: priorReceipt.receiptId, currentReceiptId: currentReceipt.receiptId,
 		restoredReceiptId: activeReceipt.receiptId, priorRuntimeBundleDigest: priorReceipt.runtimeBundleDigest,
 		currentRuntimeBundleDigest: currentReceipt.runtimeBundleDigest, restoredRuntimeBundleDigest: activeReceipt.runtimeBundleDigest,
-		restored: activeReceipt.receiptId == priorReceipt.receiptId && activeReceipt.runtimeBundleDigest == priorReceipt.runtimeBundleDigest };
+		restoredReceipt: activeReceipt, restoredByIdentity: z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeReceipt),
+		restored: z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeReceipt) };
 	return result;
 };
 

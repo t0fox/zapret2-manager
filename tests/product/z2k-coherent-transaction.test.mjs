@@ -99,6 +99,27 @@ test('pending rollback evidence captures exact receipt identity and runtime bund
   assert.match(coordinator, /keysToCompare[\s\S]*runtimeBundleDigest/);
 });
 
+test('production target operation fails closed for unresolved cross-family releases', { skip: !hasUcode }, () => {
+  const result = invoke(`transaction.resource_center_test_target_operation({ testOnly: true, targetVersion: 'r-80.3', installedVersion: 'p-80.3' })`);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'EORDER_UNRESOLVED', JSON.stringify(result));
+  assert.equal(result.operation, null, JSON.stringify(result));
+  assert.equal(result.mutations, 0, JSON.stringify(result));
+});
+
+test('rollback verification consumes captured receipt identity and runtime digest', { skip: !hasUcode }, () => {
+  const prior = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-lkg', runtimeBundleDigest: 'a'.repeat(64), assets: [] };
+  const pending = { rollbackIdentity: { receipt: prior, receiptId: prior.receiptId, runtimeBundleDigest: prior.runtimeBundleDigest } };
+  const exact = invoke(`transaction.resource_center_test_rollback_identity({ testOnly: true, pending: ${JSON.stringify(pending)}, actualReceipt: ${JSON.stringify(prior)} })`);
+  const wrongReceipt = { ...prior, receiptId: 'receipt-other' };
+  const wrongDigest = { ...prior, runtimeBundleDigest: 'b'.repeat(64) };
+  const receiptMismatch = invoke(`transaction.resource_center_test_rollback_identity({ testOnly: true, pending: ${JSON.stringify(pending)}, actualReceipt: ${JSON.stringify(wrongReceipt)} })`);
+  const digestMismatch = invoke(`transaction.resource_center_test_rollback_identity({ testOnly: true, pending: ${JSON.stringify(pending)}, actualReceipt: ${JSON.stringify(wrongDigest)} })`);
+  assert.equal(exact.ok, true, JSON.stringify(exact));
+  assert.equal(receiptMismatch.ok, false, JSON.stringify(receiptMismatch));
+  assert.equal(digestMismatch.ok, false, JSON.stringify(digestMismatch));
+});
+
 test('apply consumes the persisted prior snapshot and has no prepare-local priorStrategy dependency', () => {
   const applyBody = coordinator.slice(coordinator.indexOf('function z2k_apply_prepared'), coordinator.indexOf('export const resource_center_status'));
   assert.match(applyBody, /target\.priorActivation|target\.priorStrategy/);
@@ -292,7 +313,8 @@ test('post-materialize readiness failure restores the physical X snapshot', { sk
   assert.deepEqual(result.lkgEvidence, {
     priorReceiptId: 'receipt-lkg', currentReceiptId: 'receipt-candidate', restoredReceiptId: 'receipt-lkg',
     priorRuntimeBundleDigest: 'a'.repeat(64), currentRuntimeBundleDigest: 'b'.repeat(64), restoredRuntimeBundleDigest: 'a'.repeat(64),
-    restored: true,
+    restored: true, restoredByIdentity: true,
+    restoredReceipt: { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-lkg', runtimeBundleDigest: 'a'.repeat(64), assets: [] },
   }, JSON.stringify(result));
 });
 

@@ -728,6 +728,7 @@ export const z2k_version_details = function(version, options) {
 
 export const z2k_compare_versions = function(left, right) {
 	let a = z2k_release_parse(left), b = z2k_release_parse(right); if (a == null || b == null) return null;
+	if (a.family != b.family) return null;
 	if (a.major != b.major) return a.major < b.major ? -1 : 1;
 	if (a.minor != b.minor) return a.minor < b.minor ? -1 : 1;
 	return 0;
