@@ -79,6 +79,21 @@ test('protocol manifest and production RPC register all typed Detect operations'
   assert.match(fs.readFileSync(nativePath, 'utf8'), /export const z2k_detect/);
 });
 
+test('protocol manifest aligns Detect argv bounds with maximum and overlong hostnames', () => {
+  const maxHost = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+  assert.equal(maxHost.length, 253);
+  for (const kind of operations) {
+    const schema = protocol.operations[`z2k_detect_${kind}`];
+    const hostSchema = schema.requestSchema.properties.host;
+    const argvSchema = schema.successSchema.properties.argv;
+    assert.equal(hostSchema.maxLength, 253, kind);
+    assert.equal(argvSchema.items.maxLength, 320, kind);
+    assert.ok(maxHost.length <= hostSchema.maxLength, `${kind}: maximum hostname must fit`);
+    assert.ok(maxHost.length + 1 > hostSchema.maxLength, `${kind}: overlong hostname must reject`);
+    assert.ok(`${maxHost}:443`.length <= argvSchema.items.maxLength, `${kind}: endpoint must fit argv bound`);
+  }
+});
+
 test('Detect adapter rejects process-boundary fields before its native seam', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   for (const args of [
     { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000, executable: '/bin/sh' },
