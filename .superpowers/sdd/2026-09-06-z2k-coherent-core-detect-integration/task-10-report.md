@@ -230,6 +230,86 @@ all Task 10 native/helper/broker/adapter/RPC/artifact tests passed.
 - Not run: router/OpenWrt deployment, live network Detect, browser acceptance,
   merge, push, or deployment. Unrelated Scanner work was preserved.
 
+## Fix-round 4 — protocol argv bound reconciliation
+
+Status: IMPLEMENTED. This round closes the remaining protocol-manifest
+inconsistency only; router deployment, browser acceptance, live RPC/Detect,
+merge and push remain intentionally out of scope.
+
+### Corrections
+
+- Reconciled all five `z2k_detect_*` `protocol-v1.json` success schemas from
+  `argv.items.maxLength: 128` to `320`, matching the existing native endpoint
+  buffer and `core/detect-result.uc` validator. The typed request host limit
+  remains 253, so a maximum hostname plus `:port` fits while overlong input is
+  still rejected at the request boundary.
+- Added a manifest-level regression that checks all five operations, the
+  253-character maximum hostname, the 254-character overlong boundary, and
+  the resulting endpoint length against the protocol argv bound. No second
+  schema authority or weakened input validation was added.
+
+### TDD evidence
+
+RED was captured on base `bba6454ff017f47c029a38653a6a2411b8200bd7` after
+adding the manifest regression and before changing the manifest:
+
+```text
+wsl.exe -e bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 120s node --test tests/product/z2k-detect-rpc.test.mjs'
+```
+
+Result: 8 tests, 7 passed, 1 failed: the probe manifest still reported
+`argv.items.maxLength` 128 instead of 320.
+
+GREEN manifest run:
+
+```text
+wsl.exe -e bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 120s node --test tests/product/z2k-detect-rpc.test.mjs'
+```
+
+Result: 8 tests, 8 passed, 0 failed.
+
+Final focused native/helper/adapter/RPC run:
+
+```text
+wsl.exe -e bash -lc 'set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 180s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs'
+```
+
+Result: 55 tests, 55 passed, 0 failed.
+
+### Verification
+
+Final bounded aggregate:
+
+```text
+wsl.exe -e bash -lc 'set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 240s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/fs-helper-protocol.test.mjs tests/native/core/native-helper.test.mjs tests/native/core/scanner-probe-native.test.mjs tests/native/core/native-helper-broker.test.mjs tests/native/package-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs tests/product/z2k-detect-artifact.test.mjs'
+```
+
+Result: 181 tests, 178 passed, 3 failed. The same unrelated baseline failures
+remain: `package and service lifecycle fail closed when bootstrap fails`,
+`native bootstrap solely owns managed roots and recursive parent traversal`,
+and `Task 4 source hashes bind the recorded executed input commit blobs`.
+The last is the Windows linked-worktree Git-pointer boundary; all Task 10
+native/helper/broker/adapter/RPC/artifact tests passed.
+
+- WSL `cc` with `pkg-config json-c` compiled the native helper under the
+  focused Detect run using `-std=c11 -Wall -Wextra -Werror`.
+- `node --check` passed for all changed `.mjs` tests.
+- `protocol-v1.json` parsed and all five Detect argv bounds were asserted as
+  320; `node scripts/validate-knowledge.mjs` passed with
+  `Knowledge validation passed.`
+- PowerShell `git diff --check` and staged diff check passed. UCode imports and
+  seams passed with `/opt/ucode/bin/ucode` and `LD_LIBRARY_PATH=/opt/ucode/lib`.
+
+### Commits and boundaries
+
+- Fix-round 4 implementation/tests: `644497553e5655502ce0ca677b31140bd189a4f9`
+  (`fix: align Detect protocol argv bounds`).
+- Report: separate final report commit; exact hash is the final HEAD returned
+  in the handoff below.
+- Base before this round: `bba6454ff017f47c029a38653a6a2411b8200bd7`.
+- Not run: router/OpenWrt deployment, live RPC/Detect, browser acceptance,
+  merge, push, or deployment. Unrelated Scanner work was preserved.
+
 ## Fix-round 3 — native result schemas and boundary consistency
 
 Status: IMPLEMENTED. This round addresses the final re-review findings only;
