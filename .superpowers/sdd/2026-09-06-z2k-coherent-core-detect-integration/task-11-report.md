@@ -253,5 +253,6 @@ typed boundary green.
 - `tests/ui/scanner-detect-api-boundary.test.mjs`
 - this report
 
-Implementation/report commit: to be recorded in the final handoff after the
-bounded verification above.
+Implementation commit: `ef1e6d3d` (`fix: migrate Scanner UI to typed Detect API`).
+The report is committed in the final documentation commit immediately after
+this implementation commit; the exact final HEAD is recorded in the handoff.
