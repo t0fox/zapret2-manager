@@ -2,7 +2,7 @@
 
 // Z2K Core owns the exact upstream Detect artifact. This module only resolves,
 // stages and validates the binary; Detect itself remains the upstream algorithm.
-import { popen, stat, readlink, writefile } from 'fs';
+import { popen, stat, readlink, readfile, writefile } from 'fs';
 import * as native_helper from './core/native-helper.uc';
 import * as detect_result from './core/detect-result.uc';
 import { asset_registry_list } from './asset-registry.uc';
@@ -15,6 +15,10 @@ const REPOSITORY = 'necronicle/z2k';
 const TEST_PATH_PREFIX = '/tmp/z2m-z2k-detect-test-';
 const PRODUCTION_STAGE_PREFIX = '/tmp/z2m-resource-update/';
 const PRODUCTION_ROLLBACK = '/etc/zapret2-manager/z2k-detect.rollback';
+const DISCOVERY_CONFIG = '/etc/zapret2-manager/z2k-detect-discovery.json';
+const DISCOVERY_LIST = '/opt/zapret2/lists/discovered-domains.txt';
+const DISCOVERY_INSTANCE = 'z2k-detect';
+const DISCOVERY_SOURCES = ['auto', 'agh', 'dnsmasq', 'pkt'];
 
 const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
 const DETECT_STATUS_SCHEMA = 1;
@@ -54,6 +58,98 @@ function detect_error_normalize(response) {
 function detect_status_fail(code, message, details) {
 	return fail(code, message, details);
 }
+
+function discovery_config_normalize(value) {
+	if (value == null) return { ok: true, schema: 1, enabled: false, dnsSource: 'auto' };
+	if (!object(value) || value.schema !== 1 || type(value.enabled) != 'bool' ||
+		!string(value.dnsSource) || index(DISCOVERY_SOURCES, value.dnsSource) < 0)
+		return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is invalid.');
+	return { ok: true, schema: 1, enabled: value.enabled, dnsSource: value.dnsSource };
+}
+
+function discovery_config_read() {
+	let raw = readfile(DISCOVERY_CONFIG);
+	if (!raw) return discovery_config_normalize(null);
+	try { return discovery_config_normalize(json(raw)); }
+	catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is not valid JSON.'); }
+}
+
+export const z2k_detect_discovery_config = function(value) { return discovery_config_normalize(value); };
+
+function discovery_process_default() {
+	let p = popen('pidof z2k-detect 2>/dev/null', 'r');
+	if (!p) return { running: false, pid: null, count: 0 };
+	let raw = trim(p.read('all') || ''), rc = p.close(), ids = [];
+	for (let part in (raw ? split(raw, ' ') : [])) if (length(trim(part))) push(ids, +trim(part));
+	if (rc != 0 || !length(ids)) return { running: false, pid: null, count: 0 };
+	return { running: length(ids) == 1, pid: length(ids) == 1 ? +ids[0] : null, count: length(ids) };
+}
+
+function discovery_file_default() {
+	let value = { count: 0, mtime: null }, st = null;
+	try { st = stat(DISCOVERY_LIST); } catch (e) { return value; }
+	if (!st || st.type != 'file' || readlink(DISCOVERY_LIST) != null) return value;
+	value.mtime = type(st.mtime) == 'int' ? st.mtime : null;
+	let raw = readfile(DISCOVERY_LIST) || '', lines = split(raw, '\n');
+	for (let line in lines) if (length(trim(line))) value.count++;
+	return value;
+}
+
+function discovery_authority(seams) {
+	let hooks = object(seams) ? seams : {};
+	if (type(hooks.authority) == 'function') return hooks.authority();
+	return z2k_detect_status();
+}
+
+export const z2k_detect_discovery_status = function(seams) {
+	let hooks = object(seams) ? seams : {}, authority = discovery_authority(hooks);
+	if (!object(authority) || authority.ok !== true || authority.coherent !== true)
+		return authority && authority.ok === false ? detect_error_normalize(authority) : fail('EZ2K_INCOHERENT', 'Z2K Core installed authority is not coherent.');
+	let config = discovery_config_normalize(type(hooks.config) == 'function' ? hooks.config() : discovery_config_read());
+	if (!object(config) || config.ok !== true) return config && config.ok === false ? config : fail('EDETECT_SCHEMA', 'Discovery configuration is invalid.');
+	let process = type(hooks.process) == 'function' ? hooks.process() : discovery_process_default();
+	let file = type(hooks.file) == 'function' ? hooks.file() : discovery_file_default();
+	if (!object(process) || type(process.running) != 'bool' || (process.pid != null && type(process.pid) != 'int')) return fail('EDETECT_SCHEMA', 'Discovery process status is invalid.');
+	if (!object(file) || type(file.count) != 'int' || file.count < 0 || (file.mtime != null && type(file.mtime) != 'int')) return fail('EDETECT_SCHEMA', 'Discovery list status is invalid.');
+	return { ok: true, schema: 1, enabled: config.enabled, dnsSource: config.dnsSource,
+		running: process.running, pid: process.pid == null ? null : process.pid,
+		discoveredDomains: { count: file.count, mtime: file.mtime }, instance: DISCOVERY_INSTANCE };
+};
+
+export const z2k_detect_discovery_command = function(value) {
+	let config = discovery_config_normalize(value);
+	if (!config.ok) return config;
+	if (!config.enabled) return { ok: true, enabled: false, command: null };
+	return { ok: true, enabled: true, command: [RUNTIME_TARGET, 'run', '-dns-source', config.dnsSource, '-output', DISCOVERY_LIST], instance: DISCOVERY_INSTANCE };
+};
+
+function discovery_write(config) {
+	let tmp = DISCOVERY_CONFIG + '.tmp';
+	if (!writefile(tmp, sprintf('%J', config) + '\n')) return fail('EIO', 'Discovery configuration could not be written.');
+	let p = popen("mv -f '" + tmp + "' '" + DISCOVERY_CONFIG + "'", 'r');
+	if (!p || p.close() != 0) return fail('EIO', 'Discovery configuration could not be committed.');
+	return { ok: true };
+}
+
+export const z2k_detect_discovery_control = function(action, input, seams) {
+	if (index(['enable', 'disable', 'restart'], action) < 0) return fail('EINPUT', 'Unsupported discovery control action.');
+	let hooks = object(seams) ? seams : {}, authority = discovery_authority(hooks);
+	if (!object(authority) || authority.ok !== true || authority.coherent !== true)
+		return authority && authority.ok === false ? detect_error_normalize(authority) : fail('EZ2K_INCOHERENT', 'Z2K Core installed authority is not coherent.');
+	let current = discovery_config_normalize(type(hooks.config) == 'function' ? hooks.config() : discovery_config_read());
+	if (!object(current) || current.ok !== true) return current && current.ok === false ? current : fail('EDETECT_SCHEMA', 'Discovery configuration is invalid.');
+	let args = object(input) ? input : {}, source = args.dnsSource == null ? current.dnsSource : args.dnsSource;
+	if (index(DISCOVERY_SOURCES, source) < 0) return fail('EINPUT', 'dnsSource must be auto, agh, dnsmasq or pkt.');
+	let next = { schema: 1, enabled: action == 'enable' ? true : action == 'disable' ? false : current.enabled, dnsSource: source };
+	if (action != 'restart') {
+		let saved = type(hooks.write) == 'function' ? hooks.write(next) : discovery_write(next);
+		if (!saved || saved.ok !== true) return saved && saved.ok === false ? saved : fail('EIO', 'Discovery configuration could not be saved.');
+	}
+	if (type(hooks.service) == 'function') return hooks.service(action, next);
+	let p = popen("/etc/init.d/zapret2-manager restart >/dev/null 2>&1", 'r');
+	if (!p || p.close() != 0) return fail('EIO', 'Z2K Detect discovery service restart failed.');
+	return { ok: true, action: action, config: next };
+};
 
 function detect_status_digest(path) {
 	if (!string(path)) return null;
@@ -468,3 +564,21 @@ export const z2k_detect_finalize = function(publication, seams) {
 	if (!close_backup(publication, hooks)) return fail('EWRITE', 'Detect rollback state could not be closed.');
 	return { ok: true, finalized: true, target: target };
 };
+
+function discovery_cli_emit(value, code) {
+	print(sprintf('%J', value) + '\n');
+	if (code != 0) exit(code);
+}
+
+// The init script uses these fixed, non-user-controlled probes before it
+// opens the one named procd instance. The upstream executable remains the
+// only owner of the long-running `run` process.
+if (length(ARGV) > 0 && (ARGV[0] == 'discovery-eligible' || ARGV[0] == 'discovery-source')) {
+	let config = discovery_config_read(), authority = z2k_detect_status();
+	let eligible = config.ok === true && config.enabled === true && authority.ok === true && authority.coherent === true;
+	if (ARGV[0] == 'discovery-source') {
+		if (!eligible) exit(1);
+		print(config.dnsSource + '\n');
+	} else discovery_cli_emit(eligible ? { ok: true, enabled: true, dnsSource: config.dnsSource, instance: DISCOVERY_INSTANCE } :
+		(config.ok === false ? config : authority), eligible ? 0 : 1);
+}

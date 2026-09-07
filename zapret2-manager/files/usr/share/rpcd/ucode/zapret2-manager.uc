@@ -26,7 +26,8 @@ import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
 import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild, catalog_refresh_source, catalog_source_set_enabled } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
 import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
-import { z2k_detect_status, z2k_detect_probe, z2k_detect_classify, z2k_detect_quic, z2k_detect_voice, z2k_detect_tcp16 } from '/usr/libexec/zapret2-manager/z2k-detect.uc';
+import { z2k_detect_status, z2k_detect_probe, z2k_detect_classify, z2k_detect_quic, z2k_detect_voice, z2k_detect_tcp16,
+	z2k_detect_discovery_status, z2k_detect_discovery_control } from '/usr/libexec/zapret2-manager/z2k-detect.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
 	dns_product_rollback, dns_product_provider_save, dns_product_provider_reset,
@@ -479,6 +480,20 @@ function z2k_detect_classify_method(req) { return z2k_detect_classify(z2k_detect
 function z2k_detect_quic_method(req) { return z2k_detect_quic(z2k_detect_input(req)); }
 function z2k_detect_voice_method(req) { return z2k_detect_voice(z2k_detect_input(req)); }
 function z2k_detect_tcp16_method(req) { return z2k_detect_tcp16(z2k_detect_input(req)); }
+function z2k_detect_discovery_status_method(req) { return z2k_detect_discovery_status(); }
+function z2k_detect_discovery_control_method(action, req) {
+	let input = z2k_detect_input(req);
+	if (input != null && type(input) != 'object') return { ok: false, error: { code: 'EINPUT', message: 'discovery arguments must be an object' } };
+	let changed = z2k_detect_discovery_control(action, input || {});
+	if (!changed || changed.ok !== true) return changed;
+	let status = z2k_detect_discovery_status();
+	if (!status || status.ok !== true) return status;
+	status.action = action;
+	return status;
+}
+function z2k_detect_discovery_enable_method(req) { return z2k_detect_discovery_control_method('enable', req); }
+function z2k_detect_discovery_disable_method(req) { return z2k_detect_discovery_control_method('disable', req); }
+function z2k_detect_discovery_restart_method(req) { return z2k_detect_discovery_control_method('restart', req); }
 
 function job_get_method(req) { return jobs_edit_action('get', req); }
 function job_list_method(req) { return jobs_action('list'); }
@@ -1279,6 +1294,10 @@ return {
 		catalog_preview:   { args: { edit: 'string' }, call: function (req) { return catalog_preview_method(req); } },
 		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } },
 		z2k_detect_status: { call: function (req) { return z2k_detect_status_method(req); } },
+		z2k_detect_discovery_status: { call: function (req) { return z2k_detect_discovery_status_method(req); } },
+		z2k_detect_discovery_enable: { call: function (req) { return z2k_detect_discovery_enable_method(req); } },
+		z2k_detect_discovery_disable: { call: function (req) { return z2k_detect_discovery_disable_method(req); } },
+		z2k_detect_discovery_restart: { call: function (req) { return z2k_detect_discovery_restart_method(req); } },
 		z2k_detect_probe: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_probe_method(req); } },
 		z2k_detect_classify: { args: { host: 'string', port: 'integer', hello: 'string', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_classify_method(req); } },
 		z2k_detect_quic: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_quic_method(req); } },
