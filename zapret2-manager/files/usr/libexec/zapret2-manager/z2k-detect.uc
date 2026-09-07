@@ -26,6 +26,7 @@ const DETECT_MAX_INPUT_BYTES = 4096;
 const DETECT_MAX_STATUS_BYTES = 16384;
 const CANONICAL_DETECT_ERRORS = ['EZ2K_NOT_INSTALLED', 'EZ2K_INCOHERENT', 'EDETECT_UNAVAILABLE', 'EDETECT_INCOMPATIBLE', 'EDETECT_TIMEOUT', 'EDETECT_FAILED', 'EDETECT_SCHEMA', 'EDETECT_NO_TARGET', 'EDETECT_NO_ACTIVE_VOICE'];
 const DETECT_UNSAFE_INPUT_FIELDS = ['executable', 'argv', 'command', 'env', 'cwd', 'raw', 'shell', 'flags', 'path'];
+let detect_status;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function detect_cli_argv() {
@@ -263,11 +264,11 @@ function detect_status_normalize(value) {
 }
 
 export const z2k_detect_status_normalize = function(value) { return detect_status_normalize(value); };
-function detect_status(seams) {
+detect_status = function(seams) {
 	let result = detect_status_authority(seams), checked = result && result.ok === false ? detect_error_normalize(result) :
 		(result && result.ok === true && result.coherent !== true ? fail('EDETECT_INCOMPATIBLE', result.error && result.error.message || 'Z2K Detect installed authority is incoherent.') : detect_status_normalize(result));
 	return checked;
-}
+};
 export const z2k_detect_status = function(seams) { return detect_status(seams); };
 
 function detect_ipv4(value) {
