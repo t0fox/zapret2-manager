@@ -4,6 +4,7 @@
 // bounded validation and publication of data bytes; release/lifecycle/Registry
 // authority remains in the existing Core modules.
 import { popen, unlink, writefile, rename, mkdir, readfile } from 'fs';
+import { z2k_release_valid } from './z2k-release.uc';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_ROWS = 65536;
@@ -15,6 +16,8 @@ function object(value) { return type(value) == 'object' && value != null && type
 function array(value) { return type(value) == 'array'; }
 function string(value) { return type(value) == 'string'; }
 function text(value) { return value == null ? '' : '' + value; }
+function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
+function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function fail(code, message, details) { let result = { ok: false, error: { code: code, message: message } }; if (details != null) result.error.details = details; return result; }
 function copy(value) { try { return json(sprintf('%J', value)); } catch (e) { return value; } }
 function canonical(value) {
@@ -68,11 +71,20 @@ export const z2k_data_refresh_identity = z2k_data_identity;
 function publication_path(row, dynamic) { return (dynamic ? DYNAMIC_ROOT : RELEASE_ROOT) + row.path; }
 function publication_valid(row, dynamic) { return object(row) && safe_name(row.path) && index(publication_path(row, dynamic), dynamic ? DYNAMIC_ROOT : RELEASE_ROOT) == 0; }
 function coherence_gate(input, identity) {
-	if (input.authority == null) return { ok: true };
-	if (!object(input.authority) || input.authority.ok !== true || input.authority.coherent !== true) return fail('EZ2K_INCOHERENT', 'Z2K Core authority is not coherent');
-	if (input.authority.release != null && input.authority.release != identity.release) return fail('ECOMPATIBILITY', 'data release does not match the installed Core release');
+	let authority = input.authority;
+	if (!object(authority)) return fail('EAUTHORITY', 'authoritative receipt, Registry, runtime, and Detect identity are required');
+	if (authority.ok !== true || authority.coherent !== true) return fail('EZ2K_INCOHERENT', 'Z2K Core authority is not coherent');
+	if (!z2k_release_valid(input.release) || !valid_commit(input.sourceCommit)) return fail('EAUTHORITY', 'submitted release/source identity is incomplete');
+	let required = ['receipt', 'registry', 'runtime', 'detect'];
+	for (let name in required) {
+		let key = string(name) ? name : required[name], part = authority[key];
+		if (!object(part)) return fail('EAUTHORITY', 'authoritative ' + key + ' identity is missing');
+		if (part.release != input.release || part.sourceCommit != lc(input.sourceCommit)) return fail('ECOMPATIBILITY', key + ' identity does not match the submitted Core release');
+		if (!valid_digest(part.releaseDataIdentity) || part.releaseDataIdentity != identity.coreIdentity) return fail('ECOMPATIBILITY', key + ' identity does not match release-owned data');
+	}
+	if (authority.receipt.schema != 'asset-activation-receipt.v3' || authority.registry.ok !== true || authority.runtime.coherent !== true || authority.detect.coherent !== true) return fail('EZ2K_INCOHERENT', 'authoritative identity is incomplete or legacy');
+	if (authority.detect.sourceCommit != lc(input.sourceCommit)) return fail('EDETECT_INCOMPATIBLE', 'Detect identity does not match the submitted Core release');
 	if (input.currentCoreIdentity != null && input.currentCoreIdentity != identity.coreIdentity) return fail('ECONFLICT', 'data refresh was prepared from a stale Core identity');
-	if (object(input.authority.detect) && input.authority.detect.sourceCommit != null && input.authority.sourceCommit != null && input.authority.detect.sourceCommit != input.authority.sourceCommit) return fail('EDETECT_INCOMPATIBLE', 'Detect identity does not match the installed Core');
 	return { ok: true };
 }
 

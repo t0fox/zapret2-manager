@@ -24,6 +24,27 @@ function invoke(modulePath, expression) {
   return JSON.parse(result.stdout);
 }
 
+function coreInput() {
+  return {
+    release: 'p-82.14',
+    sourceCommit: 'a'.repeat(40),
+    releaseOwned: [{ path: 'sni_wl_candidates.txt', content: 'example.com\n' }],
+    dynamic: [{ id: 'geosite', schema: 1, revision: 7, entries: ['example.com'] }],
+  };
+}
+
+function coherentAuthority(identity, overrides = {}) {
+  const base = {
+    ok: true,
+    coherent: true,
+    receipt: { schema: 'asset-activation-receipt.v3', release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseDataIdentity: identity.coreIdentity },
+    registry: { ok: true, release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseDataIdentity: identity.coreIdentity },
+    runtime: { coherent: true, release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseDataIdentity: identity.coreIdentity },
+    detect: { coherent: true, release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseDataIdentity: identity.coreIdentity },
+  };
+  return { ...base, ...overrides };
+}
+
 test('Task 13 production modules and canonical RPC boundary exist', () => {
   assert.equal(fs.existsSync(dataPath), true);
   assert.equal(fs.existsSync(diagnosticsPath), true);
@@ -63,16 +84,57 @@ test('malformed dynamic data and unsafe publication paths fail closed', { skip: 
 });
 
 test('refresh validates before staging and does not publish after a failed commit', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
-  const input = {
-    release: 'p-82.14',
-    releaseOwned: [{ path: 'sni_wl_candidates.txt', content: 'example.com\n' }],
-    dynamic: [{ id: 'geosite', schema: 1, revision: 7, entries: ['example.com'] }],
-  };
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  input.authority = coherentAuthority(identity);
   const committed = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
-  assert.equal(committed.ok, true);
+  assert.equal(committed.ok, true, JSON.stringify(committed));
   const rejected = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: false, error: { code: 'EWRITE', message: 'injected partial publish' } }; } })`);
   assert.equal(rejected.ok, false);
   assert.equal(rejected.error.code, 'EWRITE');
+});
+
+test('refresh requires complete authoritative receipt, Registry, runtime, and Detect identity', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  const valid = { ...input, authority: coherentAuthority(identity) };
+  const accepted = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(valid)}, { stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
+  for (const authority of [
+    null,
+    { ok: true, coherent: true },
+    coherentAuthority(identity, { receipt: { schema: 'asset-activation-receipt.v3' } }),
+    coherentAuthority(identity, { registry: { ok: true, release: 'p-82.14', sourceCommit: 'b'.repeat(40), releaseDataIdentity: identity.coreIdentity } }),
+    coherentAuthority(identity, { runtime: { coherent: true, release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseDataIdentity: 'f'.repeat(64) } }),
+    coherentAuthority(identity, { detect: { coherent: true, sourceCommit: 'b'.repeat(40) } }),
+  ]) {
+    const rejected = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify({ ...valid, authority })}, { stage: function(identity) { return { ok: true, root: '/tmp/should-not-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
+    assert.equal(rejected.ok, false, JSON.stringify(authority));
+    assert.ok(['EAUTHORITY', 'EZ2K_INCOHERENT', 'ECOMPATIBILITY', 'EDETECT_INCOMPATIBLE'].includes(rejected.error.code), JSON.stringify(rejected));
+  }
+});
+
+test('dataset publication uses one revision manifest and removes stale entries from the new revision', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  const next = { ...identity, releaseOwned: [{ path: 'tcp16_targets.txt', content: 'new.example\n' }], dynamic: [] };
+  const manifest = invoke(dataPath, `mod.z2k_data_dataset_manifest(${JSON.stringify(next)})`);
+  assert.equal(manifest.ok, true);
+  assert.equal(manifest.schema, 1);
+  assert.equal(manifest.entries.some(entry => entry.path === 'sni_wl_candidates.txt'), false);
+  assert.deepEqual(manifest.entries.map(entry => entry.path), ['tcp16_targets.txt']);
+  const published = invoke(dataPath, `mod.z2k_data_publish(${JSON.stringify(next)}, { current: function() { return { schema: 1, revision: 'old', entries: [{ path: 'sni_wl_candidates.txt' }] }; }, commit: function(manifest) { return { ok: true, revision: manifest.revision }; } })`);
+  assert.equal(published.ok, true);
+  assert.equal(published.revision, manifest.revision);
+});
+
+test('failed compensation is distinct and fail-closed when cleanup cannot restore the LKG boundary', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  const result = invoke(dataPath, `mod.z2k_data_publish(${JSON.stringify(identity)}, { current: function() { return { schema: 1, revision: 'old', entries: [] }; }, commit: function(manifest) { return { ok: false, error: { code: 'EWRITE', message: 'pointer commit failed' } }; }, cleanup: function(manifest) { return { ok: false, error: { code: 'EIO', message: 'cleanup failed' } }; } })`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EROLLBACK_FAILED');
+  assert.equal(result.state, 'uncertain');
 });
 
 test('diagnostics return exactly the bounded canonical ID set and entry shape', { skip: !ucode || !fs.existsSync(diagnosticsPath) }, () => {
@@ -94,4 +156,23 @@ test('diagnostics fail closed on malformed authority projection without inventin
   assert.equal(result.ok, false);
   assert.equal(row.status, 'error');
   assert.equal(row.error.code, 'ESCHEMA');
+});
+
+test('diagnostic errors are bounded and oversized authority errors are replaced fail-closed', { skip: !ucode || !fs.existsSync(diagnosticsPath) }, () => {
+  const values = Object.fromEntries(ids.map(id => [id, { status: 'ok', evidence: { id } }]));
+  values.detect_binary = { status: 'error', evidence: { id: 'detect_binary' }, error: { code: 'E'.repeat(10000), message: 'M'.repeat(10000), details: 'D'.repeat(10000) } };
+  const result = invoke(diagnosticsPath, `mod.z2k_diagnostics_run({ values: ${JSON.stringify(values)} })`);
+  const row = result.entries.find(entry => entry.id === 'detect_binary');
+  assert.equal(result.ok, false);
+  assert.equal(row.error.code, 'ESCHEMA');
+  assert.ok(JSON.stringify(row).length < 1024);
+});
+
+test('canonical data refresh RPC is typed and bounded rather than generic edit passthrough', () => {
+  const rpc = fs.readFileSync(rpcPath, 'utf8');
+  assert.match(rpc, /function z2k_data_refresh_input\(/);
+  assert.match(rpc, /length\(edit\)\s*>\s*32768/);
+  assert.match(rpc, /z2k_data_refresh_input\(req\)/);
+  assert.doesNotMatch(rpc, /function z2k_data_refresh_method\(req\) \{ return tg_edit_call/);
+  for (const field of ['executable', 'argv', 'command', 'raw', 'shell', 'cwd', 'env', 'path']) assert.match(rpc, new RegExp(`['"]${field}['"]`));
 });
