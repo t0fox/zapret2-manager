@@ -22,6 +22,7 @@ test('Scanner API surface contains exactly the canonical typed Detect methods', 
   for (const [rpc, method] of methods) {
     assert.match(api, new RegExp(`${method}:rpc\\.declare\\(\\{[^}]*method:'z2k_detect_${rpc}'`), method);
     assert.equal((api.match(new RegExp(`method:'z2k_detect_${rpc}'`, 'g')) || []).length, 1, `${rpc} RPC declaration`);
+    assert.match(api, new RegExp(`\\b${method}:calls\\.${method}`), `${method} must be exported to the Scanner context`);
   }
 });
 
