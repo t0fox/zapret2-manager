@@ -5,6 +5,9 @@
 import { popen, stat, readlink, writefile } from 'fs';
 import * as native_helper from './core/native-helper.uc';
 import * as detect_result from './core/detect-result.uc';
+import { asset_registry_list } from './asset-registry.uc';
+import { z2k_registry_receipt_state } from './z2k-installed-release.uc';
+import * as runtime_composition from './runtime-composition.uc';
 
 const RUNTIME_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
 const REPOSITORY = 'necronicle/z2k';
@@ -13,6 +16,8 @@ const PRODUCTION_STAGE_PREFIX = '/tmp/z2m-resource-update/';
 const PRODUCTION_ROLLBACK = '/etc/zapret2-manager/z2k-detect.rollback';
 
 const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
+const DETECT_STATUS_SCHEMA = 1;
+const CANONICAL_DETECT_ERRORS = ['EZ2K_NOT_INSTALLED', 'EZ2K_INCOHERENT', 'EDETECT_UNAVAILABLE', 'EDETECT_INCOMPATIBLE', 'EDETECT_TIMEOUT', 'EDETECT_FAILED', 'EDETECT_SCHEMA', 'EDETECT_NO_TARGET', 'EDETECT_NO_ACTIVE_VOICE'];
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -29,6 +34,48 @@ function detect_failure_details(data) {
 	if (string(data.stderr) && length(data.stderr)) details.stderr = substr(data.stderr, 0, 4096);
 	return details;
 }
+function detect_error_normalize(response) {
+	let code = response && response.error && response.error.code;
+	return index(CANONICAL_DETECT_ERRORS, code) >= 0 ? response : fail('EDETECT_FAILED', 'Z2K Detect operation failed.', { cause: code || 'unknown' });
+}
+
+function detect_status_fail(code, message, details) {
+	return fail(code, message, details);
+}
+
+function detect_status_digest(path) {
+	if (!string(path)) return null;
+	try {
+		let st = stat(path);
+		if (!st || st.type != 'file' || readlink(path) != null || type(st.size) != 'int' || st.size < 0 || st.size > 64 * 1024 * 1024) return null;
+		let p = popen("sha256sum '" + path + "' 2>/dev/null", 'r');
+		if (!p) return null;
+		let raw = trim(p.read('all') || ''), rc = p.close(), value = split(raw, ' ')[0];
+		return rc == 0 && valid_digest(value) ? lc(value) : null;
+	} catch (e) { return null; }
+}
+
+function detect_status_authority(seams) {
+	let hooks = object(seams) ? seams : {};
+	if (type(hooks.authority) == 'function') return hooks.authority();
+	let listed = type(hooks.registry) == 'function' ? hooks.registry() : asset_registry_list(null);
+	if (!object(listed) || listed.ok !== true) return detect_status_fail('EZ2K_NOT_INSTALLED', 'Z2K Core installed Registry is unavailable.');
+	let receiptState = z2k_registry_receipt_state(listed);
+	if (!object(receiptState) || receiptState.state == 'unknown' || !object(receiptState.receipt)) {
+		return detect_status_fail(type(listed.activationReceipts) == 'array' && length(listed.activationReceipts) ? 'EZ2K_INCOHERENT' : 'EZ2K_NOT_INSTALLED', 'Z2K Core installed authority is not coherent.');
+	}
+	if (receiptState.state != 'COHERENT_VERIFIED') return detect_status_fail('EZ2K_INCOHERENT', 'Z2K Core receipt is legacy or incomplete.');
+	let receipt = receiptState.receipt, detect = receipt.detect;
+	if (!object(detect) || !valid_digest(detect.digest) || !string(detect.arch) || !valid_commit(receipt.sourceCommit)) return detect_status_fail('EDETECT_INCOMPATIBLE', 'Installed Detect identity is incomplete.');
+	let runtime = runtime_composition.resolveInstalled({ registry: listed, receipt: receipt });
+	if (!object(runtime) || runtime.ok !== true || runtime.coherenceStatus != 'coherent') return detect_status_fail('EDETECT_INCOMPATIBLE', 'Installed runtime does not match the coherent Core receipt.');
+	let actualDigest = detect_status_digest(RUNTIME_TARGET);
+	if (actualDigest == null) return detect_status_fail('EDETECT_UNAVAILABLE', 'Installed Z2K Detect executable is unavailable.');
+	if (actualDigest != lc(detect.digest) || (detect.sourceCommit != null && lc(detect.sourceCommit) != lc(receipt.sourceCommit))) return detect_status_fail('EDETECT_INCOMPATIBLE', 'Installed Detect does not match the coherent Core receipt.');
+	return { ok: true, coherent: true, schema: DETECT_STATUS_SCHEMA, state: 'ready', installed: { release: receipt.release || receipt.version, sourceCommit: lc(receipt.sourceCommit), receiptId: receipt.receiptId || null }, detect: { path: RUNTIME_TARGET, arch: detect.arch, digest: actualDigest, sourceCommit: lc(receipt.sourceCommit) }, runtime: { compatibilityIdentity: receipt.compatibilityIdentity, bundleDigest: receipt.runtimeBundleDigest } };
+}
+
+export const z2k_detect_status = function(seams) { return detect_status_authority(seams); };
 
 function detect_ipv4(value) {
 	if (!string(value) || !match(value, /^[0-9]+(\.[0-9]+){3}$/)) return false;
@@ -112,10 +159,13 @@ export const z2k_detect_execute = function(operation, input, seams) {
 	let normalized = { host: input.host, port: input.port, repeats: input.repeats, timeoutMs: input.timeoutMs };
 	if (operation == 'z2k_detect_classify') normalized.hello = input.hello;
 	let hooks = object(seams) ? seams : {}, invoke = type(hooks.invoke) == 'function' ? hooks.invoke : native_helper.z2k_detect;
+	let authority = type(hooks.authority) == 'function' ? hooks.authority() : (type(hooks.invoke) == 'function' ? { ok: true, coherent: true, testOnly: true } : detect_status_authority(hooks));
+	if (!object(authority) || authority.ok !== true) return authority && authority.ok === false ? authority : fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is unavailable.');
+	if (authority.coherent !== true) return fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is incoherent.');
 	try {
 		let response = invoke(operation, normalized, normalized.timeoutMs);
 		if (!object(response) || type(response.ok) != 'bool') return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid native response.');
-		if (!response.ok) return response;
+		if (!response.ok) return detect_error_normalize(response);
 		if (!detect_result.detect_result_data_valid(operation, response.data))
 			return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
 		if (response.data.timedOut)

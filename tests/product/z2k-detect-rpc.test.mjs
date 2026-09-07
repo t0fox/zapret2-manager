@@ -11,6 +11,7 @@ const nativePath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-ma
 const aclPath = path.join(root, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
 const protocol = JSON.parse(fs.readFileSync(path.join(root, 'zapret2-manager/src/z2m-core-helper/protocol-v1.json'), 'utf8'));
 const operations = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
+const rpcMethods = ['status', ...operations];
 const ucode = process.env.UCODE_BIN;
 
 const detectResultFixtures = {
@@ -75,8 +76,43 @@ test('protocol manifest and production RPC register all typed Detect operations'
     assert.match(rpc, new RegExp(`${method}:\\s*\\{`));
     assert.ok(acl.includes(method), `${method} must be readable through the canonical RPC object`);
   }
+  assert.match(rpc, /z2k_detect_status_method/);
+  assert.ok(acl.includes('z2k_detect_status'), 'z2k_detect_status must be readable through the canonical RPC object');
+  const api = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js'), 'utf8');
+  for (const kind of rpcMethods) assert.match(api, new RegExp(`detect${kind[0].toUpperCase()}${kind.slice(1)}:`));
   assert.match(rpc, /z2k_detect_(probe|classify|quic|voice|tcp16)_method/);
+  assert.match(fs.readFileSync(detectPath, 'utf8'), /CANONICAL_DETECT_ERRORS/);
+  assert.doesNotMatch(fs.readFileSync(detectPath, 'utf8'), /scanner_/);
   assert.match(fs.readFileSync(nativePath, 'utf8'), /export const z2k_detect/);
+});
+
+test('Detect adapter preserves additive result fields while normalizing the typed envelope', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  const data = detectData('probe', JSON.stringify({ ...detectResultFixtures.probe, additive: { source: 'upstream' } }));
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
+  assert.equal(result.ok, true);
+  assert.equal(JSON.parse(result.data.stdout).additive.source, 'upstream');
+});
+
+test('Detect adapter gates native invocation on the coherent installed authority', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  const data = detectData('probe');
+  for (const authority of [
+    { ok: false, error: { code: 'EZ2K_NOT_INSTALLED' } },
+    { ok: false, error: { code: 'EZ2K_INCOHERENT' } },
+    { ok: true, coherent: false, error: { code: 'EDETECT_INCOMPATIBLE' } },
+  ]) {
+    const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { authority: function() { return ${JSON.stringify(authority)}; }, invoke: function() { return { ok: true }; } })`);
+    assert.equal(result.ok, false, JSON.stringify(authority));
+    assert.equal(result.error.code, authority.error.code, JSON.stringify(authority));
+  }
+  const coherent = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { authority: function() { return { ok: true, coherent: true }; }, invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
+  assert.equal(coherent.ok, true);
+});
+
+test('Detect adapter exposes canonical no-target and no-active-voice errors', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  for (const [kind, code] of [['probe', 'EDETECT_NO_TARGET'], ['voice', 'EDETECT_NO_ACTIVE_VOICE']]) {
+    const result = invoke(`detect.z2k_detect_execute('z2k_detect_${kind}', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { authority: function() { return { ok: true, coherent: true }; }, invoke: function() { return { ok: false, error: { code: '${code}' } }; } })`);
+    assert.equal(result.error.code, code);
+  }
 });
 
 test('protocol manifest aligns Detect argv bounds with maximum and overlong hostnames', () => {

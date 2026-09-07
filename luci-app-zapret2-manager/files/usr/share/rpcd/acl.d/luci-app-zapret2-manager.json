@@ -123,6 +123,7 @@
           "scanner_results",
           "scanner_history_list",
           "scanner_history_get",
+          "z2k_detect_status",
           "z2k_detect_probe",
           "z2k_detect_classify",
           "z2k_detect_quic",
