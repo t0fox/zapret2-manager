@@ -54,7 +54,7 @@ GREEN focused UCode gate after the follow-up fixes:
 
 ```text
 wsl bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/z2k-data-diagnostics.test.mjs"
-15 passed, 0 failed, 0 skipped
+16 passed, 0 failed, 0 skipped
 ```
 
 The focused suite exercises real UCode imports and includes identity, schema,
@@ -70,16 +70,16 @@ bounds and the typed RPC parser.
   `ab346fa66a895e12d63a308e70ce330ba795822a`.
 - `git diff --check`: passed.
 - Relevant resource combined gate (Task 13 plus resource authority/tooling/
-  transaction, promotion, strategy override and resource-model tests): `93
-  tests; 92 passed, 1 failed, 0 skipped`. The one failure is the unrelated
+  transaction, promotion, strategy override and resource-model tests): `94
+  tests; 93 passed, 1 failed, 0 skipped`. The one failure is the unrelated
   baseline manifest count below.
 - Relevant authority/lifecycle combined gate (Task 13 plus receipt, installed
   authority, runtime composition/readiness, lifecycle transaction, Detect RPC
-  and autocircular identity): `115 tests; 114 passed, 0 failed, 1 TODO`.
+  and autocircular identity): `116 tests; 115 passed, 0 failed, 1 TODO`.
 - Full bounded resource-pattern gate:
   `node --test tests/product/z2k-data-diagnostics.test.mjs
-  tests/product/*resource*.test.mjs` with the pinned UCode runtime -> `92
-  passed, 1 failed` out of `93`.
+  tests/product/*resource*.test.mjs` with the pinned UCode runtime -> `93
+  passed, 1 failed` out of `94`.
   The only failure is the unrelated baseline assertion at
   `tests/product/resource-center-manifest.test.mjs:49`: `expected 7`, actual
   `6`. The manifest currently contains six IDs (`lua:z2k-modern-core`,
@@ -204,3 +204,47 @@ assertion (`expected 7`, actual `6`). The sequential authority/lifecycle gate
 was `115 tests; 114 passed, 0 failed, 1 TODO`. The concurrent attempt produced
 only additional Task 13 `EIO` digest-file collisions and is not counted as
 product evidence.
+
+## Fix-round 4 — rename postcondition proof
+
+`fs_rename` success is no longer treated as publication proof. Stage
+promotion now verifies that the stage source is absent, the final revision
+directory exists, and its manifest bytes exactly match the submitted
+manifest. Pointer commit now verifies that the pointer staging source is
+absent, `current.json` exists, and its bytes exactly match the pointer payload.
+Stat/read/permission/verification uncertainty enters the existing compensation
+path and returns `EROLLBACK_FAILED` with `state: "uncertain"`. Promotion
+compensation cleans both possible revision roots; pointer compensation removes
+the temporary pointer, removes the new revision, and restores the prior valid
+pointer where possible.
+
+TDD evidence:
+
+```text
+RED before the production correction:
+node --test --test-name-pattern='truthy production renames' tests/product/z2k-data-diagnostics.test.mjs
+1 test; 0 passed, 1 failed.
+The production seam returned truthy for a stage rename without moving the
+source; the old path returned EWRITE/state unchanged and left the stage
+revision instead of EROLLBACK_FAILED/state uncertain. The same test also
+exercises a truthy pointer rename that leaves source/destination incorrect.
+
+GREEN after the correction:
+wsl bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/z2k-data-diagnostics.test.mjs"
+16 passed, 0 failed, 0 skipped.
+```
+
+The focused rename test uses the production filesystem seam, proves the
+existing current pointer remains valid on both failure modes, proves no
+revision remains, and requires the bounded `ERENAME_VERIFY` cause. Sequential
+post-fix gates were `94 tests; 93 passed, 1 failed` for the resource pattern
+(the same unrelated `resource-center-manifest.test.mjs:49` `expected 7`,
+actual `6` baseline) and `116 tests; 115 passed, 0 failed, 1 TODO` for the
+authority/lifecycle set. No router/browser/deploy/merge/push acceptance was
+run.
+
+Fix-round 4 commit:
+
+```text
+57e20209 fix: verify Task 13 rename postconditions
+```
