@@ -29,10 +29,6 @@
           "blockcheck_status",
           "block_detector_status",
           "block_detector_results",
-          "scanner_status",
-          "scanner_results",
-          "scanner_history_list",
-          "scanner_history_get",
           "versions",
           "maintenance_status",
           "events_tail",
@@ -119,10 +115,6 @@
           "strategies_debug_get",
           "strategies_custom_bindings",
           "healthcheck_status",
-          "scanner_status",
-          "scanner_results",
-          "scanner_history_list",
-          "scanner_history_get",
           "z2k_detect_status",
           "z2k_detect_probe",
           "z2k_detect_classify",
@@ -264,11 +256,7 @@
           "healthcheck_run",
           "healthcheck_enable",
           "healthcheck_disable",
-          "healthcheck_config",
-          "scanner_start",
-          "scanner_stop",
-          "scanner_resume",
-          "scanner_save_generated"
+          "healthcheck_config"
         ],
         "zapret2-manager-domain-hub": [
           "domain_hub_apply"

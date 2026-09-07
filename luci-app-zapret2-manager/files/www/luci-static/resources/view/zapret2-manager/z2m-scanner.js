@@ -301,7 +301,7 @@ function scannerErrorPanel(ctx, status, controls) {
   var detail = errorText(status) || errorText(state.error);
   var isInfra = detail.indexOf('Не удалось подготовить среду') >= 0;
   var title = isInfra ? _('Не удалось подготовить среду сканирования') : _('Проверка не завершена');
-  var hint = isInfra ? _('Проверьте состояние nfqws2 и правил firewall, затем повторите.') : _('Не удалось закончить подбор стратегии.');
+  var hint = isInfra ? _('Проверьте состояние службы и правил firewall, затем повторите.') : _('Не удалось закончить подбор стратегии.');
   var retry = controls ? ctx.shell.button(_('Повторить'), 'primary sm', function () { start(ctx, controls); }) : null;
   return E('article', { 'class': 'z2m-scanner-error-card', role: 'alert' }, [
     E('div', { 'class': 'z2m-scanner-state-heading' }, [icon('warning', 'is-error'), E('div', {}, [E('strong', {}, title), E('p', {}, hint)])]),

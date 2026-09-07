@@ -29,14 +29,15 @@ test('Scanner ucode modules are packaged by backend wildcard', () => {
   }
 });
 
-test('Scanner LuCI, ACL, and RPC surfaces are real and named consistently', () => {
+test('Scanner LuCI remains available while legacy RPC surfaces are removed', () => {
   assert.ok(read(UI).trim().length > 0, 'Scanner LuCI module must not be empty');
   const acl = read(ACL);
   const rpc = read(RPC);
   for (const method of ['scanner_start', 'scanner_status', 'scanner_results', 'scanner_stop', 'scanner_resume', 'scanner_save_generated']) {
-    assert.match(acl, new RegExp(`"${method}"`), method + ' ACL');
-    assert.match(rpc, new RegExp(`\\b${method}\\b`), method + ' RPC');
+    assert.doesNotMatch(acl, new RegExp(`"${method}"`), method + ' ACL');
+    assert.doesNotMatch(rpc, new RegExp(`\\b${method}:`), method + ' RPC');
   }
+  assert.doesNotMatch(rpc, /scanner-cli-entry|scanner_edit_action|setsid sh -c/);
 });
 
 test('Strategy Apply remains sole permanent Apply path', () => {

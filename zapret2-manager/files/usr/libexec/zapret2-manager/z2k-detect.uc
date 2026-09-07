@@ -7,6 +7,7 @@ import * as native_helper from './core/native-helper.uc';
 import * as detect_result from './core/detect-result.uc';
 import { asset_registry_list } from './asset-registry.uc';
 import { z2k_registry_receipt_state } from './z2k-installed-release.uc';
+import { z2k_release_valid } from './z2k-release.uc';
 import * as runtime_composition from './runtime-composition.uc';
 
 const RUNTIME_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
@@ -17,11 +18,16 @@ const PRODUCTION_ROLLBACK = '/etc/zapret2-manager/z2k-detect.rollback';
 
 const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
 const DETECT_STATUS_SCHEMA = 1;
+const DETECT_MAX_INPUT_BYTES = 4096;
+const DETECT_MAX_STATUS_BYTES = 16384;
 const CANONICAL_DETECT_ERRORS = ['EZ2K_NOT_INSTALLED', 'EZ2K_INCOHERENT', 'EDETECT_UNAVAILABLE', 'EDETECT_INCOMPATIBLE', 'EDETECT_TIMEOUT', 'EDETECT_FAILED', 'EDETECT_SCHEMA', 'EDETECT_NO_TARGET', 'EDETECT_NO_ACTIVE_VOICE'];
+const DETECT_UNSAFE_INPUT_FIELDS = ['executable', 'argv', 'command', 'env', 'cwd', 'raw', 'shell', 'flags', 'path'];
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function text(value) { return value == null ? '' : '' + value; }
+function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
+function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function fail(code, message, details) {
 	let out = { ok: false, error: { code: code, message: message } };
 	for (let key in details || {}) out.error[key] = details[key];
@@ -35,8 +41,14 @@ function detect_failure_details(data) {
 	return details;
 }
 function detect_error_normalize(response) {
-	let code = response && response.error && response.error.code;
-	return index(CANONICAL_DETECT_ERRORS, code) >= 0 ? response : fail('EDETECT_FAILED', 'Z2K Detect operation failed.', { cause: code || 'unknown' });
+	let source = response && object(response.error) ? response.error : {};
+	let code = index(CANONICAL_DETECT_ERRORS, source.code) >= 0 ? source.code : 'EDETECT_FAILED';
+	let message = string(source.message) && length(source.message) <= 320 ? source.message : 'Z2K Detect operation failed.';
+	let out = fail(code, message);
+	if (object(source.details)) {
+		try { if (length(sprintf('%J', source.details)) <= 8192) out.error.details = source.details; } catch (e) { }
+	}
+	return out;
 }
 
 function detect_status_fail(code, message, details) {
@@ -75,7 +87,31 @@ function detect_status_authority(seams) {
 	return { ok: true, coherent: true, schema: DETECT_STATUS_SCHEMA, state: 'ready', installed: { release: receipt.release || receipt.version, sourceCommit: lc(receipt.sourceCommit), receiptId: receipt.receiptId || null }, detect: { path: RUNTIME_TARGET, arch: detect.arch, digest: actualDigest, sourceCommit: lc(receipt.sourceCommit) }, runtime: { compatibilityIdentity: receipt.compatibilityIdentity, bundleDigest: receipt.runtimeBundleDigest } };
 }
 
-export const z2k_detect_status = function(seams) { return detect_status_authority(seams); };
+function detect_status_arch(value) {
+	return string(value) && index(['arm64', 'aarch64', 'amd64', 'x86_64', 'mipsle', 'mipsel', 'mips', 'riscv64'], value) >= 0;
+}
+
+function detect_status_normalize(value) {
+	if (!object(value)) return fail('EDETECT_SCHEMA', 'Z2K Detect status must be an object.');
+	if (value.ok !== true || value.coherent !== true || value.schema !== DETECT_STATUS_SCHEMA || value.state !== 'ready' ||
+		!object(value.installed) || !z2k_release_valid(value.installed.release) || !valid_commit(value.installed.sourceCommit) ||
+		(value.installed.receiptId != null && (!string(value.installed.receiptId) || length(value.installed.receiptId) > 128)) ||
+		!object(value.detect) || value.detect.path !== RUNTIME_TARGET || !detect_status_arch(value.detect.arch) ||
+		!valid_digest(value.detect.digest) || !valid_commit(value.detect.sourceCommit) || value.detect.sourceCommit != value.installed.sourceCommit ||
+		!object(value.runtime) || !valid_digest(value.runtime.compatibilityIdentity) || !valid_digest(value.runtime.bundleDigest))
+		return fail('EDETECT_SCHEMA', 'Z2K Detect status has missing or invalid identity fields.');
+	try {
+		if (length(sprintf('%J', value)) > DETECT_MAX_STATUS_BYTES) return fail('EDETECT_SCHEMA', 'Z2K Detect status exceeds the bounded response limit.');
+	} catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect status is not safely serializable.'); }
+	return value;
+}
+
+export const z2k_detect_status_normalize = function(value) { return detect_status_normalize(value); };
+export const z2k_detect_status = function(seams) {
+	let result = detect_status_authority(seams), checked = result && result.ok === false ? detect_error_normalize(result) :
+		(result && result.ok === true && result.coherent !== true ? fail('EDETECT_INCOMPATIBLE', result.error && result.error.message || 'Z2K Detect installed authority is incoherent.') : detect_status_normalize(result));
+	return checked;
+};
 
 function detect_ipv4(value) {
 	if (!string(value) || !match(value, /^[0-9]+(\.[0-9]+){3}$/)) return false;
@@ -129,25 +165,33 @@ function detect_host(value) {
 }
 
 function detect_operation(value) { return string(value) && index(DETECT_OPERATIONS, value) >= 0; }
-function detect_exact_fields(value, names) {
-	if (!object(value) || length(value) != length(names)) return false;
-	for (let name in names) if (!exists(value, name)) return false;
-	return true;
+function detect_input_normalize(operation, value) {
+	if (!detect_operation(operation) || !object(value)) return fail('EDETECT_SCHEMA', 'Z2K Detect input must be an object for a known operation.');
+	try { if (length(sprintf('%J', value)) > DETECT_MAX_INPUT_BYTES) return fail('EDETECT_SCHEMA', 'Z2K Detect input exceeds the bounded request limit.'); }
+	catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect input is not safely serializable.'); }
+	for (let name in DETECT_UNSAFE_INPUT_FIELDS) if (exists(value, name)) return fail('EINPUT', 'Z2K Detect input contains an unsafe execution field.', { field: name });
+	let required = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
+	for (let name in required) if (!exists(value, name)) return fail('EDETECT_SCHEMA', 'Z2K Detect input is missing a required field.', { field: name });
+	if (!string(value.host) || !detect_host(value.host)) return fail('EINPUT', 'Z2K Detect host is invalid.');
+	if (type(value.port) != 'int' || value.port < 1 || value.port > 65535) return fail('EDETECT_SCHEMA', 'Z2K Detect port has the wrong type or range.');
+	if (type(value.repeats) != 'int' || value.repeats < 1 || value.repeats > 32) return fail('EDETECT_SCHEMA', 'Z2K Detect repeats has the wrong type or range.');
+	if (type(value.timeoutMs) != 'int' || value.timeoutMs < 1 || value.timeoutMs > 120000) return fail('EDETECT_SCHEMA', 'Z2K Detect timeoutMs has the wrong type or range.');
+	if (operation == 'z2k_detect_classify' && type(value.hello) != 'string') return fail('EDETECT_SCHEMA', 'Z2K Detect classify hello has the wrong type.');
+	if (operation == 'z2k_detect_classify' && value.hello != 'modern') return fail('EINPUT', 'Z2K Detect classify only accepts the modern hello mode.');
+	let normalized = {};
+	for (let key in value) normalized[key] = value[key];
+	return { ok: true, value: normalized, native: { host: value.host, port: value.port, repeats: value.repeats, timeoutMs: value.timeoutMs, ...(operation == 'z2k_detect_classify' ? { hello: value.hello } : {}) } };
 }
-function detect_args_valid(operation, value) {
-	let names = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
-	return detect_operation(operation) && detect_exact_fields(value, names) && detect_host(value.host) && type(value.port) == 'int' &&
-		value.port >= 1 && value.port <= 65535 && type(value.repeats) == 'int' && value.repeats >= 1 && value.repeats <= 32 &&
-		type(value.timeoutMs) == 'int' && value.timeoutMs >= 1 && value.timeoutMs <= 120000 &&
-		(operation != 'z2k_detect_classify' || value.hello == 'modern');
-}
+
+export const z2k_detect_normalize_input = function(operation, value) { return detect_input_normalize(operation, value); };
 
 // The native helper is the only process-launch owner. This adapter validates
 // and normalizes the typed boundary, then forwards exactly one fixed operation
 // to that owner without accepting a command, executable, argv, env or cwd.
 export const z2k_detect_fixed_argv = function(operation, input) {
-	let args = object(input) ? input : {};
-	if (!detect_args_valid(operation, args)) return null;
+	let checked = detect_input_normalize(operation, input);
+	if (!checked.ok) return null;
+	let args = checked.native;
 	let kind = substr(operation, 11), endpoint = index(args.host, ':') >= 0 ? '[' + args.host + ']:' + args.port : args.host + ':' + args.port;
 	let seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind, endpoint];
 	if (kind == 'classify') { if (args.hello != 'modern') return null; out = push(out, '-hello', 'modern'); }
@@ -155,11 +199,17 @@ export const z2k_detect_fixed_argv = function(operation, input) {
 };
 
 export const z2k_detect_execute = function(operation, input, seams) {
-	if (!detect_args_valid(operation, input)) return fail('EINPUT', 'Z2K Detect input contains unsupported or invalid fields.');
-	let normalized = { host: input.host, port: input.port, repeats: input.repeats, timeoutMs: input.timeoutMs };
-	if (operation == 'z2k_detect_classify') normalized.hello = input.hello;
+	let checkedInput = detect_input_normalize(operation, input);
+	if (!checkedInput.ok) return checkedInput;
+	let normalized = checkedInput.native;
 	let hooks = object(seams) ? seams : {}, invoke = type(hooks.invoke) == 'function' ? hooks.invoke : native_helper.z2k_detect;
-	let authority = type(hooks.authority) == 'function' ? hooks.authority() : (type(hooks.invoke) == 'function' ? { ok: true, coherent: true, testOnly: true } : detect_status_authority(hooks));
+	let authority;
+	if (type(hooks.authority) == 'function') {
+		let rawAuthority = hooks.authority();
+		if (rawAuthority && rawAuthority.ok === true && rawAuthority.coherent !== true)
+			authority = fail('EDETECT_INCOMPATIBLE', rawAuthority.error && rawAuthority.error.message || 'Z2K Detect installed authority is incoherent.');
+		else authority = rawAuthority && rawAuthority.ok === false ? detect_error_normalize(rawAuthority) : detect_status_normalize(rawAuthority);
+	} else authority = type(hooks.invoke) == 'function' ? { ok: true, coherent: true, testOnly: true } : z2k_detect_status(hooks);
 	if (!object(authority) || authority.ok !== true) return authority && authority.ok === false ? authority : fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is unavailable.');
 	if (authority.coherent !== true) return fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is incoherent.');
 	try {
@@ -174,7 +224,7 @@ export const z2k_detect_execute = function(operation, input, seams) {
 			return fail('EDETECT_FAILED', 'Z2K Detect output exceeded the bounded result limit.', { details: detect_failure_details(response.data) });
 		return response;
 	}
-	catch (e) { return fail('EDEPENDENCY', 'Native Z2K Detect invocation failed.', { detail: text(e) }); }
+	catch (e) { return fail('EDETECT_FAILED', 'Native Z2K Detect invocation failed.', { detail: substr(text(e), 0, 320) }); }
 };
 
 export const z2k_detect_probe = function(input) { return z2k_detect_execute('z2k_detect_probe', input); };
@@ -183,8 +233,6 @@ export const z2k_detect_quic = function(input) { return z2k_detect_execute('z2k_
 export const z2k_detect_voice = function(input) { return z2k_detect_execute('z2k_detect_voice', input); };
 export const z2k_detect_tcp16 = function(input) { return z2k_detect_execute('z2k_detect_tcp16', input); };
 
-function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
-function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function shell_quote(value) {
 	let out = "'", raw = text(value);
 	for (let i = 0; i < length(raw); i++) out += substr(raw, i, 1) == "'" ? "'\\''" : substr(raw, i, 1);

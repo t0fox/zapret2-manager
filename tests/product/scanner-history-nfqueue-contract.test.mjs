@@ -19,9 +19,9 @@ test('Scanner history is a bounded read-only projection of existing Scanner stat
   assert.match(state, /MAX_HISTORY|MAX_RECORDS|MAX_RESULTS/);
   for (const command of ['history', 'history-get']) assert.match(cli, new RegExp(command));
   for (const method of ['scanner_history_list', 'scanner_history_get']) {
-    assert.match(rpc, new RegExp(`\\b${method}\\b`), method);
-    assert.match(api, new RegExp(method.replace('scanner_', '')));
-    assert.match(acl, new RegExp(`"${method}"`));
+    assert.doesNotMatch(rpc, new RegExp(`\\b${method}:`), method);
+    assert.doesNotMatch(api, new RegExp(method.replace('scanner_', '')));
+    assert.doesNotMatch(acl, new RegExp(`"${method}"`));
   }
   assert.doesNotMatch(acl, /"scanner_history_(list|get)"[^\n]*write/);
   assert.doesNotMatch(rpc, /scanner-orchestrator\.uc/);
@@ -47,30 +47,27 @@ test('NFQUEUE dependencies and fail-before-mutation preflight are explicit', () 
   assert.doesNotMatch(worker, /insmod|modprobe/);
 });
 
-test('Scanner RPC launches the export-bearing CLI through a module-safe entrypoint', () => {
+test('Legacy Scanner RPC does not wire the module-safe entrypoint into production', () => {
   const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
   const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
   const entry = path.join(backendRoot, 'scanner-cli-entry.uc');
   assert.equal(fs.existsSync(entry), true, 'runtime entrypoint must exist');
   assert.match(fs.readFileSync(entry, 'utf8'), /import .*scanner-cli\.uc/);
   assert.match(fs.readFileSync(entry, 'utf8'), /scanner_cli_request/);
-  assert.match(rpc, /scanner-cli-entry\.uc/);
+  assert.doesNotMatch(rpc, /scanner-cli-entry\.uc|scanner_edit_action|scanner_start_async/);
   assert.doesNotMatch(cli, /if \(ARGV\[0\] != null\)/);
 });
 
-test('Scanner RPC request temp files use the BusyBox-compatible mktemp form', () => {
+test('Legacy Scanner RPC request temp transport is absent from production', () => {
   const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
   const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
-  assert.match(rpc, /mktemp \/tmp\/zapret2-manager\/runtime\/requests\/scanner\.XXXXXX(?:\s|['"])/);
+  assert.doesNotMatch(rpc, /mktemp \/tmp\/zapret2-manager\/runtime\/requests\/scanner\.XXXXXX/);
   assert.doesNotMatch(rpc, /scanner\.XXXXXX\.json/);
   assert.match(cli, /REQUEST_ROOT/);
   assert.doesNotMatch(cli, /\.json\$\/\)\) return result\('EINPUT'/);
 });
 
-test('Scanner async start converts runtime exceptions into a bounded error response', () => {
+test('Scanner async start has no production RPC implementation', () => {
   const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
-  assert.match(rpc, /function scanner_start_async\(req\)/);
-  assert.match(rpc, /function scanner_start_async_impl\(req\)/);
-  assert.match(rpc, /try \{ return scanner_start_async_impl\(req\); \}/);
-  assert.match(rpc, /code: 'EINTERNAL'/);
+  assert.doesNotMatch(rpc, /function scanner_start_async\(req\)|function scanner_start_async_impl\(req\)|scanner_edit_action|SCANNER_CLI|setsid sh -c/);
 });

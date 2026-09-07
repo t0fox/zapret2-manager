@@ -26,7 +26,6 @@ import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
 import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild, catalog_refresh_source, catalog_source_set_enabled } from '/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc';
 import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
-import * as scanner_state from '/usr/libexec/zapret2-manager/scanner-state.uc';
 import { z2k_detect_status, z2k_detect_probe, z2k_detect_classify, z2k_detect_quic, z2k_detect_voice, z2k_detect_tcp16 } from '/usr/libexec/zapret2-manager/z2k-detect.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
@@ -469,225 +468,7 @@ function jobs_edit_action(sub, req) {
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
 
-// ---- Scanner catalog adapter -------------------------------------------------
-// Scanner request bodies use the same private JSON-string convention as the
-// Strategy and Jobs adapters. The RPC layer only selects a fixed CLI mode and
-// transports the opaque request; Scanner owns validation and lifecycle state.
-const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli-entry.uc';
-const SCANNER_REQUEST_ROOT = '/tmp/zapret2-manager/runtime/requests/';
-const SCANNER_MAX_REQUEST_BYTES = 65536;
-const SCANNER_MAX_OUTPUT_BYTES = 131072;
-function scanner_request_root_ready() {
-	for (let path in ['/tmp/zapret2-manager', '/tmp/zapret2-manager/runtime', SCANNER_REQUEST_ROOT]) {
-		let metadata = null;
-		try { metadata = stat(path); } catch (e) { metadata = null; }
-		if (metadata == null) { try { mkdir(path); metadata = stat(path); } catch (e) { return false; } }
-		if (metadata == null || metadata.type != 'directory' || readlink(path) != null
-			|| metadata.uid != 0 || metadata.gid != 0 || metadata.mode % 512 != 448) return false;
-	}
-	return true;
-}
-
-let scanner_start_sequence = 0;
-function scanner_start_async_impl(req) {
-	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
-	let edit = null;
-	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
-	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
-	if (type(edit) != 'string' || length(edit) > SCANNER_MAX_REQUEST_BYTES)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start edit is invalid' } };
-	let request = null;
-	try { request = json(edit); } catch (e) { return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is malformed' } }; }
-	if (type(request) != 'object' || request == null)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is invalid' } };
-	if (request.request == null && request.target == null)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner request is invalid' } };
-	let inner = request.request != null ? request.request : request;
-	if (inner.target == null && request.target != null) inner.target = request.target;
-	if (inner.protocol == null && request.protocol != null) inner.protocol = request.protocol;
-	if (inner.mode == null && request.mode != null) inner.mode = request.mode;
-	if (inner.dpi_type == null && request.dpi_type != null) inner.dpi_type = request.dpi_type;
-	if (type(inner.target) != 'string' || length(inner.target) < 1)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target is required' } };
-	// strict hostname boundary - must pass before any durable side effects (NO scanId, NO record, NO history)
-	if (!match(inner.target, /^[a-z0-9][a-z0-9.-]{1,252}$/) || index(inner.target, '.') < 0 || index(inner.target, ':') >= 0)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target must be a strict hostname.', path: 'target' } };
-	if (substr(inner.target, length(inner.target) - 1, 1) == '.')
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target must be a strict hostname.', path: 'target' } };
-	if (index(inner.target, '..') >= 0)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner target must be a strict hostname.', path: 'target' } };
-	if (inner.protocol != null && inner.protocol != 'tcp' && inner.protocol != 'udp')
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner request fields are invalid.' } };
-	if (inner.mode != null && inner.mode != 'quick' && inner.mode != 'standard' && inner.mode != 'full')
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner request fields are invalid.' } };
-	if (request.id == null) request.id = 'scan-' + time() + '-' + (++scanner_start_sequence);
-	if (type(request.id) != 'string' || !match(request.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/))
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner id is invalid' } };
-	// Durable acceptance: create initial record before launching worker
-	let initialRequest = inner;
-	let initialRecord = null;
-	try {
-		let created = scanner_state.scanner_state_create(initialRequest, { schema: 1, request: initialRequest, catalogDigest: '0000000000000000000000000000000000000000000000000000000000000000', compilerDigest: '0000000000000000000000000000000000000000000000000000000000000000', candidates: [] });
-		created.id = request.id;
-		created.status = 'starting';
-		created.phase = 'queued';
-		created.progress = 0;
-		created.total = 0;
-		created.request = initialRequest;
-		created.requestDigest = scanner_state.scanner_state_digest(initialRequest);
-		created.catalogDigest = '0000000000000000000000000000000000000000000000000000000000000000';
-		created.compilerDigest = '0000000000000000000000000000000000000000000000000000000000000000';
-		created.planDigest = scanner_state.scanner_state_digest({ schema: 1, request: initialRequest });
-		created.heartbeatAt = time();
-		created.startedAt = time();
-		let saved = scanner_state.scanner_state_save(created);
-		if (!saved.ok) {
-			let loadBack = scanner_state.scanner_state_load(request.id);
-			if (!loadBack.ok) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record could not be created', detail: saved.error } };
-			initialRecord = loadBack.state;
-		} else {
-			let loadBack = scanner_state.scanner_state_load(request.id);
-			if (!loadBack.ok) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record not readable after creation' } };
-			initialRecord = loadBack.state;
-		}
-	} catch (e) {
-		return { ok: false, error: { code: 'EIO', message: 'Scanner durable record creation failed', detail: '' + e } };
-	}
-	if (initialRecord == null) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record is null after creation' } };
-	let serialized = sprintf('%J', request), tmp = null;
-	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX 2>/dev/null', 'r');
-	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
-	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
-		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
-		if (tmp) try { unlink(tmp); } catch (e) { }
-		// Update already-created record to error: launch failure
-		try {
-			let rec = scanner_state.scanner_state_load(request.id);
-			if (rec.ok) {
-				let errRec = rec.state;
-				errRec.status = 'error';
-				errRec.phase = 'launch';
-				errRec.error = 'Scanner worker could not be launched: temp file unavailable';
-				errRec.recovery = { state: 'uncertain', message: 'launch failed' };
-				errRec.finishedAt = time();
-				scanner_state.scanner_state_save(errRec);
-			}
-		} catch (e) {}
-		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	}
-	let wrote = null; try { wrote = writefile(tmp, serialized); } catch (e) { wrote = null; }
-	if (wrote == null) {
-		try { unlink(tmp); } catch (ignore) { }
-		try {
-			let rec = scanner_state.scanner_state_load(request.id);
-			if (rec.ok) {
-				let errRec = rec.state;
-				errRec.status = 'error';
-				errRec.phase = 'launch';
-				errRec.error = 'request temp file could not be written';
-				errRec.finishedAt = time();
-				scanner_state.scanner_state_save(errRec);
-			}
-		} catch (e) {}
-		return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } };
-	}
-	let workerCommand = '/usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
-		+ ' >/tmp/zapret2-manager/scanner/' + request.id + '.worker.log 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1';
-	let cmd = 'setsid sh -c ' + shell_escape(workerCommand) + ' >/dev/null 2>&1 &';
-	let launched = popen(cmd, 'r');
-	if (!launched) {
-		try { unlink(tmp); } catch (e) { }
-		try {
-			let rec = scanner_state.scanner_state_load(request.id);
-			if (rec.ok) {
-				let errRec = rec.state;
-				errRec.status = 'error';
-				errRec.phase = 'launch';
-				errRec.error = 'Scanner worker could not be launched';
-				errRec.finishedAt = time();
-				scanner_state.scanner_state_save(errRec);
-			}
-		} catch (e) {}
-		return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } };
-	}
-	launched.close();
-	// Verify durable record still readable after launch
-	let verify = scanner_state.scanner_state_load(request.id);
-	if (!verify.ok) return { ok: false, error: { code: 'EIO', message: 'Scanner durable record not readable after launch' } };
-	return { ok: true, accepted: true, scanId: request.id, state: verify.state.status || 'starting', record: verify.state };
-}
-
-function scanner_start_async(req) {
-	try { return scanner_start_async_impl(req); }
-	catch (e) {
-		try {
-			let edit = null;
-			try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (x) {}
-			if (edit == null) try { if (req && req.edit != null) edit = req.edit; } catch (x) {}
-			if (type(edit) == 'string') {
-				let parsed = json(edit);
-				let id = parsed?.id || parsed?.request?.id;
-				if (type(id) == 'string' && match(id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
-					let rec = scanner_state.scanner_state_load(id);
-					if (rec.ok) {
-						let errRec = rec.state;
-						errRec.status = 'error';
-						errRec.phase = 'launch';
-						errRec.error = 'Scanner start failed before worker launch: ' + (e?.message || e);
-						errRec.recovery = { state: 'uncertain', message: errRec.error };
-						errRec.finishedAt = time();
-						scanner_state.scanner_state_save(errRec);
-					}
-				}
-			}
-		} catch (x) {}
-		return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner start failed before worker launch.' } };
-	}
-}
-
-function scanner_edit_action(sub, req, tag) {
-	if (tag == 'async-start') return scanner_start_async(req);
-	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
-	let edit = null;
-	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
-	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
-	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
-	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
-	if (length(edit) > SCANNER_MAX_REQUEST_BYTES)
-		return { ok: false, error: { code: 'EINPUT', message: 'edit exceeds the safe request size limit' } };
-	let tmp = null;
-	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX 2>/dev/null', 'r');
-	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
-	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
-		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
-		if (tmp) try { unlink(tmp); } catch (e) { }
-		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	}
-	let wrote = null; try { wrote = writefile(tmp, edit); } catch (e) { wrote = null; }
-	if (wrote == null) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
-	let cmd = '/usr/bin/ucode ' + SCANNER_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null | head -c ' + SCANNER_MAX_OUTPUT_BYTES;
-	let p = popen(cmd, 'r');
-	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner CLI unavailable' } }; }
-	let out = p.read('all') || '';
-	p.close();
-	try { unlink(tmp); } catch (e) { }
-	if (length(out) >= SCANNER_MAX_OUTPUT_BYTES)
-		return { ok: false, error: { code: 'EOUTPUT', message: 'Scanner response exceeds the safe output size limit' } };
-	try {
-		let parsed = json(out);
-		return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Scanner returned no response' } };
-	} catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner response was malformed' } }; }
-}
-
-function scanner_start_method(req) { return scanner_edit_action('start', req, 'async-start'); }
-function scanner_status_method(req) { return scanner_edit_action('status', req, 'status'); }
-function scanner_results_method(req) { return scanner_edit_action('results', req, 'results'); }
-function scanner_stop_method(req) { return scanner_edit_action('stop', req, 'stop'); }
-function scanner_resume_method(req) { return scanner_edit_action('resume', req, 'resume'); }
-function scanner_save_generated_method(req) { return scanner_edit_action('save-generated', req, 'save-generated'); }
-function scanner_history_list_method(req) { return scanner_edit_action('history', req, 'history'); }
-function scanner_history_get_method(req) { return scanner_edit_action('history-get', req, 'history-get'); }
-
+// Legacy catalog execution is intentionally unavailable at the production RPC boundary.
 function z2k_detect_input(req) {
 	try { if (req && req.args != null) return req.args; } catch (e) { }
 	return req;
@@ -1497,19 +1278,11 @@ return {
 		catalog_status:    { call: function (req) { return catalog_status_method(req); } },
 		catalog_preview:   { args: { edit: 'string' }, call: function (req) { return catalog_preview_method(req); } },
 		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } },
-		scanner_start:     { args: { edit: 'string' }, call: function (req) { return scanner_start_method(req); } },
 		z2k_detect_status: { call: function (req) { return z2k_detect_status_method(req); } },
 		z2k_detect_probe: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_probe_method(req); } },
 		z2k_detect_classify: { args: { host: 'string', port: 'integer', hello: 'string', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_classify_method(req); } },
 		z2k_detect_quic: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_quic_method(req); } },
 		z2k_detect_voice: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_voice_method(req); } },
-		z2k_detect_tcp16: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_tcp16_method(req); } },
-		scanner_status:    { args: { edit: 'string' }, call: function (req) { return scanner_status_method(req); } },
-		scanner_results:   { args: { edit: 'string' }, call: function (req) { return scanner_results_method(req); } },
-		scanner_stop:      { args: { edit: 'string' }, call: function (req) { return scanner_stop_method(req); } },
-		scanner_resume:    { args: { edit: 'string' }, call: function (req) { return scanner_resume_method(req); } },
-		scanner_save_generated: { args: { edit: 'string' }, call: function (req) { return scanner_save_generated_method(req); } },
-		scanner_history_list: { args: { edit: 'string' }, call: function (req) { return scanner_history_list_method(req); } },
-		scanner_history_get: { args: { edit: 'string' }, call: function (req) { return scanner_history_get_method(req); } }
+		z2k_detect_tcp16: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_tcp16_method(req); } }
 	}
 };
