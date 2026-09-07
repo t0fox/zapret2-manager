@@ -40,13 +40,68 @@ function production_fs() {
 	};
 }
 function filesystem(seams) { return object(seams) && object(seams.fs) ? seams.fs : production_fs(); }
-function fs_mkdir(fs, path) { try { return fs.mkdir(path) !== false; } catch (e) { return false; } }
-function fs_write(fs, path, value) { try { return fs.writefile(path, value) !== false; } catch (e) { return false; } }
-function fs_read(fs, path) { try { return fs.readfile(path); } catch (e) { return null; } }
-function fs_stat(fs, path) { try { return fs.stat(path); } catch (e) { return null; } }
-function fs_unlink(fs, path) { try { fs.unlink(path); } catch (e) {} return fs_stat(fs, path) == null; }
-function fs_rmdir(fs, path) { try { fs.rmdir(path); } catch (e) {} return fs_stat(fs, path) == null; }
-function fs_rename(fs, from, to) { try { return fs.rename(from, to) !== false; } catch (e) { return false; } }
+function fs_failure(code, message) { return { ok: false, error: { code: code, message: message } }; }
+function fs_fault(value) { return object(value) && value.__fs_error === true; }
+function fs_mkdir(fs, path) {
+	try {
+		let result = fs.mkdir(path);
+		if (fs_fault(result) || result === false) return fs_failure('EFS_MKDIR', 'filesystem directory creation failed');
+		return { ok: true };
+	} catch (e) { return fs_failure('EFS_MKDIR', 'filesystem directory creation failed'); }
+}
+function fs_write(fs, path, value) {
+	try {
+		let result = fs.writefile(path, value);
+		if (fs_fault(result) || result === false) return fs_failure('EFS_WRITE', 'filesystem write failed');
+		return { ok: true };
+	} catch (e) { return fs_failure('EFS_WRITE', 'filesystem write failed'); }
+}
+function fs_read(fs, path) {
+	try {
+		let result = fs.readfile(path);
+		if (fs_fault(result) || result == null) return fs_failure('EFS_READ', 'filesystem read could not be proven');
+		return { ok: true, value: result };
+	} catch (e) { return fs_failure('EFS_READ', 'filesystem read could not be proven'); }
+}
+function fs_stat(fs, path) {
+	try {
+		let result = fs.stat(path);
+		if (fs_fault(result)) return fs_failure('EFS_STAT', 'filesystem stat could not be proven');
+		if (result == null) return { ok: true, exists: false };
+		return { ok: true, exists: true, value: result };
+	} catch (e) { return fs_failure('EFS_STAT', 'filesystem stat could not be proven'); }
+}
+function fs_unlink(fs, path) {
+	let before = fs_stat(fs, path);
+	if (!before.ok) return before;
+	if (!before.exists) return { ok: true, absent: true };
+	try {
+		let result = fs.unlink(path);
+		if (fs_fault(result) || result === false) return fs_failure('EFS_UNLINK', 'filesystem unlink failed');
+	} catch (e) { return fs_failure('EFS_UNLINK', 'filesystem unlink failed'); }
+	let after = fs_stat(fs, path);
+	if (!after.ok) return after;
+	return after.exists ? fs_failure('EFS_UNLINK_VERIFY', 'filesystem unlink could not be proven') : { ok: true, absent: true };
+}
+function fs_rmdir(fs, path) {
+	let before = fs_stat(fs, path);
+	if (!before.ok) return before;
+	if (!before.exists) return { ok: true, absent: true };
+	try {
+		let result = fs.rmdir(path);
+		if (fs_fault(result) || result === false) return fs_failure('EFS_RMDIR', 'filesystem directory removal failed');
+	} catch (e) { return fs_failure('EFS_RMDIR', 'filesystem directory removal failed'); }
+	let after = fs_stat(fs, path);
+	if (!after.ok) return after;
+	return after.exists ? fs_failure('EFS_RMDIR_VERIFY', 'filesystem directory removal could not be proven') : { ok: true, absent: true };
+}
+function fs_rename(fs, from, to) {
+	try {
+		let result = fs.rename(from, to);
+		if (fs_fault(result) || result === false) return fs_failure('EFS_RENAME', 'filesystem rename failed');
+		return { ok: true };
+	} catch (e) { return fs_failure('EFS_RENAME', 'filesystem rename failed'); }
+}
 function canonical(value) {
 	if (value == null || string(value) || type(value) == 'int' || type(value) == 'double' || type(value) == 'bool') return sprintf('%J', value);
 	if (array(value)) { let parts = []; for (let item in value) push(parts, canonical(item)); return '[' + join(',', parts) + ']'; }
@@ -165,57 +220,123 @@ function dataset_manifest(identity) {
 }
 export const z2k_data_dataset_manifest = function(identity) { return object(identity) ? dataset_manifest(identity) : fail('EINPUT', 'dataset identity is required'); };
 
-function internal_stage(identity, fs) {
-	let root = DATA_REVISION_ROOT + '.stage-' + time() + '-' + (++sequence);
-	if (!fs_mkdir(fs, DATA_ROOT) || !fs_mkdir(fs, DATA_REVISION_ROOT) || !fs_mkdir(fs, root) || !fs_mkdir(fs, root + '/release') || !fs_mkdir(fs, root + '/dynamic')) return fail('EIO', 'data staging directory could not be created');
-	for (let row in identity.releaseOwned) if (!fs_write(fs, root + '/release/' + row.path, row.content)) return fail('EIO', 'release-owned data staging failed');
-	for (let row in identity.dynamic) if (!fs_write(fs, root + '/dynamic/' + row.id + '.json', sprintf('%J', row))) return fail('EIO', 'dynamic data staging failed');
-	let manifest = dataset_manifest(identity);
-	if (!manifest.ok || !fs_write(fs, root + '/manifest.json', sprintf('%J', manifest))) return fail('EIO', 'dataset manifest staging failed');
-	return { ok: true, root: root, manifest: manifest };
-}
 function remove_unpublished_revision(manifest, root, hooks, fs) {
 	if (type(hooks.cleanup) == 'function') return hooks.cleanup(manifest, root);
 	if (!string(root)) return { ok: true };
-	let clean = true;
-	for (let entry in manifest.entries || []) if (!fs_unlink(fs, root + '/' + entry.path)) clean = false;
-	if (!fs_unlink(fs, root + '/manifest.json')) clean = false;
-	if (!fs_rmdir(fs, root + '/release')) clean = false;
-	if (!fs_rmdir(fs, root + '/dynamic')) clean = false;
-	if (!fs_rmdir(fs, root)) clean = false;
-	return clean ? { ok: true } : fail('EROLLBACK_FAILED', 'unpublished dataset revision could not be removed');
+	let first = null, result = null;
+	for (let entry in manifest.entries || []) {
+		result = fs_unlink(fs, root + '/' + entry.path);
+		if (!result.ok && first == null) first = result;
+	}
+	result = fs_unlink(fs, root + '/manifest.json');
+	if (!result.ok && first == null) first = result;
+	result = fs_rmdir(fs, root + '/release');
+	if (!result.ok && first == null) first = result;
+	result = fs_rmdir(fs, root + '/dynamic');
+	if (!result.ok && first == null) first = result;
+	result = fs_rmdir(fs, root);
+	if (!result.ok && first == null) first = result;
+	return first == null ? { ok: true } : fail('EROLLBACK_FAILED', 'unpublished dataset revision could not be removed', { cause: first });
+}
+
+function stage_abort(manifest, root, fs, message) {
+	let cleanup = remove_unpublished_revision(manifest, root, {}, fs);
+	if (!object(cleanup) || cleanup.ok !== true) return rollback_failed('data staging failed and cleanup could not be proven', cleanup, { stage: root });
+	return unchanged_failed('EIO', message);
+}
+function internal_stage(identity, fs) {
+	let manifest = dataset_manifest(identity), root = DATA_REVISION_ROOT + '.stage-' + time() + '-' + (++sequence);
+	if (!manifest.ok) return manifest;
+	let made = fs_mkdir(fs, DATA_ROOT);
+	if (!made.ok) return stage_abort(manifest, root, fs, 'data staging directory could not be created');
+	made = fs_mkdir(fs, DATA_REVISION_ROOT);
+	if (!made.ok) return stage_abort(manifest, root, fs, 'data staging directory could not be created');
+	made = fs_mkdir(fs, root);
+	if (!made.ok) return stage_abort(manifest, root, fs, 'data staging directory could not be created');
+	made = fs_mkdir(fs, root + '/release');
+	if (!made.ok) return stage_abort(manifest, root, fs, 'data staging directory could not be created');
+	made = fs_mkdir(fs, root + '/dynamic');
+	if (!made.ok) return stage_abort(manifest, root, fs, 'data staging directory could not be created');
+	for (let row in identity.releaseOwned) {
+		let written = fs_write(fs, root + '/release/' + row.path, row.content);
+		if (!written.ok) return stage_abort(manifest, root, fs, 'release-owned data staging failed');
+	}
+	for (let row in identity.dynamic) {
+		let written = fs_write(fs, root + '/dynamic/' + row.id + '.json', sprintf('%J', row));
+		if (!written.ok) return stage_abort(manifest, root, fs, 'dynamic data staging failed');
+	}
+	let written = fs_write(fs, root + '/manifest.json', sprintf('%J', manifest));
+	if (!written.ok) return stage_abort(manifest, root, fs, 'dataset manifest staging failed');
+	return { ok: true, root: root, manifest: manifest };
 }
 function pointer_snapshot(fs) {
 	let pointer = fs_stat(fs, DATA_CURRENT);
-	return { exists: pointer != null, content: pointer == null ? null : fs_read(fs, DATA_CURRENT) };
+	if (!pointer.ok) return pointer;
+	if (!pointer.exists) return { ok: true, exists: false, content: null };
+	let content = fs_read(fs, DATA_CURRENT);
+	if (!content.ok) return content;
+	return { ok: true, exists: true, content: content.value };
 }
 function restore_pointer(fs, snapshot) {
-	let current = fs_stat(fs, DATA_CURRENT), currentContent = current == null ? null : fs_read(fs, DATA_CURRENT);
-	if (snapshot.exists && current != null && currentContent == snapshot.content) return true;
-	if (!snapshot.exists && current == null) return true;
-	if (!snapshot.exists) return fs_unlink(fs, DATA_CURRENT);
+	if (!object(snapshot) || snapshot.ok !== true) return fail('EROLLBACK_FAILED', 'pointer snapshot was not proven');
+	let current = fs_stat(fs, DATA_CURRENT);
+	if (!current.ok) return current;
+	let currentContent = null;
+	if (current.exists) {
+		let content = fs_read(fs, DATA_CURRENT);
+		if (!content.ok) return content;
+		currentContent = content.value;
+	}
+	if (snapshot.exists && current.exists && currentContent == snapshot.content) return { ok: true };
+	if (!snapshot.exists && !current.exists) return { ok: true };
+	if (!snapshot.exists) {
+		let removed = fs_unlink(fs, DATA_CURRENT);
+		return removed.ok ? { ok: true } : removed;
+	}
 	let restore = DATA_CURRENT + '.restore-' + time() + '-' + (++sequence);
-	if (!fs_write(fs, restore, snapshot.content) || !fs_rename(fs, restore, DATA_CURRENT)) return false;
-	return fs_stat(fs, restore) == null && fs_read(fs, DATA_CURRENT) == snapshot.content;
+	let written = fs_write(fs, restore, snapshot.content);
+	if (!written.ok) return written;
+	let renamed = fs_rename(fs, restore, DATA_CURRENT);
+	if (!renamed.ok) {
+		let removed = fs_unlink(fs, restore);
+		return removed.ok ? renamed : fail('EROLLBACK_FAILED', 'pointer restore cleanup could not be proven', { cause: renamed, cleanup: removed });
+	}
+	let leftover = fs_stat(fs, restore);
+	if (!leftover.ok) return leftover;
+	if (leftover.exists) return fail('EROLLBACK_FAILED', 'pointer restore left a temporary file');
+	let restored = fs_stat(fs, DATA_CURRENT);
+	if (!restored.ok) return restored;
+	if (!restored.exists) return fail('EROLLBACK_FAILED', 'pointer restore did not recreate the pointer');
+	let content = fs_read(fs, DATA_CURRENT);
+	if (!content.ok) return content;
+	return content.value == snapshot.content ? { ok: true } : fail('EROLLBACK_FAILED', 'pointer restore content could not be proven');
 }
 function internal_publish(staged, identity, hooks) {
 	let manifest = staged.manifest || dataset_manifest(identity);
 	if (!manifest.ok) return manifest;
 	let fs = filesystem(hooks), previousPointer = pointer_snapshot(fs);
+	if (!previousPointer.ok) return rollback_failed('dataset pointer snapshot could not be proven', previousPointer, { boundary: DATA_CURRENT });
 	let committed = null, finalRoot = DATA_REVISION_ROOT + manifest.revision;
 	if (type(hooks.commit) == 'function') committed = hooks.commit(manifest, staged);
 	else {
-		if (!fs_rename(fs, staged.root, finalRoot)) return unchanged_failed('EWRITE', 'dataset revision rename failed');
+		let promoted = fs_rename(fs, staged.root, finalRoot);
+		if (!promoted.ok) {
+			let cleanup = remove_unpublished_revision(manifest, staged.root, hooks, fs);
+			if (!object(cleanup) || cleanup.ok !== true) return rollback_failed('dataset revision rename failed and staging cleanup could not be proven', cleanup, { cause: promoted });
+			return unchanged_failed('EWRITE', 'dataset revision rename failed');
+		}
 		let pointer = DATA_CURRENT + '.stage-' + time() + '-' + (++sequence);
-		if (!fs_write(fs, pointer, sprintf('%J', { schema: 1, revision: manifest.revision, root: finalRoot, release: manifest.release, coreIdentity: manifest.coreIdentity, dynamicIdentity: manifest.dynamicIdentity }))) {
+		let pointerValue = fs_write(fs, pointer, sprintf('%J', { schema: 1, revision: manifest.revision, root: finalRoot, release: manifest.release, coreIdentity: manifest.coreIdentity, dynamicIdentity: manifest.dynamicIdentity }));
+		if (!pointerValue.ok) {
 			let pointerRemoved = fs_unlink(fs, pointer), cleanup = remove_unpublished_revision(manifest, finalRoot, hooks, fs), restored = restore_pointer(fs, previousPointer);
-			if (!pointerRemoved || !object(cleanup) || cleanup.ok !== true || !restored) return rollback_failed('dataset pointer failed and rollback could not be proven', cleanup, { pointerRemoved: pointerRemoved, restored: restored });
+			if (!pointerRemoved.ok || !object(cleanup) || cleanup.ok !== true || !object(restored) || restored.ok !== true) return rollback_failed('dataset pointer failed and rollback could not be proven', cleanup, { pointerRemoved: pointerRemoved, restored: restored, cause: pointerValue });
 			return unchanged_failed('EWRITE', 'dataset pointer staging failed');
 		}
-		committed = fs_rename(fs, pointer, DATA_CURRENT) ? { ok: true, revision: manifest.revision } : null;
+		let pointerCommit = fs_rename(fs, pointer, DATA_CURRENT);
+		committed = pointerCommit.ok ? { ok: true, revision: manifest.revision } : null;
 		if (committed == null) {
 			let pointerRemoved = fs_unlink(fs, pointer), cleanup = remove_unpublished_revision(manifest, finalRoot, hooks, fs), restored = restore_pointer(fs, previousPointer);
-			if (!pointerRemoved || !object(cleanup) || cleanup.ok !== true || !restored) return rollback_failed('dataset pointer commit failed and rollback could not be proven', cleanup, { pointerRemoved: pointerRemoved, restored: restored });
+			if (!pointerRemoved.ok || !object(cleanup) || cleanup.ok !== true || !object(restored) || restored.ok !== true) return rollback_failed('dataset pointer commit failed and rollback could not be proven', cleanup, { pointerRemoved: pointerRemoved, restored: restored, cause: pointerCommit });
 			return unchanged_failed('EWRITE', 'dataset pointer commit failed');
 		}
 	}

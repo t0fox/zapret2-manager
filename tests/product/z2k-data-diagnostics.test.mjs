@@ -150,6 +150,43 @@ test('default production publication cleans the unpublished revision after point
   assert.deepEqual(result.revisions, []);
 });
 
+function productionFailureExpression(identity, mode) {
+  return `(() => { let files = {}, dirs = { '/opt/zapret2/state/z2k-data/': true, '/opt/zapret2/state/z2k-data/revisions/': true }, oldPointer = '{"schema":1,"revision":"old"}', statFailure = false, readFailure = false; files['/opt/zapret2/state/z2k-data/current.json'] = oldPointer; function prefix(path, root) { return path == root || index(path, root + '/') == 0; } function fs_mkdir(path) { dirs[path] = true; return true; } function fs_write(path, value) { if (${JSON.stringify(mode)} == 'stage' && index(path, '/opt/zapret2/state/z2k-data/revisions/.stage-') == 0 && index(path, '/release/') >= 0) return false; files[path] = value; return true; } function fs_read(path) { if (readFailure && path == '/opt/zapret2/state/z2k-data/current.json') { readFailure = false; return { __fs_error: true }; } return files[path] == null ? null : files[path]; } function fs_stat(path) { if (statFailure && index(path, '/opt/zapret2/state/z2k-data/revisions/') == 0 && path != '/opt/zapret2/state/z2k-data/revisions/') { statFailure = false; return { __fs_error: true }; } if (files[path] != null) return { type: 'file' }; if (dirs[path]) return { type: 'directory' }; return null; } function fs_unlink(path) { delete files[path]; return true; } function fs_rmdir(path) { for (let name in files) if (prefix(name, path) && name != path) return false; for (let name in dirs) if (name != path && prefix(name, path)) return false; delete dirs[path]; return true; } function fs_rename(from, to) { if (index(from, '/opt/zapret2/state/z2k-data/current.json.stage-') == 0) { if (${JSON.stringify(mode)} == 'stat') statFailure = true; if (${JSON.stringify(mode)} == 'read') readFailure = true; return false; } if (dirs[from]) { let movedDirs = {}, movedFiles = {}; for (let name in dirs) if (prefix(name, from)) { movedDirs[to + substr(name, length(from))] = true; delete dirs[name]; } for (let name in files) if (prefix(name, from)) { movedFiles[to + substr(name, length(from))] = files[name]; delete files[name]; } for (let name in movedDirs) dirs[name] = true; for (let name in movedFiles) files[name] = movedFiles[name]; return true; } if (files[from] == null) return false; files[to] = files[from]; delete files[from]; return true; } let result = mod.z2k_data_publish(${JSON.stringify(identity)}, { fs: { mkdir: fs_mkdir, writefile: fs_write, readfile: fs_read, stat: fs_stat, unlink: fs_unlink, rmdir: fs_rmdir, rename: fs_rename } }); let revisions = []; let stageDirs = []; for (let name in dirs) if (index(name, '/opt/zapret2/state/z2k-data/revisions/') == 0 && name != '/opt/zapret2/state/z2k-data/revisions/') { push(revisions, name); if (index(name, '/opt/zapret2/state/z2k-data/revisions/.stage-') == 0) push(stageDirs, name); } return { result: result, oldPointer: files['/opt/zapret2/state/z2k-data/current.json'], revisions: revisions, stageDirs: stageDirs }; })()`;
+}
+
+test('default production cleanup fails closed when stat cannot prove absence', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  const result = invoke(dataPath, productionFailureExpression(identity, 'stat'));
+  assert.equal(result.result.ok, false, JSON.stringify(result));
+  assert.equal(result.result.error.code, 'EROLLBACK_FAILED', JSON.stringify(result));
+  assert.equal(result.result.state, 'uncertain');
+  assert.match(JSON.stringify(result.result), /EFS_STAT/);
+});
+
+test('default production restore fails closed when pointer read cannot be proven', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  const result = invoke(dataPath, productionFailureExpression(identity, 'read'));
+  assert.equal(result.result.ok, false, JSON.stringify(result));
+  assert.equal(result.result.error.code, 'EROLLBACK_FAILED', JSON.stringify(result));
+  assert.equal(result.result.state, 'uncertain');
+});
+
+test('default production staging removes a partial stage after write failure', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  const result = invoke(dataPath, productionFailureExpression(identity, 'stage'));
+  assert.equal(result.result.ok, false, JSON.stringify(result));
+  if (result.result.error.code === 'EROLLBACK_FAILED') {
+    assert.equal(result.result.state, 'uncertain', JSON.stringify(result));
+  } else {
+    assert.equal(result.result.error.code, 'EIO', JSON.stringify(result));
+    assert.equal(result.result.state, 'unchanged', JSON.stringify(result));
+    assert.deepEqual(result.stageDirs, [], JSON.stringify(result));
+  }
+});
+
 test('diagnostics return exactly the bounded canonical ID set and entry shape', { skip: !ucode || !fs.existsSync(diagnosticsPath) }, () => {
   const values = Object.fromEntries(ids.map(id => [id, { status: 'ok', evidence: { id } }]));
   const result = invoke(diagnosticsPath, `mod.z2k_diagnostics_run({ values: ${JSON.stringify(values)} })`);
