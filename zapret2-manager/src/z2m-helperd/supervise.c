@@ -306,6 +306,10 @@ static int signal_leader_group(pid_t leader, int signal_number, bool leader_reap
 
 void z2m_supervise(int client, const struct z2m_request *request, struct z2m_result *result)
 {
+	/* One-shot typed Detect calls use the same broker invariants: bounded
+	 * response pipes, a monotonic wall deadline, and process-group cleanup.
+	 * Keep this boundary free of command strings; the core helper supplies the
+	 * already-typed argv to its fixed executable seam. */
 	int input[2] = {-1,-1}, output[2] = {-1,-1}, errors[2] = {-1,-1}, status[2] = {-1,-1};
 	struct setup_error record;
 	size_t input_at = 0, status_length = 0, capacity = 0;

@@ -10,6 +10,19 @@ const TEST_PATH_PREFIX = '/tmp/z2m-z2k-detect-test-';
 const PRODUCTION_STAGE_PREFIX = '/tmp/z2m-resource-update/';
 const PRODUCTION_ROLLBACK = '/etc/zapret2-manager/z2k-detect.rollback';
 
+// The native helper is the only process-launch owner. This pure adapter seam
+// keeps the operation vocabulary and executable identity shared with RPC
+// callers without accepting a command, executable, argv, env or cwd.
+export const z2k_detect_fixed_argv = function(operation, input) {
+	let args = object(input) ? input : {}, host = args.host, port = args.port;
+	if (!string(operation) || !match(operation, /^z2k_detect_(probe|classify|quic|voice|tcp16)$/) || !string(host) || !match(host, /^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$/)
+		|| type(port) != 'int' || port < 1 || port > 65535 || type(args.repeats) != 'int' || args.repeats < 1 || args.repeats > 32
+		|| type(args.timeoutMs) != 'int' || args.timeoutMs < 1 || args.timeoutMs > 120000) return null;
+	let kind = substr(operation, 11), endpoint = host + ':' + port, seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind, endpoint];
+	if (kind == 'classify') { if (args.hello != 'modern') return null; out = push(out, '-hello', 'modern'); }
+	return push(out, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json');
+};
+
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function text(value) { return value == null ? '' : '' + value; }

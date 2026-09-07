@@ -62,6 +62,104 @@ static bool host_value(const char *value)
 	return value[0] != '-' && value[strlen(value) - 1] != '-';
 }
 
+#ifndef Z2K_DETECT_PATH
+#define Z2K_DETECT_PATH "/usr/libexec/zapret2-manager/z2k-detect"
+#endif
+#define Z2K_DETECT_EXEC_PATH "/usr/libexec/zapret2-manager/z2k-detect"
+
+#define Z2K_DETECT_OUTPUT_LIMIT 65536U
+#define Z2K_DETECT_MAX_REPEATS 32
+
+static bool detect_host_value(const char *value)
+{
+	if (value == NULL || strlen(value) < 1 || strlen(value) > 253 || strchr(value, '\0') != value + strlen(value)) return false;
+	for (size_t i = 0; value[i]; i++) {
+		unsigned char c = (unsigned char)value[i];
+		if (c == '\n' || c == '\r' || c == '\t' || c == ' ' || c == '/' || c == '\\' || c == ';' || c == '|') return false;
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == ':')) return false;
+	}
+	return value[0] != '-' && value[strlen(value) - 1] != '-';
+}
+
+static int64_t now_ms(void);
+
+static bool detect_string(json_object *args, const char *name, const char **out, size_t max)
+{
+	json_object *value;
+	if (!json_object_object_get_ex(args, name, &value) || !json_object_is_type(value, json_type_string)) return false;
+	*out = json_object_get_string(value);
+	if (strlen(*out) != (size_t)json_object_get_string_len(value) || strlen(*out) < 1 || strlen(*out) > max) return false;
+	return true;
+}
+
+static bool detect_int(json_object *args, const char *name, int64_t minimum, int64_t maximum, int64_t *out)
+{
+	return int_value(args, name, minimum, maximum, out);
+}
+
+static int detect_run(char *const argv[], unsigned int timeout_ms, unsigned char **stdout_data, size_t *stdout_length,
+	unsigned char **stderr_data, size_t *stderr_length, int *exit_code, bool *timed_out)
+{
+	int out[2] = {-1, -1}, err[2] = {-1, -1}; pid_t child; int status = 0; bool reaped = false;
+	*stdout_data = NULL; *stderr_data = NULL; *stdout_length = 0; *stderr_length = 0; *exit_code = -1; *timed_out = false;
+	if (pipe(out) < 0 || pipe(err) < 0) { if (out[0] >= 0) { close(out[0]); close(out[1]); } return -1; }
+	child = fork();
+	if (child < 0) { close(out[0]); close(out[1]); close(err[0]); close(err[1]); return -1; }
+	if (child == 0) {
+		setpgid(0, 0); dup2(out[1], STDOUT_FILENO); dup2(err[1], STDERR_FILENO);
+		close(out[0]); close(out[1]); close(err[0]); close(err[1]);
+		execve(Z2K_DETECT_PATH, argv, (char *const[]){"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", NULL}); _exit(127);
+	}
+	close(out[1]); close(err[1]); fcntl(out[0], F_SETFL, fcntl(out[0], F_GETFL) | O_NONBLOCK); fcntl(err[0], F_SETFL, fcntl(err[0], F_GETFL) | O_NONBLOCK);
+	int64_t deadline = now_ms() + timeout_ms; unsigned char *outbuf = malloc(Z2K_DETECT_OUTPUT_LIMIT + 1), *errbuf = malloc(Z2K_DETECT_OUTPUT_LIMIT + 1);
+	if (!outbuf || !errbuf) { free(outbuf); free(errbuf); kill(-child, SIGKILL); waitpid(child, NULL, 0); close(out[0]); close(err[0]); return -1; }
+	bool out_open = true, err_open = true;
+	while (out_open || err_open || !reaped) {
+		struct pollfd fds[2]; nfds_t count = 0;
+		if (out_open) fds[count++] = (struct pollfd){out[0], POLLIN | POLLHUP | POLLERR, 0};
+		if (err_open) fds[count++] = (struct pollfd){err[0], POLLIN | POLLHUP | POLLERR, 0};
+		int64_t remaining = deadline - now_ms();
+		if (remaining <= 0 && !reaped) { *timed_out = true; kill(-child, SIGKILL); kill(child, SIGKILL); }
+		if (count) poll(fds, count, remaining > 20 ? 20 : remaining > 0 ? (int)remaining : 0);
+		unsigned char buffer[4096]; ssize_t got;
+		if (out_open) { while ((got = read(out[0], buffer, sizeof(buffer))) > 0) { size_t keep = (size_t)got > Z2K_DETECT_OUTPUT_LIMIT - *stdout_length ? Z2K_DETECT_OUTPUT_LIMIT - *stdout_length : (size_t)got; memcpy(outbuf + *stdout_length, buffer, keep); *stdout_length += keep; if ((size_t)got > keep) { *timed_out = true; kill(-child, SIGKILL); } } if (got == 0) { out_open = false; close(out[0]); } }
+		if (err_open) { while ((got = read(err[0], buffer, sizeof(buffer))) > 0) { size_t keep = (size_t)got > Z2K_DETECT_OUTPUT_LIMIT - *stderr_length ? Z2K_DETECT_OUTPUT_LIMIT - *stderr_length : (size_t)got; memcpy(errbuf + *stderr_length, buffer, keep); *stderr_length += keep; if ((size_t)got > keep) { *timed_out = true; kill(-child, SIGKILL); } } if (got == 0) { err_open = false; close(err[0]); } }
+		if (!reaped && waitpid(child, &status, WNOHANG) == child) reaped = true;
+		if (*timed_out && !reaped) { kill(-child, SIGKILL); if (waitpid(child, &status, 0) == child) reaped = true; }
+	}
+	if (reaped && WIFEXITED(status)) *exit_code = WEXITSTATUS(status); else if (reaped && WIFSIGNALED(status)) *exit_code = 128 + WTERMSIG(status);
+	outbuf[*stdout_length] = 0; errbuf[*stderr_length] = 0; *stdout_data = outbuf; *stderr_data = errbuf; return 0;
+}
+
+int z2m_detect_operation(const struct z2m_request *request)
+{
+	const char *host, *hello = NULL; int64_t port, repeats, timeout; char endpoint[320], repeats_text[24], timeout_text[24];
+	char *argv[16]; size_t argc = 0; const char *kind;
+	if (!z2m_reserved_schema_valid(request) || !detect_string(request->arguments, "host", &host, 253) ||
+		!detect_host_value(host) || !detect_int(request->arguments, "port", 1, 65535, &port) ||
+		!detect_int(request->arguments, "repeats", 1, Z2K_DETECT_MAX_REPEATS, &repeats) ||
+		!detect_int(request->arguments, "timeoutMs", 1, MAX_TIMEOUT_MS, &timeout)) return z2m_fail(request->request_id, "ESCHEMA", "schema");
+	if (!strcmp(request->operation, "z2k_detect_classify")) {
+		if (!detect_string(request->arguments, "hello", &hello, 32) || strcmp(hello, "modern")) return z2m_fail(request->request_id, "ESCHEMA", "schema");
+		kind = "classify";
+	} else if (!strcmp(request->operation, "z2k_detect_probe")) kind = "probe";
+	else if (!strcmp(request->operation, "z2k_detect_quic")) kind = "quic";
+	else if (!strcmp(request->operation, "z2k_detect_voice")) kind = "voice";
+	else if (!strcmp(request->operation, "z2k_detect_tcp16")) kind = "tcp16";
+	else return z2m_fail(request->request_id, "ESCHEMA", "schema");
+	if (snprintf(endpoint, sizeof(endpoint), "%s:%lld", host, (long long)port) < 0 || snprintf(repeats_text, sizeof(repeats_text), "%lld", (long long)repeats) < 0 || snprintf(timeout_text, sizeof(timeout_text), "%llds", (long long)((timeout + 999) / 1000)) < 0) return z2m_fail(request->request_id, "EINTERNAL", "argv");
+	argv[argc++] = (char *)Z2K_DETECT_EXEC_PATH; argv[argc++] = (char *)kind; argv[argc++] = endpoint;
+	if (hello) { argv[argc++] = "-hello"; argv[argc++] = (char *)hello; }
+	argv[argc++] = "-repeats"; argv[argc++] = repeats_text; argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json"; argv[argc] = NULL;
+	unsigned char *out, *err; size_t out_len, err_len; int exit_code; bool timed_out;
+	if (detect_run(argv, (unsigned int)timeout + 1000U, &out, &out_len, &err, &err_len, &exit_code, &timed_out) < 0) return z2m_fail(request->request_id, "EINTERNAL", "supervise");
+	json_object *data = z2m_json_object(), *argv_data = json_object_new_array();
+	if (!data || !argv_data) { json_object_put(data); json_object_put(argv_data); free(out); free(err); return z2m_fail(request->request_id, "EINTERNAL", "response_encode"); }
+	for (size_t i = 0; i < argc; i++) json_object_array_add(argv_data, z2m_json_string(argv[i]));
+	bool ok = z2m_json_add(data, "argv", argv_data) && z2m_json_add(data, "exitCode", z2m_json_int(exit_code)) && z2m_json_add(data, "stdout", z2m_json_string((char *)out)) && z2m_json_add(data, "stderr", z2m_json_string((char *)err)) && z2m_json_add(data, "timedOut", z2m_json_bool(timed_out));
+	free(out); free(err); if (!ok) { json_object_put(data); return z2m_fail(request->request_id, "EINTERNAL", "response_encode"); } return z2m_success(request->request_id, data);
+}
+
 static bool ipv4_value(const char *value)
 {
 	struct in_addr address;
