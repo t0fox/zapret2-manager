@@ -8,6 +8,7 @@ import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
 import { read_var } from './apply.uc';
 import { append_ndjson, event_id } from './events.uc';
+import { z2k_pool_semantic_digest, z2k_learned_state_reconcile, z2k_autocircular_identity_load, z2k_autocircular_identity_save } from './z2k-autocircular-identity.uc';
 
 const CONFIG_PATH = getenv('Z2M_STRATEGY_HEALTHCHECK_CONFIG') || '/etc/zapret2-manager/strategy-healthcheck.json';
 const LEARNED_PATH = getenv('Z2M_STRATEGY_LEARNED_STATE') || '/etc/zapret2-manager/state/autocircular/state.tsv';
@@ -436,6 +437,37 @@ function learned_state() {
 
 	return { ok: true, source: LEARNED_PATH, entries: rows, summary: learned_summary(rows), empty: !length(rows), count: length(rows), pools: pools_info.pools || {} };
 }
+
+// Called by the Z2K Core transaction after its candidate is committed.  This
+// is the only state projection owner: state.tsv remains upstream-compatible,
+// while the Manager sidecar records the semantic pool identity.
+export const strategies_autocircular_reconcile = function(pools) {
+	if (!is_object(pools)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular pools must be an object' } };
+	let next = {};
+	for (let key in keys(pools)) {
+		let pool = pools[key];
+		if (!is_object(pool)) continue;
+		if (pool.aliasOf != null) continue;
+		let digest = z2k_pool_semantic_digest(pool), identityKey = pool.runtimeKey || pool.key || key;
+		if (digest == null || !length(identityKey)) return { ok: false, error: { code: 'ESTATE', message: 'active pool has no valid semantic identity', key: key } };
+		next[identityKey] = digest;
+	}
+	if (!length(keys(next))) return { ok: false, error: { code: 'ESTATE', message: 'active autocircular pools are unavailable; refusing reconciliation' } };
+	let stored = z2k_autocircular_identity_load();
+	if (!stored.ok) return stored;
+	let rows = learned_rows(), reconciliation = z2k_learned_state_reconcile(stored.identity, next, rows);
+	if (!reconciliation.ok) return reconciliation;
+	let changed = reconciliation.resetAllLegacy || length(reconciliation.reset) > 0;
+	if (changed && !state_save_rows(reconciliation.rows)) return { ok: false, error: { code: 'EWRITE', message: 'autocircular state.tsv could not be reconciled' } };
+	let saved = z2k_autocircular_identity_save(next);
+	if (!saved.ok) {
+		// The sidecar is the commit marker.  Restore the parsed prior rows if its
+		// atomic rename fails, so a partial state reset cannot become durable.
+		if (changed) state_save_rows(rows);
+		return saved;
+	}
+	return { ok: true, reset: reconciliation.reset, resetAllLegacy: reconciliation.resetAllLegacy, sidecar: saved, entries: reconciliation.rows };
+};
 
 function state_set(input) {
 	let value = request_value(input);

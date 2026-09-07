@@ -22,6 +22,7 @@ import { strategy_catalog_generation_read, strategy_catalog_generation_publish }
 import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore } from './strategy-state.uc';
 import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize } from './z2k-detect.uc';
 import { z2k_migration_state, z2k_lua_function_closure, z2k_migration_prepare, z2k_migration_commit, z2k_migration_rollback } from './z2k-migration.uc';
+import * as autocircular_ops from './strategies-ops.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
 const STAGE_PARENT = '/tmp/z2m-resource-update';
@@ -2633,6 +2634,16 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	if (!detectFinalized.ok) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
 		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Z2K Detect finalization failed and the lifecycle was rolled back.' : 'Z2K Detect finalization failed and rollback could not be completed.', { detect: detectFinalized, rollback: rollback, diagnostics: diagnostics }));
+	}
+	let autocircular = null;
+	try {
+		let pools = autocircular_ops.strategies_pools();
+		autocircular = pools && pools.ok === true ? autocircular_ops.strategies_autocircular_reconcile(pools.pools || {}) : pools;
+	} catch (e) { autocircular = fail('EINTERNAL', 'Autocircular identity reconciliation raised an exception.', { detail: text(e) }); }
+	diagnostics.autocircularIdentity = autocircular;
+	if (!autocircular || autocircular.ok !== true) {
+		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, runtimeActivated);
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EWRITE' : 'EROLLBACK', rollback.ok ? 'Autocircular identity reconciliation failed and the lifecycle was rolled back.' : 'Autocircular identity reconciliation failed and rollback could not be completed.', { autocircular: autocircular, rollback: rollback, diagnostics: diagnostics }));
 	}
 	// Once Detect rollback state is closed, the FINALIZED pending record is the
 	// durable coherent pair: Registry receipt, runtime/source activation, and the
