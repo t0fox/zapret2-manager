@@ -158,3 +158,116 @@ The following remain explicitly unrun: router deployment/runtime postflight, liv
 ## Worktree state
 
 After committing the report, the worktree is expected to be clean. No unrelated files were modified.
+
+## Re-review fixes — 2026-09-07
+
+The re-review implementation is committed as `e8e11dd7` (`fix: close Task 14 canonical readiness and a11y review`). The report update is committed separately after evidence capture. No unrelated files were modified in this pass.
+
+### Exact files changed in this pass
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js`
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js`
+- `tests/product/z2k-runtime-summary.test.mjs`
+- `tests/ui/scanner-accessibility-behavior.test.mjs`
+- `tests/ui/assets-import-accessibility.test.mjs`
+- `.superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/task-14-report.md`
+
+### TDD RED evidence
+
+The new behavioral tests were written before the production changes.
+
+```text
+wsl -e bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode node --test tests/product/z2k-runtime-summary.test.mjs"
+```
+
+Exit 1: 7 tests, 5 passed, 2 failed. Both expected failures showed `ready` instead of `degraded` for an incompatible local Detect contract and divergent remote coherence.
+
+```text
+node --test tests/ui/scanner-accessibility-behavior.test.mjs tests/ui/assets-import-accessibility.test.mjs
+```
+
+Exit 1: 3 tests, 0 passed, 3 failed. The expected failures were missing target focus/ARIA mutation, missing Scanner `role="status"`, and missing asset import names/autocomplete metadata.
+
+### GREEN and verification evidence
+
+Canonical runtime regression gate:
+
+```text
+wsl -e bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode node --test tests/product/z2k-runtime-summary.test.mjs"
+```
+
+Exit 0: 7 passed, 0 failed. Healthy and update projections are ready/compatible only with valid local Detect status/compatibility and aligned remote coherence; incompatible local Detect and divergent coherence are degraded with `detect.status=unknown` and `detectCompatible=false`.
+
+Focused UI and behavioral gate:
+
+```text
+node --test tests/ui/scanner-accessibility-behavior.test.mjs tests/ui/assets-import-accessibility.test.mjs tests/ui/scanner-ui-rework.test.mjs tests/ui/z2k-coherent-ui.test.mjs
+```
+
+Exit 0: 17 passed, 0 failed.
+
+Prescribed Task 14 gate:
+
+```text
+node --test tests/ui/z2k-coherent-ui.test.mjs tests/ui/scanner-ui-rework.test.mjs tests/product/z2k-old-scanner-unwired.test.mjs
+```
+
+Exit 0: 18 passed, 0 failed.
+
+Production package/closure/public-projection gate:
+
+```text
+node --test tests/native/avatar-strategy-scanner-package.test.mjs tests/product/z2k-old-scanner-unwired.test.mjs tests/knowledge/public-projection.test.mjs tests/ui/frontend-module-closure.test.mjs
+```
+
+Exit 0: 22 passed, 0 failed.
+
+The prescribed and additional Node syntax checks all exited 0:
+
+```text
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner-product.js
+```
+
+`node scripts/validate-knowledge.mjs` exited 0 with `Knowledge validation passed.`; `git diff --check` exited 0.
+
+### Canonical readiness and UI review changes
+
+| Before | After | Why |
+| --- | --- | --- |
+| `resource-update.uc` reconstructed Detect readiness from health, digests, architecture, and commit identity, while the local authority omitted explicit readiness fields. | The canonical `z2k_detect_status` contract supplies local Detect evidence; the projection preserves `local.detect.status/compatible`, and the health gate requires `status=ready`, `compatible=true`, and aligned `remote.coherence` before projecting `detect.status=ready` and `detectCompatible=true`. | One Detect/runtime authority; divergent, incompatible, missing, broken, or incomplete evidence fails closed. |
+| Invalid Scanner target validation showed an inline error but did not move keyboard focus. | The first invalid target input receives focus and retains `aria-invalid=true` plus `aria-describedby=z2m-scanner-target-error`; valid submission clears the description. | Keyboard users reach the actionable error immediately without changing the existing form flow. |
+| Async Scanner progress and successful results had no single polite announcement region. | Progress and completed result containers each use one `role=status` region; no redundant `aria-live` is added. | Screen readers receive concise state changes without duplicate announcements. |
+| Asset import controls had labels but no stable field names or autofill metadata. | Type, stable ID, and content controls now have `name` and `autocomplete=off`; the ID also uses `autocapitalize=none` and `spellcheck=false`. | Stable semantics and predictable entry for import data, preserving existing import behavior. |
+
+### Explicit four-skill design checklist
+
+- Emil design engineering: the pass preserves the existing calm `z2m-*` APP language and utility copy; it adds no visual system or decorative redesign, no `transition: all`, no `scale(0)`, and no entering `ease-in`. Existing explicit sub-300ms transitions, `:active`, reduced-motion, and hover guards remain covered by `tests/ui/scanner-ui-rework.test.mjs` and the prior checklist (`z2m-components.css:395-415`).
+- Design consultation: product outcome remains one coherent Z2K Core, one source of truth, and an obvious status/action relationship. Existing tokens, panels, form fields, and buttons were reused.
+- Design review: hierarchy, error/success/loading state, mobile/touch behavior, keyboard focus, copy, and no-card-grid redesign were reviewed. The current findings are recorded in the Before | After | Why table above. Live browser/visual verification remains **UNVERIFIED** because browser acceptance was out of scope.
+- Web Interface Guidelines: target focus and `aria-invalid`/`aria-describedby` are behavioral-tested (`z2m-scanner.js:326-340`); one polite status region is behavioral-tested (`z2m-scanner.js:376`, `426`); stable form metadata is tested (`z2m-assets.js:78`); semantic buttons/inputs, focus-visible, reduced motion, explicit transitions, long/error states, and 44px targets remain covered by the existing UI contract (`z2m-scanner.js:436-477`, `z2m-components.css:395-415`). Fresh rules source used: [Vercel Web Interface Guidelines](https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md).
+
+### Known baseline failures and unrun boundaries for this pass
+
+An expanded Scanner test command was intentionally not treated as green:
+
+```text
+node --test tests/ui/scanner-accessibility-behavior.test.mjs tests/ui/assets-import-accessibility.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-runtime-integration.test.mjs tests/ui/scanner-detect-generation.test.mjs tests/ui/scanner-detect-history.test.mjs tests/ui/scanner-targets.test.mjs
+```
+
+Exit 1: 21 tests, 18 passed, 3 failed. The three failures are obsolete legacy tests that try to read intentionally removed `z2m-scanner-hub.js` and `z2m-scanner-targets.js`; the surviving typed Detect suite passed. Their assertions were not weakened and no old modules were reintroduced.
+
+The extended WSL runtime command reached the surviving runtime tests, but exited 1 with 68 total, 48 passed, 18 failed, 1 skipped, 1 todo because several older test harnesses invoke `/opt/ucode/bin/ucode` without a loadable `libucode.so.0`. The canonical `z2k-runtime-summary`, `z2k-runtime-composition`, and `z2k-runtime-readiness` portions passed; this environment limitation is not reported as a green full runtime suite.
+
+Still unrun by explicit boundary: router deployment/runtime postflight, live Detect/autodiscovery on a router, browser/E2E acceptance, human visual approval, full repository harness, package build/release verification, merge, and push. No router, browser, deploy, merge, push, or second worktree was used.
+
+### Worktree and commits
+
+- `e8e11dd7` — implementation, behavioral regressions, and accessibility fixes.
+- The report update is committed separately after the implementation commit.
+- Worktree must be clean after the report commit; no unrelated files are included.
