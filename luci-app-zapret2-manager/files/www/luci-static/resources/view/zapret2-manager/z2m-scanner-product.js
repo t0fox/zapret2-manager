@@ -10,6 +10,7 @@ var TABS = [
 var state = { activeTab: 'search', child: null, childContext: null, host: null, nav: null, root: null, ctx: null, history: [], detail: null, historyError: null };
 var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
 var DETECT_OPERATIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
+function operationNeedsTarget(operation) { return ['probe', 'classify', 'quic'].indexOf(operation) >= 0; }
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -31,14 +32,14 @@ function normalizeDetectHistory(value) {
   value = object(value);
   var report = object(value.report), provenance = object(value.provenance), request = object(value.request), data = report.data;
   var operation = text(value.operation).toLowerCase();
-  var target = validHistoryTarget(request.target);
-  if (value.schema !== DETECT_HISTORY_SCHEMA || !text(value.id) || text(value.id).length > 128 || value.status !== 'completed' || !dateValue(value.createdAt) || !target || DETECT_OPERATIONS.indexOf(operation) < 0 || provenance.source !== 'z2k-detect' || provenance.schema !== DETECT_HISTORY_SCHEMA || provenance.operation !== operation || report.typedDetect !== true || report.operation !== operation || !data || typeof data !== 'object' || Array.isArray(data)) return null;
+  var target = operationNeedsTarget(operation) ? validHistoryTarget(request.target) : text(request.target).trim();
+  if (value.schema !== DETECT_HISTORY_SCHEMA || !text(value.id) || text(value.id).length > 128 || value.status !== 'completed' || !dateValue(value.createdAt) || (operationNeedsTarget(operation) && !target) || DETECT_OPERATIONS.indexOf(operation) < 0 || provenance.source !== 'z2k-detect' || provenance.schema !== DETECT_HISTORY_SCHEMA || provenance.operation !== operation || report.typedDetect !== true || report.operation !== operation || !data || typeof data !== 'object' || Array.isArray(data)) return null;
   return {
     schema: DETECT_HISTORY_SCHEMA,
     id: text(value.id),
     status: 'completed',
     createdAt: value.createdAt,
-    request: { target: target },
+    request: { target: target || '' },
     operation: operation,
     provenance: { source: 'z2k-detect', schema: DETECT_HISTORY_SCHEMA, operation: operation },
     report: { typedDetect: true, operation: operation, data: data }
@@ -104,7 +105,7 @@ function childFor(tab) { return tab === 'search' ? Scanner : null; }
 function activeLabel(tab) { return (TABS.filter(function (item) { return item.id === tab; })[0] || TABS[0]).label; }
 function boundedChildLoad(child, ctx) {
   var work = child && child.load ? child.load(ctx) : Promise.resolve({});
-  return Promise.race([Promise.resolve(work), new Promise(function (resolve) { window.setTimeout(function () { resolve({}); }, 1500); })]);
+  return Promise.race([Promise.resolve(work), new Promise(function (resolve, reject) { window.setTimeout(function () { reject({ code: 'EDETECT_TIMEOUT', message: _('Загрузка Scanner превысила ограниченное время.') }); }, 1500); })]);
 }
 function historyList(ctx) {
   return Promise.resolve().then(function () {

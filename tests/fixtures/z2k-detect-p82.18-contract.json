@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/necronicle/z2k.git",
+  "tag": "p-82.18",
+  "sourceCommit": "26b9ed3c9cbd9ec359c1bc1f63f573c8892d73dc",
+  "operations": {
+    "probe": { "argv": ["z2k-detect", "probe", "-json", "<domain>"] },
+    "classify": { "argv": ["z2k-detect", "classify", "-hello", "<mode>", "-repeats", "<n>", "-timeout", "<duration>", "-json", "<host:port>"] },
+    "quic": { "argv": ["z2k-detect", "quic", "-port", "<port>", "-repeats", "<n>", "-timeout", "<duration>", "-json", "<domain>"] },
+    "voice": { "argv": ["z2k-detect", "voice", "-repeats", "<n>", "-timeout", "<duration>", "-json"] },
+    "tcp16": { "argv": ["z2k-detect", "tcp16"] },
+    "run": { "argv": ["z2k-detect", "run", "-publish", "/opt/zapret2/lists/discovered-domains.txt"] }
+  }
+}

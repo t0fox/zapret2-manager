@@ -110,9 +110,10 @@ function discovery_process_invalid(count) {
 }
 
 function discovery_command_valid(argv) {
-	if (type(argv) != 'array' || length(argv) != 6 || argv[0] != RUNTIME_TARGET || argv[1] != 'run') return false;
-	return argv[2] == '-dns-source' && index(DISCOVERY_SOURCES, argv[3]) >= 0 &&
-		argv[4] == '-output' && argv[5] == DISCOVERY_LIST;
+	if (type(argv) != 'array' || argv[0] != RUNTIME_TARGET || argv[1] != 'run') return false;
+	if (length(argv) == 4) return argv[2] == '-publish' && argv[3] == DISCOVERY_LIST;
+	return length(argv) == 6 && argv[2] == '-dns-source' && index(DISCOVERY_SOURCES, argv[3]) >= 0 &&
+		argv[4] == '-publish' && argv[5] == DISCOVERY_LIST && argv[3] != 'auto';
 }
 
 function discovery_process_default() {
@@ -170,7 +171,10 @@ export const z2k_detect_discovery_command = function(value) {
 	let config = discovery_config_normalize(value);
 	if (!config.ok) return config;
 	if (!config.enabled) return { ok: true, enabled: false, command: null };
-	return { ok: true, enabled: true, command: [RUNTIME_TARGET, 'run', '-dns-source', config.dnsSource, '-output', DISCOVERY_LIST], instance: DISCOVERY_INSTANCE };
+	let command = [RUNTIME_TARGET, 'run'];
+	if (config.dnsSource != 'auto') command = push(command, '-dns-source', config.dnsSource);
+	command = push(command, '-publish', DISCOVERY_LIST);
+	return { ok: true, enabled: true, command: command, instance: DISCOVERY_INSTANCE };
 };
 
 function discovery_write(config, seams) {
@@ -327,17 +331,26 @@ function detect_input_normalize(operation, value) {
 	try { if (length(sprintf('%J', value)) > DETECT_MAX_INPUT_BYTES) return fail('EDETECT_SCHEMA', 'Z2K Detect input exceeds the bounded request limit.'); }
 	catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect input is not safely serializable.'); }
 	for (let name in DETECT_UNSAFE_INPUT_FIELDS) if (exists(value, name)) return fail('EINPUT', 'Z2K Detect input contains an unsafe execution field.', { field: name });
-	let required = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
+	let required = operation == 'z2k_detect_probe' ? ['domain', 'timeoutMs'] :
+		operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] :
+		operation == 'z2k_detect_quic' ? ['domain', 'port', 'repeats', 'timeoutMs'] :
+		operation == 'z2k_detect_voice' ? ['repeats', 'timeoutMs'] : ['timeoutMs'];
 	for (let name in required) if (!exists(value, name)) return fail('EDETECT_SCHEMA', 'Z2K Detect input is missing a required field.', { field: name });
-	if (!string(value.host) || !detect_host(value.host)) return fail('EINPUT', 'Z2K Detect host is invalid.');
-	if (type(value.port) != 'int' || value.port < 1 || value.port > 65535) return fail('EDETECT_SCHEMA', 'Z2K Detect port has the wrong type or range.');
-	if (type(value.repeats) != 'int' || value.repeats < 1 || value.repeats > 32) return fail('EDETECT_SCHEMA', 'Z2K Detect repeats has the wrong type or range.');
+	if (exists(value, 'domain') && (!string(value.domain) || !detect_host(value.domain))) return fail('EINPUT', 'Z2K Detect domain is invalid.');
+	if (exists(value, 'host') && (!string(value.host) || !detect_host(value.host))) return fail('EINPUT', 'Z2K Detect host is invalid.');
+	if (exists(value, 'port') && (type(value.port) != 'int' || value.port < 1 || value.port > 65535)) return fail('EDETECT_SCHEMA', 'Z2K Detect port has the wrong type or range.');
+	if (exists(value, 'repeats') && (type(value.repeats) != 'int' || value.repeats < 1 || value.repeats > 32)) return fail('EDETECT_SCHEMA', 'Z2K Detect repeats has the wrong type or range.');
 	if (type(value.timeoutMs) != 'int' || value.timeoutMs < 1 || value.timeoutMs > 120000) return fail('EDETECT_SCHEMA', 'Z2K Detect timeoutMs has the wrong type or range.');
 	if (operation == 'z2k_detect_classify' && type(value.hello) != 'string') return fail('EDETECT_SCHEMA', 'Z2K Detect classify hello has the wrong type.');
-	if (operation == 'z2k_detect_classify' && value.hello != 'modern') return fail('EINPUT', 'Z2K Detect classify only accepts the modern hello mode.');
+	if (operation == 'z2k_detect_classify' && index(['modern', 'legacy', 'both'], value.hello) < 0) return fail('EINPUT', 'Z2K Detect classify hello mode is invalid.');
 	let normalized = {};
 	for (let key in value) normalized[key] = value[key];
-	return { ok: true, value: normalized, native: { host: value.host, port: value.port, repeats: value.repeats, timeoutMs: value.timeoutMs, ...(operation == 'z2k_detect_classify' ? { hello: value.hello } : {}) } };
+	let native = { timeoutMs: value.timeoutMs };
+	if (operation == 'z2k_detect_probe') native.domain = value.domain;
+	if (operation == 'z2k_detect_classify') native = { host: value.host, port: value.port, hello: value.hello, repeats: value.repeats, timeoutMs: value.timeoutMs };
+	if (operation == 'z2k_detect_quic') native = { domain: value.domain, port: value.port, repeats: value.repeats, timeoutMs: value.timeoutMs };
+	if (operation == 'z2k_detect_voice') native = { repeats: value.repeats, timeoutMs: value.timeoutMs };
+	return { ok: true, value: normalized, native: native };
 }
 
 export const z2k_detect_normalize_input = function(operation, value) { return detect_input_normalize(operation, value); };
@@ -349,10 +362,15 @@ export const z2k_detect_fixed_argv = function(operation, input) {
 	let checked = detect_input_normalize(operation, input);
 	if (!checked.ok) return null;
 	let args = checked.native;
-	let kind = substr(operation, 11), endpoint = index(args.host, ':') >= 0 ? '[' + args.host + ']:' + args.port : args.host + ':' + args.port;
-	let seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind, endpoint];
-	if (kind == 'classify') { if (args.hello != 'modern') return null; out = push(out, '-hello', 'modern'); }
-	return push(out, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json');
+	let kind = substr(operation, 11), seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind];
+	if (kind == 'probe') return push(out, '-json', args.domain);
+	if (kind == 'classify') {
+		let endpoint = index(args.host, ':') >= 0 ? '[' + args.host + ']:' + args.port : args.host + ':' + args.port;
+		return push(out, '-hello', args.hello, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json', endpoint);
+	}
+	if (kind == 'quic') return push(out, '-port', '' + args.port, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json', args.domain);
+	if (kind == 'voice') return push(out, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json');
+	return out;
 };
 
 export const z2k_detect_execute = function(operation, input, seams) {
@@ -374,11 +392,13 @@ export const z2k_detect_execute = function(operation, input, seams) {
 		if (!object(response) || type(response.ok) != 'bool') return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid native response.');
 		if (!response.ok) return detect_error_normalize(response);
 		if (!detect_result.detect_result_data_valid(operation, response.data))
-			return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
+			return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid upstream result.');
 		if (response.data.timedOut)
 			return fail('EDETECT_TIMEOUT', 'Z2K Detect timed out.', { details: detect_failure_details(response.data) });
 		if (response.data.outputTruncated)
 			return fail('EDETECT_FAILED', 'Z2K Detect output exceeded the bounded result limit.', { details: detect_failure_details(response.data) });
+		if (response.data.exitCode != 0)
+			return fail('EDETECT_FAILED', 'Z2K Detect exited with a failure status.', { details: detect_failure_details(response.data) });
 		return response;
 	}
 	catch (e) { return fail('EDETECT_FAILED', 'Native Z2K Detect invocation failed.', { detail: substr(text(e), 0, 320) }); }

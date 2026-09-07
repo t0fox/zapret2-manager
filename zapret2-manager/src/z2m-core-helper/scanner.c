@@ -328,29 +328,62 @@ static bool detect_json_result_valid(const char *kind, const unsigned char *data
 	return valid;
 }
 
+static bool detect_upstream_result_valid(const char *kind, const unsigned char *data, size_t length)
+{
+	if (!strcmp(kind, "tcp16")) {
+		if (data == NULL || length == 0 || length > Z2K_DETECT_OUTPUT_LIMIT) return false;
+		for (size_t i = 0; i < length; i++) if (data[i] == 0) return false;
+		return true;
+	}
+	return detect_json_result_valid(kind, data, length);
+}
+
 int z2m_detect_operation(const struct z2m_request *request)
 {
-	const char *host, *hello = NULL; int64_t port, repeats, timeout; char endpoint[320], repeats_text[24], timeout_text[24];
+	const char *host = NULL, *domain = NULL, *hello = NULL; int64_t port = 0, repeats = 0, timeout;
+	char endpoint[320], port_text[24], repeats_text[24], timeout_text[24];
 	char *argv[16]; size_t argc = 0; const char *kind;
-	if (!z2m_reserved_schema_valid(request) || !detect_string(request->arguments, "host", &host, 253) ||
-		!detect_host_value(host) || !detect_int(request->arguments, "port", 1, 65535, &port) ||
-		!detect_int(request->arguments, "repeats", 1, Z2K_DETECT_MAX_REPEATS, &repeats) ||
-		!detect_int(request->arguments, "timeoutMs", 1, MAX_TIMEOUT_MS, &timeout)) return z2m_fail(request->request_id, "ESCHEMA", "schema");
-	if (!strcmp(request->operation, "z2k_detect_classify")) {
-		if (!detect_string(request->arguments, "hello", &hello, 32) || strcmp(hello, "modern")) return z2m_fail(request->request_id, "ESCHEMA", "schema");
+	if (!z2m_reserved_schema_valid(request) || !detect_int(request->arguments, "timeoutMs", 1, MAX_TIMEOUT_MS, &timeout)) return z2m_fail(request->request_id, "ESCHEMA", "schema");
+	if (!strcmp(request->operation, "z2k_detect_probe")) {
+		if (!detect_string(request->arguments, "domain", &domain, 253) || !detect_host_value(domain)) return z2m_fail(request->request_id, "ESCHEMA", "schema");
+		kind = "probe";
+	} else if (!strcmp(request->operation, "z2k_detect_classify")) {
+		if (!detect_string(request->arguments, "host", &host, 253) || !detect_host_value(host) ||
+			!detect_int(request->arguments, "port", 1, 65535, &port) || !detect_string(request->arguments, "hello", &hello, 32) ||
+			(strcmp(hello, "modern") && strcmp(hello, "legacy") && strcmp(hello, "both")) ||
+			!detect_int(request->arguments, "repeats", 1, Z2K_DETECT_MAX_REPEATS, &repeats)) return z2m_fail(request->request_id, "ESCHEMA", "schema");
 		kind = "classify";
-	} else if (!strcmp(request->operation, "z2k_detect_probe")) kind = "probe";
-	else if (!strcmp(request->operation, "z2k_detect_quic")) kind = "quic";
-	else if (!strcmp(request->operation, "z2k_detect_voice")) kind = "voice";
-	else if (!strcmp(request->operation, "z2k_detect_tcp16")) kind = "tcp16";
+	} else if (!strcmp(request->operation, "z2k_detect_quic")) {
+		if (!detect_string(request->arguments, "domain", &domain, 253) || !detect_host_value(domain) ||
+			!detect_int(request->arguments, "port", 1, 65535, &port) ||
+			!detect_int(request->arguments, "repeats", 1, Z2K_DETECT_MAX_REPEATS, &repeats)) return z2m_fail(request->request_id, "ESCHEMA", "schema");
+		kind = "quic";
+	} else if (!strcmp(request->operation, "z2k_detect_voice")) {
+		if (!detect_int(request->arguments, "repeats", 1, Z2K_DETECT_MAX_REPEATS, &repeats)) return z2m_fail(request->request_id, "ESCHEMA", "schema");
+		kind = "voice";
+	} else if (!strcmp(request->operation, "z2k_detect_tcp16")) kind = "tcp16";
 	else return z2m_fail(request->request_id, "ESCHEMA", "schema");
-	if (snprintf(endpoint, sizeof(endpoint), strchr(host, ':') != NULL ? "[%s]:%lld" : "%s:%lld", host, (long long)port) < 0 || snprintf(repeats_text, sizeof(repeats_text), "%lld", (long long)repeats) < 0 || snprintf(timeout_text, sizeof(timeout_text), "%llds", (long long)((timeout + 999) / 1000)) < 0) return z2m_fail(request->request_id, "EINTERNAL", "argv");
-	argv[argc++] = (char *)Z2K_DETECT_EXEC_PATH; argv[argc++] = (char *)kind; argv[argc++] = endpoint;
-	if (hello) { argv[argc++] = "-hello"; argv[argc++] = (char *)hello; }
-	argv[argc++] = "-repeats"; argv[argc++] = repeats_text; argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json"; argv[argc] = NULL;
+	argv[argc++] = (char *)Z2K_DETECT_EXEC_PATH; argv[argc++] = (char *)kind;
+	if (!strcmp(kind, "probe")) { argv[argc++] = "-json"; argv[argc++] = (char *)domain; }
+	else if (!strcmp(kind, "classify")) {
+		if (snprintf(endpoint, sizeof(endpoint), strchr(host, ':') != NULL ? "[%s]:%lld" : "%s:%lld", host, (long long)port) < 0 ||
+			snprintf(repeats_text, sizeof(repeats_text), "%lld", (long long)repeats) < 0 ||
+			snprintf(timeout_text, sizeof(timeout_text), "%llds", (long long)((timeout + 999) / 1000)) < 0) return z2m_fail(request->request_id, "EINTERNAL", "argv");
+		argv[argc++] = "-hello"; argv[argc++] = (char *)hello; argv[argc++] = "-repeats"; argv[argc++] = repeats_text;
+		argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json"; argv[argc++] = endpoint;
+	} else if (!strcmp(kind, "quic")) {
+		if (snprintf(port_text, sizeof(port_text), "%lld", (long long)port) < 0 || snprintf(repeats_text, sizeof(repeats_text), "%lld", (long long)repeats) < 0 ||
+			snprintf(timeout_text, sizeof(timeout_text), "%llds", (long long)((timeout + 999) / 1000)) < 0) return z2m_fail(request->request_id, "EINTERNAL", "argv");
+		argv[argc++] = "-port"; argv[argc++] = port_text; argv[argc++] = "-repeats"; argv[argc++] = repeats_text;
+		argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json"; argv[argc++] = (char *)domain;
+	} else if (!strcmp(kind, "voice")) {
+		if (snprintf(repeats_text, sizeof(repeats_text), "%lld", (long long)repeats) < 0 || snprintf(timeout_text, sizeof(timeout_text), "%llds", (long long)((timeout + 999) / 1000)) < 0) return z2m_fail(request->request_id, "EINTERNAL", "argv");
+		argv[argc++] = "-repeats"; argv[argc++] = repeats_text; argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json";
+	}
+	argv[argc] = NULL;
 	unsigned char *out, *err; size_t out_len, err_len; int exit_code; bool timed_out, output_truncated;
 	if (detect_run(argv, (unsigned int)timeout, &out, &out_len, &err, &err_len, &exit_code, &timed_out, &output_truncated) < 0) return z2m_fail(request->request_id, "EINTERNAL", "supervise");
-	if (!timed_out && !output_truncated && !detect_json_result_valid(kind, out, out_len)) {
+	if (exit_code == 0 && !timed_out && !output_truncated && !detect_upstream_result_valid(kind, out, out_len)) {
 		free(out); free(err); return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 	}
 	json_object *data = z2m_json_object(), *argv_data = json_object_new_array();

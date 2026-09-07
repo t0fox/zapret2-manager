@@ -38,7 +38,11 @@ start_service() {
 		case "$DNS_SOURCE" in
 			auto|agh|dnsmasq|pkt)
 				procd_open_instance z2k-detect
-				procd_set_param command "$DETECT" run -dns-source "$DNS_SOURCE" -output "$DISCOVERED"
+				if [ "$DNS_SOURCE" = auto ]; then
+					procd_set_param command "$DETECT" run -publish "$DISCOVERED"
+				else
+					procd_set_param command "$DETECT" run -dns-source "$DNS_SOURCE" -publish "$DISCOVERED"
+				fi
 				procd_set_param respawn 60 5 5
 				procd_set_param term_timeout 10
 				procd_set_param stdout 1

@@ -15,16 +15,24 @@ function string_array(value) {
 	for (let item in value) if (type(item) != 'string' || length(item) > DETECT_ARG_MAX) return false;
 	return true;
 }
+function argv_token(value, max) {
+	return type(value) == 'string' && length(value) > 0 && length(value) <= max && index(value, sprintf('%c', 0)) < 0 &&
+		index(value, '\n') < 0 && index(value, '\r') < 0 && index(value, '\t') < 0;
+}
 export const detect_argv_valid = function(operation, value) {
-	let kind = substr(operation, 11), classify = operation == 'z2k_detect_classify', expected = classify ? 10 : 8;
-	if (!string_array(value) || length(value) != expected || value[0] != DETECT_EXECUTABLE || value[1] != kind ||
-		type(value[2]) != 'string' || index(value[2], '\n') >= 0 || index(value[2], '\r') >= 0 ||
-		index(value[2], '\t') >= 0 || value[expected - 1] != '-json') return false;
-	let offset = 3;
-	if (classify) { if (value[3] != '-hello' || value[4] != 'modern') return false; offset = 5; }
-	return value[offset] == '-repeats' && match(value[offset + 1], /^[1-9][0-9]*$/) &&
-		int(value[offset + 1]) <= 32 && value[offset + 2] == '-timeout' && match(value[offset + 3], /^[1-9][0-9]*s$/) &&
-		int(substr(value[offset + 3], 0, length(value[offset + 3]) - 1)) <= 120;
+	let kind = substr(operation, 11);
+	if (!string_array(value) || value[0] != DETECT_EXECUTABLE || value[1] != kind) return false;
+	if (kind == 'probe') return length(value) == 4 && value[2] == '-json' && argv_token(value[3], 253);
+	if (kind == 'classify') return length(value) == 10 && value[2] == '-hello' && index(['modern', 'legacy', 'both'], value[3]) >= 0 &&
+		value[4] == '-repeats' && match(value[5], /^[1-9][0-9]*$/) && int(value[5]) <= 32 &&
+		value[6] == '-timeout' && match(value[7], /^[1-9][0-9]*s$/) && int(substr(value[7], 0, length(value[7]) - 1)) <= 120 &&
+		value[8] == '-json' && argv_token(value[9], 320);
+	if (kind == 'quic') return length(value) == 10 && value[2] == '-port' && match(value[3], /^[1-9][0-9]*$/) && int(value[3]) <= 65535 &&
+		value[4] == '-repeats' && match(value[5], /^[1-9][0-9]*$/) && int(value[5]) <= 32 && value[6] == '-timeout' &&
+		match(value[7], /^[1-9][0-9]*s$/) && int(substr(value[7], 0, length(value[7]) - 1)) <= 120 && value[8] == '-json' && argv_token(value[9], 253);
+	if (kind == 'voice') return length(value) == 7 && value[2] == '-repeats' && match(value[3], /^[1-9][0-9]*$/) && int(value[3]) <= 32 &&
+		value[4] == '-timeout' && match(value[5], /^[1-9][0-9]*s$/) && int(substr(value[5], 0, length(value[5]) - 1)) <= 120 && value[6] == '-json';
+	return kind == 'tcp16' && length(value) == 2;
 };
 
 function result_has(value, names) {
@@ -101,6 +109,7 @@ function tcp16_valid(value) {
 		(type(value.RTT) == 'int' || type(value.RTT) == 'double') && value.RTT >= 0;
 }
 export const detect_output_valid = function(operation, stdout) {
+	if (operation == 'z2k_detect_tcp16') return type(stdout) == 'string' && length(stdout) > 0 && length(stdout) <= 65536 && index(stdout, sprintf('%c', 0)) < 0;
 	let value = parse_result(stdout);
 	if (value == null) return false;
 	if (operation == 'z2k_detect_probe') return probe_valid(value);
@@ -116,5 +125,5 @@ export const detect_result_data_valid = function(operation, data) {
 		detect_argv_valid(operation, data.argv) && type(data.exitCode) == 'int' && data.exitCode >= -1 &&
 		type(data.stdout) == 'string' && length(data.stdout) <= 65536 && type(data.stderr) == 'string' &&
 		length(data.stderr) <= 65536 && type(data.timedOut) == 'bool' && type(data.outputTruncated) == 'bool' &&
-		(data.timedOut || data.outputTruncated || detect_output_valid(operation, data.stdout));
+		(data.exitCode != 0 || data.timedOut || data.outputTruncated || detect_output_valid(operation, data.stdout));
 };

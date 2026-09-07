@@ -46,10 +46,20 @@ const detectResultFixtures = {
 };
 
 function detectData(kind, stdout = JSON.stringify(detectResultFixtures[kind]), overrides = {}) {
-  const argv = ['/usr/libexec/zapret2-manager/z2k-detect', kind, 'example.com:443'];
-  if (kind === 'classify') argv.push('-hello', 'modern');
-  argv.push('-repeats', kind === 'classify' ? '3' : '1', '-timeout', '1s', '-json');
+  const argv = ['/usr/libexec/zapret2-manager/z2k-detect', kind];
+  if (kind === 'probe') argv.push('-json', 'example.com');
+  else if (kind === 'classify') argv.push('-hello', 'modern', '-repeats', '3', '-timeout', '1s', '-json', 'example.com:443');
+  else if (kind === 'quic') argv.push('-port', '443', '-repeats', '1', '-timeout', '1s', '-json', 'example.com');
+  else if (kind === 'voice') argv.push('-repeats', '1', '-timeout', '1s', '-json');
   return { argv, exitCode: 0, stdout, stderr: '', timedOut: false, outputTruncated: false, ...overrides };
+}
+function detectArgs(kind, overrides = {}) {
+  const args = kind === 'probe' ? { domain: 'example.com', timeoutMs: 1000 } :
+    kind === 'classify' ? { host: 'example.com', port: 443, hello: 'modern', repeats: 3, timeoutMs: 1000 } :
+    kind === 'quic' ? { domain: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 } :
+    kind === 'voice' ? { repeats: 1, timeoutMs: 1000 } :
+    { timeoutMs: 1000 };
+  return { ...args, ...overrides };
 }
 function detectWrongTypeResult(kind) {
   const value = JSON.parse(JSON.stringify(detectResultFixtures[kind]));
@@ -96,8 +106,8 @@ test('exports typed operations and sends exact closed helper requests', async ()
     [`native.atomic_write_json_revision('runtime', 'scanner/scan.record.json', { revision: 2 }, false, 1)`, 'atomic_write_json_revision',
       { root: 'runtime', path: 'scanner/scan.record.json', value: { revision: 2 }, mode: '0600', uid: 0, gid: 0, allowCreate: false, expectedRevision: 1 }, 30000,
       { byteLength: 15, committed: true, durability: 'tmpfs_visible' }],
-    [`native.z2k_detect('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`, 'z2k_detect_probe',
-      { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 2000,
+    [`native.z2k_detect('z2k_detect_probe', { domain: 'example.com', timeoutMs: 1000 }, 1000)`, 'z2k_detect_probe',
+      { domain: 'example.com', timeoutMs: 1000 }, 2000,
       detectData('probe')],
   ];
   const ids = new Set();
@@ -124,7 +134,7 @@ test('rejects malformed and operation-incompatible Detect JSON while accepting e
   const operations = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
   for (const kind of operations) {
     const operation = `z2k_detect_${kind}`;
-    const expression = `native.z2k_detect(${JSON.stringify(operation)}, ${JSON.stringify({ host: 'example.com', port: 443, ...(kind === 'classify' ? { hello: 'modern' } : {}), repeats: kind === 'classify' ? 3 : 1, timeoutMs: 1000 })}, 1000)`;
+    const expression = `native.z2k_detect(${JSON.stringify(operation)}, ${JSON.stringify(detectArgs(kind))}, 1000)`;
     for (const stdout of ['not-json', '{"target":', '[]', detectWrongTypeResult(kind), '{}']) {
       const { result } = await roundTrip(expression, ({ header }) =>
         childExited(header.requestId, success(header.requestId, detectData(kind, stdout))));
@@ -143,7 +153,7 @@ test('rejects malformed and operation-incompatible Detect JSON while accepting e
 });
 
 test('keeps timeout and bounded-output metadata valid without requiring complete JSON', async () => {
-  const expression = `native.z2k_detect('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`;
+  const expression = `native.z2k_detect('z2k_detect_probe', { domain: 'example.com', timeoutMs: 1000 }, 1000)`;
   const timeout = detectData('probe', 'partial', { exitCode: -1, stderr: 'timeout', timedOut: true });
   const timeoutResult = await roundTrip(expression, ({ header }) =>
     childExited(header.requestId, success(header.requestId, timeout)));
@@ -160,19 +170,19 @@ test('keeps timeout and bounded-output metadata valid without requiring complete
 
 test('keeps native IPv6 prevalidation aligned with the adapter', async () => {
   fs.rmSync(SOCKET_PATH, { force: true });
-  const result = await invoke(`native.z2k_detect('z2k_detect_probe', { host: '1:2:3:4:5:6:7:8:', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`);
+  const result = await invoke(`native.z2k_detect('z2k_detect_probe', { domain: '1:2:3:4:5:6:7:8:', timeoutMs: 1000 }, 1000)`);
   assert.equal(result.error.code, 'EINPUT');
 });
 
 test('accepts a maximum-length hostname and rejects an overlong hostname in native-helper', async () => {
   const maxHost = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
   const data = detectData('probe');
-  data.argv[2] = `${maxHost}:443`;
-  const expression = `native.z2k_detect('z2k_detect_probe', ${JSON.stringify({ host: maxHost, port: 443, repeats: 1, timeoutMs: 1000 })}, 1000)`;
+  data.argv[3] = maxHost;
+  const expression = `native.z2k_detect('z2k_detect_probe', ${JSON.stringify({ domain: maxHost, timeoutMs: 1000 })}, 1000)`;
   const valid = await roundTrip(expression, ({ header }) => childExited(header.requestId, success(header.requestId, data)));
   assert.equal(valid.result.ok, true);
   const overlong = `${maxHost}a`;
-  const invalid = await invoke(`native.z2k_detect('z2k_detect_probe', ${JSON.stringify({ host: overlong, port: 443, repeats: 1, timeoutMs: 1000 })}, 1000)`);
+  const invalid = await invoke(`native.z2k_detect('z2k_detect_probe', ${JSON.stringify({ domain: overlong, timeoutMs: 1000 })}, 1000)`);
   assert.equal(invalid.error.code, 'EINPUT');
 });
 
@@ -414,13 +424,13 @@ test('validates exact operation success schemas and rejects wrong fields types a
       [{ sha256: 'A'.repeat(64), byteLength: 0 }, { sha256: '0'.repeat(64), byteLength: -1 }]],
     [`native.atomic_write('runtime', 'x', 'YQ==', true)`, { byteLength: 1, committed: true, durability: 'tmpfs_visible' },
       [{ byteLength: -1, committed: true, durability: 'tmpfs_visible' }, { byteLength: 1, committed: true, durability: 'unknown' }]],
-    [`native.z2k_detect('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`,
-      { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '1s', '-json'], exitCode: 137, stdout: 'x', stderr: '', timedOut: false, outputTruncated: true },
-      [{ argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443'], exitCode: 137, stdout: 'x', stderr: '', timedOut: false, outputTruncated: true },
+    [`native.z2k_detect('z2k_detect_probe', { domain: 'example.com', timeoutMs: 1000 }, 1000)`,
+      { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', '-json', 'example.com'], exitCode: 137, stdout: 'x', stderr: '', timedOut: false, outputTruncated: true },
+      [{ argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com'], exitCode: 137, stdout: 'x', stderr: '', timedOut: false, outputTruncated: true },
        { argv: ['/bin/sh', 'probe'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
-       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '33', '-timeout', '1s', '-json'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
-       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '121s', '-json'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
-       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '1s', '-json'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: 'true' }]],
+       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', '-json', 'example.com'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
+       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', '-json', 'example.com'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: false },
+       { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', '-json', 'example.com'], exitCode: 0, stdout: '', stderr: '', timedOut: false, outputTruncated: 'true' }]],
   ];
   for (const [expression, valid, invalid] of cases) {
     const accepted = await roundTrip(expression, ({ header }) =>

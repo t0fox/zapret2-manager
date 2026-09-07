@@ -947,6 +947,22 @@ function z2k_operation_spawn(jobPath) {
 	let launched = command('sh -c ' + shell_quote(worker)), pid = trim(launched.out);
 	return launched.rc == 0 && match(pid, /^[0-9]+$/) ? { ok: true, pid: +pid } : fail('ETARGET', 'Z2K lifecycle worker could not be started.', { output: trim(launched.out) });
 }
+function z2k_operation_process_alive(pid) {
+	if (type(pid) != 'int' || pid <= 0) return false;
+	let checked = command('kill -0 ' + pid + ' 2>/dev/null');
+	return checked.rc == 0;
+}
+function z2k_operation_recover_dead(jobPath, job) {
+	if (!object(job) || job.finished === true || (job.phase != 'queued' && job.phase != 'running')) return job;
+	if (z2k_operation_process_alive(job.pid)) return job;
+	job.phase = 'failed';
+	job.finished = true;
+	job.error = { code: 'EWORKER_EXITED', message: 'Z2K lifecycle worker exited before publishing its final operation result.' };
+	job.updatedAt = time();
+	job.finishedAt = job.updatedAt;
+	if (!z2k_operation_write(jobPath, job)) return null;
+	return job;
+}
 export const resource_center_operation_write = function(path, value) { return z2k_operation_write(path, value); };
 export const resource_center_enqueue_update = function(request) {
 	if (!object(request) || request.confirm !== true || request.bundleId != 'z2k-curated-lua') return fail('EINPUT', 'Z2K lifecycle request is invalid.');
@@ -966,7 +982,12 @@ export const resource_center_enqueue_update = function(request) {
 		z2k_operation_write(jobPath, job);
 		return spawned;
 	}
-	job.pid = spawned.pid; z2k_operation_write(jobPath, job);
+	job.pid = spawned.pid;
+	if (!z2k_operation_write(jobPath, job)) {
+		job.phase = 'failed'; job.finished = true; job.error = { code: 'EWRITE', message: 'Z2K lifecycle worker identity could not be persisted.' }; job.updatedAt = time(); job.finishedAt = job.updatedAt;
+		z2k_operation_write(jobPath, job);
+		return fail('EWRITE', 'Z2K lifecycle operation could not persist its worker identity.');
+	}
 	return { ok: true, accepted: true, operationId: operationId, state: 'queued', phase: 'queued', targetVersion: request.targetVersion };
 };
 export const resource_center_update_status = function(request) {
@@ -974,6 +995,8 @@ export const resource_center_update_status = function(request) {
 	if (!z2k_operation_id_valid(operationId)) return fail('EINPUT', 'Z2K lifecycle operation id is invalid.');
 	let job = z2k_operation_load(operationId);
 	if (job == null) return fail('ENOENT', 'Z2K lifecycle operation was not found.');
+	job = z2k_operation_recover_dead(z2k_operation_path(operationId), job);
+	if (job == null) return fail('EIO', 'Z2K lifecycle operation recovery could not be persisted.');
 	let answer = { ok: true, operationId: operationId, state: job.phase || 'queued', phase: job.phase || 'queued', finished: job.finished === true, pid: job.pid || null };
 	if (job.result != null) answer.result = job.result;
 	if (job.error != null) answer.error = job.error;

@@ -142,11 +142,16 @@ function detect_host(value) {
 function detect_operation(value) { return type(value) == 'string' && index(DETECT_OPERATIONS, value) >= 0; }
 
 function detect_args_valid(operation, value) {
-	let names = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
-	return detect_operation(operation) && exact_fields(value, names) && detect_host(value.host) && type(value.port) == 'int' &&
-		value.port >= 1 && value.port <= 65535 && type(value.repeats) == 'int' && value.repeats >= 1 && value.repeats <= 32 &&
-		type(value.timeoutMs) == 'int' && value.timeoutMs >= 1 && value.timeoutMs <= 120000 &&
-		(operation != 'z2k_detect_classify' || value.hello == 'modern');
+	let names = operation == 'z2k_detect_probe' ? ['domain', 'timeoutMs'] :
+		operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] :
+		operation == 'z2k_detect_quic' ? ['domain', 'port', 'repeats', 'timeoutMs'] :
+		operation == 'z2k_detect_voice' ? ['repeats', 'timeoutMs'] : ['timeoutMs'];
+	if (!detect_operation(operation) || !exact_fields(value, names) || type(value.timeoutMs) != 'int' || value.timeoutMs < 1 || value.timeoutMs > 120000) return false;
+	if (exists(value, 'domain') && !detect_host(value.domain)) return false;
+	if (exists(value, 'host') && !detect_host(value.host)) return false;
+	if (exists(value, 'port') && (type(value.port) != 'int' || value.port < 1 || value.port > 65535)) return false;
+	if (exists(value, 'repeats') && (type(value.repeats) != 'int' || value.repeats < 1 || value.repeats > 32)) return false;
+	return operation != 'z2k_detect_classify' || index(['modern', 'legacy', 'both'], value.hello) >= 0;
 }
 
 function valid_root(value) {
