@@ -54,7 +54,7 @@ GREEN focused UCode gate after the follow-up fixes:
 
 ```text
 wsl bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/z2k-data-diagnostics.test.mjs"
-11 passed, 0 failed, 0 skipped
+12 passed, 0 failed, 0 skipped
 ```
 
 The focused suite exercises real UCode imports and includes identity, schema,
@@ -69,11 +69,15 @@ diagnostics error bounds and the typed RPC parser.
   `ab346fa66a895e12d63a308e70ce330ba795822a`.
 - `git diff --check`: passed.
 - Relevant combined gate (Task 13 plus resource authority/tooling/transaction,
-  promotion, strategy override and resource-model tests): `87 passed, 0
+  promotion, strategy override and resource-model tests): `88 passed, 0
   failed, 0 skipped`.
+- Relevant authority/lifecycle combined gate (Task 13 plus receipt, installed
+  authority, runtime composition/readiness, lifecycle transaction, Detect RPC
+  and autocircular identity): `112 tests; 111 passed, 0 failed, 1 TODO`.
 - Full bounded resource-pattern gate:
   `node --test tests/product/z2k-data-diagnostics.test.mjs
-  tests/product/*resource*.test.mjs` -> `88 passed, 1 failed` out of `89`.
+  tests/product/*resource*.test.mjs` with the pinned UCode runtime -> `89
+  passed, 1 failed` out of `90`.
   The only failure is the unrelated baseline assertion at
   `tests/product/resource-center-manifest.test.mjs:49`: `expected 7`, actual
   `6`. The manifest currently contains six IDs (`lua:z2k-modern-core`,
@@ -103,3 +107,44 @@ e7a057ed fix: harden Task 13 data and diagnostics boundaries
 
 This report update is the only remaining Task 13 change to commit; the final
 worktree check must be clean. No router/browser/live acceptance was run.
+
+## Fix-round 2 — independent re-review P1 corrections
+
+The caller-controlled-authority finding is closed. `z2k_data_refresh` now
+rejects any `input.authority` with `EAUTHORITY`, and the typed RPC parser does
+not accept or forward an authority field. The production path reads the
+existing `asset_registry_list`, `z2k_registry_receipt_state`,
+`runtime_composition.resolveInstalled`, and `z2k_detect_status` owners
+internally. Missing, legacy, incoherent, or data-identity-incomplete owner
+state fails closed. The test-only internal `owners` seam represents those
+owners without becoming a caller input; a coherent internal seam is accepted,
+while fabricated coherent-but-mismatched caller authority is rejected before
+staging.
+
+The production cleanup finding is closed. The default filesystem abstraction
+now removes every manifest entry, manifest file, revision directories and the
+revision root after pointer failure. It snapshots and verifies the previous
+pointer, restores it when necessary, and returns `EROLLBACK_FAILED` with
+`state: "uncertain"` whenever removal/restoration cannot be proven. The new
+pointer-failure test uses the normal stage/rename/pointer path with no injected
+cleanup hook and proves the old pointer remains and no unpublished revision
+remains.
+
+TDD evidence for this fix round:
+
+```text
+RED after adding the P1 assertions, before the production corrections:
+12 tests; 8 passed, 4 failed.
+Failures: refresh accepted path had no internal owner seam; default pointer
+failure stopped during staging; RPC valid input still required caller authority.
+
+GREEN after the corrections:
+12 passed, 0 failed, 0 skipped.
+```
+
+Fix-round commits:
+
+```text
+6dfaac94 fix: bind Task 13 refresh to internal authority owners
+cadfb4c4 fix: accept only nested owner data identities
+```
