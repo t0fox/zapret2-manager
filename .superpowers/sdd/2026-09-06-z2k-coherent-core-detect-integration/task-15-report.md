@@ -12,7 +12,9 @@ live gate.
 
 - Worktree: `G:\zapret2-manager\.worktrees\z2k-coherent-core-detect`
 - Branch: `codex/z2k-coherent-core-detect`
-- Current HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`
+- Evidence-base HEAD: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7` (exact `git rev-parse HEAD` before this bookkeeping fix).
+- Prior implementation HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`.
+- The final bookkeeping commit is reported separately because this report cannot self-reference a commit created after its content.
 - No merge or push.
 - No router mutation or deployment.
 - Task-owned artifacts: `acceptance.md`, `live-evidence.json`, and this report.
@@ -56,6 +58,36 @@ Observed failure classes included package-helper, Avatar, Profiles, Scanner,
 DNS, Resource Center, and Strategy Catalog suites. The run stopped after the
 bounded no-progress interval; it is not treated as green.
 
+The exact pre-existing ledger baseline for this classification is
+`.superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/progress.md`
+under `## Baseline`. This report preserves that baseline as historical
+evidence and does not rerun or relabel it.
+
+## Exact LKG before/after evidence
+
+The deterministic rollback-injection fixture is
+`tests/product/z2k-autocircular-pool-identity.test.mjs:165-192`, test
+`failure after sidecar/state write restores every prior LKG owner including
+Detect and learned state`. Exact values and equality status:
+
+| Owner | Before fixture | After fixture/output | Equality proven |
+|---|---|---|---|
+| Receipt identity | `priorReceipt: null` (line 178) | not emitted | No; the rollback fixture has no receipt identity value |
+| runtimeBundleDigest | not present in the rollback fixture | not emitted | No; no runtime-bundle digest was captured |
+| Detect source identity | `old-detect` | `old-detect` from `detectRestore` seam (line 186), with `restored:true` | Yes |
+| Catalog | `generationId: old-catalog`, `indexDigest: a` repeated 64 times, `sourceInputs: {}` (lines 168-170) | `ok:true`, `generationId: old-catalog`, `indexDigest: a` repeated 64 times (line 184) | Yes |
+| Active strategy | `{id: avatar:stable, sourceId: avatar}` and same `priorActiveStrategy` (lines 168, 172) | `strategyRestore` returns `ok:true, restored:true` (line 185); post object not emitted | Restore-result level only; byte equality not emitted |
+
+The test assertions at lines 191-192 prove overall rollback success and Detect
+restoration. The receipt-v3 fixture at
+`tests/product/z2k-receipt-v3.test.mjs:41-63` supplies exact canonical values
+for the missing fields but is not rollback output: `receiptId=receipt-v3`,
+`runtimeBundleDigest=a` repeated 64 times, `catalogDigest=f` repeated 64
+times, Detect digest `d` repeated 64 times, and Detect source commit `a`
+repeated 40 times (the fixture's `commit` is defined at line 20). Those values
+are recorded as fixture references only; no before/after equality is claimed
+for them.
+
 ## Router and Discord blockers
 
 Captured read-only router baseline: `root@192.168.1.1` reachable; OpenWrt
@@ -85,7 +117,7 @@ package deployment is also blocked.
 ## Commit boundary
 
 The separate Luna reviewer will perform code review after this commit. This
-turn performs no review approval, merge, or push. The intended commit contains
+turn performs no review approval, merge, or push. This fix commit contains
 only these three files with message:
 
-`docs: record coherent Z2K acceptance evidence`
+`docs: clarify coherent Z2K acceptance evidence`

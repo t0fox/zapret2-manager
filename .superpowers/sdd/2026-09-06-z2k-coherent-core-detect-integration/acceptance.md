@@ -16,7 +16,9 @@ therefore not proven for this HEAD.
 
 - Worktree: `G:\zapret2-manager\.worktrees\z2k-coherent-core-detect`
 - Branch: `codex/z2k-coherent-core-detect`
-- HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`
+- Evidence-base HEAD: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7` (exact `git rev-parse HEAD` before this bookkeeping fix).
+- Prior implementation HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`.
+- The final bookkeeping commit is reported separately because an artifact cannot contain its own commit SHA before that commit exists.
 - No merge or push was performed.
 - No router mutation was performed; router state was inspected read-only.
 - Task-owned files are this file, `live-evidence.json`, and `task-15-report.md`.
@@ -30,7 +32,39 @@ its control directory was not writable.
 
 The separate transaction/autocircular run produced **32 passed, 0 failed**,
 including pre-commit Detect SHA failure, post-materialization readiness
-failure, compensation, crash-window, and exact LKG restoration assertions.
+failure, compensation, crash-window, and LKG restoration assertions.
+
+### Exact LKG rollback evidence
+
+The deterministic rollback fixture is
+`tests/product/z2k-autocircular-pool-identity.test.mjs:165-192`, test
+`failure after sidecar/state write restores every prior LKG owner including
+Detect and learned state`. Its exact before-fixture values are:
+
+- receipt identity: `priorReceipt: null`; no receipt identity is emitted by
+  this rollback fixture, so receipt equality is **NOT_PROVEN**;
+- runtime bundle digest: not present in the rollback fixture or its seam
+  output, so runtime-bundle equality is **NOT_PROVEN**;
+- Detect source identity: before `old-detect` and after restoration
+  `old-detect`; equality **PROVEN** by the `detectRestore` seam at line 186 and
+  the test assertion at line 192;
+- catalog: before `{generationId:'old-catalog',indexDigest:'a' repeated 64
+  times,sourceInputs:{}}`; after `{ok:true,generationId:'old-catalog',indexDigest:'a'
+  repeated 64 times}` from line 184; equality **PROVEN**;
+- active strategy: before `{id:'avatar:stable',sourceId:'avatar'}` and the
+  same `pending.priorActiveStrategy` at line 172; the strategy restore seam
+  returns `restored:true` at line 185. Restoration is **PROVEN at the
+  authority/restore-result level**, but no post-restore strategy object is
+  emitted for byte-for-byte comparison.
+
+The independent receipt fixture
+`tests/product/z2k-receipt-v3.test.mjs:41-63` contains exact canonical
+values, but is not rollback output: `receiptId:'receipt-v3'`,
+`runtimeBundleDigest:'a' repeated 64 times`, `catalogDigest:'f' repeated 64
+times`, Detect digest `'d' repeated 64 times`, and Detect source commit `'a'
+repeated 40 times` (the fixture's `commit` is defined at line 20). These
+values must not be treated as before/after rollback equality. The captured
+rollback run did not print additional receipt or runtime-bundle values.
 
 ## Static and full harness evidence
 
@@ -46,8 +80,10 @@ failures, including the WSL linked-worktree error:
 Observed failures included package-helper, Avatar, Profiles, Scanner, DNS,
 Resource Center, and Strategy Catalog suites. After further catalog failures
 there was no output during the bounded no-progress interval; the process was
-interrupted. Existing ledger baseline evidence contains the same failure
-family, but this fresh run is recorded as failed/incomplete, not green.
+interrupted. The exact pre-existing ledger baseline is
+`.superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/progress.md`
+under `## Baseline`; it contains the same failure family, but this fresh run
+is recorded as failed/incomplete, not green.
 
 ## Router baseline and deployment boundary
 
