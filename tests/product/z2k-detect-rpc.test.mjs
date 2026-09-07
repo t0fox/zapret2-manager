@@ -48,10 +48,20 @@ const detectResultFixtures = {
   },
 };
 
-function detectData(kind, stdout = JSON.stringify(detectResultFixtures[kind]), overrides = {}, endpoint = 'example.com:443', repeats = kind === 'classify' ? '3' : '1', timeout = '6s') {
-  const argv = ['/usr/libexec/zapret2-manager/z2k-detect', kind, endpoint];
-  if (kind === 'classify') argv.push('-hello', 'modern');
-  argv.push('-repeats', repeats, '-timeout', timeout, '-json');
+function detectInput(kind, target = 'example.com') {
+  if (kind === 'probe') return { domain: target, timeoutMs: 1000 };
+  if (kind === 'classify') return { host: target, port: 443, hello: 'modern', repeats: 3, timeoutMs: 1000 };
+  if (kind === 'quic') return { domain: target, port: 443, repeats: 1, timeoutMs: 1000 };
+  if (kind === 'voice') return { repeats: 1, timeoutMs: 1000 };
+  return { timeoutMs: 1000 };
+}
+function detectData(kind, stdout, overrides = {}, target = 'example.com', repeats = kind === 'classify' ? '3' : '1', timeout = '6s') {
+  if (stdout === undefined) stdout = kind === 'tcp16' ? 'tcp16 fixture output' : JSON.stringify(detectResultFixtures[kind]);
+  const argv = ['/usr/libexec/zapret2-manager/z2k-detect', kind];
+  if (kind === 'probe') argv.push('-json', target);
+  else if (kind === 'classify') argv.push('-hello', 'modern', '-repeats', repeats, '-timeout', timeout, '-json', `${target}:443`);
+  else if (kind === 'quic') argv.push('-port', '443', '-repeats', repeats, '-timeout', timeout, '-json', target);
+  else if (kind === 'voice') argv.push('-repeats', repeats, '-timeout', timeout, '-json');
   return {
     argv, exitCode: 0, stdout, stderr: '', timedOut: false, outputTruncated: false, ...overrides,
   };
@@ -127,13 +137,12 @@ test('production boundary removes legacy Scanner RPC and raw-shell entry', () =>
 test('Detect input normalizer returns schema errors for missing or mistyped semantics and preserves safe additive fields', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   for (const kind of operations) {
     const operation = `z2k_detect_${kind}`;
-    const valid = { host: 'example.com', port: 443, repeats: kind === 'classify' ? 3 : 1, timeoutMs: 1000, additive: { source: 'upstream' } };
-    if (kind === 'classify') valid.hello = 'modern';
+    const valid = { ...detectInput(kind), additive: { source: 'upstream' } };
     const normalized = invoke(`detect.z2k_detect_normalize_input(${JSON.stringify(operation)}, ${JSON.stringify(valid)})`);
     assert.equal(normalized.ok, true, operation);
     assert.deepEqual(normalized.value.additive, valid.additive, operation);
     const missing = { ...valid };
-    delete missing[kind === 'classify' ? 'hello' : 'port'];
+    delete missing[kind === 'probe' || kind === 'quic' ? 'domain' : kind === 'classify' ? 'hello' : kind === 'voice' ? 'repeats' : 'timeoutMs'];
     const missingResult = invoke(`detect.z2k_detect_normalize_input(${JSON.stringify(operation)}, ${JSON.stringify(missing)})`);
     assert.equal(missingResult.error.code, 'EDETECT_SCHEMA', `${operation} missing required field`);
     const wrongType = { ...valid, timeoutMs: '1000' };
@@ -166,7 +175,7 @@ test('Detect status normalizer rejects fake or malformed success and preserves b
 
 test('Detect adapter preserves additive result fields while normalizing the typed envelope', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   const data = detectData('probe', JSON.stringify({ ...detectResultFixtures.probe, additive: { source: 'upstream' } }));
-  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(detectInput('probe'))}, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
   assert.equal(result.ok, true);
   assert.equal(JSON.parse(result.data.stdout).additive.source, 'upstream');
 });
@@ -178,17 +187,17 @@ test('Detect adapter gates native invocation on the coherent installed authority
     { ok: false, error: { code: 'EZ2K_INCOHERENT' } },
     { ok: true, coherent: false, error: { code: 'EDETECT_INCOMPATIBLE' } },
   ]) {
-    const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { authority: function() { return ${JSON.stringify(authority)}; }, invoke: function() { return { ok: true }; } })`);
+    const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(detectInput('probe'))}, { authority: function() { return ${JSON.stringify(authority)}; }, invoke: function() { return { ok: true }; } })`);
     assert.equal(result.ok, false, JSON.stringify(authority));
     assert.equal(result.error.code, authority.error.code, JSON.stringify(authority));
   }
-  const coherent = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { authority: function() { return ${JSON.stringify(coherentStatusFixture)}; }, invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
+  const coherent = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(detectInput('probe'))}, { authority: function() { return ${JSON.stringify(coherentStatusFixture)}; }, invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
   assert.equal(coherent.ok, true);
 });
 
 test('Detect adapter exposes canonical no-target and no-active-voice errors', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   for (const [kind, code] of [['probe', 'EDETECT_NO_TARGET'], ['voice', 'EDETECT_NO_ACTIVE_VOICE']]) {
-    const result = invoke(`detect.z2k_detect_execute('z2k_detect_${kind}', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, { authority: function() { return ${JSON.stringify(coherentStatusFixture)}; }, invoke: function() { return { ok: false, error: { code: '${code}' } }; } })`);
+    const result = invoke(`detect.z2k_detect_execute('z2k_detect_${kind}', ${JSON.stringify(detectInput(kind))}, { authority: function() { return ${JSON.stringify(coherentStatusFixture)}; }, invoke: function() { return { ok: false, error: { code: '${code}' } }; } })`);
     assert.equal(result.error.code, code);
   }
 });
@@ -198,23 +207,25 @@ test('protocol manifest aligns Detect argv bounds with maximum and overlong host
   assert.equal(maxHost.length, 253);
   for (const kind of operations) {
     const schema = protocol.operations[`z2k_detect_${kind}`];
-    const hostSchema = schema.requestSchema.properties.host;
     const argvSchema = schema.successSchema.properties.argv;
-    assert.equal(hostSchema.maxLength, 253, kind);
+    const targetSchema = schema.requestSchema.properties.host || schema.requestSchema.properties.domain;
+    if (targetSchema) assert.equal(targetSchema.maxLength, 253, kind);
     assert.equal(argvSchema.items.maxLength, 320, kind);
-    assert.ok(maxHost.length <= hostSchema.maxLength, `${kind}: maximum hostname must fit`);
-    assert.ok(maxHost.length + 1 > hostSchema.maxLength, `${kind}: overlong hostname must reject`);
-    assert.ok(`${maxHost}:443`.length <= argvSchema.items.maxLength, `${kind}: endpoint must fit argv bound`);
+    if (targetSchema) {
+      assert.ok(maxHost.length <= targetSchema.maxLength, `${kind}: maximum hostname must fit`);
+      assert.ok(maxHost.length + 1 > targetSchema.maxLength, `${kind}: overlong hostname must reject`);
+    }
+    assert.ok(`${maxHost}:443`.length <= argvSchema.items.maxLength, `${kind}: maximum endpoint must fit argv bound`);
   }
 });
 
 test('Detect adapter rejects process-boundary fields before its native seam', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   for (const args of [
-    { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000, executable: '/bin/sh' },
-    { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000, argv: ['id'] },
-    { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000, command: 'id' },
-    { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000, env: {} },
-    { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000, cwd: '/tmp' },
+    { domain: 'example.com', timeoutMs: 1000, executable: '/bin/sh' },
+    { domain: 'example.com', timeoutMs: 1000, argv: ['id'] },
+    { domain: 'example.com', timeoutMs: 1000, command: 'id' },
+    { domain: 'example.com', timeoutMs: 1000, env: {} },
+    { domain: 'example.com', timeoutMs: 1000, cwd: '/tmp' },
   ]) {
     const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(args)}, { invoke: function() { return { ok: true }; } })`);
     assert.equal(result.ok, false, JSON.stringify(args));
@@ -224,27 +235,27 @@ test('Detect adapter rejects process-boundary fields before its native seam', { 
 
 test('Detect adapter forwards only normalized typed input through one native seam', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   const data = detectData('classify');
-  const result = invoke(`detect.z2k_detect_execute('z2k_detect_classify', { host: 'example.com', port: 443, hello: 'modern', repeats: 3, timeoutMs: 6000 }, { invoke: function(operation, args, timeoutMs) { return ${JSON.stringify({ ok: true, data })}; } })`);
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_classify', ${JSON.stringify({ ...detectInput('classify'), timeoutMs: 6000 })}, { invoke: function(operation, args, timeoutMs) { return ${JSON.stringify({ ok: true, data })}; } })`);
   assert.deepEqual(result, { ok: true, data });
 });
 
-test('Detect adapter applies strict host and endpoint validation before its native seam', { skip: !ucode || !fs.existsSync(ucode) }, () => {
-	for (const host of ['', ':', 'a:b:c', 'a..example.com', '-example.com', 'example-.com', '999.1.1.1', '1:2:3', ':1:2:3:4:5:6:7:8', '1:2:3:4:5:6:7:8:', 'example\u0000.com', 'example.com\n-id']) {
-    const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ host, port: 443, repeats: 1, timeoutMs: 1000 })}, { invoke: function() { return { ok: true }; } })`);
-    assert.equal(result.ok, false, host);
-    assert.equal(result.error.code, 'EINPUT', host);
+	test('Detect adapter applies strict host and endpoint validation before its native seam', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+	for (const domain of ['', ':', 'a:b:c', 'a..example.com', '-example.com', 'example-.com', '999.1.1.1', '1:2:3', ':1:2:3:4:5:6:7:8', '1:2:3:4:5:6:7:8:', 'example\u0000.com', 'example.com\n-id']) {
+    const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ domain, timeoutMs: 1000 })}, { invoke: function() { return { ok: true }; } })`);
+    assert.equal(result.ok, false, domain);
+    assert.equal(result.error.code, 'EINPUT', domain);
   }
-  const data = detectData('probe', JSON.stringify(detectResultFixtures.probe), {}, '[2001:db8::1]:443', '1', '1s');
-  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: '2001:db8::1', port: 443, repeats: 1, timeoutMs: 1000 }, { invoke: function(operation, args) { return ${JSON.stringify({ ok: true, data })}; } })`);
+  const data = detectData('probe', JSON.stringify(detectResultFixtures.probe), {}, '2001:db8::1', '1', '1s');
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { domain: '2001:db8::1', timeoutMs: 1000 }, { invoke: function(operation, args) { return ${JSON.stringify({ ok: true, data })}; } })`);
   assert.deepEqual(result, { ok: true, data });
 });
 
 test('Detect adapter accepts the maximum hostname and rejects an overlong hostname', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   const maxHost = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
-  const data = detectData('probe', undefined, {}, `${maxHost}:443`);
-  const valid = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ host: maxHost, port: 443, repeats: 1, timeoutMs: 1000 })}, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
+  const data = detectData('probe', undefined, {}, maxHost);
+  const valid = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ domain: maxHost, timeoutMs: 1000 })}, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
   assert.equal(valid.ok, true);
-  const invalid = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ host: `${maxHost}a`, port: 443, repeats: 1, timeoutMs: 1000 })}, { invoke: function() { return { ok: true, data: ${JSON.stringify(data)} }; } })`);
+  const invalid = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ domain: `${maxHost}a`, timeoutMs: 1000 })}, { invoke: function() { return { ok: true, data: ${JSON.stringify(data)} }; } })`);
   assert.equal(invalid.ok, false);
   assert.equal(invalid.error.code, 'EINPUT');
 });
@@ -252,15 +263,15 @@ test('Detect adapter accepts the maximum hostname and rejects an overlong hostna
 test('Detect adapter validates bounded operation-specific JSON before returning success', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   for (const kind of operations) {
     const operation = `z2k_detect_${kind}`;
-    const input = { host: 'example.com', port: 443, repeats: kind === 'classify' ? 3 : 1, timeoutMs: 6000 };
-    if (kind === 'classify') input.hello = 'modern';
-    for (const [label, stdout] of [
+    const input = { ...detectInput(kind), timeoutMs: 6000 };
+    const invalidOutputs = kind === 'tcp16' ? [['empty', '']] : [
       ['malformed', '{"target":'],
       ['truncated', '{"target":"example.com:443"'],
       ['non-object', '[]'],
       ['wrong-type', detectWrongTypeResult(kind)],
       ['missing-required', '{}'],
-    ]) {
+    ];
+    for (const [label, stdout] of invalidOutputs) {
       const data = detectData(kind, stdout);
       const result = invoke(`detect.z2k_detect_execute(${JSON.stringify(operation)}, ${JSON.stringify(input)}, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
       assert.equal(result.ok, false, `${operation} ${label}`);
@@ -276,13 +287,13 @@ test('Detect adapter validates bounded operation-specific JSON before returning 
     assert.equal(unknownResult.error.code, 'EDETECT_SCHEMA', `${operation} unknown result metadata`);
   }
   const oversized = detectData('probe', 'x'.repeat(65537));
-  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 })}, { invoke: function() { return ${JSON.stringify({ ok: true, data: oversized })}; } })`);
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(detectInput('probe'))}, { invoke: function() { return ${JSON.stringify({ ok: true, data: oversized })}; } })`);
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EDETECT_SCHEMA');
 });
 
 test('Detect adapter normalizes timeout and bounded-output failures without losing metadata', { skip: !ucode || !fs.existsSync(ucode) }, () => {
-  const input = { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 };
+  const input = detectInput('probe');
   const timedOutData = detectData('probe', 'partial', { exitCode: -1, stderr: 'timeout diagnostic', timedOut: true });
   const timedOut = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(input)}, { invoke: function() { return ${JSON.stringify({ ok: true, data: timedOutData })}; } })`);
   assert.equal(timedOut.ok, false);
