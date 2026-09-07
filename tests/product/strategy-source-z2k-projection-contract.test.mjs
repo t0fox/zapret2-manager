@@ -16,8 +16,10 @@ test('Z2K adapter projects standalone entries from the same official compile mod
 });
 
 test('standalone publication is native-preflight gated and failures remain diagnostics', () => {
-  assert.match(refresh, /native_preflight\(.*args/);
-  assert.match(source, /standaloneDiagnostics/);
+	assert.match(refresh, /native_preflight\(.*args/);
+	assert.match(refresh, /runtimeComposition:\s*composition\s*&&\s*composition\.ok\s*==\s*true/);
+	assert.match(refresh, /native_preflight\(candidate\.args,\s*dependencyInventory\s*&&\s*dependencyInventory\.runtimeComposition/);
+	assert.match(source, /standaloneDiagnostics/);
   assert.match(refresh, /strategy_source_z2k_finalize_snapshot/);
   assert.match(source, /status\s*==\s*['"]verified['"]/);
 });

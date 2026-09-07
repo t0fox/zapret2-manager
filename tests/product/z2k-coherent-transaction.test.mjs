@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -13,7 +14,7 @@ const apply = read('zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc')
 const runtimePath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc');
 const activeStrategySnapshot = coordinator.slice(
   coordinator.indexOf('function z2k_active_strategy_snapshot'),
-  coordinator.indexOf('function z2k_prior_activation_valid'),
+  coordinator.indexOf('export const resource_center_test_prior_activation_diagnostics'),
 );
 
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -40,6 +41,18 @@ function invokeRuntime(expression, env = {}) {
 }
 
 const DIGEST = 'a'.repeat(64);
+function compatibilityIdentity(sourceCommit) {
+  const value = {
+    release: 'r-80.3', sourceCommit, manifestRevision: 80,
+    runtimeBundleDigest: DIGEST, compilerSnapshotDigest: DIGEST,
+  };
+  const identityText = 'z2k-compatibility-v1\n'
+    + `release=${value.release}\nsourceCommit=${value.sourceCommit}\n`
+    + `manifestRevision=${value.manifestRevision}\n`
+    + `runtimeBundleDigest=${value.runtimeBundleDigest}\n`
+    + `compilerSnapshotDigest=${value.compilerSnapshotDigest}\n`;
+  return { ...value, digest: createHash('sha256').update(identityText).digest('hex') };
+}
 function priorActivationFixture() {
   return {
     selected: {
@@ -56,6 +69,21 @@ function priorActivationFixture() {
     },
     config: { bytes: 'old-config', sha256: DIGEST },
     runtimeEnabled: '1', runtimeEnabledPresent: true,
+  };
+}
+
+function preparedTargetFixture() {
+  const sourceCommit = 'c'.repeat(40), identity = compatibilityIdentity(sourceCommit);
+  return {
+    schema: 2, targetVersion: 'r-80.3', targetCommitSha: sourceCommit,
+    manifestSha256: DIGEST, localFingerprint: DIGEST, classificationSha256: DIGEST,
+    operation: 'upgrade', preparedAt: 17, targetCanApply: true,
+    targetAttentionState: 'review-advisory', targetBlockingReasons: [], targetReviewDetails: [],
+    assets: [{ id: 'lua:alpha', sourcePath: 'files/lua/alpha.lua', type: 'lua', sha256: DIGEST, runtimeTarget: '/runtime-assets/lua/alpha.lua' }],
+    removeIds: [], removeTargets: [], priorActivation: priorActivationFixture(),
+    z2kRelease: 'r-80.3', manifestRevision: 80, runtimeBundleDigest: DIGEST,
+    compilerSnapshotDigest: DIGEST, z2kCompatibilityIdentity: identity,
+    compatibilityIdentity: identity.digest, migration: null,
   };
 }
 
@@ -116,6 +144,17 @@ test('production target operation fails closed for unresolved cross-family relea
   assert.equal(result.mutations, 0, JSON.stringify(result));
 });
 
+test('persisted prepared target validates after JSON round-trip', { skip: !hasUcode }, () => {
+  const target = preparedTargetFixture();
+  const token = invoke(`transaction.resource_center_test_prepared_target_token({ testOnly: true, target: ${JSON.stringify(target)} })`);
+  assert.equal(token.tokenEqual, false, JSON.stringify(token));
+  target.planToken = token.computedPlanToken;
+  const persisted = JSON.parse(JSON.stringify(target));
+  const result = invoke(`transaction.resource_center_test_valid_prepared_target({ testOnly: true, target: ${JSON.stringify(persisted)} })`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.valid, true, JSON.stringify(result));
+});
+
 test('rollback verification consumes captured receipt identity and runtime digest', { skip: !hasUcode }, () => {
   const prior = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-lkg', runtimeBundleDigest: 'a'.repeat(64), assets: [] };
   const pending = { rollbackIdentity: { receipt: prior, receiptId: prior.receiptId, runtimeBundleDigest: prior.runtimeBundleDigest } };
@@ -135,6 +174,25 @@ test('apply consumes the persisted prior snapshot and has no prepare-local prior
   assert.doesNotMatch(applyBody, /priorStrategy\.catalog/);
   assert.match(coordinator, /priorActivation/);
   assert.match(coordinator, /ESNAPSHOT/);
+});
+
+test('apply re-projects the authoritative prior selection after rebuilding the candidate catalog', () => {
+  const applyBody = coordinator.slice(coordinator.indexOf('function z2k_apply_prepared'), coordinator.indexOf('export const resource_center_status'));
+  const catalogAt = applyBody.indexOf('target.candidateCatalog = z2k_candidate_catalog');
+  const projectionAt = applyBody.indexOf('strategy_selection_project_candidate', catalogAt);
+  const fingerprintAt = applyBody.indexOf('z2k_local_fingerprint', catalogAt);
+  const consumeAt = applyBody.indexOf('consume_prepared_target', catalogAt);
+  assert.ok(catalogAt >= 0, 'apply must rebuild the candidate catalog from authoritative prior activation');
+  assert.ok(projectionAt > catalogAt && projectionAt < fingerprintAt && projectionAt < consumeAt,
+    'apply must project selection before stale checks and before consuming the target');
+  const projection = applyBody.slice(projectionAt, fingerprintAt);
+  assert.match(projection, /selected:\s*priorActivation\.selected/);
+  assert.match(projection, /candidateCatalog:\s*target\.candidateCatalog/);
+  assert.match(projection, /if\s*\(!projectedSelection\.ok\)\s*return\s+projectedSelection/);
+  assert.match(projection, /target\.activeStrategy\s*=\s*projectedSelection\.selected\s*==\s*null\s*\?\s*null/,
+    'missing authoritative selection must project to a null runtime selection');
+  assert.match(projection, /selected:\s*true/,
+    'present authoritative selection must be marked selected only in the local target projection');
 });
 
 test('durable intent phases cover Registry, runtime, and source/catalog mutation windows', () => {
@@ -167,6 +225,13 @@ test('candidate strategy gate is built from the new Core snapshot and rollback v
   assert.match(coordinator, /z2k_catalog_restore/);
   assert.match(coordinator, /priorCatalog[\s\S]*indexDigest/);
   assert.match(coordinator, /catalogRestore\(pending\.priorCatalog\)/);
+});
+
+test('rollback defines the active strategy snapshot before its UCode consumer', () => {
+  const snapshotAt = coordinator.indexOf('function z2k_active_strategy_snapshot');
+  const guardAt = coordinator.indexOf('function z2k_rollback_active_state_guard');
+  assert.ok(snapshotAt >= 0 && guardAt >= 0 && snapshotAt < guardAt,
+    'UCode rollback must not call a forward-referenced active snapshot helper');
 });
 
 test('rollback passes the captured catalog identity and rejects mismatched restore evidence', { skip: !hasUcode }, () => {

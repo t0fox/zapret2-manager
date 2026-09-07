@@ -6,8 +6,11 @@
 import { asset_registry_list } from './asset-registry.uc';
 import { resolveInstalled, resolveCandidate, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
 
-const MAX_INPUT_BYTES = 512 * 1024;
-const MAX_OUTPUT_BYTES = 512 * 1024;
+// A prepared Z2K target carries the complete verified candidate input and can
+// legitimately exceed the small RPC payload limit. Keep the boundary finite,
+// but large enough for the canonical target and its resolved closure.
+const MAX_INPUT_BYTES = 32 * 1024 * 1024;
+const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const CONSUMERS = ['candidate-materialize', 'installed-materialize', 'scanner', 'install-proof', 'postflight'];
 const PACKAGE_ROOT = getenv('Z2M_RUNTIME_PACKAGE_ROOT') || '/usr/share/zapret2-manager';
 function object(value) { return type(value) == 'object' && value != null; }

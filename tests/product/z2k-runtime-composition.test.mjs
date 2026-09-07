@@ -89,6 +89,9 @@ function v3Fixture() {
     runtimeMembership: fixture.receipt.z2kMembership, detect: { arch: 'aarch64', digest: HASH('d'), size: 1234, sourceCommit: 'c'.repeat(40) },
     detectIdentity: { arch: 'aarch64', digest: HASH('d'), size: 1234 }, compilerInputsDigest: HASH('e'),
     catalogDigest: HASH('f'), runtimeBundleDigest: HASH('a'), compatibilityIdentity: HASH('b'),
+    z2kCompatibilityIdentity: { schema: 'z2k-compatibility.v1', release: fixture.receipt.version,
+      sourceCommit: 'c'.repeat(40), manifestRevision: 80, runtimeBundleDigest: HASH('a'),
+      compilerSnapshotDigest: HASH('e'), digest: HASH('b') },
   };
   fixture.registry.activationReceipts = [fixture.receipt];
   return fixture;
@@ -146,6 +149,46 @@ test('production-shaped incomplete target cannot resolve an unverified candidate
   }
 });
 
+test('production prepare derives canonical runtime input before exact core snapshot and coherent candidate', () => {
+  const coordinator = read(coordinatorPath);
+  const prepareStart = coordinator.indexOf('export const resource_center_prepare_version');
+  const prepare = coordinator.slice(prepareStart, coordinator.indexOf('function z2k_target_policy', prepareStart));
+  const detectStageAt = prepare.indexOf('z2k_detect_stage(');
+  const runtimeInputAt = prepare.indexOf('resolveTargetRuntimeInput(target)');
+  const coreAt = prepare.indexOf('z2k_core_snapshot_for_target(resolved, runtimeInput)');
+  const candidateAt = prepare.indexOf("resolveCandidate(target, { observedRegistryRevision: listed.revision, phase: 'prepare' })");
+  assert.ok(detectStageAt >= 0 && detectStageAt < runtimeInputAt,
+    'prepare must obtain the exact Detect byte size before building coherent candidate input');
+  assert.ok(runtimeInputAt >= 0, 'prepare must derive runtime input through the canonical runtime-composition owner');
+  assert.ok(coreAt > runtimeInputAt, 'exact core snapshot must consume the canonical runtime input');
+  assert.ok(candidateAt > coreAt, 'coherent candidate resolution must follow exact core snapshot preparation');
+  assert.match(prepare, /target\.candidateInput\s*=\s*\{/,
+    'prepare must bind the complete candidate input from verified snapshot evidence');
+  assert.match(prepare, /runtimeMembership:\s*runtimeInput\.lifecycleAssets/,
+    'candidate identity must use lifecycle membership, not typed dependency-closure items');
+  assert.doesNotMatch(prepare, /runtimeMembership:\s*candidateClosure\.runtimeMembership/,
+    'dependency closure membership must not be confused with lifecycle membership');
+  assert.match(prepare, /target\.activeStrategy\s*=\s*priorStrategy\.activation\.selected\s*==\s*null\s*\?\s*null[\s\S]*selected:\s*true/,
+    'preflight must project persisted containment selection without mutating its authority');
+});
+
+test('canonical target runtime input contains package and lifecycle assets without claiming coherence', { skip: !HAS_UCODE }, () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-prepare-ordering-'));
+  const descriptor = path.join(temp, 'runtime-composition-package.json');
+  fs.writeFileSync(descriptor, JSON.stringify({ schema: 1, entries: [staticAsset] }));
+  try {
+    const runtimeInput = invoke(`composition.resolveTargetRuntimeInput(${JSON.stringify(productionIncompleteCandidateFixture())})`, {
+      Z2M_UPDATE_SOURCE_TEST: '1',
+      Z2M_RUNTIME_PACKAGE_COMPOSITION: descriptor,
+    });
+    assert.equal(runtimeInput.ok, true, JSON.stringify(runtimeInput));
+    assert.deepEqual(runtimeInput.runtimeAssets.map(entry => entry.id), ['blob:beta', 'engine:nfqws2', 'lua:alpha']);
+    assert.equal(runtimeInput.coherentCandidate, undefined);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test('installed authority revision remains distinct from later observed Registry revision', () => {
   const fixture = v2Fixture();
   fixture.registry.revision = 18;
@@ -166,6 +209,13 @@ test('V3 installed resolution requires runtimeMembership instead of V2 membershi
   const result = invoke(`composition.resolveInstalled(${JSON.stringify({ registry: fixture.registry, receipt: fixture.receipt, staticBase: fixture.staticBase })})`);
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.error.code, 'EINCONSISTENT');
+});
+
+test('V3 installed resolution preserves the canonical Z2K compatibility identity', { skip: !HAS_UCODE }, () => {
+  const fixture = v3Fixture();
+  const result = invoke(`composition.resolveInstalled(${JSON.stringify({ registry: fixture.registry, receipt: fixture.receipt, staticBase: fixture.staticBase })})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.authority.z2kCompatibilityIdentity, fixture.receipt.z2kCompatibilityIdentity);
 });
 
 test('V3 installed resolution rejects a runtime member from another release identity', { skip: !HAS_UCODE }, () => {
@@ -401,6 +451,9 @@ test('runtime CLI keeps candidate and installed materialization distinct and pos
   assert.match(api, /postflight/);
   assert.match(api, /verifyActivationProcess|verifyInstalledProcess/);
   assert.doesNotMatch(api, /lsdir|fallback.*list/i);
+  assert.match(api, /MAX_INPUT_BYTES\s*=\s*32\s*\*\s*1024\s*\*\s*1024/);
+  assert.match(api, /MAX_OUTPUT_BYTES\s*=\s*32\s*\*\s*1024\s*\*\s*1024/);
+  assert.match(source, /length\(raw\)\s*>\s*32\s*\*\s*1024\s*\*\s*1024/);
 });
 
 test('runtime CLI activation output resolves a lifecycle asset on the router UCode runtime', { skip: !HAS_UCODE }, () => {

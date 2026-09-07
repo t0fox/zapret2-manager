@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -67,6 +68,38 @@ const userStrategy = () => ({
   ],
 });
 
+function compatibilityIdentity(sourceCommit) {
+  const value = {
+    release: 'r-80.3', sourceCommit, manifestRevision: 80,
+    runtimeBundleDigest: 'b'.repeat(64), compilerSnapshotDigest: 'c'.repeat(64),
+  };
+  const identityText = 'z2k-compatibility-v1\n'
+    + `release=${value.release}\nsourceCommit=${value.sourceCommit}\n`
+    + `manifestRevision=${value.manifestRevision}\n`
+    + `runtimeBundleDigest=${value.runtimeBundleDigest}\n`
+    + `compilerSnapshotDigest=${value.compilerSnapshotDigest}\n`;
+  return { ...value, digest: createHash('sha256').update(identityText).digest('hex') };
+}
+
+function z2kCandidateEntry(sourceSnapshotId, sourceCommit, identity, provenance = {}) {
+  return {
+    id: 'z2k:z2k_all_in_one', canonicalId: 'z2k:z2k_all_in_one', sourceId: 'z2k',
+    origin: 'z2k_builtin', owner: 'z2k-core', strategyClass: 'official-z2k',
+    entryKind: 'all-in-one', sourceSnapshotId, sourceCommit,
+    z2kCompatibilityIdentity: identity, compatibilityIdentity: identity.digest,
+    provenance: {
+      repository: 'necronicle/z2k', sourceId: 'z2k', sourceSnapshotId, sourceCommit,
+      kind: 'strategy-catalog-import', z2kCompatibilityIdentity: identity,
+      compatibilityIdentity: identity.digest, ...provenance,
+    },
+  };
+}
+
+test('Strategy state exposes a read-only candidate provenance projection owner', () => {
+  const source = fs.readFileSync(MODULE, 'utf8');
+  assert.match(source, /export const strategy_selection_project_candidate/);
+});
+
 test('package-created empty state is immediately usable without overwriting it on read', () => storage((env, root) => {
   fs.writeFileSync(path.join(root, 'strategy-state.json'), '');
   fs.chmodSync(path.join(root, 'strategy-state.json'), 0o600);
@@ -94,6 +127,106 @@ test('selection persists immutable canonical source provenance alongside legacy 
   assert.equal(set.ok, true, JSON.stringify(set));
   assert.deepEqual(set.state.selected, selected);
   assert.deepEqual(invoke('state.strategy_selection_get()', env).selected, selected);
+}));
+
+test('read-only Z2K candidate projection rebinds stale provenance to the exact verified entry', () => storage((env, root) => {
+  const oldCommit = 'a'.repeat(40), newCommit = 'b'.repeat(40);
+  const oldIdentity = compatibilityIdentity(oldCommit), newIdentity = compatibilityIdentity(newCommit);
+  const selected = {
+    id: 'z2k:z2k_all_in_one', origin: 'z2k_builtin', revision: 4, candidateSha256: hash,
+    canonicalStrategyId: 'z2k:z2k_all_in_one', sourceId: 'z2k', sourceSnapshotId: 'z2k-old',
+    sourceCommit: oldCommit, z2kCompatibilityIdentity: oldIdentity,
+    compatibilityIdentity: oldIdentity.digest, strategyDigest: hash,
+  };
+  fs.writeFileSync(env.Z2M_STRATEGY_STATE, JSON.stringify({ schema: 1, revision: 4, favorites: [], selected }), { mode: 0o600 });
+  const before = fs.readFileSync(env.Z2M_STRATEGY_STATE, 'utf8');
+  const candidate = z2kCandidateEntry('z2k-new', newCommit, newIdentity);
+  const result = invoke(`state.strategy_selection_project_candidate({selected:${JSON.stringify(selected)},candidateCatalog:${JSON.stringify({ verified: true, entries: [candidate] })}})`, env);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.rebound, true, JSON.stringify(result));
+  assert.equal(result.selected.id, selected.id);
+  assert.equal(result.selected.canonicalStrategyId, selected.canonicalStrategyId);
+  assert.equal(result.selected.sourceId, selected.sourceId);
+  assert.equal(result.selected.sourceSnapshotId, 'z2k-new');
+  assert.equal(result.selected.sourceCommit, newCommit);
+  assert.deepEqual(result.selected.z2kCompatibilityIdentity, newIdentity);
+  assert.equal(result.selected.compatibilityIdentity, newIdentity.digest);
+  assert.equal(fs.readFileSync(env.Z2M_STRATEGY_STATE, 'utf8'), before,
+    'prepare projection must not mutate persisted selection authority');
+  assert.equal(root != null, true);
+}));
+
+test('read-only state accepts a fully persisted Z2K selection with compatibility identity', () => storage((env) => {
+  const sourceCommit = 'a'.repeat(40), identity = compatibilityIdentity(sourceCommit);
+  const selected = {
+    id: 'z2k:z2k_all_in_one', origin: 'z2k_builtin', revision: 0, candidateSha256: hash,
+    canonicalStrategyId: 'z2k:z2k_all_in_one', sourceId: 'z2k', sourceSnapshotId: 'z2k-persisted',
+    sourceCommit, z2kCompatibilityIdentity: identity, compatibilityIdentity: identity.digest,
+    strategyDigest: hash,
+  };
+  fs.writeFileSync(env.Z2M_STRATEGY_STATE,
+    JSON.stringify({ schema: 1, revision: 7, favorites: [], selected }), { mode: 0o600 });
+  const result = invoke('state.strategy_selection_get_readonly()', env);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.selected, selected);
+}));
+
+test('read-only Z2K candidate projection accepts verified standalone official provenance', () => storage((env) => {
+  const sourceCommit = 'c'.repeat(40), identity = compatibilityIdentity(sourceCommit);
+  const selected = {
+    id: 'z2k:z2k_all_in_one', origin: 'z2k_builtin', revision: 4, candidateSha256: hash,
+    canonicalStrategyId: 'z2k:z2k_all_in_one', sourceId: 'z2k', sourceSnapshotId: 'z2k-old',
+    sourceCommit: 'a'.repeat(40), z2kCompatibilityIdentity: compatibilityIdentity('a'.repeat(40)),
+    compatibilityIdentity: compatibilityIdentity('a'.repeat(40)).digest, strategyDigest: hash,
+  };
+  const candidate = z2kCandidateEntry('z2k-standalone', sourceCommit, identity,
+    { kind: 'official-top-level-profile' });
+  const result = invoke(`state.strategy_selection_project_candidate({selected:${JSON.stringify(selected)},candidateCatalog:${JSON.stringify({ verified: true, entries: [candidate] })}})`, env);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.selected.sourceSnapshotId, 'z2k-standalone');
+  assert.equal(result.selected.sourceCommit, sourceCommit);
+  assert.equal(result.selected.compatibilityIdentity, identity.digest);
+}));
+
+test('read-only candidate projection preserves verified Avatar and User selections', () => storage((env) => {
+  const cases = [
+    {
+      selected: { id: 'avatar:stable', canonicalStrategyId: 'avatar:stable', sourceId: 'avatar', origin: 'avatar_builtin', sourceSnapshotId: 'avatar-old', sourceCommit: 'a'.repeat(40) },
+      candidate: { id: 'avatar:stable', canonicalId: 'avatar:stable', sourceId: 'avatar', origin: 'avatar_builtin', sourceSnapshotId: 'avatar-new', sourceCommit: 'b'.repeat(40), provenance: { repository: 'avatarDD/zapret-gui', sourceId: 'avatar', sourceSnapshotId: 'avatar-new', sourceCommit: 'b'.repeat(40), kind: 'strategy-catalog' } },
+      expectedSnapshot: 'avatar-new', expectedCommit: 'b'.repeat(40),
+    },
+    {
+      selected: { id: 'user-one', canonicalStrategyId: 'user-one', sourceId: 'user', origin: 'user', sourceSnapshotId: 'user-old', sourceCommit: null },
+      candidate: { id: 'user-one', canonicalId: 'user-one', sourceId: 'user', origin: 'user', sourceSnapshotId: 'user-new', sourceCommit: null, provenance: { repository: null, sourceId: 'user', sourceSnapshotId: 'user-new', sourceCommit: null, kind: 'user-strategy' } },
+      expectedSnapshot: 'user-new', expectedCommit: null,
+    },
+  ];
+  for (const item of cases) {
+    const result = invoke(`state.strategy_selection_project_candidate({selected:${JSON.stringify(item.selected)},candidateCatalog:${JSON.stringify({ verified: true, entries: [item.candidate] })}})`, env);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.selected.sourceSnapshotId, item.expectedSnapshot, JSON.stringify(result));
+    assert.equal(result.selected.sourceCommit, item.expectedCommit, JSON.stringify(result));
+  }
+}));
+
+test('read-only Z2K candidate projection rejects unverified or incomplete candidate provenance', () => storage((env) => {
+  const sourceCommit = 'b'.repeat(40), identity = compatibilityIdentity(sourceCommit);
+  const selected = {
+    id: 'z2k:z2k_all_in_one', origin: 'z2k_builtin', revision: 4, candidateSha256: hash,
+    canonicalStrategyId: 'z2k:z2k_all_in_one', sourceId: 'z2k', sourceSnapshotId: 'z2k-old',
+    sourceCommit: 'a'.repeat(40), z2kCompatibilityIdentity: compatibilityIdentity('a'.repeat(40)),
+    compatibilityIdentity: compatibilityIdentity('a'.repeat(40)).digest, strategyDigest: hash,
+  };
+  const complete = z2kCandidateEntry('z2k-new', sourceCommit, identity);
+  for (const candidateCatalog of [
+    { verified: false, entries: [complete] },
+    { verified: true, entries: [z2kCandidateEntry('z2k-new', sourceCommit, identity, { sourceCommit: null })] },
+    { verified: true, entries: [{ ...complete, provenance: { ...complete.provenance, z2kCompatibilityIdentity: null } }] },
+  ]) {
+    const result = invoke(`state.strategy_selection_project_candidate({selected:${JSON.stringify(selected)},candidateCatalog:${JSON.stringify(candidateCatalog)}})`, env);
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.error.code, 'ECOMPATIBILITY', JSON.stringify(result));
+  }
 }));
 
 test('stale Strategy revision is rejected without changing the file', () => storage((env, root, strategies) => {

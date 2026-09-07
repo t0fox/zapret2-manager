@@ -8,7 +8,7 @@ import { runtime_composition_cli_dispatch, runtime_composition_cli_activation_ou
 function request_file(file) {
 	if (type(file) != 'string' || substr(file, 0, 17) != '/tmp/z2m-runtime-') return {};
 	let raw = readfile(file);
-	if (raw == null || length(raw) > 512 * 1024) return {};
+	if (raw == null || length(raw) > 32 * 1024 * 1024) return {};
 	try { let value = json(raw); return type(value) == 'object' && value != null ? value : {}; } catch (e) { return {}; }
 }
 function emit(value) { print(sprintf('%J', value) + '\n'); }

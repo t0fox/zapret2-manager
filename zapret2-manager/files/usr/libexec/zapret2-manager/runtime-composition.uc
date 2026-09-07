@@ -106,6 +106,28 @@ function sort_by_order(left, right) {
 }
 function sorted_copy(entries, comparator) { let out = copy_array(entries); sort(out, comparator || sort_by_id); return out; }
 
+// Prepare-only runtime input for the official compiler/dependency snapshot.
+// This deliberately does not create a candidate identity or expose mutation
+// authority; resolveCandidate remains the only boundary that can claim a
+// coherent mutation candidate after its complete candidateInput is bound.
+export const resolveTargetRuntimeInput = function(preparedTarget) {
+	if (!object(preparedTarget) || (preparedTarget.schema != 'z2k-target-v2' && preparedTarget.schema != 2)
+		|| !z2k_release_valid(preparedTarget.targetVersion)
+		|| !valid_commit(preparedTarget.targetCommit || preparedTarget.targetCommitSha)
+		|| !valid_digest(preparedTarget.manifestSha256) || !valid_digest(preparedTarget.classificationSha256)
+		|| !integer(preparedTarget.baseRegistryRevision) || preparedTarget.baseRegistryRevision < 0)
+		return fail('EINPUT', 'prepared Z2K target runtime input is incomplete');
+	let lifecycle = normalize_entries(preparedTarget.assets, 'lifecycle-managed');
+	if (!lifecycle.ok) return lifecycle;
+	let staticResult = package_static_input(preparedTarget.staticBase);
+	if (!staticResult.ok) return staticResult;
+	let all = [], runtimeAssets;
+	for (let entry in staticResult.entries) push(all, entry);
+	for (let entry in lifecycle.entries) push(all, entry);
+	runtimeAssets = sorted_copy(all);
+	return { ok: true, runtimeAssets: runtimeAssets, lifecycleAssets: lifecycle.entries, packageAssets: staticResult.entries };
+};
+
 function identity_authority(authority) {
 	if (!object(authority)) return {};
 	let result = { kind: authority.kind };
@@ -331,6 +353,7 @@ export const resolveInstalled = function(input) {
 			compilerInputsDigest: receipt.compilerInputsDigest, catalogDigest: receipt.catalogDigest,
 			receiptId: receipt.receiptId || null, installedAuthorityRevision: receipt.installedAuthorityRevision,
 			observedRegistryRevision: listed.revision, z2kMembership: coherent.entries,
+			z2kCompatibilityIdentity: receipt.z2kCompatibilityIdentity || null,
 			compatibilityIdentity: receipt.compatibilityIdentity || null, coherenceStatus: 'coherent' };
 		return compose('installed', installedAuthority, coherent.entries, staticBase, scanner.entries, []);
 	}

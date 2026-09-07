@@ -175,7 +175,12 @@ test('production-shaped finalization carries all coherent evidence into the sole
       compatibilityIdentity: compatibility.digest, z2kCompatibilityIdentity: compatibility,
       candidateSnapshotId: 'snapshot-finalize', membershipDigest: digest('m'), baseRegistryRevision: 3,
     },
-    candidate: { snapshotId: 'snapshot-finalize', membershipDigest: digest('m'), runtimeAssets: [memberValue] },
+    candidate: { snapshotId: 'snapshot-finalize', membershipDigest: digest('m'), runtimeAssets: [
+      { id: 'package:base', type: 'package-static', owner: 'package', role: 'lua-init', kind: 'lua',
+        sourcePath: 'files/lua/package.lua', runtimeTarget: '/runtime-assets/lua/package.lua',
+        contentSha256: digest('p'), byteSize: 1, runtimeOrder: 0 },
+      memberValue,
+    ] },
     detectStaged: { candidate: { arch: value.receipt.detect.arch, sha256: value.receipt.detect.digest, byteSize: value.receipt.detect.size, sourceCommit: commit } },
     activationEvidence: { verified: true, detectDigest: value.receipt.detect.digest },
     committedAssetRevision: 4, catalogDigest: value.receipt.catalogDigest,

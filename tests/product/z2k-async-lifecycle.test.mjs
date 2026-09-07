@@ -22,6 +22,14 @@ const api = fs.readFileSync(apiPath, 'utf8');
 const acl = JSON.parse(fs.readFileSync(aclPath, 'utf8'))['zapret2-manager'];
 const manifest = fs.readFileSync(manifestPath, 'utf8');
 
+function functionBody(source, marker, nextMarker) {
+  const start = source.indexOf(marker);
+  const end = source.indexOf(nextMarker, start + marker.length);
+  assert.ok(start >= 0, `missing ${marker}`);
+  assert.ok(end > start, `missing ${nextMarker}`);
+  return source.slice(start, end);
+}
+
 test('Z2K resource update is queued outside the bounded rpcd request and exposes backend status', () => {
   assert.match(coordinator, /resource_center_enqueue_update/);
   assert.match(coordinator, /resource_center_update_status/);
@@ -32,6 +40,18 @@ test('Z2K resource update is queued outside the bounded rpcd request and exposes
   assert.match(rpc, /let mode = parsed && parsed\.bundleId == 'z2k-curated-lua' \? 'update-async' : 'update'/);
   assert.match(coordinator, /command\('sh \/etc\/rc\.common \/etc\/init\.d\/zapret2 restart'\)/);
   assert.ok(acl.read.ubus['zapret2-manager'].includes('resources_update_status'));
+});
+
+test('queued Z2K update jobs persist their worker kind and spawned pid for dispatch', () => {
+  const enqueueUpdate = functionBody(coordinator, 'export const resource_center_enqueue_update', 'function z2k_prepare_job_result_reusable');
+  assert.match(enqueueUpdate, /job = \{[\s\S]*kind: 'update'[\s\S]*pid: null/,
+    'queued update jobs must be typed for the worker and start without a pid');
+  const spawnIndex = enqueueUpdate.indexOf('let spawned = z2k_operation_spawn(jobPath);');
+  const pidPersistIndex = enqueueUpdate.indexOf('job.pid = spawned.pid; z2k_operation_write(jobPath, job);');
+  assert.ok(spawnIndex >= 0, 'update enqueue must spawn the existing worker');
+  assert.ok(pidPersistIndex > spawnIndex, 'update enqueue must persist the spawned worker pid');
+  assert.match(worker, /job\.kind == 'prepare' \? resource_center_prepare_version\(job\.request\) : resource_center_update\(job\.request\)/,
+    'worker must dispatch typed update jobs to the canonical update operation');
 });
 
 test('Z2K prepare is queued outside the 30-second rpcd request and exposes its result', () => {

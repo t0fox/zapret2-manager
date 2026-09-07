@@ -167,6 +167,8 @@ function z2k_dependency_inventory() {
 	let inventory = { assets: composition && composition.ok == true ? composition.runtimeAssets || [] : [],
 		blobs: environment.blobs || {}, lists: environment.lists || {}, lua: environment.lua || {},
 		luaFunctions: environment.functions || {}, functions: environment.functions || {},
+		runtimeComposition: composition && composition.ok == true ? composition : null,
+		available: composition && composition.ok == true,
 		builtins: engineBuiltins,
 		compositionStatus: composition && composition.compositionStatus || 'unavailable',
 		engineReady: engineReady,
@@ -197,7 +199,7 @@ function validate_z2k_candidate(snapshot, dependencyInventory) {
 			return { ok: false, validation: { status: 'rejected', reason: 'compiled Strategy arguments are empty' } };
 		if (testBypass) return { ok: true, validation: { status: 'not_checked', reason: 'test-only native validation bypass' } };
 		let result = null;
-		try { result = native_preflight(candidate.args); }
+		try { result = native_preflight(candidate.args, dependencyInventory && dependencyInventory.runtimeComposition || null, dependencyInventory); }
 		catch (e) { result = null; }
 		if (!object(result) || result.status != 'verified')
 			return { ok: false, validation: object(result) ? result : { status: 'rejected', reason: 'native preflight returned no evidence' } };

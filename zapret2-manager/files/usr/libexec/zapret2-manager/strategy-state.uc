@@ -44,6 +44,9 @@ function is_string(value) { return type(value) == 'string'; }
 function integer(value) { return type(value) == 'int' && value >= 0; }
 function bounded_string(value, maximum) { return is_string(value) && length(value) > 0 && length(value) <= maximum; }
 function sha256(value) { return is_string(value) && match(value, /^[a-f0-9]{64}$/); }
+function copy(value) {
+	try { return json(sprintf('%J', value)); } catch (e) { return null; }
+}
 
 function safe_id(value) {
 	if (!is_string(value) || length(value) < 1 || length(value) > MAX_ID ||
@@ -147,6 +150,61 @@ function rebind_legacy_z2k_selection(selected) {
 	return selected;
 }
 
+// Project the persisted selection onto a verified lifecycle candidate without
+// changing the selection authority.  Prepare owns the candidate catalog, but
+// Strategy state owns the selected identity; this boundary is the only place
+// allowed to rebind stale Z2K source provenance for a read-only transaction
+// projection.
+export const strategy_selection_project_candidate = function(input) {
+	if (!is_object(input) || !is_object(input.candidateCatalog))
+		return error('EINPUT', 'Candidate selection projection requires a candidate catalog.');
+	if (input.selected == null) return { ok: true, selected: null, rebound: false, candidate: null };
+	let sourceId = input.selected && input.selected.sourceId,
+		expectedOrigin = sourceId == 'z2k' ? 'z2k_builtin' : sourceId == 'avatar' ? 'avatar_builtin' : sourceId == 'user' ? 'user' : null;
+	if (!is_object(input.selected) || expectedOrigin == null
+		|| input.selected.canonicalStrategyId != input.selected.id || input.selected.origin != expectedOrigin)
+		return error('ECOMPATIBILITY', 'Strategy selection identity is not canonical.');
+	if (input.candidateCatalog.verified !== true || type(input.candidateCatalog.entries) != 'array')
+		return error('ECOMPATIBILITY', 'Z2K candidate catalog is not verified.');
+	let selectedId = input.selected.canonicalStrategyId, entry = null;
+	for (let candidate in input.candidateCatalog.entries) {
+		if (is_object(candidate) && candidate.id == selectedId && candidate.canonicalId == selectedId
+			&& candidate.sourceId == sourceId && candidate.origin == expectedOrigin) { entry = candidate; break; }
+	}
+	if (!is_object(entry)) return error('ECOMPATIBILITY', 'Selected strategy has no verified candidate provenance.', { id: selectedId });
+	let provenance = entry.provenance, identity = entry.z2kCompatibilityIdentity;
+	if (!is_object(provenance) || provenance.sourceId != sourceId
+		|| provenance.sourceSnapshotId != entry.sourceSnapshotId || provenance.sourceCommit != entry.sourceCommit)
+		return error('ECOMPATIBILITY', 'Selected strategy candidate provenance is unverified.', { id: selectedId });
+	if (sourceId == 'z2k' && (!safe_strategy_id(entry.sourceSnapshotId)
+		|| !is_string(entry.sourceCommit) || !match(entry.sourceCommit, /^[a-f0-9]{40}$/)
+		|| provenance.repository != 'necronicle/z2k'
+		|| (provenance.kind != 'strategy-catalog-import' && provenance.kind != 'official-top-level-profile')
+		|| !is_object(identity) || !z2k_compatibility_identity_valid(identity)
+		|| identity.sourceCommit != entry.sourceCommit || entry.compatibilityIdentity != identity.digest
+		|| !is_object(provenance.z2kCompatibilityIdentity)
+		|| provenance.z2kCompatibilityIdentity.digest != identity.digest
+		|| provenance.compatibilityIdentity != identity.digest))
+		return error('ECOMPATIBILITY', 'Z2K selected strategy candidate provenance is unverified.', { id: selectedId });
+	if (sourceId == 'avatar' && (provenance.repository != 'avatarDD/zapret-gui' || provenance.kind != 'strategy-catalog'
+		|| !safe_strategy_id(entry.sourceSnapshotId) || !is_string(entry.sourceCommit)
+		|| !match(entry.sourceCommit, /^[a-f0-9]{40}$/)))
+		return error('ECOMPATIBILITY', 'Avatar selected strategy candidate provenance is unverified.', { id: selectedId });
+	if (sourceId == 'user' && (provenance.repository != null || provenance.kind != 'user-strategy'))
+		return error('ECOMPATIBILITY', 'User selected strategy candidate provenance is unverified.', { id: selectedId });
+	let projected = copy(input.selected);
+	if (!is_object(projected)) return error('EINTERNAL', 'Z2K selected strategy projection could not be copied.');
+	projected.sourceSnapshotId = entry.sourceSnapshotId;
+	projected.sourceCommit = entry.sourceCommit;
+	if (sourceId == 'z2k') {
+		projected.z2kCompatibilityIdentity = copy(identity);
+		projected.compatibilityIdentity = identity.digest;
+	}
+	return { ok: true, selected: projected, rebound: projected.sourceSnapshotId != input.selected.sourceSnapshotId
+		|| projected.sourceCommit != input.selected.sourceCommit || projected.compatibilityIdentity != input.selected.compatibilityIdentity,
+		candidate: copy(entry) };
+};
+
 function canonicalize_state(value) {
 	if (!is_object(value)) return value;
 	let result = null;
@@ -172,10 +230,6 @@ function exact_fields(value, fields) {
 	if (!is_object(value) || length(value) != length(fields)) return false;
 	for (let field in fields) if (!exists(value, field)) return false;
 	return true;
-}
-
-function copy(value) {
-	try { return json(sprintf('%J', value)); } catch (e) { return null; }
 }
 
 function path_for(id) { return safe_id(id) ? STRATEGY_DIR + '/' + id + '.json' : null; }
@@ -484,15 +538,21 @@ function selection_provenance_valid(value) {
 		|| exists(value, 'sourceSnapshotId') || exists(value, 'sourceCommit') || exists(value, 'strategyDigest')
 		|| exists(value, 'z2kCompatibilityIdentity') || exists(value, 'compatibilityIdentity');
 	if (!hasProvenance) return exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256']);
-	if (!exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256', 'canonicalStrategyId',
-		'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest'])) return false;
+	let baseFields = ['id', 'origin', 'revision', 'candidateSha256', 'canonicalStrategyId',
+		'sourceId', 'sourceSnapshotId', 'sourceCommit', 'strategyDigest'];
+	if (value.sourceId == 'z2k') {
+		if (!exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256', 'canonicalStrategyId',
+			'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest'])) return false;
+	} else if (!exact_fields(value, baseFields)) return false;
 	if (!safe_strategy_id(value.canonicalStrategyId) || value.canonicalStrategyId != value.id
 		|| (value.sourceId != 'avatar' && value.sourceId != 'z2k' && value.sourceId != 'user')
 		|| !safe_strategy_id(value.sourceSnapshotId) || (value.sourceCommit != null
 			&& (!is_string(value.sourceCommit) || !match(value.sourceCommit, /^[a-f0-9]{7,40}$/)))
 		|| !sha256(value.strategyDigest)) return false;
-	if (value.sourceId == 'z2k' && (!z2k_compatibility_identity_valid(value.z2kCompatibilityIdentity)
-		|| value.compatibilityIdentity != value.z2kCompatibilityIdentity.digest)) return false;
+	if (value.sourceId == 'z2k') {
+		if (!z2k_compatibility_identity_valid(value.z2kCompatibilityIdentity)
+			|| value.compatibilityIdentity != value.z2kCompatibilityIdentity.digest) return false;
+	} else if (exists(value, 'z2kCompatibilityIdentity') || exists(value, 'compatibilityIdentity')) return false;
 	return true;
 }
 

@@ -8,7 +8,7 @@ import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
 import { z2k_resolve_version, z2k_compare_versions, z2k_target_operation, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
-import { resolveCandidate, resolveInstalled, runtime_composition_candidate_cas, runtime_strategy_preflight, runtime_materialize_failure_rollback, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
+import { resolveCandidate, resolveInstalled, resolveTargetRuntimeInput, runtime_composition_candidate_cas, runtime_strategy_preflight, runtime_materialize_failure_rollback, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
 import { read_var, config_sha256, transaction_config_snapshot, restore_transaction_config } from './apply.uc';
 import { engine_status } from './engine-manager.uc';
 import * as strategy_sources from './strategy-sources.uc';
@@ -19,7 +19,7 @@ import * as z2k_source from './strategy-source-z2k.uc';
 import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
 import { strategy_catalog_generation_read, strategy_catalog_generation_publish } from './strategy-catalog-generation.uc';
-import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore } from './strategy-state.uc';
+import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore, strategy_selection_project_candidate } from './strategy-state.uc';
 import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize, z2k_detect_status } from './z2k-detect.uc';
 import { z2k_migration_state, z2k_lua_function_closure, z2k_migration_prepare, z2k_migration_commit, z2k_migration_rollback } from './z2k-migration.uc';
 import * as autocircular_ops from './strategies-ops.uc';
@@ -32,6 +32,9 @@ const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const CHECK_STATE = '/etc/zapret2-manager/resource-source-check.json';
 const MAX_CHECK_STATE_BYTES = 1024 * 1024;
+const PREPARED_TARGET_STATE = '/etc/zapret2-manager/resource-source-prepared-target.json';
+const MAX_PREPARED_TARGET_BYTES = MAX_REQUEST_BYTES;
+const MAX_PENDING_ACTIVATION_BYTES = MAX_REQUEST_BYTES;
 const LIFECYCLE_LOCK = '/tmp/z2m-z2k-lifecycle.lock';
 const Z2K_PAUSE_FILE = '/tmp/zapret2-manager/paused';
 const Z2K_OPERATION_PARENT = STAGE_PARENT + '/jobs';
@@ -402,6 +405,8 @@ function z2k_target_dependency_inventory(runtimeCandidate) {
 		blobs: environment.blobs || {}, lists: environment.lists || {}, lua: environment.lua || {},
 		builtins: engineBuiltins,
 		functions: environment.functions || {}, luaFunctions: environment.functions || {},
+		runtimeComposition: runtimeCandidate,
+		available: true,
 		runtimeAssets: runtimeCandidate.runtimeAssets || []
 	};
 }
@@ -953,7 +958,7 @@ export const resource_center_enqueue_update = function(request) {
 	let dir = Z2K_OPERATION_PARENT + '/' + operationId, jobPath = dir + '/job.json';
 	try { mkdir(dir); } catch (e) {}
 	if (stat(jobPath) != null) return fail('EBUSY', 'Z2K lifecycle operation identity is already in use.');
-	let now = time(), job = { schema: 1, operationId: operationId, phase: 'queued', finished: false, request: request, createdAt: now, updatedAt: now, pid: null };
+	let now = time(), job = { schema: 1, kind: 'update', operationId: operationId, phase: 'queued', finished: false, request: request, createdAt: now, updatedAt: now, pid: null };
 	if (!z2k_operation_write(jobPath, job)) return fail('EWRITE', 'Z2K lifecycle operation could not be queued.');
 	let spawned = z2k_operation_spawn(jobPath);
 	if (!spawned.ok) {
@@ -961,60 +966,8 @@ export const resource_center_enqueue_update = function(request) {
 		z2k_operation_write(jobPath, job);
 		return spawned;
 	}
-	return { ok: true, accepted: true, operationId: operationId, state: 'queued', phase: 'queued', targetVersion: request.targetVersion };
-};
-function z2k_prepare_job_result_reusable(version, result) {
-	if (!object(result) || result.ok !== true || !object(result.target) || result.target.targetVersion != version
-		|| !string(result.planToken) || !length(result.planToken)) return false;
-	let raw = readfile(CHECK_STATE), state = null;
-	if (raw == null || length(raw) > MAX_CHECK_STATE_BYTES) return false;
-	try { state = json(raw); } catch (e) { return false; }
-	let persisted = state && state.schema == 2 ? state.preparedTarget : null;
-	return object(persisted) && persisted.targetVersion == version && persisted.planToken == result.planToken;
-}
-function z2k_prepare_job_existing(version) {
-	let names = lsdir(Z2K_OPERATION_PARENT) || [];
-	for (let i = 0; i < length(names); i++) {
-		let name = names[i];
-		if (!string(name) || !match(name, /^z2k-[0-9]+-[a-f0-9]{16}$/)) continue;
-		let path = z2k_operation_path(name), raw = readfile(path), job = null;
-		try { if (raw != null && length(raw) <= MAX_REQUEST_BYTES) job = json(raw); } catch (e) { job = null; }
-		if (!object(job) || job.kind != 'prepare' || !object(job.request) || job.request.version != version) continue;
-		let answer = { ok: true, accepted: true, operationId: name, targetVersion: version, phase: job.phase || 'queued', state: job.phase || 'queued', finished: job.finished === true };
-		if (job.finished === true) {
-			answer.completed = true;
-			if (job.result != null && job.result.ok === true) {
-				if (!z2k_prepare_job_result_reusable(version, job.result)) continue;
-			}
-			if (job.result != null) answer.result = job.result;
-			if (job.error != null) answer.error = job.error;
-		}
-		return answer;
-	}
-	return null;
-}
-export const resource_center_enqueue_prepare = function(request) {
-	let version = object(request) ? request.version : request;
-	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Z2K prepare version is invalid.');
-	let existing = z2k_prepare_job_existing(version);
-	if (existing != null) return existing;
-	let operationId = z2k_operation_id({ planToken: 'prepare|' + version + '|' + time() });
-	if (!operationId) return fail('EIO', 'Z2K prepare operation identity could not be created.');
-	try { mkdir(STAGE_PARENT); } catch (e) {}
-	try { mkdir(Z2K_OPERATION_PARENT); } catch (e) {}
-	let dir = Z2K_OPERATION_PARENT + '/' + operationId, jobPath = dir + '/job.json';
-	try { mkdir(dir); } catch (e) {}
-	if (stat(jobPath) != null) return fail('EBUSY', 'Z2K prepare operation identity is already in use.');
-	let now = time(), job = { schema: 1, kind: 'prepare', operationId: operationId, phase: 'queued', finished: false, request: { version: version }, createdAt: now, updatedAt: now, pid: null };
-	if (!z2k_operation_write(jobPath, job)) return fail('EWRITE', 'Z2K prepare operation could not be queued.');
-	let spawned = z2k_operation_spawn(jobPath);
-	if (!spawned.ok) {
-		job.phase = 'failed'; job.finished = true; job.error = spawned.error; job.updatedAt = time(); job.finishedAt = job.updatedAt;
-		z2k_operation_write(jobPath, job);
-		return spawned;
-	}
 	job.pid = spawned.pid; z2k_operation_write(jobPath, job);
-	return { ok: true, accepted: true, operationId: operationId, targetVersion: version, state: 'queued', phase: 'queued', finished: false };
+	return { ok: true, accepted: true, operationId: operationId, state: 'queued', phase: 'queued', targetVersion: request.targetVersion };
 };
 export const resource_center_update_status = function(request) {
 	let operationId = object(request) ? request.operationId : request;
@@ -1197,6 +1150,14 @@ function z2k_registry_asset_type(item) {
 	if (item.kind == 'lua') return 'lua';
 	return item.id && substr(item.id, 0, 5) == 'blob:' ? 'blob' : item.kind;
 }
+function z2k_prior_activation_valid(prior) {
+	return object(prior) && type(prior.selectionRevision) == 'int' && object(prior.catalog)
+		&& string(prior.catalog.generationId) && valid_digest(prior.catalog.indexDigest) && object(prior.catalog.index)
+		&& prior.catalog.index.generationId == prior.catalog.generationId && prior.catalog.index.indexDigest == prior.catalog.indexDigest
+		&& object(prior.catalog.sourceInputs) && z2k_prior_activation_token(prior) != null
+		&& string(prior.config && prior.config.bytes) && valid_digest(prior.config && prior.config.sha256)
+		&& type(prior.runtimeEnabledPresent) == 'bool';
+}
 function valid_prepared_target(value) {
 	if (!object(value) || (value.schema != 2 && value.schema != 'z2k-target-v2') || !string(value.targetVersion) || z2k_compare_versions(value.targetVersion, value.targetVersion) == null
 		|| !string(value.targetCommitSha || value.targetCommit) || !match(lc(value.targetCommitSha || value.targetCommit), /^[a-f0-9]{40}$/)
@@ -1238,12 +1199,46 @@ function valid_prepared_target(value) {
 	}
 	return valid_digest(value.runtimeBundleDigest) && z2k_target_token(value, value.preparedAt) == value.planToken;
 }
+export const resource_center_test_prepared_target_token = function(input) {
+	if (!object(input) || input.testOnly !== true || !object(input.target)) return { ok: false, error: { code: 'EINPUT', message: 'Prepared target token test seam is restricted to controlled tests.' } };
+	let computed = z2k_target_token(input.target, input.target.preparedAt);
+	return { ok: true, computedPlanToken: computed, tokenEqual: computed == input.target.planToken };
+};
+export const resource_center_test_valid_prepared_target = function(input) {
+	if (!object(input) || input.testOnly !== true || !object(input.target)) return { ok: false, error: { code: 'EINPUT', message: 'Prepared target validation test seam is restricted to controlled tests.' } };
+	return { ok: true, valid: valid_prepared_target(input.target) };
+};
 function z2k_target_from_state(state) { return state && state.preparedTarget && valid_prepared_target(state.preparedTarget) ? state.preparedTarget : null; }
+function load_prepared_target_file() {
+	let raw = readfile(PREPARED_TARGET_STATE);
+	if (raw == null || length(raw) > MAX_PREPARED_TARGET_BYTES) return null;
+	try {
+		let value = json(raw);
+		return valid_prepared_target(value) ? value : null;
+	} catch (e) { return null; }
+}
+function persist_prepared_target_file(target) {
+	if (target == null) {
+		try { unlink(PREPARED_TARGET_STATE); } catch (e) {}
+		return stat(PREPARED_TARGET_STATE) == null;
+	}
+	if (!valid_prepared_target(target)) return false;
+	let content = sprintf('%J', target) + '\n', tmp = PREPARED_TARGET_STATE + '.tmp.' + time();
+	if (length(content) > MAX_PREPARED_TARGET_BYTES) return false;
+	try { writefile(tmp, content); } catch (e) { return false; }
+	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return false; }
+	if (command('chmod 600 ' + shell_quote(tmp)).rc != 0) { try { unlink(tmp); } catch (e) {} return false; }
+	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(PREPARED_TARGET_STATE));
+	if (moved.rc != 0 || !regular(PREPARED_TARGET_STATE)) { try { unlink(tmp); } catch (e) {} return false; }
+	return command('chmod 600 ' + shell_quote(PREPARED_TARGET_STATE)).rc == 0;
+}
 function normalize_check_state(value) {
 	if (!object(value)) return null;
 	if (value.schema == 2) {
-		if ((value.latestCheck != null && !valid_latest_check(value.latestCheck)) || (value.preparedTarget != null && !valid_prepared_target(value.preparedTarget))) return null;
-		return { schema: 2, latestCheck: value.latestCheck || null, preparedTarget: value.preparedTarget || null };
+		if (value.latestCheck != null && !valid_latest_check(value.latestCheck)) return null;
+		if (value.preparedTarget != null && !valid_prepared_target(value.preparedTarget)) return null;
+		let external = value.preparedTargetPresent === true;
+		return { schema: 2, latestCheck: value.latestCheck || null, preparedTarget: value.preparedTarget || null, preparedTargetPresent: external || value.preparedTarget != null, preparedTargetExternal: external };
 	}
 	// Migrate the old single-snapshot shape in memory. The first subsequent
 	// check/prepare write persists schema 2; a corrupt old snapshot fails closed.
@@ -1253,17 +1248,27 @@ function normalize_check_state(value) {
 }
 function load_check_state() {
 	let raw = readfile(CHECK_STATE);
-	if (raw == null || length(raw) > MAX_CHECK_STATE_BYTES) return null;
+	if (raw == null) return null;
+	if (length(raw) > MAX_REQUEST_BYTES) return null;
 	let value = null;
 	try { value = json(raw); } catch (e) { return null; }
-	return normalize_check_state(value);
+	let state = normalize_check_state(value);
+	if (state == null) return null;
+	if (state.preparedTargetExternal === true) state.preparedTarget = load_prepared_target_file();
+	else if (state.preparedTargetPresent === false) state.preparedTarget = null;
+	return state;
 }
 function persist_check_state(payload) {
-	let content = sprintf('%J', payload) + '\n', tmp = CHECK_STATE + '.tmp.' + time();
+	let target = payload && payload.preparedTarget || null;
+	if (target != null && !persist_prepared_target_file(target)) return false;
+	let compact = { schema: 2, latestCheck: payload && payload.latestCheck || null, preparedTargetPresent: target != null };
+	let content = sprintf('%J', compact) + '\n', tmp = CHECK_STATE + '.tmp.' + time();
+	if (length(content) > MAX_CHECK_STATE_BYTES) return false;
 	try { writefile(tmp, content); } catch (e) { return false; }
 	if (!regular(tmp)) { try { unlink(tmp); } catch (e) {} return false; }
 	let moved = command('mv -f ' + shell_quote(tmp) + ' ' + shell_quote(CHECK_STATE));
 	if (moved.rc != 0) { try { unlink(tmp); } catch (e) {} return false; }
+	if (target == null && !persist_prepared_target_file(null)) return false;
 	return regular(CHECK_STATE);
 }
 function save_check_state(signed, checkedAt, signedSources, token) {
@@ -1273,9 +1278,60 @@ function save_check_state(signed, checkedAt, signedSources, token) {
 	persist_check_state(payload);
 }
 
+function z2k_prepare_job_result_reusable(version, result) {
+	if (!object(result) || result.ok !== true || !object(result.target) || result.target.targetVersion != version
+		|| !string(result.planToken) || !length(result.planToken)) return false;
+	let state = load_check_state(), persisted = state && state.preparedTarget;
+	return object(persisted) && persisted.targetVersion == version && persisted.planToken == result.planToken;
+}
+function z2k_prepare_job_existing(version) {
+	let names = lsdir(Z2K_OPERATION_PARENT) || [];
+	for (let i = 0; i < length(names); i++) {
+		let name = names[i];
+		if (!string(name) || !match(name, /^z2k-[0-9]+-[a-f0-9]{16}$/)) continue;
+		let path = z2k_operation_path(name), raw = readfile(path), job = null;
+		try { if (raw != null && length(raw) <= MAX_REQUEST_BYTES) job = json(raw); } catch (e) { job = null; }
+		if (!object(job) || job.kind != 'prepare' || !object(job.request) || job.request.version != version) continue;
+		let answer = { ok: true, accepted: true, operationId: name, targetVersion: version, phase: job.phase || 'queued', state: job.phase || 'queued', finished: job.finished === true };
+		if (job.finished === true) {
+			answer.completed = true;
+			if (job.result != null && job.result.ok === true) {
+				if (!z2k_prepare_job_result_reusable(version, job.result)) continue;
+			}
+			if (job.result != null) answer.result = job.result;
+			if (job.error != null) answer.error = job.error;
+		}
+		return answer;
+	}
+	return null;
+}
+export const resource_center_enqueue_prepare = function(request) {
+	let version = object(request) ? request.version : request;
+	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Z2K prepare version is invalid.');
+	let existing = z2k_prepare_job_existing(version);
+	if (existing != null) return existing;
+	let operationId = z2k_operation_id({ planToken: 'prepare|' + version + '|' + time() });
+	if (!operationId) return fail('EIO', 'Z2K prepare operation identity could not be created.');
+	try { mkdir(STAGE_PARENT); } catch (e) {}
+	try { mkdir(Z2K_OPERATION_PARENT); } catch (e) {}
+	let dir = Z2K_OPERATION_PARENT + '/' + operationId, jobPath = dir + '/job.json';
+	try { mkdir(dir); } catch (e) {}
+	if (stat(jobPath) != null) return fail('EBUSY', 'Z2K prepare operation identity is already in use.');
+	let now = time(), job = { schema: 1, kind: 'prepare', operationId: operationId, phase: 'queued', finished: false, request: { version: version }, createdAt: now, updatedAt: now, pid: null };
+	if (!z2k_operation_write(jobPath, job)) return fail('EWRITE', 'Z2K prepare operation could not be queued.');
+	let spawned = z2k_operation_spawn(jobPath);
+	if (!spawned.ok) {
+		job.phase = 'failed'; job.finished = true; job.error = spawned.error; job.updatedAt = time(); job.finishedAt = job.updatedAt;
+		z2k_operation_write(jobPath, job);
+		return spawned;
+	}
+	job.pid = spawned.pid; z2k_operation_write(jobPath, job);
+	return { ok: true, accepted: true, operationId: operationId, targetVersion: version, state: 'queued', phase: 'queued', finished: false };
+};
+
 function z2k_pending_load() {
 	let raw = readfile(Z2K_PENDING_ACTIVATION);
-	if (raw == null || length(raw) > MAX_CHECK_STATE_BYTES) return null;
+	if (raw == null || length(raw) > MAX_PENDING_ACTIVATION_BYTES) return null;
 	try {
 		let value = json(raw);
 		return object(value) && value.schema == 1 && string(value.phase) && string(value.candidateSnapshotId)
@@ -1777,13 +1833,47 @@ function z2k_rollback_source_candidate_matches(prior, current, pending) {
 	for (let id in current.catalog.sourceInputs) if (id != 'z2k' && !object(prior.catalog.sourceInputs[id])) return false;
 	return true;
 }
+function z2k_active_strategy_snapshot() {
+	let selection = null, catalog = null, config = null, sources = null, enabled = null;
+	try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
+	try { catalog = strategy_catalog_generation_read(); } catch (e) { catalog = null; }
+	try { config = transaction_config_snapshot(); } catch (e) { config = null; }
+	try { sources = strategy_sources.strategy_sources_get(); } catch (e) { sources = null; }
+	try { enabled = read_var('ENABLED'); } catch (e) { enabled = null; }
+	if (!selection || selection.ok !== true || type(selection.revision) != 'int') return fail('ESNAPSHOT', 'Active strategy selection could not be snapshotted before Z2K mutation.');
+	if (!catalog || catalog.ok !== true || !object(catalog.index) || !string(catalog.index.generationId) || !valid_digest(catalog.index.indexDigest)) return fail('ESNAPSHOT', 'Active Strategy catalog identity could not be snapshotted before Z2K mutation.');
+	if (!config || config.ok !== true || !string(config.sha256) || !valid_digest(config.sha256) || !string(config.bytes)) return fail('ESNAPSHOT', 'Active runtime configuration could not be snapshotted before Z2K mutation.');
+	if (!sources || sources.ok !== true || !object(sources.sources)) return fail('ESNAPSHOT', 'Strategy source activation state could not be snapshotted before Z2K mutation.');
+	let sourceInputs = {}, userEntries = [];
+	if (type(catalog.index.entries) == 'array') for (let entry in catalog.index.entries) if (object(entry) && entry.sourceId == 'user') push(userEntries, z2k_copy(entry));
+	for (let id in sources.sources) {
+		let row = sources.sources[id];
+		if (!object(row) || type(row.enabled) != 'bool') return fail('ESNAPSHOT', 'Strategy source activation state is incomplete before Z2K mutation.', { sourceId: id });
+		if (row.enabled === true) {
+			let current = null;
+			try { current = strategy_sources.strategy_source_current_snapshot(id); } catch (e) { current = null; }
+			if (!current || current.ok !== true || !object(current.snapshot) || current.snapshot.snapshotId != row.currentSnapshotId) return fail('ESNAPSHOT', 'Enabled strategy source has no authoritative current snapshot before Z2K mutation.', { sourceId: id });
+			sourceInputs[id] = { enabled: true, currentSnapshotId: row.currentSnapshotId, snapshot: z2k_copy(current.snapshot) };
+		} else sourceInputs[id] = { enabled: false, currentSnapshotId: null, snapshot: null };
+	}
+	return { ok: true, activation: {
+		selected: selection.selected || null, selectionRevision: selection.revision,
+		catalog: { generationId: catalog.index.generationId, indexDigest: catalog.index.indexDigest, generatedAt: catalog.index.generatedAt,
+			index: z2k_copy(catalog.index), sourceInputs: sourceInputs, userEntries: userEntries },
+		config: { bytes: config.bytes, sha256: config.sha256 }, runtimeEnabled: enabled,
+		runtimeEnabledPresent: enabled != null
+	} };
+}
 function z2k_rollback_active_state_guard(pending, testSeams) {
 	let testing = object(testSeams) && testSeams.testOnly === true;
 	if (testing && type(testSeams.activeStateSnapshot) != 'function') return { ok: true, skipped: true, alreadyPrior: false };
 	if (!object(pending) || !object(pending.priorActivation)) return fail('ERECOVERY_REQUIRED', 'Rollback active-state guard has no captured prior activation.');
 	let snapshot = null;
-	try { snapshot = testing ? testSeams.activeStateSnapshot() : z2k_active_strategy_snapshot(); } catch (e) { snapshot = null; }
-	if (!snapshot || snapshot.ok !== true || !object(snapshot.activation)) return fail('ERECOVERY_REQUIRED', 'Current active strategy state could not be proven before rollback.');
+	try { snapshot = testing ? testSeams.activeStateSnapshot() : z2k_active_strategy_snapshot(); } catch (e) { snapshot = fail('EINTERNAL', 'Active strategy snapshot raised during rollback.', { detail: text(e) }); }
+	if (!snapshot || snapshot.ok !== true || !object(snapshot.activation)) return fail('ERECOVERY_REQUIRED', 'Current active strategy state could not be proven before rollback.', {
+		snapshotPresent: snapshot != null, snapshotOk: snapshot && snapshot.ok === true,
+		snapshotError: snapshot && snapshot.error || null, activationType: snapshot ? type(snapshot.activation) : null
+	});
 	let prior = pending.priorActivation, current = snapshot.activation;
 	if (z2k_active_control_token(prior) == null || z2k_active_control_token(current) == null
 		|| z2k_active_control_token(prior) != z2k_active_control_token(current)) return fail('ERECOVERY_REQUIRED', 'Rollback refused to overwrite a newer active strategy, config, or enabled state.');
@@ -1821,7 +1911,7 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
 		runtime: { ok: false, skipped: true }, registry: { ok: false, skipped: true }, source: { ok: false, skipped: true }, catalog: { ok: false, skipped: true }, strategy: { ok: false, skipped: true }, config: { ok: false, skipped: true },
 		detect: { ok: false, skipped: true, preserved: true, recoveryRequired: true }, journal: journal,
-		error: { code: 'ERECOVERY_REQUIRED', message: activeState.error.message }
+		error: { code: 'ERECOVERY_REQUIRED', message: activeState.error.message, snapshot: activeState.error }
 	}, migrationRollback);
 	let runtimeRollback = runtimeActivated ? (testing ? testSeams.runtimeRollback() : z2k_runtime_rollback()) : { ok: true, skipped: true };
 	let listed = testing ? testSeams.registryList() : asset_registry_list(null), alreadyRestored = testing ? testSeams.registryAlreadyRestored(pending, listed) : z2k_rollback_registry_already_restored(pending, listed);
@@ -2016,46 +2106,6 @@ function z2k_pending_detect_restore(pending) {
 	return object(pending) && object(pending.detectPublication) ? z2k_detect_restore(pending.detectPublication) : { ok: true, skipped: true };
 }
 
-function z2k_active_strategy_snapshot() {
-	let selection = null, catalog = null, config = null, sources = null, enabled = null;
-	try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
-	try { catalog = strategy_catalog_generation_read(); } catch (e) { catalog = null; }
-	try { config = transaction_config_snapshot(); } catch (e) { config = null; }
-	try { sources = strategy_sources.strategy_sources_get(); } catch (e) { sources = null; }
-	try { enabled = read_var('ENABLED'); } catch (e) { enabled = null; }
-	if (!selection || selection.ok !== true || type(selection.revision) != 'int') return fail('ESNAPSHOT', 'Active strategy selection could not be snapshotted before Z2K mutation.');
-	if (!catalog || catalog.ok !== true || !object(catalog.index) || !string(catalog.index.generationId) || !valid_digest(catalog.index.indexDigest)) return fail('ESNAPSHOT', 'Active Strategy catalog identity could not be snapshotted before Z2K mutation.');
-	if (!config || config.ok !== true || !string(config.sha256) || !valid_digest(config.sha256) || !string(config.bytes)) return fail('ESNAPSHOT', 'Active runtime configuration could not be snapshotted before Z2K mutation.');
-	if (!sources || sources.ok !== true || !object(sources.sources)) return fail('ESNAPSHOT', 'Strategy source activation state could not be snapshotted before Z2K mutation.');
-	let sourceInputs = {}, userEntries = [];
-	if (type(catalog.index.entries) == 'array') for (let entry in catalog.index.entries) if (object(entry) && entry.sourceId == 'user') push(userEntries, z2k_copy(entry));
-	for (let id in sources.sources) {
-		let row = sources.sources[id];
-		if (!object(row) || type(row.enabled) != 'bool') return fail('ESNAPSHOT', 'Strategy source activation state is incomplete before Z2K mutation.', { sourceId: id });
-		if (row.enabled === true) {
-			let current = null;
-			try { current = strategy_sources.strategy_source_current_snapshot(id); } catch (e) { current = null; }
-			if (!current || current.ok !== true || !object(current.snapshot) || current.snapshot.snapshotId != row.currentSnapshotId) return fail('ESNAPSHOT', 'Enabled strategy source has no authoritative current snapshot before Z2K mutation.', { sourceId: id });
-			sourceInputs[id] = { enabled: true, currentSnapshotId: row.currentSnapshotId, snapshot: z2k_copy(current.snapshot) };
-		} else sourceInputs[id] = { enabled: false, currentSnapshotId: null, snapshot: null };
-	}
-	return { ok: true, activation: {
-		selected: selection.selected || null, selectionRevision: selection.revision,
-		catalog: { generationId: catalog.index.generationId, indexDigest: catalog.index.indexDigest, generatedAt: catalog.index.generatedAt,
-			index: z2k_copy(catalog.index), sourceInputs: sourceInputs, userEntries: userEntries },
-		config: { bytes: config.bytes, sha256: config.sha256 }, runtimeEnabled: enabled,
-		runtimeEnabledPresent: enabled != null
-	} };
-}
-
-function z2k_prior_activation_valid(prior) {
-	return object(prior) && type(prior.selectionRevision) == 'int' && object(prior.catalog)
-		&& string(prior.catalog.generationId) && valid_digest(prior.catalog.indexDigest) && object(prior.catalog.index)
-		&& prior.catalog.index.generationId == prior.catalog.generationId && prior.catalog.index.indexDigest == prior.catalog.indexDigest
-		&& object(prior.catalog.sourceInputs) && z2k_prior_activation_token(prior) != null
-		&& string(prior.config && prior.config.bytes) && valid_digest(prior.config && prior.config.sha256)
-		&& type(prior.runtimeEnabledPresent) == 'bool';
-}
 
 function z2k_prior_activation_matches(prepared, current) {
 	if (!z2k_prior_activation_valid(prepared) || !z2k_prior_activation_valid(current))
@@ -2094,12 +2144,16 @@ function z2k_candidate_entry_projection(entry) {
 	let sourceCommit = entry.sourceCommit || provenance.sourceCommit || null;
 	if (entry.sourceId != 'user' && (!string(sourceSnapshotId) || !string(sourceCommit)
 		|| provenance.sourceSnapshotId != sourceSnapshotId || provenance.sourceCommit != sourceCommit)) return null;
+	let compatibility = entry.z2kCompatibilityIdentity || provenance.z2kCompatibilityIdentity || null;
+	let compatibilityDigest = entry.compatibilityIdentity || provenance.compatibilityIdentity || null;
 	return {
 		id: entry.canonicalId, canonicalId: entry.canonicalId, sourceId: entry.sourceId,
 		origin: contract.origin, owner: contract.owner, strategyClass: contract.strategyClass,
 		entryKind: entry.entryKind || null, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
+		z2kCompatibilityIdentity: compatibility, compatibilityIdentity: compatibilityDigest,
 		provenance: { repository: contract.repository, sourceId: entry.sourceId,
-			sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit, kind: provenance.kind }
+			sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit, kind: provenance.kind,
+			z2kCompatibilityIdentity: compatibility, compatibilityIdentity: compatibilityDigest }
 	};
 }
 function z2k_candidate_catalog(priorCatalog, coreSnapshot) {
@@ -2114,7 +2168,7 @@ function z2k_candidate_catalog(priorCatalog, coreSnapshot) {
 		if (object(priorEntry) && priorEntry.sourceId != 'z2k') append(priorEntry);
 	if (object(coreSnapshot) && type(coreSnapshot.entries) == 'array') for (let entry in coreSnapshot.entries) append(entry);
 	if (object(coreSnapshot) && type(coreSnapshot.standaloneCandidates) == 'array') for (let candidate in coreSnapshot.standaloneCandidates) append(candidate);
-	return { entries: entries, canonicalEntries: entries, ids: ids, canonicalIds: ids };
+	return { verified: true, entries: entries, canonicalEntries: entries, ids: ids, canonicalIds: ids };
 }
 
 function z2k_strategy_preflight(target) {
@@ -2221,11 +2275,24 @@ export const resource_center_prepare_version = function(request) {
 	if (!sizedTarget.ok) return sizedTarget;
 	let canonicalAssets = z2k_canonical_target_assets(resolved.version, resolved.commitSha, resolved.manifestSha256, classificationSnapshot.sha256, sizedTarget.assets, null);
 	if (canonicalAssets == null) return fail('EZ2K_INCOMPATIBLE', 'Не удалось построить canonical runtime composition для выбранного release.');
+	// The manifest authenticates Detect bytes by SHA but does not carry their
+	// byte size. Obtain that missing immutable identity from the exact artifact
+	// in a disposable staging directory; never infer it or persist the stage.
+	let detectStageRoot = make_stage_root();
+	if (detectStageRoot == null) return fail('ETARGET', 'resource staging directory is unavailable');
+	let detectStagePath = detectStageRoot + '/z2k-detect', detectStaged = z2k_detect_stage(detect, detectStagePath);
+	cleanup(detectStageRoot, [detectStagePath]);
+	if (!detectStaged.ok || !object(detectStaged.candidate) || type(detectStaged.candidate.byteSize) != 'int')
+		return detectStaged.ok ? fail('EDETECT_INCOMPATIBLE', 'Verified Detect artifact has no exact byte size.') : detectStaged;
+	detect = detectStaged.candidate;
 	let preparedAt = time(), target = { schema: 2, targetSchema: 'z2k-target-v2', targetVersion: resolved.version, targetCommitSha: resolved.commitSha, targetCommit: resolved.commitSha, manifestSha256: resolved.manifestSha256, localFingerprint: localFingerprint, classificationSha256: classificationSnapshot.sha256, operation: operation, previousVersion: installed, baseRegistryRevision: listed.revision, targetCanApply: targetGate.canApply === true, targetAttentionState: targetGate.attentionState || 'none', targetBlockingReasons: targetGate.blockingReasons || [], targetReviewDetails: targetGate.reviewDetails || [], preparedAt: preparedAt, removeIds: removals.ids, removeTargets: removals.targets, assets: canonicalAssets, detectArtifact: detect, detectRuntimeTarget: Z2K_DETECT_TARGET };
 	let priorStrategy = z2k_active_strategy_snapshot();
 	if (!priorStrategy.ok || !z2k_prior_activation_valid(priorStrategy.activation)) return priorStrategy.ok ? fail('ESNAPSHOT', 'The active Z2K transaction baseline is incomplete.') : priorStrategy;
 	target.priorActivation = priorStrategy.activation;
-	target.activeStrategy = priorStrategy.activation.selected;
+	// The persisted selection is the selected value by containment; keep that
+	// authority immutable and add only the explicit preflight projection flag.
+	target.activeStrategy = priorStrategy.activation.selected == null ? null
+		: { ...priorStrategy.activation.selected, selected: true };
 	target.candidateCatalog = priorStrategy.activation.catalog;
 	let priorRuntimeComposition = resolveInstalled({ registry: listed });
 	if (!priorRuntimeComposition || priorRuntimeComposition.ok !== true) return fail('ESNAPSHOT', 'Installed runtime composition could not be snapshotted for Z2K migration.', { runtime: priorRuntimeComposition });
@@ -2236,12 +2303,12 @@ export const resource_center_prepare_version = function(request) {
 	if (!migrationPrepared.ok) return migrationPrepared;
 	target.migration = migrationPrepared.migration;
 	target.candidateRuntime = { closureReady: false, nativeReady: false };
-	// Compose once to obtain the membership identity, then bind the final
-	// plan token and resolve again so the persisted candidate snapshot carries
-	// the exact token consumed by the apply path.
-	let candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision, phase: 'prepare' });
-	if (!candidate.ok) return candidate;
-	let core = z2k_core_snapshot_for_target(resolved, candidate);
+	// The official compiler snapshot needs the exact target runtime inventory,
+	// but Resource Center targets may not claim a coherent candidate until that
+	// snapshot has supplied every immutable candidate identity input.
+	let runtimeInput = resolveTargetRuntimeInput(target);
+	if (!runtimeInput.ok) return runtimeInput;
+	let core = z2k_core_snapshot_for_target(resolved, runtimeInput);
 	if (!core.ok) return core;
 	let compatibility = core.snapshot.z2kCompatibilityIdentity;
 	for (let item in canonicalAssets) {
@@ -2260,15 +2327,40 @@ export const resource_center_prepare_version = function(request) {
 	target.compatibilityIdentity = compatibility.digest;
 	target.strategyCount = 1 + length(core.snapshot.standaloneCandidates || []);
 	target.compilerFileSha256 = core.snapshot.fileSha256;
-	target.membershipDigest = candidate.membershipDigest; target.candidateSnapshotId = candidate.snapshotId; target.compositionSnapshotId = candidate.compositionSnapshotId;
+	target.manifestSeq = resolved.manifest.seq;
 	target.dependencyClosure = core.snapshot.entries[0].dependencyClosure;
 	target.candidateCatalog = z2k_candidate_catalog(priorStrategy.activation.catalog, core.snapshot);
+	let projectedSelection = strategy_selection_project_candidate({
+		selected: priorStrategy.activation.selected, candidateCatalog: target.candidateCatalog });
+	if (!projectedSelection.ok) return projectedSelection;
+	target.activeStrategy = projectedSelection.selected == null ? null
+		: { ...projectedSelection.selected, selected: true };
 	if (!object(target.dependencyClosure) || target.dependencyClosure.available !== true || !valid_digest(target.runtimeBundleDigest)) {
 		target.targetCanApply = false;
 		target.targetAttentionState = target.targetAttentionState == 'none' ? 'dependency-required' : target.targetAttentionState;
 		push(target.targetBlockingReasons, 'Z2K_RUNTIME_DEPENDENCY_CLOSURE_REQUIRED');
 	}
 	target.candidateRuntime = { closureReady: target.dependencyClosure && target.dependencyClosure.available === true, nativeReady: true };
+	let candidateClosure = target.dependencyClosure;
+	if (!object(candidateClosure) || candidateClosure.available !== true || !array(runtimeInput.lifecycleAssets))
+		return fail('EDEPENDENCY', 'Z2K runtime dependency closure is incomplete; refusing to prepare a coherent candidate.');
+	target.candidateInput = {
+		release: resolved.version, sourceCommit: resolved.commitSha, manifestSeq: resolved.manifest.seq,
+		manifestSha256: resolved.manifestSha256, classificationSha256: classificationSnapshot.sha256,
+		detect: { arch: detect.arch, digest: detect.sha256, size: detect.byteSize, sourceCommit: resolved.commitSha },
+		// The coherent candidate membership is the lifecycle-managed release set.
+		// The typed dependency closure remains separate compiler evidence; its
+		// runtimeBundleDigest is not the lifecycle membership digest.
+		runtimeMembership: runtimeInput.lifecycleAssets,
+		compilerInputsDigest: core.snapshot.compilerSnapshotDigest,
+		catalogDigest: priorStrategy.activation.catalog.indexDigest
+	};
+	// Compose once only after the exact compiler, Detect, closure, and catalog
+	// identities are bound; then bind the final plan token and resolve again so
+	// the persisted candidate snapshot carries the exact token consumed by apply.
+	let candidate = resolveCandidate(target, { observedRegistryRevision: listed.revision, phase: 'prepare' });
+	if (!candidate.ok) return candidate;
+	target.membershipDigest = candidate.membershipDigest; target.candidateSnapshotId = candidate.snapshotId; target.compositionSnapshotId = candidate.compositionSnapshotId;
 	let strategyGate = z2k_strategy_preflight(target);
 	if (!strategyGate.ok) return strategyGate;
 	// Bind the token only after the final dependency digest is known. The
@@ -2328,6 +2420,11 @@ function z2k_coherent_finalize_request(input) {
 	let membership = [];
 	for (let i = 0; i < length(candidate.runtimeAssets || []); i++) {
 		let entry = candidate.runtimeAssets[i];
+		// The canonical runtime composition intentionally contains both the
+		// immutable package base and the lifecycle-managed Z2K release.  Only
+		// the latter is Registry/receipt membership; package-static ownership
+		// remains in the installed package and must not be claimed by Z2K.
+		if (object(entry) && entry.type == 'package-static') continue;
 		if (!object(entry) || entry.type != 'lifecycle-managed' || entry.owner != 'z2k-core'
 			|| (entry.kind != 'lua' && entry.kind != 'blob' && entry.kind != 'hostlist' && entry.kind != 'ipset')
 			|| (entry.kind == 'lua' && (entry.role != 'lua-init' || type(entry.runtimeOrder) != 'int' || entry.runtimeOrder < 0))
@@ -2432,6 +2529,13 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		|| !object(dependencyClosure) || dependencyClosure.available !== true || dependencyClosure.runtimeBundleDigest != target.runtimeBundleDigest)
 		return fail('EDEPENDENCY', 'Z2K runtime dependency closure changed or is unavailable; prepare the release again.', { expectedRuntimeBundleDigest: target.runtimeBundleDigest, actualRuntimeBundleDigest: dependencyClosure && dependencyClosure.runtimeBundleDigest || null });
 	target.candidateCatalog = z2k_candidate_catalog(priorActivation.catalog, core.snapshot);
+	let projectedSelection = strategy_selection_project_candidate({
+		selected: priorActivation.selected, candidateCatalog: target.candidateCatalog });
+	if (!projectedSelection.ok) return projectedSelection;
+	// Selection authority remains the persisted prior activation. This local
+	// projection only restores target/catalog parity for runtime preflight.
+	target.activeStrategy = projectedSelection.selected == null ? null
+		: { ...projectedSelection.selected, selected: true };
 	target.candidateRuntime = { closureReady: dependencyClosure.available === true, nativeReady: true };
 	let fingerprint = z2k_local_fingerprint(target.assets, listed, target.removeIds);
 	if (fingerprint == null || fingerprint != target.localFingerprint) return fail('ECHECK_STALE', 'Z2K local resources changed after preparation; prepare the release again.');

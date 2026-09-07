@@ -86,11 +86,14 @@ function load_manifest() {
 
 function runtime_composition_snapshot(input) {
 	let value = input;
+	let explicit = type(input) == 'object' && input != null;
 	if (type(value) != 'object' || value == null) {
 		try { value = resolveInstalled({}); } catch (e) { value = null; }
 	}
 	if (type(value) != 'object' || value == null || value.ok != true
-		|| value.lifecycleState != 'installed' || value.compositionStatus != 'canonical'
+		|| (!explicit && value.lifecycleState != 'installed')
+		|| (explicit && value.lifecycleState != 'installed' && value.lifecycleState != 'candidate')
+		|| value.compositionStatus != 'canonical'
 		|| type(value.snapshotId) != 'string' || type(value.compositionSnapshotId) != 'string'
 		|| type(value.membershipDigest) != 'string' || type(value.runtimeAssets) != 'array'
 		|| type(value.luaInit) != 'array' || type(value.dependencyIndex) != 'object')
