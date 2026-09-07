@@ -115,6 +115,7 @@
           "strategies_debug_get",
           "strategies_custom_bindings",
           "healthcheck_status",
+          "z2k_diagnostics",
           "z2k_detect_status",
           "z2k_detect_discovery_status",
           "z2k_detect_probe",
@@ -260,7 +261,8 @@
           "healthcheck_config",
           "z2k_detect_discovery_enable",
           "z2k_detect_discovery_disable",
-          "z2k_detect_discovery_restart"
+          "z2k_detect_discovery_restart",
+          "z2k_data_refresh"
         ],
         "zapret2-manager-domain-hub": [
           "domain_hub_apply"

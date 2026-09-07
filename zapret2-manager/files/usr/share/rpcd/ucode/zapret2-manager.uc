@@ -28,6 +28,8 @@ import { catalog_refresh_start, catalog_refresh_status, catalog_refresh_rebuild,
 import * as strategy_sources from '/usr/libexec/zapret2-manager/strategy-sources.uc';
 import { z2k_detect_status, z2k_detect_probe, z2k_detect_classify, z2k_detect_quic, z2k_detect_voice, z2k_detect_tcp16,
 	z2k_detect_discovery_status, z2k_detect_discovery_control } from '/usr/libexec/zapret2-manager/z2k-detect.uc';
+import { z2k_data_refresh } from '/usr/libexec/zapret2-manager/z2k-data-refresh.uc';
+import { z2k_diagnostics_run } from '/usr/libexec/zapret2-manager/z2k-diagnostics.uc';
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
 	dns_product_rollback, dns_product_provider_save, dns_product_provider_reset,
@@ -74,6 +76,9 @@ function tg_product_install_method(req) { return tg_edit_call(tg_product_install
 function tg_product_update_method(req) { return tg_edit_call(tg_product_update, req); }
 function tg_product_remove_method(req) { return tg_edit_call(tg_product_remove, req); }
 function tg_product_purge_method(req) { return tg_edit_call(tg_product_purge, req); }
+
+function z2k_diagnostics_method(req) { return z2k_diagnostics_run(); }
+function z2k_data_refresh_method(req) { return tg_edit_call(z2k_data_refresh, req); }
 
 function shell_escape_early(value) {
 	let s = '' + (value == null ? '' : value), out = "'";
@@ -1302,6 +1307,8 @@ return {
 		z2k_detect_classify: { args: { host: 'string', port: 'integer', hello: 'string', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_classify_method(req); } },
 		z2k_detect_quic: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_quic_method(req); } },
 		z2k_detect_voice: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_voice_method(req); } },
-		z2k_detect_tcp16: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_tcp16_method(req); } }
+		z2k_detect_tcp16: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_tcp16_method(req); } },
+		z2k_diagnostics: { call: function (req) { return z2k_diagnostics_method(req); } },
+		z2k_data_refresh: { args: { edit: 'string' }, call: function (req) { return z2k_data_refresh_method(req); } }
 	}
 };
