@@ -11,6 +11,10 @@ const worker = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-
 const runtime = read('zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc');
 const apply = read('zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc');
 const runtimePath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc');
+const activeStrategySnapshot = coordinator.slice(
+  coordinator.indexOf('function z2k_active_strategy_snapshot'),
+  coordinator.indexOf('function z2k_prior_activation_valid'),
+);
 
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS ? process.env.UCODE_ARGS.split(' ').filter(Boolean) : [];
@@ -78,6 +82,11 @@ test('prepare is staging-only and worker remains a progress coordinator', () => 
   assert.doesNotMatch(prepare, /asset_registry_apply_bundle|asset_registry_finalize_activation|z2k_detect_publish_prepared/);
   assert.doesNotMatch(worker, /asset_registry_apply_bundle|asset_registry_finalize_activation|z2k_detect_publish_prepared/);
   assert.match(worker, /resource_center_operation_write/);
+});
+
+test('active strategy lifecycle snapshot uses the canonical copy helper', () => {
+  assert.equal((activeStrategySnapshot.match(/\bz2k_copy\s*\(/g) || []).length, 3);
+  assert.doesNotMatch(activeStrategySnapshot, /\bcopy\s*\(/);
 });
 
 test('pending activation records every prior authority needed for fail-closed rollback', () => {

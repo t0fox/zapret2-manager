@@ -2028,7 +2028,7 @@ function z2k_active_strategy_snapshot() {
 	if (!config || config.ok !== true || !string(config.sha256) || !valid_digest(config.sha256) || !string(config.bytes)) return fail('ESNAPSHOT', 'Active runtime configuration could not be snapshotted before Z2K mutation.');
 	if (!sources || sources.ok !== true || !object(sources.sources)) return fail('ESNAPSHOT', 'Strategy source activation state could not be snapshotted before Z2K mutation.');
 	let sourceInputs = {}, userEntries = [];
-	if (type(catalog.index.entries) == 'array') for (let entry in catalog.index.entries) if (object(entry) && entry.sourceId == 'user') push(userEntries, copy(entry));
+	if (type(catalog.index.entries) == 'array') for (let entry in catalog.index.entries) if (object(entry) && entry.sourceId == 'user') push(userEntries, z2k_copy(entry));
 	for (let id in sources.sources) {
 		let row = sources.sources[id];
 		if (!object(row) || type(row.enabled) != 'bool') return fail('ESNAPSHOT', 'Strategy source activation state is incomplete before Z2K mutation.', { sourceId: id });
@@ -2036,13 +2036,13 @@ function z2k_active_strategy_snapshot() {
 			let current = null;
 			try { current = strategy_sources.strategy_source_current_snapshot(id); } catch (e) { current = null; }
 			if (!current || current.ok !== true || !object(current.snapshot) || current.snapshot.snapshotId != row.currentSnapshotId) return fail('ESNAPSHOT', 'Enabled strategy source has no authoritative current snapshot before Z2K mutation.', { sourceId: id });
-			sourceInputs[id] = { enabled: true, currentSnapshotId: row.currentSnapshotId, snapshot: copy(current.snapshot) };
+			sourceInputs[id] = { enabled: true, currentSnapshotId: row.currentSnapshotId, snapshot: z2k_copy(current.snapshot) };
 		} else sourceInputs[id] = { enabled: false, currentSnapshotId: null, snapshot: null };
 	}
 	return { ok: true, activation: {
 		selected: selection.selected || null, selectionRevision: selection.revision,
 		catalog: { generationId: catalog.index.generationId, indexDigest: catalog.index.indexDigest, generatedAt: catalog.index.generatedAt,
-			index: copy(catalog.index), sourceInputs: sourceInputs, userEntries: userEntries },
+			index: z2k_copy(catalog.index), sourceInputs: sourceInputs, userEntries: userEntries },
 		config: { bytes: config.bytes, sha256: config.sha256 }, runtimeEnabled: enabled,
 		runtimeEnabledPresent: enabled != null
 	} };
