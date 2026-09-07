@@ -99,7 +99,7 @@ test('device presentation and prepare consume the same removal-bearing canonical
 
 test('package baseline rows are filtered by the active Z2K target membership', () => {
   const buildStart = resourceUpdate.indexOf('function build_status');
-  const buildEnd = resourceUpdate.indexOf('\nfunction make_stage_root', buildStart);
+  const buildEnd = resourceUpdate.indexOf('\nfunction z2k_local_fingerprint', buildStart);
   assert.ok(buildStart >= 0 && buildEnd > buildStart);
   const build = resourceUpdate.slice(buildStart, buildEnd);
   assert.match(build, /activeZ2KManifest/);

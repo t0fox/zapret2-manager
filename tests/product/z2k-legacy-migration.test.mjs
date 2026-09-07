@@ -88,6 +88,27 @@ test('successful migration writes V3 and preserves discovered domains and user d
   assert.deepEqual(result.preserved.runtimeData, { enabled: true });
 });
 
+test('canonical Resource Center rollback invokes migration rollback and retains the legacy authority', { skip: !hasUcode }, () => {
+  const legacy = receipt('asset-activation-receipt.v2');
+  const preserved = { discoveredDomains: ['example.org'], sourceSelection: { id: 'user' }, exclusions: ['skip.example'],
+    userStrategies: [{ id: 'mine' }], runtimeData: { enabled: true } };
+  const migration = { schema: 'z2k-migration-prepared.v1', required: true, state: 'LEGACY_Z2K', legacyReceipt: legacy, preserved };
+  const result = invoke(`(() => {
+    let pending = { phase: 'COMMITTED', migration: ${JSON.stringify(migration)}, sourceRestoreRequired: false, catalogRestoreRequired: false };
+    let seams = {
+      pendingLoad: function() { return pending; }, pendingWrite: function(value, phase) { value.phase = phase; return true; }, pendingClear: function() { return true; },
+      runtimeRollback: function() { return { ok: true, restored: true }; }, registryList: function() { return { ok: true, revision: 2, assets: [], activationReceipts: [] }; }, registryAlreadyRestored: function() { return true; },
+      registryRollback: function() { return { ok: true, restored: true }; }, sourceRestore: function() { return { ok: true, restored: true }; }, detectRestore: function() { return { ok: true, restored: true }; }
+    };
+    return resource.resource_center_test_rollback_transaction({ testOnly: true, selected: { id: 'z2k-curated-lua' }, applied: { committedAssetRevision: 2 }, diagnostics: {}, runtimeActivated: true, seams });
+  })()`, resourcePath, 'resource');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.migrationRollback.required, true, JSON.stringify(result));
+  assert.equal(result.migrationRollback.state, 'LEGACY_Z2K', JSON.stringify(result));
+  assert.equal(result.migrationRollback.activeReceipt.schema, 'asset-activation-receipt.v2', JSON.stringify(result));
+  assert.deepEqual(result.migrationRollback.preserved, preserved, JSON.stringify(result));
+});
+
 test('production Resource Center owns migration prepare/finalize/rollback wiring', () => {
   const source = fs.readFileSync(resourcePath, 'utf8');
   assert.match(source, /z2k_migration_prepare\(\{/);
@@ -95,6 +116,8 @@ test('production Resource Center owns migration prepare/finalize/rollback wiring
   assert.match(source, /z2k_migration_commit\(\{ prepared: pending\.migration/);
   assert.match(source, /asset_registry_finalize_activation\(finalizeRequest\.request\)/);
   assert.match(source, /z2k_rollback_after_runtime_failure\(selected/);
+  assert.match(source, /z2k_migration_rollback\(/);
+  assert.match(source, /migrationRollback/);
   assert.match(source, /priorReceipt: priorAuthority\.receipt/);
   assert.match(source, /priorRuntimeComposition: priorRuntimeComposition/);
 });

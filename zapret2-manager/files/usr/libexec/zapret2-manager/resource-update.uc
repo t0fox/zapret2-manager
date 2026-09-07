@@ -1769,16 +1769,33 @@ function z2k_rollback_active_state_guard(pending, testSeams) {
 	if (!catalogAllowed || !sourceAllowed) return fail('ERECOVERY_REQUIRED', 'Rollback refused to overwrite an unrecognized newer Strategy catalog or source state.');
 	return { ok: true, alreadyPrior: false, priorActivationDigest: priorFull, currentActivationDigest: currentFull };
 }
+function z2k_migration_rollback_evidence(pending) {
+	let migration = pending && pending.migration;
+	if (!object(migration) || migration.required !== true) return { ok: true, skipped: true };
+	let evidence = z2k_migration_rollback({ prepared: migration, reason: 'Coherent activation did not commit; the legacy receipt and preserved user/runtime data remain active.' });
+	if (evidence && evidence.rolledBack === true) return { ok: true, required: true, state: evidence.state,
+		activeReceipt: evidence.activeReceipt, preserved: evidence.preserved, evidence: evidence };
+	return fail('ERECOVERY_REQUIRED', 'Z2K migration rollback evidence is incomplete; the legacy authority cannot be claimed restored.', { evidence: evidence });
+}
+function z2k_rollback_finish(result, migrationRollback) {
+	result.migrationRollback = migrationRollback;
+	if (!migrationRollback.ok) {
+		result.ok = false; result.recoveryRequired = true;
+		result.error = { code: 'ERECOVERY_REQUIRED', message: 'Z2K migration rollback evidence is incomplete; durable recovery must retain the legacy authority.', cause: result.error || null, migration: migrationRollback.error || null };
+	}
+	return result;
+}
 function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runtimeActivated, testSeams) {
 	let testing = object(testSeams) && testSeams.testOnly === true;
 	let pending = testing ? testSeams.pendingLoad() : z2k_pending_load(), journal = pending == null || (testing ? testSeams.pendingWrite(pending, 'ROLLING_BACK') : z2k_pending_write(pending, 'ROLLING_BACK'));
+	let migrationRollback = z2k_migration_rollback_evidence(pending);
 	let activeState = z2k_rollback_active_state_guard(pending, testSeams);
-	if (!activeState.ok) return {
+	if (!activeState.ok) return z2k_rollback_finish({
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
 		runtime: { ok: false, skipped: true }, registry: { ok: false, skipped: true }, source: { ok: false, skipped: true }, catalog: { ok: false, skipped: true }, strategy: { ok: false, skipped: true }, config: { ok: false, skipped: true },
 		detect: { ok: false, skipped: true, preserved: true, recoveryRequired: true }, journal: journal,
 		error: { code: 'ERECOVERY_REQUIRED', message: activeState.error.message }
-	};
+	}, migrationRollback);
 	let runtimeRollback = runtimeActivated ? (testing ? testSeams.runtimeRollback() : z2k_runtime_rollback()) : { ok: true, skipped: true };
 	let listed = testing ? testSeams.registryList() : asset_registry_list(null), alreadyRestored = testing ? testSeams.registryAlreadyRestored(pending, listed) : z2k_rollback_registry_already_restored(pending, listed);
 	let expectedRevision = testing ? applied && (applied.committedAssetRevision || applied.revision) : z2k_rollback_expected_revision(applied, listed, pending);
@@ -1808,31 +1825,31 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 	if (configRollback.ok === true && pending && pending.priorRuntimeEnabledPresent === true && read_var('ENABLED') != pending.priorRuntimeEnabled) configRollback = fail('EROLLBACK', 'runtime enable state was not restored to the captured prior value.');
 	let detectPublication = pending && object(pending.detectPublication) ? pending.detectPublication : z2k_active_detect_publication;
 	let commonOk = journal && runtimeRollback.ok && registryRollback.ok && sourceRollback.ok && catalogRollback.ok && strategyRollback.ok && configRollback.ok;
-	if (!commonOk) return {
+	if (!commonOk) return z2k_rollback_finish({
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
 		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
 		detect: { ok: false, skipped: true, preserved: true, recoveryRequired: true }, journal: journal,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback is incomplete; candidate Detect and durable ROLLING_BACK evidence were preserved for recovery.' }
-	};
+	}, migrationRollback);
 	let detectRollback = object(detectPublication) ? (testing ? testSeams.detectRestore(detectPublication) : z2k_detect_restore(detectPublication)) : { ok: true, skipped: true };
-	if (!detectRollback.ok) return {
+	if (!detectRollback.ok) return z2k_rollback_finish({
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true,
 		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
 		detect: detectRollback, journal: journal,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K common rollback completed but Detect restoration is incomplete; durable recovery must reconcile the stable target.' }
-	};
+	}, migrationRollback);
 	let okResult = true, evidence = { ok: true, skipped: true };
 	if (pending != null) {
 		evidence = { ok: (testing ? testSeams.pendingWrite(pending, 'ROLLED_BACK') : z2k_pending_write(pending, 'ROLLED_BACK')), phase: 'ROLLED_BACK' };
 		okResult = evidence.ok && (testing ? testSeams.pendingClear() : z2k_pending_clear());
 	}
-	if (!okResult) return {
+	if (!okResult) return z2k_rollback_finish({
 		ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: false,
 		runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback,
 		detect: detectRollback, journal: journal, evidence: evidence,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K rollback completed but durable recovery evidence could not be closed.' }
-	};
-	return { ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, detect: detectRollback, journal: journal, evidence: evidence };
+	}, migrationRollback);
+	return z2k_rollback_finish({ ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, detect: detectRollback, journal: journal, evidence: evidence }, migrationRollback);
 }
 export const resource_center_test_rollback_transaction = function(input) {
 	if (!object(input) || input.testOnly !== true || !object(input.seams)) return fail('EINPUT', 'Internal rollback test seam is restricted to controlled tests.');

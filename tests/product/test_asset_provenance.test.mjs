@@ -11,7 +11,6 @@ test('P2-Task 2: All runtime Lua assets and provenance manifests exist and are v
     'zapret-lib.lua',
     'zapret-antidpi.lua',
     'zapret-auto.lua',
-    'z2k-detectors.lua',
     'z2k-modern-core.lua',
     'z2k-fooling-ext.lua',
     'z2k-range-rand.lua',

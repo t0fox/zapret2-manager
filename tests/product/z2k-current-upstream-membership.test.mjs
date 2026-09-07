@@ -86,6 +86,6 @@ test('classification generation preserves a valid digest unless the manifest mar
 
 test('resource manifest points at the canonical classification while legacy removal stays explicit', () => {
   assert.equal(resources.z2kClassificationPath, 'upstreams/z2k-integration.json');
-  assert.ok(resourceByPath['files/lua/z2k-detectors.lua']);
+  assert.equal(resourceByPath['files/lua/z2k-detectors.lua'], undefined);
   assert.ok(resourceByPath['files/lua/z2k-alert.lua']);
 });

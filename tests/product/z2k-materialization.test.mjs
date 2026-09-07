@@ -83,11 +83,11 @@ test('materializes blobs, lua, lists into the live engine roots', () => {
   }
   for (const name of ['zapret-lib.lua', 'custom_diag.lua'])
     assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), true, `${name} missing`);
-  for (const name of ['z2k-modern-core.lua', 'z2k-detectors.lua'])
+  for (const name of ['z2k-modern-core.lua'])
     assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), false, `${name} must wait for Registry-backed activation`);
   const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
   assert.equal(verdict.lifecycleState, 'blocked-unknown-authority');
-  assert.equal(verdict.blockedLifecycleAssets, 7);
+  assert.equal(verdict.blockedLifecycleAssets, 6);
   assert.equal(fs.existsSync(path.join(sb.base, 'lists', 'discord.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.base, 'ipset', 'discord.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.base, 'lists', 'discovered-domains.txt')), true);

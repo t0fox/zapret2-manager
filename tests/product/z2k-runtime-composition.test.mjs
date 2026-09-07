@@ -129,7 +129,7 @@ test('candidate preparation can bind the final plan token after composing member
   assert.match(read(compositionPath), /context\.phase == 'prepare'/);
   const coordinator = read(coordinatorPath);
   assert.match(coordinator, /phase: 'prepare'/);
-  assert.match(coordinator, /target\.runtimeBundleDigest = target\.dependencyClosure/);
+  assert.match(coordinator, /target\.runtimeBundleDigest = compatibility\.runtimeBundleDigest/);
   assert.match(coordinator, /target\.runtimeBundleDigest[\s\S]*target\.planToken = z2k_target_token/);
   assert.match(coordinator, /target\.planToken = z2k_target_token/);
 });

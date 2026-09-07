@@ -112,9 +112,7 @@ function z2k_alert_detector(desync, crec)
 end
 
 -- Z2K coherent current-module closure: detector callbacks are rehomed here.
--- This is the reviewed detector implementation; z2k-detectors.lua is no longer
--- part of production composition once the closure proof passes.
--- z2k-detectors.lua
+-- This is the reviewed detector implementation in the current alert module.
 --
 -- Custom nfqws2 failure/success detectors used by z2k circular rotators.
 -- Loaded via --lua-init=@... BEFORE z2k-autocircular.lua so the detector
@@ -682,7 +680,7 @@ function z2k_detector_log_init_once()
   _z2k_detector_init_logged = true
   if type(DLOG) ~= "function" then return end
   DLOG(string.format(
-    "z2k-detectors: cap=%d evict_batch=%d evict_interval=%d (env=%s)",
+    "z2k-alert: cap=%d evict_batch=%d evict_interval=%d (env=%s)",
     Z2K_DETECTOR_MAP_MAX, Z2K_DETECTOR_EVICT_BATCH,
     Z2K_DETECTOR_EVICT_INTERVAL,
     tostring(os.getenv("Z2K_DETECTOR_CAP") or "<unset>")))
@@ -1936,4 +1934,3 @@ function z2k_quic_stall(desync, crec)
   end
   return false
 end
-

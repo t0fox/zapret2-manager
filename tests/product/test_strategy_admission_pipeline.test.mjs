@@ -21,7 +21,7 @@ test('P3-Task 3: Production admission pipeline marks strategies usable only when
       'tls_clienthello_gosuslugi_ru', 't2', 'tls_max_ru', 'syn_packet', 'tls_clienthello_14'
     ],
     luaFiles: [
-      'zapret-lib.lua', 'zapret-antidpi.lua', 'zapret-auto.lua', 'z2k-detectors.lua',
+      'zapret-lib.lua', 'zapret-antidpi.lua', 'zapret-auto.lua',
       'z2k-modern-core.lua', 'z2k-fooling-ext.lua', 'z2k-range-rand.lua',
       'z2k-state-persist.lua', 'z2k-alert.lua', 'z2k-quic-silence.lua'
     ]
