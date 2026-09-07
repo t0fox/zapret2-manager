@@ -18,6 +18,7 @@ therefore not proven for this HEAD.
 - Branch: `codex/z2k-coherent-core-detect`
 - evidenceBaseHead: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7`.
 - finalHead: `b02bcd3833a637caa7ab1d1f1ed2891816f2a746` (exact current HEAD before this metadata commit; the artifact commit SHA is reported separately because Git commits cannot self-reference their own SHA).
+- metadataCommit: `fa3fa0fab22f91146013978595497681e5ce9eb4` (contains the metadata artifacts).
 - Prior implementation HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`.
 - The final bookkeeping commit is reported separately because an artifact cannot contain its own commit SHA before that commit exists.
 - No merge or push was performed.
@@ -54,7 +55,7 @@ Detect and learned state`. Its exact before-fixture values are:
   times,sourceInputs:{}}`; after `{ok:true,generationId:'old-catalog',indexDigest:'a'
   repeated 64 times}` from line 184; equality **PROVEN**;
 - active strategy: before `{id:'avatar:stable',sourceId:'avatar'}` and the
-  same `pending.priorActiveStrategy` at line 172; the strategy restore seam
+  same `priorActiveStrategy` captured at line 172; the strategy restore seam
   returns `restored:true` at line 185. Restoration is **PROVEN at the
   authority/restore-result level**, but no post-restore strategy object is
   emitted for byte-for-byte comparison.
@@ -124,5 +125,5 @@ No old APK was installed. The target lacks
 
 ## Review boundary
 
-Code review status: `PENDING`; no reviewer approval is claimed. A fresh Luna
-review is the next review action and is not represented as completed here.
+Code-review evidence: final artifact review is required before merge; no merge
+approval is claimed.

@@ -5,9 +5,9 @@
   "capturedAt": "2026-09-07",
   "worktree": "G:\\zapret2-manager\\.worktrees\\z2k-coherent-core-detect",
   "branch": "codex/z2k-coherent-core-detect",
-  "head": "30f3c4e3d6c831966e68fec7856b22a7f3be79a7",
   "evidenceBaseHead": "30f3c4e3d6c831966e68fec7856b22a7f3be79a7",
   "finalHead": "b02bcd3833a637caa7ab1d1f1ed2891816f2a746",
+  "metadataCommit": "fa3fa0fab22f91146013978595497681e5ce9eb4",
   "implementationHead": "9eacd8b337452bd5897187ccbff52c184ddf0681",
   "headMeaning": "Evidence-base HEAD before this bookkeeping fix; final fix commit SHA is reported separately because artifacts cannot self-reference a commit created after their content.",
   "originMainAtStart": "1f677800708586d4f9ba2bc76372fd306179dde3",
@@ -30,7 +30,7 @@
       "exactLkg": {
         "fixture": "tests/product/z2k-autocircular-pool-identity.test.mjs:165-192",
         "catalog": { "before": { "generationId": "old-catalog", "indexDigest": "a{64}", "sourceInputs": {} }, "after": { "ok": true, "generationId": "old-catalog", "indexDigest": "a{64}" }, "equalityProven": true },
-        "activeStrategy": { "before": { "id": "avatar:stable", "sourceId": "avatar" }, "pendingPrior": { "id": "avatar:stable", "sourceId": "avatar" }, "restore": { "ok": true, "restored": true }, "equalityProven": "restore-result-level; post object not emitted" },
+        "activeStrategy": { "before": { "id": "avatar:stable", "sourceId": "avatar" }, "capturedPrior": { "id": "avatar:stable", "sourceId": "avatar" }, "restore": { "ok": true, "restored": true }, "equalityProven": "restore-result-level; post object not emitted" },
         "detectSourceIdentity": { "before": "old-detect", "after": "old-detect", "equalityProven": true },
         "receiptIdentity": { "before": null, "after": "not emitted", "equalityProven": false },
         "runtimeBundleDigest": { "before": "not emitted", "after": "not emitted", "equalityProven": false },
@@ -66,7 +66,7 @@
     "legacyDetectorPresent": true
   },
   "liveGates": { "pOverRDiscovery": "NOT_RUN", "coherentUpdate": "NOT_RUN", "detectRawAndRpc": "NOT_RUN", "autodiscoveryProcdPersistence": "NOT_RUN", "discordVoice": "NOT_RUN", "autocircularRotation": "NOT_RUN", "resourcePersistence": "NOT_RUN", "browserAcceptance": "NOT_RUN" },
-  "codeReview": { "status": "PENDING", "workflow": "superpowers:requesting-code-review", "approval": false, "notes": "No review approval is claimed; fresh Luna review remains pending." },
+  "codeReview": { "status": "REQUIRED_BEFORE_MERGE", "workflow": "superpowers:requesting-code-review", "approval": false, "notes": "Code-review evidence: final artifact review is required before merge; no merge approval is claimed." },
   "blockers": ["Full repository harness has observed failures and did not complete", "Pinned SDK build cannot resolve downloads.openwrt.org from WSL", "Router still runs pre-Task-15 package without z2k-detect RPC", "Discord live-call acceptance cannot be exercised before the Task-15 package is deployed"],
   "ledgerBaseline": ".superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/progress.md#Baseline",
   "artifacts": { "acceptance": ".superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/acceptance.md", "report": ".superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/task-15-report.md", "liveEvidence": ".superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/live-evidence.json" }

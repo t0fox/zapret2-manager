@@ -14,6 +14,7 @@ live gate.
 - Branch: `codex/z2k-coherent-core-detect`
 - evidenceBaseHead: `30f3c4e3d6c831966e68fec7856b22a7f3be79a7`.
 - finalHead: `b02bcd3833a637caa7ab1d1f1ed2891816f2a746` (exact current HEAD before this metadata commit; the artifact commit SHA is reported separately because Git commits cannot self-reference their own SHA).
+- metadataCommit: `fa3fa0fab22f91146013978595497681e5ce9eb4` (contains the metadata artifacts).
 - Prior implementation HEAD: `9eacd8b337452bd5897187ccbff52c184ddf0681`.
 - The final bookkeeping commit is reported separately because this report cannot self-reference a commit created after its content.
 - No merge or push.
@@ -117,8 +118,8 @@ package deployment is also blocked.
 
 ## Commit boundary
 
-Code review status remains `PENDING`; no review approval is claimed. This turn
-performs no review approval, merge, or push. This metadata commit contains
+Code-review evidence: final artifact review is required before merge; no merge
+approval is claimed. This turn performs no review approval, merge, or push. This metadata commit contains
 only these three files with message:
 
-`docs: clarify coherent Z2K acceptance evidence`
+`docs: add final evidence traceability metadata`
