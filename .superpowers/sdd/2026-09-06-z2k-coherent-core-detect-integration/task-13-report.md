@@ -1,18 +1,27 @@
 # Task 13 report: integrate Z2K data and diagnostics
 
-Status: IMPLEMENTED; focused Task 13 gates pass. Router deployment, live
-rpcd/OpenWrt acceptance, browser acceptance, merge and push were not run.
+Status: IMPLEMENTED; focused Task 13 and relevant combined gates pass. The
+full resource-pattern gate retains one unrelated baseline failure (`expected
+7`, observed `6`). Router deployment, live rpcd/OpenWrt acceptance, browser
+acceptance, merge and push were not run.
 
 ## Scope delivered
 
 - Added `z2k-data-refresh.uc` with bounded release-owned and dynamic dataset
-  validation, semantic identity projection, fixed publication roots, internal
-  staging, atomic per-file publication and compensation on a partial publish.
-  Release-owned data contributes `coreIdentity`; schema-1 dynamic datasets
-  have a separate `dynamicIdentity`, so a dynamic revision does not change Core
-  identity. Refresh rejects unsafe names, malformed dynamic rows, stale Core
-  identity, incoherent authority and Detect source-commit mismatch before
-  staging.
+  validation and semantic identity projection. Release-owned data contributes
+  `coreIdentity`; schema-1 dynamic datasets have a separate `dynamicIdentity`,
+  so a dynamic revision does not change Core identity.
+- Refresh now fails closed unless the authoritative receipt, Registry, runtime
+  and Detect identities are all present, schema/coherent, and exactly match
+  submitted release, `sourceCommit`, and release-owned `coreIdentity`.
+  Missing, partial, malformed, stale and mismatched authority states are
+  rejected before staging.
+- Publication is a revision directory plus a single manifest/pointer commit:
+  readers select one revision, and a new revision contains only its submitted
+  entries, so replacement/removal cannot expose a mixed or stale dataset.
+  Compensation failures return `EROLLBACK_FAILED` with top-level
+  `state: "uncertain"`; temporary unlink/cleanup failures are no longer
+  swallowed.
 - Added `z2k-diagnostics.uc` as a read-only projection of existing receipt,
   runtime composition, Asset Registry, strategy catalog, Detect,
   autodiscovery and autocircular authorities. It returns exactly the required
@@ -21,13 +30,15 @@ rpcd/OpenWrt acceptance, browser acceptance, merge and push were not run.
   `nfqws2` remain explicitly unavailable when no existing runtime authority
   supplies evidence; no second lifecycle truth or database was introduced.
 - Wired typed `z2k_diagnostics` and `z2k_data_refresh` methods into the
-  canonical rpcd object and ACL. Data refresh accepts only bounded JSON through
-  the existing edit adapter; executable names, raw commands, caller paths and
-  environment are not accepted.
+  canonical rpcd object and ACL. `z2k-data-refresh-rpc.uc` is the bounded wire
+  parser: it caps JSON at 32768 bytes, validates types, converts caller-safe
+  `releaseOwned[].name` to the internal path only after validation, and rejects
+  executable names, commands, raw fields, caller paths and environment.
 - Added `tests/product/z2k-data-diagnostics.test.mjs` covering release/dynamic
-  identity separation, malformed data, unsafe paths, failed publish, exact
-  diagnostics IDs/shape, malformed authority projection, RPC registration and
-  ACL exposure.
+  identity separation, malformed data, strict authority coherence, unsafe
+  paths, atomic replacement/removal, failed compensation, exact diagnostics
+  IDs/shape, malformed/oversized authority projection, typed RPC rejection,
+  RPC registration and ACL exposure.
 
 ## TDD evidence
 
@@ -39,15 +50,16 @@ node --test tests/product/z2k-data-diagnostics.test.mjs
 Failure: Task 13 production module was absent.
 ```
 
-GREEN focused UCode gate:
+GREEN focused UCode gate after the follow-up fixes:
 
 ```text
-wsl.exe -e bash -lc "... export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && node --test tests/product/z2k-data-diagnostics.test.mjs"
-6 passed, 0 failed, 0 skipped
+wsl bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/z2k-data-diagnostics.test.mjs"
+11 passed, 0 failed, 0 skipped
 ```
 
 The focused suite exercises real UCode imports and includes identity, schema,
-path, staging/publish failure, diagnostics and canonical RPC/ACL assertions.
+strict authority, staging/publish failure, atomic dataset, compensation,
+diagnostics error bounds and the typed RPC parser.
 
 ## Bounded verification
 
@@ -56,10 +68,18 @@ path, staging/publish failure, diagnostics and canonical RPC/ACL assertions.
 - `node scripts/docs.mjs verify`: passed; Quartz SHA
   `ab346fa66a895e12d63a308e70ce330ba795822a`.
 - `git diff --check`: passed.
-- `node --test tests/product/z2k-data-diagnostics.test.mjs tests/product/*resource*.test.mjs`:
-  82 passed, 1 failed. The single failure is the pre-existing resource
-  manifest count expectation (`expected 7`, observed `6`); all six Task 13
-  tests and the remaining resource tests passed.
+- Relevant combined gate (Task 13 plus resource authority/tooling/transaction,
+  promotion, strategy override and resource-model tests): `87 passed, 0
+  failed, 0 skipped`.
+- Full bounded resource-pattern gate:
+  `node --test tests/product/z2k-data-diagnostics.test.mjs
+  tests/product/*resource*.test.mjs` -> `88 passed, 1 failed` out of `89`.
+  The only failure is the unrelated baseline assertion at
+  `tests/product/resource-center-manifest.test.mjs:49`: `expected 7`, actual
+  `6`. The manifest currently contains six IDs (`lua:z2k-modern-core`,
+  `lua:z2k-fooling-ext`, `lua:z2k-range-rand`, `lua:z2k-state-persist`,
+  `lua:z2k-alert`, `lua:z2k-quic-silence`); no Task 13 authority check was
+  weakened and no resource file was changed.
 - Direct UCode no-seam diagnostics projection completed and returned all 18
   IDs; unavailable runtime evidence was reported explicitly rather than
   inferred.
@@ -74,8 +94,12 @@ runtime, Detect and autocircular modules remain the authorities.
 
 ## Commit
 
-Implementation and this report are committed together as:
+Implementation fixes are committed as:
 
 ```text
-feat: integrate Z2K data and diagnostics
+65b7629f fix: require coherent Z2K data authorities
+e7a057ed fix: harden Task 13 data and diagnostics boundaries
 ```
+
+This report update is the only remaining Task 13 change to commit; the final
+worktree check must be clean. No router/browser/live acceptance was run.
