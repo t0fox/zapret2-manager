@@ -41,7 +41,7 @@ function invoke(operation, args) {
 test.before(() => {
   fs.rmSync(lateMarker, { force: true });
   const marker = lateMarker.replaceAll('\\', '/');
-  fs.writeFileSync(fakeDetect, `#!/bin/sh\nif [ "$1" = probe ] && [ "$2" = sleep.example.com:443 ]; then (sleep 0.2; printf late > ${marker}) & wait; fi\nif [ "$1" = probe ] && [ "$2" = overflow.example.com:443 ]; then yes x | head -c 70000; exit 0; fi\nprintf '%s\\n' "$@"\n`, { mode: 0o755 });
+  fs.writeFileSync(fakeDetect, `#!/bin/sh\nif [ "$1" = probe ] && [ "$2" = sleep.example.com:443 ]; then (sleep 0.2; printf late > ${marker}) & wait; fi\nif [ "$1" = probe ] && [ "$2" = overflow.example.com:443 ]; then yes x | head -c 70000; exit 0; fi\nif [ "$2" = malformed.example.com:443 ]; then printf 'not-json'; exit 0; fi\nif [ "$2" = truncated.example.com:443 ]; then printf '{"fixture":true'; exit 0; fi\nif [ "$2" = array.example.com:443 ]; then printf '[]'; exit 0; fi\nprintf '{"fixture":true}\\n'\n`, { mode: 0o755 });
   compile();
 });
 
@@ -112,4 +112,15 @@ test('reports bounded-output truncation separately from wall-time timeout', () =
   assert.equal(response.data.timedOut, false);
   assert.equal(response.data.outputTruncated, true);
   assert.ok(response.data.stdout.length <= 65536);
+});
+
+test('rejects malformed, truncated, and non-object Detect JSON before returning success', () => {
+  for (const host of ['malformed.example.com', 'truncated.example.com', 'array.example.com']) {
+    const response = invoke('z2k_detect_probe', { host, port: 443, repeats: 1, timeoutMs: 1000 });
+    assert.equal(response.ok, false, host);
+    assert.equal(response.error.code, 'ESCHEMA', host);
+  }
+  const valid = invoke('z2k_detect_probe', { host: 'valid.example.com', port: 443, repeats: 1, timeoutMs: 1000 });
+  assert.equal(valid.ok, true);
+  assert.equal(valid.data.stdout, '{"fixture":true}\n');
 });

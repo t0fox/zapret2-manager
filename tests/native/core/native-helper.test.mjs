@@ -20,6 +20,45 @@ const failure = (id, code = 'ENOENT', overrides = {}) => `${JSON.stringify({
     committed: false, durability: 'unchanged', stage: 'object_open', ...overrides },
 })}\n`;
 
+const detectResultFixtures = {
+  probe: {
+    Domain: 'example.com', DNSOK: true, TCPOK: true, TLSOK: true,
+    TLS12OK: true, TLS13OK: true, HTTPOK: true, ResolvedIPs: ['192.0.2.1'],
+    FailureCode: '', FailureReason: '', LatencyMS: 12, PathVerdict: 'clear', PathReason: '',
+  },
+  classify: {
+    target: 'example.com:443', verdict: 'clear', reason: 'fixture', repeats: 3,
+    probes: 3, duration: '1s', trigger_len: 0, props: {}, composed: false,
+    raw_usable: true, trace: [],
+  },
+  quic: {
+    target: 'example.com:443', addr: '192.0.2.1:443', verdict: 'clear', reason: 'fixture',
+    repeats: 1, probes: 1, duration: '1s', props: {}, trace: [],
+  },
+  voice: {
+    target: 'example.com:443', verdict: 'clear', reason: 'fixture', repeats: 1,
+    probes: 1, duration: '1s', marked: false, trace: [],
+  },
+  tcp16: {
+    Target: { ID: 'fixture', ASN: 64500, Provider: 'fixture', IP: '192.0.2.1', Port: 443, SNI: 'example.com' },
+    SNI: 'example.com', Alive: true, Detected: false, DiedAtKB: 0, Err: '', RTT: 1000,
+  },
+};
+
+function detectData(kind, stdout = JSON.stringify(detectResultFixtures[kind]), overrides = {}) {
+  const argv = ['/usr/libexec/zapret2-manager/z2k-detect', kind, 'example.com:443'];
+  if (kind === 'classify') argv.push('-hello', 'modern');
+  argv.push('-repeats', kind === 'classify' ? '3' : '1', '-timeout', '1s', '-json');
+  return { argv, exitCode: 0, stdout, stderr: '', timedOut: false, outputTruncated: false, ...overrides };
+}
+function detectWrongTypeResult(kind) {
+  const value = JSON.parse(JSON.stringify(detectResultFixtures[kind]));
+  if (kind === 'probe') value.Domain = 1;
+  else if (kind === 'classify' || kind === 'quic' || kind === 'voice') value.target = 1;
+  else value.Target = [];
+  return JSON.stringify(value);
+}
+
 async function roundTrip(expression, makeResponse = ({ header }) => childExited(
   header.requestId, success(header.requestId, {
     type: 'regular', size: 7, mode: '0600', uid: 0, gid: 0, mtimeSec: 1, mtimeNsec: 2,
@@ -59,7 +98,7 @@ test('exports typed operations and sends exact closed helper requests', async ()
       { byteLength: 15, committed: true, durability: 'tmpfs_visible' }],
     [`native.z2k_detect('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`, 'z2k_detect_probe',
       { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 2000,
-      { argv: ['/usr/libexec/zapret2-manager/z2k-detect', 'probe', 'example.com:443', '-repeats', '1', '-timeout', '1s', '-json'], exitCode: 0, stdout: '{}', stderr: '', timedOut: false, outputTruncated: false }],
+      detectData('probe')],
   ];
   const ids = new Set();
   for (const [expression, operation, args, timeoutMs, data] of cases) {
@@ -79,6 +118,44 @@ test('exports typed operations and sends exact closed helper requests', async ()
   }
   assert.deepEqual(await invoke(`sort(keys(native))`),
     ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular', 'z2k_detect']);
+});
+
+test('rejects malformed and operation-incompatible Detect JSON while accepting each typed result shape', async () => {
+  const operations = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
+  for (const kind of operations) {
+    const operation = `z2k_detect_${kind}`;
+    const expression = `native.z2k_detect(${JSON.stringify(operation)}, ${JSON.stringify({ host: 'example.com', port: 443, ...(kind === 'classify' ? { hello: 'modern' } : {}), repeats: kind === 'classify' ? 3 : 1, timeoutMs: 1000 })}, 1000)`;
+    for (const stdout of ['not-json', '{"target":', '[]', detectWrongTypeResult(kind), '{}']) {
+      const { result } = await roundTrip(expression, ({ header }) =>
+        childExited(header.requestId, success(header.requestId, detectData(kind, stdout))));
+      assert.equal(result.ok, false, `${operation}: ${stdout}`);
+      assert.equal(result.error.code, 'EDETECT_SCHEMA', `${operation}: ${stdout}`);
+    }
+    const unknown = await roundTrip(expression, ({ header }) =>
+      childExited(header.requestId, success(header.requestId, detectData(kind, undefined, { unknown: true }))));
+    assert.equal(unknown.result.ok, false, `${operation}: unknown result metadata`);
+    assert.equal(unknown.result.error.code, 'EDETECT_SCHEMA', `${operation}: unknown result metadata`);
+    const { result } = await roundTrip(expression, ({ header }) =>
+      childExited(header.requestId, success(header.requestId, detectData(kind))));
+    assert.equal(result.ok, true, operation);
+    assert.deepEqual(result.data, detectData(kind), operation);
+  }
+});
+
+test('keeps timeout and bounded-output metadata valid without requiring complete JSON', async () => {
+  const expression = `native.z2k_detect('z2k_detect_probe', { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 }, 1000)`;
+  const timeout = detectData('probe', 'partial', { exitCode: -1, stderr: 'timeout', timedOut: true });
+  const timeoutResult = await roundTrip(expression, ({ header }) =>
+    childExited(header.requestId, success(header.requestId, timeout)));
+  assert.equal(timeoutResult.result.ok, true);
+  assert.equal(timeoutResult.result.data.timedOut, true);
+  assert.equal(timeoutResult.result.data.outputTruncated, false);
+  const overflow = detectData('probe', 'x'.repeat(65536), { stderr: 'overflow', outputTruncated: true });
+  const overflowResult = await roundTrip(expression, ({ header }) =>
+    childExited(header.requestId, success(header.requestId, overflow)));
+  assert.equal(overflowResult.result.ok, true);
+  assert.equal(overflowResult.result.data.timedOut, false);
+  assert.equal(overflowResult.result.data.outputTruncated, true);
 });
 
 test('rejects invalid typed arguments before opening the fixed socket', async () => {
@@ -336,7 +413,7 @@ test('validates exact operation success schemas and rejects wrong fields types a
         childExited(header.requestId, success(header.requestId, data)));
       if (expression.includes('atomic_write') || expression.includes('mkdir_private'))
         assert.equal(rejected.result.error.commitState, 'unknown');
-      else assert.equal(rejected.result.error.code, 'EINTERNAL');
+      else assert.equal(rejected.result.error.code, expression.includes('z2k_detect') ? 'EDETECT_SCHEMA' : 'EINTERNAL');
     }
   }
 });

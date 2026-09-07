@@ -13,6 +13,47 @@ const protocol = JSON.parse(fs.readFileSync(path.join(root, 'zapret2-manager/src
 const operations = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
 const ucode = process.env.UCODE_BIN;
 
+const detectResultFixtures = {
+  probe: {
+    Domain: 'example.com', DNSOK: true, TCPOK: true, TLSOK: true,
+    TLS12OK: true, TLS13OK: true, HTTPOK: true, ResolvedIPs: ['192.0.2.1'],
+    FailureCode: '', FailureReason: '', LatencyMS: 12, PathVerdict: 'clear', PathReason: '',
+  },
+  classify: {
+    target: 'example.com:443', verdict: 'clear', reason: 'fixture', repeats: 3,
+    probes: 3, duration: '1s', trigger_len: 0, props: {}, composed: false,
+    raw_usable: true, trace: [],
+  },
+  quic: {
+    target: 'example.com:443', addr: '192.0.2.1:443', verdict: 'clear', reason: 'fixture',
+    repeats: 1, probes: 1, duration: '1s', props: {}, trace: [],
+  },
+  voice: {
+    target: 'example.com:443', verdict: 'clear', reason: 'fixture', repeats: 1,
+    probes: 1, duration: '1s', marked: false, trace: [],
+  },
+  tcp16: {
+    Target: { ID: 'fixture', ASN: 64500, Provider: 'fixture', IP: '192.0.2.1', Port: 443, SNI: 'example.com' },
+    SNI: 'example.com', Alive: true, Detected: false, DiedAtKB: 0, Err: '', RTT: 1000,
+  },
+};
+
+function detectData(kind, stdout = JSON.stringify(detectResultFixtures[kind]), overrides = {}, endpoint = 'example.com:443', repeats = kind === 'classify' ? '3' : '1', timeout = '6s') {
+  const argv = ['/usr/libexec/zapret2-manager/z2k-detect', kind, endpoint];
+  if (kind === 'classify') argv.push('-hello', 'modern');
+  argv.push('-repeats', repeats, '-timeout', timeout, '-json');
+  return {
+    argv, exitCode: 0, stdout, stderr: '', timedOut: false, outputTruncated: false, ...overrides,
+  };
+}
+function detectWrongTypeResult(kind) {
+  const value = JSON.parse(JSON.stringify(detectResultFixtures[kind]));
+  if (kind === 'probe') value.Domain = 1;
+  else if (kind === 'classify' || kind === 'quic' || kind === 'voice') value.target = 1;
+  else value.Target = [];
+  return JSON.stringify(value);
+}
+
 function invoke(expression) {
   const source = `import * as detect from ${JSON.stringify(detectPath)}; print(sprintf('%J', ${expression}));`;
   const result = spawnSync(ucode, ['-e', source], { cwd: root, encoding: 'utf8', timeout: 15_000 });
@@ -53,8 +94,9 @@ test('Detect adapter rejects process-boundary fields before its native seam', { 
 });
 
 test('Detect adapter forwards only normalized typed input through one native seam', { skip: !ucode || !fs.existsSync(ucode) }, () => {
-  const result = invoke(`detect.z2k_detect_execute('z2k_detect_classify', { host: 'example.com', port: 443, hello: 'modern', repeats: 3, timeoutMs: 6000 }, { invoke: function(operation, args, timeoutMs) { return { ok: true, data: { operation: operation, args: args, timeoutMs: timeoutMs } }; } })`);
-  assert.deepEqual(result, { ok: true, data: { operation: 'z2k_detect_classify', args: { host: 'example.com', port: 443, hello: 'modern', repeats: 3, timeoutMs: 6000 }, timeoutMs: 6000 } });
+  const data = detectData('classify');
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_classify', { host: 'example.com', port: 443, hello: 'modern', repeats: 3, timeoutMs: 6000 }, { invoke: function(operation, args, timeoutMs) { return ${JSON.stringify({ ok: true, data })}; } })`);
+  assert.deepEqual(result, { ok: true, data });
 });
 
 test('Detect adapter applies strict host and endpoint validation before its native seam', { skip: !ucode || !fs.existsSync(ucode) }, () => {
@@ -63,6 +105,53 @@ test('Detect adapter applies strict host and endpoint validation before its nati
     assert.equal(result.ok, false, host);
     assert.equal(result.error.code, 'EINPUT', host);
   }
-  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: '2001:db8::1', port: 443, repeats: 1, timeoutMs: 1000 }, { invoke: function(operation, args) { return { ok: true, data: { operation: operation, args: args } }; } })`);
-  assert.deepEqual(result, { ok: true, data: { operation: 'z2k_detect_probe', args: { host: '2001:db8::1', port: 443, repeats: 1, timeoutMs: 1000 } } });
+  const data = detectData('probe', JSON.stringify(detectResultFixtures.probe), {}, '[2001:db8::1]:443', '1', '1s');
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', { host: '2001:db8::1', port: 443, repeats: 1, timeoutMs: 1000 }, { invoke: function(operation, args) { return ${JSON.stringify({ ok: true, data })}; } })`);
+  assert.deepEqual(result, { ok: true, data });
+});
+
+test('Detect adapter validates bounded operation-specific JSON before returning success', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  for (const kind of operations) {
+    const operation = `z2k_detect_${kind}`;
+    const input = { host: 'example.com', port: 443, repeats: kind === 'classify' ? 3 : 1, timeoutMs: 6000 };
+    if (kind === 'classify') input.hello = 'modern';
+    for (const [label, stdout] of [
+      ['malformed', '{"target":'],
+      ['truncated', '{"target":"example.com:443"'],
+      ['non-object', '[]'],
+      ['wrong-type', detectWrongTypeResult(kind)],
+      ['missing-required', '{}'],
+    ]) {
+      const data = detectData(kind, stdout);
+      const result = invoke(`detect.z2k_detect_execute(${JSON.stringify(operation)}, ${JSON.stringify(input)}, { invoke: function() { return ${JSON.stringify({ ok: true, data })}; } })`);
+      assert.equal(result.ok, false, `${operation} ${label}`);
+      assert.equal(result.error.code, 'EDETECT_SCHEMA', `${operation} ${label}`);
+    }
+    const validData = detectData(kind);
+    const valid = invoke(`detect.z2k_detect_execute(${JSON.stringify(operation)}, ${JSON.stringify(input)}, { invoke: function() { return ${JSON.stringify({ ok: true, data: validData })}; } })`);
+    assert.equal(valid.ok, true, `${operation} valid fixture`);
+    assert.deepEqual(valid.data, validData, `${operation} valid fixture`);
+    const unknown = detectData(kind, undefined, { unknown: true });
+    const unknownResult = invoke(`detect.z2k_detect_execute(${JSON.stringify(operation)}, ${JSON.stringify(input)}, { invoke: function() { return ${JSON.stringify({ ok: true, data: unknown })}; } })`);
+    assert.equal(unknownResult.ok, false, `${operation} unknown result metadata`);
+    assert.equal(unknownResult.error.code, 'EDETECT_SCHEMA', `${operation} unknown result metadata`);
+  }
+  const oversized = detectData('probe', 'x'.repeat(65537));
+  const result = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify({ host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 })}, { invoke: function() { return ${JSON.stringify({ ok: true, data: oversized })}; } })`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EDETECT_SCHEMA');
+});
+
+test('Detect adapter normalizes timeout and bounded-output failures without losing metadata', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  const input = { host: 'example.com', port: 443, repeats: 1, timeoutMs: 1000 };
+  const timedOutData = detectData('probe', 'partial', { exitCode: -1, stderr: 'timeout diagnostic', timedOut: true });
+  const timedOut = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(input)}, { invoke: function() { return ${JSON.stringify({ ok: true, data: timedOutData })}; } })`);
+  assert.equal(timedOut.ok, false);
+  assert.equal(timedOut.error.code, 'EDETECT_TIMEOUT');
+  assert.deepEqual(timedOut.error.details, { exitCode: -1, timedOut: true, outputTruncated: false, stderr: 'timeout diagnostic' });
+  const overflowData = detectData('probe', 'x'.repeat(65536), { exitCode: 0, stderr: 'overflow diagnostic', outputTruncated: true });
+  const overflow = invoke(`detect.z2k_detect_execute('z2k_detect_probe', ${JSON.stringify(input)}, { invoke: function() { return ${JSON.stringify({ ok: true, data: overflowData })}; } })`);
+  assert.equal(overflow.ok, false);
+  assert.equal(overflow.error.code, 'EDETECT_FAILED');
+  assert.deepEqual(overflow.error.details, { exitCode: 0, timedOut: false, outputTruncated: true, stderr: 'overflow diagnostic' });
 });

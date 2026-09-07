@@ -3,7 +3,8 @@
 // Z2K Core owns the exact upstream Detect artifact. This module only resolves,
 // stages and validates the binary; Detect itself remains the upstream algorithm.
 import { popen, stat, readlink, writefile } from 'fs';
-import * as native_helper from '/usr/libexec/zapret2-manager/core/native-helper.uc';
+import * as native_helper from './core/native-helper.uc';
+import * as detect_result from './core/detect-result.uc';
 
 const RUNTIME_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
 const REPOSITORY = 'necronicle/z2k';
@@ -20,6 +21,13 @@ function fail(code, message, details) {
 	let out = { ok: false, error: { code: code, message: message } };
 	for (let key in details || {}) out.error[key] = details[key];
 	return out;
+}
+function detect_failure_details(data) {
+	let details = {
+		exitCode: data.exitCode, timedOut: data.timedOut, outputTruncated: data.outputTruncated,
+	};
+	if (string(data.stderr) && length(data.stderr)) details.stderr = substr(data.stderr, 0, 4096);
+	return details;
 }
 
 function detect_ipv4(value) {
@@ -104,7 +112,18 @@ export const z2k_detect_execute = function(operation, input, seams) {
 	let normalized = { host: input.host, port: input.port, repeats: input.repeats, timeoutMs: input.timeoutMs };
 	if (operation == 'z2k_detect_classify') normalized.hello = input.hello;
 	let hooks = object(seams) ? seams : {}, invoke = type(hooks.invoke) == 'function' ? hooks.invoke : native_helper.z2k_detect;
-	try { return invoke(operation, normalized, normalized.timeoutMs); }
+	try {
+		let response = invoke(operation, normalized, normalized.timeoutMs);
+		if (!object(response) || type(response.ok) != 'bool') return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid native response.');
+		if (!response.ok) return response;
+		if (!detect_result.detect_result_data_valid(operation, response.data))
+			return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
+		if (response.data.timedOut)
+			return fail('EDETECT_TIMEOUT', 'Z2K Detect timed out.', { details: detect_failure_details(response.data) });
+		if (response.data.outputTruncated)
+			return fail('EDETECT_FAILED', 'Z2K Detect output exceeded the bounded result limit.', { details: detect_failure_details(response.data) });
+		return response;
+	}
 	catch (e) { return fail('EDEPENDENCY', 'Native Z2K Detect invocation failed.', { detail: text(e) }); }
 };
 

@@ -1,4 +1,5 @@
 import * as socket from 'socket';
+import * as detect_result from './detect-result.uc';
 
 const SOCKET_PATH = '/tmp/zapret2-manager/runtime/z2m-helperd.sock';
 const TRANSPORT_PROTOCOL = 'z2m-helper-transport-v1';
@@ -25,7 +26,6 @@ const EXIT_CODES = {
 const ERROR_CODES = keys(EXIT_CODES);
 const RETRYABLE_ERRORS = ['ELOCKED', 'ETIMEOUT'];
 const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
-const DETECT_EXECUTABLE = '/usr/libexec/zapret2-manager/z2k-detect';
 const DETECT_BROKER_GRACE_MS = 1000;
 const ERROR_STAGES = {
 	EMALFORMED: ['framing', 'utf8', 'json_decode', 'trailing_data'],
@@ -139,24 +139,6 @@ function detect_host(value) {
 }
 
 function detect_operation(value) { return type(value) == 'string' && index(DETECT_OPERATIONS, value) >= 0; }
-
-function detect_string_array(value) {
-	if (type(value) != 'array') return false;
-	for (let item in value) if (type(item) != 'string' || length(item) > 128) return false;
-	return true;
-}
-
-function detect_argv_valid(operation, value) {
-	let kind = substr(operation, 11), classify = operation == 'z2k_detect_classify', expected = classify ? 10 : 8;
-	if (!detect_string_array(value) || length(value) != expected || value[0] != DETECT_EXECUTABLE || value[1] != kind ||
-		type(value[2]) != 'string' || index(value[2], '\n') >= 0 || index(value[2], '\r') >= 0 || index(value[2], '\t') >= 0 ||
-		value[expected - 1] != '-json') return false;
-	let offset = 3;
-	if (classify) { if (value[3] != '-hello' || value[4] != 'modern') return false; offset = 5; }
-	return value[offset] == '-repeats' && match(value[offset + 1], /^[1-9][0-9]*$/) &&
-		int(value[offset + 1]) <= 32 && value[offset + 2] == '-timeout' && match(value[offset + 3], /^[1-9][0-9]*s$/) &&
-		int(substr(value[offset + 3], 0, length(value[offset + 3]) - 1)) <= 120;
-}
 
 function detect_args_valid(operation, value) {
 	let names = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
@@ -597,10 +579,7 @@ function success_data_valid(operation, data) {
 			data.signal >= 0 && type(data.startedAt) == 'int' && data.startedAt >= 0 &&
 			type(data.finishedAt) == 'int' && data.finishedAt >= data.startedAt && type(data.complete) == 'bool' && type(data.cancelled) == 'bool';
 	if (index(DETECT_OPERATIONS, operation) >= 0)
-		return exact_fields(data, ['argv', 'exitCode', 'stdout', 'stderr', 'timedOut', 'outputTruncated']) &&
-			type(data.argv) == 'array' && detect_argv_valid(operation, data.argv) && type(data.exitCode) == 'int' && data.exitCode >= -1 &&
-			type(data.stdout) == 'string' && length(data.stdout) <= 65536 && type(data.stderr) == 'string' &&
-			length(data.stderr) <= 65536 && type(data.timedOut) == 'bool' && type(data.outputTruncated) == 'bool';
+		return detect_result.detect_result_data_valid(operation, data);
 	return false;
 }
 
@@ -637,11 +616,14 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 	let raw = substr(stdout, 0, -1), value;
 	if (!valid_utf8(raw)) return helper_invalid(mutation, 'malformed');
 	let scanned = scan_json(raw, operation), scan_issue = scanned.issue;
-	if (scan_issue != null)
+	if (scan_issue != null) {
+		if (index(DETECT_OPERATIONS, operation) >= 0 && scan_issue == 'envelope')
+			return failure('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
 		return helper_invalid(mutation, scan_issue == 'budget' ? 'scan_budget' :
 			(scan_issue == 'details_budget' ? 'details_budget' :
 			((scan_issue == 'details_type' || scan_issue == 'envelope') ? 'envelope' :
 			(index(raw, '}{') >= 0 ? 'trailing' : 'malformed'))));
+	}
 	let replacements = [];
 	if (scanned.detailsStart != null) push(replacements, [scanned.detailsStart, scanned.detailsEnd, '{}']);
 	if (scanned.contentStart != null) push(replacements, [scanned.contentStart, scanned.contentEnd, '""']);
@@ -662,14 +644,18 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 		return helper_invalid(mutation, value?.protocolVersion != 1 ? 'protocol' : 'envelope');
 	if (value.requestId != requestId) return helper_invalid(mutation, 'request_id');
 	if (value.ok) {
-		if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'data']) ||
-		    !success_data_valid(operation, value.data)) return helper_invalid(mutation, 'envelope');
+		if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'data']) || !success_data_valid(operation, value.data)) {
+			if (index(DETECT_OPERATIONS, operation) >= 0) return failure('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
+			return helper_invalid(mutation, 'envelope');
+		}
 		if (exitCode != 0 && operation != 'scanner_probe' && index(DETECT_OPERATIONS, operation) < 0) return helper_invalid(mutation, 'exit');
 		return { ok: true, data: value.data };
 	}
 	if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'error']) ||
 	    !helper_error_valid(value.error)) return helper_invalid(mutation, 'envelope');
 	if (EXIT_CODES[value.error.code] != exitCode) return helper_invalid(mutation, 'exit');
+	if (index(DETECT_OPERATIONS, operation) >= 0 && value.error.code == 'ESCHEMA' && value.error.stage == 'canonical_validate')
+		return failure('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
 	return failure(PUBLIC_CODES[value.error.code], value.error.message, {
 		retryable: value.error.retryable,
 		details: {

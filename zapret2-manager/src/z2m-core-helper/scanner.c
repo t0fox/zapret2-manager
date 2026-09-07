@@ -1,5 +1,6 @@
 #include "helper.h"
 
+#include <json-c/json_tokener.h>
 #include <errno.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -163,6 +164,28 @@ static int detect_run(char *const argv[], unsigned int timeout_ms, unsigned char
 	outbuf[*stdout_length] = 0; errbuf[*stderr_length] = 0; *stdout_data = outbuf; *stderr_data = errbuf; return 0;
 }
 
+static bool detect_json_object(const unsigned char *data, size_t length)
+{
+	struct json_tokener *tokener = json_tokener_new();
+	if (tokener == NULL || data == NULL || length == 0 || length > Z2K_DETECT_OUTPUT_LIMIT) {
+		json_tokener_free(tokener);
+		return false;
+	}
+	for (size_t i = 0; i < length; i++)
+		if (data[i] == 0) { json_tokener_free(tokener); return false; }
+	json_object *value = json_tokener_parse_ex(tokener, (const char *)data, (int)length);
+	size_t parsed = json_tokener_get_parse_end(tokener);
+	bool valid = value != NULL && json_tokener_get_error(tokener) == json_tokener_success &&
+		json_object_is_type(value, json_type_object);
+	while (valid && parsed < length) {
+		unsigned char c = data[parsed++];
+		if (c != ' ' && c != '\t' && c != '\n' && c != '\r') valid = false;
+	}
+	if (value != NULL) json_object_put(value);
+	json_tokener_free(tokener);
+	return valid;
+}
+
 int z2m_detect_operation(const struct z2m_request *request)
 {
 	const char *host, *hello = NULL; int64_t port, repeats, timeout; char endpoint[320], repeats_text[24], timeout_text[24];
@@ -185,6 +208,9 @@ int z2m_detect_operation(const struct z2m_request *request)
 	argv[argc++] = "-repeats"; argv[argc++] = repeats_text; argv[argc++] = "-timeout"; argv[argc++] = timeout_text; argv[argc++] = "-json"; argv[argc] = NULL;
 	unsigned char *out, *err; size_t out_len, err_len; int exit_code; bool timed_out, output_truncated;
 	if (detect_run(argv, (unsigned int)timeout, &out, &out_len, &err, &err_len, &exit_code, &timed_out, &output_truncated) < 0) return z2m_fail(request->request_id, "EINTERNAL", "supervise");
+	if (!timed_out && !output_truncated && !detect_json_object(out, out_len)) {
+		free(out); free(err); return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+	}
 	json_object *data = z2m_json_object(), *argv_data = json_object_new_array();
 	if (!data || !argv_data) { json_object_put(data); json_object_put(argv_data); free(out); free(err); return z2m_fail(request->request_id, "EINTERNAL", "response_encode"); }
 	for (size_t i = 0; i < argc; i++) json_object_array_add(argv_data, z2m_json_string(argv[i]));
