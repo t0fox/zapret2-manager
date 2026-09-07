@@ -1,0 +1,59 @@
+{
+  "schema": "z2m.task15.live-evidence.v1",
+  "task": "15",
+  "status": "DONE_WITH_CONCERNS",
+  "capturedAt": "2026-09-07",
+  "worktree": "G:\\zapret2-manager\\.worktrees\\z2k-coherent-core-detect",
+  "branch": "codex/z2k-coherent-core-detect",
+  "head": "9eacd8b337452bd5897187ccbff52c184ddf0681",
+  "originMainAtStart": "1f677800708586d4f9ba2bc76372fd306179dde3",
+  "mutations": { "merge": false, "push": false, "router": false, "browser": false, "oldApkInstalled": false },
+  "checks": {
+    "focusedSuites": {
+      "status": "PASS_WITH_ONE_SAFE_SKIP",
+      "passed": 143,
+      "failed": 0,
+      "skipped": 1,
+      "command": "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/z2k-release-identity.test.mjs tests/product/z2k-current-upstream-membership.test.mjs tests/product/z2k-coherent-candidate.test.mjs tests/product/z2k-managed-strategy-source.test.mjs tests/product/z2k-detect-artifact.test.mjs tests/product/z2k-receipt-v3.test.mjs tests/product/z2k-coherent-transaction.test.mjs tests/product/z2k-legacy-migration.test.mjs tests/product/z2k-autocircular-pool-identity.test.mjs tests/product/z2k-detect-rpc.test.mjs tests/product/z2k-detect-discovery-service.test.mjs tests/product/z2k-data-diagnostics.test.mjs tests/product/z2k-old-scanner-unwired.test.mjs tests/ui/z2k-coherent-ui.test.mjs'",
+      "skipReason": "WSL control directory was not writable for the safe dangling-symlink probe"
+    },
+    "rollbackInjection": {
+      "status": "PASS",
+      "passed": 32,
+      "failed": 0,
+      "command": "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/z2k-coherent-transaction.test.mjs tests/product/z2k-autocircular-pool-identity.test.mjs'",
+      "assertions": ["pre-commit Detect SHA failure does not mutate Registry/runtime", "post-materialization readiness failure restores physical snapshot", "sidecar/state compensation restores learned state and identity", "exact prior LKG includes Registry/runtime/source/catalog/strategy/config/Detect"]
+    },
+    "static": {
+      "status": "PASS",
+      "commands": ["git diff --check", "git diff --find-renames --stat", "sh -n zapret2-manager/files/etc/init.d/zapret2-manager", "node --check z2m-maintenance.js", "node --check z2m-assets.js", "node --check z2m-scanner.js", "node scripts/validate-knowledge.mjs", "node scripts/docs.mjs verify"]
+    },
+    "fullHarness": {
+      "status": "FAIL_INCOMPLETE",
+      "exitCode": 1,
+      "command": "wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && scripts/test/native.sh'",
+      "termination": "bounded no-progress interruption after product matrix failures",
+      "failureClasses": ["WSL linked-worktree git pointer cannot resolve Windows G:/ path", "native package/helper and Lua smoke failures", "existing Avatar/Profiles/Scanner/Resource Center/Strategy Catalog failures"]
+    }
+  },
+  "router": {
+    "target": "root@192.168.1.1",
+    "access": "PASS_READ_ONLY",
+    "baseline": { "openwrt": "25.12.5", "revision": "r33051-f5dae5ece4", "target": "mediatek/filogic", "arch": "aarch64_cortex-a53", "kernel": "6.12.94", "package": "zapret2-manager-full", "nfqws2Pid": 6545, "nfqueue": 300, "managerStatus": "running", "discoveredDomainsBytes": 0, "autocircularStateBytes": 1464 },
+    "deployment": {
+      "status": "BLOCKED",
+      "workflow": "scripts/release/build-apk.sh followed by apk add --allow-untrusted",
+      "attempts": ["tools/build-apk-manual.sh: exit 1, no such file", "scripts/release/build-apk.sh: exit 1, linked-worktree .git pointer unresolved in WSL", "current builder with explicit GIT_DIR/GIT_WORK_TREE: exit 1, curl (6) Could not resolve host downloads.openwrt.org after bounded retries"],
+      "installedOldApk": false
+    },
+    "task15RuntimePresent": false,
+    "detectPath": "/usr/libexec/zapret2-manager/z2k-detect.uc",
+    "detectPathResult": "missing",
+    "detectRpcResult": "ubus method not found, rc 253",
+    "legacyDetectorPresent": true
+  },
+  "liveGates": { "pOverRDiscovery": "NOT_RUN", "coherentUpdate": "NOT_RUN", "detectRawAndRpc": "NOT_RUN", "autodiscoveryProcdPersistence": "NOT_RUN", "discordVoice": "NOT_RUN", "autocircularRotation": "NOT_RUN", "resourcePersistence": "NOT_RUN", "browserAcceptance": "NOT_RUN" },
+  "codeReview": { "status": "PENDING", "workflow": "superpowers:requesting-code-review", "approval": false, "notes": "No review approval is claimed; evidence files require review before commit." },
+  "blockers": ["Full repository harness has observed failures and did not complete", "Pinned SDK build cannot resolve downloads.openwrt.org from WSL", "Router still runs pre-Task-15 package without z2k-detect RPC", "Discord live-call acceptance cannot be exercised before the Task-15 package is deployed"],
+  "artifacts": { "acceptance": ".superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/acceptance.md", "report": ".superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/task-15-report.md", "liveEvidence": ".superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/live-evidence.json" }
+}
