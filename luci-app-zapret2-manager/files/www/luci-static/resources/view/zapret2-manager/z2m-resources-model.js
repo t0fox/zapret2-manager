@@ -291,6 +291,7 @@ function buildModel(resources, assets, opts) {
 	groupsById['user'] = userGroup;
 
 	var seen = {};
+	var unassignedAssets = [];
 	var totalVisibleAssets = 0;
 
 	function assignAsset(asset, sourceIdHint, provenance) {
@@ -422,7 +423,7 @@ function buildModel(resources, assets, opts) {
 		var rprov = object(rem.provenance);
 		var rk = text(rprov.kind);
 		if (rk === 'catalog/upstream' && byId['z2k-resources']) {
-			groupsById['z2k-resources'].assets.push(rem);
+			unassignedAssets.push(Object.assign({}, rem, { state: 'unknown', status: 'Неизвестно' }));
 			seen[rid] = true;
 		}
 	}
@@ -519,7 +520,8 @@ function buildModel(resources, assets, opts) {
 		sources: sources,
 		byId: byId,
 		updateCallout: updateCallout,
-		seen: seen
+		seen: seen,
+		unassignedAssets: unassignedAssets
 	};
 }
 

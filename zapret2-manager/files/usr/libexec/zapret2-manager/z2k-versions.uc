@@ -93,7 +93,9 @@ function release_compare(a, b) {
 		let rightPublished = text(b.publishedAt || b.commitPublishedAt || b.commitDate);
 		if (length(leftPublished) && length(rightPublished) && leftPublished != rightPublished)
 			return text_compare(leftPublished, rightPublished) < 0 ? 1 : -1;
-		return 0;
+		// Unknown publication order must not become equality: target_operation
+		// would otherwise misclassify it as reinstall.
+		return null;
 	}
 	if (left.major != right.major) return right.major - left.major;
 	if (left.minor != right.minor) return right.minor - left.minor;

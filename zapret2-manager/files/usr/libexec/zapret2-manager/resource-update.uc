@@ -1693,7 +1693,7 @@ function z2k_rollback_membership_matches(expected, actual) {
 }
 function z2k_rollback_receipt_matches(expected, actual) {
 	if (!object(expected) || !object(actual)) return false;
-	let keysToCompare = ['schema', 'bundleId', 'version', 'source', 'sourceCommit', 'manifestSha256', 'classificationSha256', 'membershipDigest', 'candidateSnapshotId', 'baseRegistryRevision', 'committedRegistryRevision', 'installedAuthorityRevision'];
+	let keysToCompare = ['schema', 'bundleId', 'receiptId', 'version', 'source', 'sourceCommit', 'manifestSha256', 'classificationSha256', 'membershipDigest', 'candidateSnapshotId', 'baseRegistryRevision', 'committedRegistryRevision', 'installedAuthorityRevision', 'runtimeBundleDigest'];
 	for (let i = 0; i < length(keysToCompare); i++) {
 		let key = keysToCompare[i];
 		if (expected[key] != null && expected[key] != actual[key]) return false;
@@ -2371,8 +2371,15 @@ export const resource_center_test_precommit_failure = function(input) {
 
 export const resource_center_test_post_materialize_failure = function(input) {
 	let physical = 'Y';
-	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: physical, priorIdentity: 'X', restore: function(previous) { physical = previous; return { ok: true, restored: true }; } });
+	let priorReceipt = { receiptId: 'receipt-lkg', runtimeBundleDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' };
+	let currentReceipt = { receiptId: 'receipt-candidate', runtimeBundleDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' };
+	let activeReceipt = currentReceipt;
+	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: physical, priorIdentity: 'X', restore: function(previous) { physical = previous; activeReceipt = priorReceipt; return { ok: true, restored: true }; } });
 	if (result && result.physicalIdentity == null) result.physicalIdentity = physical;
+	if (result) result.lkgEvidence = { priorReceiptId: priorReceipt.receiptId, currentReceiptId: currentReceipt.receiptId,
+		restoredReceiptId: activeReceipt.receiptId, priorRuntimeBundleDigest: priorReceipt.runtimeBundleDigest,
+		currentRuntimeBundleDigest: currentReceipt.runtimeBundleDigest, restoredRuntimeBundleDigest: activeReceipt.runtimeBundleDigest,
+		restored: activeReceipt.receiptId == priorReceipt.receiptId && activeReceipt.runtimeBundleDigest == priorReceipt.runtimeBundleDigest };
 	return result;
 };
 
@@ -2469,7 +2476,10 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	pending = { schema: 1, candidateSnapshotId: candidate.snapshotId, compositionSnapshotId: candidate.compositionSnapshotId, membershipDigest: candidate.membershipDigest,
 		baseRegistryRevision: target.baseRegistryRevision, targetVersion: target.targetVersion, targetCommit: target.targetCommitSha || target.targetCommit,
 		planToken: target.planToken, z2kCompatibilityIdentity: target.z2kCompatibilityIdentity,
-		rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' },
+		rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null,
+			receiptId: priorAuthority.receipt && priorAuthority.receipt.receiptId || null,
+			runtimeBundleDigest: priorAuthority.receipt && priorAuthority.receipt.runtimeBundleDigest || priorRuntimeComposition.runtimeBundleDigest || null,
+			runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' },
 		priorReceipt: priorAuthority.receipt || null, priorRegistryRevision: listed.revision, priorRegistryMembership: listed.assets || [],
 		priorRuntimeComposition: priorRuntimeComposition,
 		priorActivation: priorActivation,

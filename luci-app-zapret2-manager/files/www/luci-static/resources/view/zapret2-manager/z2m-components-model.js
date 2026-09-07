@@ -411,10 +411,11 @@ function normalizeZ2k(input, engineReady) {
       ? 'Autocircular, detectors и расширения Zapret2.'
       : 'Z2K Core требует проверки целостности ресурсов.';
   } else {
-    // Legacy fallback: production shape before local projection
+		// Legacy fallback: Lua counts alone are not a runtime verdict; readiness
+		// requires canonical V3/runtime/Detect coherence.
     var legacyEvidence = z2kLuaEvidence(value);
     if (remoteStatus === 'broken' || remoteStatus === 'missing') healthState = remoteStatus;
-    else if (legacyEvidence) healthState = 'ready';
+		else if (legacyEvidence) healthState = 'degraded';
     else healthState = 'degraded';
     if (explicitHealth) {
       var claimed = health(explicitHealth, 'degraded');

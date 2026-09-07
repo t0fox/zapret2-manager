@@ -321,6 +321,17 @@ test('additional: registry asset with catalog/upstream repository fallback assig
 	assert.ok(z2kGroup.assets.find(a => a.id === 'blob:fallback-1'), 'fallback repo should assign to z2k-resources');
 });
 
+test('unresolved catalog/upstream assets stay unassigned instead of becoming Z2K resources', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const unresolved = { id: 'blob:unknown-upstream', type: 'blob', provenance: { kind: 'catalog/upstream' } };
+	const out = model.buildModel({ sources, installed: [] }, { assets: [unresolved] }, { advanced: false });
+	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
+	assert.equal(z2kGroup.assets.some(asset => asset.id === unresolved.id), false);
+	assert.deepEqual(Array.from(out.unassignedAssets, asset => asset.id), [unresolved.id]);
+	assert.equal(out.unassignedAssets[0].state, 'unknown');
+});
+
 test('lifecycle management projection is consumed as the sole Resources editability truth', () => {
 	const model = loadModel();
 	const sources = makeZ2kSources();

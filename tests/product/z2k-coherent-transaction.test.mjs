@@ -91,6 +91,14 @@ test('pending activation records every prior authority needed for fail-closed ro
   assert.match(coordinator, /catalogRestoreRequired/);
 });
 
+test('pending rollback evidence captures exact receipt identity and runtime bundle digest', () => {
+  const applyBody = coordinator.slice(coordinator.indexOf('function z2k_apply_prepared'), coordinator.indexOf('export const resource_center_status'));
+  assert.match(applyBody, /rollbackIdentity:\s*\{[\s\S]*receiptId/);
+  assert.match(applyBody, /rollbackIdentity:\s*\{[\s\S]*runtimeBundleDigest/);
+  assert.match(coordinator, /keysToCompare[\s\S]*receiptId/);
+  assert.match(coordinator, /keysToCompare[\s\S]*runtimeBundleDigest/);
+});
+
 test('apply consumes the persisted prior snapshot and has no prepare-local priorStrategy dependency', () => {
   const applyBody = coordinator.slice(coordinator.indexOf('function z2k_apply_prepared'), coordinator.indexOf('export const resource_center_status'));
   assert.match(applyBody, /target\.priorActivation|target\.priorStrategy/);
@@ -281,6 +289,11 @@ test('post-materialize readiness failure restores the physical X snapshot', { sk
   assert.equal(result.restored, true, JSON.stringify(result));
   assert.equal(result.physicalIdentity, 'X', JSON.stringify(result));
   assert.equal(result.recoveryRequired, false, JSON.stringify(result));
+  assert.deepEqual(result.lkgEvidence, {
+    priorReceiptId: 'receipt-lkg', currentReceiptId: 'receipt-candidate', restoredReceiptId: 'receipt-lkg',
+    priorRuntimeBundleDigest: 'a'.repeat(64), currentRuntimeBundleDigest: 'b'.repeat(64), restoredRuntimeBundleDigest: 'a'.repeat(64),
+    restored: true,
+  }, JSON.stringify(result));
 });
 
 test('Registry crash window remains pending until prior identity is proven or rolled back', { skip: !hasUcode }, () => {

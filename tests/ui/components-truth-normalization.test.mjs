@@ -83,3 +83,15 @@ test('Missing check timestamp remains unknown instead of borrowing provenance or
   assert.equal(page.checkedAt, null);
   assert.equal(page.components.find(item => item.id === 'z2k-core').checkedAt, null);
 });
+
+test('legacy Lua counts cannot claim ready without canonical V3 runtime and Detect coherence', () => {
+  const page = model.normalizePage({
+    engine: { status: {
+      installed: true, serviceState: 'running', runtimeRunning: true, compatible: true,
+    } },
+    z2k: { status: 'current', lua: { ready: 7, total: 7 } },
+  });
+  const core = page.components.find(item => item.id === 'z2k-core');
+  assert.equal(core.health, 'degraded');
+  assert.equal(page.health.ready, 1);
+});

@@ -96,6 +96,13 @@ test('Z2K cross-family catalog ordering resolves direct and annotated tag public
 	assert.ok(urls.some(url => url.endsWith('/commits/' + 'c'.repeat(40))), urls.join('\n'));
 });
 
+test('Z2K cross-family ordering fails closed without publication evidence', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const result = invoke(s, `mod.z2k_compare_release_records({version: 'p-80.3'}, {version: 'r-90.1'})`, { Z2M_FIXTURE_MODE: 'error' });
+	assert.equal(result, null);
+	assert.equal(invoke(s, `mod.z2k_target_operation('r-90.1', 'p-80.3')`, { Z2M_FIXTURE_MODE: 'error' }), null);
+});
+
 test('Z2K catalog evidence lookups stay within the bounded browse budget', { skip: !hasUcode }, () => {
 	const s = sandbox();
 	const catalog = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog_evidence_bounded', Z2M_UPDATE_SOURCE_NOW: '1000' });
