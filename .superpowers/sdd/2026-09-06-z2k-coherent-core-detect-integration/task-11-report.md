@@ -256,3 +256,104 @@ typed boundary green.
 Implementation commit: `ef1e6d3d` (`fix: migrate Scanner UI to typed Detect API`).
 The report is committed in the final documentation commit immediately after
 this implementation commit; the exact final HEAD is recorded in the handoff.
+
+## Fix-round 3 — stale Detect result race and typed-only evidence
+
+### Findings addressed
+
+- Added a monotonic Detect generation token to the Scanner start path. A new
+  run increments the token and supersedes an older in-flight run; unmount marks
+  the module disposed and invalidates all pending generations.
+- Added generation/disposed checks after the coherent status/native Detect
+  awaits and before every asynchronous state, history, evidence, and repaint
+  mutation. History now records the request belonging to the completing
+  generation rather than the mutable current request. Late or superseded
+  completions are discarded without a refresh.
+- Made `renderEvidence()` accept only the canonical `{ typedDetect: true,
+  data: object }` envelope. Arbitrary legacy Scanner-shaped reports now fail
+  closed to the bounded unavailable state panel; no legacy evidence row or
+  strategy-result fallback is rendered.
+- Added a faithful-loader test seam for injected DOM/session-storage/timer
+  dependencies and production-shaped async UI tests for out-of-order
+  completion, disposed unmount, and legacy evidence rejection. Existing
+  assertions were preserved.
+
+### Fix-round TDD evidence
+
+RED on the reviewed base `d6128e76` after adding the generation/evidence
+boundary tests and before the implementation:
+
+```text
+node --test tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-detect-generation.test.mjs
+7 tests: 3 passed, 4 failed.
+Failures: renderEvidence had no typed envelope guard; runDetect/start had no
+generation/disposed protection; a second in-flight run was blocked by the old
+running guard; and an unmounted completion wrote Detect history.
+```
+
+GREEN focused UI/API and production-shaped async regression gate after the
+implementation:
+
+```text
+node --test tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-detect-generation.test.mjs
+8 passed, 0 failed
+```
+
+### Bounded verification
+
+The bounded WSL gate imported the UCode adapter/helper with the pinned UCode
+runtime and ran RPC, native helper, receipt, authority, lifecycle, runtime,
+Scanner boundary, and the new async UI tests:
+
+```text
+wsl.exe -e bash -lc "set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 240s node --test tests/product/z2k-detect-rpc.test.mjs tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-receipt-v3.test.mjs tests/product/z2k-installed-release-authority.test.mjs tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-runtime-composition.test.mjs tests/product/z2k-runtime-readiness.test.mjs tests/product/z2k-runtime-summary.test.mjs tests/product/avatar-strategy-scanner-rpc.test.mjs tests/ui/scanner-detect-api-boundary.test.mjs tests/ui/scanner-detect-generation.test.mjs"
+154 tests: 153 passed, 0 failed, 1 existing TODO.
+```
+
+The focused Scanner/package/history/start-order gate passed `25/25`. Node
+syntax checks for the changed Scanner/test/harness modules, `git diff --check`,
+`node scripts/validate-knowledge.mjs` (`Knowledge validation passed.`), and
+`node scripts/docs.mjs verify` (`Quartz SHA verified:
+ab346fa66a895e12d63a308e70ce330ba795822a`) passed.
+
+The unchanged broad Scanner characterization gate remains non-green:
+
+```text
+node --test tests/ui/scanner-start-race.test.mjs tests/ui/perf-2-regression.test.mjs tests/ui/scanner-ui-rework.test.mjs tests/product/scanner-budget-contract.test.mjs tests/product/scanner-start-envelope.test.mjs
+39 tests: 29 passed, 10 failed.
+```
+
+The ten failures are existing characterization boundaries for the retired
+Scanner record/polling/cancel lifecycle, old Avatar layout/result strings, and
+the old Scanner-product BlockCheck import expectation. The one Telegram
+navigation PERF-2 failure is unrelated to this Task 11 fix-round. A separate
+module-factory characterization still reports the pre-existing missing
+external `request` dependency in the unchanged `z2m-api` harness. The WSL
+TODO is the existing Task 4 transaction-slice TODO (`candidate CAS
+distinguishes unrelated revision changes`). The separate Scanner Hub UI
+characterization also reports pre-existing ENOENT failures because
+`z2m-scanner-hub.js` is absent from this checkout; it was not recreated or
+substituted. No assertion was weakened and no production fallback was
+restored.
+
+### Fix-round files and commits
+
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js`
+- `tests/ui/scanner-detect-api-boundary.test.mjs`
+- `tests/ui/scanner-detect-generation.test.mjs`
+- `tests/ui/support/luci-loader-harness.mjs`
+- this report
+
+Implementation commit: `ae855bab63695eda87338fe9b5c0de6be8ab015b`
+(`fix: guard Task 11 Detect Scanner generations`).
+The fix-round report is committed separately immediately after this
+implementation commit; the final HEAD and worktree state are recorded in the
+handoff.
+
+### Fix-round boundaries
+
+No router/OpenWrt deployment, live RPC/ubus invocation, live network Detect,
+browser acceptance, package-E2E, merge, push, delegation, or other model was
+run. Task 14 remains the owner of broader Scanner/shell compatibility cleanup;
+this round only closed the Task 11 async UI boundary and typed evidence
+rendering.
