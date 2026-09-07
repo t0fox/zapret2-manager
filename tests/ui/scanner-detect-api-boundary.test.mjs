@@ -39,3 +39,24 @@ test('Scanner consumers call the typed Detect methods and retain canonical error
   assert.match(product, /normalizeError/);
   assert.match(scanner + product, /EDETECT_(UNAVAILABLE|INCOMPATIBLE|TIMEOUT|FAILED|SCHEMA|NO_TARGET|NO_ACTIVE_VOICE)/);
 });
+
+test('Scanner evidence rendering is typed-only and fails closed for legacy-shaped reports', () => {
+  const renderEvidence = scanner.slice(scanner.indexOf('function renderEvidence'), scanner.indexOf('function renderTypedResult'));
+  assert.match(renderEvidence, /typedDetect\s*(!==|===|==)/,
+    'evidence adapter must require the canonical typed Detect envelope');
+  assert.doesNotMatch(renderEvidence, /reportRows|reportBest|finalists|topCandidates|ranked|working/,
+    'legacy scanner-shaped evidence must not be rendered by the production adapter');
+  const render = scanner.slice(scanner.indexOf('function render(ctx'), scanner.indexOf('function mount(ctx)'));
+  assert.doesNotMatch(render, /Object\.keys\(report\)\.length\s*\?\s*renderEvidence/,
+    'render must not route arbitrary non-typed reports to evidence rendering');
+});
+
+test('Scanner completion path declares a monotonic generation and disposed guard', () => {
+  const run = scanner.slice(scanner.indexOf('function runDetect'), scanner.indexOf('function load(ctx)'));
+  const start = scanner.slice(scanner.indexOf('function start(ctx'), scanner.indexOf('function renderEvidence'));
+  assert.match(run, /generation|disposed/);
+  assert.match(run, /state\.report|state\.status|rememberDetectResult/);
+  assert.match(start, /generation|disposed/);
+  assert.match(scanner, /state\.generation\+\+/,
+    'unmount must invalidate in-flight Detect generations');
+});

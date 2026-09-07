@@ -130,6 +130,12 @@ export function loadLuCIModule(source, name, deps, options) {
 	const L = (options && options.L) || {};
 	const depNames = [];
 	const depArgs = [];
+	const timerWindow = (options && options.window) || {};
+	const sandboxGlobals = Object.assign({
+		Promise, setTimeout, clearTimeout, setInterval, clearInterval,
+		console, URL,
+		_: (s) => s /* gettext identity, real LuCI installs a global _ */
+	}, (options && options.globals) || {});
 
 	REQUIRE_PRAGMA.lastIndex = 0;
 	for (let m; (m = REQUIRE_PRAGMA.exec(source)); ) {
@@ -146,15 +152,13 @@ export function loadLuCIModule(source, name, deps, options) {
 
 	const sandboxWindow = {
 		location: { host: 'luci', hostname: 'luci', hash: '', href: 'http://luci/' },
-		setTimeout,
-		clearTimeout
+		setTimeout: timerWindow.setTimeout || setTimeout,
+		clearTimeout: timerWindow.clearTimeout || clearTimeout
 	};
 	const sandboxDocument = {};
 	const sandboxL = {};
 	const factory = vm.runInNewContext(wrapped, {
-		Promise, setTimeout, clearTimeout, setInterval, clearInterval,
-		console, URL,
-		_: (s) => s /* gettext identity, real LuCI installs a global _ */
+		...sandboxGlobals
 	}, { filename: name });
 
 	/* Mirror luci.js require(): every dependency was registered on L when it

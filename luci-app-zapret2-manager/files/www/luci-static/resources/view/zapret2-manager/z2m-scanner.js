@@ -225,28 +225,44 @@ function decodeDetectResult(ctx, operation, value) {
     return { operation: operation, data: parsed };
   } catch (error) { return detectFailure(ctx, { code: 'EDETECT_SCHEMA', message: 'Detect JSON result could not be parsed.' }, 'EDETECT_SCHEMA'); }
 }
-function rememberDetectResult(result) {
+function currentDetectGeneration(generation) {
+  return !state.disposed && generation === state.generation;
+}
+function discardedDetect(generation) { return { discarded: true, generation: generation }; }
+function rememberDetectResult(result, request, generation) {
+  if (!currentDetectGeneration(generation)) return false;
   if (typeof sessionStorage === 'undefined') return;
   try {
-    var item = { id: state.scanId, status: 'completed', createdAt: Date.now(), request: state.request, operation: result.operation, report: result.data };
+    var item = { id: state.scanId, status: 'completed', createdAt: Date.now(), request: request, operation: result.operation, report: result.data };
     var previous = JSON.parse(sessionStorage.getItem('z2m.detect.history.v1') || '[]');
     if (!Array.isArray(previous)) previous = [];
+    if (!currentDetectGeneration(generation)) return false;
     sessionStorage.setItem('z2m.detect.history.v1', JSON.stringify([item].concat(previous).slice(0, 50)));
+    return true;
   } catch (ignore) { }
+  return false;
 }
 function boundedDetect(ctx, work) {
   return Promise.race([Promise.resolve(work), new Promise(function (resolve, reject) {
     window.setTimeout(function () { reject({ code: 'EDETECT_TIMEOUT', message: _('Проверка Detect превысила ограниченное время.') }); }, DETECT_WAIT_MS);
   })]);
 }
-function runDetect(ctx, request) {
+function runDetect(ctx, request, generation) {
   var operation = detectOperation(request), args = detectArguments(request);
-  return boundedDetect(ctx, detectStatus(ctx).then(function () { return detectInvoke(ctx, operation, args); })).then(function (value) {
+  return boundedDetect(ctx, detectStatus(ctx).then(function () {
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
+    return detectInvoke(ctx, operation, args);
+  })).then(function (value) {
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     var result = decodeDetectResult(ctx, operation, value);
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     state.report = { typedDetect: true, operation: result.operation, data: result.data };
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     state.status = { status: 'completed', phase: 'completed', operation: operation };
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     state.error = null;
-    rememberDetectResult(result);
+    rememberDetectResult(result, request, generation);
+    if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     return result;
   });
 }
@@ -292,7 +308,6 @@ function scannerErrorPanel(ctx, status, controls) {
   ]);
 }
 function start(ctx, controls) {
-  if (state.status && state.status.status === 'running') return;
   var rawTarget = controls.target.value;
   var normalized = normalizeTarget(rawTarget);
   if (!normalized.ok) {
@@ -305,106 +320,29 @@ function start(ctx, controls) {
   controls.target.value = normalized.hostname;
   var protocolVal = controls.protocol.value;
   if (protocolVal === 'auto') protocolVal = 'tcp';
-  state.request = safeRequest({ target: normalized.hostname, protocol: protocolVal, mode: controls.mode.value, dpi_type: controls.dpi.value });
-  state.scanId = 'detect-' + String(Date.now());
+  var generation = ++state.generation;
+  var request = safeRequest({ target: normalized.hostname, protocol: protocolVal, mode: controls.mode.value, dpi_type: controls.dpi.value });
+  state.request = request;
+  state.scanId = 'detect-' + String(generation) + '-' + String(Date.now());
   state.error = null; state.report = null; state.status = { status: 'running', phase: 'probing', operation: detectOperation(state.request) };
   state.showAll = false;
   refresh(ctx).catch(function () {});
-  runDetect(ctx, state.request).then(function () { return refresh(ctx); }).catch(function (error) {
+  runDetect(ctx, request, generation).then(function (result) {
+    if (!currentDetectGeneration(generation) || !result || result.discarded) return null;
+    return refresh(ctx);
+  }).catch(function (error) {
+    if (!currentDetectGeneration(generation)) return;
     state.error = normalizedDetectError(ctx, error, 'EDETECT_FAILED');
+    if (!currentDetectGeneration(generation)) return;
     state.status = { status: 'error', error: state.error.message, code: state.error.code };
+    if (!currentDetectGeneration(generation)) return;
     refresh(ctx);
   });
 }
 function renderEvidence(ctx, report, controls) {
-  var working = reportRows(report, 'ranked');
-  if (!working.length) working = reportRows(report, 'finalists');
-  if (!working.length) working = reportRows(report, 'topCandidates');
-  var failed = reportRows(report, 'failed');
-  var best = reportBest(report);
-  if (!best || !best.candidateId) best = working[0] || null;
-  var top3 = array(report.top3);
-  if (!top3.length && working.length) top3 = working.slice(0, 3);
-  var summary = object(report.summary);
-  var tested = reportTested(report) || summary.tested || (working.length + failed.length);
-  var workingCount = summary.finalistsCount != null ? summary.finalistsCount : working.length;
-  var totalBudget = budgetForMode(state.request.mode);
-  var isBaselineOpen = report.baselineOpen === true || report.baseline && report.baseline.allAvailableOpen === true || state.status && state.status.baseline_open === true;
-  if (isBaselineOpen) {
-    return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen' }, [
-      E('article', { 'class': 'z2m-scanner-no-best' }, [
-        E('div', { 'class': 'z2m-scanner-state-heading' }, [icon('circle-check', 'is-success'), E('div', {}, [E('strong', {}, _('Обход для этого адреса не требуется.')), E('p', {}, _('Сайт доступен напрямую, DPI-блокировка не обнаружена.'))])]),
-        E('div', { 'class': 'z2m-btnrow' }, [ctx.shell.button(_('Проверить другой сайт'), 'sm', function () { var target = document.querySelector('#z2m-scanner input[type="text"]'); if (target) target.focus(); })])
-      ])
-    ]);
-  }
-  function rows(values, kind, startIdx) {
-    return values.map(function (row, idx) {
-      var candidateId = row.candidateId || row.id, actions = [];
-      var isGenerated = row.saveRequired === true || String(candidateId || '').indexOf('generated:') === 0;
-      if (isGenerated) actions.push(ctx.shell.button(_('Открыть в Стратегиях'), 'sm', function () { openInStrategies(ctx, row); }));
-      else actions.push(ctx.shell.button(_('Открыть в Стратегиях'), 'primary sm', function () { openInStrategies(ctx, row); }));
-      var rank = startIdx + idx + 1;
-      var latency = row.evidence && row.evidence.metrics && row.evidence.metrics.averageLatencyMs != null ? row.evidence.metrics.averageLatencyMs : (row.latencyMs || row.evidence && row.evidence.metrics && row.evidence.metrics.latencyMs || 0);
-      var kbps = row.evidence && row.evidence.metrics && row.evidence.metrics.averageKbps != null ? row.evidence.metrics.averageKbps : 0;
-      var extra = latency ? latency + ' мс' + (kbps ? ' · ' + kbps + ' кбит/с' : '') : candidateShort(row);
-      var reason = row.bestReason || row.reason || (row.evidence && row.evidence.reason) || '';
-      return E('article', { 'class': 'z2m-scanner-evidence-row' + (kind === 'best' ? ' is-best' : ''), 'data-candidate-id': candidateId || '' }, [
-        E('div', { 'class': 'z2m-scanner-evidence-rank' }, String(rank)),
-        icon(kind === 'best' ? 'star' : kind === 'success' ? 'circle-check' : 'circle-alert', kind === 'best' ? 'is-success' : kind === 'success' ? 'is-success' : 'is-error'),
-        E('div', { 'class': 'z2m-scanner-evidence-copy' }, [
-          E('strong', {}, candidateName(row, idx) + ' · ' + candidateShort(row)),
-          E('span', { 'class': 'z2m-dim' }, extra),
-          reason ? E('span', { 'class': 'z2m-scanner-evidence-reason' }, reason) : null
-        ]),
-        E('div', { 'class': 'z2m-btnrow' }, actions)
-      ]);
-    });
-  }
-  var bestCard = best && (best.id || best.strategyId || best.candidateId)
-    ? E('article', { 'class': 'z2m-scanner-best-card card' }, [
-        E('div', { 'class': 'z2m-scanner-best-kicker' }, [icon('star', 'is-success'), E('span', {}, _('Рекомендуется'))]),
-        E('strong', { 'class': 'z2m-scanner-best-title' }, text(best.name || best.strategyName || candidateName(best, 0))),
-        E('div', { 'class': 'z2m-scanner-best-meta' }, candidateMeta(best) || candidateShort(best)),
-        best.bestReason ? E('p', { 'class': 'z2m-scanner-best-reason' }, best.bestReason) : (best.reason ? E('p', { 'class': 'z2m-scanner-best-reason' }, text(best.reason)) : E('p', { 'class': 'z2m-scanner-best-reason' }, _('Работает стабильно, без повторных ошибок.'))),
-        E('div', { 'class': 'z2m-btnrow' }, [
-          ctx.shell.button(_('Открыть в Стратегиях'), 'primary', function () { openInStrategies(ctx, best); }),
-          controls ? ctx.shell.button(_('Проверить ещё раз'), 'sm', function () { start(ctx, controls); }) : null
-        ])
-      ])
-    : E('article', { 'class': 'z2m-scanner-no-best card' }, [E('div', { 'class': 'z2m-scanner-state-heading' }, [icon('search'), E('div', {}, [E('strong', {}, _('Рабочая стратегия не найдена')), E('p', {}, _('Ни один из проверенных вариантов не прошёл проверку.'))])]), E('div', { 'class': 'z2m-scanner-stat-grid' }, [stat(_('Проверено'), tested), stat(_('Рабочих'), workingCount), stat(_('Ошибок'), failed.length)]), E('div', { 'class': 'z2m-btnrow' }, [controls ? ctx.shell.button(_('Проверить ещё раз'), 'sm', function () { start(ctx, controls); }) : null])]);
-
-  var alternatives = top3.length > 1 ? E('section', { 'class': 'z2m-scanner-evidence-section' }, [
-    E('div', { 'class': 'z2m-scanner-section-title' }, [icon('list'), E('strong', {}, _('Альтернативы'))]),
-    E('div', { 'class': 'z2m-scanner-evidence-list' }, rows(top3.slice(1), 'success', 1))
-  ]) : null;
-
-  var remaining = working.slice(3);
-  var moreCount = remaining.length;
-  var allList = null;
-  if (moreCount) {
-    var visible = state.showAll ? remaining : [];
-    var toggle = ctx.shell.button(state.showAll ? _('Скрыть') : _('Показать все') + ' (' + String(moreCount) + ')', 'sm', function () { state.showAll = !state.showAll; refresh(ctx); });
-    allList = E('section', { 'class': 'z2m-scanner-evidence-section' }, [
-      E('div', { 'class': 'z2m-scanner-section-title' }, [icon('layers'), E('strong', {}, _('Ещё найдено ') + String(moreCount) + ' ' + _('рабочих вариантов'))]),
-      E('div', { 'class': 'z2m-btnrow' }, [toggle]),
-      state.showAll ? E('div', { 'class': 'z2m-scanner-evidence-list', id: 'z2m-scanner-all-finalists' }, rows(visible, 'success', 3)) : null
-    ]);
-  }
-  if (state.showAll && failed.length) {
-    allList = E('div', {}, [allList, E('details', { 'class': 'z2m-scanner-failed-section' }, [E('summary', {}, _('Не сработавшие варианты (') + String(failed.length) + ')'), E('div', { 'class': 'z2m-scanner-evidence-list' }, rows(failed.slice(0, 20), 'failed', 0))])]);
-  }
-
-  return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen' }, [
-    E('div', { 'class': 'z2m-scanner-result-header' }, [
-      E('div', {}, [E('strong', {}, _('Проверка завершена')), E('span', {}, state.request.target)]),
-      E('div', { 'class': 'z2m-scanner-stat-grid' }, [stat(_('Вариантов проверено'), tested + ' ' + _('из бюджета') + ' ' + String(totalBudget)), stat(_('Рабочих'), workingCount), stat(_('Ошибок'), failed.length)])
-    ]),
-    bestCard,
-    alternatives,
-    allList,
-    working.length ? null : (failed.length ? E('details', { id: 'z2m-scanner-failed-results', 'class': 'z2m-scanner-failed-section' }, [E('summary', {}, _('Посмотреть результаты проверки (') + String(failed.length) + ')'), E('div', { 'class': 'z2m-scanner-evidence-list' }, rows(failed, 'failed', 0))]) : null)
-  ]);
+  report = object(report);
+  if (report.typedDetect !== true || !object(report.data)) return null;
+  return renderTypedResult(ctx, report, controls);
 }
 function renderTypedResult(ctx, report, controls) {
   report = object(report);
@@ -479,7 +417,7 @@ function render(ctx, data) {
   controls.dpi = E('input', { type: 'text', value: request.dpi_type, maxlength: '64', placeholder: 'например, tls_dpi', disabled: status.status === 'running' ? 'disabled' : null });
   var running = status.status === 'running' || status.status === 'starting' || status.phase === 'cancelling';
   var progressPanel = running ? renderProgress(ctx, status, request) : null;
-  var terminalResult = terminal(status) && report && report.typedDetect ? renderTypedResult(ctx, report, controls) : (terminal(status) && report && Object.keys(report).length ? renderEvidence(ctx, report, controls) : null);
+  var terminalResult = terminal(status) && report ? renderEvidence(ctx, report, controls) : null;
   var retry = terminal(status) && !terminalResult && !status.error && !state.error ? ctx.shell.button(_('Проверить ещё раз'), 'primary', function () { start(ctx, controls); }) : null;
   // Build form controls for rendering: we need actual DOM nodes for protocol/mode segmented
   var formControls = {
@@ -505,7 +443,7 @@ function render(ctx, data) {
     E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Дополнительные параметры'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [formField(_('Подсказка DPI'), controls.dpi, '', 'settings')])]),
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
   ]) : null;
-  var content = running ? progressPanel : (status.error || state.error ? scannerErrorPanel(ctx, status, controls) : (terminalResult || (terminal(status) && !report ? ctx.shell.statePanel({ title: _('Результаты пока недоступны'), message: _('Попробуйте повторить проверку.'), kind: 'info', actions: [retry] }) : null)));
+  var content = running ? progressPanel : (status.error || state.error ? scannerErrorPanel(ctx, status, controls) : (terminalResult || (terminal(status) ? ctx.shell.statePanel({ title: _('Результаты пока недоступны'), message: _('Попробуйте повторить проверку.'), kind: 'info', actions: [retry] }) : null)));
   var root = E('section', { 'class': 'z2m-panel z2m-scanner-panel z2m-scanner-workflow', id: 'z2m-scanner' }, [
     E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('search'), E('strong', {}, _('Сканирование'))]), E('span', { 'class': 'z2m-dim' }, _('Подбор стратегии и история проверок'))]),
     content,
