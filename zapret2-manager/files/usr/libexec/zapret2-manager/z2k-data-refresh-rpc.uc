@@ -5,7 +5,7 @@
 // environment are never part of the refresh contract.
 const MAX_BYTES = 32768;
 const MAX_ROWS = 65536;
-const TOP_LEVEL = ['release', 'sourceCommit', 'releaseOwned', 'dynamic', 'authority', 'currentCoreIdentity'];
+const TOP_LEVEL = ['release', 'sourceCommit', 'releaseOwned', 'dynamic', 'currentCoreIdentity'];
 const FORBIDDEN = ['executable', 'executableName', 'argv', 'command', 'commandLine', 'raw', 'shell', 'shellCommand', 'cwd', 'env', 'environment', 'workingDirectory', 'path', 'callerPath', 'sourcePath'];
 
 function object(value) { return type(value) == 'object' && value != null && type(value) != 'array'; }
@@ -55,7 +55,6 @@ export const z2k_data_refresh_input = function(req) {
 	if (!allowed_top_level(input) || has_forbidden(input)) return fail('EINPUT', 'data refresh contains an unsupported field');
 	if (!string(input.release) || length(input.release) == 0 || length(input.release) > 64) return fail('EINPUT', 'release must be a bounded string');
 	if (!string(input.sourceCommit) || !match(input.sourceCommit, /^[a-fA-F0-9]{40}$/)) return fail('EINPUT', 'sourceCommit must be a commit digest');
-	if (!object(input.authority)) return fail('EAUTHORITY', 'authoritative identity is required');
 	if (input.currentCoreIdentity != null && (!string(input.currentCoreIdentity) || length(input.currentCoreIdentity) > 64)) return fail('EINPUT', 'currentCoreIdentity is invalid');
 	if (!array(input.releaseOwned) || length(input.releaseOwned) > 64) return fail('EINPUT', 'releaseOwned must be a bounded array');
 	let releaseOwned = [];
@@ -70,5 +69,5 @@ export const z2k_data_refresh_input = function(req) {
 		for (let entry in row.entries) if (!string(entry) || length(entry) > 512) return fail('ESCHEMA', 'dynamic entry is invalid');
 		push(dynamic, { id: row.id, schema: 1, revision: row.revision, entries: row.entries });
 	}
-	return { valid: true, value: { release: input.release, sourceCommit: input.sourceCommit, releaseOwned: releaseOwned, dynamic: dynamic, authority: input.authority, currentCoreIdentity: input.currentCoreIdentity } };
+	return { valid: true, value: { release: input.release, sourceCommit: input.sourceCommit, releaseOwned: releaseOwned, dynamic: dynamic, currentCoreIdentity: input.currentCoreIdentity } };
 };

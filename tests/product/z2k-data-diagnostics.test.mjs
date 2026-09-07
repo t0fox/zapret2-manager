@@ -87,10 +87,10 @@ test('malformed dynamic data and unsafe publication paths fail closed', { skip: 
 test('refresh validates before staging and does not publish after a failed commit', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
   const input = coreInput();
   const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
-  input.authority = coherentAuthority(identity);
-  const committed = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
+  const owners = coherentAuthority(identity);
+  const committed = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { owners: function() { return ${JSON.stringify(owners)}; }, stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
   assert.equal(committed.ok, true, JSON.stringify(committed));
-  const rejected = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: false, error: { code: 'EWRITE', message: 'injected partial publish' } }; } })`);
+  const rejected = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { owners: function() { return ${JSON.stringify(owners)}; }, stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: false, error: { code: 'EWRITE', message: 'injected partial publish' } }; } })`);
   assert.equal(rejected.ok, false);
   assert.equal(rejected.error.code, 'EWRITE');
 });
@@ -98,21 +98,22 @@ test('refresh validates before staging and does not publish after a failed commi
 test('refresh requires complete authoritative receipt, Registry, runtime, and Detect identity', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
   const input = coreInput();
   const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
-  const valid = { ...input, authority: coherentAuthority(identity) };
-  const accepted = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(valid)}, { stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
+  const owners = coherentAuthority(identity);
+  const accepted = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { owners: function() { return ${JSON.stringify(owners)}; }, stage: function(identity) { return { ok: true, root: '/tmp/fixed-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
   assert.equal(accepted.ok, true, JSON.stringify(accepted));
   for (const authority of [
-    null,
-    { ok: true, coherent: true },
-    coherentAuthority(identity, { receipt: { schema: 'asset-activation-receipt.v3' } }),
+    coherentAuthority(identity, { receipt: { schema: 'asset-activation-receipt.v3', release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseDataIdentity: 'f'.repeat(64) } }),
     coherentAuthority(identity, { registry: { ok: true, release: 'p-82.14', sourceCommit: 'b'.repeat(40), releaseDataIdentity: identity.coreIdentity } }),
     coherentAuthority(identity, { runtime: { coherent: true, release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseDataIdentity: 'f'.repeat(64) } }),
-    coherentAuthority(identity, { detect: { coherent: true, sourceCommit: 'b'.repeat(40) } }),
+    coherentAuthority(identity, { detect: { coherent: true, release: 'p-82.14', sourceCommit: 'b'.repeat(40), releaseDataIdentity: identity.coreIdentity } }),
   ]) {
-    const rejected = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify({ ...valid, authority })}, { stage: function(identity) { return { ok: true, root: '/tmp/should-not-stage' }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
+    const rejected = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify({ ...input, authority })}, { owners: function() { return ${JSON.stringify(owners)}; }, stage: function(identity) { return { ok: false, error: { code: 'ESTAGE', message: 'stage must not run' } }; }, publish: function(stage, identity) { return { ok: true, published: true }; } })`);
     assert.equal(rejected.ok, false, JSON.stringify(authority));
-    assert.ok(['EAUTHORITY', 'EZ2K_INCOHERENT', 'ECOMPATIBILITY', 'EDETECT_INCOMPATIBLE'].includes(rejected.error.code), JSON.stringify(rejected));
+    assert.equal(rejected.error.code, 'EAUTHORITY', JSON.stringify(rejected));
   }
+  const unavailable = invoke(dataPath, `mod.z2k_data_refresh(${JSON.stringify(input)}, { owners: function() { return null; }, stage: function(identity) { return { ok: false, error: { code: 'ESTAGE', message: 'stage must not run' } }; } })`);
+  assert.equal(unavailable.ok, false);
+  assert.equal(unavailable.error.code, 'EAUTHORITY');
 });
 
 test('dataset publication uses one revision manifest and removes stale entries from the new revision', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
@@ -136,6 +137,17 @@ test('failed compensation is distinct and fail-closed when cleanup cannot restor
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EROLLBACK_FAILED');
   assert.equal(result.state, 'uncertain');
+});
+
+test('default production publication cleans the unpublished revision after pointer failure', { skip: !ucode || !fs.existsSync(dataPath) }, () => {
+  const input = coreInput();
+  const identity = invoke(dataPath, `mod.z2k_data_identity(${JSON.stringify(input)})`);
+  const result = invoke(dataPath, `(() => { let files = {}, dirs = { '/opt/zapret2/state/z2k-data/': true, '/opt/zapret2/state/z2k-data/revisions/': true }, oldPointer = '{"schema":1,"revision":"old"}'; files['/opt/zapret2/state/z2k-data/current.json'] = oldPointer; function prefix(path, root) { return path == root || index(path, root + '/') == 0; } function fs_mkdir(path) { dirs[path] = true; return true; } function fs_write(path, value) { files[path] = value; return true; } function fs_read(path) { return files[path] == null ? null : files[path]; } function fs_stat(path) { if (files[path] != null) return { type: 'file' }; if (dirs[path]) return { type: 'directory' }; return null; } function fs_unlink(path) { delete files[path]; return true; } function fs_rmdir(path) { for (let name in files) if (prefix(name, path) && name != path) return false; for (let name in dirs) if (name != path && prefix(name, path)) return false; delete dirs[path]; return true; } function fs_rename(from, to) { if (index(from, '/opt/zapret2/state/z2k-data/current.json.stage-') == 0) return false; if (dirs[from]) { let movedDirs = {}, movedFiles = {}; for (let name in dirs) if (prefix(name, from)) { movedDirs[to + substr(name, length(from))] = true; delete dirs[name]; } for (let name in files) if (prefix(name, from)) { movedFiles[to + substr(name, length(from))] = files[name]; delete files[name]; } for (let name in movedDirs) dirs[name] = true; for (let name in movedFiles) files[name] = movedFiles[name]; return true; } if (files[from] == null) return false; files[to] = files[from]; delete files[from]; return true; } let result = mod.z2k_data_publish(${JSON.stringify(identity)}, { fs: { mkdir: fs_mkdir, writefile: fs_write, readfile: fs_read, stat: fs_stat, unlink: fs_unlink, rmdir: fs_rmdir, rename: fs_rename } }); let revisions = []; for (let name in dirs) if (index(name, '/opt/zapret2/state/z2k-data/revisions/') == 0 && name != '/opt/zapret2/state/z2k-data/revisions/') push(revisions, name); return { result: result, oldPointer: files['/opt/zapret2/state/z2k-data/current.json'], revisions: revisions }; })()`);
+  assert.equal(result.result.ok, false, JSON.stringify(result));
+  assert.equal(result.result.error.code, 'EWRITE', JSON.stringify(result));
+  assert.equal(result.result.state, 'unchanged');
+  assert.equal(result.oldPointer, '{"schema":1,"revision":"old"}');
+  assert.deepEqual(result.revisions, []);
 });
 
 test('diagnostics return exactly the bounded canonical ID set and entry shape', { skip: !ucode || !fs.existsSync(diagnosticsPath) }, () => {
@@ -178,12 +190,14 @@ test('canonical data refresh RPC is typed and bounded rather than generic edit p
   assert.doesNotMatch(rpc, /function z2k_data_refresh_method\(req\) \{ return tg_edit_call/);
   for (const field of ['executable', 'argv', 'command', 'raw', 'shell', 'cwd', 'env', 'path', 'environment']) assert.match(boundary, new RegExp(`['"]${field}['"]`));
 
-  const valid = { release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseOwned: [{ name: 'sni_wl_candidates.txt', content: 'example.com\n' }], dynamic: [], authority: {} };
+  const valid = { release: 'p-82.14', sourceCommit: 'a'.repeat(40), releaseOwned: [{ name: 'sni_wl_candidates.txt', content: 'example.com\n' }], dynamic: [] };
   const accepted = invoke(rpcInputPath, `mod.z2k_data_refresh_input({ args: { edit: ${JSON.stringify(JSON.stringify(valid))} } })`);
   assert.equal(accepted.valid, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(accepted.value, 'authority'), false);
   assert.equal(accepted.value.releaseOwned[0].path, 'sni_wl_candidates.txt');
   for (const bad of [
     { ...valid, path: 'caller-controlled' },
+    { ...valid, authority: { coherent: true } },
     { ...valid, executable: '/bin/sh' },
     { ...valid, environment: { HOME: '/tmp' } },
     { ...valid, releaseOwned: [{ name: 'x', content: 'x', command: 'id' }] },
