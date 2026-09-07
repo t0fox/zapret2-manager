@@ -4,7 +4,7 @@
 'require view.zapret2-manager.z2m-scanner as Scanner';
 
 var TABS = [
-  { id: 'search', label: _('Подбор стратегии') },
+  { id: 'search', label: _('Диагностика и классификация') },
   { id: 'history', label: _('История') }
 ];
 var state = { activeTab: 'search', child: null, childContext: null, host: null, nav: null, root: null, ctx: null, history: [], detail: null, historyError: null };
@@ -188,7 +188,7 @@ function render(ctx) {
   state.ctx = ctx;
   state.activeTab = tabFrom(ctx);
   state.root = E('section', { 'class': 'z2m-view on z2m-scanner-product', id: 'z2m-view-scanner-product' }, [
-    E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Сканирование')), E('p', {}, _('Подбор стратегии и история проверок сайтов'))])])
+    E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Сканирование')), E('p', {}, _('Диагностика, классификация и история проверок сайтов'))])])
   ]);
   state.nav = renderNavigation(ctx);
   state.host = E('div', { id: 'z2m-scanner-product-host' });
@@ -200,4 +200,4 @@ function render(ctx) {
 function mount() {}
 function unmount() { unmountChild(); state.root = null; state.host = null; state.nav = null; state.ctx = null; }
 
-return baseclass.extend({ id: 'scanner-product', title: _('Сканирование'), subtitle: _('Подбор стратегии и история'), load: load, render: render, mount: mount, unmount: unmount });
+return baseclass.extend({ id: 'scanner-product', title: _('Сканирование'), subtitle: _('Диагностика и история'), load: load, render: render, mount: mount, unmount: unmount });

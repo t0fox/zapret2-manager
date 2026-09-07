@@ -10,8 +10,7 @@ zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc|/usr/libexec/z
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-model.uc|/usr/libexec/zapret2-manager/strategy-model.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc|/usr/libexec/zapret2-manager/strategy-compiler.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/native-preflight.uc|/usr/libexec/zapret2-manager/native-preflight.uc|0644
-zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc|/usr/libexec/zapret2-manager/scanner-planner.uc|0644
-zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc|/usr/libexec/zapret2-manager/scanner-worker.uc|0644
+zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc|/usr/libexec/zapret2-manager/scanner-cli.uc|0644
 zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh|/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh|0755
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh|/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh|0755
 zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry-runtime-sync.uc|/usr/libexec/zapret2-manager/asset-registry-runtime-sync.uc|0644

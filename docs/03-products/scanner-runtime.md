@@ -7,25 +7,25 @@ authority: canonical
 updated: 2026-08-22
 publish: true
 tags: [technology, scanner, runtime]
-code: [zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc#finish]
+code: [zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc#scanner_cli_dispatch]
 ---
 
 # Scanner runtime
 
-Production authority Scanner: `scanner RPC → scanner-cli-entry → scanner-cli →
-scanner-worker → scanner-planner`. `scanner-orchestrator.uc` остаётся
-present, но unwired/non-production и не меняет этот путь.
+Production authority Scanner: `LuCI → typed Z2M RPC → z2k-detect --json`.
+`scanner-cli.uc` остаётся compatibility shell для старых внутренних callers и
+направляет только в typed Detect actions; Manager-owned worker/planner/prober
+modules are not a production fallback.
 
 ## Полный цикл
 
-Worker валидирует target, строит bounded plan, получает candidates, выполняет
-dependency preflight, активирует временный candidate, стабилизирует runtime,
-запускает реальный probe, записывает evidence и выполняет cleanup.
+Typed RPC validates the target and bounded arguments, gates execution on the
+coherent Core/Detect status, invokes one fixed Detect operation, validates its
+JSON envelope and records typed evidence.
 
-Временные process/table/NFQUEUE принадлежат Scanner только на время session.
-Финальное состояние публикуется лишь после verified cleanup и reconciliation.
-`best: null` — корректный результат без доказанного победителя; он не даёт
-основания применять последний candidate.
+Detect autodiscovery is a procd-managed service controlled through typed
+status/enable/disable/restart RPCs. Detect-unavailable, stale and incoherent
+states remain canonical errors; they never fall back to the retired Scanner.
 
 ## Handoff
 

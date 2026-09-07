@@ -583,6 +583,12 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 	let closureReady = z2k_runtime_closure_ready(closure, digest) && string(installedDigest) && closure && closure.runtimeBundleDigest == installedDigest, engineReady = engine.ready === true;
 	let localInstalled = local.installed === true;
 	let health = !engine.installed || !localInstalled ? 'missing' : local.integrityOk !== true ? 'broken' : !engineReady || !closureReady ? 'degraded' : 'ready';
+	let detect = object(local.detect) ? { arch: local.detect.arch || null, digest: local.detect.digest || null, sourceCommit: local.detect.sourceCommit || null } : null;
+	let compatibilityIdentity = local.compatibilityIdentity || (object(local.z2kCompatibilityIdentity) ? local.z2kCompatibilityIdentity.digest : null);
+	let detectCompatible = health == 'ready' && object(detect) && string(detect.arch) && valid_digest(detect.digest)
+		&& string(detect.sourceCommit) && detect.sourceCommit == local.commit && valid_digest(compatibilityIdentity) && valid_digest(digest);
+	detectCompatible = detectCompatible ? true : false;
+	if (object(detect)) { detect.status = detectCompatible ? 'ready' : 'unknown'; detect.compatible = detectCompatible; }
 	let blockingReviews = remote.blockingReviews || [], advisoryReviews = remote.advisoryReviews || [], unknownUnconsumed = remote.unknownUnconsumed || [], rebases = remote.rebases || [];
 	let updateState = remote.updateState || remote.status || 'unknown', attentionState = remote.attentionState || 'none';
 	if (length(rebases)) attentionState = 'rebase-required';
@@ -597,6 +603,7 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 		strategies: local.strategyCount != null ? local.strategyCount : remote.strategyCount,
 		counts: counts, staticManagedCount: staticManagedCount,
 		dependencyClosure: closure, runtimeBundleDigest: digest,
+		detect: detect, detectStatus: object(detect) ? detect.status : 'unknown', detectCompatible: detectCompatible,
 		engine: engine, sourceCommit: local.commit || null,
 		reconciliation: z2k_runtime_reconciliation(closure, installed),
 		blockingReviews: blockingReviews, advisoryReviews: advisoryReviews,
@@ -623,6 +630,9 @@ function z2k_apply_runtime_summary(remote, local, summary) {
 	remote.staticManagedCount = summary.staticManagedCount;
 	remote.dependencyClosure = summary.dependencyClosure;
 	remote.runtimeBundleDigest = summary.runtimeBundleDigest;
+	remote.detect = summary.detect;
+	remote.detectStatus = summary.detectStatus;
+	remote.detectCompatible = summary.detectCompatible;
 	remote.reconciliation = summary.reconciliation;
 	remote.canApply = summary.canApply;
 	local.runtimeSummary = summary;
@@ -682,7 +692,8 @@ function z2k_canonical_local_projection(listed, resolved) {
 		installedRelease: installedRelease || { value: null, confidence: 'unknown', authority: null },
 		dependencyClosure: compiled.dependencyClosure,
 		runtimeBundleDigest: compiled.runtimeBundleDigest,
-		strategyCount: compiled.strategyCount
+		strategyCount: compiled.strategyCount,
+		detect: authority.detect || null
 	};
 }
 
@@ -2770,7 +2781,7 @@ function z2k_status_runtime(value) {
 	let out = z2k_status_copy(value, ['schema', 'installedRelease', 'availableRelease', 'health',
 		'updateState', 'attentionState', 'integrity', 'integrityOk', 'strategies', 'counts',
 		'staticManagedCount', 'runtimeBundleDigest', 'sourceCommit', 'blockingReviews',
-		'advisoryReviews', 'unknownUnconsumed', 'rebases', 'canApply']);
+		'advisoryReviews', 'unknownUnconsumed', 'rebases', 'canApply', 'detect', 'detectStatus', 'detectCompatible']);
 	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
 	let nested = ['engine', 'reconciliation', 'coherence', 'identity'];
 	for (let i = 0; i < length(nested); i++) {
@@ -2827,7 +2838,7 @@ function z2k_status_projection(value) {
 		'planToken', 'trustMode', 'verified', 'source', 'sourceCommit', 'manifestRevision',
 		'z2kCompatibilityIdentity', 'compatibilityIdentity', 'candidateStrategyRevision', 'manifest',
 		'availableRelease', 'health', 'integrity', 'integrityOk', 'installedRelease', 'staticManagedCount',
-		'checkedAt', 'preparedTarget', 'reconciliation', 'coherence', 'selectedVersion']);
+		'checkedAt', 'preparedTarget', 'reconciliation', 'coherence', 'selectedVersion', 'detect', 'detectStatus', 'detectCompatible']);
 	if (value.reviewDetails != null) out.reviewDetails = z2k_status_review_details(value.reviewDetails);
 	if (value.dependencyGraph != null) out.dependencyGraph = z2k_status_graph(value.dependencyGraph);
 	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);

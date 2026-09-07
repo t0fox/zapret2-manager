@@ -53,6 +53,8 @@ const local = {
   commit: 'c'.repeat(40),
   dependencyClosure: closure,
   runtimeBundleDigest: digest,
+  detect: { arch: 'x86_64', digest: 'b'.repeat(64), sourceCommit: 'c'.repeat(40) },
+  compatibilityIdentity: 'd'.repeat(64),
   strategyCount: 8,
 };
 const engine = { installed: true, compatible: true, serviceState: 'running', runtimeRunning: true, ready: true };
@@ -80,6 +82,8 @@ test('backend summary exposes one typed runtime reconciliation for Resources and
   assert.equal(summary.health, 'ready');
   assert.equal(summary.canApply, true, 'advisory/unknown files must not block apply');
   assert.equal(summary.attentionState, 'review-advisory');
+  assert.equal(summary.detect.status, 'ready');
+  assert.equal(summary.detect.compatible, true);
 });
 
 test('consumed unresolved and adapted/rebase evidence remain blocking in the canonical summary', { skip: !fs.existsSync(ucode) }, () => {
@@ -100,6 +104,7 @@ test('closure availability and digest are readiness gates independent of Lua tot
   const mismatched = invoke(`subject.z2k_runtime_summary_projection(${JSON.stringify({ ...local, runtimeBundleDigest: 'b'.repeat(64) })}, { updateState: 'current', canApply: false }, ${JSON.stringify(engine)}, 1, ${JSON.stringify(installed)})`);
   assert.equal(mismatched.health, 'degraded');
   assert.equal(mismatched.identity.coherent, false);
+  assert.equal(mismatched.detect.compatible, false);
 });
 
 test('missing Engine cannot project a stale Z2K installed release from the Registry', { skip: !fs.existsSync(ucode) }, () => {

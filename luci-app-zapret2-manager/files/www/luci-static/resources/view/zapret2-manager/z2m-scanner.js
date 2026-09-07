@@ -4,7 +4,7 @@
 
 var state = {
   request: { target: 'youtube.com', operation: 'probe', protocol: 'tcp', mode: 'standard' },
-  scanId: null, status: null, report: null, error: null,
+  scanId: null, status: null, report: null, error: null, discovery: null,
   disposed: true, generation: 0,
   showAll: false, targetError: null
 };
@@ -128,10 +128,35 @@ function normalizedDetectError(ctx, value, fallback) {
   var raw = object(value), nested = object(raw.error), source = nested.code ? nested : raw;
   var code = text(source.code || raw.code || fallback || 'EDETECT_FAILED');
   if (CANONICAL_DETECT_ERRORS.indexOf(code) < 0) code = fallback || 'EDETECT_FAILED';
-  var normalized = ctx.api && ctx.api.normalizeError ? ctx.api.normalizeError(value) : null;
+  var normalized = ctx && ctx.api && ctx.api.normalizeError ? ctx.api.normalizeError(value) : null;
   return { code: code, message: text(source.message || raw.message || normalized && normalized.message || _('Проверка Detect недоступна.')), details: source.details || raw.details || null };
 }
 function detectFailure(ctx, value, fallback) { throw normalizedDetectError(ctx, value, fallback); }
+function normalizeDiscoveryStatus(value) {
+  value = object(value);
+  if (value.ok !== true) return {
+    status: 'unavailable', enabled: false, running: false, dnsSource: null,
+    discoveredCount: null, discoveredMtime: null,
+    error: normalizedDetectError(null, value, 'EDETECT_UNAVAILABLE')
+  };
+  var domains = object(value.discoveredDomains);
+  if (value.schema !== 1 || typeof value.enabled !== 'boolean' || typeof value.running !== 'boolean'
+    || ['auto', 'agh', 'dnsmasq', 'pkt'].indexOf(value.dnsSource) < 0
+    || (domains.count !== undefined && (typeof domains.count !== 'number' || domains.count < 0))) return {
+    status: 'unavailable', enabled: false, running: false, dnsSource: null,
+    discoveredCount: null, discoveredMtime: null,
+    error: { code: 'EDETECT_SCHEMA', message: _('Состояние autodiscovery имеет неверную схему.'), details: null }
+  };
+  return {
+    status: 'ready', enabled: value.enabled, running: value.running, dnsSource: value.dnsSource,
+    discoveredCount: domains.count === undefined ? null : domains.count,
+    discoveredMtime: domains.mtime === undefined ? null : domains.mtime,
+    error: null
+  };
+}
+function discoveryControlMethod(action) {
+  return ({ enable: 'z2kDetectDiscoveryEnable', disable: 'z2kDetectDiscoveryDisable', restart: 'z2kDetectDiscoveryRestart' })[action] || null;
+}
 function detectOperation(request) {
   if (DETECT_ACTIONS.indexOf(request.operation) >= 0) return request.operation;
   var hint = '';
@@ -150,6 +175,41 @@ function detectInvoke(ctx, operation, args) {
   if (operation === 'quic') return ctx.api.z2kDetectQuic(args.host, args.port, args.repeats, args.timeoutMs);
   if (operation === 'voice') return ctx.api.z2kDetectVoice(args.host, args.port, args.repeats, args.timeoutMs);
   return ctx.api.z2kDetectTcp16(args.host, args.port, args.repeats, args.timeoutMs);
+}
+function loadDiscovery(ctx, generation) {
+  if (!ctx.api || typeof ctx.api.z2kDetectDiscoveryStatus !== 'function') {
+    state.discovery = normalizeDiscoveryStatus({ ok: false, error: { code: 'EDETECT_UNAVAILABLE', message: _('Служба autodiscovery недоступна.') } });
+    return Promise.resolve(state.discovery);
+  }
+  return Promise.resolve().then(function () { return ctx.api.z2kDetectDiscoveryStatus(); }).then(function (value) {
+    var normalized = normalizeDiscoveryStatus(value);
+    if (currentDetectGeneration(generation)) state.discovery = normalized;
+    return normalized;
+  }).catch(function (error) {
+    var normalized = normalizeDiscoveryStatus({ ok: false, error: normalizedDetectError(ctx, error, 'EDETECT_UNAVAILABLE') });
+    if (currentDetectGeneration(generation)) state.discovery = normalized;
+    return normalized;
+  });
+}
+function discoveryControl(ctx, action) {
+  var method = discoveryControlMethod(action), source = state.discovery && state.discovery.dnsSource || 'auto';
+  if (!method || !ctx.api || typeof ctx.api[method] !== 'function') {
+    state.discovery = normalizeDiscoveryStatus({ ok: false, error: { code: 'EDETECT_UNAVAILABLE', message: _('Управление autodiscovery недоступно.') } });
+    refresh(ctx);
+    return Promise.resolve(state.discovery);
+  }
+  state.discovery = Object.assign({}, state.discovery || {}, { status: 'changing', error: null });
+  refresh(ctx);
+  return Promise.resolve().then(function () { return ctx.api[method](source); }).then(function (value) {
+    var normalized = normalizeDiscoveryStatus(value);
+    state.discovery = normalized;
+    refresh(ctx);
+    return normalized;
+  }).catch(function (error) {
+    state.discovery = normalizeDiscoveryStatus({ ok: false, error: normalizedDetectError(ctx, error, 'EDETECT_FAILED') });
+    refresh(ctx);
+    return state.discovery;
+  });
 }
 function detectStatus(ctx) {
   return ctx.api.z2kDetectStatus().then(function (value) {
@@ -219,7 +279,9 @@ function load(ctx) {
   var generation = ++state.generation;
   state.disposed = false;
   if (state.report) return Promise.resolve({ scanId: state.scanId, status: state.status, report: state.report });
-  return ctx.api.z2kDetectStatus().then(function (value) {
+  var discovery = loadDiscovery(ctx, generation);
+  return Promise.all([ctx.api.z2kDetectStatus(), discovery]).then(function (values) {
+    var value = values[0];
     if (!currentDetectGeneration(generation)) return discardedDetect(generation);
     if (!value || value.ok !== true || value.coherent !== true) return detectFailure(ctx, value, 'EDETECT_INCOMPATIBLE');
     if (!currentDetectGeneration(generation)) return discardedDetect(generation);
@@ -250,7 +312,7 @@ function scannerErrorPanel(ctx, status, controls) {
   var detail = errorText(status) || errorText(state.error);
   var isInfra = detail.indexOf('Не удалось подготовить среду') >= 0;
   var title = isInfra ? _('Не удалось подготовить среду сканирования') : _('Проверка не завершена');
-  var hint = isInfra ? _('Проверьте состояние службы и правил firewall, затем повторите.') : _('Не удалось закончить подбор стратегии.');
+  var hint = isInfra ? _('Проверьте состояние службы и правил firewall, затем повторите.') : _('Не удалось завершить обнаружение или классификацию.');
   var retry = controls ? ctx.shell.button(_('Повторить'), 'primary sm', function () { start(ctx, controls); }) : null;
   return E('article', { 'class': 'z2m-scanner-error-card', role: 'alert' }, [
     E('div', { 'class': 'z2m-scanner-state-heading' }, [icon('warning', 'is-error'), E('div', {}, [E('strong', {}, title), E('p', {}, hint)])]),
@@ -316,7 +378,7 @@ function renderTypedResult(ctx, report, controls) {
 function renderSearchForm(ctx, controls, title) {
   var hint = _('Выполняется типизированное действие Z2K Detect.');
   return E('section', { 'class': 'z2m-scanner-search-body card' + (title === _('Проверить ещё раз') ? ' z2m-scanner-retry-panel' : '') }, [
-    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Найдём подходящую стратегию')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
+    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Проверим домен и соединение')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
     E('div', { 'class': 'z2m-scanner-form-grid' }, [
       formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network'),
       formField(_('Протокол'), controls.protocol, '', 'route'),
@@ -333,6 +395,23 @@ function renderSearchForm(ctx, controls, title) {
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
   ]);
 }
+function discoveryPanel(ctx) {
+  var discovery = state.discovery || { status: 'loading', enabled: false, running: false, dnsSource: null, discoveredCount: null, error: null };
+  if (discovery.status === 'loading' || discovery.status === 'changing') return E('div', { 'class': 'z2m-scanner-discovery-status', role: 'status' }, _('Состояние autodiscovery уточняется…'));
+  if (discovery.error) return E('div', { 'class': 'z2m-scanner-discovery-status is-error', role: 'alert' }, [
+    E('strong', {}, _('Autodiscovery недоступен')), E('span', {}, ' · ' + discovery.error.code + ': ' + errorText(discovery.error))
+  ]);
+  var stateText = discovery.enabled ? (discovery.running ? _('включено и запущено') : _('включено, но служба не запущена')) : _('выключено');
+  var countText = discovery.discoveredCount === null ? _('список не прочитан') : _('доменов: ') + String(discovery.discoveredCount);
+  return E('div', { 'class': 'z2m-scanner-discovery-status', role: 'status' }, [
+    E('div', {}, [_('Autodiscovery: ') + stateText + ' · DNS: ' + (discovery.dnsSource || _('неизвестно')) + ' · ' + countText]),
+    E('div', { 'class': 'z2m-btnrow' }, [
+      ctx.shell.button(_('Включить'), 'sm', function () { discoveryControl(ctx, 'enable'); }),
+      ctx.shell.button(_('Выключить'), 'sm', function () { discoveryControl(ctx, 'disable'); }),
+      ctx.shell.button(_('Перезапустить'), 'sm', function () { discoveryControl(ctx, 'restart'); })
+    ])
+  ]);
+}
 function renderProgress(ctx, status, request) {
   var operation = text(status.operation || detectOperation(request)).toUpperCase();
   return E('article', { 'class': 'z2m-scanner-progress-card card' }, [
@@ -345,7 +424,7 @@ function render(ctx, data) {
   data = object(data);
   var status = statusValue(data), report = resultValue(data), request = safeRequest(state.request);
   var controls = {};
-  controls.target = E('input', { type: 'text', value: request.target, maxlength: '253', placeholder: 'youtube.com', disabled: status.status === 'running' ? 'disabled' : null });
+  controls.target = E('input', { type: 'url', name: 'detect-target', autocomplete: 'off', inputmode: 'url', spellcheck: 'false', value: request.target, maxlength: '253', placeholder: 'youtube.com', 'aria-invalid': state.targetError ? 'true' : 'false', 'aria-describedby': state.targetError ? 'z2m-scanner-target-error' : null, disabled: status.status === 'running' ? 'disabled' : null });
   // Protocol as segmented buttons per spec: [ TCP ] [ UDP ]
   var protSelect = E('div', { 'class': 'z2m-scanner-segmented' });
   [['tcp','TCP'],['udp','UDP']].forEach(function (pair) {
@@ -365,7 +444,7 @@ function render(ctx, data) {
   // hidden compatibility: protocol/mode controls are custom segmented, so provide wrappers for start()
   controls.protocol.value = request.protocol;
   controls.mode.value = request.mode;
-  controls.operation = E('select', { class: 'z2m-select z2m-scanner-detect-action-select', disabled: status.status === 'running' ? 'disabled' : null });
+  controls.operation = E('select', { class: 'z2m-select z2m-scanner-detect-action-select', name: 'detect-action', disabled: status.status === 'running' ? 'disabled' : null });
   DETECT_ACTIONS.forEach(function (operation) { controls.operation.appendChild(E('option', { value: operation }, operation)); });
   controls.operation.value = request.operation;
   var running = status.status === 'running' || status.status === 'starting' || status.phase === 'cancelling';
@@ -384,22 +463,22 @@ function render(ctx, data) {
   // control (the FIRST button of the group), lighting a second segmented
   // button whenever any other one is hovered. Buttons must not sit in a label.
   function segmentedField(label, node, iconName) {
-    return E('div', { 'class': 'z2m-scanner-field' }, [E('span', { 'class': 'z2m-scanner-field-label' }, [iconName ? icon(iconName) : null, E('span', {}, label)]), node]);
+    return E('div', { 'class': 'z2m-scanner-field', role: 'group', 'aria-label': label }, [E('span', { 'class': 'z2m-scanner-field-label' }, [iconName ? icon(iconName) : null, E('span', {}, label)]), node]);
   }
   var search = !running ? E('section', { 'class': 'z2m-scanner-search-body card' + (terminalResult || status.error || state.error ? ' z2m-scanner-retry-panel' : '') }, [
-    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Найдём подходящую стратегию')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
+    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Проверим домен и соединение')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
     formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network'),
-    state.targetError ? E('div', { 'class': 'z2m-scanner-field-error', style: 'color:#d63638;font-size:0.9em;margin-top:4px' }, state.targetError) : null,
+    state.targetError ? E('div', { id: 'z2m-scanner-target-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.targetError) : null,
     segmentedField(_('Протокол'), protSelect, 'route'),
     formField(_('Действие Detect'), controls.operation, '', 'scan'),
     segmentedField(_('Глубина'), modeSelect, 'gauge'),
     E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Одно типизированное действие без legacy-планировщика.')),
-    E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Автоматическое обнаружение'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [E('p', {}, _('Autodiscovery управляется службой Z2K Detect.'))])]),
+    E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Автоматическое обнаружение'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [discoveryPanel(ctx)])]),
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
   ]) : null;
   var content = running ? progressPanel : (status.error || state.error ? scannerErrorPanel(ctx, status, controls) : (terminalResult || (terminal(status) ? ctx.shell.statePanel({ title: _('Результаты пока недоступны'), message: _('Попробуйте повторить проверку.'), kind: 'info', actions: [retry] }) : null)));
   var root = E('section', { 'class': 'z2m-panel z2m-scanner-panel z2m-scanner-workflow', id: 'z2m-scanner' }, [
-    E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('search'), E('strong', {}, _('Сканирование'))]), E('span', { 'class': 'z2m-dim' }, _('Подбор стратегии и история проверок'))]),
+    E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('search'), E('strong', {}, _('Сканирование'))]), E('span', { 'class': 'z2m-dim' }, _('Диагностика и история проверок'))]),
     content,
     search
   ]);
@@ -415,4 +494,8 @@ function unmount() {
   state.generation++;
 }
 
-return baseclass.extend({ id: 'scanner', load: load, render: render, mount: mount, unmount: unmount });
+return baseclass.extend({
+  id: 'scanner', load: load, render: render, mount: mount, unmount: unmount,
+  detectOperation: detectOperation, detectInvoke: detectInvoke, normalizeDetectError: normalizedDetectError,
+  normalizeDiscoveryStatus: normalizeDiscoveryStatus, discoveryControlMethod: discoveryControlMethod
+});

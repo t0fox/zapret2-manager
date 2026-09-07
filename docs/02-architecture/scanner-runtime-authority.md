@@ -11,41 +11,37 @@ tags: [architecture, scanner, runtime, authority]
 
 # Полномочия runtime сканера
 
-Канонический production-путь сканера проходит через RPC, `scanner-cli-entry`,
-`scanner-cli`, `scanner-worker` и `scanner-planner`. `scanner-orchestrator.uc`
-присутствует в исходниках, но не подключён к production RPC.
+Канонический production-путь сканера проходит через typed RPC, `z2k-detect`
+и bounded JSON schema validation. `scanner-cli.uc` сохранён как compatibility
+shell и не импортирует старый Manager-owned scanner.
 
 ## Исправление результата discovery
 
-The initial architecture assumption was:
+The historical architecture assumption was:
 
 ```text
 ASSUMED:
-scanner RPC -> scanner-orchestrator
+scanner RPC -> manager-owned worker/planner
 ```
 
 Repository and live-router evidence show the production path is:
 
 ```text
 ACTUAL:
-scanner RPC
-  -> scanner-cli-entry
-  -> scanner-cli
-  -> scanner-worker
-  -> scanner-planner
+LuCI Scanner
+  -> typed z2k_detect_* RPC
+  -> coherent z2k-detect authority
+  -> bounded JSON result
 ```
 
-`scanner-orchestrator.uc` is present in the repository, but discovery did not
-find it wired to the production Scanner RPC. It is therefore classified as an
-unwired/non-production path, not as legacy code. This classification prevents
-future work from accidentally creating a second Scanner runtime.
+The retired Manager-owned worker, planner and probe modules are absent from
+the production package. Detect-unavailable and incoherent states are surfaced
+as canonical errors; there is no Detect-to-old-Scanner fallback.
 
 ## Границы продукта
 
-- The canonical Scanner page consolidates the existing production contracts:
-  strategy search uses the current Scanner API, diagnostics retain
-  BlockCheck/BlockCheck2/blockcheckw controls, and history is a bounded read-only
-  projection of existing Scanner state.
+- The canonical Scanner page exposes typed `probe`, `classify`, `quic`, `voice`
+  and `tcp16` actions plus typed autodiscovery status/control.
 - History wiring must not change Scanner execution authority or introduce a new
   storage/orchestrator.
 - Permanent Strategy Apply remains owned by the existing Strategy workflow.
@@ -62,7 +58,5 @@ The target-router acceptance probe confirmed that malformed starts fail with
 300 during this transport probe. Host-side ucode-dependent tests are marked
 unrun when no host `ucode` binary is available; they are not treated as passes.
 
-The current planner measurement is a remaining performance gap, not an
-authority change: a quick plan on the target took approximately 23–28 seconds
-and returned 27–28 compiled candidates before the execution shortlist was
-bounded to 20.
+Detect execution remains bounded by the typed RPC contract; permanent Strategy
+Apply remains owned by the existing Strategy workflow.

@@ -208,14 +208,37 @@ function normalizeZ2kCatalog(value) {
   }).filter(function (item) { return item.version !== null; });
 }
 
-function normalizeDetect(value) {
+function validDigest(value) {
+	return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function normalizeDetect(value, runtime) {
 	value = object(value);
+	runtime = object(runtime);
 	var nested = object(value.detect || value);
+	var coherence = object(runtime.coherence || value.coherence);
+	var architecture = first(nested.architecture || nested.arch, null);
+	var digest = first(nested.digest || nested.sha256, null);
+	var sourceCommit = first(nested.sourceCommit, null);
+	var runtimeSourceCommit = first(runtime.sourceCommit || runtime.installedSourceCommit, null);
+	var identity = first(runtime.compatibilityIdentity || value.runtime && value.runtime.compatibilityIdentity, null);
+	var bundleDigest = first(runtime.runtimeBundleDigest || value.runtime && value.runtime.bundleDigest, null);
+	var coherenceStatus = coherence.coherenceStatus;
+	var compatibilityStatus = coherence.compatibilityStatus;
+	var coherent = runtime.health === 'ready' && ['coherent', 'aligned'].indexOf(coherenceStatus) >= 0
+		&& (compatibilityStatus == null || compatibilityStatus === 'aligned')
+		|| value.coherent === true && value.state === 'ready';
+	var identityComplete = validDigest(identity) && validDigest(bundleDigest);
+	var sourceAligned = !sourceCommit || !runtimeSourceCommit || sourceCommit === runtimeSourceCommit;
+	var validatedReady = coherent && !!architecture && validDigest(digest) && identityComplete && sourceAligned;
+	var rawStatus = first(nested.status || nested.state || value.detectStatus || value.detectState, null);
+	var status = validatedReady ? 'ready' : rawStatus === 'ready' ? 'unknown' : first(rawStatus, 'unknown');
 	return {
-		architecture: first(nested.architecture || nested.arch, null),
-		status: first(nested.status || nested.state, 'unknown'),
-		digest: first(nested.digest || nested.sha256, null),
-		compatible: nested.compatible === true || nested.status === 'ready' || nested.state === 'ready'
+		architecture: architecture,
+		status: status,
+		digest: digest,
+		sourceCommit: sourceCommit,
+		compatible: validatedReady && nested.compatible !== false
 	};
 }
 
@@ -346,7 +369,11 @@ function normalizeZ2k(input, engineReady) {
 	var remoteStatus = first(value.updateState || value.status || value.state || runtimeSummary && runtimeSummary.updateState, 'unknown');
 	var updateState = z2kUpdateState(remoteStatus);
 	var local = object(value.local);
-	var detect = normalizeDetect(runtimeSummary && runtimeSummary.detect || value.detect || local.detect);
+	var detect = normalizeDetect(runtimeSummary && runtimeSummary.detect || value.detect || local.detect, runtimeSummary || value);
+	if (engineReady !== true) {
+		detect.status = detect.status === 'ready' ? 'unknown' : detect.status;
+		detect.compatible = false;
+	}
 	var compatibilityIdentity = first(runtimeSummary && runtimeSummary.compatibilityIdentity || value.compatibilityIdentity || local.compatibilityIdentity, null);
 	var hasLocal = local && (local.installed !== undefined || local.lua !== undefined || local.integrity !== undefined || local.integrityOk !== undefined || local.commit !== undefined || local.installedRelease !== undefined) || runtimeSummary !== null;
 	var canonicalHealth = runtimeSummary && runtimeSummary.health ? health(runtimeSummary.health, 'degraded') : null;
@@ -368,9 +395,10 @@ function normalizeZ2k(input, engineReady) {
   } else if (hasLocal) {
     var localEvidence = z2kLuaEvidence(local);
     if (local.installed === false || runtimeSummary && runtimeSummary.health === 'missing') healthState = 'missing';
-    else if (local.integrityOk === false || local.integrity === 'broken') healthState = 'broken';
+		else if (local.integrityOk === false || local.integrity === 'broken') healthState = 'broken';
+		else if (canonicalHealth === 'broken' || canonicalHealth === 'missing') healthState = canonicalHealth;
 		else if (evidenceClosure && !z2kClosureComplete(evidenceClosure, evidenceDigest)) healthState = 'degraded';
-		else if (!detect.architecture || !detect.compatible || !compatibilityIdentity) healthState = 'degraded';
+		else if (!detect.architecture || detect.status !== 'ready' || !detect.compatible || !compatibilityIdentity) healthState = 'degraded';
     else if (canonicalHealth) healthState = canonicalHealth;
     else if (localEvidence) healthState = 'ready';
     else healthState = 'degraded';
@@ -558,6 +586,7 @@ var strategyCount = countValue(value.strategyCount);
 		detect: detect,
 		detectArchitecture: detect.architecture,
 		detectStatus: detect.status,
+		detectCompatible: detect.compatible,
 		compatibilityIdentity: compatibilityIdentity,
 		runtimeSummary: runtimeSummary,
 		compiledDependencySummary: compiledDependencySummary,
