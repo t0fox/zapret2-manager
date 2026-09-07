@@ -144,7 +144,7 @@ function discovery_file_default() {
 function discovery_authority(seams) {
 	let hooks = object(seams) ? seams : {};
 	if (type(hooks.authority) == 'function') return hooks.authority();
-	return z2k_detect_status();
+	return detect_status();
 }
 
 export const z2k_detect_discovery_status = function(seams) {
@@ -263,11 +263,12 @@ function detect_status_normalize(value) {
 }
 
 export const z2k_detect_status_normalize = function(value) { return detect_status_normalize(value); };
-export const z2k_detect_status = function(seams) {
+function detect_status(seams) {
 	let result = detect_status_authority(seams), checked = result && result.ok === false ? detect_error_normalize(result) :
 		(result && result.ok === true && result.coherent !== true ? fail('EDETECT_INCOMPATIBLE', result.error && result.error.message || 'Z2K Detect installed authority is incoherent.') : detect_status_normalize(result));
 	return checked;
-};
+}
+export const z2k_detect_status = function(seams) { return detect_status(seams); };
 
 function detect_ipv4(value) {
 	if (!string(value) || !match(value, /^[0-9]+(\.[0-9]+){3}$/)) return false;
@@ -379,7 +380,7 @@ export const z2k_detect_execute = function(operation, input, seams) {
 		if (rawAuthority && rawAuthority.ok === true && rawAuthority.coherent !== true)
 			authority = fail('EDETECT_INCOMPATIBLE', rawAuthority.error && rawAuthority.error.message || 'Z2K Detect installed authority is incoherent.');
 		else authority = rawAuthority && rawAuthority.ok === false ? detect_error_normalize(rawAuthority) : detect_status_normalize(rawAuthority);
-	} else authority = type(hooks.invoke) == 'function' ? { ok: true, coherent: true, testOnly: true } : z2k_detect_status(hooks);
+	} else authority = type(hooks.invoke) == 'function' ? { ok: true, coherent: true, testOnly: true } : detect_status(hooks);
 	if (!object(authority) || authority.ok !== true) return authority && authority.ok === false ? authority : fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is unavailable.');
 	if (authority.coherent !== true) return fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is incoherent.');
 	try {
@@ -651,7 +652,7 @@ function discovery_cli_emit(value, code) {
 // only owner of the long-running `run` process.
 let cliArgv = detect_cli_argv();
 if (length(cliArgv) > 0 && (cliArgv[0] == 'discovery-eligible' || cliArgv[0] == 'discovery-source')) {
-	let config = discovery_config_read(), authority = z2k_detect_status();
+	let config = discovery_config_read(), authority = detect_status();
 	let eligible = config.ok === true && config.enabled === true && authority.ok === true && authority.coherent === true;
 	if (cliArgv[0] == 'discovery-source') {
 		if (!eligible) exit(1);
