@@ -26,6 +26,7 @@ const DETECT_MAX_INPUT_BYTES = 4096;
 const DETECT_MAX_STATUS_BYTES = 16384;
 const CANONICAL_DETECT_ERRORS = ['EZ2K_NOT_INSTALLED', 'EZ2K_INCOHERENT', 'EDETECT_UNAVAILABLE', 'EDETECT_INCOMPATIBLE', 'EDETECT_TIMEOUT', 'EDETECT_FAILED', 'EDETECT_SCHEMA', 'EDETECT_NO_TARGET', 'EDETECT_NO_ACTIVE_VOICE'];
 const DETECT_UNSAFE_INPUT_FIELDS = ['executable', 'argv', 'command', 'env', 'cwd', 'raw', 'shell', 'flags', 'path'];
+let detect_status;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function detect_cli_argv() {
@@ -78,21 +79,16 @@ function discovery_config_read(seams) {
 		if (hooks.readable === false || hooks.raw == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
 		raw = hooks.raw;
 	} else {
-		let link = null;
-		try { link = readlink(DISCOVERY_CONFIG); } catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.'); }
-		if (link != null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is a symlink.');
+		let presence = popen("if [ -L '/etc/zapret2-manager/z2k-detect-discovery.json' ]; then printf symlink; elif [ -e '/etc/zapret2-manager/z2k-detect-discovery.json' ]; then printf present; else printf absent; fi", 'r');
+		if (!presence) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
+		let state = trim(presence.read('all') || ''), presenceRc = presence.close();
+		if (presenceRc != 0) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
+		if (state == 'symlink') return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is a symlink.');
+		if (state == 'absent') return discovery_config_normalize(null);
+		if (state != 'present') return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
 		let st = null;
 		try { st = stat(DISCOVERY_CONFIG); } catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.'); }
-		if (st == null) {
-			// `stat()` cannot distinguish a missing path from a permission error on
-			// every supported OpenWrt fs. A fixed existence probe preserves the
-			// only safe default: absent means disabled; present-but-unreadable fails.
-			let probe = popen("test -e '/etc/zapret2-manager/z2k-detect-discovery.json' && printf present", 'r');
-			if (!probe) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration could not be inspected.');
-			let result = trim(probe.read('all') || ''), rc = probe.close();
-			if (rc != 0 || result != 'present') return discovery_config_normalize(null);
-			return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
-		}
+		if (st == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
 		if (st.type != 'file' || readlink(DISCOVERY_CONFIG) != null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is not a regular file.');
 		raw = readfile(DISCOVERY_CONFIG);
 		if (raw == null) return fail('EDETECT_SCHEMA', 'Z2K Detect discovery configuration is unreadable.');
@@ -110,9 +106,10 @@ function discovery_process_invalid(count) {
 }
 
 function discovery_command_valid(argv) {
-	if (type(argv) != 'array' || length(argv) != 6 || argv[0] != RUNTIME_TARGET || argv[1] != 'run') return false;
-	return argv[2] == '-dns-source' && index(DISCOVERY_SOURCES, argv[3]) >= 0 &&
-		argv[4] == '-output' && argv[5] == DISCOVERY_LIST;
+	if (type(argv) != 'array' || argv[0] != RUNTIME_TARGET || argv[1] != 'run') return false;
+	if (length(argv) == 4) return argv[2] == '-publish' && argv[3] == DISCOVERY_LIST;
+	return length(argv) == 6 && argv[2] == '-dns-source' && index(DISCOVERY_SOURCES, argv[3]) >= 0 &&
+		argv[4] == '-publish' && argv[5] == DISCOVERY_LIST && argv[3] != 'auto';
 }
 
 function discovery_process_default() {
@@ -148,7 +145,7 @@ function discovery_file_default() {
 function discovery_authority(seams) {
 	let hooks = object(seams) ? seams : {};
 	if (type(hooks.authority) == 'function') return hooks.authority();
-	return z2k_detect_status();
+	return detect_status();
 }
 
 export const z2k_detect_discovery_status = function(seams) {
@@ -170,7 +167,10 @@ export const z2k_detect_discovery_command = function(value) {
 	let config = discovery_config_normalize(value);
 	if (!config.ok) return config;
 	if (!config.enabled) return { ok: true, enabled: false, command: null };
-	return { ok: true, enabled: true, command: [RUNTIME_TARGET, 'run', '-dns-source', config.dnsSource, '-output', DISCOVERY_LIST], instance: DISCOVERY_INSTANCE };
+	let command = [RUNTIME_TARGET, 'run'];
+	if (config.dnsSource != 'auto') command = push(command, '-dns-source', config.dnsSource);
+	command = push(command, '-publish', DISCOVERY_LIST);
+	return { ok: true, enabled: true, command: command, instance: DISCOVERY_INSTANCE };
 };
 
 function discovery_write(config, seams) {
@@ -264,11 +264,12 @@ function detect_status_normalize(value) {
 }
 
 export const z2k_detect_status_normalize = function(value) { return detect_status_normalize(value); };
-export const z2k_detect_status = function(seams) {
+detect_status = function(seams) {
 	let result = detect_status_authority(seams), checked = result && result.ok === false ? detect_error_normalize(result) :
 		(result && result.ok === true && result.coherent !== true ? fail('EDETECT_INCOMPATIBLE', result.error && result.error.message || 'Z2K Detect installed authority is incoherent.') : detect_status_normalize(result));
 	return checked;
 };
+export const z2k_detect_status = function(seams) { return detect_status(seams); };
 
 function detect_ipv4(value) {
 	if (!string(value) || !match(value, /^[0-9]+(\.[0-9]+){3}$/)) return false;
@@ -327,17 +328,26 @@ function detect_input_normalize(operation, value) {
 	try { if (length(sprintf('%J', value)) > DETECT_MAX_INPUT_BYTES) return fail('EDETECT_SCHEMA', 'Z2K Detect input exceeds the bounded request limit.'); }
 	catch (e) { return fail('EDETECT_SCHEMA', 'Z2K Detect input is not safely serializable.'); }
 	for (let name in DETECT_UNSAFE_INPUT_FIELDS) if (exists(value, name)) return fail('EINPUT', 'Z2K Detect input contains an unsafe execution field.', { field: name });
-	let required = operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] : ['host', 'port', 'repeats', 'timeoutMs'];
+	let required = operation == 'z2k_detect_probe' ? ['domain', 'timeoutMs'] :
+		operation == 'z2k_detect_classify' ? ['host', 'port', 'hello', 'repeats', 'timeoutMs'] :
+		operation == 'z2k_detect_quic' ? ['domain', 'port', 'repeats', 'timeoutMs'] :
+		operation == 'z2k_detect_voice' ? ['repeats', 'timeoutMs'] : ['timeoutMs'];
 	for (let name in required) if (!exists(value, name)) return fail('EDETECT_SCHEMA', 'Z2K Detect input is missing a required field.', { field: name });
-	if (!string(value.host) || !detect_host(value.host)) return fail('EINPUT', 'Z2K Detect host is invalid.');
-	if (type(value.port) != 'int' || value.port < 1 || value.port > 65535) return fail('EDETECT_SCHEMA', 'Z2K Detect port has the wrong type or range.');
-	if (type(value.repeats) != 'int' || value.repeats < 1 || value.repeats > 32) return fail('EDETECT_SCHEMA', 'Z2K Detect repeats has the wrong type or range.');
+	if (exists(value, 'domain') && (!string(value.domain) || !detect_host(value.domain))) return fail('EINPUT', 'Z2K Detect domain is invalid.');
+	if (exists(value, 'host') && (!string(value.host) || !detect_host(value.host))) return fail('EINPUT', 'Z2K Detect host is invalid.');
+	if (exists(value, 'port') && (type(value.port) != 'int' || value.port < 1 || value.port > 65535)) return fail('EDETECT_SCHEMA', 'Z2K Detect port has the wrong type or range.');
+	if (exists(value, 'repeats') && (type(value.repeats) != 'int' || value.repeats < 1 || value.repeats > 32)) return fail('EDETECT_SCHEMA', 'Z2K Detect repeats has the wrong type or range.');
 	if (type(value.timeoutMs) != 'int' || value.timeoutMs < 1 || value.timeoutMs > 120000) return fail('EDETECT_SCHEMA', 'Z2K Detect timeoutMs has the wrong type or range.');
 	if (operation == 'z2k_detect_classify' && type(value.hello) != 'string') return fail('EDETECT_SCHEMA', 'Z2K Detect classify hello has the wrong type.');
-	if (operation == 'z2k_detect_classify' && value.hello != 'modern') return fail('EINPUT', 'Z2K Detect classify only accepts the modern hello mode.');
+	if (operation == 'z2k_detect_classify' && index(['modern', 'legacy', 'both'], value.hello) < 0) return fail('EINPUT', 'Z2K Detect classify hello mode is invalid.');
 	let normalized = {};
 	for (let key in value) normalized[key] = value[key];
-	return { ok: true, value: normalized, native: { host: value.host, port: value.port, repeats: value.repeats, timeoutMs: value.timeoutMs, ...(operation == 'z2k_detect_classify' ? { hello: value.hello } : {}) } };
+	let native = { timeoutMs: value.timeoutMs };
+	if (operation == 'z2k_detect_probe') native.domain = value.domain;
+	if (operation == 'z2k_detect_classify') native = { host: value.host, port: value.port, hello: value.hello, repeats: value.repeats, timeoutMs: value.timeoutMs };
+	if (operation == 'z2k_detect_quic') native = { domain: value.domain, port: value.port, repeats: value.repeats, timeoutMs: value.timeoutMs };
+	if (operation == 'z2k_detect_voice') native = { repeats: value.repeats, timeoutMs: value.timeoutMs };
+	return { ok: true, value: normalized, native: native };
 }
 
 export const z2k_detect_normalize_input = function(operation, value) { return detect_input_normalize(operation, value); };
@@ -349,10 +359,15 @@ export const z2k_detect_fixed_argv = function(operation, input) {
 	let checked = detect_input_normalize(operation, input);
 	if (!checked.ok) return null;
 	let args = checked.native;
-	let kind = substr(operation, 11), endpoint = index(args.host, ':') >= 0 ? '[' + args.host + ']:' + args.port : args.host + ':' + args.port;
-	let seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind, endpoint];
-	if (kind == 'classify') { if (args.hello != 'modern') return null; out = push(out, '-hello', 'modern'); }
-	return push(out, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json');
+	let kind = substr(operation, 11), seconds = int((args.timeoutMs + 999) / 1000), out = [RUNTIME_TARGET, kind];
+	if (kind == 'probe') return push(out, '-json', args.domain);
+	if (kind == 'classify') {
+		let endpoint = index(args.host, ':') >= 0 ? '[' + args.host + ']:' + args.port : args.host + ':' + args.port;
+		return push(out, '-hello', args.hello, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json', endpoint);
+	}
+	if (kind == 'quic') return push(out, '-port', '' + args.port, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json', args.domain);
+	if (kind == 'voice') return push(out, '-repeats', '' + args.repeats, '-timeout', '' + seconds + 's', '-json');
+	return out;
 };
 
 export const z2k_detect_execute = function(operation, input, seams) {
@@ -366,7 +381,7 @@ export const z2k_detect_execute = function(operation, input, seams) {
 		if (rawAuthority && rawAuthority.ok === true && rawAuthority.coherent !== true)
 			authority = fail('EDETECT_INCOMPATIBLE', rawAuthority.error && rawAuthority.error.message || 'Z2K Detect installed authority is incoherent.');
 		else authority = rawAuthority && rawAuthority.ok === false ? detect_error_normalize(rawAuthority) : detect_status_normalize(rawAuthority);
-	} else authority = type(hooks.invoke) == 'function' ? { ok: true, coherent: true, testOnly: true } : z2k_detect_status(hooks);
+	} else authority = type(hooks.invoke) == 'function' ? { ok: true, coherent: true, testOnly: true } : detect_status(hooks);
 	if (!object(authority) || authority.ok !== true) return authority && authority.ok === false ? authority : fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is unavailable.');
 	if (authority.coherent !== true) return fail('EDETECT_INCOMPATIBLE', 'Z2K Detect installed authority is incoherent.');
 	try {
@@ -374,11 +389,13 @@ export const z2k_detect_execute = function(operation, input, seams) {
 		if (!object(response) || type(response.ok) != 'bool') return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid native response.');
 		if (!response.ok) return detect_error_normalize(response);
 		if (!detect_result.detect_result_data_valid(operation, response.data))
-			return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
+			return fail('EDETECT_SCHEMA', 'Z2K Detect returned an invalid upstream result.');
 		if (response.data.timedOut)
 			return fail('EDETECT_TIMEOUT', 'Z2K Detect timed out.', { details: detect_failure_details(response.data) });
 		if (response.data.outputTruncated)
 			return fail('EDETECT_FAILED', 'Z2K Detect output exceeded the bounded result limit.', { details: detect_failure_details(response.data) });
+		if (response.data.exitCode != 0)
+			return fail('EDETECT_FAILED', 'Z2K Detect exited with a failure status.', { details: detect_failure_details(response.data) });
 		return response;
 	}
 	catch (e) { return fail('EDETECT_FAILED', 'Native Z2K Detect invocation failed.', { detail: substr(text(e), 0, 320) }); }
@@ -636,7 +653,7 @@ function discovery_cli_emit(value, code) {
 // only owner of the long-running `run` process.
 let cliArgv = detect_cli_argv();
 if (length(cliArgv) > 0 && (cliArgv[0] == 'discovery-eligible' || cliArgv[0] == 'discovery-source')) {
-	let config = discovery_config_read(), authority = z2k_detect_status();
+	let config = discovery_config_read(), authority = detect_status();
 	let eligible = config.ok === true && config.enabled === true && authority.ok === true && authority.coherent === true;
 	if (cliArgv[0] == 'discovery-source') {
 		if (!eligible) exit(1);

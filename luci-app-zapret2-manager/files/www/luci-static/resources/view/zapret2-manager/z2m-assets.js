@@ -190,10 +190,17 @@ function render(ctx) {
   var value = ctx.data && ctx.data.value || {};
   var resources = value.resources || {};
   var assetsData = value.assets && value.assets.assets || [];
+  var assetsError = value.assets && (value.assets.error || value.assets.ok === false) ? (value.assets.error || value.assets) : null;
   var strategySources = value.strategySources || {};
   if (resources.error || resources.ok === false) {
     return E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' }, [
       ctx.shell.statePanel({ message: resources.error && resources.error.message || _('Не удалось загрузить центр ресурсов.'), kind: 'error' })
+    ]);
+  }
+  if (assetsError) {
+    var normalizedAssetsError = ctx.api.normalizeError(assetsError);
+    return E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' }, [
+      ctx.shell.statePanel({ title: _('Asset Registry недоступен'), message: normalizedAssetsError.message || _('Не удалось загрузить Asset Registry.'), kind: 'error', actions: [ctx.shell.button(_('Повторить'), 'primary sm', function () { return ctx.refresh(ctx.route); })] })
     ]);
   }
   var advanced = !!(ctx.store && ctx.store.ui && ctx.store.ui.advanced);

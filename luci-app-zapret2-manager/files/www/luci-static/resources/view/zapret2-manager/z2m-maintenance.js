@@ -598,11 +598,11 @@ function refreshState(ctx) {
   if (state.componentOperation) return;
   state.componentOperation = { kind: 'refresh', scope: 'all' };
   rerender(ctx);
-  // Clear BEFORE refresh boundary
-  state.componentOperation = null;
-  rerender(ctx);
   return refresh(ctx).catch(function (error) {
     showError(ctx, error);
+  }).then(function () {
+    state.componentOperation = null;
+    rerender(ctx);
   });
 }
 function invalidateZ2KAfterMutation(targetRelease) {
@@ -635,11 +635,11 @@ function refreshZ2KAfterMutation(ctx, targetRelease) {
   };
   state.componentOperation = { kind: 'refresh', scope: 'z2k', targetVersion: targetRelease };
   rerender(ctx);
-  state.componentOperation = null;
-  rerender(ctx);
   return Promise.resolve().then(function () { return refresh(ctx); }).then(function () {
+    state.componentOperation = null;
     state.z2kPostMutationStatus = null;
     state.z2kPostMutationRefreshError = null;
+    rerender(ctx);
     reloadZ2KSelectedDetails(ctx);
   }, function (error) {
     state.componentOperation = null;
@@ -659,10 +659,10 @@ function retryZ2KPostMutationRefresh(ctx) {
   };
   state.componentOperation = { kind: 'refresh', scope: 'z2k' };
   rerender(ctx);
-  state.componentOperation = null;
-  rerender(ctx);
   Promise.resolve().then(function () { return refresh(ctx); }).then(function () {
+    state.componentOperation = null;
     state.z2kPostMutationStatus = null;
+    rerender(ctx);
     reloadZ2KSelectedDetails(ctx);
   }, function (error) {
     state.componentOperation = null;
@@ -690,6 +690,10 @@ function checkUpdates(ctx, scope) {
   }
   // Z2K is checked and mutated only through its coherent Core lifecycle;
   // Resources must never become a second Z2K update authority.
+  if (scope === 'z2k')
+    addCheck('z2k', checkedResult(ctx.api.resources.check(), 'Проверка Z2K'));
+  else if (scope === 'all' && ctx.api.resources && ctx.api.resources.check)
+    addCheck('z2k', checkedResult(ctx.api.resources.check(), 'Проверка Z2K'));
   if (scope === 'all' || scope === 'engine') {
     addCheck('engine', checkedResult(ctx.api.engine.check({ forceRefresh: true }), 'Проверка движка'));
     if (ctx.api.engine.gateStatus) addCheck('engine-gate', checkedResult(ctx.api.engine.gateStatus(), 'Проверка гейта движка'));
@@ -2036,7 +2040,7 @@ function renderZ2KCard(ctx, component) {
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = z2kMetaRows(component);
-  var primaryActions = [E('span', { 'class': 'z2m-dim' }, _('Проверка выполняется в составе Z2K Core'))];
+  var primaryActions = [shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), isBusyFor('z2k-core')), E('span', { 'class': 'z2m-dim' }, _('Проверка выполняется в составе Z2K Core'))];
   if (!state.z2kExpanded && z2kCanApply(component)) {
     var updateActionLabel = z2kUpdateActionLabel(component);
     var updateActionClass = updateActionLabel.indexOf(_('Переустановить')) === 0 ? 'sm' : 'primary sm';

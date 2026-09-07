@@ -128,14 +128,16 @@ test('discovery config and command are bounded to the schema and fixed upstream 
   const disabled = invoke(`detect.z2k_detect_discovery_command({ schema: 1, enabled: false, dnsSource: 'auto' })`);
   assert.deepEqual(disabled, { ok: true, enabled: false, command: null });
   const enabled = invoke(`detect.z2k_detect_discovery_command({ schema: 1, enabled: true, dnsSource: 'dnsmasq' })`);
-  assert.deepEqual(enabled.command, ['/usr/libexec/zapret2-manager/z2k-detect', 'run', '-dns-source', 'dnsmasq', '-output', '/opt/zapret2/lists/discovered-domains.txt']);
+  assert.deepEqual(enabled.command, ['/usr/libexec/zapret2-manager/z2k-detect', 'run', '-dns-source', 'dnsmasq', '-publish', '/opt/zapret2/lists/discovered-domains.txt']);
+  const auto = invoke(`detect.z2k_detect_discovery_command({ schema: 1, enabled: true, dnsSource: 'auto' })`);
+  assert.deepEqual(auto.command, ['/usr/libexec/zapret2-manager/z2k-detect', 'run', '-publish', '/opt/zapret2/lists/discovered-domains.txt']);
   const invalid = invoke(`detect.z2k_detect_discovery_config({ schema: 1, enabled: true, dnsSource: 'shell' })`);
   assert.equal(invalid.error.code, 'EDETECT_SCHEMA');
 });
 
 test('discovery status is actual process/file health, not config-only state', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   const base = { schema: 1, enabled: true, dnsSource: 'agh' };
-  const process = { instance: 'z2k-detect', running: true, pid: 4321, count: 1, validated: true, executable: '/usr/libexec/zapret2-manager/z2k-detect', outputOwned: true, command: ['/usr/libexec/zapret2-manager/z2k-detect', 'run', '-dns-source', 'agh', '-output', '/opt/zapret2/lists/discovered-domains.txt'] };
+  const process = { instance: 'z2k-detect', running: true, pid: 4321, count: 1, validated: true, executable: '/usr/libexec/zapret2-manager/z2k-detect', outputOwned: true, command: ['/usr/libexec/zapret2-manager/z2k-detect', 'run', '-dns-source', 'agh', '-publish', '/opt/zapret2/lists/discovered-domains.txt'] };
   const status = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify(base)}; }, process: function() { return ${JSON.stringify(process)}; }, file: function() { return { count: 3, mtime: 1700000000 }; } })`);
   assert.deepEqual(status, { ok: true, schema: 1, enabled: true, dnsSource: 'agh', running: true, pid: 4321, discoveredDomains: { count: 3, mtime: 1700000000 }, instance: 'z2k-detect' });
   const stopped = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify(base)}; }, process: function() { return { instance: 'z2k-detect', running: false, pid: null, count: 0, validated: false, outputOwned: false }; }, file: function() { return { count: 3, mtime: 1700000000 }; } })`);
@@ -148,7 +150,7 @@ test('discovery status is actual process/file health, not config-only state', { 
   for (const command of [
     [...process.command, '--unexpected'],
     process.command.slice(0, -1),
-    [process.command[0], 'run', '-output', process.command[5], '-dns-source', process.command[3]],
+    [process.command[0], 'run', '-publish', process.command[5], '-dns-source', process.command[3]],
   ]) {
     const extraOrMalformed = { ...process, command };
     const result = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify(base)}; }, process: function() { return ${JSON.stringify(extraOrMalformed)}; }, file: function() { return { count: 3, mtime: 1700000000 }; } })`);
@@ -215,7 +217,7 @@ test('restart persists dnsSource atomically before invoking the service and retu
 test('init harness starts exactly one named run only when discovery is enabled and preserves learned data', () => {
   const enabled = runInitHarness({ eligible: true, source: 'agh' });
   assert.equal((enabled.match(/open:z2k-detect/g) || []).length, 1);
-  assert.match(enabled, /param:command:command .*run -dns-source agh -output \/opt\/zapret2\/lists\/discovered-domains\.txt/);
+  assert.match(enabled, /param:command:command .*run -dns-source agh -publish \/opt\/zapret2\/lists\/discovered-domains\.txt/);
   assert.match(enabled, /---LIST---\nkeep\.example/);
   const disabled = runInitHarness({ eligible: false, source: 'agh' });
   assert.equal((disabled.match(/open:z2k-detect/g) || []).length, 0, disabled);

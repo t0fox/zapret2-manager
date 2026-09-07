@@ -166,15 +166,23 @@ function detectOperation(request) {
   if (hint) return 'classify';
   return 'probe';
 }
+function operationNeedsTarget(operation) { return ['probe', 'classify', 'quic'].indexOf(operation) >= 0; }
+function operationLabel(operation) { return ({ probe: _('проверку домена'), classify: _('классификацию TLS'), quic: _('проверку QUIC'), voice: _('проверку активного Discord-звонка'), tcp16: _('проверку TCP16') })[operation] || _('проверку'); }
 function detectArguments(request) {
-  return { host: request.target, port: 443, repeats: request.mode === 'full' ? 3 : request.mode === 'quick' ? 1 : 2, timeoutMs: request.mode === 'full' ? 12000 : request.mode === 'quick' ? 3000 : 6000 };
+  var repeats = request.mode === 'full' ? 3 : request.mode === 'quick' ? 1 : 2;
+  var timeoutMs = request.mode === 'full' ? 12000 : request.mode === 'quick' ? 3000 : 6000;
+  if (request.operation === 'probe') return { domain: request.target, timeoutMs: timeoutMs };
+  if (request.operation === 'classify') return { host: request.target, port: 443, hello: 'both', repeats: repeats, timeoutMs: timeoutMs };
+  if (request.operation === 'quic') return { domain: request.target, port: 443, repeats: repeats, timeoutMs: timeoutMs };
+  if (request.operation === 'voice') return { repeats: repeats, timeoutMs: timeoutMs };
+  return { timeoutMs: timeoutMs };
 }
 function detectInvoke(ctx, operation, args) {
-  if (operation === 'probe') return ctx.api.z2kDetectProbe(args.host, args.port, args.repeats, args.timeoutMs);
-  if (operation === 'classify') return ctx.api.z2kDetectClassify(args.host, args.port, 'modern', args.repeats, args.timeoutMs);
-  if (operation === 'quic') return ctx.api.z2kDetectQuic(args.host, args.port, args.repeats, args.timeoutMs);
-  if (operation === 'voice') return ctx.api.z2kDetectVoice(args.host, args.port, args.repeats, args.timeoutMs);
-  return ctx.api.z2kDetectTcp16(args.host, args.port, args.repeats, args.timeoutMs);
+  if (operation === 'probe') return ctx.api.z2kDetectProbe(args.domain, args.timeoutMs);
+  if (operation === 'classify') return ctx.api.z2kDetectClassify(args.host, args.port, args.hello, args.repeats, args.timeoutMs);
+  if (operation === 'quic') return ctx.api.z2kDetectQuic(args.domain, args.port, args.repeats, args.timeoutMs);
+  if (operation === 'voice') return ctx.api.z2kDetectVoice(args.repeats, args.timeoutMs);
+  return ctx.api.z2kDetectTcp16(args.timeoutMs);
 }
 function loadDiscovery(ctx, generation) {
   if (!ctx.api || typeof ctx.api.z2kDetectDiscoveryStatus !== 'function') {
@@ -219,6 +227,7 @@ function detectStatus(ctx) {
 }
 function decodeDetectResult(ctx, operation, value) {
   if (!value || value.ok !== true || !object(value.data) || typeof value.data.stdout !== 'string') return detectFailure(ctx, value, 'EDETECT_SCHEMA');
+  if (operation === 'tcp16') return { operation: operation, data: { output: value.data.stdout, exitCode: value.data.exitCode, argv: value.data.argv } };
   try {
     var parsed = JSON.parse(value.data.stdout);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return detectFailure(ctx, { code: 'EDETECT_SCHEMA', message: 'Detect JSON result is not an object.' }, 'EDETECT_SCHEMA');
@@ -321,8 +330,10 @@ function scannerErrorPanel(ctx, status, controls) {
   ]);
 }
 function start(ctx, controls) {
-  var rawTarget = controls.target.value;
-  var normalized = normalizeTarget(rawTarget);
+  var operation = controls.operation.value;
+  var needsTarget = operationNeedsTarget(operation);
+  var rawTarget = controls.target ? controls.target.value : state.request.target;
+  var normalized = needsTarget ? normalizeTarget(rawTarget) : { ok: true, hostname: '' };
   if (!normalized.ok) {
     state.targetError = normalized.error;
     state.error = null;
@@ -339,11 +350,11 @@ function start(ctx, controls) {
     controls.target.setAttribute('aria-invalid', 'false');
     if (typeof controls.target.removeAttribute === 'function') controls.target.removeAttribute('aria-describedby');
   }
-  controls.target.value = normalized.hostname;
+  if (controls.target) controls.target.value = normalized.hostname;
   var protocolVal = controls.protocol.value;
   if (protocolVal === 'auto') protocolVal = 'tcp';
   var generation = ++state.generation;
-  var request = safeRequest({ target: normalized.hostname, operation: controls.operation.value, protocol: protocolVal, mode: controls.mode.value });
+  var request = safeRequest({ target: normalized.hostname, operation: operation, protocol: protocolVal, mode: controls.mode.value });
   state.request = request;
   state.scanId = 'detect-' + String(generation) + '-' + String(Date.now());
   state.error = null; state.report = null; state.status = { status: 'running', phase: 'probing', operation: detectOperation(state.request) };
@@ -370,13 +381,13 @@ function renderTypedResult(ctx, report, controls) {
   report = object(report);
   var data = object(report.data), operation = text(report.operation || state.status && state.status.operation).toUpperCase();
   var verdict = text(data.verdict || data.PathVerdict || (data.Detected === true ? 'detected' : data.Detected === false ? 'clear' : data.FailureCode || 'observed'));
-  var reason = text(data.reason || data.PathReason || data.FailureReason || data.Err || _('Результат получен от Z2K Detect.'));
+  var reason = text(data.reason || data.PathReason || data.FailureReason || data.Err || data.output || _('Результат получен от Z2K Detect.'));
   var details;
   try { details = JSON.stringify(data, null, 2); } catch (ignore) { details = _('Технические сведения недоступны.'); }
   return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen', role: 'status' }, [
     E('article', { 'class': 'z2m-scanner-best-card card' }, [
       E('div', { 'class': 'z2m-scanner-best-kicker' }, [icon('circle-check', 'is-success'), E('span', {}, _('Проверка завершена'))]),
-      E('strong', { 'class': 'z2m-scanner-best-title' }, state.request.target),
+      E('strong', { 'class': 'z2m-scanner-best-title' }, state.request.target || operationLabel(report.operation || state.status && state.status.operation)),
       E('div', { 'class': 'z2m-scanner-best-meta' }, operation + ' · ' + verdict),
       E('p', { 'class': 'z2m-scanner-best-reason' }, reason),
       E('div', { 'class': 'z2m-btnrow' }, [controls ? ctx.shell.button(_('Проверить ещё раз'), 'sm', function () { start(ctx, controls); }) : null])
@@ -424,7 +435,7 @@ function discoveryPanel(ctx) {
 function renderProgress(ctx, status, request) {
   var operation = text(status.operation || detectOperation(request)).toUpperCase();
   return E('article', { 'class': 'z2m-scanner-progress-card card', role: 'status' }, [
-    E('div', { 'class': 'z2m-scanner-progress-heading' }, [icon('activity'), E('div', {}, [E('strong', {}, _('Проверяем ') + request.target), E('span', {}, _('Запрос Z2K Detect выполняется'))])]),
+    E('div', { 'class': 'z2m-scanner-progress-heading' }, [icon('activity'), E('div', {}, [E('strong', {}, _('Выполняем ') + (request.target || operationLabel(status.operation || detectOperation(request)))), E('span', {}, _('Запрос Z2K Detect выполняется'))])]),
     E('div', { 'class': 'z2m-scanner-progress-meta' }, [E('span', {}, _('Операция: ') + operation), E('span', {}, _('Ограничение времени: ') + String(DETECT_WAIT_MS / 1000) + ' с')]),
     null
   ]);
@@ -433,7 +444,7 @@ function render(ctx, data) {
   data = object(data);
   var status = statusValue(data), report = resultValue(data), request = safeRequest(state.request);
   var controls = {};
-  controls.target = E('input', { type: 'url', name: 'detect-target', autocomplete: 'off', inputmode: 'url', spellcheck: 'false', value: request.target, maxlength: '253', placeholder: 'youtube.com', 'aria-invalid': state.targetError ? 'true' : 'false', 'aria-describedby': state.targetError ? 'z2m-scanner-target-error' : null, disabled: status.status === 'running' ? 'disabled' : null });
+  controls.target = operationNeedsTarget(request.operation) ? E('input', { type: 'url', name: 'detect-target', autocomplete: 'off', inputmode: 'url', spellcheck: 'false', value: request.target, maxlength: '253', placeholder: 'youtube.com', 'aria-invalid': state.targetError ? 'true' : 'false', 'aria-describedby': state.targetError ? 'z2m-scanner-target-error' : null, disabled: status.status === 'running' ? 'disabled' : null }) : null;
   // Protocol as segmented buttons per spec: [ TCP ] [ UDP ]
   var protSelect = E('div', { 'class': 'z2m-scanner-segmented' });
   [['tcp','TCP'],['udp','UDP']].forEach(function (pair) {
@@ -476,9 +487,9 @@ function render(ctx, data) {
   }
   var search = !running ? E('section', { 'class': 'z2m-scanner-search-body card' + (terminalResult || status.error || state.error ? ' z2m-scanner-retry-panel' : '') }, [
     E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Проверим домен и соединение')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
-    formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network'),
-    state.targetError ? E('div', { id: 'z2m-scanner-target-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.targetError) : null,
-    segmentedField(_('Протокол'), protSelect, 'route'),
+    controls.target ? formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network') : E('p', { 'class': 'z2m-scanner-operation-hint' }, operationLabel(request.operation)),
+    controls.target && state.targetError ? E('div', { id: 'z2m-scanner-target-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.targetError) : null,
+    request.operation === 'quic' ? segmentedField(_('Протокол'), protSelect, 'route') : null,
     formField(_('Действие Detect'), controls.operation, '', 'scan'),
     segmentedField(_('Глубина'), modeSelect, 'gauge'),
     E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Одно типизированное действие без legacy-планировщика.')),
@@ -491,8 +502,8 @@ function render(ctx, data) {
     content,
     search
   ]);
-  controls.target.addEventListener('input', function () { state.request.target = controls.target.value; if (state.targetError) { state.targetError = null; refresh(ctx); } });
-  controls.operation.addEventListener('change', function () { state.request.operation = controls.operation.value; });
+  if (controls.target) controls.target.addEventListener('input', function () { state.request.target = controls.target.value; if (state.targetError) { state.targetError = null; refresh(ctx); } });
+  controls.operation.addEventListener('change', function () { state.request.operation = controls.operation.value; state.targetError = null; refresh(ctx); });
   return root;
 }
 function mount(ctx) {

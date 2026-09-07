@@ -1308,11 +1308,13 @@ return {
 		z2k_detect_discovery_enable: { call: function (req) { return z2k_detect_discovery_enable_method(req); } },
 		z2k_detect_discovery_disable: { call: function (req) { return z2k_detect_discovery_disable_method(req); } },
 		z2k_detect_discovery_restart: { call: function (req) { return z2k_detect_discovery_restart_method(req); } },
-		z2k_detect_probe: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_probe_method(req); } },
-		z2k_detect_classify: { args: { host: 'string', port: 'integer', hello: 'string', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_classify_method(req); } },
-		z2k_detect_quic: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_quic_method(req); } },
-		z2k_detect_voice: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_voice_method(req); } },
-		z2k_detect_tcp16: { args: { host: 'string', port: 'integer', repeats: 'integer', timeoutMs: 'integer' }, call: function (req) { return z2k_detect_tcp16_method(req); } },
+		// rpcd infers integer argument types from integer exemplar values, not the
+		// string "integer". Range and cross-field validation remains below in Detect.
+		z2k_detect_probe: { args: { domain: 'string', timeoutMs: 1 }, call: function (req) { return z2k_detect_probe_method(req); } },
+		z2k_detect_classify: { args: { host: 'string', port: 443, hello: 'string', repeats: 1, timeoutMs: 1 }, call: function (req) { return z2k_detect_classify_method(req); } },
+		z2k_detect_quic: { args: { domain: 'string', port: 443, repeats: 1, timeoutMs: 1 }, call: function (req) { return z2k_detect_quic_method(req); } },
+		z2k_detect_voice: { args: { repeats: 1, timeoutMs: 1 }, call: function (req) { return z2k_detect_voice_method(req); } },
+		z2k_detect_tcp16: { args: { timeoutMs: 1 }, call: function (req) { return z2k_detect_tcp16_method(req); } },
 		z2k_diagnostics: { call: function (req) { return z2k_diagnostics_method(req); } },
 		z2k_data_refresh: { args: { edit: 'string' }, call: function (req) { return z2k_data_refresh_method(req); } }
 	}

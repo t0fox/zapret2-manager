@@ -593,11 +593,16 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 			json_object_object_get_ex(args,"request",&value) && json_object_is_type(value,json_type_object);
 	}
 	if (strncmp(request->operation, "z2k_detect_", 11) == 0) {
-		static const char *const common[] = {"host", "port", "repeats", "timeoutMs"};
+		static const char *const probe[] = {"domain", "timeoutMs"};
 		static const char *const classify[] = {"host", "port", "hello", "repeats", "timeoutMs"};
-		return strcmp(request->operation, "z2k_detect_classify") == 0 ?
-			exact_fields(args, classify, 5) :
-			(strcmp(request->operation, "z2k_detect_probe") == 0 || strcmp(request->operation, "z2k_detect_quic") == 0 || strcmp(request->operation, "z2k_detect_voice") == 0 || strcmp(request->operation, "z2k_detect_tcp16") == 0) && exact_fields(args, common, 4);
+		static const char *const quic[] = {"domain", "port", "repeats", "timeoutMs"};
+		static const char *const voice[] = {"repeats", "timeoutMs"};
+		static const char *const tcp16[] = {"timeoutMs"};
+		if (strcmp(request->operation, "z2k_detect_classify") == 0) return exact_fields(args, classify, 5);
+		if (strcmp(request->operation, "z2k_detect_probe") == 0) return exact_fields(args, probe, 2);
+		if (strcmp(request->operation, "z2k_detect_quic") == 0) return exact_fields(args, quic, 4);
+		if (strcmp(request->operation, "z2k_detect_voice") == 0) return exact_fields(args, voice, 2);
+		return strcmp(request->operation, "z2k_detect_tcp16") == 0 && exact_fields(args, tcp16, 1);
 	}
 	if(strcmp(request->operation,"atomic_write")==0)
 		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&string_value(args,"content",0,694704,&s)&&z2m_base64_canonical(s,strlen(s),521028)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");

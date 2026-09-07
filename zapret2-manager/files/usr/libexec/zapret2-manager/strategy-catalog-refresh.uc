@@ -45,6 +45,11 @@ function is_stale(state) {
   if (!object(state) || !state.startedAt || !state.heartbeatAt) return true;
   return (now() - state.heartbeatAt) > STALE_SECONDS;
 }
+function process_alive(pid) {
+	if (type(pid) != 'int' || pid <= 0) return false;
+	let p = popen('kill -0 ' + pid + ' 2>/dev/null', 'r');
+	return p != null && p.close() == 0;
+}
 function make_id() {
   return 'cat-refresh-' + now() + '-' + sprintf('%08x', time() % 100000000);
 }
@@ -397,6 +402,8 @@ export const catalog_source_set_enabled = function(id, enabled, expectedRevision
 export const catalog_refresh_status = function() {
   let s = state_load();
   if (s == null) return { ok: true, state: 'idle', operationId: null, phase: null, phaseHistory: [], startedAt: null, finishedAt: null, result: null, error: null };
+  if (s.state == 'running' && type(s.pid) == 'int' && !process_alive(s.pid))
+		s = failure(s, { ok: false, error: { code: 'EWORKER_EXITED', message: 'Strategy catalog worker exited before publishing its final result.' } });
   if (s.transaction && (s.state != 'running' || is_stale(s))) s = recover_transaction(s);
   // stale recovery
   if (s.state == 'running' && is_stale(s)) {
@@ -443,11 +450,16 @@ export const catalog_refresh_start = function() {
   // launch worker via dedicated CLI in background — avoids inline `require("fs")` bug
   // and reuses the tested catalog_refresh_worker_run path (fs imports + correct error
   // propagation). The CLI is invoked detached; its stdout/stderr goes to a log.
-  let workerCmd = '/usr/bin/ucode ' + shell('/usr/libexec/zapret2-manager/strategy-catalog-refresh-cli.uc') + ' run >/tmp/catalog-refresh.log 2>&1';
-  let bg = 'sh -c ' + shell(workerCmd + ' &');
-  let p = popen(bg, 'r');
-  if (p) p.close();
-  return { ok: true, accepted: true, operationId: opId, state: 'running', phase: 'queued', percent: 5, startedAt: rec.startedAt };
+	let workerCmd = '/usr/bin/ucode ' + shell('/usr/libexec/zapret2-manager/strategy-catalog-refresh-cli.uc') + ' run >/tmp/catalog-refresh.log 2>&1';
+	let bg = 'sh -c ' + shell(workerCmd + ' & echo $!');
+	let p = popen(bg, 'r'), pid = p ? trim(p.read('all') || '') : '', rc = p ? p.close() : -1;
+	if (rc != 0 || !match(pid, /^[0-9]+$/)) {
+		rec.state = 'error'; rec.error = { code: 'EWORKER_START', message: 'Strategy catalog worker could not be started.' }; rec.finishedAt = now(); rec.heartbeatAt = rec.finishedAt; state_save(rec);
+		return { ok: false, error: rec.error, operationId: opId, state: rec.state };
+	}
+	rec.pid = +pid;
+	if (!state_save(rec)) return { ok: false, error: { code: 'EIO', message: 'Could not persist refresh worker identity' }, operationId: opId };
+	return { ok: true, accepted: true, operationId: opId, state: 'running', phase: 'queued', percent: 5, startedAt: rec.startedAt };
 };
 
 // For CLI testing
