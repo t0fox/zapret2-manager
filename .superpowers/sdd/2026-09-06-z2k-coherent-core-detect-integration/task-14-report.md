@@ -271,3 +271,58 @@ Still unrun by explicit boundary: router deployment/runtime postflight, live Det
 - `e8e11dd7` — implementation, behavioral regressions, and accessibility fixes.
 - The report update is committed separately after the implementation commit.
 - Worktree must be clean after the report commit; no unrelated files are included.
+
+## Minor UI re-review fix — 2026-09-07
+
+Implementation commit: `618c004e` (`fix: preserve Scanner segmented focus outline`). This is the remaining scoped UI fix; no router, browser, deploy, merge, push, or second worktree was used.
+
+### Exact files changed in this pass
+
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css`
+- `tests/ui/scanner-ui-rework.test.mjs`
+- `.superpowers/sdd/2026-09-06-z2k-coherent-core-detect-integration/task-14-report.md`
+
+### TDD evidence
+
+The focused assertion was added before the CSS change:
+
+```text
+node --test tests/ui/scanner-ui-rework.test.mjs
+```
+
+RED: exit 1; 7 tests, 6 passed, 1 failed. The new assertion correctly found the unscoped `.z2m-app .z2m-scanner-segmented button:hover { outline:none }` rule.
+
+After the CSS fix:
+
+```text
+node --test tests/ui/scanner-ui-rework.test.mjs tests/ui/scanner-accessibility-behavior.test.mjs tests/ui/z2k-coherent-ui.test.mjs
+```
+
+GREEN: exit 0; 16 passed, 0 failed.
+
+Relevant syntax and diff checks:
+
+```text
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js
+git diff --check
+```
+
+All exited 0.
+
+### Design review finding
+
+| Before | After | Why |
+| --- | --- | --- |
+| Fine-pointer hover rules applied `outline:none` to `.z2m-scanner-segmented button:hover`, which could override the visible keyboard focus ring when a focused button was also hovered. | Both segmented hover selectors use `:hover:not(:focus-visible)`, so hover polish applies only when the control is not keyboard-focused; the existing `:focus-visible` outline remains visible. | Pointer hover must not hide keyboard focus. This keeps the existing visual language and hover guard while preserving accessible focus indication. |
+
+Design checklist for this pass:
+
+- Emil design engineering: no new visual system, motion, decorative treatment, or transition change; existing calm APP UI and explicit focus treatment are preserved.
+- Design consultation: the fix remains scoped to the one coherent Scanner interaction outcome and reuses the existing `:focus-visible` token/style.
+- Design review: pointer/keyboard interaction conflict was reviewed; responsive/touch behavior is unchanged, and browser visual verification remains **UNVERIFIED** because browser acceptance was not run.
+- Web Interface Guidelines: the regression assertion covers focus-visible precedence in the hover media guard; the existing semantic buttons, 44px targets, reduced-motion rule, and explicit transitions remain unchanged. Fresh guideline source is recorded above: [Vercel Web Interface Guidelines](https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md).
+
+### Boundaries
+
+No router deployment/runtime postflight, live browser/E2E acceptance, full repository harness, package build/release verification, merge, or push was run. The worktree is expected to be clean after the report commit.
