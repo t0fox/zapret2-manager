@@ -208,3 +208,117 @@ c0c13aa9 fix: close current Z2K runtime and wire migration
 
 The report evidence is committed in the following documentation commit. The
 final clean HEAD and both commit ids are returned in the delivery response.
+
+## Fix-round 2 — stale wildcard detector and real migration rollback
+
+Fix-round baseline was `0cec4dcbd7da052c905cca12dc1b13ba399f67f5` in the
+requested worktree. Scanner work and unrelated checkout state were preserved.
+
+### RED before fix-round 2 implementation
+
+The review-focused RED command was run before the production-tree deletion and
+rollback wiring:
+
+```text
+wsl -e bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && UCODE_BIN=/opt/ucode/bin/ucode node --test tests/product/z2k-current-lua-function-closure.test.mjs tests/product/z2k-current-upstream-membership.test.mjs tests/product/z2k-legacy-migration.test.mjs"
+```
+
+Result: `14 pass, 3 fail`. The failures were the physical detector file still
+being present despite the Makefile wildcard, the new production-shaped rollback
+test not receiving migration rollback evidence, and the missing static wiring
+assertion. This was a real RED state; no detector fallback was accepted.
+
+### Fix-round 2 implementation
+
+- Deleted the production-tree asset
+  `zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-detectors.lua`.
+  The Makefile still installs `./files/*`, so the closure test now proves the
+  wildcard cannot ship that path. Package JSON, resource manifest and runtime
+  asset references are also asserted detector-free. The current catalog still
+  has one historical source-provenance comment naming the upstream file; it is
+  not a manifest, package, runtime-composition or fallback reference.
+- Kept the six-module closure authoritative and fail-closed. Tests enumerate
+  every current official catalog callback, prove resolution from the six current
+  Lua modules, prove a present fixture resolves, and prove removal of a real
+  callback returns a blocking error identifying function, strategy and profile.
+- Added `z2k_migration_rollback_evidence()` to the canonical Resource Center
+  rollback coordinator. Every real rollback result now carries migration
+  rollback evidence; incomplete migration restoration makes recovery fail closed.
+  The existing Registry/receipt/runtime/source/catalog/config authorities remain
+  the single transaction authority. No second receipt, database or hidden
+  detector authority was introduced.
+- Migration rollback preserves the active V1/V2 receipt and discovered domains,
+  source selections, exclusions, user strategies and runtime data. Successful
+  coherent activation still verifies and publishes the V3 receipt through the
+  existing Asset Registry authority. Task 9 autocircular legacy-row
+  reconciliation remains out of scope.
+- Updated directly impacted package/lifecycle expectations for detector removal,
+  exact managed-asset counts, source-boundary ordering and the canonical
+  runtime-bundle-digest/revision authority. Assertions were not weakened.
+
+### GREEN and bounded verification
+
+Focused closure, migration and runtime summary:
+
+```text
+node --test --test-concurrency=1 tests/product/z2k-current-lua-function-closure.test.mjs tests/product/z2k-legacy-migration.test.mjs tests/product/z2k-runtime-summary.test.mjs
+17 passed, 0 failed, 0 skipped, 0 TODO
+```
+
+Impacted package/closure/runtime checks:
+
+```text
+node --test --test-concurrency=1 tests/lua/test_detectors_sync.test.mjs tests/product/test_asset_provenance.test.mjs tests/product/z2k-materialization.test.mjs tests/product/z2k-removal-plan-parity.test.mjs tests/product/z2k-runtime-target-luaopt.test.mjs
+15 passed, 0 failed, 0 skipped, 0 TODO
+```
+
+The final bounded lifecycle/receipt/transaction/Detect aggregate was run with
+the host UCode library path configured:
+
+```text
+node --test --test-concurrency=1 tests/product/z2k-runtime-composition.test.mjs tests/product/z2k-receipt-v3.test.mjs tests/product/z2k-final-lifecycle-ownership.test.mjs tests/product/z2k-lifecycle-transaction.test.mjs tests/product/z2k-target-lifecycle-contract.test.mjs tests/product/z2k-full-lifecycle-review.test.mjs tests/product/z2k-runtime-target-luaopt.test.mjs tests/product/z2k-current-upstream-membership.test.mjs tests/product/z2k-current-lua-function-closure.test.mjs tests/product/z2k-legacy-migration.test.mjs tests/product/z2k-coherent-transaction.test.mjs tests/product/z2k-detect-artifact.test.mjs tests/product/z2k-removal-plan-parity.test.mjs
+168 total: 166 passed, 1 failed, 0 cancelled, 0 skipped, 1 TODO
+```
+
+All Task 8 closure, migration, rollback, receipt and Detect subtests passed.
+The single failure is the pre-existing full-lifecycle changelog/API-root static
+expectation: it rejects `API_ROOT + '/commits/'` in the existing immutable
+commit-evidence resolver, not in changelog manifest-history code. The one TODO
+is the pre-existing Task 4 candidate-CAS transaction slice. Neither was
+relabeled as a Task 8 pass or changed in this fix-round.
+
+The earlier five-failure review inventory was inspected across the bounded
+package/lifecycle gates: stale detector membership/provenance/materialization
+assertions and stale runtime-composition expectations were Task 8 regressions
+and are now green; the strategy-admission corpus's zero Z2K_TLS_MOD-dependent
+rows and the changelog/API-root expectation remain unrelated baseline behavior.
+
+Additional checks:
+
+```text
+UCode imports for z2k-migration.uc, runtime-composition.uc and resource-update.uc — import-ok
+node --check on all nine directly impacted test files — node-checks-ok
+package/manifest detector scan and Makefile wildcard check — passed
+runtime package/manifest/Makefile/runtime-assets detector references — clean
+node scripts/validate-knowledge.mjs — passed
+node scripts/docs.mjs verify — passed (Quartz SHA ab346fa66a895e12d63a308e70ce330ba795822a)
+git diff --check — passed
+luac/lua availability — unavailable on this verification host; Lua bytecode compilation not claimed
+```
+
+The Detect tests require `LD_LIBRARY_PATH=/opt/ucode/lib` on this host; with
+that bounded host prerequisite they passed. Without it, the host loader reports
+missing `libucode.so.0` (exit 127), which is an environment limitation rather
+than a production test result. No router, browser, deploy, merge or push was
+run.
+
+### Fix-round 2 commits and boundaries
+
+Implementation commit:
+
+```text
+de07dbee fix: remove stale Z2K detector and wire migration rollback
+```
+
+The report evidence is committed separately immediately afterward. The final
+clean HEAD and exact changed-file list are returned in the delivery response.
