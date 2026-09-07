@@ -146,4 +146,86 @@ linked-worktree baseline failures; no Task 10 test failed in that run.
   WSL library path. Full router rpcd execution, OpenWrt helper installation,
   browser acceptance and live network Detect results were not run.
 
-Commit: `d8412a10` (`fix: close Task 10 Detect reachability and supervision`).
+Commit: `3e6e2edaaff03df6b47a0938fe88fbf5e3bfd480` (`fix: close Task 10 Detect reachability and supervision`; corrected from the stale short reference `d8412a10`).
+
+## Fix-round 2 — bounded Detect output validation
+
+Status: IMPLEMENTED. This round closes the reviewed output-validation gap;
+router deployment, browser acceptance, live Detect execution, merge and push
+remain intentionally out of scope.
+
+### Corrections
+
+- Added `core/detect-result.uc` as the shared canonical typed Detect result
+  validator. Both `core/native-helper.uc` and `z2k-detect.uc` use it; no
+  second public adapter or native-helper authority was introduced.
+- The native C boundary parses normal Detect stdout with json-c, requires one
+  bounded top-level JSON object, rejects malformed/trailing/non-object/NUL
+  output with `ESCHEMA`, and leaves timeout/output overflow as distinct typed
+  metadata. The helper maps Detect schema failures to `EDETECT_SCHEMA`.
+- The shared validator rejects unknown outer result metadata, oversized
+  stdout, invalid/non-object operation output, wrong required field types and
+  missing operation-required fields. Safe additive fields inside the existing
+  operation result payloads remain tolerated as specified. A complete
+  malformed result can never return `ok: true` through the adapter/RPC seam.
+- `z2k-detect.uc` preserves bounded `stderr` only as normalized failure
+  diagnostics (4096 bytes), maps `timedOut` to `EDETECT_TIMEOUT`, and maps
+  `outputTruncated` to `EDETECT_FAILED` without changing the native metadata.
+
+### TDD evidence
+
+RED was captured before this fix-round implementation with:
+
+```text
+wsl.exe -e bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 180s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs'
+```
+
+Result: 49 tests, 45 passed, 4 failed. The failures were malformed Detect
+stdout being accepted at the native/helper and adapter seams, plus timeout
+and bounded-output metadata not being normalized distinctly.
+
+GREEN focused rerun:
+
+```text
+wsl.exe -e bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 180s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/native-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs'
+```
+
+Result: 49 tests, 49 passed, 0 failed. Coverage includes all five typed
+operations with malformed, truncated, non-object, wrong-type, missing,
+unknown-metadata and valid fixtures; exact argv; strict host/port rejection;
+and timeout/output-overflow metadata preservation and normalization.
+
+### Verification
+
+Final bounded aggregate:
+
+```text
+wsl.exe -e bash -lc 'set -o pipefail; cd /mnt/g/zapret2-manager/.worktrees/z2k-coherent-core-detect && export UCODE_BIN=/opt/ucode/bin/ucode LD_LIBRARY_PATH=/opt/ucode/lib && timeout 240s node --test tests/native/z2k-detect-helper.test.mjs tests/native/core/fs-helper-protocol.test.mjs tests/native/core/native-helper.test.mjs tests/native/core/scanner-probe-native.test.mjs tests/native/core/native-helper-broker.test.mjs tests/native/package-helper.test.mjs tests/product/z2k-detect-rpc.test.mjs tests/product/z2k-detect-artifact.test.mjs'
+```
+
+Result: 175 tests, 172 passed, 3 failed. The three failures remain unrelated
+baseline/environment failures: `package and service lifecycle fail closed when
+bootstrap fails`, `native bootstrap solely owns managed roots and recursive
+parent traversal`, and `Task 4 source hashes bind the recorded executed input
+commit blobs`. The latter is the Windows linked-worktree Git-pointer boundary;
+all Task 10 native/helper/broker/adapter/RPC/artifact tests passed.
+
+- `node --check` passed for all changed `.mjs` tests.
+- `protocol-v1.json` parsed successfully; all five `z2k_detect_*` operations
+  remain present in the canonical manifest and native registry.
+- `node scripts/validate-knowledge.mjs` passed: `Knowledge validation passed.`
+- PowerShell `git diff --check` and staged diff check passed. WSL Git-based
+  diff/source-hash checks cannot resolve this Windows linked-worktree pointer.
+- WSL `cc` plus `pkg-config json-c` compilation passed through the focused
+  native Detect test (`-std=c11 -Wall -Wextra -Werror`); no Windows C compiler
+  or router toolchain was claimed. UCode import/seam tests passed with
+  `/opt/ucode/bin/ucode` and `LD_LIBRARY_PATH=/opt/ucode/lib`.
+
+### Commits and boundaries
+
+- Implementation/tests: `f39fa957d26f4363b424ddd69e094819b05b7835`
+  (`fix: validate Task 10 Detect JSON results`).
+- Report: the separate final report commit recorded as the exact final HEAD in
+  the handoff below.
+- Not run: router/OpenWrt deployment, live network Detect, browser acceptance,
+  merge, push, or deployment. Unrelated Scanner work was preserved.
