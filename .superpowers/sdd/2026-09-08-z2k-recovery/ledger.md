@@ -81,7 +81,7 @@ file/interface and every task's internal consistency before Task 1.
 
 ## Task 1 evidence update (2026-09-08)
 
-- Execution `HEAD` is `4387345bc50d684214e8b5b97edc7c40acb7629f`; reviewed baseline and `origin/main` are `9a4f0feeacbfd9d107385ffeffb5007b4bfadb39`.
+- Captured baseline/execution SHA is `4387345bc50d684214e8b5b97edc7c40acb7629f`; reviewed baseline and `origin/main` are `9a4f0feeacbfd9d107385ffeffb5007b4bfadb39`. Current documentation HEAD at fix-round-2 start was `b002c26a70d828d42d120c1ee95b92d015f9b947`.
 - Drift is limited to the approved plan/spec documents: `docs/superpowers/plans/2026-09-08-z2k-recovery.md` and `docs/superpowers/specs/2026-09-08-z2k-recovery-design.md`; no production-path drift is present.
 - Canonical WSL focused baseline: 145 tests, 98 pass, 13 fail, 34 skipped. Host Windows baseline: 145 tests, 91 pass, 20 fail, 34 skipped; native compile cases failed because `/opt/ucode/bin/ucode` is unavailable on Windows.
 - Read-only router probe succeeded: `ssh.exe -o BatchMode=yes -o ConnectTimeout=5 root@192.168.1.1 'ubus -S call zapret2-manager status_fast'`, response `ok=true`, service `running`, `nfqws2` PID 3812, NFQUEUE 300 registered.
@@ -90,6 +90,12 @@ file/interface and every task's internal consistency before Task 1.
 - Ruling: Browser/router requirements are hard gates, not implied by static tests; tasks changing user-visible surfaces remain WORKING until deployed evidence exists — cost if wrong: task completion is delayed, but false product acceptance is avoided.
 - Ruling: A missing live Discord call is a user-only gate only after all unrelated acceptance work is complete; the no-call typed result must be proven first — cost if wrong: an environment gap could be mistaken for a user dependency.
 - Ruling: No merge, branch deletion, or worktree deletion occurs in this execution; final output stops at explicit user merge choice as required by the approved plan — cost if wrong: the completed branch remains unlanded pending user approval.
+
+## Task 1 fix round 2 (2026-09-08)
+
+- Scoped re-review finding addressed: line 84 now calls `4387345bc50d684214e8b5b97edc7c40acb7629f` the captured baseline/execution SHA, while separately recording the current documentation HEAD at fix-round-2 start.
+- Covering checks recorded in `task-1-report.md`: no `Execution HEAD` label remains for the captured SHA; current documentation HEAD was verified as `b002c26a70d828d42d120c1ee95b92d015f9b947`; validator and diff checks passed.
+- Scope: docs-only; no product files, local APK build, push, merge, branch/worktree deletion, or router mutation.
 
 ## Task 1 fix round 1 (2026-09-08)
 

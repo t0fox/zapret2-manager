@@ -60,3 +60,28 @@ Knowledge validation passed.
 git diff --check
 (no output; exit 0)
 ```
+
+## Fix round 2 — scoped re-review finding
+
+Applied the scoped finding from `reviews/review-task-1-fix1.md`: ledger line 84
+now labels `4387345bc50d684214e8b5b97edc7c40acb7629f` as the captured
+baseline/execution SHA, and records `b002c26a70d828d42d120c1ee95b92d015f9b947`
+separately as the current documentation HEAD at fix-round-2 start.
+
+Covering checks, run after the fix and before the fix-round-2 commit:
+
+```text
+$ledger='.superpowers/sdd/2026-09-08-z2k-recovery/ledger.md'; if(Select-String -Path $ledger -Pattern 'Execution `HEAD` is `4387345|Execution HEAD.*4387345'){throw 'stale current-HEAD label remains'}; if(-not (Select-String -Path $ledger -Pattern 'Captured baseline/execution SHA is `4387345')){throw 'captured SHA label missing'}; 'Ledger SHA role labels: PASS'
+Ledger SHA role labels: PASS
+
+git rev-parse HEAD
+b002c26a70d828d42d120c1ee95b92d015f9b947
+
+$changed=@(git diff --name-only HEAD); if($changed | Where-Object { $_ -notlike '.superpowers/sdd/2026-09-08-z2k-recovery/*' }){throw 'product file changed'}; 'Product-file scope: PASS (docs-only)'
+Product-file scope: PASS (docs-only)
+
+node scripts/validate-knowledge.mjs
+Knowledge validation passed.
+git diff --check
+(no output; exit 0)
+```
