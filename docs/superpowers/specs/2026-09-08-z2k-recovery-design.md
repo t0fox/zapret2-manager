@@ -166,23 +166,25 @@ There is no generic `Действие Detect` select control and no global TCP/U
 
 ### 6.2 Command-specific forms
 
-Each operation renders only the inputs that upstream actually accepts.
+Each operation renders only the fields in the current Manager-to-Detect adapter contract:
 
-`probe` uses a domain input and bounded timeout controls only if those controls are genuinely supported by the adapter contract.
+- `probe`: `domain`, `timeoutMs`;
+- `classify`: `host`, `port`, `hello`, `repeats`, `timeoutMs`;
+- `quic`: `domain`, `port`, `repeats`, `timeoutMs`;
+- `voice`: `repeats`, `timeoutMs`;
+- `tcp16`: `timeoutMs`.
 
-`classify` uses host/domain, port, hello mode, repeats, and timeout where supported. Less common flags belong under a collapsed advanced section if they are integrated later; they must not become a second generic Scanner abstraction.
+The UI may apply bounded defaults, but it must not fabricate shared generic Scanner fields. In particular, `voice` has no domain field and `tcp16` has no host/port fields.
 
-`quic` uses domain, optional port, repeats, and timeout according to the upstream contract.
+Less common upstream options are outside this recovery unless they already exist in the supported adapter contract. Adding them later requires a separate design rather than expanding this recovery opportunistically.
 
-`voice` does not request a domain. It explains that a live Discord voice call must exist and invokes the live-call diagnostic directly. `EDETECT_NO_ACTIVE_VOICE` is rendered as a specific next-step state rather than a generic failure.
-
-`tcp16` does not fabricate host/port inputs if upstream does not require them.
+`voice` explains that a live Discord voice call must exist and invokes the live-call diagnostic directly. `EDETECT_NO_ACTIVE_VOICE` is rendered as a specific next-step state rather than a generic failure.
 
 ### 6.3 Results
 
 Results are normalized for readability but preserve canonical Detect evidence and error codes. The Manager must not reinterpret a Detect failure as a result from the retired Scanner or silently fall back to another engine.
 
-Raw JSON may be available under an explicit technical-details affordance; it is not the default result presentation.
+If raw JSON is already available as technical evidence it may remain under an explicit details affordance; this recovery does not add a new raw-output feature.
 
 ### 6.4 Automatic discovery
 
@@ -229,16 +231,16 @@ The compact card presents only user-relevant facts, for example:
 Z2K Core                                  Работает
 p-82.x
 
-Стратегии          <official count>
-Z2K Detect         Работает · <arch>
-Runtime            <lua> Lua · <blobs> blobs · <lists> lists
+Стратегии          официальные стратегии
+Z2K Detect         Работает · arm64
+Runtime            6 Lua · blobs · lists
 Автообнаружение    Включено/Выключено
 Совместимость      Синхронизировано
 
 [Подробнее]
 ```
 
-Exact wording may follow existing Manager vocabulary, but the information hierarchy is fixed: status first, actionable facts second, technical evidence hidden by default.
+Exact counts and architecture are rendered from canonical runtime data. Exact wording may follow existing Manager vocabulary, but the information hierarchy is fixed: status first, actionable facts second, technical evidence hidden by default.
 
 ### 8.2 Update state
 
@@ -274,7 +276,7 @@ Z2K displays a compact managed state such as:
 ```text
 Z2K
 p-82.x
-<official strategy count> стратегий
+официальные стратегии
 Управляется Z2K Core
 ```
 
@@ -504,7 +506,7 @@ The recovery is complete only when all of the following are true:
 8. Browser hard reload/revisit always reconstructs the correct state from backend authority.
 9. Real router acceptance proves installed Detect, one-shot operations, discovery service lifecycle, runtime health, and rollback behavior.
 10. Discord Voice is verified against a live user call when that user-only prerequisite is supplied; lack of a call must produce the specific no-active-voice state rather than block unrelated recovery work.
-11. Full repository gates are green or every non-green item is explicitly proven unrelated and accepted during final review; the previous `DONE_WITH_CONCERNS` level is not sufficient for merge.
+11. The full repository harness is green in the canonical supported test environment. Environment or worktree setup failures must be fixed or reproduced in the canonical environment; they cannot be relabeled as a product PASS. No merge is allowed with a failing product suite.
 12. Final package size does not exceed the captured recovery baseline, with a preferred measurable reduction.
 13. Independent final code review finds no duplicate lifecycle/scanner authority, no known P0/P1 product regression, and no unverified user-visible claim.
 14. Merge happens only after the user reviews the final evidence and explicitly chooses to merge.
