@@ -387,7 +387,7 @@ function normalizeZ2k(input, engineReady) {
 	var receiptConfirmed = releaseEvidence && typeof releaseEvidence === 'object' && !Array.isArray(releaseEvidence)
 		? !!(first(releaseEvidence.value || releaseEvidence.version || releaseEvidence.release, null)
 			&& releaseEvidence.confidence === 'confirmed'
-			&& ['activation-receipt-v3', 'activation-receipt-v2', 'activation-receipt'].indexOf(releaseEvidence.authority) >= 0)
+			&& ['activation-receipt-v3', 'activation-receipt-v2', 'activation-receipt-v1', 'activation-receipt'].indexOf(releaseEvidence.authority) >= 0)
 		: false;
   // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
   // plus materialized/integrity-checked assets. Without a proven engine the

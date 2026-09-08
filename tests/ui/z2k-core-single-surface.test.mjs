@@ -108,7 +108,7 @@ test('Z2K Core exposes one canonical projection with user facts separated from t
 });
 
 test('canonical receipt authorities remain ready only with confirmed release evidence', () => {
-  for (const authority of ['activation-receipt-v3', 'activation-receipt-v2', 'activation-receipt']) {
+  for (const authority of ['activation-receipt-v3', 'activation-receipt-v2', 'activation-receipt-v1', 'activation-receipt']) {
     const fixture = canonicalBackendZ2k();
     fixture.local.installedRelease = { value: 'p-2026.09', confidence: 'confirmed', authority };
     assert.equal(coreFor(fixture).state, 'ready', authority);
