@@ -390,3 +390,65 @@ real browser evidence is the controller-supplied EINPUT failure above.
 The report-only commit following this round records the exact boundary and
 runtime evidence. The pre-existing unrelated Task 1 `ledger.md` modification
 remains preserved and was not staged.
+
+## Fix round 4 — authenticated rpcd session metadata boundary
+
+The supplied production evidence isolates the remaining failure to the
+authenticated rpcd UCode bridge: the LuCI HTTP JSON-RPC request carries the
+business body in `params[3]`, but the UCode callback receives the consumed body
+as `req.args`. For authenticated calls rpcd adds its transport-only
+`ubus_rpc_session` attribute to that object; direct ubus CLI calls do not have
+the attribute. The typed registration was already correct, but discovery
+normalization forwarded the session attribute to
+`z2k_detect_discovery_control()`, whose intentional strict validator rejected
+it as `EINPUT Unsupported discovery control field.`
+
+The deterministic RED test models the real callback request as
+`{ args: { dnsSource: 'agh', ubus_rpc_session: 'session-123' }, info }` and
+failed because the captured business input contained `ubus_rpc_session`.
+The production fix strips only that exact rpcd transport key while copying the
+remaining discovery input. The existing business validator remains the owner
+of discovery fields, so an unexpected canonical sibling still returns
+`EINPUT`. The full JSON-RPC `params[3]` envelope is not unwrapped in UCode:
+LuCI constructs it, while the registered callback boundary receives `req.args`;
+passing envelope fields into the business layer would broaden the boundary.
+
+GREEN and focused checks:
+
+```text
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs
+3 passed, 0 failed
+
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs tests/product/z2k-detect-discovery-service.test.mjs tests/product/z2k-detect-rpc-boundary.test.mjs tests/ui/scanner-ui-rework.test.mjs
+15 passed, 0 failed, 7 skipped
+
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js
+passed
+
+bash -n scripts/deploy-target.sh
+passed (Git Bash; WSL retry was unavailable with E_ACCESSDENIED)
+
+node scripts/validate-knowledge.mjs
+Knowledge validation passed.
+
+git diff --check
+passed
+```
+
+Implementation commit:
+
+```text
+68dae3ea fix: ignore rpcd discovery session metadata
+```
+
+Changed files in round 4:
+
+- `zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc`
+- `tests/product/z2k-detect-discovery-rpc-boundary.test.mjs`
+- this report
+
+The pre-existing Task 1 `ledger.md` modification remains dirty and was not
+staged. Per the approved round-4 boundary, there was no router deployment,
+authenticated browser retest, APK build, merge, push, credential change, or
+branch/worktree deletion. Task 2 remains `NOT_VERIFIED` pending the required
+authenticated LuCI browser retest; this report does not claim Task 2 verified.
