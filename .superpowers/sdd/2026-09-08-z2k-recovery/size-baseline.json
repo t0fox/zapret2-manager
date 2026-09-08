@@ -11,12 +11,15 @@
   },
   "packageFileCount": 469,
   "apk": {
-    "status": "available-reviewed-baseline-only",
-    "exactExecutionSha": false,
+    "status": "exact-execution-ci",
+    "exactExecutionSha": true,
+    "ciRunId": 34233470570,
+    "ciArtifactName": "z2m-full-apk-4387345bc50d684214e8b5b97edc7c40acb7629f",
+    "manifestGitRef": "refs/heads/docs/z2k-recovery-design",
     "filename": "zapret2-manager-full-0.1.0-r156.apk",
     "bytes": 2645317,
     "sha256": "5018e250f4fd1ddeec6e1ca5ad6a262d5d2ae2922e89fd3f869f51fcc81c3f69",
-    "manifestCommit": "9a4f0feeacbfd9d107385ffeffb5007b4bfadb39",
+    "manifestCommit": "4387345bc50d684214e8b5b97edc7c40acb7629f",
     "nativeHelper": {
       "path": "usr/libexec/zapret2-manager/z2m-core-helper",
       "bytes": 81915,

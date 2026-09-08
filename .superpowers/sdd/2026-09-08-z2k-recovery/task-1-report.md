@@ -6,7 +6,7 @@ Implementer: Codex only; no agents or reviewers spawned.
 
 ## Status
 
-**PARTIAL / BLOCKED_EXACT_SHA_APK**. Ledger, baseline, and size baseline are captured. Exact execution-SHA APK evidence is blocked because captured baseline/execution SHA `4387345bc50d684214e8b5b97edc7c40acb7629f` is not published as a remote branch, while local `scripts/release/build-apk.sh` is prohibited. The available CI artifact is recorded without relabeling it: it targets reviewed baseline `9a4f0feeacbfd9d107385ffeffb5007b4bfadb39`.
+**VERIFIED**. All Task 1 brief gates have evidence, including the exact execution-SHA CI APK from run `34233470570`; local `scripts/release/build-apk.sh` remains prohibited and was not run.
 
 ## Git truth and drift
 
@@ -21,8 +21,8 @@ Implementer: Codex only; no agents or reviewers spawned.
 - Focused Windows host: **145 total, 91 pass, 20 fail, 34 skipped**, exit 1. Native compile preconditions report `null !== 0` because `/opt/ucode/bin/ucode` is unavailable on Windows; classified host unavailable, not product PASS.
 - Router read-only: `ssh.exe -o BatchMode=yes -o ConnectTimeout=5 root@192.168.1.1 'ubus -S call zapret2-manager status_fast'` succeeded with `ok=true`, service running, nfqws2 PID 3812, NFQUEUE 300 registered, strategy `z2k:z2k_all_in_one`. No router mutation, restart, install, or traffic test.
 - Source sizes: scanner.c 58634; z2m-scanner.js 34441; z2m-maintenance.js 142143; z2m-assets.js 51088; package file count 469.
-- Existing CI APK: `zapret2-manager-full-0.1.0-r156.apk`, 2645317 bytes, SHA-256 `5018e250f4fd1ddeec6e1ca5ad6a262d5d2ae2922e89fd3f869f51fcc81c3f69`, manifest commit `9a4f0fee...`; extracted helper 81915 bytes, SHA-256 `8e7b79a06e5bf39f67af0fa6c878b104ae761843a295f0abb14970723c189b76`.
-- CI dispatch attempt: `gh workflow run apk-build.yml --repo t0fox/zapret2-manager --ref codex/z2k-recovery-v2` -> HTTP 422, `No ref found for: codex/z2k-recovery-v2`.
+- Exact CI run: `gh run view 34233470570 --repo t0fox/zapret2-manager --json status,conclusion,headBranch,headSha,workflowName,url` -> completed/success, `docs/z2k-recovery-design`, head SHA `4387345bc50d684214e8b5b97edc7c40acb7629f`.
+- CI artifact: `z2m-full-apk-4387345bc50d684214e8b5b97edc7c40acb7629f`; manifest gitCommit `4387345bc50d684214e8b5b97edc7c40acb7629f`; APK `zapret2-manager-full-0.1.0-r156.apk`, 2645317 bytes, SHA-256 `5018e250f4fd1ddeec6e1ca5ad6a262d5d2ae2922e89fd3f869f51fcc81c3f69`; CI-extracted helper 81915 bytes, SHA-256 `8e7b79a06e5bf39f67af0fa6c878b104ae761843a295f0abb14970723c189b76`.
 - Local APK build: **not run**, by explicit user constraint.
 
 ## Files
@@ -53,6 +53,24 @@ SHA role labels: PASS
 $changed=@(git diff --name-only HEAD); if($changed | Where-Object { $_ -notlike '.superpowers/sdd/2026-09-08-z2k-recovery/*' }){throw 'product file changed'}; 'Product-file scope: PASS (docs-only)'
 Product-file scope: PASS (docs-only)
 ```
+
+```text
+node scripts/validate-knowledge.mjs
+Knowledge validation passed.
+git diff --check
+(no output; exit 0)
+```
+
+## Completion evidence — exact CI APK
+
+Run `34233470570` completed successfully on exact ref `docs/z2k-recovery-design`
+and commit `4387345bc50d684214e8b5b97edc7c40acb7629f`. The artifact name,
+manifest commit, APK filename/bytes/SHA-256, and CI-extracted helper
+bytes/SHA-256 are recorded in `baseline.md` and `size-baseline.json`. The
+previous exact-SHA blocker is resolved by this CI evidence. The CI-only ruling
+remains: no local APK build was run.
+
+Completion checks:
 
 ```text
 node scripts/validate-knowledge.mjs

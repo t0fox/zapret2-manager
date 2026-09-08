@@ -51,19 +51,28 @@ It succeeded with `{"ok":true,"schema":"status-fast.v1","serviceState":"running"
 
 ## APK baseline evidence
 
-The rolling `main-latest` release was inspected read-only. Its manifest and release metadata bind it to reviewed baseline `9a4f0fee`, not execution SHA `4387345b`:
+Exact CI evidence is available from run `34233470570`:
+
+```text
+gh run view 34233470570 --repo t0fox/zapret2-manager --json status,conclusion,headBranch,headSha,workflowName,url
+{"conclusion":"success","headBranch":"docs/z2k-recovery-design","headSha":"4387345bc50d684214e8b5b97edc7c40acb7629f","status":"completed","workflowName":"OpenWrt full APK build","url":"https://github.com/t0fox/zapret2-manager/actions/runs/34233470570"}
+gh api repos/t0fox/zapret2-manager/actions/runs/34233470570/artifacts --jq '.artifacts[] | {name,size_in_bytes,expired,archive_download_url}'
+{"name":"z2m-full-apk-4387345bc50d684214e8b5b97edc7c40acb7629f","size_in_bytes":2640675,"expired":false}
+```
 
 | Field | Value |
 | --- | --- |
-| Release | `main-latest` (https://github.com/t0fox/zapret2-manager/releases/tag/main-latest) |
+| CI run | `34233470570` (https://github.com/t0fox/zapret2-manager/actions/runs/34233470570) |
+| Artifact | `z2m-full-apk-4387345bc50d684214e8b5b97edc7c40acb7629f` |
+| Manifest gitCommit | `4387345bc50d684214e8b5b97edc7c40acb7629f` |
 | APK | `zapret2-manager-full-0.1.0-r156.apk` |
 | APK bytes | `2645317` |
 | APK SHA-256 | `5018e250f4fd1ddeec6e1ca5ad6a262d5d2ae2922e89fd3f869f51fcc81c3f69` |
 | Baseline native helper bytes | `81915` |
 | Baseline native helper SHA-256 | `8e7b79a06e5bf39f67af0fa6c878b104ae761843a295f0abb14970723c189b76` |
-| Manifest project commit | `9a4f0feeacbfd9d107385ffeffb5007b4bfadb39` |
+| Manifest gitRef | `refs/heads/docs/z2k-recovery-design` |
 
-The APK was extracted using the SDK-provided `apk` tool in read-only mode. No local `scripts/release/build-apk.sh` invocation occurred. An exact execution artifact could not be obtained: dispatching the workflow on the unpushed branch with `gh workflow run apk-build.yml --repo t0fox/zapret2-manager --ref codex/z2k-recovery-v2` returned HTTP 422, `No ref found for: codex/z2k-recovery-v2`. Therefore the exact-SHA APK gate remains **BLOCKED**, and the reviewed-baseline artifact above must not be used as an exact execution-SHA substitute.
+The artifact was obtained from CI with `gh run download 34233470570 --repo t0fox/zapret2-manager --name z2m-full-apk-4387345bc50d684214e8b5b97edc7c40acb7629f`. The downloaded manifest and `SHA256SUMS` match the exact execution SHA and APK hash above. CI extracted the helper at `81915` bytes with SHA-256 `8e7b79a06e5bf39f67af0fa6c878b104ae761843a295f0abb14970723c189b76`. No local `scripts/release/build-apk.sh` invocation occurred; the user CI-only ruling remains binding.
 
 ## Source and file-count baseline
 
