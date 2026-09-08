@@ -111,7 +111,7 @@ test('Scanner UI uses detection wording and removes legacy planner controls', ()
   const scannerSource = fs.readFileSync(path.join(viewDir, 'z2m-scanner.js'), 'utf8');
   const productSource = fs.readFileSync(path.join(viewDir, 'z2m-scanner-product.js'), 'utf8');
   for (const action of ['probe', 'classify', 'quic', 'voice', 'tcp16']) assert.match(scannerSource, new RegExp(action));
-  assert.match(scannerSource, /Действие Detect/);
+  assert.match(scannerSource, /DETECT_FORMS/);
   assert.match(scannerSource, /Автоматическое обнаружение/);
   assert.doesNotMatch(scannerSource + productSource, /candidate.?count|planner.?complexity|legacy.?planner|Подбор стратегии и история проверок/i);
   assert.doesNotMatch(scannerSource + productSource, /scanner_worker|scanner_probe|scanner-planner|scanner-probes|BlockCheckW|blockcheck2/i);
@@ -122,11 +122,11 @@ test('Scanner UI keeps semantic form/error states and calm accessible motion rul
   const componentsCss = fs.readFileSync(path.join(viewDir, 'z2m-components.css'), 'utf8');
   const uiCss = fs.readFileSync(path.join(viewDir, 'z2m-ui.css'), 'utf8');
 
-  assert.match(scannerSource, /type: 'url'/);
-  assert.match(scannerSource, /name: 'detect-target'/);
+  assert.match(scannerSource, /attrs\.type = field === 'domain' \|\| field === 'host' \? 'url'/);
+  assert.match(scannerSource, /name: 'detect-' \+ field/);
   assert.match(scannerSource, /autocomplete: 'off'/);
   assert.match(scannerSource, /role: 'alert'/);
-  assert.match(scannerSource, /role: 'group', 'aria-label': label/);
+  assert.match(scannerSource, /function formField\(label, control/);
   assert.match(componentsCss, /min-height:44px/);
   assert.match(componentsCss, /:focus-visible/);
   assert.match(componentsCss, /@media \(hover:hover\) and \(pointer:fine\)/);

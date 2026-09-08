@@ -2,15 +2,29 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-icons as Icons';
 
+var DETECT_FORMS = {
+  probe: { label: _('Проверка сайта'), fields: ['domain', 'timeoutMs'], defaults: { domain: 'youtube.com', timeoutMs: 6000 } },
+  classify: { label: _('Анализ DPI'), fields: ['host', 'port', 'hello', 'repeats', 'timeoutMs'], defaults: { host: 'youtube.com', port: 443, hello: 'both', repeats: 2, timeoutMs: 6000 } },
+  quic: { label: _('QUIC'), fields: ['domain', 'port', 'repeats', 'timeoutMs'], defaults: { domain: 'youtube.com', port: 443, repeats: 2, timeoutMs: 6000 } },
+  voice: { label: _('Discord Voice'), fields: ['repeats', 'timeoutMs'], defaults: { repeats: 2, timeoutMs: 6000 } },
+  tcp16: { label: _('TCP16'), fields: ['timeoutMs'], defaults: { timeoutMs: 6000 } }
+};
 var state = {
-  request: { target: 'youtube.com', operation: 'probe', protocol: 'tcp', mode: 'standard' },
+  request: { operation: 'probe', domain: 'youtube.com', timeoutMs: 6000 },
   scanId: null, status: null, report: null, error: null, discovery: null,
   disposed: true, generation: 0,
-  showAll: false, targetError: null
+  showAll: false, fieldError: null
 };
 var DETECT_WAIT_MS = 120000;
 var DETECT_ACTIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
 var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
+
+function detectFields(operation) {
+  return DETECT_FORMS[operation] ? DETECT_FORMS[operation].fields.slice() : [];
+}
+function detectDefaults(operation) {
+  return DETECT_FORMS[operation] ? Object.assign({}, DETECT_FORMS[operation].defaults) : {};
+}
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -82,26 +96,19 @@ function normalizeTarget(input) {
 }
 function safeRequest(value) {
   value = object(value);
-  var mode = ['quick', 'standard', 'full'].indexOf(value.mode) >= 0 ? value.mode : 'standard';
   var operation = DETECT_ACTIONS.indexOf(value.operation) >= 0 ? value.operation : 'probe';
-  var protocol = value.protocol === 'udp' ? 'udp' : 'tcp';
-  var rawTarget = text(value.target || 'youtube.com').trim();
-  var normalized = normalizeTarget(rawTarget);
-  var target = normalized.ok ? normalized.hostname : rawTarget;
-  return {
-    target: target,
-    protocol: protocol,
-    mode: mode,
-    operation: operation,
-    _normalized: normalized
-  };
+  var request = { operation: operation }, defaults = detectDefaults(operation);
+  detectFields(operation).forEach(function (field) {
+    request[field] = value[field] === undefined ? defaults[field] : value[field];
+  });
+  var endpoint = request.domain === undefined ? request.host : request.domain;
+  if (endpoint !== undefined) {
+    var normalized = normalizeTarget(text(endpoint).trim());
+    request[request.domain === undefined ? 'host' : 'domain'] = normalized.ok ? normalized.hostname : endpoint;
+    request._normalized = normalized;
+  }
+  return request;
 }
-function modeLabel(value) {
-  if (value === 'quick') return _('Быстро');
-  if (value === 'full') return _('Тщательно');
-  return _('Обычно');
-}
-function protocolLabel(value) { return value === 'udp' ? 'UDP' : 'TCP'; }
 function phaseLabel(value) {
   var map = {
     validating: _('Подготовка'), planning: _('Подготовка'), snapshotting: _('Подготовка'),
@@ -158,24 +165,19 @@ function discoveryControlMethod(action) {
   return ({ enable: 'z2kDetectDiscoveryEnable', disable: 'z2kDetectDiscoveryDisable', restart: 'z2kDetectDiscoveryRestart' })[action] || null;
 }
 function detectOperation(request) {
-  if (DETECT_ACTIONS.indexOf(request.operation) >= 0) return request.operation;
-  var hint = '';
-  if (hint.indexOf('voice') >= 0) return 'voice';
-  if (hint.indexOf('tcp16') >= 0 || hint.indexOf('tcp-16') >= 0) return 'tcp16';
-  if (request.protocol === 'udp') return 'quic';
-  if (hint) return 'classify';
-  return 'probe';
+  return DETECT_ACTIONS.indexOf(object(request).operation) >= 0 ? request.operation : 'probe';
 }
-function operationNeedsTarget(operation) { return ['probe', 'classify', 'quic'].indexOf(operation) >= 0; }
-function operationLabel(operation) { return ({ probe: _('проверку домена'), classify: _('классификацию TLS'), quic: _('проверку QUIC'), voice: _('проверку активного Discord-звонка'), tcp16: _('проверку TCP16') })[operation] || _('проверку'); }
+function operationLabel(operation) { return DETECT_FORMS[operation] ? DETECT_FORMS[operation].label : _('Проверка'); }
+function requestEndpoint(request) { return request.domain || request.host || operationLabel(request.operation); }
+function requestSnapshot(request) {
+  var snapshot = { operation: detectOperation(request) };
+  detectFields(snapshot.operation).forEach(function (field) { snapshot[field] = request[field]; });
+  return snapshot;
+}
 function detectArguments(request) {
-  var repeats = request.mode === 'full' ? 3 : request.mode === 'quick' ? 1 : 2;
-  var timeoutMs = request.mode === 'full' ? 12000 : request.mode === 'quick' ? 3000 : 6000;
-  if (request.operation === 'probe') return { domain: request.target, timeoutMs: timeoutMs };
-  if (request.operation === 'classify') return { host: request.target, port: 443, hello: 'both', repeats: repeats, timeoutMs: timeoutMs };
-  if (request.operation === 'quic') return { domain: request.target, port: 443, repeats: repeats, timeoutMs: timeoutMs };
-  if (request.operation === 'voice') return { repeats: repeats, timeoutMs: timeoutMs };
-  return { timeoutMs: timeoutMs };
+  var normalized = safeRequest(request), args = {};
+  detectFields(normalized.operation).forEach(function (field) { args[field] = normalized[field]; });
+  return args;
 }
 function detectInvoke(ctx, operation, args) {
   if (operation === 'probe') return ctx.api.z2kDetectProbe(args.domain, args.timeoutMs);
@@ -247,7 +249,7 @@ function rememberDetectResult(result, request, generation) {
       id: state.scanId,
       status: 'completed',
       createdAt: Date.now(),
-      request: { target: request.target, operation: request.operation, protocol: request.protocol, mode: request.mode },
+      request: requestSnapshot(request),
       operation: result.operation,
       provenance: { source: 'z2k-detect', schema: DETECT_HISTORY_SCHEMA, operation: result.operation },
       report: { typedDetect: true, operation: result.operation, data: result.data }
@@ -331,30 +333,33 @@ function scannerErrorPanel(ctx, status, controls) {
 }
 function start(ctx, controls) {
   var operation = controls.operation.value;
-  var needsTarget = operationNeedsTarget(operation);
-  var rawTarget = controls.target ? controls.target.value : state.request.target;
-  var normalized = needsTarget ? normalizeTarget(rawTarget) : { ok: true, hostname: '' };
+  var values = { operation: operation };
+  detectFields(operation).forEach(function (field) {
+    var value = controls.fields[field] ? controls.fields[field].value : detectDefaults(operation)[field];
+    values[field] = ['port', 'repeats', 'timeoutMs'].indexOf(field) >= 0 ? Number(value) : value;
+  });
+  var endpointField = detectFields(operation).indexOf('domain') >= 0 ? 'domain' : detectFields(operation).indexOf('host') >= 0 ? 'host' : null;
+  var rawEndpoint = values[endpointField];
+  var normalized = endpointField ? normalizeTarget(rawEndpoint) : { ok: true, hostname: '' };
   if (!normalized.ok) {
-    state.targetError = normalized.error;
+    state.fieldError = normalized.error;
     state.error = null;
-    if (controls.target && typeof controls.target.setAttribute === 'function') {
-      controls.target.setAttribute('aria-invalid', 'true');
-      controls.target.setAttribute('aria-describedby', 'z2m-scanner-target-error');
+    if (controls.fields[endpointField] && typeof controls.fields[endpointField].setAttribute === 'function') {
+      controls.fields[endpointField].setAttribute('aria-invalid', 'true');
+      controls.fields[endpointField].setAttribute('aria-describedby', 'z2m-scanner-field-error');
     }
-    if (controls.target && typeof controls.target.focus === 'function') controls.target.focus();
+    if (controls.fields[endpointField] && typeof controls.fields[endpointField].focus === 'function') controls.fields[endpointField].focus();
     refresh(ctx);
     return;
   }
-  state.targetError = null;
-  if (controls.target && typeof controls.target.setAttribute === 'function') {
-    controls.target.setAttribute('aria-invalid', 'false');
-    if (typeof controls.target.removeAttribute === 'function') controls.target.removeAttribute('aria-describedby');
+  state.fieldError = null;
+  if (endpointField && controls.fields[endpointField] && typeof controls.fields[endpointField].setAttribute === 'function') {
+    controls.fields[endpointField].setAttribute('aria-invalid', 'false');
+    if (typeof controls.fields[endpointField].removeAttribute === 'function') controls.fields[endpointField].removeAttribute('aria-describedby');
   }
-  if (controls.target) controls.target.value = normalized.hostname;
-  var protocolVal = controls.protocol.value;
-  if (protocolVal === 'auto') protocolVal = 'tcp';
+  if (endpointField) values[endpointField] = normalized.hostname;
   var generation = ++state.generation;
-  var request = safeRequest({ target: normalized.hostname, operation: operation, protocol: protocolVal, mode: controls.mode.value });
+  var request = safeRequest(values);
   state.request = request;
   state.scanId = 'detect-' + String(generation) + '-' + String(Date.now());
   state.error = null; state.report = null; state.status = { status: 'running', phase: 'probing', operation: detectOperation(state.request) };
@@ -387,32 +392,12 @@ function renderTypedResult(ctx, report, controls) {
   return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen', role: 'status' }, [
     E('article', { 'class': 'z2m-scanner-best-card card' }, [
       E('div', { 'class': 'z2m-scanner-best-kicker' }, [icon('circle-check', 'is-success'), E('span', {}, _('Проверка завершена'))]),
-      E('strong', { 'class': 'z2m-scanner-best-title' }, state.request.target || operationLabel(report.operation || state.status && state.status.operation)),
+      E('strong', { 'class': 'z2m-scanner-best-title' }, requestEndpoint(state.request) || operationLabel(report.operation || state.status && state.status.operation)),
       E('div', { 'class': 'z2m-scanner-best-meta' }, operation + ' · ' + verdict),
       E('p', { 'class': 'z2m-scanner-best-reason' }, reason),
       E('div', { 'class': 'z2m-btnrow' }, [controls ? ctx.shell.button(_('Проверить ещё раз'), 'sm', function () { start(ctx, controls); }) : null])
     ]),
     E('details', { 'class': 'z2m-scanner-technical' }, [E('summary', {}, _('Технические сведения')), E('pre', { 'class': 'z2m-log' }, details)])
-  ]);
-}
-function renderSearchForm(ctx, controls, title) {
-  var hint = _('Выполняется типизированное действие Z2K Detect.');
-  return E('section', { 'class': 'z2m-scanner-search-body card' + (title === _('Проверить ещё раз') ? ' z2m-scanner-retry-panel' : '') }, [
-    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Проверим домен и соединение')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
-    E('div', { 'class': 'z2m-scanner-form-grid' }, [
-      formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network'),
-      formField(_('Протокол'), controls.protocol, '', 'route'),
-      formField(_('Действие Detect'), controls.operation, '', 'scan'),
-      formField(_('Глубина'), controls.mode, '', 'gauge')
-    ]),
-    E('div', { 'class': 'z2m-scanner-budget-hint' }, hint),
-    E('details', { 'class': 'z2m-scanner-advanced' }, [
-      E('summary', {}, [icon('settings'), E('span', {}, _('Дополнительные параметры'))]),
-      E('div', { 'class': 'z2m-scanner-advanced-grid' }, [
-        E('p', { 'class': 'z2m-dim' }, _('probe, classify, quic, voice и tcp16 используют общий typed Detect API.'))
-      ])
-    ]),
-    E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
   ]);
 }
 function discoveryPanel(ctx) {
@@ -435,64 +420,68 @@ function discoveryPanel(ctx) {
 function renderProgress(ctx, status, request) {
   var operation = text(status.operation || detectOperation(request)).toUpperCase();
   return E('article', { 'class': 'z2m-scanner-progress-card card', role: 'status' }, [
-    E('div', { 'class': 'z2m-scanner-progress-heading' }, [icon('activity'), E('div', {}, [E('strong', {}, _('Выполняем ') + (request.target || operationLabel(status.operation || detectOperation(request)))), E('span', {}, _('Запрос Z2K Detect выполняется'))])]),
+    E('div', { 'class': 'z2m-scanner-progress-heading' }, [icon('activity'), E('div', {}, [E('strong', {}, _('Выполняем ') + requestEndpoint(request)), E('span', {}, _('Запрос Z2K Detect выполняется'))])]),
     E('div', { 'class': 'z2m-scanner-progress-meta' }, [E('span', {}, _('Операция: ') + operation), E('span', {}, _('Ограничение времени: ') + String(DETECT_WAIT_MS / 1000) + ' с')]),
     null
   ]);
 }
+function fieldLabel(field) {
+  return ({ domain: _('Домен'), host: _('Хост'), port: _('Порт'), hello: _('TLS hello'), repeats: _('Повторы'), timeoutMs: _('Таймаут, мс') })[field] || field;
+}
+function fieldControl(field, value, disabled, hasError) {
+  var numeric = ['port', 'repeats', 'timeoutMs'].indexOf(field) >= 0;
+  var attrs = {
+    name: 'detect-' + field,
+    autocomplete: 'off',
+    value: String(value),
+    disabled: disabled ? 'disabled' : null,
+    'aria-invalid': hasError ? 'true' : 'false',
+    'aria-describedby': hasError ? 'z2m-scanner-field-error' : null
+  };
+  if (numeric) {
+    attrs.type = 'number';
+    attrs.min = field === 'repeats' ? '1' : '0';
+  } else {
+    attrs.type = field === 'domain' || field === 'host' ? 'url' : 'text';
+    attrs.inputmode = field === 'domain' || field === 'host' ? 'url' : null;
+    attrs.spellcheck = 'false';
+  }
+  if (field === 'hello') {
+    var select = E('select', { class: 'z2m-select', name: attrs.name, disabled: attrs.disabled }, [
+      E('option', { value: 'both' }, _('Оба направления')),
+      E('option', { value: 'client' }, _('Только клиент')),
+      E('option', { value: 'server' }, _('Только сервер'))
+    ]);
+    select.value = value;
+    return select;
+  }
+  return E('input', attrs);
+}
 function render(ctx, data) {
   data = object(data);
   var status = statusValue(data), report = resultValue(data), request = safeRequest(state.request);
-  var controls = {};
-  controls.target = operationNeedsTarget(request.operation) ? E('input', { type: 'url', name: 'detect-target', autocomplete: 'off', inputmode: 'url', spellcheck: 'false', value: request.target, maxlength: '253', placeholder: 'youtube.com', 'aria-invalid': state.targetError ? 'true' : 'false', 'aria-describedby': state.targetError ? 'z2m-scanner-target-error' : null, disabled: status.status === 'running' ? 'disabled' : null }) : null;
-  // Protocol as segmented buttons per spec: [ TCP ] [ UDP ]
-  var protSelect = E('div', { 'class': 'z2m-scanner-segmented' });
-  [['tcp','TCP'],['udp','UDP']].forEach(function (pair) {
-    var b = E('button', { type: 'button', 'class': request.protocol === pair[0] ? 'on' : '', disabled: status.status === 'running' ? 'disabled' : null }, pair[1]);
-    b.addEventListener('click', function () { if (status.status !== 'running') { request.protocol = pair[0]; state.request.protocol = pair[0]; refresh(ctx); } });
-    protSelect.appendChild(b);
-  });
-  controls.protocol = { value: request.protocol, _node: protSelect };
-  // Depth as segmented: Быстро / Обычно / Тщательно
-  var modeSelect = E('div', { 'class': 'z2m-scanner-segmented' });
-  [['quick',_('Быстро')],['standard',_('Обычно')],['full',_('Тщательно')]].forEach(function (pair) {
-    var b = E('button', { type: 'button', 'class': request.mode === pair[0] ? 'on' : '', disabled: status.status === 'running' ? 'disabled' : null }, pair[1]);
-    b.addEventListener('click', function () { if (status.status !== 'running') { request.mode = pair[0]; state.request.mode = pair[0]; refresh(ctx); } });
-    modeSelect.appendChild(b);
-  });
-  controls.mode = { value: request.mode, _node: modeSelect };
-  // hidden compatibility: protocol/mode controls are custom segmented, so provide wrappers for start()
-  controls.protocol.value = request.protocol;
-  controls.mode.value = request.mode;
+  var controls = { fields: {} };
   controls.operation = E('select', { class: 'z2m-select z2m-scanner-detect-action-select', name: 'detect-action', disabled: status.status === 'running' ? 'disabled' : null });
-  DETECT_ACTIONS.forEach(function (operation) { controls.operation.appendChild(E('option', { value: operation }, operation)); });
+  DETECT_ACTIONS.forEach(function (operation) { controls.operation.appendChild(E('option', { value: operation }, DETECT_FORMS[operation].label)); });
   controls.operation.value = request.operation;
   var running = status.status === 'running' || status.status === 'starting' || status.phase === 'cancelling';
   var progressPanel = running ? renderProgress(ctx, status, request) : null;
   var terminalResult = terminal(status) && report ? renderEvidence(ctx, report, controls) : null;
   var retry = terminal(status) && !terminalResult && !status.error && !state.error ? ctx.shell.button(_('Проверить ещё раз'), 'primary', function () { start(ctx, controls); }) : null;
-  // Build form controls for rendering: we need actual DOM nodes for protocol/mode segmented
-  var formControls = {
-    target: controls.target,
-    protocol: protSelect,
-    mode: modeSelect,
-    operation: controls.operation
-  };
-  // Wrap segmented controls into fields manually
-  // div, not label: Chromium forwards :hover from <label> to its labeled
-  // control (the FIRST button of the group), lighting a second segmented
-  // button whenever any other one is hovered. Buttons must not sit in a label.
-  function segmentedField(label, node, iconName) {
-    return E('div', { 'class': 'z2m-scanner-field', role: 'group', 'aria-label': label }, [E('span', { 'class': 'z2m-scanner-field-label' }, [iconName ? icon(iconName) : null, E('span', {}, label)]), node]);
-  }
+  detectFields(request.operation).forEach(function (field) {
+    var hasError = state.fieldError && (field === 'domain' || field === 'host');
+    controls.fields[field] = fieldControl(field, request[field], running, hasError);
+  });
+  var fieldNodes = detectFields(request.operation).map(function (field) {
+    return formField(fieldLabel(field), controls.fields[field], 'z2m-scanner-field-' + field, field === 'domain' || field === 'host' ? 'network' : 'settings');
+  });
+  var endpointField = detectFields(request.operation).indexOf('domain') >= 0 ? 'domain' : detectFields(request.operation).indexOf('host') >= 0 ? 'host' : null;
   var search = !running ? E('section', { 'class': 'z2m-scanner-search-body card' + (terminalResult || status.error || state.error ? ' z2m-scanner-retry-panel' : '') }, [
-    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Проверим домен и соединение')), E('p', {}, _('для конкретного сайта или сервиса.'))])]),
-    controls.target ? formField(_('Цель'), controls.target, 'z2m-scanner-target-field', 'network') : E('p', { 'class': 'z2m-scanner-operation-hint' }, operationLabel(request.operation)),
-    controls.target && state.targetError ? E('div', { id: 'z2m-scanner-target-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.targetError) : null,
-    request.operation === 'quic' ? segmentedField(_('Протокол'), protSelect, 'route') : null,
-    formField(_('Действие Detect'), controls.operation, '', 'scan'),
-    segmentedField(_('Глубина'), modeSelect, 'gauge'),
-    E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Одно типизированное действие без legacy-планировщика.')),
+    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, DETECT_FORMS[request.operation].label), E('p', {}, _('Одно типизированное действие Z2K Detect.'))])]),
+    formField(_('Операция'), controls.operation, '', 'scan'),
+    fieldNodes,
+    endpointField && state.fieldError ? E('div', { id: 'z2m-scanner-field-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.fieldError) : null,
+    E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Поля и значения заданы выбранной операцией.')),
     E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Автоматическое обнаружение'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [discoveryPanel(ctx)])]),
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
   ]) : null;
@@ -502,8 +491,16 @@ function render(ctx, data) {
     content,
     search
   ]);
-  if (controls.target) controls.target.addEventListener('input', function () { state.request.target = controls.target.value; if (state.targetError) { state.targetError = null; refresh(ctx); } });
-  controls.operation.addEventListener('change', function () { state.request.operation = controls.operation.value; state.targetError = null; refresh(ctx); });
+  detectFields(request.operation).forEach(function (field) {
+    controls.fields[field].addEventListener('input', function () {
+      state.request[field] = controls.fields[field].value;
+      if (state.fieldError) { state.fieldError = null; refresh(ctx); }
+    });
+    controls.fields[field].addEventListener('change', function () {
+      state.request[field] = controls.fields[field].value;
+    });
+  });
+  controls.operation.addEventListener('change', function () { state.request = safeRequest({ operation: controls.operation.value }); state.fieldError = null; refresh(ctx); });
   return root;
 }
 function mount(ctx) {
@@ -516,6 +513,7 @@ function unmount() {
 
 return baseclass.extend({
   id: 'scanner', load: load, render: render, mount: mount, unmount: unmount,
+  detectFields: detectFields, detectDefaults: detectDefaults, detectArguments: detectArguments,
   detectOperation: detectOperation, detectInvoke: detectInvoke, normalizeDetectError: normalizedDetectError,
   normalizeDiscoveryStatus: normalizeDiscoveryStatus, discoveryControlMethod: discoveryControlMethod
 });
