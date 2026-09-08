@@ -1333,14 +1333,14 @@ function z2k_prepare_job_result_reusable(version, result) {
 	let state = load_check_state(), persisted = state && state.preparedTarget;
 	return object(persisted) && persisted.targetVersion == version && persisted.planToken == result.planToken;
 }
-function z2k_prepare_job_existing(version) {
+function z2k_prepare_job_existing(version, repair) {
 	let names = lsdir(Z2K_OPERATION_PARENT) || [];
 	for (let i = 0; i < length(names); i++) {
 		let name = names[i];
 		if (!string(name) || !match(name, /^z2k-[0-9]+-[a-f0-9]{16}$/)) continue;
 		let path = z2k_operation_path(name), raw = readfile(path), job = null;
 		try { if (raw != null && length(raw) <= MAX_REQUEST_BYTES) job = json(raw); } catch (e) { job = null; }
-		if (!object(job) || job.kind != 'prepare' || !object(job.request) || job.request.version != version) continue;
+		if (!object(job) || job.kind != 'prepare' || !object(job.request) || job.request.version != version || (job.request.repair === true) != repair) continue;
 		let answer = { ok: true, accepted: true, operationId: name, targetVersion: version, phase: job.phase || 'queued', state: job.phase || 'queued', finished: job.finished === true };
 		if (job.finished === true) {
 			answer.completed = true;
@@ -1355,9 +1355,9 @@ function z2k_prepare_job_existing(version) {
 	return null;
 }
 export const resource_center_enqueue_prepare = function(request) {
-	let version = object(request) ? request.version : request;
+	let repair = object(request) && request.repair === true, version = object(request) ? request.version : request;
 	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Z2K prepare version is invalid.');
-	let existing = z2k_prepare_job_existing(version);
+	let existing = z2k_prepare_job_existing(version, repair);
 	if (existing != null) return existing;
 	let operationId = z2k_operation_id({ planToken: 'prepare|' + version + '|' + time() });
 	if (!operationId) return fail('EIO', 'Z2K prepare operation identity could not be created.');

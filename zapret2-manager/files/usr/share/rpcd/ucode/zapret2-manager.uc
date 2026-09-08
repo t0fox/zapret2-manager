@@ -318,6 +318,11 @@ function resource_version_arg(req) {
 	if (version == null) { try { if (req && req.version != null) version = req.version; } catch (e) { } }
 	return type(version) == 'string' && match(version, /^([rp])-[0-9]+(\.[0-9]+)?$/) ? version : null;
 }
+function resource_repair_arg(req) {
+	try { if (req && req.args && req.args.repair === true) return true; } catch (e) { }
+	try { if (req && req.repair === true) return true; } catch (e) { }
+	return false;
+}
 function resource_include_compare_arg(req) {
 	try { if (req && req.args && (req.args.includeCompare === true || req.args.includeCompare == 'compare')) return true; } catch (e) { }
 	try { if (req && (req.includeCompare === true || req.includeCompare == 'compare')) return true; } catch (e) { }
@@ -325,7 +330,7 @@ function resource_include_compare_arg(req) {
 }
 function z2k_versions_method(req) { let refresh = false; try { refresh = req && req.args && req.args.refresh === true; } catch (e) { } try { if (req && req.refresh === true) refresh = true; } catch (e) { } return resource_cli_action(refresh ? 'versions-refresh' : 'versions'); }
 function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version, resource_include_compare_arg(req) ? 'compare' : null); }
-function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare-async', version); }
+function z2k_prepare_version_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare-async', version, resource_repair_arg(req) ? 'repair' : null); }
 function z2k_prepare_version_start_method(req) { return z2k_prepare_version_method(req); }
 function resource_operation_arg(req) {
 	let operationId = null;
@@ -1169,8 +1174,8 @@ return {
 		resources_update: { args: { edit: 'string' }, call: function (req) { return resources_update_method(req); } },
 		z2k_versions: { call: function (req) { return z2k_versions_method(req); } },
 		z2k_version_details: { args: { version: 'string', includeCompare: 'string' }, call: function (req) { return z2k_version_details_method(req); } },
-		z2k_prepare_version: { args: { version: 'string' }, call: function (req) { return z2k_prepare_version_method(req); } },
-		z2k_prepare_version_start: { args: { version: 'string' }, call: function (req) { return z2k_prepare_version_start_method(req); } },
+		z2k_prepare_version: { args: { version: 'string', repair: 'bool' }, call: function (req) { return z2k_prepare_version_method(req); } },
+		z2k_prepare_version_start: { args: { version: 'string', repair: 'bool' }, call: function (req) { return z2k_prepare_version_start_method(req); } },
 		z2k_prepare_version_status: { args: { operationId: 'string' }, call: function (req) { return z2k_prepare_version_status_method(req); } },
 		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
 		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },

@@ -11,6 +11,7 @@ var LOAD_TIMEOUT_MS = 30000;
 var Z2K_COMPARE_LOAD_TIMEOUT_MS = 30000;
 var Z2K_MUTATION_TIMEOUT_MS = 180000;
 var Z2K_PREPARE_TIMEOUT_MS = 180000;
+var Z2K_ACTIVE_OPERATION_STORAGE = 'z2m.z2k.active-operation';
 var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
@@ -101,6 +102,7 @@ var state = {
   z2kPostMutationStatus: null,
   z2kPostMutationRefreshError: null,
   z2kOperationError: null,
+  z2kResumeOperationId: null,
   showAllBackups: false,
   componentLoadToken: 0,
   componentHydrationToken: null,
@@ -277,6 +279,11 @@ function load(ctx) {
   }
   else if (pane === 'backups') promise = boundedLoad(ctx.api.maintenance.backupList(), 'backup list').then(function (value) { return { backups: { value: value || {} } }; });
   else if (pane === 'settings') promise = Promise.resolve({ settings: { value: { ui: ctx.store.get().ui || {} } } });
+  if (pane === 'components') promise = promise.then(function (value) {
+    var operation = readZ2KActiveOperation();
+    if (operation) window.setTimeout(function () { resumeZ2KOperation(ctx, operation); }, 0);
+    return value;
+  });
   return promise.catch(function (error) {
     var key = pane === 'components' ? 'components' : pane === 'backups' ? 'backups' : 'settings';
     var result = {}; result[key] = { error: ctx.api.normalizeError(error) }; return result;
@@ -362,6 +369,32 @@ function rerenderZ2KOperation(ctx) {
 function refresh(ctx) {
   return ctx.refresh(ctx.route || 'system');
 }
+function activeOperationStorage() {
+  try { return window.localStorage; } catch (e) { return null; }
+}
+function persistZ2KActiveOperation(operation) {
+  var storage = activeOperationStorage();
+  if (!storage || !operation || !operation.operationId) return;
+  try { storage.setItem(Z2K_ACTIVE_OPERATION_STORAGE, JSON.stringify(operation)); } catch (e) {}
+}
+function readZ2KActiveOperation() {
+  var storage = activeOperationStorage(), raw = null;
+  if (!storage) return null;
+  try { raw = storage.getItem(Z2K_ACTIVE_OPERATION_STORAGE); } catch (e) { return null; }
+  if (!raw) return null;
+  try {
+    var value = JSON.parse(raw);
+    return value && value.operationId ? value : null;
+  } catch (e) { return null; }
+}
+function clearZ2KActiveOperation(operationId) {
+  var storage = activeOperationStorage();
+  if (!storage) return;
+  try {
+    var current = readZ2KActiveOperation();
+    if (!operationId || !current || current.operationId === operationId) storage.removeItem(Z2K_ACTIVE_OPERATION_STORAGE);
+  } catch (e) {}
+}
 function mutation(ctx, name, promise) {
   if (state.busy) return Promise.resolve(null);
   state.busy = name;
@@ -423,7 +456,11 @@ function waitForZ2KUpdate(ctx, operationId) {
       var phase = String(answer && answer.phase || answer && answer.state || '').toLowerCase();
       if ((answer && answer.finished === true) || phase === 'completed' || phase === 'failed') {
         var result = answer && answer.result || answer;
-        if (!result || result.ok !== true) throw result && result.error || answer && answer.error || { code: 'EINTERNAL', message: _('Операция Z2K завершилась без результата.') };
+        if (!result || result.ok !== true) {
+          var terminalError = result && result.error || answer && answer.error || { code: 'EINTERNAL', message: _('Операция Z2K завершилась без результата.') };
+          if (result && result.rollback) terminalError = Object.assign({}, terminalError, { rollback: result.rollback });
+          throw terminalError;
+        }
         return result;
       }
       attempts++;
@@ -626,27 +663,57 @@ function reloadZ2KSelectedDetails(ctx) {
   if (state.z2kExpanded && state.z2kSelectedVersion)
     loadZ2KVersionDetails(ctx, state.z2kSelectedVersion, false);
 }
-function refreshZ2KAfterMutation(ctx, targetRelease) {
-  invalidateZ2KAfterMutation(targetRelease);
-  state.z2kPostMutationStatus = {
+function refreshZ2KAfterMutation(ctx, targetRelease, operation) {
+  return refreshZ2KAfterTerminal(ctx, targetRelease, null, operation);
+}
+function refreshZ2KAfterTerminal(ctx, targetRelease, operationError, operation) {
+  invalidateZ2KAfterMutation(operationError ? null : targetRelease);
+  if (operationError) state.z2kOperationError = operationError;
+  else state.z2kPostMutationStatus = {
     kind: 'success',
-    title: _('Z2K обновлён до ') + targetRelease,
+    title: operation === 'repair' ? _('Z2K восстановлен')
+      : operation === 'reinstall' ? _('Z2K переустановлен до ') + targetRelease
+      : _('Z2K обновлён до ') + targetRelease,
     message: _('Проверяем установленное состояние…')
   };
   state.componentOperation = { kind: 'refresh', scope: 'z2k', targetVersion: targetRelease };
   rerender(ctx);
   return Promise.resolve().then(function () { return refresh(ctx); }).then(function () {
+    clearZ2KActiveOperation();
     state.componentOperation = null;
-    state.z2kPostMutationStatus = null;
+    if (!operationError) state.z2kPostMutationStatus = null;
     state.z2kPostMutationRefreshError = null;
     rerender(ctx);
     reloadZ2KSelectedDetails(ctx);
   }, function (error) {
+    clearZ2KActiveOperation();
     state.componentOperation = null;
-    state.z2kPostMutationStatus = null;
+    if (!operationError) state.z2kPostMutationStatus = null;
+    if (operationError) state.z2kOperationError = operationError;
     state.z2kPostMutationRefreshError = { code: 'z2k-post-mutation-refresh', cause: error };
     rerenderCurrent(ctx);
     showError(ctx, error);
+  });
+}
+function resumeZ2KOperation(ctx, persisted) {
+  if (!persisted || !persisted.operationId || state.z2kResumeOperationId === persisted.operationId) return;
+  state.z2kResumeOperationId = persisted.operationId;
+  state.componentOperation = {
+    kind: 'update', scope: 'z2k', operationId: persisted.operationId,
+    targetVersion: persisted.targetVersion || null, operation: persisted.operation || null,
+    phase: persisted.phase || 'queued'
+  };
+  rerender(ctx);
+  waitForZ2KUpdate(ctx, persisted.operationId).then(function (answer) {
+    state.z2kResumeOperationId = null;
+    clearZ2KActiveOperation(persisted.operationId);
+    ctx.shell.showToast(_('Z2K Core: операция завершена.'), 'ok');
+    return refreshZ2KAfterMutation(ctx, persisted.targetVersion || answer && answer.targetVersion || null, persisted.operation);
+  }, function (error) {
+    state.z2kResumeOperationId = null;
+    clearZ2KActiveOperation(persisted.operationId);
+    var projected = operationErrorProjection(ctx, error);
+    return refreshZ2KAfterTerminal(ctx, null, projected, persisted.operation).then(function () { showError(ctx, error); });
   });
 }
 function retryZ2KPostMutationRefresh(ctx) {
@@ -748,15 +815,16 @@ function updateZ2K(ctx, component) {
   state.z2kPostMutationStatus = null;
   var targetRelease = z2kTargetRelease(component);
   var operation = z2kOperation(component);
+  var isRepair = operation === 'repair';
   var legacyCatalogFallback = component && !component.selectedDetails && (!component.catalog || !component.catalog.length)
     && component.canApply === true && component.updateState === 'update-available';
-  if (!targetRelease || !component || !operation || (!component.selectedDetails && !legacyCatalogFallback) || (component.selectedDetails && component.selectedDetails.installable !== true)) {
+  if (!targetRelease || !component || !operation || (!isRepair && !component.selectedDetails && !legacyCatalogFallback) || (!isRepair && component.selectedDetails && component.selectedDetails.installable !== true)) {
     showError(ctx, { code: 'EINPUT', message: _('Сначала выберите доступный release и дождитесь его деталей.') });
     return;
   }
   state.componentOperation = { kind: 'prepare', scope: 'z2k', targetVersion: targetRelease };
   rerender(ctx);
-  var prepare = ctx.api.resources.prepareVersion ? checkedResult(ctx.api.resources.prepareVersion({ version: targetRelease }), _('Подготовка Z2K'), Z2K_PREPARE_TIMEOUT_MS)
+  var prepare = ctx.api.resources.prepareVersion ? checkedResult(ctx.api.resources.prepareVersion({ version: targetRelease, repair: isRepair }), _('Подготовка Z2K'), Z2K_PREPARE_TIMEOUT_MS)
     : Promise.reject({ code: 'EINPUT', message: 'z2k_prepare_version unavailable' });
   prepare.then(function (prepared) {
     var preparedTarget = prepared && prepared.target;
@@ -772,8 +840,11 @@ function updateZ2K(ctx, component) {
     var preparedOperation = preparedTarget.operation;
     var preparedRelease = preparedTarget.targetVersion;
     var preparedInstalled = preparedTarget.installedVersion;
-    var preparedLabel = z2kOperationLabel(preparedOperation, preparedRelease);
-    var confirmationMessage = preparedOperation === 'reinstall'
+    var displayOperation = isRepair ? 'repair' : preparedOperation;
+    var preparedLabel = z2kOperationLabel(displayOperation, preparedRelease);
+    var confirmationMessage = isRepair
+      ? _('Будет восстановлена текущая версия Z2K из проверенного источника. Результат проверки состояния будет показан после операции.')
+      : preparedOperation === 'reinstall'
       ? _('Компоненты этой версии будут скачаны, проверены и установлены заново.')
       : preparedOperation === 'downgrade'
         ? _('Будет установлена более ранняя версия. При ошибке Manager запустит предусмотренный откат, а его результат будет показан в сообщении.')
@@ -784,7 +855,7 @@ function updateZ2K(ctx, component) {
       ? preparedInstalled + ' → ' + preparedRelease + '. '
       : '';
     confirmAction(ctx, preparedLabel + '?', preparedRelease + '. ' + transition + confirmationMessage,
-      preparedOperation === 'reinstall' ? _('Переустановить') : preparedLabel, function () {
+      isRepair ? _('Восстановить') : preparedOperation === 'reinstall' ? _('Переустановить') : preparedLabel, function () {
         state.componentOperation = { kind: 'update', scope: 'z2k', targetVersion: preparedRelease, operation: preparedOperation, installedVersion: preparedInstalled };
         rerender(ctx);
         var payload = {
@@ -792,6 +863,7 @@ function updateZ2K(ctx, component) {
           targetVersion: preparedRelease,
           operation: preparedOperation,
           installedVersion: preparedInstalled,
+          repair: isRepair,
           planToken: prepared.planToken,
           confirm: true
         };
@@ -802,6 +874,7 @@ function updateZ2K(ctx, component) {
             if (!answer.operationId || !ctx.api.resources.updateStatus)
               throw { code: 'EINTERNAL', message: _('Z2K принял операцию, но состояние операции недоступно.') };
             state.componentOperation = Object.assign({}, state.componentOperation, { operationId: answer.operationId });
+            persistZ2KActiveOperation({ operationId: answer.operationId, targetVersion: preparedRelease, operation: displayOperation, phase: 'queued' });
             return waitForZ2KUpdate(ctx, answer.operationId);
           }
           return answer;
@@ -809,14 +882,13 @@ function updateZ2K(ctx, component) {
         update.then(function (answer) {
           if (!answer || answer.ok !== true) throw answer && answer.error || answer || new Error('update failed');
           // Operation-specific success toast follows the prepared operation.
-          ctx.shell.showToast(_('Z2K Core: ') + z2kOperationLabel(preparedOperation, preparedRelease) + '.', 'ok');
-          return refreshZ2KAfterMutation(ctx, preparedRelease);
+          ctx.shell.showToast(_('Z2K Core: ') + z2kOperationLabel(displayOperation, preparedRelease) + '.', 'ok');
+          return refreshZ2KAfterMutation(ctx, preparedRelease, displayOperation);
         }).catch(function (error) {
           state.z2kPrepared = null;
           state.componentOperation = null;
-          state.z2kOperationError = operationErrorProjection(ctx, error);
-          rerender(ctx);
-          showError(ctx, error);
+          var projected = operationErrorProjection(ctx, error);
+          return refreshZ2KAfterTerminal(ctx, null, projected, displayOperation).then(function () { showError(ctx, error); });
         });
       }, 'primary');
   }).catch(function (error) {
@@ -855,6 +927,7 @@ function z2kUnavailableReason(item) {
   return _('Release временно недоступен.');
 }
 function z2kOperationLabel(operation, version) {
+  if (operation === 'repair') return _('Восстановить') + (version ? ' ' + version : '');
   if (operation === 'install') return _('Установить') + (version ? ' ' + version : '');
   if (operation === 'upgrade') return _('Обновить до ') + version;
   if (operation === 'downgrade') return _('Откатить до ') + version;
@@ -1117,11 +1190,16 @@ function z2kLatestRelease(component) {
 }
 function z2kOperation(component) {
   var details = z2kSelectedDetails(component);
-  return component && (component.operation || details && details.operation) || null;
+  if (!component) return null;
+  if (component.operation || details && details.operation) return component.operation || details.operation;
+  return component.actions && component.actions.primary === 'repair' ? 'repair' : null;
 }
 function z2kTargetRelease(component) {
   var details = z2kSelectedDetails(component);
-  return component && (component.selectedVersion || details && details.version || component.availableRelease) || null;
+  var operation = z2kOperation(component);
+  return component && (component.selectedVersion || details && details.version
+    || operation === 'repair' && component.installedRelease && component.installedRelease.value
+    || component.availableRelease) || null;
 }
 function z2kUpdateActionLabel(component) {
   var targetRelease = z2kTargetRelease(component);
@@ -1131,6 +1209,13 @@ function z2kUpdateActionLabel(component) {
 }
 function z2kCanApply(component) {
   var selected = z2kSelectedDetails(component);
+  var operation = z2kOperation(component);
+  if (component && operation === 'repair') {
+    return component.actions && component.actions.primary === 'repair'
+      && component.runtimeHealth === 'broken'
+      && !!(component.installedRelease && component.installedRelease.value)
+      && !state.componentOperation;
+  }
   var attentionState = selected && selected.targetAttentionState !== null && selected.targetAttentionState !== undefined
     ? selected.targetAttentionState : component && component.attentionState;
   var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
@@ -1744,17 +1829,26 @@ function renderZ2KOperationError(ctx) {
   var error = state.z2kOperationError;
   if (!error) return null;
   var rollback = error.rollback;
-  var rollbackMessage = rollback && (rollback.verified === true || rollback.ok === true || rollback.state === 'completed')
-    ? _('Откат выполнен и проверен.')
-    : rollback && rollback.requested === true
-      ? _('Откат запрошен, но его результат не подтверждён.')
-      : null;
-  return E('div', { 'class': 'z2m-z2k-operation-result z2m-z2k-operation-result--error', role: 'alert', 'aria-live': 'assertive' }, [
+  var rollbackMessage = null, rollbackClass = '';
+  if (rollback && rollback.attempted === true && rollback.ok === true) {
+    rollbackMessage = _('Откат выполнен и проверен.');
+  } else if (rollback && rollback.attempted === true && rollback.ok === false) {
+    rollbackMessage = _('Откат не подтверждён. Состояние Z2K требует восстановления; повторите проверку.');
+    rollbackClass = ' z2m-z2k-operation-result--rollback-uncertain';
+  } else if (rollback && rollback.attempted === false && rollback.ok === true) {
+    rollbackMessage = _('Изменение установленного состояния не подтверждено; откат не требовался.');
+  } else if (rollback && (rollback.verified === true || rollback.ok === true || rollback.state === 'completed')) {
+    rollbackMessage = _('Откат выполнен и проверен.');
+  } else if (rollback && rollback.requested === true) {
+    rollbackMessage = _('Откат запрошен, но его результат не подтверждён.');
+    rollbackClass = ' z2m-z2k-operation-result--rollback-uncertain';
+  }
+  return E('div', { 'class': 'z2m-z2k-operation-result z2m-z2k-operation-result--error' + rollbackClass, role: 'alert', 'aria-live': 'assertive' }, [
     E('div', { 'class': 'z2m-z2k-operation-result-heading' }, [
       E('span', { 'class': 'z2m-z2k-operation-result-icon', 'aria-hidden': 'true' }, '✕'),
       E('strong', {}, _('Не удалось обновить Z2K'))
     ]),
-    E('p', {}, error.message),
+    E('p', {}, error.message || _('Операция Z2K не завершена.')),
     rollbackMessage ? E('p', { 'class': 'z2m-z2k-operation-result-rollback' }, rollbackMessage) : null,
     ctx.shell.button(_('Проверить снова'), 'sm', checkUpdates.bind(null, ctx, 'z2k'), !!state.componentOperation)
   ]);

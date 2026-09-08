@@ -47,7 +47,7 @@ test('queued Z2K update jobs persist their worker kind and spawned pid for dispa
   assert.match(enqueueUpdate, /job = \{[\s\S]*kind: 'update'[\s\S]*pid: null/,
     'queued update jobs must be typed for the worker and start without a pid');
   const spawnIndex = enqueueUpdate.indexOf('let spawned = z2k_operation_spawn(jobPath);');
-  const pidPersistIndex = enqueueUpdate.indexOf('job.pid = spawned.pid; z2k_operation_write(jobPath, job);');
+  const pidPersistIndex = enqueueUpdate.search(/job\.pid = spawned\.pid;[\s\S]*?z2k_operation_write\(jobPath, job\);/);
   assert.ok(spawnIndex >= 0, 'update enqueue must spawn the existing worker');
   assert.ok(pidPersistIndex > spawnIndex, 'update enqueue must persist the spawned worker pid');
   assert.match(worker, /job\.kind == 'prepare' \? resource_center_prepare_version\(job\.request\) : resource_center_update\(job\.request\)/,

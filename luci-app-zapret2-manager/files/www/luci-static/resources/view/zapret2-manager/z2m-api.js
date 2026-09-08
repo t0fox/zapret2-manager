@@ -72,7 +72,9 @@ function z2kPrepareWait(operationId, elapsedMs) {
 }
 
 function z2kPrepareVersion(value) {
-  return z2kReadRpc('z2k_prepare_version_start', { version: value && value.version || value }).then(function (started) {
+  var requestValue = value && typeof value === 'object' ? { version: value.version } : { version: value };
+  if (value && typeof value === 'object' && value.repair === true) requestValue.repair = true;
+  return z2kReadRpc('z2k_prepare_version_start', requestValue).then(function (started) {
     if (!started || started.ok === false || started.completed !== true && !started.operationId) return started;
     if (started.completed === true) return started.result != null ? started.result : { ok: false, error: started.error || { code: 'EINTERNAL', message: 'Z2K prepare operation finished without a result.' } };
     return z2kPrepareWait(started.operationId, 0);
@@ -213,7 +215,8 @@ function normalizeError(error){
  var dependencies = value && typeof value === 'object' && value.dependencies !== undefined ? value.dependencies : outer.dependencies;
  var expectedRevision = value && typeof value === 'object' && value.expectedRevision !== undefined ? value.expectedRevision : outer.expectedRevision;
  var actualRevision = value && typeof value === 'object' && value.actualRevision !== undefined ? value.actualRevision : outer.actualRevision;
- return { code:code, kind:kind, message:message, retryable:retryable, technical:bounded(raw, 320), details:details, errors:errors, dependencies:dependencies, expectedRevision:expectedRevision, actualRevision:actualRevision };
+ var rollback = value && typeof value === 'object' && value.rollback !== undefined ? value.rollback : outer.rollback;
+ return { code:code, kind:kind, message:message, retryable:retryable, technical:bounded(raw, 320), details:details, errors:errors, dependencies:dependencies, expectedRevision:expectedRevision, actualRevision:actualRevision, rollback:rollback };
 }
 function tgEdit(method, value) { return method(JSON.stringify(value || {})); }
 function tgCheckUpdates(selection) {
