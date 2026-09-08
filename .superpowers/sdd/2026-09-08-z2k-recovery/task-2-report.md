@@ -195,3 +195,103 @@ Implementation commits: `269f3ba570750a954df88326ef854fc3395f86e2`,
 `78afdfc586a8c357339c5be705748b76452e5fec`. Task 1 `ledger.md` remains
 preserved and unrelated. No APK/local build, push, merge, branch/worktree
 deletion, or agent/reviewer invocation occurred.
+
+## Fix round 2 — rpcd envelope repair and bounded runtime boundary
+
+Review baseline: `73eaac200bcaf1eb89f1cf2b8371768ed6f3018a`.
+
+The executable boundary harness now invokes the actual discovery registration
+callback from the rpcd source. RED was:
+
+```text
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs
+1 failed: {args:{args:{dnsSource:'agh'}}} reached control as
+{args:{dnsSource:'agh'}}, not {dnsSource:'agh'}
+```
+
+The production fix adds a discovery-only rpcd input normalizer. It accepts the
+canonical `req.args.dnsSource`, unwraps exactly one nested `args` envelope, and
+rejects unexpected siblings with `EINPUT`; unknown fields are not dropped.
+
+GREEN and checks:
+
+```text
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs tests/product/z2k-detect-discovery-service.test.mjs tests/product/z2k-detect-rpc-boundary.test.mjs tests/ui/scanner-ui-rework.test.mjs
+14 passed, 0 failed, 7 skipped
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js
+passed
+diff check: passed
+```
+
+Fix-round implementation commit:
+
+```text
+9f4b9df2e88859d1018760289e3f2348a3e48b4f fix: restore typed Z2K discovery controls
+```
+
+Reviewed source deployment from a clean detached clone succeeded:
+
+```text
+Deployed reviewed closure from 9f4b9df2e88859d1018760289e3f2348a3e48b4f; backup: /tmp/z2m-task2-round2-20260908/backup
+```
+
+Deployment identity checks:
+
+```text
+/usr/share/rpcd/ucode/zapret2-manager.uc
+local/router sha256: 2878d3347904ac7f43f2e7cea67e6a98f49fa5b35851c36dd5376a6cdfe27f24
+/etc/init.d/zapret2-manager
+local/router sha256: 7fa5b2e566fae3fe984ab7d5b6f2d9a138d4f895dd2fdea0dbb4d6f2799ee72c
+/usr/libexec/zapret2-manager/z2k-detect.uc
+local/router sha256: 05a3f46b2ba827b6e5ad3de06af7c07e923bb2e8b579f9abde0396e9e38f5bf8
+```
+
+The target typed registration was read-only verified:
+
+```text
+z2k_detect_discovery_status {}
+z2k_detect_discovery_enable {"dnsSource":"String"}
+z2k_detect_discovery_disable {"dnsSource":"String"}
+z2k_detect_discovery_restart {"dnsSource":"String"}
+```
+
+Direct target parity before the fix-round deployment proved the exact payload,
+canonical status, and named process identity:
+
+```text
+enable {"dnsSource":"auto"}
+{"ok":true,"schema":1,"enabled":true,"dnsSource":"auto","running":true,"pid":31241,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect","action":"enable"}
+status {}
+{"ok":true,"schema":1,"enabled":true,"dnsSource":"auto","running":true,"pid":31241,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect"}
+/proc/31241/exe -> /usr/libexec/zapret2-manager/z2k-detect
+/proc/31241/cmdline -> /usr/libexec/zapret2-manager/z2k-detect run -publish /opt/zapret2/lists/discovered-domains.txt
+```
+
+The post-deploy enable/restart gate is not a PASS: remote BusyBox has no
+`timeout`, so each wrapped command stopped before `ubus` with
+`sh: timeout: not found` and exit `127`; the outer SSH wrapper returned `0`.
+No further deploy/retry was made. The required post-deploy restore did complete:
+
+```text
+disable {"dnsSource":"auto"}
+{"ok":true,"schema":1,"enabled":false,"dnsSource":"auto","running":false,"pid":null,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect","action":"disable"}
+status {}
+{"ok":true,"schema":1,"enabled":false,"dnsSource":"auto","running":false,"pid":null,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect"}
+service list {"name":"z2k-detect"}
+{}
+```
+
+## Fix round 2 — browser boundary
+
+The supplied authenticated browser evidence remains the real pre-fix failure:
+LuCI Enable sent `z2k_detect_discovery_enable {dnsSource:'auto'}` in a `/ubus`
+batch and received `EINPUT: Unsupported discovery control field.` The UI stayed
+disabled. Post-deploy credentialed browser repeat is `NOT_VERIFIED`: the
+available CUA attempt failed before opening a tab with
+`IAB visibility is not supported in a subagent thread`; no credentials were
+available or entered and no Network PASS is claimed.
+
+Final router state is disabled with `dnsSource:auto`, `running:false`, and no
+`z2k-detect` service instance. No password/security change or destructive router
+operation was performed. The only unrelated worktree modification is the
+preserved pre-existing Task 1 `ledger.md` change.
