@@ -112,6 +112,35 @@ function rawZ2k(overrides = {}) {
   };
 }
 
+function canonicalRawZ2k(overrides = {}) {
+  const base = rawZ2k({
+    local: {
+      ...rawZ2k().local,
+      lua: { ready: 13, total: 13 },
+      installedRelease: { value: 'r-81.6', confidence: 'confirmed', authority: 'activation-receipt-v3' },
+    },
+    runtimeSummary: {
+      health: 'ready',
+      installedRelease: { value: 'r-81.6', confidence: 'confirmed', authority: 'activation-receipt-v3' },
+      strategies: 8,
+      staticManagedCount: 39,
+      runtimeBundleDigest: digest,
+      compatibilityIdentity: digest,
+      sourceCommit: 'p-81.6',
+      detect: { status: 'ready', architecture: 'x86_64', digest, sourceCommit: 'p-81.6', compatible: true },
+      dependencyClosure: closure,
+      counts: closure.counts,
+      coherence: { coherenceStatus: 'aligned', compatibilityStatus: 'aligned' },
+    },
+  });
+  return {
+    ...base,
+    ...overrides,
+    local: { ...base.local, ...(overrides.local || {}) },
+    runtimeSummary: { ...base.runtimeSummary, ...(overrides.runtimeSummary || {}) },
+  };
+}
+
 function makeContext(z2k) {
   const engine = {
     installed: true,
@@ -273,27 +302,18 @@ test('Z2K primary card exposes canonical runtime summary counts', () => {
   const { renderComponents, state } = loadMaintenance();
   state.z2kExpanded = false;
   state.componentMetadata.z2k = { value: { versions: [], remoteState: 'not-loaded' } };
-  const summary = {
-    installedRelease: { value: 'r-81.6' },
-    availableRelease: { value: 'r-82.2' },
-    health: 'ready',
-    strategies: 8,
-    staticManagedCount: 39,
-    dependencyClosure: { ...closure, counts: { ...closure.counts, lua: 13 } },
-    runtimeBundleDigest: digest,
-  };
-  const ctx = makeContext({
-    runtimeSummary: summary,
-    local: { installed: true, integrity: 'verified', integrityOk: true, lua: { ready: 13, total: 13 } },
-  });
+  const ctx = makeContext(canonicalRawZ2k({
+    runtimeSummary: { availableRelease: 'r-82.2' },
+  }));
   const rendered = renderComponents(ctx, ctx.data);
   const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
 
   assert.ok(card, 'primary Z2K card must render');
-  assert.match(textOf(card), /Runtime bundle39/);
-  assert.match(textOf(card), /Strategies8/);
-  assert.match(textOf(card), /Lua13 \/ 13/);
+  assert.match(textOf(card), /Работает/);
+  assert.match(textOf(card), /Стратегии8/);
+  assert.match(textOf(card), /Runtime13\/13 Lua/);
   assert.match(textOf(card), /Последняяr-82\.2/);
+  assert.doesNotMatch(textOf(card), /runtimeBundleDigest|Runtime bundle/);
 });
 
 test('Components rejects a canonical digest mismatch even when the summary claims ready', () => {

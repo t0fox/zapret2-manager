@@ -1095,14 +1095,16 @@ function z2kMetaRows(component) {
   if (runtime.listsReady !== null && runtime.listsReady !== undefined) runtimeValues.push(runtime.listsReady + ' lists');
   var discoveryLabel = discovery.enabled === true ? _('Включено') : discovery.enabled === false ? _('Выключено') : _('Не подтверждено');
   if (discovery.enabled === true && discovery.running === true) discoveryLabel += ' · ' + _('работает');
-  return [
+  var rows = [
     { label: _('Версия'), value: z2kReleaseLabel(component) },
+    component && (component.latestRelease || component.availableRelease) ? { label: _('Последняя'), value: z2kLatestRelease(component) } : null,
     { label: _('Стратегии'), value: facts.strategies && facts.strategies.count },
     { label: _('Z2K Detect'), value: detectLabel },
     { label: _('Runtime'), value: runtimeValues.join(' · ') || _('Не подтверждён') },
     { label: _('Автообнаружение'), value: discoveryLabel },
     { label: _('Совместимость'), value: compatibility.synchronized === true ? _('Синхронизировано') : _('Требует проверки') }
   ];
+  return rows.filter(function (row) { return row && row.value !== null && row.value !== undefined && row.value !== ''; });
 }
 function z2kReleaseLabel(component) {
   var release = component.installedRelease || {};

@@ -118,6 +118,46 @@ function z2kRaw(overrides = {}) {
   };
 }
 
+const canonicalDigest = 'c'.repeat(64);
+
+function canonicalZ2kRaw(overrides = {}) {
+  const base = z2kRaw({
+    local: {
+      ...z2kRaw().local,
+      installedRelease: { value: 'r-80.3', confidence: 'confirmed', authority: 'activation-receipt-v3' },
+      dependencyClosure: {
+        available: true,
+        resolution: 'complete',
+        runtimeBundleDigest: canonicalDigest,
+        counts: { lua: 7, blobs: 4, hostlists: 3, missing: 0 },
+      },
+      runtimeBundleDigest: canonicalDigest,
+    },
+    runtimeSummary: {
+      health: 'ready',
+      installedRelease: { value: 'r-80.3', confidence: 'confirmed', authority: 'activation-receipt-v3' },
+      strategies: 8,
+      runtimeBundleDigest: canonicalDigest,
+      compatibilityIdentity: canonicalDigest,
+      sourceCommit: 'p-80.3',
+      detect: { status: 'ready', architecture: 'x86_64', digest: canonicalDigest, sourceCommit: 'p-80.3', compatible: true },
+      dependencyClosure: {
+        available: true,
+        resolution: 'complete',
+        runtimeBundleDigest: canonicalDigest,
+        counts: { lua: 7, blobs: 4, hostlists: 3, missing: 0 },
+      },
+      coherence: { coherenceStatus: 'aligned', compatibilityStatus: 'aligned' },
+    },
+  });
+  return {
+    ...base,
+    ...overrides,
+    local: { ...base.local, ...(overrides.local || {}) },
+    runtimeSummary: { ...base.runtimeSummary, ...(overrides.runtimeSummary || {}) },
+  };
+}
+
 test('Z2K model preserves snapshot identity and separates advisory attention from apply eligibility', () => {
   const model = loadComponentsModel();
   const component = model.normalizeZ2k({
@@ -222,6 +262,7 @@ test('Z2K model and details expose runtime/Strategy revision coherence', () => {
     currentStrategySourceRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     candidateStrategyRevision: null,
     coherenceStatus: 'aligned',
+    compatibilityStatus: null,
   });
 
   const { internals } = loadMaintenance();
@@ -435,6 +476,7 @@ test('Z2K details use a standalone review callout and never invent an update act
   internals.state.z2kExpanded = true;
 
   const rendered = internals.renderComponents(ctx, ctx.data);
+  const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
   const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
   const callouts = findAll(details, node => classHas(node, 'z2m-component-review-callout'));
 
@@ -442,21 +484,27 @@ test('Z2K details use a standalone review callout and never invent an update act
   assert.match(textOf(callouts[0]), /Есть блокирующие зависимости/);
   assert.doesNotMatch(textOf(callouts[0]), /z2k-config-validator\.sh/);
   assert.match(textOf(details), /r-80\.1/);
-  assert.ok(buttonsOf(details).includes('Проверить обновления'));
+  assert.ok(buttonsOf(card).includes('Проверить снова'));
   assert.ok(!buttonsOf(details).includes('Обновить'), 'blocking review must not show a fake update action');
 });
 
 test('Z2K available release gets an update action only when the model says it is applicable', () => {
   const { internals } = loadMaintenance();
-  const ctx = makeContext(engineStatus(), z2kRaw({ updateState: 'update-available', availableRelease: 'r-80.4' }));
+  const ctx = makeContext(engineStatus(), canonicalZ2kRaw({
+    updateState: 'update-available',
+    canApply: true,
+    availableRelease: 'r-80.4',
+    selectedDetails: { version: 'r-80.4', installable: true, operation: 'upgrade', targetCanApply: true, installedVersion: 'r-80.3' },
+  }));
   internals.state.z2kExpanded = true;
 
   const rendered = internals.renderComponents(ctx, ctx.data);
+  const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
   const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
 
   assert.match(textOf(details), /r-80\.4/);
-  assert.ok(buttonsOf(details).includes('Проверить обновления'));
-  assert.ok(!buttonsOf(findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0]).includes('Обновить до r-80.4'));
+  assert.ok(buttonsOf(card).includes('Проверить снова'));
+  assert.ok(buttonsOf(details).includes('Обновить до r-80.4'));
 });
 
 test('Z2K blocking review suppresses update even when a remote update is present', () => {
@@ -480,11 +528,12 @@ test('Z2K blocking review suppresses update even when a remote update is present
 
 test('Z2K advisory review keeps an applicable update action without becoming a primary warning', () => {
   const { internals } = loadMaintenance();
-  const ctx = makeContext(engineStatus(), z2kRaw({
+  const ctx = makeContext(engineStatus(), canonicalZ2kRaw({
     updateState: 'update-available',
     attentionState: 'review-advisory',
     canApply: true,
     availableRelease: 'r-80.4',
+    selectedDetails: { version: 'r-80.4', installable: true, operation: 'upgrade', targetCanApply: true, installedVersion: 'r-80.3' },
     local: {
       installed: true,
       integrity: 'verified',
@@ -503,7 +552,8 @@ test('Z2K advisory review keeps an applicable update action without becoming a p
   const updateState = findAll(details, node => classHas(node, 'z2m-component-update-state'));
   const chip = findAll(card, node => classHas(node, 'z2m-chip'))[0];
 
-  assert.ok(buttonsOf(details).includes('Проверить обновления'));
+  assert.ok(buttonsOf(card).includes('Проверить снова'));
+  assert.ok(buttonsOf(details).includes('Обновить до r-80.4'));
   assert.equal(textOf(chip), 'Доступно обновление');
   assert.equal(updateState.length, 0);
   assert.doesNotMatch(textOf(updateState), /Требует внимания/);
@@ -514,7 +564,7 @@ test('Z2K advisory review keeps an applicable update action without becoming a p
 
 test('Z2K advisory current keeps the Актуален primary badge without a secondary warning', () => {
   const { internals } = loadMaintenance();
-  const ctx = makeContext(engineStatus(), z2kRaw({
+  const ctx = makeContext(engineStatus(), canonicalZ2kRaw({
     updateState: 'current',
     attentionState: 'review-advisory',
     canApply: false,
@@ -529,7 +579,7 @@ test('Z2K advisory current keeps the Актуален primary badge without a se
   const chip = findAll(card, node => classHas(node, 'z2m-chip'))[0];
   const updateState = findAll(details, node => classHas(node, 'z2m-component-update-state'));
 
-  assert.equal(textOf(chip), 'Работает');
+  assert.equal(textOf(chip), 'Актуален');
   assert.equal(updateState.length, 0);
   assert.doesNotMatch(textOf(details), /Требует внимания/);
   assert.doesNotMatch(textOf(details), /Наблюдаемый upstream-файл изменился/);
@@ -537,11 +587,12 @@ test('Z2K advisory current keeps the Актуален primary badge without a se
 
 test('Z2K collapsed card answers update questions without promoting advisory files', () => {
   const { internals } = loadMaintenance();
-  const ctx = makeContext(engineStatus(), z2kRaw({
+  const ctx = makeContext(engineStatus(), canonicalZ2kRaw({
     updateState: 'update-available',
     attentionState: 'review-advisory',
     canApply: true,
     availableRelease: 'r-80.4',
+    selectedDetails: { version: 'r-80.4', installable: true, operation: 'upgrade', targetCanApply: true, installedVersion: 'r-80.3' },
     advisoryReviews: ['files/z2k-config-validator.sh'],
     reviewDetails: [{ path: 'files/z2k-config-validator.sh', message: 'Наблюдаемый upstream-файл изменился.' }],
   }));
@@ -551,14 +602,15 @@ test('Z2K collapsed card answers update questions without promoting advisory fil
 
   assert.match(textOf(card), /r-80\.4/);
   assert.doesNotMatch(textOf(card), /Требует внимания/);
-  assert.ok(buttonsOf(card).includes('Проверить обновления'));
+  assert.ok(buttonsOf(card).includes('Проверить снова'));
+  assert.ok(buttonsOf(card).includes('Обновить до r-80.4'));
   assert.equal(findAll(card, node => classHas(node, 'z2m-component-review-callout')).length, 0);
   assert.equal(findAll(rendered, node => classHas(node, 'z2m-component-details')).length, 0);
 });
 
 test('Z2K advisory current remains Актуален in collapsed card without secondary attention', () => {
   const { internals } = loadMaintenance();
-  const ctx = makeContext(engineStatus(), z2kRaw({
+  const ctx = makeContext(engineStatus(), canonicalZ2kRaw({
     updateState: 'current',
     attentionState: 'review-advisory',
     advisoryReviews: ['files/z2k-config-validator.sh'],
@@ -567,7 +619,7 @@ test('Z2K advisory current remains Актуален in collapsed card without se
   const rendered = internals.renderComponents(ctx, ctx.data);
   const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
 
-  assert.equal(textOf(findAll(card, node => classHas(node, 'z2m-chip'))[0]), 'Работает');
+  assert.equal(textOf(findAll(card, node => classHas(node, 'z2m-chip'))[0]), 'Актуален');
   assert.doesNotMatch(textOf(card), /Требует внимания/);
   assert.equal(findAll(card, node => classHas(node, 'z2m-component-review-callout--advisory')).length, 0);
 });
@@ -741,8 +793,8 @@ test('Release identity distinguishes unknown healthy assets from missing assets'
   }));
   const missing = internals.renderComponents(missingContext, missingContext.data);
 
-  assert.match(textOf(unknown), /УстановленоВерсия не определена/);
-  assert.match(textOf(missing), /УстановленоНе установлен/);
+  assert.match(textOf(unknown), /ВерсияВерсия не определена/);
+  assert.match(textOf(missing), /ВерсияНе установлен/);
 });
 
 test('Components details CSS owns the responsive fact grid and natural wrapping', () => {
