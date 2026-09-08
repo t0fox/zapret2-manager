@@ -1041,6 +1041,16 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 	let sourceSnapshotId = resolved.sourceSnapshotId || sourceId + '-' + candidate.digest;
 	let sourceCommit = resolved.sourceCommit || null;
 	let canonicalStrategyId = resolved.canonicalStrategyId || resolved.strategy.canonicalId || resolved.id;
+	let selected = {
+		id: resolved.id, origin: resolved.origin, revision: input.revision == null ? 0 : input.revision,
+		candidateSha256: candidate.digest, canonicalStrategyId: canonicalStrategyId,
+		sourceId: sourceId, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
+		strategyDigest: candidate.digest
+	};
+	if (sourceId == 'z2k') {
+		selected.z2kCompatibilityIdentity = resolved.strategy && resolved.strategy.z2kCompatibilityIdentity || null;
+		selected.compatibilityIdentity = resolved.strategy && resolved.strategy.compatibilityIdentity || null;
+	}
 	return {
 		candidateSha256: candidate.digest,
 		callerContext: 'strategy_apply', operationNonce: selection.operationNonce,
@@ -1052,14 +1062,7 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 		expectedConfigSha256: configHash,
 		runtimeBinding: runtime_snapshot_binding(runtimeSnapshot),
 		previousSelected: selection.selected,
-		selected: {
-			id: resolved.id, origin: resolved.origin, revision: input.revision == null ? 0 : input.revision,
-			candidateSha256: candidate.digest, canonicalStrategyId: canonicalStrategyId,
-			sourceId: sourceId, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
-			z2kCompatibilityIdentity: resolved.strategy && resolved.strategy.z2kCompatibilityIdentity || null,
-			compatibilityIdentity: resolved.strategy && resolved.strategy.compatibilityIdentity || null,
-			strategyDigest: candidate.digest
-		}
+		selected: selected
 	};
 }
 
@@ -1256,11 +1259,15 @@ export const strategy_apply = function(input, context) {
 	// Return the exact identity projection committed by the transaction state
 	// writer.  Keeping this response identical to persisted `selected` avoids
 	// making callers reconstruct source provenance from a second authority.
-	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: requestRevision,
+	let appliedStrategy = { id: resolved.id, origin: resolved.origin, revision: requestRevision,
 		candidateSha256: candidate.digest, canonicalStrategyId: projection.selected.canonicalStrategyId,
 		 sourceId: projection.selected.sourceId, sourceSnapshotId: projection.selected.sourceSnapshotId,
-		sourceCommit: projection.selected.sourceCommit, z2kCompatibilityIdentity: projection.selected.z2kCompatibilityIdentity || null,
-		compatibilityIdentity: projection.selected.compatibilityIdentity || null, strategyDigest: projection.selected.strategyDigest };
+		sourceCommit: projection.selected.sourceCommit, strategyDigest: projection.selected.strategyDigest };
+	if (projection.selected.sourceId == 'z2k') {
+		appliedStrategy.z2kCompatibilityIdentity = projection.selected.z2kCompatibilityIdentity || null;
+		appliedStrategy.compatibilityIdentity = projection.selected.compatibilityIdentity || null;
+	}
+	applied.strategy = appliedStrategy;
 	timing_merge(timing, applied.timing);
 	timing.preflightCount = type(applied.timing) == 'object' && type(applied.timing.preflightCount) == 'int'
 		? applied.timing.preflightCount : 0;

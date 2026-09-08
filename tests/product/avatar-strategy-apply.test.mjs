@@ -12,6 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
+const GENERATION = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
 const RESULTS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc');
 const CATALOG_ROOT = path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 const CATALOG_DIGEST = JSON.parse(fs.readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8')).aggregateDigest;
@@ -229,6 +230,114 @@ function storage(callback, revision = 3) {
     fs.rmSync(root, { recursive: true, force: true });
     return result;
   } catch (error) { fs.rmSync(root, { recursive: true, force: true }); throw error; }
+}
+
+function compatibilityIdentity(sourceCommit) {
+  const value = {
+    release: 'r-80.3', sourceCommit, manifestRevision: 80,
+    runtimeBundleDigest: 'b'.repeat(64), compilerSnapshotDigest: 'c'.repeat(64),
+  };
+  const identityText = 'z2k-compatibility-v1\n'
+    + `release=${value.release}\nsourceCommit=${value.sourceCommit}\n`
+    + `manifestRevision=${value.manifestRevision}\nruntimeBundleDigest=${value.runtimeBundleDigest}\n`
+    + `compilerSnapshotDigest=${value.compilerSnapshotDigest}\n`;
+  return { ...value, digest: createHash('sha256').update(identityText).digest('hex') };
+}
+
+function generatedApplyStorage(callback) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-apply-generation-'));
+  const catalog = path.join(root, 'catalog');
+  const stateRoot = path.join(root, 'state');
+  const strategies = path.join(stateRoot, 'strategies');
+  fs.mkdirSync(strategies, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(stateRoot, 'extensions.json'), JSON.stringify({ schema: 1, extensions: [] }));
+  const avatarCommit = 'a'.repeat(40), z2kCommit = 'b'.repeat(40);
+  const z2kIdentity = compatibilityIdentity(z2kCommit);
+  const entry = (sourceId, id, sourceSnapshotId, sourceCommit) => ({
+    canonicalId: `${sourceId}:${id}`, sourceId, upstreamId: id,
+    sourceSnapshotId, sourceCommit, name: id, is_builtin: false,
+    profiles: [{ id: 'profile-1', enabled: true, args: '--filter-tcp=443',
+      ...(sourceId == 'z2k' ? { officialArgs: '--filter-tcp=443', officialProfileIndex: 0 } : {}) }],
+    capabilities: { autocircular: false, discordUdp: false, protocols: ['tcp'] },
+    requirements: { engine: 'nfqws2' },
+    ...(sourceId == 'z2k' ? {
+      entryKind: 'all-in-one', usable: true, sourcePath: 'official:generate_nfqws2_opt_from_strategies',
+      officialNfqws2Opt: '--filter-tcp=443', nativeValidation: { status: 'verified' },
+      dependencyClosure: { schema: 'z2m.z2k-dependency-closure.v1', items: [], missing: [],
+        counts: {}, runtimeBundleDigest: '9'.repeat(64), resolution: 'complete' },
+      z2kCompatibilityIdentity: z2kIdentity, compatibilityIdentity: z2kIdentity.digest,
+    } : {}),
+    provenance: {
+      repository: sourceId == 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId,
+      sourceSnapshotId, sourceCommit,
+      ...(sourceId == 'z2k' ? {
+        kind: 'strategy-catalog-import', sourcePath: 'official:generate_nfqws2_opt_from_strategies',
+        compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', compilerSnapshotDigest: 'c'.repeat(64),
+        nfqws2OptSha256: 'f'.repeat(64), templates: 'disabled',
+        z2kCompatibilityIdentity: z2kIdentity, compatibilityIdentity: z2kIdentity.digest,
+      } : { kind: 'strategy-catalog' }),
+    },
+  });
+  const avatarEntry = entry('avatar', 'z2k_all_in_one', 'avatar-s1', avatarCommit);
+  const z2kEntry = entry('z2k', 'z2k_all_in_one', 'z2k-s1', z2kCommit);
+  const snapshot = (sourceId, snapshotId, sourceCommit, item) => ({
+    schema: 'z2m.strategy-source-snapshot.v1', sourceId,
+    repository: sourceId == 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceCommit,
+    contentDigest: sourceId == 'avatar' ? 'd'.repeat(64) : 'e'.repeat(64), snapshotId,
+    entryCount: 1, normalizedEntryCount: 1, immutable: true, published: true, entries: [item],
+    ...(sourceId == 'z2k' ? {
+      sourcePath: 'official:generate_nfqws2_opt_from_strategies',
+      sourceFiles: ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'],
+      fileSha256: Object.fromEntries(['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh']
+        .map(name => [name, 'f'.repeat(64)])),
+      compilerSchema: 'z2m.z2k-official-compiler-snapshot.v1', nfqws2OptSha256: 'f'.repeat(64),
+      compilerSnapshotDigest: 'c'.repeat(64),
+      allInOne: { canonicalId: 'z2k:z2k_all_in_one', digest: 'a'.repeat(64), profileCount: 1 },
+    } : {}),
+  });
+  const env = {
+    Z2M_STRATEGY_CATALOG_GENERATION_ROOT: catalog,
+    Z2M_STRATEGY_ROOT: stateRoot, Z2M_STRATEGY_DIR: strategies,
+    Z2M_STRATEGY_STATE: path.join(stateRoot, 'strategy-state.json'),
+    Z2M_STRATEGY_RECONCILIATION: path.join(root, 'runtime/reconciliation.json'),
+    Z2M_STRATEGY_APPLY_UNCERTAIN: path.join(root, 'runtime/strategy-apply-uncertain.json'),
+    Z2M_STRATEGY_APPLY_LASTGOOD: path.join(root, 'runtime/last-good'),
+    Z2M_STRATEGY_APPLY_BLOCK: path.join(root, 'runtime/last-good/strategy-apply-block.json'),
+    Z2M_STRATEGY_APPLY_LEASE: path.join(root, 'runtime/last-good/strategy-apply-lease.json'),
+    Z2M_STRATEGY_CONFIG_LOCK: path.join(root, 'runtime/config.lock'),
+    Z2M_STRATEGY_PROFILE_MODULE: APPLY,
+    Z2M_STRATEGY_PROFILE_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply-cli.uc'),
+    Z2M_STRATEGY_STATE_MODULE: STATE, Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
+    Z2M_STRATEGY_SERVER_TEST: '1', Z2M_STRATEGY_LOCK: path.join(root, 'runtime/strategy.lock'),
+    Z2M_STRATEGY_EXTENSION_MANIFEST: path.join(stateRoot, 'extensions.json'),
+    Z2M_STRATEGY_RUNTIME_INPUTS: JSON.stringify({ source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2',
+      baseArgs: ['--qnum=30999'], luaInit: ['/opt/zapret2/lua/zapret-lib.lua'], hostlists: ['/lists/netrogat.txt'] }),
+    Z2M_STRATEGY_RUNTIME_ENVIRONMENT: JSON.stringify(environment),
+  };
+  const avatarSnapshot = snapshot('avatar', 'avatar-s1', avatarCommit, avatarEntry);
+  const z2kSnapshot = snapshot('z2k', 'z2k-s1', z2kCommit, z2kEntry);
+  const published = invoke(GENERATION, `mod.strategy_catalog_generation_publish(${JSON.stringify({
+    generatedAt: 1788203000,
+    sources: {
+      avatar: { enabled: true, currentSnapshotId: 'avatar-s1', snapshot: avatarSnapshot },
+      z2k: { enabled: true, currentSnapshotId: 'z2k-s1', snapshot: z2kSnapshot },
+    },
+    userRevision: 1, userEntries: [],
+  })})`, env);
+  assert.equal(published.ok, true, JSON.stringify(published));
+  fs.mkdirSync(path.join(root, 'runtime', 'last-good'), { recursive: true, mode: 0o700 });
+  try {
+    const result = callback({ env, z2kIdentity, catalogDigest: published.indexDigest });
+    if (result && typeof result.then === 'function') return result.finally(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.rmSync(root, { recursive: true, force: true });
+    return result;
+  } catch (error) { fs.rmSync(root, { recursive: true, force: true }); throw error; }
+}
+
+function transactionHookWithoutIdentityOverride(overrides = {}) {
+  const hook = JSON.parse(transactionHook(overrides));
+  delete hook.state.strategy_selection_apply;
+  return JSON.stringify(hook);
 }
 
 function holdUcode(module, expression, env) {
@@ -547,6 +656,40 @@ test('strategy_apply executes a successful transaction through the injected cand
   });
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_LEASE), false);
+}));
+
+test('Strategy Apply projection emits compatibility provenance only for Z2K selections', () => {
+  const source = fs.readFileSync(CLI, 'utf8');
+  const projection = source.slice(source.indexOf('function strategy_apply_projection'), source.indexOf('function strategy_apply_candidate'));
+  assert.match(projection, /if \(sourceId == 'z2k'\)[\s\S]*z2kCompatibilityIdentity[\s\S]*compatibilityIdentity/);
+  assert.doesNotMatch(projection, /sourceId: sourceId, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,\s*\n\s*z2kCompatibilityIdentity:/);
+});
+
+test('strategy_apply emits Avatar-safe provenance while preserving Z2K compatibility identity', () => generatedApplyStorage(({ env, z2kIdentity, catalogDigest }) => {
+  const candidate = strategyCandidateStub();
+  candidate.dependencies.dependencyClosure = { available: true, runtimeBundleDigest: z2kIdentity.runtimeBundleDigest };
+  const hook = transactionHookWithoutIdentityOverride({ candidate });
+  const apply = (strategyId, runtimeCompositionOverride = {}) => invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
+    strategy_id: strategyId, revision: 0, catalog_digest: catalogDigest,
+  })})`, {
+    ...env,
+    Z2M_STRATEGY_APPLY_HOOK: hook,
+    Z2M_STRATEGY_RUNTIME_COMPOSITION: JSON.stringify(runtimeComposition(runtimeCompositionOverride)),
+  });
+
+  const avatar = apply('avatar:z2k_all_in_one');
+  assert.equal(avatar.ok, true, JSON.stringify(avatar));
+  assert.equal(avatar.strategy.z2kCompatibilityIdentity, undefined);
+  assert.equal(avatar.strategy.compatibilityIdentity, undefined);
+  assert.equal(avatar.identity.ok, true, JSON.stringify(avatar));
+
+  const z2k = apply('z2k:z2k_all_in_one', {
+    z2kCompatibilityIdentity: z2kIdentity, compatibilityIdentity: z2kIdentity.digest,
+  });
+  assert.equal(z2k.ok, true, JSON.stringify(z2k));
+  assert.deepEqual(z2k.strategy.z2kCompatibilityIdentity, z2kIdentity);
+  assert.equal(z2k.strategy.compatibilityIdentity, z2kIdentity.digest);
+  assert.equal(z2k.identity.ok, true, JSON.stringify(z2k));
 }));
 
 test('locked Strategy Apply rejects a Registry/runtime composition change before the profile writer', () => storage(({ record, env }) => {
