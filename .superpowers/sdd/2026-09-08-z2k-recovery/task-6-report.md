@@ -103,3 +103,31 @@ is made.
   process on this router, so the new-process portion remains unverified.
 - UCode-backed product assertions remain skipped in the Windows host run and
   require the canonical WSL UCode environment for a full product count.
+
+## Fix-loop and live-gate addendum (2026-09-08)
+
+- Review P1 closed by `e2357c93f6cfc54657a7daf0eb20ff262d83ae13`: discovery
+  retry now refreshes the mounted view after a current-generation success.
+  Scoped re-review appended to `reviews/review-task-6.md` reports the P1
+  closed, no new source-level issue, `27 tests, 18 passed, 0 failed, 9
+  skipped`, `node --check` pass, and `git diff --check` pass.
+- The reviewed UI fix was source-deployed and the browser loaded the current
+  build. The compact block showed `Autodiscovery DNS: auto · доменов: 2 ·
+  mtime: 1788883403` with the canonical `Включить` action while the router
+  was disabled.
+- A safe browser trace captured the exact discovery mutation shape with the
+  session field redacted: `z2k_detect_discovery_enable({dnsSource:"auto"})`.
+  The operation reached the router; after clean reload the browser showed
+  the canonical running state and `Перезапустить`.
+- With a temporary `/var/log/dnsmasq.log` created only for this gate, the
+  browser selected `dnsmasq` and clicked `Перезапустить`. Router status then
+  reported `enabled:true`, `dnsSource:dnsmasq`, `running:true`, and new PID
+  `27937`; logread recorded bootstrap from
+  `dnsmasq:/var/log/dnsmasq.log`. Discovered count/mtime remained `2` and
+  `1788883403`.
+- Final state was restored through the typed control to
+  `enabled:false`, `dnsSource:auto`, `running:false`; the temporary log was
+  removed and verified absent. A final browser reload showed the same
+  disabled/auto canonical state.
+- Task 6 is now eligible for `VERIFIED`; the nine UCode skips remain an
+  environment limitation and are not counted as product passes.
