@@ -118,7 +118,7 @@ test('Scanner render flattens dynamic field nodes into the search form', () => {
   scanner.unmount();
 });
 
-test('invalid Scanner target focuses the target and keeps its described error state', () => {
+test('invalid Scanner domain focuses the replacement control after rerender', async () => {
   const scanner = loadScanner();
   const ctx = context();
   const rootNode = scanner.render(ctx, { status: { status: 'ready' }, report: null });
@@ -128,14 +128,30 @@ test('invalid Scanner target focuses the target and keeps its described error st
   domain.value = 'not a host';
   start.click();
 
-  assert.equal(domain.focused, true);
   assert.equal(domain.getAttribute('aria-invalid'), 'true');
   assert.equal(domain.getAttribute('aria-describedby'), 'z2m-scanner-field-error');
   const error = rootNode.find((node) => node.getAttribute('id') === 'z2m-scanner-field-error');
   assert.equal(error, null, 'refresh owns rerendering; the live error must be present in the next render');
   const next = scanner.render(ctx, { status: { status: 'ready' }, report: null });
+  const nextDomain = next.find((node) => node.tagName === 'INPUT' && node.getAttribute('name') === 'detect-domain');
   const nextError = next.find((node) => node.getAttribute('id') === 'z2m-scanner-field-error');
   assert.equal(nextError.textContent, 'Введите домен или ссылку на сайт.');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(nextDomain.focused, true, 'focus must land on the visible replacement control');
+  scanner.unmount();
+});
+
+test('typed no-call result uses a non-success presentation', () => {
+  const scanner = loadScanner();
+  const result = scanner.render(context(), {
+    status: { status: 'completed', operation: 'voice' },
+    report: { typedDetect: true, operation: 'voice', data: { verdict: 'no_call', reason: 'Начните звонок.' } }
+  });
+  const card = result.find((node) => (node.getAttribute('class') || '').includes('z2m-scanner-best-card'));
+  const kicker = result.find((node) => (node.getAttribute('class') || '').includes('z2m-scanner-best-kicker'));
+  assert.match(card.getAttribute('class'), /is-warning/);
+  assert.match(kicker.getAttribute('class'), /is-warning/);
+  assert.match(kicker.textContent, /Нужно действие/);
   scanner.unmount();
 });
 

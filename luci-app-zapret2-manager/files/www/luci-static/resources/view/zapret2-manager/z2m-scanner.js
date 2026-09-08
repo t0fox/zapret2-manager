@@ -417,16 +417,22 @@ function renderEvidence(ctx, report, controls) {
   if (report.typedDetect !== true || !object(report.data)) return null;
   return renderTypedResult(ctx, report, controls);
 }
+function resultPresentation(data, verdict) {
+  var lower = text(verdict).toLowerCase(), failureCode = text(data.FailureCode || data.failureCode).toLowerCase();
+  var needsAction = lower === 'no_call' || lower === 'error' || lower === 'failed' || lower === 'timeout' || !!failureCode;
+  return needsAction ? { tone: 'is-warning', icon: 'circle-alert', title: _('Нужно действие') } : { tone: 'is-success', icon: 'circle-check', title: _('Проверка завершена') };
+}
 function renderTypedResult(ctx, report, controls) {
   report = object(report);
   var data = object(report.data), operation = text(report.operation || state.status && state.status.operation).toUpperCase();
   var verdict = text(data.verdict || data.PathVerdict || (data.Detected === true ? 'detected' : data.Detected === false ? 'clear' : data.FailureCode || 'observed'));
   var reason = text(data.reason || data.PathReason || data.FailureReason || data.Err || data.output || _('Результат получен от Z2K Detect.'));
+  var presentation = resultPresentation(data, verdict);
   var details;
   try { details = JSON.stringify(data, null, 2); } catch (ignore) { details = _('Технические сведения недоступны.'); }
   return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen', role: 'status' }, [
-    E('article', { 'class': 'z2m-scanner-best-card card' }, [
-      E('div', { 'class': 'z2m-scanner-best-kicker' }, [icon('circle-check', 'is-success'), E('span', {}, _('Проверка завершена'))]),
+    E('article', { 'class': 'z2m-scanner-best-card card ' + presentation.tone }, [
+      E('div', { 'class': 'z2m-scanner-best-kicker ' + presentation.tone }, [icon(presentation.icon, presentation.tone), E('span', {}, presentation.title)]),
       E('strong', { 'class': 'z2m-scanner-best-title' }, requestEndpoint(state.request) || operationLabel(report.operation || state.status && state.status.operation)),
       E('div', { 'class': 'z2m-scanner-best-meta' }, operation + ' · ' + verdict),
       E('p', { 'class': 'z2m-scanner-best-reason' }, reason),
@@ -495,6 +501,13 @@ function fieldControl(field, value, disabled, hasError) {
   }
   return E('input', attrs);
 }
+function focusFieldAfterRender(field, control) {
+  if (!field || !control || typeof control.focus !== 'function' || typeof window === 'undefined' || typeof window.setTimeout !== 'function') return;
+  window.setTimeout(function () {
+    if (state.fieldErrorField !== field || !state.fieldError || control.isConnected === false) return;
+    control.focus();
+  }, 0);
+}
 function operationPicker(ctx, operation, disabled) {
   return E('div', { 'class': 'z2m-scanner-operations', role: 'group', 'aria-label': _('Тип проверки') }, DETECT_ACTIONS.map(function (item) {
     var button = E('button', { type: 'button', 'class': 'z2m-scanner-operation' + (operation === item ? ' on' : ''), 'aria-pressed': operation === item ? 'true' : 'false', 'data-operation': item, disabled: disabled ? 'disabled' : null }, DETECT_FORMS[item].label);
@@ -549,6 +562,7 @@ function render(ctx, data) {
       state.request[field] = controls.fields[field].value;
     });
   });
+  if (state.fieldErrorField && state.fieldError) focusFieldAfterRender(state.fieldErrorField, controls.fields[state.fieldErrorField]);
   return root;
 }
 function mount(ctx) {
