@@ -42,7 +42,7 @@ function coherentZ2k(overrides = {}) {
       integrity: 'verified',
       integrityOk: true,
       lua: { ready: 13, total: 13 },
-      installedRelease: { value: 'p-2026.09', confidence: 'confirmed', authority: 'activation-receipt' },
+      installedRelease: { value: 'p-2026.09', confidence: 'confirmed', authority: 'activation-receipt-v3' },
     },
     discovery: { enabled: true, running: true },
     runtimeSummary: {
@@ -63,9 +63,18 @@ function coherentZ2k(overrides = {}) {
       },
       coherence: { coherenceStatus: 'aligned', compatibilityStatus: 'aligned' },
     },
-    compatibility: { synchronized: true },
     ...overrides,
   };
+}
+
+function canonicalBackendZ2k(overrides = {}) {
+  return coherentZ2k({
+    runtimeSummary: {
+      ...coherentZ2k().runtimeSummary,
+      coherence: { coherenceStatus: 'aligned', compatibilityStatus: 'aligned' },
+    },
+    ...overrides,
+  });
 }
 
 function coreFor(z2k, engineOverrides) {
@@ -73,7 +82,7 @@ function coreFor(z2k, engineOverrides) {
 }
 
 test('Z2K Core exposes one canonical projection with user facts separated from technical evidence', () => {
-  const core = coreFor(coherentZ2k());
+  const core = coreFor(canonicalBackendZ2k());
 
   assert.equal(core.state, 'ready');
   assert.deepEqual(JSON.parse(JSON.stringify(core.facts)), {
@@ -98,15 +107,27 @@ test('Z2K Core exposes one canonical projection with user facts separated from t
   assert.equal(core.facts.technical, undefined, 'technical evidence must not leak into user facts');
 });
 
+test('canonical receipt authorities remain ready only with confirmed release evidence', () => {
+  for (const authority of ['activation-receipt-v3', 'activation-receipt-v2', 'activation-receipt']) {
+    const fixture = canonicalBackendZ2k();
+    fixture.local.installedRelease = { value: 'p-2026.09', confidence: 'confirmed', authority };
+    assert.equal(coreFor(fixture).state, 'ready', authority);
+  }
+
+  const unconfirmed = canonicalBackendZ2k();
+  unconfirmed.local.installedRelease = { value: 'p-2026.09', confidence: 'inferred', authority: 'activation-receipt-v3' };
+  assert.equal(coreFor(unconfirmed).state, 'degraded');
+});
+
 test('Z2K Core exposes distinct lifecycle states without turning update or operation facts into health', () => {
   const cases = [
-    ['missing', coherentZ2k(), { installed: false, serviceState: 'engine_missing', runtimeRunning: false }],
-    ['ready', coherentZ2k(), undefined],
-    ['update-available', coherentZ2k({ updateState: 'update-available', safeUpdate: { count: 1 } }), undefined],
-    ['degraded', coherentZ2k({ runtimeSummary: { ...coherentZ2k().runtimeSummary, detect: { architecture: 'x86_64', digest: digest('e'), sourceCommit: 'c'.repeat(40) } } }), undefined],
-    ['broken', coherentZ2k({ runtimeSummary: { ...coherentZ2k().runtimeSummary, health: 'broken' } }), undefined],
-    ['working', coherentZ2k({ operation: { state: 'working', action: 'upgrade', operationId: 'op-1' } }), undefined],
-    ['rollback-result', coherentZ2k({ operationResult: { state: 'rollback-result', ok: false, error: { code: 'EPOSTFLIGHT' }, rollback: { ok: true, state: 'completed' } } }), undefined],
+    ['missing', canonicalBackendZ2k(), { installed: false, serviceState: 'engine_missing', runtimeRunning: false }],
+    ['ready', canonicalBackendZ2k(), undefined],
+    ['update-available', canonicalBackendZ2k({ updateState: 'update-available', safeUpdate: { count: 1 } }), undefined],
+    ['degraded', canonicalBackendZ2k({ runtimeSummary: { ...canonicalBackendZ2k().runtimeSummary, detect: { architecture: 'x86_64', digest: digest('e'), sourceCommit: 'c'.repeat(40) } } }), undefined],
+    ['broken', canonicalBackendZ2k({ runtimeSummary: { ...canonicalBackendZ2k().runtimeSummary, health: 'broken' } }), undefined],
+    ['working', canonicalBackendZ2k({ operation: { state: 'working', action: 'upgrade', operationId: 'op-1' } }), undefined],
+    ['rollback-result', canonicalBackendZ2k({ operationResult: { state: 'rollback-result', ok: false, error: { code: 'EPOSTFLIGHT' }, rollback: { ok: true, state: 'completed' } } }), undefined],
   ];
 
   for (const [expected, input, engineOverrides] of cases) {
@@ -116,9 +137,9 @@ test('Z2K Core exposes distinct lifecycle states without turning update or opera
 
 test('Z2K Core never claims Работает when receipt, runtime, or Detect coherence is false', () => {
   const variants = [
-    coherentZ2k({ local: { ...coherentZ2k().local, installedRelease: { value: null, confidence: 'unknown', authority: null } } }),
-    coherentZ2k({ runtimeSummary: { ...coherentZ2k().runtimeSummary, health: 'ready', coherence: { coherenceStatus: 'diverged', compatibilityStatus: 'diverged' } } }),
-    coherentZ2k({ runtimeSummary: { ...coherentZ2k().runtimeSummary, detect: { architecture: 'x86_64', digest: null, sourceCommit } } }),
+    canonicalBackendZ2k({ local: { ...canonicalBackendZ2k().local, installedRelease: { value: null, confidence: 'unknown', authority: null } } }),
+    canonicalBackendZ2k({ runtimeSummary: { ...canonicalBackendZ2k().runtimeSummary, health: 'ready', coherence: { coherenceStatus: 'diverged', compatibilityStatus: 'diverged' } } }),
+    canonicalBackendZ2k({ runtimeSummary: { ...canonicalBackendZ2k().runtimeSummary, detect: { architecture: 'x86_64', digest: null, sourceCommit } } }),
   ];
 
   for (const input of variants) {

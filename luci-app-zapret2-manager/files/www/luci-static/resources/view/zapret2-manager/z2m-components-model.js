@@ -385,7 +385,9 @@ function normalizeZ2k(input, engineReady) {
 	var evidenceDigest = canonicalDigest || first(value.runtimeBundleDigest || local.runtimeBundleDigest || evidenceClosure && evidenceClosure.runtimeBundleDigest, null);
 	var releaseEvidence = local.installedRelease !== undefined ? local.installedRelease : runtimeSummary && runtimeSummary.installedRelease !== undefined ? runtimeSummary.installedRelease : value.installedRelease;
 	var receiptConfirmed = releaseEvidence && typeof releaseEvidence === 'object' && !Array.isArray(releaseEvidence)
-		? !!(first(releaseEvidence.value || releaseEvidence.version || releaseEvidence.release, null) && releaseEvidence.authority === 'activation-receipt')
+		? !!(first(releaseEvidence.value || releaseEvidence.version || releaseEvidence.release, null)
+			&& releaseEvidence.confidence === 'confirmed'
+			&& ['activation-receipt-v3', 'activation-receipt-v2', 'activation-receipt'].indexOf(releaseEvidence.authority) >= 0)
 		: false;
   // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
   // plus materialized/integrity-checked assets. Without a proven engine the
@@ -525,7 +527,8 @@ var strategyCount = countValue(value.strategyCount);
 		availableUpstreamRevision: first(coherenceSource.availableUpstreamRevision || value.availableUpstreamRevision || value.sourceCommit || value.manifestRevision, null),
 		currentStrategySourceRevision: first(coherenceSource.currentStrategySourceRevision || value.currentStrategySourceRevision, null),
 		candidateStrategyRevision: first(coherenceSource.candidateStrategyRevision || value.candidateStrategyRevision, null),
-		coherenceStatus: first(coherenceSource.coherenceStatus || value.coherenceStatus, 'unknown')
+		coherenceStatus: first(coherenceSource.coherenceStatus || value.coherenceStatus, 'unknown'),
+		compatibilityStatus: first(coherenceSource.compatibilityStatus || value.compatibilityStatus, null)
 	};
 	var releaseRaw = runtimeSummary && runtimeSummary.installedRelease !== undefined ? runtimeSummary.installedRelease : local.installedRelease !== undefined ? local.installedRelease : value.installedRelease;
 	var installedRelease;
@@ -557,10 +560,7 @@ var strategyCount = countValue(value.strategyCount);
 	var operation = first(preparedTarget.operation || selectedDetails.operation, null);
 	var versionRaw = installedRelease.value;
 	var discovery = object(value.discovery || local.discovery || runtimeSummary && runtimeSummary.discovery);
-	var synchronized = value.compatibility && typeof value.compatibility === 'object' && value.compatibility.synchronized !== undefined
-		? value.compatibility.synchronized === true
-		: value.compatibilitySynchronized !== undefined ? value.compatibilitySynchronized === true
-		: coherence.coherenceStatus === 'aligned' && coherence.compatibilityStatus === 'aligned';
+	var synchronized = coherence.compatibilityStatus === 'aligned';
 	var facts = {
 		strategies: { label: 'Стратегии', count: strategyCount },
 		detect: { status: detect.status, arch: detect.architecture },
