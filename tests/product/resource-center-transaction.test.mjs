@@ -6,6 +6,8 @@ const read = path => fs.readFileSync(path, 'utf8');
 const registry = read('zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc');
 const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const strategyUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-update.uc');
+const strategySourceRefresh = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
+const strategySources = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const resourceCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc');
 const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
@@ -65,6 +67,16 @@ test('Resource Center RPCs and ACL expose read checks separately from update', (
     assert.match(rpc, new RegExp(method));
     assert.match(acl, new RegExp(method));
   }
+});
+
+test('Z2K strategy refresh stays owned by Core while Avatar remains independently refreshable', () => {
+  for (const source of [strategySourceRefresh, strategySources]) {
+    assert.match(source, /code: 'EMANAGED'/);
+    assert.match(source, /owner: 'z2k-core'/);
+  }
+  assert.match(strategySourceRefresh, /if \(id == 'z2k'\) return managed_z2k\(\)/);
+  assert.match(strategySourceRefresh, /if \(id != 'avatar'\) return error\('EINPUT'/);
+  assert.match(strategySourceRefresh, /strategy_source_avatar_snapshot/);
 });
 
 test('REGRESSION: resources_status uses the bounded status projection at the RPC boundary', () => {

@@ -268,8 +268,10 @@ function buildModel(resources, assets, opts) {
 			isTechnical: isPackage,
 			state: 'current',
 			bundleUpdateState: null,
-			bundlePresentation: null
+			bundlePresentation: null,
+			managedBy: null
 		};
+		if (src.id === 'z2k-resources') group.managedBy = 'Z2K Core';
 		groupsById[src.id] = group;
 		groups.push(group);
 	}
@@ -525,6 +527,12 @@ function buildModel(resources, assets, opts) {
 	};
 }
 
+function bulkRefreshCandidates(cards) {
+	return array(cards).filter(function (card) {
+		return card && card.id !== 'z2k' && card.enabled === true && card.state !== 'current';
+	});
+}
+
 function shouldShowBadge(asset) {
 	var s = text(asset.state) || 'unknown';
 	// Only non-current exceptional states get badge
@@ -536,6 +544,7 @@ function shouldShowBadge(asset) {
 return baseclass.extend({
 	buildModel: buildModel,
 	buildStrategySourceCards: buildStrategySourceCards,
+	bulkRefreshCandidates: bulkRefreshCandidates,
 	shouldShowBadge: shouldShowBadge,
 	severityRank: severityRank,
 	humanStateLabel: humanStateLabel,

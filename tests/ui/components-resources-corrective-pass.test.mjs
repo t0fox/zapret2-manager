@@ -12,7 +12,10 @@ const uiCss = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/ww
 function sliceFunction(source, name) {
   const start = source.indexOf(`function ${name}`);
   assert.ok(start >= 0, `${name} exists`);
-  const next = source.indexOf('\nfunction ', start + 10);
+  const candidates = ['\n  function ', '\nfunction ']
+    .map(prefix => source.indexOf(prefix, start + 10))
+    .filter(index => index >= 0);
+  const next = candidates.length ? Math.min(...candidates) : -1;
   return source.slice(start, next < 0 ? source.length : next);
 }
 
@@ -23,6 +26,22 @@ test('Resources header does not repeat counts that already live in the filters',
   assert.match(assets, /label: _\('Системные · ' \+ summaryForRoute\.system\)/);
   assert.match(assets, /label: _\('Мои · ' \+ summaryForRoute\.user\)/);
   assert.doesNotMatch(assets, /summaryForRoute\.stateLabel/);
+});
+
+test('Z2K strategy source is managed by Core while Avatar retains independent controls', () => {
+  const source = sliceFunction(assets, 'renderStrategySource');
+  assert.match(source, /card\.id === 'z2k'/);
+  assert.match(source, /Управляется Z2K Core/);
+  assert.doesNotMatch(source, /sourceSetEnabled/);
+  assert.match(source, /managed\s*\? \[E\('span'/);
+  assert.match(source, /ctx\.shell\.button\(_\('Обновить'/);
+});
+
+test('Resources bulk refresh uses independent candidates instead of the combined catalog transaction', () => {
+  const sources = sliceFunction(assets, 'renderStrategySources');
+  assert.match(sources, /ResourcesModel\.bulkRefreshCandidates/);
+  assert.match(sources, /sourceRefresh\(card\.id\)/);
+  assert.doesNotMatch(sources, /catalogRefreshStart/);
 });
 
 test('Resources renders light semantic sections for source, managed, and user entities', () => {

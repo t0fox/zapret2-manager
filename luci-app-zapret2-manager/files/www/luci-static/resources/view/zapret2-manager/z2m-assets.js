@@ -275,32 +275,6 @@ function render(ctx) {
     return out;
   }
 
-  function renderUpdateCallout() {
-    var callout = summary.updateCallout;
-    if (!callout) return null;
-    var label;
-    var detail = null;
-    if (callout.status === 'update-available') {
-      label = _('Доступно обновление ') + callout.label;
-      var versions = [text(callout.from), text(callout.to)].filter(Boolean);
-      detail = versions.length ? E('span', { 'class': 'z2m-dim' }, versions.join(' → ')) : null;
-    } else if (callout.status === 'rebase-required') {
-      label = _('Требуется адаптация ') + callout.label;
-    } else if (callout.status === 'review-required') {
-      label = _('Требуется проверка ') + callout.label;
-    } else {
-      label = _('Требуется внимание ') + callout.label;
-    }
-    return E('div', { 'class': 'z2m-resource-update-callout', 'data-status': callout.status }, [
-      E('div', { 'class': 'z2m-resource-update-callout-head' }, [
-        E('span', { 'class': 'z2m-resource-update-icon' }, callout.status === 'update-available' ? '↑' : '!'),
-        E('strong', {}, label),
-        detail
-      ].filter(Boolean)),
-      ctx.shell.button(_('Подробнее'), 'sm', function () { ctx.navigate('components'); })
-    ]);
-  }
-
   function sourceStateBadge(card) {
     var kind = card.state === 'current' ? 'good' : card.state === 'error' ? 'danger' : card.state === 'missing' ? 'warn' : 'muted';
     return AvatarUi.statusBadge(card.state, { label: card.status, kind: kind });
@@ -342,10 +316,11 @@ function render(ctx) {
   }
 
   function renderStrategySource(card) {
-    var refreshButton = card.id === 'z2k' ? null : ctx.shell.button(_('Обновить'), 'primary sm', function () { refreshSource(card, refreshButton); });
-    var toggleButton = ctx.shell.button(card.enabled ? _('Отключить') : _('Включить'), 'sm' + (card.enabled ? ' danger' : ''), function () { toggleSource(card, toggleButton); });
+    var managed = card.id === 'z2k';
+    var refreshButton = managed ? null : ctx.shell.button(_('Обновить'), 'primary sm', function () { refreshSource(card, refreshButton); });
+    var toggleButton = managed ? null : ctx.shell.button(card.enabled ? _('Отключить') : _('Включить'), 'sm' + (card.enabled ? ' danger' : ''), function () { toggleSource(card, toggleButton); });
     if ((!card.configRevision || strategySources.ok === false) && refreshButton) refreshButton.disabled = true;
-    if (!card.configRevision || strategySources.ok === false) toggleButton.disabled = true;
+    if (toggleButton && (!card.configRevision || strategySources.ok === false)) toggleButton.disabled = true;
     var count = card.entryCount ? card.entryCount + ' ' + _('Исходных стратегий') : _('Нет проверенного снимка');
     if (card.normalizedEntryCount) count += ' · ' + card.normalizedEntryCount + ' ' + _('В каталоге');
     var snapshot = card.currentSnapshotId || card.lastKnownGoodSnapshotId || '—';
@@ -359,7 +334,9 @@ function render(ctx) {
       E('p', { 'class': 'z2m-strategy-source-note' }, card.id === 'z2k'
         ? _('Управляется Z2K Core: источник и каталог обновляются только вместе с выбранным релизом Z2K.')
         : _('Не применять автоматически: источник обновляет каталог, но не меняет активную стратегию.')),
-      E('div', { 'class': 'z2m-page-actions z2m-strategy-source-actions' }, [refreshButton, toggleButton].filter(Boolean))
+      E('div', { 'class': 'z2m-page-actions z2m-strategy-source-actions' }, managed
+        ? [E('span', { 'class': 'z2m-dim' }, _('Управляется Z2K Core'))]
+        : [refreshButton, toggleButton].filter(Boolean))
     ]);
   }
 
@@ -367,15 +344,22 @@ function render(ctx) {
     var children = [E('div', { 'class': 'z2m-resource-section-head' }, [E('h2', {}, _('ИСТОЧНИКИ СТРАТЕГИЙ')), E('p', { 'class': 'z2m-dim' }, _('Отдельные проверяемые источники объединяются в один каталог стратегий.'))])];
     if (strategySources.ok === false) children.push(sourceError(strategySources.error));
     children.push(E('div', { 'class': 'z2m-strategy-sources-grid' }, sourceCards.map(renderStrategySource)));
+    var refreshCandidates = ResourcesModel.bulkRefreshCandidates(sourceCards);
     var refreshAllButton = ctx.shell.button(_('Обновить все'), 'sm', function () {
+      if (!refreshCandidates.length) return;
       refreshAllButton.disabled = true;
-      ctx.api.strategies.catalogRefreshStart().then(function (answer) {
-        if (!answer || answer.ok === false || answer.error) throw answer;
+      Promise.all(refreshCandidates.map(function (card) {
+        return ctx.api.strategies.sourceRefresh(card.id).then(function (answer) {
+          if (!answer || answer.ok === false || answer.error) throw answer;
+          return answer;
+        });
+      })).then(function () {
         return ctx.refresh(ctx.route);
       }).catch(function (error) {
         ctx.shell.openModal(_('Источники не обновлены'), resourceErrorBody(ctx, error), ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal));
       }).then(function () { refreshAllButton.disabled = false; });
     });
+    refreshAllButton.disabled = refreshCandidates.length === 0;
     children.push(E('div', { 'class': 'z2m-strategy-source-footer' }, [refreshAllButton]));
     return E('section', { 'class': 'z2m-resource-section z2m-resource-section--strategy-sources', 'data-resource-section': 'strategy-sources' }, children);
   }
@@ -395,9 +379,14 @@ function render(ctx) {
     var metaLine = isStrategySource
       ? [_('Каталог стратегий'), group.repository].filter(Boolean).join(' · ')
       : totalLine;
+    if (group.id === 'z2k-resources') metaLine = _('Управляется Z2K Core') + (metaLine ? ' · ' + metaLine : '');
+    else if (group.managedBy) metaLine = _('Управляется ' + group.managedBy) + (metaLine ? ' · ' + metaLine : '');
     if (group.consumer || group.repository) {
       var extra = [group.consumer, group.repository].filter(Boolean).join(' · ');
-      if (extra && !isStrategySource) metaLine = totalLine + ' · ' + extra;
+      if (extra && !isStrategySource) {
+        metaLine = totalLine + ' · ' + extra;
+        if (group.id === 'z2k-resources') metaLine = _('Управляется Z2K Core') + ' · ' + metaLine;
+      }
     }
     // For user group with 0, metaLine is empty, show special
     var state = group.state || 'unknown';
@@ -515,7 +504,6 @@ function render(ctx) {
   }
 
   function renderBody() {
-    var callout = renderUpdateCallout();
     var groupsToShow = filteredGroups();
     var cards = groupsToShow.map(renderGroupSection);
     var empty = null;
@@ -538,7 +526,7 @@ function render(ctx) {
         ]);
       }
     }
-    return E('div', { 'class': 'z2m-resource-groups' }, [].concat([renderStrategySources()]).concat(callout ? [callout] : []).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
+    return E('div', { 'class': 'z2m-resource-groups' }, [].concat([renderStrategySources()]).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
   }
 
   var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов…'), 'aria-label': _('Поиск ресурсов') });

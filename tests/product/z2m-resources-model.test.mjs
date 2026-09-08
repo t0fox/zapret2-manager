@@ -184,20 +184,15 @@ test('6. healthy assets should not show per-asset badge', () => {
 	}
 });
 
-// 7. canonical Z2K update available -> global/group update callout, link Components, no second Обновить
-test('7. canonical Z2K update available -> updateCallout with Components target', () => {
+// 7. canonical Z2K update available -> Resources remains an inventory surface;
+// lifecycle update details are owned by Components.
+test('7. canonical Z2K update available -> no Resources lifecycle callout', () => {
 	const model = loadModel();
 	const sources = makeZ2kSources();
 	const installed = makeInstalledForZ2k(2, { lua: 1, blob: 1 });
 	const resources = { sources, installed, z2k: { status: 'update-available', local: { commit: 'p-79.18' }, manifest: { current: 'p-79.19' } } };
 	const out = model.buildModel(resources, { assets: [] }, { advanced: false });
-	assert.ok(out.updateCallout, 'updateCallout must exist');
-	assert.equal(out.updateCallout.status, 'update-available');
-	assert.equal(out.updateCallout.targetRoute, 'components');
-	assert.equal(out.updateCallout.from, null, 'technical commits are not presented as releases');
-	assert.equal(out.updateCallout.to, null, 'technical manifest revisions are not presented as releases');
-	assert.equal(out.updateCallout.technicalFrom, 'p-79.18');
-	assert.equal(out.updateCallout.technicalTo, 'p-79.19');
+	assert.equal(out.updateCallout, null);
 	// Group state should be update
 	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
 	assert.equal(z2kGroup.state, 'update');
@@ -225,7 +220,7 @@ test('canonical updateState drives the Z2K group when legacy status is absent', 
 	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
 	assert.equal(z2kGroup.bundleUpdateState, 'review-required');
 	assert.equal(z2kGroup.state, 'attention');
-	assert.equal(out.updateCallout.status, 'review-required');
+	assert.equal(out.updateCallout, null);
 });
 
 // 9. sources metadata inside corresponding group, no separate Sources tab data exposure as top-level
@@ -357,36 +352,43 @@ test('lifecycle management projection is consumed as the sole Resources editabil
 	assert.equal(custom.management.deletable, true);
 });
 
-test('rebase-required must produce distinct callout: Требуется адаптация', () => {
+test('Z2K group is Core-managed and bulk source candidates keep stale Avatar only', () => {
+	const model = loadModel();
+	const sources = makeZ2kSources();
+	const out = model.buildModel({ sources, installed: [], z2k: { status: 'current' } }, { assets: [] }, { advanced: false });
+	assert.equal(out.groups.find(group => group.id === 'z2k-resources').managedBy, 'Z2K Core');
+	const cards = model.buildStrategySourceCards({ sources: {
+		avatar: { enabled: true, state: 'stale' },
+		z2k: { enabled: true, state: 'stale' }
+	} });
+	assert.deepEqual(Array.from(model.bulkRefreshCandidates(cards), card => card.id), ['avatar']);
+});
+
+test('rebase-required stays an honest Core-managed attention state without Resources callout', () => {
 	const model = loadModel();
 	const sources = makeZ2kSources();
 	const installed = makeInstalledForZ2k(2, { lua: 1, blob: 1 });
 	const resources = { sources, installed, z2k: { status: 'rebase-required', local: { commit: 'p-79.18' }, manifest: { current: 'p-79.19' } } };
 	const out = model.buildModel(resources, { assets: [] }, { advanced: false });
-	assert.ok(out.updateCallout, 'callout must exist for rebase');
-	assert.equal(out.updateCallout.status, 'rebase-required');
-	assert.equal(out.updateCallout.targetRoute, 'components');
+	assert.equal(out.updateCallout, null);
 	// Group state must be attention, not current nor update
 	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
 	assert.equal(z2kGroup.state, 'attention');
-	// assets.js must render distinct label
 	const assetsSrc = fs.readFileSync(path.join(path.resolve(''), 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js'), 'utf8');
-	assert.match(assetsSrc, /Требуется адаптация/);
-	assert.doesNotMatch(assetsSrc, /rebase.*Доступно обновление/);
+	assert.doesNotMatch(assetsSrc, /function renderUpdateCallout/);
 });
 
-test('review-required must produce distinct callout: Требуется проверка', () => {
+test('review-required stays an honest Core-managed attention state without Resources callout', () => {
 	const model = loadModel();
 	const sources = makeZ2kSources();
 	const installed = makeInstalledForZ2k(2, { lua: 1, blob: 1 });
 	const resources = { sources, installed, z2k: { status: 'review-required', local: { commit: 'p-79.18' }, manifest: { current: 'p-79.19' } } };
 	const out = model.buildModel(resources, { assets: [] }, { advanced: false });
-	assert.ok(out.updateCallout);
-	assert.equal(out.updateCallout.status, 'review-required');
+	assert.equal(out.updateCallout, null);
 	const z2kGroup = out.groups.find(g => g.id === 'z2k-resources');
 	assert.equal(z2kGroup.state, 'attention');
 	const assetsSrc = fs.readFileSync(path.join(path.resolve(''), 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js'), 'utf8');
-	assert.match(assetsSrc, /Требуется проверка/);
+	assert.doesNotMatch(assetsSrc, /function renderUpdateCallout/);
 });
 
 test('severity: remote current + broken asset => group not current, broken, child has badge (remote does not mask)', () => {
@@ -421,8 +423,7 @@ test('canonical runtime summary owns Z2K counts while storage counts remain tech
 	assert.deepEqual(JSON.parse(JSON.stringify(z2kGroup.storageCounts)), { lua: 7, blob: 33 }, 'storage counts remain technical disclosure');
 	assert.deepEqual(JSON.parse(JSON.stringify(out.z2kSummary.counts)), summary.counts);
 	assert.equal(z2kGroup.assets.find(asset => asset.id === 'blob:youtube-list').semanticKind, 'hostlist', 'stable ID and storage type are preserved');
-	assert.equal(out.updateCallout.from, 'r-81.6');
-	assert.equal(out.updateCallout.to, 'r-82.1');
+	assert.equal(out.updateCallout, null);
 });
 
 test('resource model keeps canonical counts when runtime summary is projected at the response root', () => {
