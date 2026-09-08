@@ -34,4 +34,4 @@ Implementer: Codex only; no agents or reviewers spawned.
 
 ## Commit
 
-`f8def8b0` (`docs: record Z2K recovery baseline`).
+`d6ceee5c98635cdba25ce14bce40b9041fbf2ced` (`docs: record Z2K recovery baseline`).
