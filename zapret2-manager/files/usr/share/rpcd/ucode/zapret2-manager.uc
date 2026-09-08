@@ -491,10 +491,28 @@ function z2k_detect_quic_method(req) { return z2k_detect_quic(z2k_detect_input(r
 function z2k_detect_voice_method(req) { return z2k_detect_voice(z2k_detect_input(req)); }
 function z2k_detect_tcp16_method(req) { return z2k_detect_tcp16(z2k_detect_input(req)); }
 function z2k_detect_discovery_status_method(req) { return z2k_detect_discovery_status(); }
+function z2k_detect_discovery_rpc_input(req) {
+	let input = z2k_detect_input(req), nested = false;
+	if (input != null && type(input) != 'object')
+		return { ok: false, error: { code: 'EINPUT', message: 'discovery arguments must be an object' } };
+	// A deployed rpcd bridge may expose the typed request as a second args
+	// envelope. Unwrap only that exact envelope; unknown siblings stay rejected.
+	try {
+		if (req && req.args != null && input && input.args != null) nested = true;
+	} catch (e) { }
+	if (nested) {
+		for (let key in input) if (key != 'args')
+			return { ok: false, error: { code: 'EINPUT', message: 'Unsupported discovery control field.' } };
+		input = input.args;
+		if (input != null && type(input) != 'object')
+			return { ok: false, error: { code: 'EINPUT', message: 'discovery arguments must be an object' } };
+	}
+	return { ok: true, input: input || {} };
+}
 function z2k_detect_discovery_control_input(action, req) {
-	let input = z2k_detect_input(req);
-	if (input != null && type(input) != 'object') return { ok: false, error: { code: 'EINPUT', message: 'discovery arguments must be an object' } };
-	return z2k_detect_discovery_control(action, input || {});
+	let parsed = z2k_detect_discovery_rpc_input(req);
+	if (!parsed || parsed.ok !== true) return parsed;
+	return z2k_detect_discovery_control(action, parsed.input);
 }
 function z2k_detect_discovery_control_method(action, req) {
 	let changed = z2k_detect_discovery_control_input(action, req);
