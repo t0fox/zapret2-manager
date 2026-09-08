@@ -59,6 +59,15 @@ events="$state/events"
 printf '%b' ${JSON.stringify(discovered)} > "$state/discovered.txt"
 cat > "$state/ucode" <<'EOF_UCODE'
 #!/bin/sh
+if [ "$1" = '-e' ]; then
+  case "$*" in
+    *z2k_detect_discovery_config_read*)
+      [ "\${ELIGIBLE:-0}" = 1 ] || exit 1
+      case "$*" in *print*) printf '%s\\n' "\${DNS_SOURCE:-auto}" ;; esac
+      exit 0
+      ;;
+  esac
+fi
 last=""
 for arg do last="$arg"; done
 case "$last" in
@@ -103,13 +112,20 @@ test('procd supervises one fixed Detect run only after recovery and coherent lif
   assert.match(init, /procd_set_param\s+respawn\s+60\s+5\s+5/);
   assert.match(init, /procd_set_param\s+term_timeout\s+10/);
   assert.match(init, /z2k-lifecycle-recovery\.uc\s+recover/);
-  assert.match(init, /z2k-detect.*discovery-eligible|discovery-eligible.*z2k-detect/s);
+  assert.match(init, /discovery_eligible|z2k_detect_discovery_config_read/);
   assert.match(init, /paused/);
-  assert.match(init, /discovery-eligible/);
+  assert.match(init, /discovery_eligible/);
   assert.match(init, /coherent|EZ2K_INCOHERENT/);
   assert.doesNotMatch(detect, /pidof\s+z2k-detect/);
   assert.match(detect, /ubus call service list/);
   assert.match(detect, /zapret2-manager.*z2k-detect/s);
+});
+
+test('procd invokes the discovery adapter as a module before opening the instance', () => {
+  assert.doesNotMatch(init, /\$UCODE"?\s+"?\$DETECT_ADAPTER"?\s+discovery-(?:eligible|source)/);
+  assert.match(init, /\$UCODE"?\s+-e/);
+  assert.match(init, /z2k_detect_discovery_config_read/);
+  assert.match(init, /z2k_detect_status/);
 });
 
 test('disabled discovery has no service command and the fixed run publishes the persistent list', () => {

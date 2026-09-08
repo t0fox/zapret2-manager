@@ -31,10 +31,17 @@ start_service() {
 	procd_close_instance
 
 	# Discovery is deliberately a separate, named procd instance. The fixed
-	# adapter validates the coherent Core receipt and control file; this shell
-	# only accepts its bounded DNS-source result and never forwards user argv.
-	if [ ! -e /tmp/zapret2-manager/paused ] && "$UCODE" "$DETECT_ADAPTER" discovery-eligible >/dev/null 2>&1; then
-		DNS_SOURCE="$($UCODE "$DETECT_ADAPTER" discovery-source 2>/dev/null)"
+	# adapter is an importable module, not a raw script: it exports the
+	# discovery contract alongside the RPC implementation. This shell only
+	# accepts its bounded DNS-source result and never forwards user argv.
+	discovery_eligible() {
+		"$UCODE" -e "import * as detect from '$DETECT_ADAPTER'; let config = detect.z2k_detect_discovery_config_read(), authority = detect.z2k_detect_status(); if (!(config.ok === true && config.enabled === true && authority.ok === true && authority.coherent === true)) exit(1);" >/dev/null 2>&1
+	}
+	discovery_source() {
+		"$UCODE" -e "import * as detect from '$DETECT_ADAPTER'; let config = detect.z2k_detect_discovery_config_read(), authority = detect.z2k_detect_status(); if (!(config.ok === true && config.enabled === true && authority.ok === true && authority.coherent === true)) exit(1); print(config.dnsSource);" 2>/dev/null
+	}
+	if [ ! -e /tmp/zapret2-manager/paused ] && discovery_eligible; then
+		DNS_SOURCE="$(discovery_source)"
 		case "$DNS_SOURCE" in
 			auto|agh|dnsmasq|pkt)
 				procd_open_instance z2k-detect
