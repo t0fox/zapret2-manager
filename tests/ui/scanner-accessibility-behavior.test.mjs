@@ -151,7 +151,7 @@ test('typed no-call result uses a non-success presentation', () => {
   const kicker = result.find((node) => (node.getAttribute('class') || '').includes('z2m-scanner-best-kicker'));
   assert.match(card.getAttribute('class'), /is-warning/);
   assert.match(kicker.getAttribute('class'), /is-warning/);
-  assert.match(kicker.textContent, /Нужно действие/);
+  assert.match(kicker.textContent, /Звонок не обнаружен/);
   scanner.unmount();
 });
 

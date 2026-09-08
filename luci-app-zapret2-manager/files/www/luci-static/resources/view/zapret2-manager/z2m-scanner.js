@@ -419,8 +419,9 @@ function renderEvidence(ctx, report, controls) {
 }
 function resultPresentation(data, verdict) {
   var lower = text(verdict).toLowerCase(), failureCode = text(data.FailureCode || data.failureCode).toLowerCase();
-  var needsAction = lower === 'no_call' || lower === 'error' || lower === 'failed' || lower === 'timeout' || !!failureCode;
-  return needsAction ? { tone: 'is-warning', icon: 'circle-alert', title: _('Нужно действие') } : { tone: 'is-success', icon: 'circle-check', title: _('Проверка завершена') };
+  if (lower === 'no_call') return { tone: 'is-warning', icon: 'warning', title: _('Звонок не обнаружен'), reason: _('Подключитесь к голосовому каналу Discord и повторите проверку.') };
+  if (lower === 'error' || lower === 'failed' || lower === 'timeout' || lower === 'negative' || !!failureCode) return { tone: 'is-error', icon: 'circle-alert', title: _('Проверка не пройдена') };
+  return { tone: 'is-success', icon: 'circle-check', title: _('Проверка завершена') };
 }
 function renderTypedResult(ctx, report, controls) {
   report = object(report);
@@ -428,6 +429,7 @@ function renderTypedResult(ctx, report, controls) {
   var verdict = text(data.verdict || data.PathVerdict || (data.Detected === true ? 'detected' : data.Detected === false ? 'clear' : data.FailureCode || 'observed'));
   var reason = text(data.reason || data.PathReason || data.FailureReason || data.Err || data.output || _('Результат получен от Z2K Detect.'));
   var presentation = resultPresentation(data, verdict);
+  if (presentation.reason) reason = presentation.reason;
   var details;
   try { details = JSON.stringify(data, null, 2); } catch (ignore) { details = _('Технические сведения недоступны.'); }
   return E('section', { id: 'z2m-scanner-results', 'class': 'z2m-scanner-result-screen', role: 'status' }, [
