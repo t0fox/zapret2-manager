@@ -207,6 +207,21 @@ test('1G successful target apply clears the prepared snapshot and rolls back fai
   assert.doesNotMatch(ru, /POST-APPLY REPLAN/);
 });
 
+test('1H postflight failure has a distinct initiating error and a top-level rollback contract', () => {
+  const ru = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
+  assert.match(ru, /fail\('EPOSTFLIGHT',\s*'postflight failed'/);
+  assert.match(ru, /rollback:\s*rollback/);
+  assert.match(ru, /z2k_rollback_outcome/);
+});
+
+test('1I repair requests are resolved from the installed Registry release before upstream resolution', () => {
+  const ru = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
+  assert.match(ru, /request\.repair/);
+  assert.match(ru, /resolveRepairTarget/);
+  assert.match(ru, /resource_center_prepare_version/);
+  assert.doesNotMatch(ru, /repair[\s\S]{0,240}z2k_resolve_latest/);
+});
+
 // ---------------------------------------------------------------------------
 // TEST 1H — state preserved
 // ---------------------------------------------------------------------------

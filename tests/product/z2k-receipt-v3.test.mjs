@@ -90,6 +90,22 @@ test('V3 receipt validates the complete coherent Core identity', { skip: !hasUco
   assert.equal(invoke(`authority.z2k_registry_receipt_state(${JSON.stringify(value.registry)})`).state, 'COHERENT_VERIFIED');
 });
 
+test('sole Registry authority exposes a coherent same-release repair target', () => {
+  const installed = fs.readFileSync(installedPath, 'utf8');
+  assert.match(installed, /z2k_registry_repair_release/);
+  assert.match(installed, /COHERENT_VERIFIED/);
+});
+
+test('repair resolves the installed coherent release through the same pure runtime bridge', { skip: !hasUcode }, () => {
+  const value = fixture();
+  const direct = invoke(`authority.z2k_registry_repair_release(${JSON.stringify(value.registry)})`);
+  assert.equal(direct.ok, true, JSON.stringify(direct));
+  assert.equal(direct.release, release, JSON.stringify(direct));
+  const bridged = invokeModules(`runtime.resolveRepairTarget(${JSON.stringify(value.registry)})`);
+  assert.equal(bridged.ok, true, JSON.stringify(bridged));
+  assert.equal(bridged.release, release, JSON.stringify(bridged));
+});
+
 test('V3 receipt rejects missing Detect identity and Detect digest mismatch', { skip: !hasUcode }, () => {
   const missing = fixture();
   missing.receipt.detect = null;

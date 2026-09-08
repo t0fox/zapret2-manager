@@ -8,6 +8,7 @@ function object(value) { return type(value) == 'object' && value != null; }
 function text(value) { return value == null ? '' : '' + value; }
 function valid_job_path(path) { return type(path) == 'string' && match(path, /^\/tmp\/z2m-resource-update\/jobs\/z2k-[0-9]+-[a-f0-9]{16}\/job\.json$/); }
 function fail(code, message) { return { ok: false, error: { code: code, message: message } }; }
+function lifecycle_mode(request) { return object(request) && request.repair === true ? 'same-release-repair' : 'normal'; }
 
 let jobPath = ARGV[0], raw = valid_job_path(jobPath) ? readfile(jobPath) : null, job = null;
 try { if (raw != null) job = json(raw); } catch (e) { job = null; }
@@ -17,6 +18,7 @@ if (!object(job) || !object(job.request) || job.operationId == null || !stat(job
 // owned by resource-update.uc and its /etc pending-activation journal.
 job.phase = 'running';
 job.finished = false;
+job.lifecycleMode = lifecycle_mode(job.request);
 job.startedAt = job.startedAt || time();
 job.updatedAt = time();
 if (!resource_center_operation_write(jobPath, job)) exit(1);

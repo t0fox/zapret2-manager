@@ -8,7 +8,7 @@ import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
 import { z2k_resolve_version, z2k_compare_versions, z2k_target_operation, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
-import { resolveCandidate, resolveInstalled, resolveTargetRuntimeInput, runtime_composition_candidate_cas, runtime_strategy_preflight, runtime_materialize_failure_rollback, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
+import { resolveCandidate, resolveInstalled, resolveTargetRuntimeInput, resolveRepairTarget, runtime_composition_candidate_cas, runtime_strategy_preflight, runtime_materialize_failure_rollback, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
 import { read_var, config_sha256, transaction_config_snapshot, restore_transaction_config } from './apply.uc';
 import { engine_status } from './engine-manager.uc';
 import * as strategy_sources from './strategy-sources.uc';
@@ -872,6 +872,12 @@ function z2k_lifecycle_lock_release() {
 	}
 }
 function cleanup(root, paths) { for (let i = 0; i < length(paths || []); i++) { try { unlink(paths[i]); } catch (e) {} } if (root != null) command('rmdir ' + shell_quote(root) + ' >/dev/null 2>&1'); }
+function z2k_rollback_outcome(rollback, attempted) {
+	if (attempted !== true) return { attempted: false, ok: true, restored: null };
+	let restored = object(rollback) && object(rollback.restoredIdentity) ? rollback.restoredIdentity : null;
+	return { attempted: true, ok: object(rollback) && rollback.ok === true && restored != null, restored: restored };
+}
+
 function z2k_runtime_guard_finish(guard, root, paths, result, testSeams) {
 	let testing = object(testSeams) && testSeams.testOnly === true;
 	cleanup(root, paths);
@@ -883,7 +889,9 @@ function z2k_runtime_guard_finish(guard, root, paths, result, testSeams) {
 		answer.error = answer.error || { code: 'ERUNTIME', message: 'Z2K lifecycle cleanup failed.' };
 		answer.ok = false;
 	}
-	let detectPublication = z2k_active_detect_publication, rollbackContract = object(answer.rollback) ? answer.rollback : (answer.error && object(answer.error.rollback) ? answer.error.rollback : null), detectTransaction = { ok: true, skipped: true };
+	let detectPublication = z2k_active_detect_publication, rollbackContract = object(answer.error && answer.error.rollback) ? answer.error.rollback
+		: (object(answer.rollback) && answer.rollback.attempted == null ? answer.rollback : null), detectTransaction = { ok: true, skipped: true };
+	if (object(answer.error) && object(answer.error.rollback)) delete answer.error.rollback;
 	if (object(detectPublication) && detectPublication.published === true) {
 		if (answer.ok === true) {
 			detectTransaction = testing ? testSeams.detectFinalize(detectPublication) : z2k_detect_finalize(detectPublication);
@@ -910,9 +918,23 @@ function z2k_runtime_guard_finish(guard, root, paths, result, testSeams) {
 	}
 	answer.lifecycleCleanup = { pause: pause, lock: lock };
 	answer.detectTransaction = detectTransaction;
+	if (answer.ok !== true) answer.rollback = rollbackContract == null ? { attempted: false, ok: true, restored: null } : z2k_rollback_outcome(rollbackContract, true);
 	z2k_active_detect_publication = null;
 	return answer;
 }
+
+function z2k_rollback_restored_identity(pending, rollback) {
+	let identity = pending && pending.rollbackIdentity, receipt = identity && identity.receipt;
+	if (!object(identity) || !object(receipt) || !object(rollback) || rollback.ok !== true) return null;
+	let release = receipt.release || receipt.version || identity.release || null;
+	let runtimeBundleDigest = receipt.runtimeBundleDigest || identity.runtimeBundleDigest || null;
+	let detectSha256 = identity.detectSha256 || receipt.detect && receipt.detect.digest || pending.priorDetect && pending.priorDetect.sha256 || null;
+	let catalogDigest = identity.catalogDigest || receipt.catalogDigest || pending.priorCatalog && pending.priorCatalog.indexDigest || null;
+	let strategyIdentity = identity.strategyIdentity || null;
+	if (!string(release) || !valid_digest(runtimeBundleDigest) || !valid_digest(detectSha256) || !valid_digest(catalogDigest) || !valid_digest(strategyIdentity)) return null;
+	return { release: release, runtimeBundleDigest: runtimeBundleDigest, detectSha256: detectSha256, catalogDigest: catalogDigest, strategyIdentity: strategyIdentity };
+}
+
 function digest_text(value, prefix) {
 	let made = command('umask 077; mktemp /tmp/' + (prefix || 'z2m-digest') + '.XXXXXX'), path = trim(made.out);
 	if (made.rc != 0 || !match(path, /^\/tmp\/[A-Za-z0-9._-]+$/)) return null;
@@ -1017,6 +1039,10 @@ function z2k_selected_activation_token(selected) {
 		+ '|' + z2k_token_value(selected.sourceCommit) + '|' + z2k_token_value(selected.strategyDigest)
 		+ '|' + z2k_token_value(selected.compatibilityIdentity) + '|'
 		+ (object(selected.z2kCompatibilityIdentity) ? z2k_token_value(selected.z2kCompatibilityIdentity.digest) : '');
+}
+function z2k_strategy_identity(selected) {
+	let token = z2k_selected_activation_token(selected);
+	return token == null ? null : digest_text(token, 'z2m-z2k-strategy-identity');
 }
 function z2k_source_row_token(row) {
 	if (!object(row) || type(row.enabled) != 'bool') return null;
@@ -1340,7 +1366,7 @@ export const resource_center_enqueue_prepare = function(request) {
 	let dir = Z2K_OPERATION_PARENT + '/' + operationId, jobPath = dir + '/job.json';
 	try { mkdir(dir); } catch (e) {}
 	if (stat(jobPath) != null) return fail('EBUSY', 'Z2K prepare operation identity is already in use.');
-	let now = time(), job = { schema: 1, kind: 'prepare', operationId: operationId, phase: 'queued', finished: false, request: { version: version }, createdAt: now, updatedAt: now, pid: null };
+	let now = time(), job = { schema: 1, kind: 'prepare', operationId: operationId, phase: 'queued', finished: false, request: { version: version, repair: repair }, createdAt: now, updatedAt: now, pid: null };
 	if (!z2k_operation_write(jobPath, job)) return fail('EWRITE', 'Z2K prepare operation could not be queued.');
 	let spawned = z2k_operation_spawn(jobPath);
 	if (!spawned.ok) {
@@ -1994,7 +2020,9 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 		detect: detectRollback, journal: journal, evidence: evidence,
 		error: { code: 'ERECOVERY_REQUIRED', message: 'Z2K rollback completed but durable recovery evidence could not be closed.' }
 	}, migrationRollback);
-	return z2k_rollback_finish({ ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, autocircularRollback: autocircularRollback, detect: detectRollback, journal: journal, evidence: evidence }, migrationRollback);
+	let completed = { ok: true, recoveryRequired: false, detectHandled: true, detectPreserved: false, runtime: runtimeRollback, registry: registryRollback, source: sourceRollback, catalog: catalogRollback, strategy: strategyRollback, config: configRollback, autocircularRollback: autocircularRollback, detect: detectRollback, journal: journal, evidence: evidence };
+	completed.restoredIdentity = z2k_rollback_restored_identity(pending, completed);
+	return z2k_rollback_finish(completed, migrationRollback);
 }
 export const resource_center_test_rollback_transaction = function(input) {
 	if (!object(input) || input.testOnly !== true || !object(input.seams)) return fail('EINPUT', 'Internal rollback test seam is restricted to controlled tests.');
@@ -2271,7 +2299,13 @@ function inline_bundle(request) {
 export const resource_center_prepare_version = function(request) {
 	let engine = z2k_engine_runtime_projection();
 	if (!engine || engine.ready !== true) return fail('EENGINE_REQUIRED', 'Сначала установите и запустите совместимый Zapret2 Engine.');
-	let version = object(request) ? request.version : request;
+	let repair = object(request) && request.repair === true, version = object(request) ? request.version : request;
+	if (repair) {
+		let listedForRepair = asset_registry_list(null), repairTarget = resolveRepairTarget(listedForRepair);
+		if (!repairTarget.ok) return repairTarget;
+		if (version != null && version != repairTarget.release) return fail('EREPAIR_REQUIRED', 'Same-release Z2K repair cannot target a different release.', { installedRelease: repairTarget.release, requestedVersion: version });
+		version = repairTarget.release;
+	}
 	if (!string(version) || z2k_compare_versions(version, version) == null) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
 	let resolved = z2k_resolve_version(version); if (!resolved.ok) return resolved;
 	let detect = z2k_detect_candidate(resolved.manifest, resolved.commitSha, trim(command('uname -m').out));
@@ -2496,7 +2530,18 @@ export const resource_center_test_precommit_failure = function(input) {
 	}
 	let gate = z2k_precommit_gate(target, { lifecycleState: 'candidate' }, staged);
 	if (gate.ok === true) { mutations.registry++; mutations.runtime++; activeIdentity = 'Y'; }
-	return gate.ok === true ? { ok: true, mutations: mutations, activeIdentity: activeIdentity } : { ok: false, error: gate.error, mutations: mutations, activeIdentity: activeIdentity };
+	return gate.ok === true ? { ok: true, mutations: mutations, activeIdentity: activeIdentity } : { ok: false, error: gate.error, rollback: { attempted: false, ok: true, restored: null }, mutations: mutations, activeIdentity: activeIdentity };
+};
+
+// Controlled result seam for the postflight contract.  The production path
+// supplies the same restoredIdentity from the durable pending snapshot after
+// the existing rollback owners have verified their physical state.
+export const resource_center_test_postflight_failure = function(input) {
+	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Internal postflight test seam is restricted to controlled tests.');
+	let restoredIdentity = { release: 'p-82.18', runtimeBundleDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', detectSha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', catalogDigest: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', strategyIdentity: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' };
+	let rollback = { ok: true, restoredIdentity: restoredIdentity, physicalIdentityBefore: 'candidate', physicalIdentityAfter: 'lkg' };
+	let result = fail('EPOSTFLIGHT', 'postflight failed', { rollback: rollback });
+	return z2k_runtime_guard_finish({ ok: true, owned: false }, null, [], result, { testOnly: true });
 };
 
 export const resource_center_test_target_operation = function(input) {
@@ -2632,6 +2677,10 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 		rollbackIdentity: { registryRevision: listed.revision, receipt: priorAuthority.receipt || null,
 			receiptId: priorAuthority.receipt && priorAuthority.receipt.receiptId || null,
 			runtimeBundleDigest: priorAuthority.receipt && priorAuthority.receipt.runtimeBundleDigest || priorRuntimeComposition.runtimeBundleDigest || null,
+			release: priorAuthority.receipt && (priorAuthority.receipt.release || priorAuthority.receipt.version) || null,
+			detectSha256: detectPrepared.prior && detectPrepared.prior.sha256 || null,
+			catalogDigest: priorActivation.catalog && priorActivation.catalog.indexDigest || null,
+			strategyIdentity: z2k_strategy_identity(priorActivation.selected),
 			runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' },
 		priorReceipt: priorAuthority.receipt || null, priorRegistryRevision: listed.revision, priorRegistryMembership: listed.assets || [],
 		priorRuntimeComposition: priorRuntimeComposition,
@@ -2697,7 +2746,7 @@ function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed
 	diagnostics.registryPostflight = registryPostflight;
 	if (!registryPostflight.ok) {
 		let rollback = z2k_rollback_after_runtime_failure(selected, { ...applied, committedAssetRevision: committedAssetRevision }, diagnostics, false);
-		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EVERIFY' : 'EROLLBACK', rollback.ok ? 'Z2K Registry activation was rolled back after postflight verification failed.' : 'Z2K Registry activation failed and rollback could not be completed.', { postflight: registryPostflight.error, rollback: rollback, diagnostics: diagnostics }));
+		return z2k_runtime_guard_finish(guard, root, paths, fail(rollback.ok ? 'EPOSTFLIGHT' : 'EROLLBACK', rollback.ok ? 'postflight failed' : 'Z2K Registry activation failed and rollback could not be completed.', { postflight: registryPostflight.error, rollback: rollback, diagnostics: diagnostics }));
 	}
 	let runtimeSpecPath = root + '/runtime-activation.tsv';
 	push(paths, runtimeSpecPath);

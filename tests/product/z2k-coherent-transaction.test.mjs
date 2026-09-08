@@ -393,6 +393,38 @@ test('post-materialize readiness failure restores the physical X snapshot', { sk
   }, JSON.stringify(result));
 });
 
+test('postflight failure exposes a canonical top-level rollback outcome and preserves the LKG identity', { skip: !hasUcode }, () => {
+  const result = invoke(`transaction.resource_center_test_postflight_failure({ testOnly: true })`);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.deepEqual(result.error, { code: 'EPOSTFLIGHT', message: 'postflight failed' }, JSON.stringify(result));
+  assert.deepEqual(result.rollback, {
+    attempted: true,
+    ok: true,
+    restored: {
+      release: 'p-82.18',
+      runtimeBundleDigest: 'a'.repeat(64),
+      detectSha256: 'b'.repeat(64),
+      catalogDigest: 'c'.repeat(64),
+      strategyIdentity: 'd'.repeat(64),
+    },
+  }, JSON.stringify(result));
+});
+
+test('pre-commit failure exposes no-mutation rollback outcome', { skip: !hasUcode }, () => {
+  const result = invoke(`transaction.resource_center_test_precommit_failure({ testOnly: true, failure: 'detect-sha' })`);
+  assert.deepEqual(result.rollback, { attempted: false, ok: true, restored: null }, JSON.stringify(result));
+  assert.equal(result.mutations.registry, 0, JSON.stringify(result));
+  assert.equal(result.mutations.runtime, 0, JSON.stringify(result));
+  assert.equal(result.activeIdentity, 'X', JSON.stringify(result));
+});
+
+test('Task 12 rollback result contract is owned by the existing coordinator', () => {
+  assert.match(coordinator, /function z2k_rollback_outcome/);
+  assert.match(coordinator, /answer\.rollback\s*=.*z2k_rollback_outcome/);
+  assert.match(coordinator, /attempted:\s*false/);
+  assert.match(coordinator, /EPOSTFLIGHT/);
+});
+
 test('Registry crash window remains pending until prior identity is proven or rolled back', { skip: !hasUcode }, () => {
   const result = invoke(`transaction.resource_center_test_recovery_contract({ testOnly: true, phase: 'REGISTRY_COMMITTING', registryMatchesPrior: false, runtimeMatchesPrior: true, catalogMatchesPrior: true, detectMatchesPrior: true, receiptMatchesPrior: false })`);
   assert.equal(result.ok, false, JSON.stringify(result));

@@ -11,6 +11,7 @@ import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { z2k_candidate_build } from './z2k-coherent-candidate.uc';
 import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
 import { z2k_lua_function_closure } from './z2k-migration.uc';
+import { z2k_registry_repair_release } from './z2k-installed-release.uc';
 
 const BUNDLE_ID = 'z2k-curated-lua';
 const MAX_ENTRIES = 128;
@@ -126,6 +127,12 @@ export const resolveTargetRuntimeInput = function(preparedTarget) {
 	for (let entry in lifecycle.entries) push(all, entry);
 	runtimeAssets = sorted_copy(all);
 	return { ok: true, runtimeAssets: runtimeAssets, lifecycleAssets: lifecycle.entries, packageAssets: staticResult.entries };
+};
+
+// Repair target resolution is pure and authority-bound.  The caller still
+// reuses the ordinary prepare/apply transaction for all writes.
+export const resolveRepairTarget = function(registry) {
+	return z2k_registry_repair_release(registry || asset_registry_list(null));
 };
 
 function identity_authority(authority) {

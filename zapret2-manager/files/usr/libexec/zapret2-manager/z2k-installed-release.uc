@@ -164,3 +164,14 @@ export const z2k_registry_receipt_state = function(listed) {
 	}
 	return { state: 'unknown', receipt: null };
 };
+
+// Repair is allowed only from the sole Registry-backed coherent receipt.  It
+// deliberately does not consult upstream/latest state: repair must reinstall
+// the exact release whose complete v3 identity is currently installed.
+export const z2k_registry_repair_release = function(listed) {
+	let value = listed || asset_registry_list(null), state = z2k_registry_receipt_state(value), installed = z2k_registry_installed_release(value);
+	if (!object(value) || value.ok !== true || !object(state) || state.state != 'COHERENT_VERIFIED'
+		|| !object(state.receipt) || !installed || installed.confidence != 'confirmed' || installed.value != state.version)
+		return { ok: false, error: { code: 'EREPAIR_REQUIRED', message: 'Same-release Z2K repair requires a coherent Registry receipt-v3 authority.' }, state: state && state.state || 'unknown', installed: installed || null };
+	return { ok: true, release: state.version, receipt: state.receipt, authority: 'activation-receipt-v3', state: state.state };
+};

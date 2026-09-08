@@ -456,6 +456,14 @@ test('rollback coordinator restores Registry/runtime/source/Detect owners as one
   assert.equal(result.calls.detect, true);
 });
 
+test('rollback identity captures Detect, catalog, and strategy identities for the canonical outcome', () => {
+  const ru = fs.readFileSync(resourceModulePath, 'utf8');
+  assert.match(ru, /detectSha256:/);
+  assert.match(ru, /catalogDigest:/);
+  assert.match(ru, /strategyIdentity:/);
+  assert.match(ru, /restoredIdentity/);
+});
+
 test('production owners include Detect in the Core transaction and worker remains a coordinator', () => {
   const coordinator = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc'), 'utf8');
   const worker = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-worker.uc'), 'utf8');

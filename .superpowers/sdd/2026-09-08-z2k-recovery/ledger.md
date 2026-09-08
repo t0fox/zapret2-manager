@@ -13,7 +13,7 @@
 | 9 | VERIFIED | implementation `cdeecf59` + owner fix `a306709e`; 53/53 focused tests, independent Luna review PASS, source deploy with UI/backend hash parity, live `EMANAGED` owner RPC, and cache-cleared Resources browser gate recorded in `task-9-report.md` |
 | 10 | VERIFIED | call graph and exact KEEP_SHARED/REMOVE_LEGACY closure recorded in `scanner-callgraph.md`; RED closure run is 7 passed/1 expected legacy-remnant failure, with retained Detect and shared profile-adapter checks passing in `task-10-report.md` |
 | 11 | IN_PROGRESS | legacy native Scanner authority removed and focused WSL native/closure gates pass; CI-built package deployment and router runtime-absence proof remain for final verification in Task 16/17 |
-| 12 | TODO | |
+| 12 | VERIFIED | `task-12-report.md` + independent `task-12-review.md`; RED contract run, serial UCode focused suite `81/81`, repair marker/identity review, and diff check pass; router/CI package runtime gates remain deferred to Tasks 16/17 |
 | 13 | TODO | |
 | 14 | TODO | |
 | 15 | TODO | |
@@ -52,6 +52,15 @@
 - WSL native Detect compile/runtime gate passed `8/8` with `-Wall -Wextra -Werror`; focused package/adapter assertions passed `4/4`; closure, protocol, unwired, and upstream contract checks passed.
 - The complete `package-helper` file still has three pre-existing environment/worktree failures outside this change (bootstrap-order, managed-root scanner, and WSL `git show` path); the task-owned focused gates are green and the failures are retained as baseline evidence.
 - Router runtime absence is intentionally not claimed from the old installed binary; it requires the CI-built package. No local APK build, merge, push, branch deletion, or worktree deletion was performed.
+
+## Task 12 implementation verification (2026-09-09)
+
+- RED was proved before implementation: the new rollback/repair contracts produced six expected failures while the pre-existing available checks remained green.
+- The existing coordinator now separates initiating failure from rollback evidence: postflight returns `error.code: 'EPOSTFLIGHT'` with top-level `rollback: { attempted: true, ok, restored }`; pre-commit failures return `attempted: false` and preserve the X identity with zero Registry/runtime mutations.
+- Rollback identity captures the LKG release, runtime bundle digest, Detect SHA, Strategy catalog digest, and selected-strategy identity. The old rollback owners remain responsible for the physical compensation.
+- Same-release repair resolves only `COHERENT_VERIFIED` receipt-v3 through `z2k_registry_repair_release` and the pure `resolveRepairTarget` bridge; the ordinary prepare/apply transaction is reused and no latest resolution is introduced. The UCode fixture proved `p-81.1 -> p-81.1`.
+- Focused serial command passed `81/81` with UCode and `LD_LIBRARY_PATH=/opt/ucode/lib`; the same command without serialisation exposed one shared `/tmp` prepared-target fixture race, so the deterministic evidence uses `--test-concurrency=1`.
+- `git diff --check` passed. No router deployment, CI APK build, merge, push, branch deletion, or worktree deletion was performed for this task.
 
 ## Pre-flight cross-task/interface scan
 

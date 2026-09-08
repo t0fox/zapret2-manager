@@ -83,3 +83,16 @@ test('prepared target exposes candidate-only authority before installed receipt 
   assert.match(composition, /planToken/);
   assert.match(composition, /receiptIdentity\s*[:=]\s*null/);
 });
+
+test('same-release repair reuses the coherent target pipeline and never selects latest', () => {
+  assert.match(composition, /resolveRepairTarget/);
+  assert.match(coordinator, /repair/);
+  assert.match(coordinator, /resolveRepairTarget/);
+  const prepare = coordinator.slice(coordinator.indexOf('export const resource_center_prepare_version'), coordinator.indexOf('function z2k_target_policy'));
+  const repairBranch = prepare.slice(prepare.indexOf('let repair ='), prepare.indexOf("if (!string(version)"));
+  assert.match(repairBranch, /request\.repair === true/);
+  assert.match(repairBranch, /resolveRepairTarget/);
+  assert.match(repairBranch, /version = repairTarget\.release/);
+  assert.doesNotMatch(repairBranch, /latest/);
+  assert.match(coordinator, /request:\s*\{ version: version, repair: repair \}/);
+});
