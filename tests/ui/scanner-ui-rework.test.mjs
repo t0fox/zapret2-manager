@@ -109,6 +109,39 @@ test('Scanner normalizes canonical autodiscovery status and exposes control mapp
   ]);
 });
 
+test('Scanner discovery control presents every canonical lifecycle state truthfully', () => {
+  const states = [
+    [{ ok: true, schema: 1, enabled: false, running: false, dnsSource: 'auto', discoveredDomains: { count: 2, mtime: 123 } }, 'disabled', 'Включить'],
+    [{ ok: true, schema: 1, enabled: true, running: true, dnsSource: 'agh', discoveredDomains: { count: 4, mtime: 456 } }, 'running', 'Перезапустить'],
+    [{ ok: true, schema: 1, enabled: true, running: false, dnsSource: 'dnsmasq', discoveredDomains: { count: 1, mtime: 789 } }, 'enabled-stopped', 'Запустить'],
+    [{ status: 'changing', enabled: true, running: false, dnsSource: 'pkt', discoveredCount: 0, discoveredMtime: 321 }, 'changing', null],
+    [{ ok: false, error: { code: 'EDETECT_TIMEOUT', message: 'timed out' } }, 'error', 'Повторить']
+  ];
+
+  for (const [status, expectedState, expectedAction] of states) {
+    const view = scanner.discoveryViewModel(status);
+    assert.equal(view.state, expectedState);
+    if (expectedState !== 'error') {
+      assert.match(view.summary, /DNS: (auto|agh|dnsmasq|pkt)/);
+      assert.match(view.summary, /доменов: \d+/);
+      assert.match(view.summary, /mtime: \d+/);
+    } else {
+      assert.match(view.summary, /EDETECT_TIMEOUT/);
+    }
+    assert.equal(view.action, expectedAction);
+  }
+});
+
+test('Scanner discovery source selector is bounded and status does not infer running', () => {
+  const scannerSource = fs.readFileSync(path.join(viewDir, 'z2m-scanner.js'), 'utf8');
+  assert.deepEqual(Array.from(scanner.discoverySources()), ['auto', 'agh', 'dnsmasq', 'pkt']);
+  const stopped = scanner.discoveryViewModel({ ok: true, schema: 1, enabled: true, running: false, dnsSource: 'auto', discoveredDomains: { count: 3, mtime: 1 } });
+  assert.equal(stopped.state, 'enabled-stopped');
+  assert.equal(stopped.running, false);
+  assert.match(scannerSource, /discoverySources\(\)/);
+  assert.doesNotMatch(scannerSource, /running\s*=\s*enabled/);
+});
+
 test('typed API exposes the canonical autodiscovery status and controls', () => {
   const api = fs.readFileSync(path.join(viewDir, 'z2m-api.js'), 'utf8');
   for (const method of ['z2k_detect_discovery_status', 'z2k_detect_discovery_enable', 'z2k_detect_discovery_disable', 'z2k_detect_discovery_restart']) {

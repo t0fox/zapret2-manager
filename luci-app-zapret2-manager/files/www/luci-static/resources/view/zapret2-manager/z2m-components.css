@@ -409,6 +409,13 @@
 .z2m-scanner-workflow .z2m-btn:active,.z2m-scanner-product .z2m-btn:active{transform:scale(.97)}
 .z2m-scanner-field-error{margin-top:4px;color:var(--red);font-size:12px;line-height:18px}
 .z2m-scanner-discovery-status{display:grid;gap:10px;padding:11px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--tx2);font-size:12px;line-height:18px}
+.z2m-scanner-discovery-summary{display:grid;gap:2px;min-width:0}
+.z2m-scanner-discovery-summary strong{color:var(--tx);font-size:13px}
+.z2m-scanner-discovery-summary span{overflow-wrap:anywhere}
+.z2m-scanner-discovery-controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.z2m-scanner-discovery-source-label{display:grid;gap:4px;color:var(--tx3);font-size:11px}
+.z2m-scanner-discovery-source{min-height:40px;min-width:120px;touch-action:manipulation;background:var(--panel2);color:var(--tx)}
+.z2m-scanner-discovery-source:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .z2m-scanner-discovery-status.is-error{border-color:rgba(226,105,90,.55);color:var(--tx2)}
 @media(prefers-reduced-motion:reduce){
   .z2m-scanner-workflow .z2m-btn,.z2m-scanner-product .z2m-btn,.z2m-scanner-operation{transition:none!important}

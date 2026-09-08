@@ -175,6 +175,30 @@ test('discovery status is actual process/file health, not config-only state', { 
   }
 });
 
+test('canonical discovery status carries source, discovered count, and optional mtime for every lifecycle state', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  const states = [
+    { enabled: false, running: false, dnsSource: 'auto', file: { count: 2, mtime: 1700000000 } },
+    { enabled: true, running: true, dnsSource: 'agh', file: { count: 4, mtime: 1700000001 } },
+    { enabled: true, running: false, dnsSource: 'dnsmasq', file: { count: 1, mtime: 1700000002 } },
+    { enabled: true, running: false, dnsSource: 'pkt', file: { count: 0 } }
+  ];
+  for (const state of states) {
+    const result = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify({ schema: 1, enabled: state.enabled, dnsSource: state.dnsSource })}; }, process: function() { return { instance: 'z2k-detect', running: ${state.running}, pid: ${state.running ? 4321 : 'null'}, count: ${state.running ? 1 : 0}, validated: ${state.running}, executable: '/usr/libexec/zapret2-manager/z2k-detect', outputOwned: ${state.running}, command: [] }; }, file: function() { return ${JSON.stringify(state.file)}; } })`);
+    assert.equal(result.schema, 1);
+    assert.equal(result.enabled, state.enabled);
+    assert.equal(result.running, state.running);
+    assert.equal(result.dnsSource, state.dnsSource);
+    assert.equal(result.discoveredDomains.count, state.file.count);
+    if (state.file.mtime !== undefined) assert.equal(result.discoveredDomains.mtime, state.file.mtime);
+  }
+});
+
+test('canonical discovery failures preserve one typed error for the product action', { skip: !ucode || !fs.existsSync(ucode) }, () => {
+  const result = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: false, error: { code: 'EZ2K_INCOHERENT', message: 'core is not coherent' } }; } })`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EZ2K_INCOHERENT');
+});
+
 test('config reader distinguishes absent control file from empty, unreadable, malformed and invalid files', { skip: !ucode || !fs.existsSync(ucode) }, () => {
   const absent = invoke(`detect.z2k_detect_discovery_config_read({ present: false })`);
   assert.deepEqual(absent, { ok: true, schema: 1, enabled: false, dnsSource: 'auto' });

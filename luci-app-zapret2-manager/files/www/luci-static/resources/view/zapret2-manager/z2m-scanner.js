@@ -18,6 +18,7 @@ var state = {
 var DETECT_WAIT_MS = 120000;
 var DETECT_ACTIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
 var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
+var DISCOVERY_SOURCES = ['auto', 'agh', 'dnsmasq', 'pkt'];
 
 function detectFields(operation) {
   return DETECT_FORMS[operation] ? DETECT_FORMS[operation].fields.slice() : [];
@@ -171,8 +172,9 @@ function normalizeDiscoveryStatus(value) {
   };
   var domains = object(value.discoveredDomains);
   if (value.schema !== 1 || typeof value.enabled !== 'boolean' || typeof value.running !== 'boolean'
-    || ['auto', 'agh', 'dnsmasq', 'pkt'].indexOf(value.dnsSource) < 0
-    || (domains.count !== undefined && (typeof domains.count !== 'number' || domains.count < 0))) return {
+    || DISCOVERY_SOURCES.indexOf(value.dnsSource) < 0
+    || (domains.count !== undefined && (typeof domains.count !== 'number' || domains.count < 0))
+    || (domains.mtime !== undefined && (typeof domains.mtime !== 'number' || domains.mtime < 0))) return {
     status: 'unavailable', enabled: false, running: false, dnsSource: null,
     discoveredCount: null, discoveredMtime: null,
     error: { code: 'EDETECT_SCHEMA', message: _('Состояние autodiscovery имеет неверную схему.'), details: null }
@@ -182,6 +184,27 @@ function normalizeDiscoveryStatus(value) {
     discoveredCount: domains.count === undefined ? null : domains.count,
     discoveredMtime: domains.mtime === undefined ? null : domains.mtime,
     error: null
+  };
+}
+function discoverySources() { return DISCOVERY_SOURCES.slice(); }
+function discoveryViewModel(value) {
+  if (value && value.status === 'changing') return {
+    state: 'changing', enabled: value.enabled === true, running: value.running === true,
+    dnsSource: DISCOVERY_SOURCES.indexOf(value.dnsSource) >= 0 ? value.dnsSource : 'auto',
+    summary: 'DNS: ' + (DISCOVERY_SOURCES.indexOf(value.dnsSource) >= 0 ? value.dnsSource : 'auto') + ' · доменов: ' + String(value.discoveredCount === null || value.discoveredCount === undefined ? 0 : value.discoveredCount) + (value.discoveredMtime === null || value.discoveredMtime === undefined ? '' : ' · mtime: ' + String(value.discoveredMtime)) + ' · ' + _('состояние меняется…'), action: null, error: null
+  };
+  var discovery = value && value.status ? value : normalizeDiscoveryStatus(value);
+  if (discovery.error) return {
+    state: 'error', enabled: false, running: false, dnsSource: discovery.dnsSource || 'auto',
+    summary: discovery.error.code + ': ' + errorText(discovery.error), action: _('Повторить'), error: discovery.error
+  };
+  var stateName = !discovery.enabled ? 'disabled' : discovery.running ? 'running' : 'enabled-stopped';
+  var count = discovery.discoveredCount === null ? _('список не прочитан') : _('доменов: ') + String(discovery.discoveredCount);
+  var mtime = discovery.discoveredMtime === null || discovery.discoveredMtime === undefined ? '' : ' · mtime: ' + String(discovery.discoveredMtime);
+  return {
+    state: stateName, enabled: discovery.enabled, running: discovery.running, dnsSource: discovery.dnsSource,
+    summary: 'DNS: ' + discovery.dnsSource + ' · ' + count + mtime,
+    action: stateName === 'running' ? _('Перезапустить') : stateName === 'disabled' ? _('Включить') : _('Запустить'), error: null
   };
 }
 function discoveryControlMethod(action) {
@@ -445,19 +468,22 @@ function renderTypedResult(ctx, report, controls) {
 }
 function discoveryPanel(ctx) {
   var discovery = state.discovery || { status: 'loading', enabled: false, running: false, dnsSource: null, discoveredCount: null, error: null };
-  if (discovery.status === 'loading' || discovery.status === 'changing') return E('div', { 'class': 'z2m-scanner-discovery-status', role: 'status' }, _('Состояние autodiscovery уточняется…'));
-  if (discovery.error) return E('div', { 'class': 'z2m-scanner-discovery-status is-error', role: 'alert' }, [
-    E('strong', {}, _('Autodiscovery недоступен')), E('span', {}, ' · ' + discovery.error.code + ': ' + errorText(discovery.error))
-  ]);
-  var stateText = discovery.enabled ? (discovery.running ? _('включено и запущено') : _('включено, но служба не запущена')) : _('выключено');
-  var countText = discovery.discoveredCount === null ? _('список не прочитан') : _('доменов: ') + String(discovery.discoveredCount);
-  return E('div', { 'class': 'z2m-scanner-discovery-status', role: 'status' }, [
-    E('div', {}, [_('Autodiscovery: ') + stateText + ' · DNS: ' + (discovery.dnsSource || _('неизвестно')) + ' · ' + countText]),
-    E('div', { 'class': 'z2m-btnrow' }, [
-      ctx.shell.button(_('Включить'), 'sm', function () { discoveryControl(ctx, 'enable'); }),
-      ctx.shell.button(_('Выключить'), 'sm', function () { discoveryControl(ctx, 'disable'); }),
-      ctx.shell.button(_('Перезапустить'), 'sm', function () { discoveryControl(ctx, 'restart'); })
-    ])
+  if (discovery.status === 'loading') return E('div', { 'class': 'z2m-scanner-discovery-status', role: 'status' }, _('Состояние autodiscovery уточняется…'));
+  var view = discoveryViewModel(discovery);
+  var source = E('select', { class: 'z2m-select z2m-scanner-discovery-source', name: 'discovery-dns-source', 'aria-label': _('Источник DNS') }, discoverySources().map(function (item) {
+    return E('option', { value: item }, item);
+  }));
+  source.value = view.dnsSource;
+  source.addEventListener('change', function () {
+    if (state.discovery) state.discovery.dnsSource = source.value;
+  });
+  var action = view.action ? ctx.shell.button(view.action, 'sm', function () {
+    if (view.state === 'error') loadDiscovery(ctx, state.generation);
+    else discoveryControl(ctx, view.state === 'running' ? 'restart' : 'enable');
+  }) : null;
+  return E('div', { 'class': 'z2m-scanner-discovery-status' + (view.state === 'error' ? ' is-error' : ''), role: view.state === 'error' ? 'alert' : 'status' }, [
+    E('div', { 'class': 'z2m-scanner-discovery-summary' }, [E('strong', {}, view.state === 'error' ? _('Autodiscovery недоступен') : _('Autodiscovery')), E('span', {}, view.summary)]),
+    E('div', { 'class': 'z2m-scanner-discovery-controls' }, [E('label', { 'class': 'z2m-scanner-discovery-source-label' }, [_('DNS'), source]), action])
   ]);
 }
 function renderProgress(ctx, status, request) {
@@ -579,5 +605,6 @@ return baseclass.extend({
   id: 'scanner', load: load, render: render, mount: mount, unmount: unmount,
   detectFields: detectFields, detectDefaults: detectDefaults, detectBounds: detectBounds, validateDetectArguments: validateDetectArguments, detectArguments: detectArguments,
   detectOperation: detectOperation, detectInvoke: detectInvoke, normalizeDetectError: normalizedDetectError,
-  normalizeDiscoveryStatus: normalizeDiscoveryStatus, discoveryControlMethod: discoveryControlMethod
+  normalizeDiscoveryStatus: normalizeDiscoveryStatus, discoveryControlMethod: discoveryControlMethod,
+  discoverySources: discoverySources, discoveryViewModel: discoveryViewModel
 });
