@@ -398,7 +398,8 @@ function start(ctx, controls) {
   state.scanId = 'detect-' + String(generation) + '-' + String(Date.now());
   state.error = null; state.report = null; state.status = { status: 'running', phase: 'probing', operation: detectOperation(state.request) };
   state.showAll = false;
-  refresh(ctx).catch(function () {});
+  var initialRepaint = typeof ctx.rerender === 'function' ? ctx.rerender() : refresh(ctx);
+  if (initialRepaint && typeof initialRepaint.catch === 'function') initialRepaint.catch(function () {});
   runDetect(ctx, request, generation).then(function (result) {
     if (!currentDetectGeneration(generation) || !result || result.discarded) return null;
     return refresh(ctx);

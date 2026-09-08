@@ -47,10 +47,11 @@ function makeStorage() {
 	};
 }
 
-function makeScanner(storage, gates, statusGates) {
+function makeScanner(storage, gates, statusGates, options = {}) {
 	const buttons = [];
-	const calls = { status: 0, probe: 0, refresh: 0 };
+	const calls = { status: 0, probe: 0, refresh: 0, rerender: 0 };
 	const statusQueue = (statusGates || []).slice();
+	let module;
 	const api = {
 		z2kDetectStatus() {
 			calls.status++;
@@ -68,7 +69,10 @@ function makeScanner(storage, gates, statusGates) {
 	};
 	const ctx = {
 		api,
-		refresh() { calls.refresh++; return Promise.resolve(); },
+		refresh() {
+			calls.refresh++;
+			return options.refreshLoads && module ? module.load(ctx) : Promise.resolve();
+		},
 		shell: {
 			button(label, className, callback) {
 				const button = node('button', { label, className });
@@ -79,8 +83,9 @@ function makeScanner(storage, gates, statusGates) {
 			statePanel() { return node('state-panel'); }
 		}
 	};
+	if (options.rerender) ctx.rerender = () => { calls.rerender++; return Promise.resolve(); };
 	const Icons = { wrappedNode: () => node('icon') };
-	const module = loadLuCIModule(source, 'view.zapret2-manager.z2m-scanner', { baseclass, 'view.zapret2-manager.z2m-icons': Icons }, {
+	module = loadLuCIModule(source, 'view.zapret2-manager.z2m-scanner', { baseclass, 'view.zapret2-manager.z2m-icons': Icons }, {
 		globals: { E: node, sessionStorage: storage },
 		window: { setTimeout: unrefSetTimeout, clearTimeout }
 	});
@@ -127,6 +132,22 @@ test('Scanner does not render legacy-shaped evidence without a typed Detect enve
 
 	assert.equal(hasTag(root, 'state-panel'), true,
 		'non-typed scanner-shaped evidence must resolve to the unavailable state panel');
+});
+
+test('Scanner start repaints without invalidating the generation before typed Detect invoke', async () => {
+	const storage = makeStorage();
+	const gates = [];
+	const { module, ctx, calls, buttons } = makeScanner(storage, gates, [], { rerender: true, refreshLoads: true });
+	module.mount(ctx);
+	module.render(ctx, { status: { status: 'ready' } });
+
+	startButton(buttons).callback();
+	await flush();
+
+	assert.equal(calls.rerender, 1, 'start must use rerender for the initial pending repaint');
+	assert.equal(calls.refresh, 0, 'initial repaint must not cross the load/refresh generation boundary');
+	assert.equal(calls.probe, 1, 'typed probe RPC must run after the pending repaint');
+	module.unmount();
 });
 
 test('Scanner ignores out-of-order Detect completion from an older generation', async () => {
