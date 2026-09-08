@@ -8,7 +8,7 @@
 | 4 | VERIFIED | implementation `4aaa5ac3`, four-skill UI/design review PASS, explicit-operation browser forms and Task 5 cleanup/lifecycle evidence in `task-5-report.md` |
 | 5 | VERIFIED | implementation `4433f03b`, runtime fixes through `53da4c05`; 41/41 focused tests, deployed real-browser probe/Voice plus P1 browser evidence, and scoped four-skill follow-up review `review-task-5-followup.md`; four non-blocking P2 findings carried forward |
 | 6 | VERIFIED | implementation `f7ea2c46` + retry fix `e2357c93`; focused suites, scoped re-review, source deploy, browser payload/state, enable, validated dnsmasq restart with new PID, and final disabled/auto restore recorded in `task-6-report.md` |
-| 7 | TODO | |
+| 7 | VERIFIED | implementation `c5418ce2`, fix rounds `65ee5960` and `e014132d`; four-skill independent review PASS, 24/24 focused tests, source deploy, and real Components browser state evidence in `task-7-report.md` |
 | 8 | TODO | |
 | 9 | TODO | |
 | 10 | TODO | |
