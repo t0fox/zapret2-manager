@@ -6,6 +6,7 @@ const read = path => fs.readFileSync(path, 'utf8');
 const registry = read('zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc');
 const coordinator = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const strategyUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-update.uc');
+const strategyCatalogRefresh = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc');
 const strategySourceRefresh = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
 const strategySources = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
@@ -77,6 +78,7 @@ test('Z2K strategy refresh stays owned by Core while Avatar remains independentl
   assert.match(strategySourceRefresh, /if \(id == 'z2k'\) return managed_z2k\(\)/);
   assert.match(strategySourceRefresh, /if \(id != 'avatar'\) return error\('EINPUT'/);
   assert.match(strategySourceRefresh, /strategy_source_avatar_snapshot/);
+  assert.match(strategyCatalogRefresh, /id == 'z2k'\) return \{ ok: false, error: \{ code: 'EMANAGED', owner: 'z2k-core'/);
 });
 
 test('REGRESSION: resources_status uses the bounded status projection at the RPC boundary', () => {

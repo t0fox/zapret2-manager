@@ -276,7 +276,7 @@ export const catalog_refresh_rebuild = function() {
 // adapter only prepares a private candidate; this coordinator is the sole
 // path that can activate it and publish the generation that refers to it.
 export const catalog_refresh_source = function(id) {
-	if (id == 'z2k') return { ok: false, error: { code: 'EMANAGED', message: 'Z2K strategy source is managed by Z2K Core' } };
+	if (id == 'z2k') return { ok: false, error: { code: 'EMANAGED', owner: 'z2k-core', message: 'Z2K strategy source is managed by Z2K Core' } };
 	if (id != 'avatar') return { ok: false, error: { code: 'EINPUT', message: 'Unknown strategy source' } };
 	let before = null;
 	try { before = source_store.strategy_sources_get(); } catch (e) { before = null; }
