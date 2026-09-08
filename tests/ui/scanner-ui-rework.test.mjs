@@ -142,6 +142,29 @@ test('Scanner discovery source selector is bounded and status does not infer run
   assert.doesNotMatch(scannerSource, /running\s*=\s*enabled/);
 });
 
+test('Scanner discovery retry refreshes the mounted view after a recovered status', async () => {
+  scanner.mount({});
+  let refreshes = 0;
+  let attempt = 0;
+  const ctx = {
+    api: {
+      z2kDetectDiscoveryStatus: () => Promise.resolve(attempt++ === 0
+        ? { ok: false, error: { code: 'EDETECT_TIMEOUT', message: 'timed out' } }
+        : { ok: true, schema: 1, enabled: true, running: true, dnsSource: 'auto', discoveredDomains: { count: 2, mtime: 123 } })
+    },
+    refresh: () => { refreshes++; }
+  };
+
+  await scanner.loadDiscovery(ctx, 0);
+  assert.equal(scanner.discoveryViewModel({ ok: false, error: { code: 'EDETECT_TIMEOUT' } }).state, 'error');
+  refreshes = 0;
+  await scanner.loadDiscovery(ctx, 0);
+
+  assert.equal(refreshes, 1);
+  assert.equal(scanner.discoveryViewModel({ ok: true, schema: 1, enabled: true, running: true, dnsSource: 'auto', discoveredDomains: { count: 2, mtime: 123 } }).state, 'running');
+  scanner.unmount();
+});
+
 test('typed API exposes the canonical autodiscovery status and controls', () => {
   const api = fs.readFileSync(path.join(viewDir, 'z2m-api.js'), 'utf8');
   for (const method of ['z2k_detect_discovery_status', 'z2k_detect_discovery_enable', 'z2k_detect_discovery_disable', 'z2k_detect_discovery_restart']) {

@@ -239,7 +239,7 @@ function loadDiscovery(ctx, generation) {
   }
   return Promise.resolve().then(function () { return ctx.api.z2kDetectDiscoveryStatus(); }).then(function (value) {
     var normalized = normalizeDiscoveryStatus(value);
-    if (currentDetectGeneration(generation)) state.discovery = normalized;
+    if (currentDetectGeneration(generation)) { state.discovery = normalized; refresh(ctx); }
     return normalized;
   }).catch(function (error) {
     var normalized = normalizeDiscoveryStatus({ ok: false, error: normalizedDetectError(ctx, error, 'EDETECT_UNAVAILABLE') });
@@ -605,6 +605,6 @@ return baseclass.extend({
   id: 'scanner', load: load, render: render, mount: mount, unmount: unmount,
   detectFields: detectFields, detectDefaults: detectDefaults, detectBounds: detectBounds, validateDetectArguments: validateDetectArguments, detectArguments: detectArguments,
   detectOperation: detectOperation, detectInvoke: detectInvoke, normalizeDetectError: normalizedDetectError,
-  normalizeDiscoveryStatus: normalizeDiscoveryStatus, discoveryControlMethod: discoveryControlMethod,
+  normalizeDiscoveryStatus: normalizeDiscoveryStatus, discoveryControlMethod: discoveryControlMethod, loadDiscovery: loadDiscovery,
   discoverySources: discoverySources, discoveryViewModel: discoveryViewModel
 });
