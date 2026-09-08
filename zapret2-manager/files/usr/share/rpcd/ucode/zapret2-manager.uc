@@ -507,7 +507,15 @@ function z2k_detect_discovery_rpc_input(req) {
 		if (input != null && type(input) != 'object')
 			return { ok: false, error: { code: 'EINPUT', message: 'discovery arguments must be an object' } };
 	}
-	return { ok: true, input: input || {} };
+	let normalized = {};
+	for (let key in (input || {})) {
+		// rpcd adds this transport-only session attribute to authenticated
+		// req.args. It is not a discovery control field and must never reach
+		// the business validator; every other key remains visible for EINPUT.
+		if (key == 'ubus_rpc_session') continue;
+		normalized[key] = input[key];
+	}
+	return { ok: true, input: normalized };
 }
 function z2k_detect_discovery_control_input(action, req) {
 	let parsed = z2k_detect_discovery_rpc_input(req);
