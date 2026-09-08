@@ -90,3 +90,10 @@ file/interface and every task's internal consistency before Task 1.
 - Ruling: Browser/router requirements are hard gates, not implied by static tests; tasks changing user-visible surfaces remain WORKING until deployed evidence exists — cost if wrong: task completion is delayed, but false product acceptance is avoided.
 - Ruling: A missing live Discord call is a user-only gate only after all unrelated acceptance work is complete; the no-call typed result must be proven first — cost if wrong: an environment gap could be mistaken for a user dependency.
 - Ruling: No merge, branch deletion, or worktree deletion occurs in this execution; final output stops at explicit user merge choice as required by the approved plan — cost if wrong: the completed branch remains unlanded pending user approval.
+
+## Task 1 fix round 1 (2026-09-08)
+
+- Reviewer findings from `reviews/review-task-1.md` addressed in the report: `d6ceee5c...` is labelled the baseline-artifact commit and `7b2bed0d...` the report-finalization/evidence commit.
+- All report references to `4387345bc50d684214e8b5b97edc7c40acb7629f` are labelled the captured baseline/execution SHA; no current-HEAD claim is made for that evidence snapshot.
+- Covering checks: `node scripts/validate-knowledge.mjs` -> `Knowledge validation passed.`; `git diff --check` -> exit 0; product-file exclusion check -> no output.
+- Scope: docs-only; no product files, local APK build, push, merge, branch/worktree deletion, or router mutation.

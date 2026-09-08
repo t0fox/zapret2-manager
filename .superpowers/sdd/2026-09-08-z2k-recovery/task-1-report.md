@@ -6,12 +6,12 @@ Implementer: Codex only; no agents or reviewers spawned.
 
 ## Status
 
-**PARTIAL / BLOCKED_EXACT_SHA_APK**. Ledger, baseline, and size baseline are captured. Exact execution-SHA APK evidence is blocked because `HEAD=4387345bc50d684214e8b5b97edc7c40acb7629f` is not published as a remote branch, while local `scripts/release/build-apk.sh` is prohibited. The available CI artifact is recorded without relabeling it: it targets reviewed baseline `9a4f0feeacbfd9d107385ffeffb5007b4bfadb39`.
+**PARTIAL / BLOCKED_EXACT_SHA_APK**. Ledger, baseline, and size baseline are captured. Exact execution-SHA APK evidence is blocked because captured baseline/execution SHA `4387345bc50d684214e8b5b97edc7c40acb7629f` is not published as a remote branch, while local `scripts/release/build-apk.sh` is prohibited. The available CI artifact is recorded without relabeling it: it targets reviewed baseline `9a4f0feeacbfd9d107385ffeffb5007b4bfadb39`.
 
 ## Git truth and drift
 
 - Branch: `codex/z2k-recovery-v2`
-- HEAD: `4387345bc50d684214e8b5b97edc7c40acb7629f`
+- Captured baseline/execution SHA: `4387345bc50d684214e8b5b97edc7c40acb7629f`
 - origin/main: `9a4f0feeacbfd9d107385ffeffb5007b4bfadb39`
 - Drift from reviewed baseline: only approved plan/spec additions `docs/superpowers/plans/2026-09-08-z2k-recovery.md` and `docs/superpowers/specs/2026-09-08-z2k-recovery-design.md`; no production-path drift.
 
@@ -34,4 +34,29 @@ Implementer: Codex only; no agents or reviewers spawned.
 
 ## Commit
 
-`d6ceee5c98635cdba25ce14bce40b9041fbf2ced` (`docs: record Z2K recovery baseline`).
+Baseline-artifact commit: `d6ceee5c98635cdba25ce14bce40b9041fbf2ced` (`docs: record Z2K recovery baseline`).
+Report-finalization/evidence commit: `7b2bed0d1f248ef36217147605282c239444015` (`docs: finalize Z2K recovery Task 1 report`).
+
+## Fix round 1 — reviewer findings
+
+Applied the two P2 documentation fixes from `reviews/review-task-1.md`:
+
+- The two prior commits are now explicitly distinguished as the baseline-artifact commit (`d6ceee5c...`) and the report-finalization/evidence commit (`7b2bed0d...`).
+- Every report occurrence of the captured baseline/execution SHA is labelled accordingly; it is not presented as the current documentation commit.
+
+Covering checks, run after the fix and before the fix-round commit:
+
+```text
+$report='.superpowers/sdd/2026-09-08-z2k-recovery/task-1-report.md'; $shaLines=Select-String -Path $report -Pattern '[0-9a-f]{40}'; if($shaLines | Where-Object { $_.Line -notmatch 'captured baseline/execution SHA|baseline-artifact commit|report-finalization/evidence commit|reviewed baseline|manifest commit|origin/main' }){throw 'unlabelled SHA role'}; if((Select-String -Path $report -Pattern 'baseline-artifact commit').Count -ne 3){throw 'baseline commit role missing'}; if((Select-String -Path $report -Pattern 'report-finalization/evidence commit').Count -ne 3){throw 'report commit role missing'}; 'SHA role labels: PASS'
+SHA role labels: PASS
+
+$changed=@(git diff --name-only HEAD); if($changed | Where-Object { $_ -notlike '.superpowers/sdd/2026-09-08-z2k-recovery/*' }){throw 'product file changed'}; 'Product-file scope: PASS (docs-only)'
+Product-file scope: PASS (docs-only)
+```
+
+```text
+node scripts/validate-knowledge.mjs
+Knowledge validation passed.
+git diff --check
+(no output; exit 0)
+```
