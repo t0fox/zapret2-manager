@@ -61,28 +61,26 @@ test('executable rpcd handler seam forwards req.args dnsSource to control', () =
   assert.equal(typeof context.methods.z2k_detect_discovery_enable.call, 'function',
     'harness must invoke the actual registered rpcd callback');
   const info = { object: 'zapret2-manager', method: 'z2k_detect_discovery_enable' };
-  for (const request of [
-    { args: { dnsSource: 'agh' }, info },
-    { args: { args: { dnsSource: 'agh' } }, info },
-    { args: { dnsSource: 'agh', ubus_rpc_session: 'session-123' }, info }
-  ]) {
-    context.captured = null;
-    const result = context.methods.z2k_detect_discovery_enable.call(request);
-    assert.deepEqual(JSON.parse(JSON.stringify(context.captured)), { action: 'enable', input: { dnsSource: 'agh' } });
-    assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, running: false, action: 'enable' });
+  for (const action of ['enable', 'disable', 'restart']) {
+    for (const request of [
+      { args: { dnsSource: 'agh' }, info },
+      { args: { args: { dnsSource: 'agh' } }, info },
+      { args: { dnsSource: 'agh', ubus_rpc_session: 'session-123' }, info }
+    ]) {
+      context.captured = null;
+      const result = context.methods[`z2k_detect_discovery_${action}`].call(request);
+      assert.deepEqual(JSON.parse(JSON.stringify(context.captured)), { action, input: { dnsSource: 'agh' } });
+      assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, running: false, action });
+    }
   }
 
-  const unknown = context.methods.z2k_detect_discovery_enable.call({
-    args: { args: { dnsSource: 'agh' }, unexpected: true }, info
-  });
-  assert.equal(unknown.ok, false);
-  assert.equal(unknown.error.code, 'EINPUT');
-  assert.equal(unknown.error.message, 'Unsupported discovery control field.');
-
-  const canonicalUnknown = context.methods.z2k_detect_discovery_enable.call({
-    args: { dnsSource: 'agh', unexpected: true }, info
-  });
-  assert.equal(canonicalUnknown.ok, false);
-  assert.equal(canonicalUnknown.error.code, 'EINPUT');
-  assert.equal(canonicalUnknown.error.message, 'Unsupported discovery control field.');
+  for (const request of [
+    { args: { args: { dnsSource: 'agh' }, unexpected: true }, info },
+    { args: { dnsSource: 'agh', unexpected: true }, info }
+  ]) {
+    const unknown = context.methods.z2k_detect_discovery_enable.call(request);
+    assert.equal(unknown.ok, false);
+    assert.equal(unknown.error.code, 'EINPUT');
+    assert.equal(unknown.error.message, 'Unsupported discovery control field.');
+  }
 });

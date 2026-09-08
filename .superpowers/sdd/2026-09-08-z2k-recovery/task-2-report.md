@@ -489,3 +489,53 @@ staged. Per the approved round-4 boundary, there was no router deployment,
 authenticated browser retest, APK build, merge, push, credential change, or
 branch/worktree deletion. Task 2 remains `NOT_VERIFIED` pending the required
 authenticated LuCI browser retest; this report does not claim Task 2 verified.
+
+## Post-fix source deploy and authenticated LuCI acceptance (2026-09-08)
+
+The exact fix closure was deployed through the reviewed source workflow from
+commit `cddc63deb83935379cea989d701258f27f2c0cd7` with
+`RELOAD_RPCD=1 RESTART_RPCD=1`. The remote SHA-256 values matched the clean
+closure for both manifest targets:
+
+```text
+zapret2-manager.uc       d6add17da508cd827bf81b005e0178d6c2df9619950d5dfa770aae07176dd9c1
+zapret2-manager init     7fa5b2e566fae3fe984ab7d5b6f2d9a138d4f895dd2fdea0dbb4d6f2799ee72c
+```
+
+The restarted router exposed the reviewed typed registrations and rpcd PIDs
+`20464` and `19466` during the source verification. The controller then used
+the authenticated LuCI tab and captured the real Network request and response.
+LuCI sent the canonical batch parameters with
+`z2k_detect_discovery_enable({dnsSource:'auto'})`; the response batch returned
+`id:9 -> ok:true, enabled:true, running:true` with a live `z2k-detect` PID.
+The UI visibly reconstructed `Autodiscovery: включено и запущено · DNS: auto ·
+доменов: 0`.
+
+The same authenticated tab then sent
+`z2k_detect_discovery_disable({dnsSource:'auto'})`; the response returned
+`id:14 -> ok:true, enabled:false, running:false`, and the UI visibly showed
+`Autodiscovery: выключено · DNS: auto · доменов: 2`. The final router state was
+therefore restored to disabled/auto. Session identifiers and credentials are
+not recorded.
+
+The callback-boundary contract intentionally treats the exact
+`ubus_rpc_session` key as rpcd transport metadata: rpcd adds it to the
+authenticated `req.args` object before the typed callback reaches this module.
+The callback boundary has no independent provenance bit with which to
+distinguish that reserved key from a caller-shaped object, so the safe
+contract is an exact one-key transport allowlist plus strict rejection of all
+other siblings. The executable regression now runs enable, disable, and
+restart through the registered callbacks for plain, nested, and authenticated
+request shapes, and rejects both nested and canonical unknown siblings.
+
+Focused boundary result after this review finding fix:
+
+```text
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs
+3 passed, 0 failed
+```
+
+The earlier full focused suite remains `15 passed, 0 failed, 7 skipped`; it was
+rerun before the callback-loop-only test expansion, and the boundary suite was
+rerun after it. A fresh independent review is required before marking Task 2
+VERIFIED.
