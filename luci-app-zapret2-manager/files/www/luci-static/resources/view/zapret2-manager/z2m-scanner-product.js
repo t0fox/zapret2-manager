@@ -189,12 +189,18 @@ function renderNavigation(ctx) {
   }));
 }
 function mountChild(ctx, tab, data) {
+  var child = childFor(tab);
+  if (child && state.child === child && state.activeTab === tab && state.childContext) {
+    state.childContext = childContext(ctx, tab);
+    state.host.replaceChildren(child.render(state.childContext, data || {}));
+    return;
+  }
   unmountChild();
   if (tab === 'history') {
     state.host.replaceChildren(renderHistory(ctx));
     return;
   }
-  var child = childFor(tab), context = childContext(ctx, tab), node = child.render(context);
+  var context = childContext(ctx, tab), node = child.render(context);
   state.child = child;
   state.childContext = context;
   state.host.replaceChildren(node);
