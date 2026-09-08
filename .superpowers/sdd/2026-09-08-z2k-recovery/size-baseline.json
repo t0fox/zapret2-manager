@@ -1,0 +1,26 @@
+{
+  "schema": "z2k-recovery.size-baseline.v1",
+  "capturedAt": "2026-09-08",
+  "executionSha": "4387345bc50d684214e8b5b97edc7c40acb7629f",
+  "reviewedBaselineSha": "9a4f0feeacbfd9d107385ffeffb5007b4bfadb39",
+  "sourceBytes": {
+    "zapret2-manager/src/z2m-core-helper/scanner.c": 58634,
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js": 34441,
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js": 142143,
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js": 51088
+  },
+  "packageFileCount": 469,
+  "apk": {
+    "status": "available-reviewed-baseline-only",
+    "exactExecutionSha": false,
+    "filename": "zapret2-manager-full-0.1.0-r156.apk",
+    "bytes": 2645317,
+    "sha256": "5018e250f4fd1ddeec6e1ca5ad6a262d5d2ae2922e89fd3f869f51fcc81c3f69",
+    "manifestCommit": "9a4f0feeacbfd9d107385ffeffb5007b4bfadb39",
+    "nativeHelper": {
+      "path": "usr/libexec/zapret2-manager/z2m-core-helper",
+      "bytes": 81915,
+      "sha256": "8e7b79a06e5bf39f67af0fa6c878b104ae761843a295f0abb14970723c189b76"
+    }
+  }
+}
