@@ -67,3 +67,18 @@ test('Scanner builds exact arguments for hostless Detect operations', () => {
     domain: 'youtube.com', port: 443, repeats: 2, timeoutMs: 6000
   });
 });
+
+test('Scanner exposes bounded numeric validation for the typed Detect fields', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(scanner.detectBounds('port'))), { min: 1, max: 65535, step: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(scanner.detectBounds('repeats'))), { min: 1, max: 32, step: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(scanner.detectBounds('timeoutMs'))), { min: 1, max: 120000, step: 1 });
+  const invalidPort = scanner.validateDetectArguments({ operation: 'classify', host: 'example.com', port: 0, hello: 'both', repeats: 2, timeoutMs: 6000 });
+  assert.equal(invalidPort.ok, false);
+  assert.equal(invalidPort.field, 'port');
+  assert.match(invalidPort.error, /1.*65535/);
+  const invalidRepeats = scanner.validateDetectArguments({ operation: 'voice', repeats: 33, timeoutMs: 6000 });
+  assert.equal(invalidRepeats.ok, false);
+  assert.equal(invalidRepeats.field, 'repeats');
+  assert.match(invalidRepeats.error, /1.*32/);
+  assert.equal(scanner.validateDetectArguments({ operation: 'tcp16', timeoutMs: 120000 }).ok, true);
+});

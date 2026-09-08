@@ -47,13 +47,22 @@ test('Scanner maps every user action to the corresponding typed Detect RPC', () 
     };
   }
   const ctx = { api };
-  const args = { host: 'example.com', port: 443, hello: 'both', repeats: 2, timeoutMs: 6000 };
+  const args = {
+    probe: { domain: 'example.com', timeoutMs: 6000 },
+    classify: { host: 'example.com', port: 443, hello: 'both', repeats: 2, timeoutMs: 6000 },
+    quic: { domain: 'example.com', port: 443, repeats: 2, timeoutMs: 6000 },
+    voice: { repeats: 2, timeoutMs: 6000 },
+    tcp16: { timeoutMs: 6000 }
+  };
   for (const operation of ['probe', 'classify', 'quic', 'voice', 'tcp16']) {
-    scanner.detectInvoke(ctx, operation, args);
+    scanner.detectInvoke(ctx, operation, args[operation]);
   }
 
   assert.deepEqual(calls.map(([operation]) => operation), ['probe', 'classify', 'quic', 'voice', 'tcp16']);
+  assert.deepEqual(calls[0][1], ['example.com', 6000]);
   assert.deepEqual(calls[1][1], ['example.com', 443, 'both', 2, 6000]);
+  assert.deepEqual(calls[2][1], ['example.com', 443, 2, 6000]);
+  assert.deepEqual(calls[3][1], [2, 6000]);
   assert.deepEqual(calls[4][1], [6000]);
 });
 
@@ -131,9 +140,35 @@ test('Scanner UI keeps semantic form/error states and calm accessible motion rul
   assert.match(componentsCss, /:focus-visible/);
   assert.match(componentsCss, /@media \(hover:hover\) and \(pointer:fine\)/);
   assert.match(componentsCss, /@media\(prefers-reduced-motion:reduce\)/);
-  assert.match(componentsCss, /\.z2m-app \.z2m-scanner-segmented button:hover:not\(:focus-visible\)\{[^}]*outline:none/);
-  assert.match(componentsCss, /\.z2m-app \.z2m-scanner-segmented button\.on:hover:not\(:focus-visible\)/);
-  assert.doesNotMatch(componentsCss, /\.z2m-app \.z2m-scanner-segmented button:hover\{[^}]*outline:none/);
+  assert.match(componentsCss, /\.z2m-scanner-operations\{[^}]*grid-template-columns:repeat\(5/);
+  assert.match(componentsCss, /\.z2m-scanner-operation:focus-visible/);
+  assert.match(componentsCss, /\.z2m-scanner-operation:active\{transform:scale\(.97\)/);
+  assert.doesNotMatch(componentsCss, /z2m-scanner-segmented/);
   assert.doesNotMatch(componentsCss + uiCss, /transition\s*:\s*all/);
   assert.doesNotMatch(componentsCss + uiCss, /scale\(0\)/);
+});
+
+test('Scanner renders exactly five explicit user operations without retired controls', () => {
+  const scannerSource = fs.readFileSync(path.join(viewDir, 'z2m-scanner.js'), 'utf8');
+  const labels = ['Проверка сайта', 'Анализ DPI', 'QUIC', 'Discord Voice', 'TCP16'];
+  assert.match(scannerSource, /z2m-scanner-operations/);
+  assert.match(scannerSource, /aria-pressed/);
+  assert.match(scannerSource, /DETECT_ACTIONS\.map/);
+  for (const label of labels) assert.match(scannerSource, new RegExp(label));
+  assert.doesNotMatch(scannerSource, /detect-action-select|formField\(_\('Операция'\)/);
+  assert.doesNotMatch(scannerSource, /Действие Detect|Быстро|Обычно|Тщательно|z2m-scanner-segmented|Протокол/);
+});
+
+test('Scanner gives Voice and TCP16 only their real inputs and actionable voice copy', () => {
+  const scannerSource = fs.readFileSync(path.join(viewDir, 'z2m-scanner.js'), 'utf8');
+  assert.match(scannerSource, /жив(ой|ого)\s+(голосовой|видеозвонок)|активн(ый|ого)\s+.*Discord/i);
+  assert.match(scannerSource, /Подключитесь к голосовому каналу Discord и повторите проверку\./);
+  assert.match(scannerSource, /voice: \{[^}]*fields: \['repeats', 'timeoutMs'\]/);
+  assert.match(scannerSource, /tcp16: \{[^}]*fields: \['timeoutMs'\]/);
+});
+
+test('Scanner maps the no-active-voice code to the user next step while preserving the code', () => {
+  const error = scanner.normalizeDetectError({}, { error: { code: 'EDETECT_NO_ACTIVE_VOICE', message: 'raw backend detail' } }, 'EDETECT_FAILED');
+  assert.equal(error.code, 'EDETECT_NO_ACTIVE_VOICE');
+  assert.equal(error.message, 'Подключитесь к голосовому каналу Discord и повторите проверку.');
 });

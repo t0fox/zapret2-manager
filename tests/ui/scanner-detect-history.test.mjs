@@ -50,17 +50,19 @@ function loadProduct(history) {
 	return product.load({ routeParams: { tab: 'history' }, api: { normalizeError: error => ({ message: String(error) }) } });
 }
 
-function typedHistory(data = { verdict: 'clear', additive: { latencyMs: 12 } }) {
-	return {
+function typedHistory(data = { verdict: 'clear', additive: { latencyMs: 12 } }, options = {}) {
+  const operation = options.operation || 'probe';
+  const request = options.request || { operation, domain: 'youtube.com', timeoutMs: 6000 };
+  return {
 		schema: HISTORY_SCHEMA,
 		id: 'detect-typed-1',
 		status: 'completed',
 		createdAt: '2026-09-07T07:00:00.000Z',
-		request: { target: 'youtube.com' },
-		operation: 'probe',
-		provenance: { source: 'z2k-detect', schema: HISTORY_SCHEMA, operation: 'probe' },
-		report: { typedDetect: true, operation: 'probe', data }
-	};
+    request,
+    operation,
+    provenance: { source: 'z2k-detect', schema: HISTORY_SCHEMA, operation },
+    report: { typedDetect: true, operation, data }
+  };
 }
 
 test('Scanner history preserves a valid typed Detect envelope and provenance', async () => {
@@ -108,5 +110,18 @@ test('typed Detect history remains the only current Scanner result handoff', asy
 	assert.equal(result.history.length, 1);
 	assert.equal(result.history[0].schema, HISTORY_SCHEMA);
 	assert.equal(result.history[0].report.typedDetect, true);
-	assert.equal(result.history[0].provenance.source, 'z2k-detect');
+  assert.equal(result.history[0].provenance.source, 'z2k-detect');
+});
+
+test('typed Detect history preserves operation-specific request data and rejects retired target fields', async () => {
+  const voice = typedHistory({ verdict: 'no-call' }, { operation: 'voice', request: { operation: 'voice', repeats: 2, timeoutMs: 6000 } });
+  const tcp16 = typedHistory({ verdict: 'observed' }, { operation: 'tcp16', request: { operation: 'tcp16', timeoutMs: 6000 } });
+  const legacyTarget = typedHistory({}, { request: { operation: 'probe', target: 'youtube.com', protocol: 'tcp', mode: 'standard' } });
+  const result = await loadProduct([voice, tcp16, legacyTarget]);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.history.map(item => item.operation))), ['voice', 'tcp16']);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.history.map(item => item.request))), [
+    { operation: 'voice', repeats: 2, timeoutMs: 6000 },
+    { operation: 'tcp16', timeoutMs: 6000 }
+  ]);
 });

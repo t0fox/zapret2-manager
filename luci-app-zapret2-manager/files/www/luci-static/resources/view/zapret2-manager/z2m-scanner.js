@@ -3,17 +3,17 @@
 'require view.zapret2-manager.z2m-icons as Icons';
 
 var DETECT_FORMS = {
-  probe: { label: _('Проверка сайта'), fields: ['domain', 'timeoutMs'], defaults: { domain: 'youtube.com', timeoutMs: 6000 } },
-  classify: { label: _('Анализ DPI'), fields: ['host', 'port', 'hello', 'repeats', 'timeoutMs'], defaults: { host: 'youtube.com', port: 443, hello: 'both', repeats: 2, timeoutMs: 6000 } },
-  quic: { label: _('QUIC'), fields: ['domain', 'port', 'repeats', 'timeoutMs'], defaults: { domain: 'youtube.com', port: 443, repeats: 2, timeoutMs: 6000 } },
-  voice: { label: _('Discord Voice'), fields: ['repeats', 'timeoutMs'], defaults: { repeats: 2, timeoutMs: 6000 } },
-  tcp16: { label: _('TCP16'), fields: ['timeoutMs'], defaults: { timeoutMs: 6000 } }
+  probe: { label: _('Проверка сайта'), description: _('Проверка доступности выбранного домена.'), fields: ['domain', 'timeoutMs'], defaults: { domain: 'youtube.com', timeoutMs: 6000 } },
+  classify: { label: _('Анализ DPI'), description: _('Проверка TLS-соединения и классификация пути.'), fields: ['host', 'port', 'hello', 'repeats', 'timeoutMs'], defaults: { host: 'youtube.com', port: 443, hello: 'both', repeats: 2, timeoutMs: 6000 } },
+  quic: { label: _('QUIC'), description: _('Проверка QUIC-соединения с выбранным доменом.'), fields: ['domain', 'port', 'repeats', 'timeoutMs'], defaults: { domain: 'youtube.com', port: 443, repeats: 2, timeoutMs: 6000 } },
+  voice: { label: _('Discord Voice'), description: _('Для этой проверки нужен живой голосовой или видеозвонок в Discord.'), fields: ['repeats', 'timeoutMs'], defaults: { repeats: 2, timeoutMs: 6000 } },
+  tcp16: { label: _('TCP16'), description: _('Проверка TCP16 без домена, хоста или порта.'), fields: ['timeoutMs'], defaults: { timeoutMs: 6000 } }
 };
 var state = {
   request: { operation: 'probe', domain: 'youtube.com', timeoutMs: 6000 },
   scanId: null, status: null, report: null, error: null, discovery: null,
   disposed: true, generation: 0,
-  showAll: false, fieldError: null
+  showAll: false, fieldError: null, fieldErrorField: null
 };
 var DETECT_WAIT_MS = 120000;
 var DETECT_ACTIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
@@ -24,6 +24,28 @@ function detectFields(operation) {
 }
 function detectDefaults(operation) {
   return DETECT_FORMS[operation] ? Object.assign({}, DETECT_FORMS[operation].defaults) : {};
+}
+var DETECT_NUMERIC_BOUNDS = {
+  port: { min: 1, max: 65535, step: 1 },
+  repeats: { min: 1, max: 32, step: 1 },
+  timeoutMs: { min: 1, max: 120000, step: 1 }
+};
+function detectBounds(field) {
+  return DETECT_NUMERIC_BOUNDS[field] ? Object.assign({}, DETECT_NUMERIC_BOUNDS[field]) : null;
+}
+function validateDetectArguments(request) {
+  request = object(request);
+  var operation = detectOperation(request);
+  var fields = detectFields(operation);
+  for (var i = 0; i < fields.length; i++) {
+    var field = fields[i], bounds = DETECT_NUMERIC_BOUNDS[field];
+    if (!bounds) continue;
+    var value = request[field];
+    if (typeof value !== 'number' || !isFinite(value) || Math.floor(value) !== value || value < bounds.min || value > bounds.max) {
+      return { ok: false, field: field, error: _('Укажите значение от ') + String(bounds.min) + _(' до ') + String(bounds.max) + _('.') };
+    }
+  }
+  return { ok: true };
 }
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -136,7 +158,8 @@ function normalizedDetectError(ctx, value, fallback) {
   var code = text(source.code || raw.code || fallback || 'EDETECT_FAILED');
   if (CANONICAL_DETECT_ERRORS.indexOf(code) < 0) code = fallback || 'EDETECT_FAILED';
   var normalized = ctx && ctx.api && ctx.api.normalizeError ? ctx.api.normalizeError(value) : null;
-  return { code: code, message: text(source.message || raw.message || normalized && normalized.message || _('Проверка Detect недоступна.')), details: source.details || raw.details || null };
+  var message = code === 'EDETECT_NO_ACTIVE_VOICE' ? _('Подключитесь к голосовому каналу Discord и повторите проверку.') : text(source.message || raw.message || normalized && normalized.message || _('Проверка Detect недоступна.'));
+  return { code: code, message: message, details: source.details || raw.details || null };
 }
 function detectFailure(ctx, value, fallback) { throw normalizedDetectError(ctx, value, fallback); }
 function normalizeDiscoveryStatus(value) {
@@ -343,6 +366,7 @@ function start(ctx, controls) {
   var normalized = endpointField ? normalizeTarget(rawEndpoint) : { ok: true, hostname: '' };
   if (!normalized.ok) {
     state.fieldError = normalized.error;
+    state.fieldErrorField = endpointField;
     state.error = null;
     if (controls.fields[endpointField] && typeof controls.fields[endpointField].setAttribute === 'function') {
       controls.fields[endpointField].setAttribute('aria-invalid', 'true');
@@ -352,7 +376,17 @@ function start(ctx, controls) {
     refresh(ctx);
     return;
   }
+  var numericValidation = validateDetectArguments(values);
+  if (!numericValidation.ok) {
+    state.fieldError = numericValidation.error;
+    state.fieldErrorField = numericValidation.field;
+    state.error = null;
+    if (controls.fields[numericValidation.field] && typeof controls.fields[numericValidation.field].focus === 'function') controls.fields[numericValidation.field].focus();
+    refresh(ctx);
+    return;
+  }
   state.fieldError = null;
+  state.fieldErrorField = null;
   if (endpointField && controls.fields[endpointField] && typeof controls.fields[endpointField].setAttribute === 'function') {
     controls.fields[endpointField].setAttribute('aria-invalid', 'false');
     if (typeof controls.fields[endpointField].removeAttribute === 'function') controls.fields[endpointField].removeAttribute('aria-describedby');
@@ -440,7 +474,10 @@ function fieldControl(field, value, disabled, hasError) {
   };
   if (numeric) {
     attrs.type = 'number';
-    attrs.min = field === 'repeats' ? '1' : '0';
+    var bounds = detectBounds(field);
+    attrs.min = String(bounds.min);
+    attrs.max = String(bounds.max);
+    attrs.step = String(bounds.step);
   } else {
     attrs.type = field === 'domain' || field === 'host' ? 'url' : 'text';
     attrs.inputmode = field === 'domain' || field === 'host' ? 'url' : null;
@@ -457,19 +494,30 @@ function fieldControl(field, value, disabled, hasError) {
   }
   return E('input', attrs);
 }
+function operationPicker(ctx, operation, disabled) {
+  return E('div', { 'class': 'z2m-scanner-operations', role: 'group', 'aria-label': _('Тип проверки') }, DETECT_ACTIONS.map(function (item) {
+    var button = E('button', { type: 'button', 'class': 'z2m-scanner-operation' + (operation === item ? ' on' : ''), 'aria-pressed': operation === item ? 'true' : 'false', 'data-operation': item, disabled: disabled ? 'disabled' : null }, DETECT_FORMS[item].label);
+    button.addEventListener('click', function () {
+      if (disabled) return;
+      state.request = safeRequest({ operation: item });
+      state.fieldError = null;
+      state.fieldErrorField = null;
+      state.error = null;
+      refresh(ctx);
+    });
+    return button;
+  }));
+}
 function render(ctx, data) {
   data = object(data);
   var status = statusValue(data), report = resultValue(data), request = safeRequest(state.request);
-  var controls = { fields: {} };
-  controls.operation = E('select', { class: 'z2m-select z2m-scanner-detect-action-select', name: 'detect-action', disabled: status.status === 'running' ? 'disabled' : null });
-  DETECT_ACTIONS.forEach(function (operation) { controls.operation.appendChild(E('option', { value: operation }, DETECT_FORMS[operation].label)); });
-  controls.operation.value = request.operation;
+  var controls = { fields: {}, operation: { value: request.operation } };
   var running = status.status === 'running' || status.status === 'starting' || status.phase === 'cancelling';
   var progressPanel = running ? renderProgress(ctx, status, request) : null;
   var terminalResult = terminal(status) && report ? renderEvidence(ctx, report, controls) : null;
   var retry = terminal(status) && !terminalResult && !status.error && !state.error ? ctx.shell.button(_('Проверить ещё раз'), 'primary', function () { start(ctx, controls); }) : null;
   detectFields(request.operation).forEach(function (field) {
-    var hasError = state.fieldError && (field === 'domain' || field === 'host');
+    var hasError = state.fieldError && state.fieldErrorField === field;
     controls.fields[field] = fieldControl(field, request[field], running, hasError);
   });
   var fieldNodes = detectFields(request.operation).map(function (field) {
@@ -477,10 +525,10 @@ function render(ctx, data) {
   });
   var endpointField = detectFields(request.operation).indexOf('domain') >= 0 ? 'domain' : detectFields(request.operation).indexOf('host') >= 0 ? 'host' : null;
   var search = !running ? E('section', { 'class': 'z2m-scanner-search-body card' + (terminalResult || status.error || state.error ? ' z2m-scanner-retry-panel' : '') }, [
-    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, DETECT_FORMS[request.operation].label), E('p', {}, _('Одно типизированное действие Z2K Detect.'))])]),
-    formField(_('Операция'), controls.operation, '', 'scan'),
+    E('div', { 'class': 'z2m-scanner-search-intro' }, [icon('search'), E('div', {}, [E('strong', {}, _('Диагностика Z2K Detect')), E('p', {}, DETECT_FORMS[request.operation].description)])]),
+    operationPicker(ctx, request.operation, running),
     fieldNodes,
-    endpointField && state.fieldError ? E('div', { id: 'z2m-scanner-field-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.fieldError) : null,
+    state.fieldError ? E('div', { id: 'z2m-scanner-field-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.fieldError) : null,
     E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Поля и значения заданы выбранной операцией.')),
     E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Автоматическое обнаружение'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [discoveryPanel(ctx)])]),
     E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
@@ -494,13 +542,12 @@ function render(ctx, data) {
   detectFields(request.operation).forEach(function (field) {
     controls.fields[field].addEventListener('input', function () {
       state.request[field] = controls.fields[field].value;
-      if (state.fieldError) { state.fieldError = null; refresh(ctx); }
+      if (state.fieldError) { state.fieldError = null; state.fieldErrorField = null; refresh(ctx); }
     });
     controls.fields[field].addEventListener('change', function () {
       state.request[field] = controls.fields[field].value;
     });
   });
-  controls.operation.addEventListener('change', function () { state.request = safeRequest({ operation: controls.operation.value }); state.fieldError = null; refresh(ctx); });
   return root;
 }
 function mount(ctx) {
@@ -513,7 +560,7 @@ function unmount() {
 
 return baseclass.extend({
   id: 'scanner', load: load, render: render, mount: mount, unmount: unmount,
-  detectFields: detectFields, detectDefaults: detectDefaults, detectArguments: detectArguments,
+  detectFields: detectFields, detectDefaults: detectDefaults, detectBounds: detectBounds, validateDetectArguments: validateDetectArguments, detectArguments: detectArguments,
   detectOperation: detectOperation, detectInvoke: detectInvoke, normalizeDetectError: normalizedDetectError,
   normalizeDiscoveryStatus: normalizeDiscoveryStatus, discoveryControlMethod: discoveryControlMethod
 });

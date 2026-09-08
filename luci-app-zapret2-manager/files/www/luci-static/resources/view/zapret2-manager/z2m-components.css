@@ -391,14 +391,14 @@
 .z2m-scanner-field{display:grid;gap:6px}
 .z2m-scanner-field-label{display:flex;gap:6px;align-items:center;color:var(--tx3);font-size:12px;line-height:18px}
 .z2m-scanner-field input,.z2m-scanner-field select{width:100%;min-height:44px;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;background:var(--panel2);color:var(--tx);touch-action:manipulation}
-.z2m-scanner-segmented{display:flex;gap:4px;padding:3px;border:1px solid var(--border2);border-radius:8px;background:var(--panel2)}
-.z2m-scanner-segmented button{flex:1 1 0;min-height:44px;padding:6px 10px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--tx2);font-size:13px;cursor:pointer;box-shadow:none;outline:none;touch-action:manipulation;transition:color .14s ease-out,background-color .14s ease-out,border-color .14s ease-out,transform .14s ease-out}
-.z2m-app .z2m-scanner-segmented button:active{transform:scale(.97)}
-.z2m-app .z2m-scanner-segmented button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-.z2m-scanner-segmented button.on{border-color:var(--blue);background:var(--panel);color:var(--blue);font-weight:600}
+.z2m-scanner-operations{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.z2m-scanner-operation{min-height:44px;padding:8px 10px;border:1px solid var(--border2);border-radius:7px;background:var(--panel2);color:var(--tx2);font-size:12.5px;font-weight:600;cursor:pointer;box-shadow:none;outline:none;touch-action:manipulation;transition:color .14s ease-out,background-color .14s ease-out,border-color .14s ease-out,transform .14s ease-out}
+.z2m-scanner-operation:active{transform:scale(.97)}
+.z2m-scanner-operation:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.z2m-scanner-operation.on{border-color:var(--blue);background:var(--panel);color:var(--blue)}
 @media (hover:hover) and (pointer:fine){
-  .z2m-app .z2m-scanner-segmented button:hover:not(:focus-visible){border-color:transparent!important;box-shadow:none;outline:none;background:rgba(255,255,255,.05);color:var(--tx)}
-  .z2m-app .z2m-scanner-segmented button.on:hover:not(:focus-visible){border-color:var(--blue)!important;box-shadow:none;background:var(--panel);color:var(--blue)}
+  .z2m-scanner-operation:hover:not(:focus-visible){border-color:var(--blue);background:rgba(255,255,255,.05);color:var(--tx)}
+  .z2m-scanner-operation.on:hover:not(:focus-visible){border-color:var(--blue);background:var(--panel);color:var(--blue)}
 }
 .z2m-scanner-budget-hint{color:var(--tx3);font-size:12px;line-height:18px}
 .z2m-scanner-advanced{border:1px solid var(--border);border-radius:7px;overflow:hidden}
@@ -411,8 +411,9 @@
 .z2m-scanner-discovery-status{display:grid;gap:10px;padding:11px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--tx2);font-size:12px;line-height:18px}
 .z2m-scanner-discovery-status.is-error{border-color:rgba(226,105,90,.55);color:var(--tx2)}
 @media(prefers-reduced-motion:reduce){
-  .z2m-scanner-workflow .z2m-btn,.z2m-scanner-product .z2m-btn,.z2m-scanner-segmented button{transition:none!important}
+  .z2m-scanner-workflow .z2m-btn,.z2m-scanner-product .z2m-btn,.z2m-scanner-operation{transition:none!important}
 }
+@media(max-width:720px){.z2m-scanner-operations{grid-template-columns:repeat(2,minmax(0,1fr))}.z2m-scanner-operation:last-child{grid-column:1 / -1}}
 .z2m-scanner-advanced-grid{display:grid;gap:12px;padding:12px 14px}
 .z2m-scanner-primary-action{display:flex;justify-content:flex-start}
 .z2m-scanner-progress-card{padding:18px;display:grid;gap:16px}
