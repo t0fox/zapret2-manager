@@ -170,13 +170,14 @@ function makeContext(internals, initialZ2k, refreshedZ2k = initialZ2k, options =
   return ctx;
 }
 
-test('healthy materialized Z2K with unknown release renders neutral identity wording', () => {
+test('materialized Z2K without receipt and Detect coherence does not render Работает', () => {
   const internals = loadMaintenance();
   const ctx = makeContext(internals, z2kRaw());
   const text = textOf(internals.renderComponents(ctx, ctx.data));
 
   assert.match(text, /УстановленоВерсия не определена/);
-  assert.match(text, /Z2K CoreРесурсы Z2K для обхода блокировокРаботаетУстановленоВерсия не определена/);
+  assert.match(text, /Z2K CoreРесурсы Z2K для обхода блокировокТребует внимания/);
+  assert.doesNotMatch(text, /Z2K CoreРесурсы Z2K для обхода блокировокРаботает/);
 });
 
 test('actually missing Z2K still renders Не установлен', () => {
@@ -296,4 +297,22 @@ test('review clears only when the refreshed canonical backend state is current',
   assert.match(reviewText, /Есть блокирующие зависимости/);
   assert.match(currentText, /Работает/);
   assert.doesNotMatch(currentText, /Причина проверки/);
+});
+
+test('truth lifecycle projection distinguishes working and rollback-result from ready', () => {
+  const model = loadComponentsModel();
+  const coherent = {
+    local: { installed: true, integrityOk: true, lua: { ready: 7, total: 7 }, installedRelease: { value: 'r-80.3', confidence: 'confirmed', authority: 'activation-receipt' } },
+    runtimeSummary: {
+      health: 'ready', strategies: 4, sourceCommit: 'a'.repeat(40), runtimeBundleDigest: 'b'.repeat(64),
+      detect: { architecture: 'x86_64', digest: 'c'.repeat(64), sourceCommit: 'a'.repeat(40) },
+      compatibilityIdentity: 'd'.repeat(64),
+      dependencyClosure: { available: true, resolution: 'complete', runtimeBundleDigest: 'b'.repeat(64), counts: { lua: 7, missing: 0 } },
+      coherence: { coherenceStatus: 'aligned', compatibilityStatus: 'aligned' },
+    },
+  };
+  const base = { engine: { status: { installed: true, serviceState: 'running', runtimeRunning: true, compatible: true } } };
+
+  assert.equal(model.normalizePage({ ...base, z2k: { ...coherent, operation: { state: 'working', action: 'repair', operationId: 'op-7' } } }).components[1].state, 'working');
+  assert.equal(model.normalizePage({ ...base, z2k: { ...coherent, operationResult: { state: 'rollback-result', ok: false, rollback: { ok: true, state: 'completed' } } } }).components[1].state, 'rollback-result');
 });

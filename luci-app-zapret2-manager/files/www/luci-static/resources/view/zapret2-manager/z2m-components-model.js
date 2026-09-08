@@ -383,6 +383,10 @@ function normalizeZ2k(input, engineReady) {
 	var canonicalDigest = runtimeSummary ? first(runtimeSummary.runtimeBundleDigest, null) : null;
 	var evidenceClosure = canonicalClosure || (local.dependencyClosure && typeof local.dependencyClosure === 'object' ? local.dependencyClosure : value.dependencyClosure && typeof value.dependencyClosure === 'object' ? value.dependencyClosure : null);
 	var evidenceDigest = canonicalDigest || first(value.runtimeBundleDigest || local.runtimeBundleDigest || evidenceClosure && evidenceClosure.runtimeBundleDigest, null);
+	var releaseEvidence = local.installedRelease !== undefined ? local.installedRelease : runtimeSummary && runtimeSummary.installedRelease !== undefined ? runtimeSummary.installedRelease : value.installedRelease;
+	var receiptConfirmed = releaseEvidence && typeof releaseEvidence === 'object' && !Array.isArray(releaseEvidence)
+		? !!(first(releaseEvidence.value || releaseEvidence.version || releaseEvidence.release, null) && releaseEvidence.authority === 'activation-receipt')
+		: false;
   // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
   // plus materialized/integrity-checked assets. Without a proven engine the
   // component is a requires-engine install gate — regardless of bundled
@@ -398,8 +402,8 @@ function normalizeZ2k(input, engineReady) {
 		else if (local.integrityOk === false || local.integrity === 'broken') healthState = 'broken';
 		else if (canonicalHealth === 'broken' || canonicalHealth === 'missing') healthState = canonicalHealth;
 		else if (evidenceClosure && !z2kClosureComplete(evidenceClosure, evidenceDigest)) healthState = 'degraded';
-		else if (!detect.architecture || detect.status !== 'ready' || !detect.compatible || !compatibilityIdentity) healthState = 'degraded';
-    else if (canonicalHealth) healthState = canonicalHealth;
+		else if (!receiptConfirmed || !detect.architecture || detect.status !== 'ready' || !detect.compatible || !compatibilityIdentity) healthState = 'degraded';
+		else if (canonicalHealth && (canonicalHealth !== 'ready' || localEvidence)) healthState = canonicalHealth;
     else if (localEvidence) healthState = 'ready';
     else healthState = 'degraded';
     if (explicitHealth) {
@@ -546,11 +550,53 @@ var strategyCount = countValue(value.strategyCount);
 	var latestRelease = availableRelease || catalogLatest && catalogLatest.version || (catalog[0] && catalog[0].version) || null;
 	if (selectedVersion === null) selectedVersion = installedRelease.value || latestRelease || null;
 	var preparedTarget = object(value.preparedTarget);
+	var lifecycleOperation = value.operation && typeof value.operation === 'object' ? value.operation
+		: runtimeSummary && runtimeSummary.operation && typeof runtimeSummary.operation === 'object' ? runtimeSummary.operation : null;
+	var operationResult = value.operationResult && typeof value.operationResult === 'object' ? value.operationResult
+		: runtimeSummary && runtimeSummary.operationResult && typeof runtimeSummary.operationResult === 'object' ? runtimeSummary.operationResult : null;
 	var operation = first(preparedTarget.operation || selectedDetails.operation, null);
 	var versionRaw = installedRelease.value;
+	var discovery = object(value.discovery || local.discovery || runtimeSummary && runtimeSummary.discovery);
+	var synchronized = value.compatibility && typeof value.compatibility === 'object' && value.compatibility.synchronized !== undefined
+		? value.compatibility.synchronized === true
+		: value.compatibilitySynchronized !== undefined ? value.compatibilitySynchronized === true
+		: coherence.coherenceStatus === 'aligned' && coherence.compatibilityStatus === 'aligned';
+	var facts = {
+		strategies: { label: 'Стратегии', count: strategyCount },
+		detect: { status: detect.status, arch: detect.architecture },
+		runtime: {
+			luaReady: countValue(luaSrc.ready),
+			luaTotal: countValue(luaSrc.total),
+			listsReady: countValue(luaSrc.listsReady !== undefined ? luaSrc.listsReady : dependencyCounts.hostlists),
+			blobsReady: countValue(luaSrc.blobsReady !== undefined ? luaSrc.blobsReady : dependencyCounts.blobs)
+		},
+		discovery: {
+			enabled: typeof discovery.enabled === 'boolean' ? discovery.enabled : null,
+			running: typeof discovery.running === 'boolean' ? discovery.running : null
+		},
+		compatibility: { synchronized: synchronized }
+	};
+	var technical = {
+		sourceCommit: first(coherence.installedRuntimeRevision || runtimeSummary && runtimeSummary.sourceCommit || localProvenance.sourceCommit || value.sourceCommit, null),
+		manifestSeq: value.manifestSeq !== undefined ? value.manifestSeq : manifest.seq !== undefined ? manifest.seq : manifest.revision !== undefined ? manifest.revision : null,
+		manifestSha256: first(value.manifestSha256 || manifest.sha256 || manifest.digest, null),
+		runtimeBundleDigest: runtimeBundleDigest,
+		compilerInputsDigest: first(value.compilerInputsDigest || runtimeSummary && runtimeSummary.compilerInputsDigest || local.compilerInputsDigest, null),
+		catalogDigest: first(value.catalogDigest || runtimeSummary && runtimeSummary.catalogDigest || local.catalogDigest, null),
+		compatibilityIdentity: compatibilityIdentity,
+		detectSha256: detect.digest,
+		dependencyClosure: dependencyClosure,
+		provenance: provenanceSrc
+	};
+	var rollbackState = operationResult && (operationResult.state === 'rollback-result' || operationResult.rollback) ? operationResult : null;
+	var state = healthState;
+	if (rollbackState) state = 'rollback-result';
+	else if (lifecycleOperation && ['working', 'pending', 'running', 'queued', 'applying'].indexOf(String(lifecycleOperation.state || lifecycleOperation.status || lifecycleOperation.phase || '').toLowerCase()) >= 0) state = 'working';
+	else if (healthState === 'ready' && updateState === 'update-available') state = 'update-available';
 	return {
     id: 'z2k-core',
     label: 'Z2K Core',
+		state: state,
 		runtimeHealth: healthState,
 		health: healthState,
 		updateState: updateState,
@@ -574,6 +620,7 @@ var strategyCount = countValue(value.strategyCount);
 			preparedAt: preparedTarget.preparedAt !== undefined ? preparedTarget.preparedAt : null
 		} : null,
 		operation: operation,
+		lifecycle: { state: state, action: actions.primary, operation: lifecycleOperation, result: rollbackState },
 		checkedAt: timestamp(value.checkedAt),
 		planToken: planToken,
 		advisoryReviews: advisoryReviews,
@@ -589,6 +636,8 @@ var strategyCount = countValue(value.strategyCount);
 		detectStatus: detect.status,
 		detectCompatible: detect.compatible,
 		compatibilityIdentity: compatibilityIdentity,
+		facts: facts,
+		technical: technical,
 		runtimeSummary: runtimeSummary,
 		compiledDependencySummary: compiledDependencySummary,
 		dependencySummary: dependencySummary,

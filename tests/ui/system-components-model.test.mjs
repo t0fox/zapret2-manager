@@ -35,9 +35,28 @@ const z2k = (overrides = {}) => ({
   status: 'current',
   runtime: 'r-77.5',
   engineDelta: 'z2k-master @ 8193742',
-  lua: { ready: 7, total: 7 },
+  lua: overrides.lua || { ready: 7, total: 7 },
   compatibility: 'compatible',
   provenance: { repository: 'necronicle/z2k', commit: 'abc123' },
+  local: {
+    installed: true,
+    integrity: 'verified',
+    integrityOk: true,
+    lua: overrides.lua || { ready: 7, total: 7 },
+    installedRelease: { value: 'r-77.5', confidence: 'confirmed', authority: 'activation-receipt' },
+  },
+  runtimeSummary: {
+    health: 'ready',
+    installedRelease: 'r-77.5',
+    strategies: 8,
+    sourceCommit: 'a'.repeat(40),
+    runtimeBundleDigest: 'b'.repeat(64),
+    detect: { architecture: 'x86_64', digest: 'c'.repeat(64), sourceCommit: 'a'.repeat(40) },
+    compatibilityIdentity: 'd'.repeat(64),
+    dependencyClosure: { available: true, resolution: 'complete', runtimeBundleDigest: 'b'.repeat(64), counts: { lua: (overrides.lua || { ready: 7 }).ready, blobs: 1, hostlists: 1, missing: 0 } },
+    coherence: { coherenceStatus: 'aligned', compatibilityStatus: 'aligned' },
+  },
+  discovery: { enabled: true, running: true },
   ...overrides,
 });
 
@@ -102,7 +121,7 @@ test('unknown compatibility does not poison independently proven runtime health'
 
   const page2 = model.normalizePage({
     engine: { status: engine() },
-    z2k: z2k({ status: 'unknown', lua: {} }),
+    z2k: z2k({ status: 'unknown', lua: {}, local: { installed: true, lua: {} }, runtimeSummary: null }),
   });
   assert.equal(page2.components[0].health, 'ready');
   assert.equal(page2.components[1].health, 'degraded',
@@ -199,4 +218,29 @@ test('broken Z2K Core asks for recovery rather than deletion', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(page.health)), { ready: 1, total: 2, state: 'broken', message: 'Требуется восстановление Z2K Core' });
   assert.equal(page.components[1].actions.primary, 'repair');
   assert.equal(page.components[1].actions.delete, undefined);
+});
+
+test('canonical Z2K projection keeps user facts and technical evidence in separate namespaces', () => {
+  const core = model.normalizePage({
+    engine: { status: engine() },
+    z2k: {
+      local: { installed: true, integrityOk: true, lua: { ready: 2, total: 2 }, installedRelease: { value: 'r-80.3', confidence: 'confirmed', authority: 'activation-receipt' } },
+      runtimeSummary: {
+        health: 'ready', strategies: 3, sourceCommit: 'a'.repeat(40),
+        runtimeBundleDigest: 'b'.repeat(64),
+        detect: { architecture: 'x86_64', digest: 'c'.repeat(64), sourceCommit: 'a'.repeat(40) },
+        compatibilityIdentity: 'd'.repeat(64),
+        dependencyClosure: { available: true, resolution: 'complete', runtimeBundleDigest: 'b'.repeat(64), counts: { lua: 2, blobs: 1, hostlists: 1, missing: 0 } },
+        coherence: { coherenceStatus: 'aligned', compatibilityStatus: 'aligned' },
+      },
+      discovery: { enabled: true, running: false },
+      compatibility: { synchronized: true },
+    },
+  }).components[1];
+
+  assert.equal(core.state, 'ready');
+  assert.equal(core.facts.detect.arch, 'x86_64');
+  assert.equal(core.facts.discovery.running, false);
+  assert.equal(core.technical.compatibilityIdentity, 'd'.repeat(64));
+  assert.equal(core.facts.compatibilityIdentity, undefined);
 });
