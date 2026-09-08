@@ -13,7 +13,8 @@ const read = (file) => fs.readFileSync(file, 'utf8');
 
 test('scanner-cli is a compatibility shell over typed Detect actions only', () => {
   const cli = read(path.join(scannerDir, 'scanner-cli.uc'));
-  assert.match(cli, /z2k_detect_(probe|classify|quic|voice|tcp16)/);
+  for (const operation of ['probe', 'classify', 'quic', 'voice', 'tcp16'])
+    assert.match(cli, new RegExp(`z2k_detect_${operation}`), `scanner-cli must expose z2k_detect_${operation}`);
   assert.match(cli, /z2k_detect_discovery/);
   assert.doesNotMatch(cli, /scanner_worker|scanner_probe|scanner-planner|scanner-probes/);
   assert.doesNotMatch(cli, /fallback|legacy scanner|old scanner/i);
@@ -50,4 +51,15 @@ test('Scanner exposes only typed Detect probe/classify/quic/voice/tcp16 and auto
   assert.match(source, /autodiscovery|discovery/i);
   assert.doesNotMatch(source, /candidate.?count|planner.?complexity|complexity.?planner/i);
   assert.doesNotMatch(source, /scanner_worker|scanner_probe|scanner-planner|scanner-probes/);
+});
+
+test('scanner-runtime-adapter is shared by non-Scanner profile activation and is KEEP_SHARED', () => {
+  const adapterPath = path.join(scannerDir, 'scanner-runtime-adapter.sh');
+  const profilesApply = read(path.join(scannerDir, 'profiles-apply.uc'));
+  assert.equal(fs.existsSync(adapterPath), true);
+  assert.match(profilesApply, /SCANNER_RUNTIME_ADAPTER/);
+  assert.match(profilesApply, /scanner_runtime_call\('activate'/);
+  assert.match(profilesApply, /scanner_runtime_call\('session-cleanup'/);
+  assert.match(profilesApply, /scanner_runtime_call\('stabilize'/);
+  assert.match(profilesApply, /scanner_runtime_call\('cleanup'/);
 });

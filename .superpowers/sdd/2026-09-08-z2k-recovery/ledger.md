@@ -11,7 +11,7 @@
 | 7 | VERIFIED | implementation `c5418ce2`, fix rounds `65ee5960` and `e014132d`; four-skill independent review PASS, 24/24 focused tests, source deploy, and real Components browser state evidence in `task-7-report.md` |
 | 8 | VERIFIED | implementation `7fb84cc0` + fix `7b31d3e3`; 47/47 focused tests, node/diff checks, independent four-skill review PASS, source deploy, and cache-cleared live Components browser gate recorded in `task-8-report.md` |
 | 9 | VERIFIED | implementation `cdeecf59` + owner fix `a306709e`; 53/53 focused tests, independent Luna review PASS, source deploy with UI/backend hash parity, live `EMANAGED` owner RPC, and cache-cleared Resources browser gate recorded in `task-9-report.md` |
-| 10 | TODO | |
+| 10 | VERIFIED | call graph and exact KEEP_SHARED/REMOVE_LEGACY closure recorded in `scanner-callgraph.md`; RED closure run is 7 passed/1 expected legacy-remnant failure, with retained Detect and shared profile-adapter checks passing in `task-10-report.md` |
 | 11 | TODO | |
 | 12 | TODO | |
 | 13 | TODO | |
@@ -36,6 +36,14 @@
 - Direct router `strategies_source_refresh({sourceId:'z2k'})` returned `ok:false`, `error.code:'EMANAGED'`, `error.owner:'z2k-core'` before mutation.
 - Cache-cleared live Resources browser gate showed Z2K managed text and no Z2K source mutation controls, while Avatar retained `Обновить` and `Отключить`.
 - No local APK build, merge, push, branch deletion, or worktree deletion was performed.
+
+## Task 10 verification (2026-09-09)
+
+- `scanner-callgraph.md` records the production reference classification and the Task 11 boundary.
+- `scanner-runtime-adapter.sh` is `KEEP_SHARED`: `profiles-apply.uc` calls it for activate, session-cleanup, stabilize, and cleanup.
+- The Task 10 closure command produced `7 passed, 1 failed`; the sole failure is the intentional pre-Task 11 assertion that current `scanner_probe`/`scanner.c` remnants must be removed.
+- The retained Detect operation set is locked to `z2k_detect_probe`, `z2k_detect_classify`, `z2k_detect_quic`, `z2k_detect_voice`, and `z2k_detect_tcp16`.
+- No production deletion, local APK build, router deployment, merge, push, branch deletion, or worktree deletion was performed.
 
 ## Pre-flight cross-task/interface scan
 
