@@ -391,6 +391,43 @@ The report-only commit following this round records the exact boundary and
 runtime evidence. The pre-existing unrelated Task 1 `ledger.md` modification
 remains preserved and was not staged.
 
+## Fix round 4 — authenticated rpcd request boundary
+
+The production mismatch is the authenticated transport field, not a different
+business payload. LuCI's HTTP JSON-RPC request is the batch shape
+`params: [session, 'zapret2-manager', 'z2k_detect_discovery_enable', { dnsSource: 'auto' }]`.
+The rpcd UCode bridge consumes that outer JSON-RPC envelope before invoking the
+plugin; the callback receives a request resource whose `req.args` contains the
+typed body. For an authenticated call rpcd also permits and includes the
+transport-only `ubus_rpc_session` attribute in that body. A direct ubus socket
+call has no such attribute, which explains why the same visible discovery JSON
+worked over SSH but failed in LuCI.
+
+The bounded fix clones the normalized discovery input and removes only
+`ubus_rpc_session` before the existing discovery validator. Unknown siblings
+remain in the cloned input and still return `EINPUT`; typed registration is
+unchanged. The regression models the authenticated rpcd callback shape,
+including `ubus_rpc_session`, and separately asserts rejection of an unknown
+field. The test also records that the HTTP `params[3]` envelope is transport
+input, not a second business payload to pass into `z2k_detect_discovery_control`.
+
+Focused checks after the fix:
+
+```text
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs tests/product/z2k-detect-discovery-service.test.mjs tests/product/z2k-detect-rpc-boundary.test.mjs tests/ui/scanner-ui-rework.test.mjs
+15 passed, 0 failed, 7 skipped
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js
+passed
+bash -n scripts/deploy-target.sh
+passed
+git diff --check
+passed
+```
+
+This round is committed locally only. Router/browser retest remains required;
+Task 2 is not verified. No deployment, credential change, APK build, merge,
+push, or branch/worktree deletion was performed.
+
 ## Fix round 4 — authenticated rpcd session metadata boundary
 
 The supplied production evidence isolates the remaining failure to the
