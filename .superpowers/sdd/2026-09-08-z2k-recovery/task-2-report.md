@@ -295,3 +295,98 @@ Final router state is disabled with `dnsSource:auto`, `running:false`, and no
 `z2k-detect` service instance. No password/security change or destructive router
 operation was performed. The only unrelated worktree modification is the
 preserved pre-existing Task 1 `ledger.md` change.
+
+## Fix round 3 — rpcd lifecycle and final bounded evidence
+
+The controller's authenticated post-`9f4b9df2` browser retest reproduced the
+production failure exactly: LuCI sent batch id `25` with
+`z2k_detect_discovery_enable {dnsSource:'auto'}`; rpcd returned
+`{ok:false,error:{code:'EINPUT',message:'Unsupported discovery control field.'}}`
+and the UI remained `Autodiscovery: выключено`. This is a real runtime failure,
+not an authentication result.
+
+The deterministic RED reproducer first failed because the reviewed source
+deployment workflow only performed rpcd reload, and did not expose an explicit
+restart path after replacing a long-lived rpcd UCode plugin:
+
+```text
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs
+1 failed: reviewed source deploy can restart rpcd after replacing a UCode plugin
+AssertionError: input did not match /RESTART_RPCD/
+```
+
+Read-only target inspection showed the deployed rpc source hash already
+matched the reviewed source, while the rpcd process had remained on its prior
+PID after reload. The production fix adds the bounded, opt-in
+`RESTART_RPCD=1` path to `scripts/deploy-target.sh`; it does not weaken the
+typed schema or unknown-field rejection. The executable RPC seam continues to
+invoke the actual registered handler with canonical `{args:{dnsSource:'agh'}}`
+and rejects an extra nested field.
+
+Focused GREEN after the fix:
+
+```text
+node --test tests/product/z2k-detect-discovery-rpc-boundary.test.mjs tests/product/z2k-detect-discovery-service.test.mjs tests/product/z2k-detect-rpc-boundary.test.mjs tests/ui/scanner-ui-rework.test.mjs
+15 passed, 0 failed, 7 skipped
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js
+passed
+bash -n scripts/deploy-target.sh
+passed
+git diff --check
+passed
+```
+
+Production fix commit and reviewed source deployment:
+
+```text
+5230e4fe80b4c7d41691988b7436530555466a0d fix: restore typed Z2K discovery controls
+Deployed reviewed closure from 5230e4fe80b4c7d41691988b7436530555466a0d; backup: /tmp/z2m-task2-round3-20260908/backup
+```
+
+After deployment with `RESTART_RPCD=1`, the router's rpcd PID changed from
+`6903` to `29908`, proving the new workflow restarted the long-lived rpcd
+process. The deployed rpc source hash was
+`a9bbff9fc065cff058340372d71ce927f3e13de37d030b7ea24404294a128055`; typed
+registrations remained present:
+
+```text
+z2k_detect_discovery_status {}
+z2k_detect_discovery_enable {"dnsSource":"String"}
+z2k_detect_discovery_disable {"dnsSource":"String"}
+z2k_detect_discovery_restart {"dnsSource":"String"}
+z2k_detect_probe {"domain":"String","timeoutMs":"Integer"}
+```
+
+Bounded direct ubus lifecycle proof after the restart accepted the canonical
+payload and reflected the action in canonical status:
+
+```text
+enable {"dnsSource":"auto"}
+{"ok":true,"schema":1,"enabled":true,"dnsSource":"auto","running":true,"pid":32197,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect","action":"enable"}
+status {}
+{"ok":true,"schema":1,"enabled":true,"dnsSource":"auto","running":true,"pid":32197,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect"}
+/proc/32197/exe -> /usr/libexec/zapret2-manager/z2k-detect
+/proc/32197/cmdline -> /usr/libexec/zapret2-manager/z2k-detect run -publish /opt/zapret2/lists/discovered-domains.txt
+disable {"dnsSource":"auto"}
+{"ok":true,"schema":1,"enabled":false,"dnsSource":"auto","running":false,"pid":null,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect","action":"disable"}
+final status {}
+{"ok":true,"schema":1,"enabled":false,"dnsSource":"auto","running":false,"pid":null,"discoveredDomains":{"count":0,"mtime":1788621576},"instance":"z2k-detect"}
+service list {"name":"z2k-detect"}
+{}
+```
+
+The exact fixed argv and executable identity are therefore proven through
+`/proc`; the separate `service list` query returned `{}` and is not claimed as
+a PASS. Final intended state is disabled with `dnsSource:auto` and
+`running:false`.
+
+Post-`5230e4fe` authenticated LuCI Network/UI success remains
+`NOT_VERIFIED`. A bounded browser availability check found no authorized tab;
+the available CUA mechanism reported `IAB visibility is not supported in a
+subagent thread`. No credentials were available or entered, no browser
+request/response was fabricated, and no new browser PASS is claimed. The last
+real browser evidence is the controller-supplied EINPUT failure above.
+
+The report-only commit following this round records the exact boundary and
+runtime evidence. The pre-existing unrelated Task 1 `ledger.md` modification
+remains preserved and was not staged.
