@@ -491,10 +491,13 @@ function z2k_detect_quic_method(req) { return z2k_detect_quic(z2k_detect_input(r
 function z2k_detect_voice_method(req) { return z2k_detect_voice(z2k_detect_input(req)); }
 function z2k_detect_tcp16_method(req) { return z2k_detect_tcp16(z2k_detect_input(req)); }
 function z2k_detect_discovery_status_method(req) { return z2k_detect_discovery_status(); }
-function z2k_detect_discovery_control_method(action, req) {
+function z2k_detect_discovery_control_input(action, req) {
 	let input = z2k_detect_input(req);
 	if (input != null && type(input) != 'object') return { ok: false, error: { code: 'EINPUT', message: 'discovery arguments must be an object' } };
-	let changed = z2k_detect_discovery_control(action, input || {});
+	return z2k_detect_discovery_control(action, input || {});
+}
+function z2k_detect_discovery_control_method(action, req) {
+	let changed = z2k_detect_discovery_control_input(action, req);
 	if (!changed || changed.ok !== true) return changed;
 	let status = z2k_detect_discovery_status();
 	if (!status || status.ok !== true) return status;
