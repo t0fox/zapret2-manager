@@ -6,6 +6,7 @@ import vm from 'node:vm';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const viewDir = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
+const maintenanceSource = fs.readFileSync(path.join(viewDir, 'z2m-maintenance.js'), 'utf8');
 const presentationSource = fs.readFileSync(path.join(viewDir, 'z2m-update-presentation.js'), 'utf8');
 const modelSource = fs.readFileSync(path.join(viewDir, 'z2m-components-model.js'), 'utf8');
 
@@ -148,4 +149,13 @@ test('Z2K Core never claims Работает when receipt, runtime, or Detect co
     assert.notEqual(core.health, 'ready');
     assert.notEqual(core.summary, 'Работает');
   }
+});
+
+test('Components keeps the Z2K product surface singular and reserves technical identity for details', () => {
+  assert.equal((maintenanceSource.match(/z2m-component-card--z2k/g) || []).length, 1,
+    'one Z2K card class must define the only product surface');
+  assert.doesNotMatch(maintenanceSource, /УПРАВЛЕНИЕ РЕСУРСАМИ/,
+    'the old normal-flow Z2K management dashboard must be removed');
+  assert.match(maintenanceSource, /Технические детали/,
+    'technical evidence must remain available through the details disclosure');
 });

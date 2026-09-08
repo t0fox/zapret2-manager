@@ -670,7 +670,6 @@
 }
 
 /* Z2K version UX: installed truth first, selected release second, one action last. */
-.z2m-components-page .z2m-z2k-compatibility{color:var(--tx3);font-size:12px;line-height:1.4}
 .z2m-components-page .z2m-z2k-release-selection{gap:18px}
 .z2m-components-page .z2m-z2k-current-version{display:grid;gap:4px;min-width:0}
 .z2m-components-page .z2m-z2k-current-version strong{font-size:17px;line-height:1.3;font-variant-numeric:tabular-nums}

@@ -36,6 +36,12 @@ function classHas(node, className) {
   return !!(node && node.attrs && String(node.attrs.class || '').split(/\s+/).includes(className));
 }
 
+function hasAncestor(root, target, predicate) {
+  if (root === target) return false;
+  if (!root || typeof root !== 'object') return false;
+  return (root.children || []).some(child => child === target && predicate(root) || hasAncestor(child, target, predicate));
+}
+
 function loadComponentsModel() {
   const presentation = vm.runInNewContext(`(function () { ${presentationSource}\n })()`, {
     baseclass: { extend: value => value },
@@ -196,6 +202,20 @@ test('Components renders Compiled Strategy Catalog with fail-closed identity and
   assert.match(textOf(compiled), /runtimeBundleDigest/);
   assert.match(componentsCss, /z2m-z2k-compiled-dependencies .*repeat\(5/);
   assert.match(componentsCss, /compiled-dependencies-details .*overflow-wrap:break-word/);
+});
+
+test('Compiled dependency evidence is nested under Z2K technical details, not a second dashboard', () => {
+  const { renderComponents, state } = loadMaintenance();
+  const ctx = makeContext(rawZ2k());
+  state.z2kExpanded = true;
+  const rendered = renderComponents(ctx, ctx.data);
+  const compiled = findAll(rendered, node => classHas(node, 'z2m-z2k-compiled-dependencies'))[0];
+  const technical = findAll(rendered, node => classHas(node, 'z2m-component-technical'))[0];
+
+  assert.ok(compiled);
+  assert.ok(technical);
+  assert.equal(hasAncestor(rendered, compiled, node => classHas(node, 'z2m-component-technical')), true,
+    'compiled dependency evidence belongs inside the technical disclosure');
 });
 
 test('Components never labels an unavailable compiled closure as ready', () => {

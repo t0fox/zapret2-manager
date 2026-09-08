@@ -65,6 +65,13 @@ test('Reinstall stays secondary while an actionable update remains primary', () 
   assert.match(card, /shell\.button\(updateActionLabel, updateActionClass/);
 });
 
+test('Components does not expose a second normal-flow Z2K management dashboard', () => {
+  assert.doesNotMatch(maintenance, /УПРАВЛЕНИЕ РЕСУРСАМИ/);
+  assert.equal((maintenance.match(/z2m-component-card--z2k/g) || []).length, 1);
+  assert.match(maintenance, /Автообнаружение/);
+  assert.match(maintenance, /Совместимость/);
+});
+
 test('Optional cards keep natural heights and the advanced mode remains a simple row', () => {
   assert.match(componentsCss, /\.z2m-components-section--optional \.z2m-components-grid\{align-items:start\}/);
   assert.match(maintenance, /z2m-components-advanced-row/);
