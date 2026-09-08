@@ -1,3 +1,4 @@
 # Reviewed source-only closure for Task 2 typed Z2K discovery RPC acceptance.
 # repo_path|target_path|mode
 zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc|/usr/share/rpcd/ucode/zapret2-manager.uc|0644
+zapret2-manager/files/etc/init.d/zapret2-manager|/etc/init.d/zapret2-manager|0755
