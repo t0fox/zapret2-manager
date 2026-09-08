@@ -61,13 +61,20 @@ function E(tag, attrs, children) {
   return node;
 }
 
-function loadScanner() {
+function strictE(tag, attrs, children) {
+  const node = new Node(tag, attrs);
+  if (Array.isArray(children)) node.children.push(...children);
+  else node.appendChild(children);
+  return node;
+}
+
+function loadScanner({ strictChildren = false } = {}) {
   const source = fs.readFileSync(viewPath, 'utf8')
     .replace('return baseclass.extend(', 'globalThis.__module = baseclass.extend(');
   const translate = (value) => value;
   const context = {
     Object, Array, Number, String, Boolean, Math, Date, JSON, URL, Promise, isFinite, console,
-    _: translate, E, Node,
+    _: translate, E: strictChildren ? strictE : E, Node,
     baseclass: { extend: (value) => value },
     Icons: { wrappedNode: () => null },
     window: { setTimeout },
@@ -94,23 +101,41 @@ function context() {
   };
 }
 
+test('Scanner render flattens dynamic field nodes into the search form', () => {
+  const scanner = loadScanner({ strictChildren: true });
+  const rootNode = scanner.render(context(), { status: { status: 'ready' }, report: null });
+  const search = rootNode.find((node) => (node.getAttribute('class') || '').includes('z2m-scanner-search-body'));
+
+  assert.equal(search.children.some(Array.isArray), false);
+  assert.equal(search.find((node) => node.tagName === 'INPUT' && node.getAttribute('name') === 'detect-domain')?.tagName, 'INPUT');
+  assert.equal(search.find((node) => node.tagName === 'INPUT' && node.getAttribute('name') === 'detect-timeoutMs')?.tagName, 'INPUT');
+
+  search.find((node) => node.tagName === 'BUTTON' && node.getAttribute('data-operation') === 'classify').click();
+  const classifyRoot = scanner.render(context(), { status: { status: 'ready' }, report: null });
+  const classifySearch = classifyRoot.find((node) => (node.getAttribute('class') || '').includes('z2m-scanner-search-body'));
+  assert.equal(classifySearch.children.some(Array.isArray), false);
+  assert.equal(classifySearch.find((node) => node.tagName === 'SELECT' && node.getAttribute('name') === 'detect-hello')?.tagName, 'SELECT');
+  scanner.unmount();
+});
+
 test('invalid Scanner target focuses the target and keeps its described error state', () => {
   const scanner = loadScanner();
   const ctx = context();
   const rootNode = scanner.render(ctx, { status: { status: 'ready' }, report: null });
-  const target = rootNode.find((node) => node.tagName === 'INPUT' && node.getAttribute('name') === 'detect-target');
+  const domain = rootNode.find((node) => node.tagName === 'INPUT' && node.getAttribute('name') === 'detect-domain');
   const start = rootNode.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Начать сканирование');
 
-  target.value = 'not a host';
+  domain.value = 'not a host';
   start.click();
 
-  assert.equal(target.focused, true);
-  assert.equal(target.getAttribute('aria-invalid'), 'true');
-  assert.equal(target.getAttribute('aria-describedby'), 'z2m-scanner-target-error');
-  const error = rootNode.find((node) => node.getAttribute('id') === 'z2m-scanner-target-error');
+  assert.equal(domain.focused, true);
+  assert.equal(domain.getAttribute('aria-invalid'), 'true');
+  assert.equal(domain.getAttribute('aria-describedby'), 'z2m-scanner-field-error');
+  const error = rootNode.find((node) => node.getAttribute('id') === 'z2m-scanner-field-error');
   assert.equal(error, null, 'refresh owns rerendering; the live error must be present in the next render');
   const next = scanner.render(ctx, { status: { status: 'ready' }, report: null });
-  assert.ok(next.find((node) => node.getAttribute('id') === 'z2m-scanner-target-error'));
+  const nextError = next.find((node) => node.getAttribute('id') === 'z2m-scanner-field-error');
+  assert.equal(nextError.textContent, 'Введите домен или ссылку на сайт.');
   scanner.unmount();
 });
 
