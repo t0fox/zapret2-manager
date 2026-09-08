@@ -47,14 +47,14 @@ test('Scanner maps every user action to the corresponding typed Detect RPC', () 
     };
   }
   const ctx = { api };
-  const args = { host: 'example.com', port: 443, repeats: 2, timeoutMs: 6000 };
+  const args = { host: 'example.com', port: 443, hello: 'both', repeats: 2, timeoutMs: 6000 };
   for (const operation of ['probe', 'classify', 'quic', 'voice', 'tcp16']) {
     scanner.detectInvoke(ctx, operation, args);
   }
 
   assert.deepEqual(calls.map(([operation]) => operation), ['probe', 'classify', 'quic', 'voice', 'tcp16']);
-  assert.deepEqual(calls[1][1], ['example.com', 443, 'modern', 2, 6000]);
-  assert.deepEqual(calls[4][1], ['example.com', 443, 2, 6000]);
+  assert.deepEqual(calls[1][1], ['example.com', 443, 'both', 2, 6000]);
+  assert.deepEqual(calls[4][1], [6000]);
 });
 
 test('Scanner action normalization never falls back to the retired planner', () => {

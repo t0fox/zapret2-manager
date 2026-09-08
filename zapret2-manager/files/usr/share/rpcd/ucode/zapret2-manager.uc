@@ -1304,10 +1304,10 @@ return {
 		catalog_preview:   { args: { edit: 'string' }, call: function (req) { return catalog_preview_method(req); } },
 		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } },
 		z2k_detect_status: { call: function (req) { return z2k_detect_status_method(req); } },
-		z2k_detect_discovery_status: { call: function (req) { return z2k_detect_discovery_status_method(req); } },
-		z2k_detect_discovery_enable: { call: function (req) { return z2k_detect_discovery_enable_method(req); } },
-		z2k_detect_discovery_disable: { call: function (req) { return z2k_detect_discovery_disable_method(req); } },
-		z2k_detect_discovery_restart: { call: function (req) { return z2k_detect_discovery_restart_method(req); } },
+		z2k_detect_discovery_status: { call: function(req) { return z2k_detect_discovery_status_method(req); } },
+		z2k_detect_discovery_enable: { args: { dnsSource: 'string' }, call: function(req) { return z2k_detect_discovery_enable_method(req); } },
+		z2k_detect_discovery_disable: { args: { dnsSource: 'string' }, call: function(req) { return z2k_detect_discovery_disable_method(req); } },
+		z2k_detect_discovery_restart: { args: { dnsSource: 'string' }, call: function(req) { return z2k_detect_discovery_restart_method(req); } },
 		// rpcd infers integer argument types from integer exemplar values, not the
 		// string "integer". Range and cross-field validation remains below in Detect.
 		z2k_detect_probe: { args: { domain: 'string', timeoutMs: 1 }, call: function (req) { return z2k_detect_probe_method(req); } },

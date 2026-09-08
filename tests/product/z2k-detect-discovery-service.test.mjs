@@ -230,6 +230,9 @@ test('typed discovery RPC exposes status, enable, disable and restart', () => {
   for (const method of ['z2k_detect_discovery_status', 'z2k_detect_discovery_enable', 'z2k_detect_discovery_disable', 'z2k_detect_discovery_restart']) {
     assert.match(rpc, new RegExp(`${method}:\\s*\\{`));
   }
+  for (const method of ['enable', 'disable', 'restart']) {
+    assert.match(rpc, new RegExp(`z2k_detect_discovery_${method}:\\s*\\{\\s*args:\\s*\\{\\s*dnsSource:\\s*'string'`));
+  }
   assert.match(rpc, /z2k_detect_discovery_status_method/);
   assert.match(rpc, /z2k_detect_discovery_enable_method/);
   assert.match(rpc, /z2k_detect_discovery_disable_method/);
