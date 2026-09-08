@@ -9,7 +9,7 @@
 | 5 | VERIFIED | implementation `4433f03b`, runtime fixes through `53da4c05`; 41/41 focused tests, deployed real-browser probe/Voice plus P1 browser evidence, and scoped four-skill follow-up review `review-task-5-followup.md`; four non-blocking P2 findings carried forward |
 | 6 | VERIFIED | implementation `f7ea2c46` + retry fix `e2357c93`; focused suites, scoped re-review, source deploy, browser payload/state, enable, validated dnsmasq restart with new PID, and final disabled/auto restore recorded in `task-6-report.md` |
 | 7 | VERIFIED | implementation `c5418ce2`, fix rounds `65ee5960` and `e014132d`; four-skill independent review PASS, 24/24 focused tests, source deploy, and real Components browser state evidence in `task-7-report.md` |
-| 8 | TODO | |
+| 8 | VERIFIED | implementation `7fb84cc0` + fix `7b31d3e3`; 47/47 focused tests, node/diff checks, independent four-skill review PASS, source deploy, and cache-cleared live Components browser gate recorded in `task-8-report.md` |
 | 9 | TODO | |
 | 10 | TODO | |
 | 11 | TODO | |
@@ -19,6 +19,14 @@
 | 15 | TODO | |
 | 16 | TODO | |
 | 17 | TODO | |
+
+## Task 8 verification (2026-09-09)
+
+- The final Task 8 implementation is `7b31d3e3f011a0fb8b5bf1e991777c2fc8eb3b3a`; the focused suite passed `47/47`, with node syntax and diff/scope checks passing.
+- Independent cumulative review `reviews/review-task-8.md` is PASS with no P0/P1/P2 findings.
+- Source-only deployment matched the local `z2m-maintenance.js` hash (`73a5136cd2110ba82a206e792a736ea2ac0b6d16fea23e33cc524fdf438f536f`).
+- Live LuCI Components acceptance passed after clearing the browser module cache and performing a full reload: one normal-flow Z2K Core card, no `УПРАВЛЕНИЕ РЕСУРСАМИ`, one Z2K Core heading, and subordinate `Технические детали` after expansion. The earlier duplicate observed before cache clearing was stale SPA module DOM, not the deployed source.
+- No local APK build, merge, push, branch deletion, or worktree deletion was performed.
 
 ## Pre-flight cross-task/interface scan
 
