@@ -11,6 +11,7 @@ EXPECTED_COMMIT=${EXPECTED_COMMIT:?EXPECTED_COMMIT must identify the reviewed so
 REMOTE_ROOT=${REMOTE_ROOT:-/tmp/z2m-deploy}
 BACKUP_ROOT=${BACKUP_ROOT:-$REMOTE_ROOT/backup}
 SSH_CONNECT_TIMEOUT=${SSH_CONNECT_TIMEOUT:-5}
+RESTART_RPCD=${RESTART_RPCD:-0}
 
 [ "${CONFIRM_TARGET_DEPLOY:-}" = YES ] || {
     printf '%s\n' 'Refusing target mutation. Set CONFIRM_TARGET_DEPLOY=YES.' >&2
@@ -43,7 +44,11 @@ while IFS='|' read -r repo_path target_path mode extra; do
 done < "$MANIFEST"
 
 if [ "${RELOAD_RPCD:-1}" = 1 ]; then
-    remote "set -eu; /etc/init.d/rpcd reload"
+    if [ "$RESTART_RPCD" = 1 ]; then
+        remote "set -eu; /etc/init.d/rpcd restart"
+    else
+        remote "set -eu; /etc/init.d/rpcd reload"
+    fi
 fi
 
 printf 'Deployed reviewed closure from %s; backup: %s\n' "$EXPECTED_COMMIT" "$BACKUP_ROOT"
