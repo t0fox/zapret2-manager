@@ -58,7 +58,7 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/backend-src/z2m-core-helper/protocol.c \
 		$(PKG_BUILD_DIR)/backend-src/z2m-core-helper/roots.c \
 		$(PKG_BUILD_DIR)/backend-src/z2m-core-helper/sha256.c \
-		$(PKG_BUILD_DIR)/backend-src/z2m-core-helper/scanner.c \
+		$(PKG_BUILD_DIR)/backend-src/z2m-core-helper/detect.c \
 		$(TARGET_LDFLAGS) -ljson-c \
 		-o $(PKG_BUILD_DIR)/z2m-core-helper
 	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \

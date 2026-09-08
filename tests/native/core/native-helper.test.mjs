@@ -127,7 +127,7 @@ test('exports typed operations and sends exact closed helper requests', async ()
     ids.add(request.header.requestId);
   }
   assert.deepEqual(await invoke(`sort(keys(native))`),
-    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular', 'z2k_detect']);
+    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular', 'z2k_detect']);
 });
 
 test('rejects malformed and operation-incompatible Detect JSON while accepting each typed result shape', async () => {

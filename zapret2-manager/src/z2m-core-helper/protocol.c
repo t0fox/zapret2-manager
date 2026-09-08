@@ -441,7 +441,7 @@ static bool valid_id(json_object *value)
 
 static bool known_operation(const char *op)
 {
-	static const char *const names[] = {"stat_regular","read_regular","atomic_write","atomic_write_json","atomic_write_json_revision","mkdir_private","sha256_regular","rename_owned","unlink_owned","lock_acquire","lock_release","lock_status","scanner_probe","z2k_detect_probe","z2k_detect_classify","z2k_detect_quic","z2k_detect_voice","z2k_detect_tcp16"};
+	static const char *const names[] = {"stat_regular","read_regular","atomic_write","atomic_write_json","atomic_write_json_revision","mkdir_private","sha256_regular","rename_owned","unlink_owned","lock_acquire","lock_release","lock_status","z2k_detect_probe","z2k_detect_classify","z2k_detect_quic","z2k_detect_voice","z2k_detect_tcp16"};
 	for (size_t i = 0; i < sizeof(names)/sizeof(names[0]); i++) if (strcmp(op, names[i]) == 0) return true;
 	return false;
 }
@@ -583,15 +583,6 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	static const char *const acquire_fields[]={"name","owner","timeoutMs"};
 	static const char *const release_fields[]={"name","owner","token"};
 	static const char *const status_fields[]={"name"};
-	if(strcmp(request->operation,"scanner_probe")==0) {
-		static const char *const baseline[] = {"authority","adapterDigest","targetProfileDigest","targetProfile","request"};
-		static const char *const candidate[] = {"authority","adapterDigest","targetProfileDigest","targetProfile","candidate","request"};
-		return (exact_fields(args,baseline,5) || exact_fields(args,candidate,6)) &&
-			string_value(args,"authority",1,64,&s) && string_value(args,"adapterDigest",64,64,&token) && hex64(token) &&
-			string_value(args,"targetProfileDigest",64,64,&token) && hex64(token) &&
-			json_object_object_get_ex(args,"targetProfile",&value) && json_object_is_type(value,json_type_object) &&
-			json_object_object_get_ex(args,"request",&value) && json_object_is_type(value,json_type_object);
-	}
 	if (strncmp(request->operation, "z2k_detect_", 11) == 0) {
 		static const char *const probe[] = {"domain", "timeoutMs"};
 		static const char *const classify[] = {"host", "port", "hello", "repeats", "timeoutMs"};

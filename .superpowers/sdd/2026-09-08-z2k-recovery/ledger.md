@@ -12,7 +12,7 @@
 | 8 | VERIFIED | implementation `7fb84cc0` + fix `7b31d3e3`; 47/47 focused tests, node/diff checks, independent four-skill review PASS, source deploy, and cache-cleared live Components browser gate recorded in `task-8-report.md` |
 | 9 | VERIFIED | implementation `cdeecf59` + owner fix `a306709e`; 53/53 focused tests, independent Luna review PASS, source deploy with UI/backend hash parity, live `EMANAGED` owner RPC, and cache-cleared Resources browser gate recorded in `task-9-report.md` |
 | 10 | VERIFIED | call graph and exact KEEP_SHARED/REMOVE_LEGACY closure recorded in `scanner-callgraph.md`; RED closure run is 7 passed/1 expected legacy-remnant failure, with retained Detect and shared profile-adapter checks passing in `task-10-report.md` |
-| 11 | TODO | |
+| 11 | IN_PROGRESS | legacy native Scanner authority removed and focused WSL native/closure gates pass; CI-built package deployment and router runtime-absence proof remain for final verification in Task 16/17 |
 | 12 | TODO | |
 | 13 | TODO | |
 | 14 | TODO | |
@@ -44,6 +44,14 @@
 - The Task 10 closure command produced `7 passed, 1 failed`; the sole failure is the intentional pre-Task 11 assertion that current `scanner_probe`/`scanner.c` remnants must be removed.
 - The retained Detect operation set is locked to `z2k_detect_probe`, `z2k_detect_classify`, `z2k_detect_quic`, `z2k_detect_voice`, and `z2k_detect_tcp16`.
 - No production deletion, local APK build, router deployment, merge, push, branch deletion, or worktree deletion was performed.
+
+## Task 11 implementation verification (2026-09-09)
+
+- `scanner.c` was split at the Task 10 boundary: typed Detect supervision is now in `detect.c`; legacy profile/TLS/body/STUN execution was deleted.
+- `scanner_probe` was removed from `protocol-v1.json`, native protocol validation, native dispatch, `helper.h`, and `core/native-helper.uc`; both package Makefiles compile `detect.c`.
+- WSL native Detect compile/runtime gate passed `8/8` with `-Wall -Wextra -Werror`; focused package/adapter assertions passed `4/4`; closure, protocol, unwired, and upstream contract checks passed.
+- The complete `package-helper` file still has three pre-existing environment/worktree failures outside this change (bootstrap-order, managed-root scanner, and WSL `git show` path); the task-owned focused gates are green and the failures are retained as baseline evidence.
+- Router runtime absence is intentionally not claimed from the old installed binary; it requires the CI-built package. No local APK build, merge, push, branch deletion, or worktree deletion was performed.
 
 ## Pre-flight cross-task/interface scan
 

@@ -6,7 +6,6 @@ const TRANSPORT_PROTOCOL = 'z2m-helper-transport-v1';
 const MAGIC = 'Z2MHTV1\n';
 const HEADER_LIMIT = 2048;
 const STDOUT_LIMIT = 6291456;
-const SCANNER_OUTPUT_LIMIT = 131072;
 const STDERR_LIMIT = 4096;
 const CHUNK = 65536;
 const JSON_STRING_CHUNK = 256;
@@ -400,7 +399,7 @@ function scan_json(raw, operation) {
 	let data_fields = operation == 'stat_regular' ? ['type', 'size', 'mode', 'uid', 'gid', 'mtimeSec', 'mtimeNsec'] :
 		(operation == 'read_regular' ? ['content', 'byteLength'] :
 		(operation == 'mkdir_private' ? ['created', 'committed', 'durability'] :
-		(operation == 'sha256_regular' ? ['sha256', 'byteLength'] : (operation == 'scanner_probe' ? ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete', 'cancelled'] : (index(DETECT_OPERATIONS, operation) >= 0 ? ['argv', 'exitCode', 'stdout', 'stderr', 'timedOut', 'outputTruncated'] : ['byteLength', 'committed', 'durability'])))));
+		(operation == 'sha256_regular' ? ['sha256', 'byteLength'] : (index(DETECT_OPERATIONS, operation) >= 0 ? ['argv', 'exitCode', 'stdout', 'stderr', 'timedOut', 'outputTruncated'] : ['byteLength', 'committed', 'durability']))));
 	while (true) {
 		while (at < size && whitespace(ord(raw, at))) at++;
 		if (!depth && root_state == 'done')
@@ -577,13 +576,6 @@ function success_data_valid(operation, data) {
 			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= maximum &&
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
 	}
-	if (operation == 'scanner_probe')
-		return exact_fields(data, ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete', 'cancelled']) &&
-			canonical_base64(data.content) && type(data.byteLength) == 'int' && data.byteLength >= 0 &&
-			data.byteLength <= SCANNER_OUTPUT_LIMIT && base64_length(data.content) == data.byteLength &&
-			type(data.exitCode) == 'int' && data.exitCode >= -1 && type(data.signal) == 'int' &&
-			data.signal >= 0 && type(data.startedAt) == 'int' && data.startedAt >= 0 &&
-			type(data.finishedAt) == 'int' && data.finishedAt >= data.startedAt && type(data.complete) == 'bool' && type(data.cancelled) == 'bool';
 	if (index(DETECT_OPERATIONS, operation) >= 0)
 		return detect_result.detect_result_data_valid(operation, data);
 	return false;
@@ -654,7 +646,7 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 			if (index(DETECT_OPERATIONS, operation) >= 0) return failure('EDETECT_SCHEMA', 'Z2K Detect returned an invalid JSON result.');
 			return helper_invalid(mutation, 'envelope');
 		}
-		if (exitCode != 0 && operation != 'scanner_probe' && index(DETECT_OPERATIONS, operation) < 0) return helper_invalid(mutation, 'exit');
+		if (exitCode != 0 && index(DETECT_OPERATIONS, operation) < 0) return helper_invalid(mutation, 'exit');
 		return { ok: true, data: value.data };
 	}
 	if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'error']) ||
@@ -791,20 +783,6 @@ export const mkdir_private = function(root, path, existOk) {
 export const sha256_regular = function(root, path, maxBytes) {
 	if (!valid_root(root) || !valid_path(path) || !valid_max(maxBytes)) return invalid();
 	return invoke_private('sha256_regular', { root, path, maxBytes }, 10000);
-};
-
-export const scanner_probe = function(authority, adapterDigest, targetProfileDigest, targetProfile, candidate, request) {
-	if (type(authority) != 'string' || type(adapterDigest) != 'string' || type(targetProfileDigest) != 'string' ||
-		type(targetProfile) != 'object' || targetProfile == null || type(request) != 'object' || request == null)
-		return invalid('Scanner probe arguments are invalid.');
-	if (type(request.deadlineMs) != 'int' || request.deadlineMs <= int(time() * 1000))
-		return dependency('Scanner probe deadline has expired.');
-	let arguments = { authority, adapterDigest, targetProfileDigest, targetProfile, request };
-	if (candidate != null) arguments.candidate = candidate;
-	if (length(sprintf('%J', arguments)) > 4096) return invalid('Scanner probe request is too large.');
-	let remaining = request.deadlineMs - int(time() * 1000), timeout = request.timeoutMs > 0 && request.timeoutMs < remaining ? request.timeoutMs : remaining;
-	try { return invoke_private('scanner_probe', arguments, timeout > 0 ? timeout : 1); }
-	catch (exception) { return dependency('Native scanner probe transport is unavailable.'); }
 };
 
 export const z2k_detect = function(operation, arguments, timeoutMs) {

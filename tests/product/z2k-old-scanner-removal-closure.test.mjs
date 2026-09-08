@@ -28,16 +28,6 @@ function productionText() {
   return files;
 }
 
-test('legacy native Scanner closure is still visible before Task 11 deletion', () => {
-  assert.match(protocol, /"scanner_probe"/);
-  assert.match(main, /scanner_probe/);
-  assert.match(protocolC, /scanner_probe/);
-  assert.match(helper, /z2m_scanner_probe/);
-  assert.match(managerMakefile, /scanner\.c/);
-  assert.match(fullMakefile, /scanner\.c/);
-  assert.match(nativeHelper, /operation == 'scanner_probe'/);
-});
-
 test('post-recovery closure contract is explicit for Task 11', () => {
   const operations = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
   for (const operation of operations) assert.match(protocol, new RegExp(operation), operation);

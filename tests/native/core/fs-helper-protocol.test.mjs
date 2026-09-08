@@ -12,7 +12,7 @@ const roots = [
 const operations = [
   'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
   'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned',
-  'lock_acquire', 'lock_release', 'lock_status', 'scanner_probe',
+  'lock_acquire', 'lock_release', 'lock_status',
   'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'
 ];
 const exits = {
@@ -193,52 +193,8 @@ test('root and operation authorization is bidirectionally consistent', () => {
   for (const operation of operations) {
     const fromRoots = roots.filter((root) =>
       value.roots[root].allowedOperations.includes(operation));
-    if (operation === 'scanner_probe') assert.deepEqual(fromRoots, []);
-    else assert.deepEqual(sorted(value.operations[operation].roots), sorted(fromRoots), operation);
+    assert.deepEqual(sorted(value.operations[operation].roots), sorted(fromRoots), operation);
   }
-});
-
-test('scanner_probe is present in the manifest and implementation registry with one closed contract', () => {
-  const value = manifest();
-  assert.ok(value.envelopes.request.properties.operation.enum.includes('scanner_probe'));
-  assert.ok(value.operations.scanner_probe);
-  assert.equal(value.operations.scanner_probe.status, 'implemented');
-  assert.deepEqual(value.operations.scanner_probe.roots, []);
-  assert.deepEqual(value.operations.scanner_probe.requestSchema.required,
-    ['authority', 'adapterDigest', 'targetProfileDigest', 'targetProfile', 'request']);
-  assert.match(fs.readFileSync('zapret2-manager/src/z2m-core-helper/protocol.c', 'utf8'), /scanner_probe/);
-  assert.match(fs.readFileSync('zapret2-manager/src/z2m-core-helper/main.c', 'utf8'), /scanner_probe/);
-  const schema = value.operations.scanner_probe.requestSchema;
-  assert.equal(schema.properties.targetProfile.properties.tcp.additionalProperties, false);
-  assert.equal(schema.properties.targetProfile.properties.udp.additionalProperties, false);
-  assert.equal(schema.properties.request.additionalProperties, false);
-  assert.equal(schema.properties.candidate.additionalProperties, false);
-  const requestVariants = schema.properties.request.oneOf;
-  assert.equal(requestVariants.length, 3);
-  const body = requestVariants.find(variant => variant.properties.transport.const === 'tls+body');
-  assert.deepEqual(body.properties.body.required,
-    ['timeoutMs', 'minimumBytes', 'readChunkBytes', 'markerScanBytes', 'readLimitBytes', 'range', 'markers']);
-  assert.equal(body.properties.body.additionalProperties, false);
-  assert.equal(body.properties.body.properties.markers.items.additionalProperties, false);
-  assert.deepEqual(body.properties.body.properties.markers, {
-    type: 'array', minItems: 1, maxItems: 1,
-    items: {
-      type: 'object', additionalProperties: false, required: ['name', 'needles'],
-      properties: {
-        name: { const: 'isp_page' },
-        needles: {
-          type: 'array', minItems: 3, maxItems: 3,
-          prefixItems: [{ const: 'blocked' }, { const: 'access denied' }, { const: 'captcha' }],
-          items: false,
-        },
-      },
-    },
-  });
-  assert.deepEqual(body.properties.body.properties.timeoutMs, { const: 8000 });
-  assert.equal(body.properties.body.properties.markers.items.properties.name.const, 'isp_page');
-  assert.deepEqual(body.properties.body.properties.markers.items.properties.needles.prefixItems,
-    [{ const: 'blocked' }, { const: 'access denied' }, { const: 'captcha' }]);
-  for (const variant of requestVariants) assert.equal(variant.properties.cancelToken.type, 'string');
 });
 
 test('paths are canonical relative names without generic or absolute capability', () => {
@@ -287,7 +243,7 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
     assert.deepEqual(sorted(Object.keys(operation)), sorted(requiredKeys), name);
     assert.ok(Number.isInteger(operation.milestone) && operation.milestone > 0, name);
     assert.ok(['milestone_1', 'milestone_2', 'implemented', 'reserved_unsupported'].includes(operation.status), name);
-    if (!['scanner_probe', 'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) assert.ok(operation.roots.length > 0, name);
+    if (!['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) assert.ok(operation.roots.length > 0, name);
     assert.ok(operation.roots.every((root) => roots.includes(root)), name);
     assert.equal(operation.requestSchema.type, 'object', name);
     assert.equal(operation.requestSchema.additionalProperties, false, name);
@@ -312,9 +268,9 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.mkdir_private.status, 'milestone_2');
   assert.equal(value.operations.sha256_regular.status, 'milestone_2');
   for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name)))
-    if (!['scanner_probe', 'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) assert.equal(value.operations[name].status, 'reserved_unsupported', name);
+    if (!['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) assert.equal(value.operations[name].status, 'reserved_unsupported', name);
   for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name))) {
-    if (['scanner_probe', 'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) continue;
+    if (['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) continue;
     assert.deepEqual(value.operations[name].unsupportedBehavior, {
       errorCode: 'EUNSUPPORTED',
       dispatch: 'reject_before_operation_dispatch',

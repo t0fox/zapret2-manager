@@ -21,17 +21,17 @@ test('pins the audited upstream p-82.18 Detect CLI contract', () => {
 
 test('production adapters preserve upstream flag ordering and do not resurrect legacy run flags', () => {
   const ucode = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-detect.uc'), 'utf8');
-  const scanner = fs.readFileSync(path.join(root, 'zapret2-manager/src/z2m-core-helper/scanner.c'), 'utf8');
+  const detect = fs.readFileSync(path.join(root, 'zapret2-manager/src/z2m-core-helper/detect.c'), 'utf8');
   const init = fs.readFileSync(path.join(root, 'zapret2-manager/files/etc/init.d/zapret2-manager'), 'utf8');
 
   assert.match(ucode, /push\(out, '-json', args\.domain\)/);
   assert.match(ucode, /push\(out, '-hello', args\.hello, '-repeats', '' \+ args\.repeats, '-timeout', '' \+ seconds \+ 's', '-json', endpoint\)/);
   assert.match(ucode, /push\(out, '-port', '' \+ args\.port, '-repeats', '' \+ args\.repeats, '-timeout', '' \+ seconds \+ 's', '-json', args\.domain\)/);
   assert.match(ucode, /push\(out, '-repeats', '' \+ args\.repeats, '-timeout', '' \+ seconds \+ 's', '-json'\)/);
-  assert.match(scanner, /argv\[argc\+\+\] = "-json"; argv\[argc\+\+\] = \(char \*\)domain;/);
-  assert.match(scanner, /argv\[argc\+\+\] = "-hello"; .*argv\[argc\+\+\] = "-json"; argv\[argc\+\+\] = endpoint;/s);
-  assert.match(scanner, /argv\[argc\+\+\] = "-port"; .*argv\[argc\+\+\] = "-json"; argv\[argc\+\+\] = \(char \*\)domain;/s);
-  assert.match(scanner, /argv\[argc\+\+\] = "-repeats"; .*argv\[argc\+\+\] = "-json";/s);
+  assert.match(detect, /argv\[argc\+\+\] = "-json"; argv\[argc\+\+\] = \(char \*\)domain;/);
+  assert.match(detect, /argv\[argc\+\+\] = "-hello"; .*argv\[argc\+\+\] = "-json"; argv\[argc\+\+\] = endpoint;/s);
+  assert.match(detect, /argv\[argc\+\+\] = "-port"; .*argv\[argc\+\+\] = "-json"; argv\[argc\+\+\] = \(char \*\)domain;/s);
+  assert.match(detect, /argv\[argc\+\+\] = "-repeats"; .*argv\[argc\+\+\] = "-json";/s);
   assert.match(init, /run -publish/);
   assert.doesNotMatch(init, /run .* -output /);
 });
