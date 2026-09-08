@@ -484,12 +484,38 @@ function z2k_detect_input(req) {
 	try { if (req && req.args != null) return req.args; } catch (e) { }
 	return req;
 }
+function z2k_detect_rpc_input(req, names) {
+	let input = req && req.args != null ? req.args : req;
+	if (type(input) != 'object' || input == null || length(input) != length(names))
+		return { ok: false, error: { code: 'EINPUT', message: 'Detect request fields are invalid.' } };
+	for (let i in names) {
+		let name = names[i];
+		if (!exists(input, name))
+			return { ok: false, error: { code: 'EINPUT', message: 'Detect request fields are invalid.' } };
+	}
+	return { ok: true, input };
+}
 function z2k_detect_status_method(req) { return z2k_detect_status(); }
-function z2k_detect_probe_method(req) { return z2k_detect_probe(z2k_detect_input(req)); }
-function z2k_detect_classify_method(req) { return z2k_detect_classify(z2k_detect_input(req)); }
-function z2k_detect_quic_method(req) { return z2k_detect_quic(z2k_detect_input(req)); }
-function z2k_detect_voice_method(req) { return z2k_detect_voice(z2k_detect_input(req)); }
-function z2k_detect_tcp16_method(req) { return z2k_detect_tcp16(z2k_detect_input(req)); }
+function z2k_detect_probe_method(req) {
+	let checked = z2k_detect_rpc_input(req, ['domain', 'timeoutMs']);
+	return checked.ok ? z2k_detect_probe(checked.input) : checked;
+}
+function z2k_detect_classify_method(req) {
+	let checked = z2k_detect_rpc_input(req, ['host', 'port', 'hello', 'repeats', 'timeoutMs']);
+	return checked.ok ? z2k_detect_classify(checked.input) : checked;
+}
+function z2k_detect_quic_method(req) {
+	let checked = z2k_detect_rpc_input(req, ['domain', 'port', 'repeats', 'timeoutMs']);
+	return checked.ok ? z2k_detect_quic(checked.input) : checked;
+}
+function z2k_detect_voice_method(req) {
+	let checked = z2k_detect_rpc_input(req, ['repeats', 'timeoutMs']);
+	return checked.ok ? z2k_detect_voice(checked.input) : checked;
+}
+function z2k_detect_tcp16_method(req) {
+	let checked = z2k_detect_rpc_input(req, ['timeoutMs']);
+	return checked.ok ? z2k_detect_tcp16(checked.input) : checked;
+}
 function z2k_detect_discovery_status_method(req) { return z2k_detect_discovery_status(); }
 function z2k_detect_discovery_rpc_input(req) {
 	let input = z2k_detect_input(req), nested = false;
