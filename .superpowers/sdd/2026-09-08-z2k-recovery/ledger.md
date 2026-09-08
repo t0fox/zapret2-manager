@@ -10,7 +10,7 @@
 | 6 | VERIFIED | implementation `f7ea2c46` + retry fix `e2357c93`; focused suites, scoped re-review, source deploy, browser payload/state, enable, validated dnsmasq restart with new PID, and final disabled/auto restore recorded in `task-6-report.md` |
 | 7 | VERIFIED | implementation `c5418ce2`, fix rounds `65ee5960` and `e014132d`; four-skill independent review PASS, 24/24 focused tests, source deploy, and real Components browser state evidence in `task-7-report.md` |
 | 8 | VERIFIED | implementation `7fb84cc0` + fix `7b31d3e3`; 47/47 focused tests, node/diff checks, independent four-skill review PASS, source deploy, and cache-cleared live Components browser gate recorded in `task-8-report.md` |
-| 9 | TODO | |
+| 9 | VERIFIED | implementation `cdeecf59` + owner fix `a306709e`; 53/53 focused tests, independent Luna review PASS, source deploy with UI/backend hash parity, live `EMANAGED` owner RPC, and cache-cleared Resources browser gate recorded in `task-9-report.md` |
 | 10 | TODO | |
 | 11 | TODO | |
 | 12 | TODO | |
@@ -26,6 +26,15 @@
 - Independent cumulative review `reviews/review-task-8.md` is PASS with no P0/P1/P2 findings.
 - Source-only deployment matched the local `z2m-maintenance.js` hash (`73a5136cd2110ba82a206e792a736ea2ac0b6d16fea23e33cc524fdf438f536f`).
 - Live LuCI Components acceptance passed after clearing the browser module cache and performing a full reload: one normal-flow Z2K Core card, no `УПРАВЛЕНИЕ РЕСУРСАМИ`, one Z2K Core heading, and subordinate `Технические детали` after expansion. The earlier duplicate observed before cache clearing was stale SPA module DOM, not the deployed source.
+- No local APK build, merge, push, branch deletion, or worktree deletion was performed.
+
+## Task 9 verification (2026-09-09)
+
+- `cdeecf59` makes Resources Z2K Core-managed only; `a306709e` preserves `owner: 'z2k-core'` at the synchronous source-refresh coordinator boundary.
+- Focused Task 9 suite passed `53/53`; node syntax and diff checks passed; independent Luna review is PASS with no P1/P2 findings.
+- Source-only deployment matched all three local/remote hashes recorded in `task-9-report.md`.
+- Direct router `strategies_source_refresh({sourceId:'z2k'})` returned `ok:false`, `error.code:'EMANAGED'`, `error.owner:'z2k-core'` before mutation.
+- Cache-cleared live Resources browser gate showed Z2K managed text and no Z2K source mutation controls, while Avatar retained `Обновить` and `Отключить`.
 - No local APK build, merge, push, branch deletion, or worktree deletion was performed.
 
 ## Pre-flight cross-task/interface scan
