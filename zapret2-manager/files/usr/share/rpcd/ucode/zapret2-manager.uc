@@ -500,8 +500,7 @@ function z2k_detect_rpc_input(req, names) {
 	}
 	if (length(normalized) != length(names))
 		return { ok: false, error: { code: 'EINPUT', message: 'Detect request fields are invalid.' } };
-	for (let i in names) {
-		let name = names[i];
+	for (let name in names) {
 		if (!exists(normalized, name))
 			return { ok: false, error: { code: 'EINPUT', message: 'Detect request fields are invalid.' } };
 	}

@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
+import { spawnSync } from 'node:child_process';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const rpc = fs.readFileSync(path.join(root,
   'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
 const operations = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
+const ucode = process.env.UCODE_BIN;
 
 const exactInputs = {
   probe: { domain: 'example.com', timeoutMs: 6000 },
@@ -89,6 +92,35 @@ test('Detect RPC rejects missing request fields at the rpcd boundary', () => {
     delete args[Object.keys(args)[0]];
     const result = methods[`z2k_detect_${kind}`].call({ args });
     assert.equal(result.error.code, 'EINPUT', kind);
+  }
+});
+
+test('Detect RPC validates allowed fields with UCode array value iteration', {
+  skip: !ucode || !fs.existsSync(ucode),
+}, () => {
+  const start = rpc.indexOf('function z2k_detect_input(req)');
+  const end = rpc.indexOf('function job_get_method(req)', start);
+  assert.ok(start >= 0 && end > start, 'Detect RPC handler block must be extractable');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2k-detect-rpc-'));
+  const script = path.join(tempDir, 'boundary.uc');
+    fs.writeFileSync(script, `function z2k_detect_probe(input) { return { ok: true, input: input }; }
+${rpc.slice(start, end)}
+print(sprintf('%J', z2k_detect_probe_method({ args: { domain: 'example.com', timeoutMs: 6000 } })));
+`);
+  try {
+    const result = spawnSync(ucode, [script], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH || process.env.UCODE_LIBRARY_PATH || '' },
+      timeout: 15_000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      ok: true,
+      input: { domain: 'example.com', timeoutMs: 6000 },
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
