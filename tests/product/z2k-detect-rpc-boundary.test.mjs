@@ -92,6 +92,19 @@ test('Detect RPC rejects missing request fields at the rpcd boundary', () => {
   }
 });
 
+test('Detect RPC strips rpcd transport session metadata before forwarding', () => {
+  const { context, methods } = loadHandlers();
+  for (const kind of operations) {
+    const args = { ...exactInputs[kind], ubus_rpc_session: 'rpcd-session' };
+    const result = methods[`z2k_detect_${kind}`].call({ args });
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, kind });
+    assert.deepEqual(JSON.parse(JSON.stringify(context.captured.at(-1))), {
+      kind,
+      input: exactInputs[kind],
+    });
+  }
+});
+
 test('Detect RPC forwards each valid exact request to its matching typed operation', () => {
   const { context, methods } = loadHandlers();
   for (const kind of operations) {

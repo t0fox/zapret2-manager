@@ -491,14 +491,21 @@ function z2k_detect_input(req) {
 }
 function z2k_detect_rpc_input(req, names) {
 	let input = req && req.args != null ? req.args : req;
-	if (type(input) != 'object' || input == null || length(input) != length(names))
+	if (type(input) != 'object' || input == null)
+		return { ok: false, error: { code: 'EINPUT', message: 'Detect request fields are invalid.' } };
+	let normalized = {};
+	for (let key in input) {
+		if (key == 'ubus_rpc_session') continue;
+		normalized[key] = input[key];
+	}
+	if (length(normalized) != length(names))
 		return { ok: false, error: { code: 'EINPUT', message: 'Detect request fields are invalid.' } };
 	for (let i in names) {
 		let name = names[i];
-		if (!exists(input, name))
+		if (!exists(normalized, name))
 			return { ok: false, error: { code: 'EINPUT', message: 'Detect request fields are invalid.' } };
 	}
-	return { ok: true, input };
+	return { ok: true, input: normalized };
 }
 function z2k_detect_status_method(req) { return z2k_detect_status(); }
 function z2k_detect_probe_method(req) {
