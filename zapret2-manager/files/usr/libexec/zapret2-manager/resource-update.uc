@@ -2194,7 +2194,8 @@ function z2k_candidate_entry_projection(entry) {
 	let sourceSnapshotId = entry.sourceSnapshotId || provenance.sourceSnapshotId || null;
 	let sourceCommit = entry.sourceCommit || provenance.sourceCommit || null;
 	if (entry.sourceId != 'user' && (!string(sourceSnapshotId) || !string(sourceCommit)
-		|| provenance.sourceSnapshotId != sourceSnapshotId || provenance.sourceCommit != sourceCommit)) return null;
+		|| (provenance.sourceSnapshotId != null && provenance.sourceSnapshotId != sourceSnapshotId)
+		|| provenance.sourceCommit != sourceCommit)) return null;
 	let compatibility = entry.z2kCompatibilityIdentity || provenance.z2kCompatibilityIdentity || null;
 	let compatibilityDigest = entry.compatibilityIdentity || provenance.compatibilityIdentity || null;
 	return {
@@ -2221,6 +2222,9 @@ function z2k_candidate_catalog(priorCatalog, coreSnapshot) {
 	if (object(coreSnapshot) && type(coreSnapshot.standaloneCandidates) == 'array') for (let candidate in coreSnapshot.standaloneCandidates) append(candidate);
 	return { verified: true, entries: entries, canonicalEntries: entries, ids: ids, canonicalIds: ids };
 }
+export const resource_center_test_candidate_catalog = function(input) {
+	return z2k_candidate_catalog(input && input.priorCatalog, input && input.coreSnapshot);
+};
 
 function z2k_strategy_preflight(target) {
 	return runtime_strategy_preflight({ activeStrategy: target && target.activeStrategy || null,
