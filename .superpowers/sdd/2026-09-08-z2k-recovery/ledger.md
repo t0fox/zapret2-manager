@@ -14,7 +14,7 @@
 | 10 | VERIFIED | call graph and exact KEEP_SHARED/REMOVE_LEGACY closure recorded in `scanner-callgraph.md`; RED closure run is 7 passed/1 expected legacy-remnant failure, with retained Detect and shared profile-adapter checks passing in `task-10-report.md` |
 | 11 | IN_PROGRESS | legacy native Scanner authority removed and focused WSL native/closure gates pass; CI-built package deployment and router runtime-absence proof remain for final verification in Task 16/17 |
 | 12 | VERIFIED | `task-12-report.md` + independent `task-12-review.md`; RED contract run, serial UCode focused suite `81/81`, repair marker/identity review, and diff check pass; router/CI package runtime gates remain deferred to Tasks 16/17 |
-| 13 | TODO | |
+| 13 | VERIFIED | `f1be5ff4`, `task-13-report.md`, `task-13-review.md`; canonical focused suite `54/54`, source-only deployment with five-path SHA parity, live Avatar apply/reload, and direct router `status_fast` proof |
 | 14 | TODO | |
 | 15 | TODO | |
 | 16 | TODO | |
@@ -211,3 +211,25 @@ file/interface and every task's internal consistency before Task 1.
 - TDD implementation commit `770deedea11c7cd7338714b06380b57c61a3620f` scopes those fields to `sourceId == 'z2k'` and adds Avatar/Z2K regression coverage. Independent review `reviews/review-avatar-apply-fix.md` is PASS with no source-level findings; local UCode execution is unavailable because `/opt/ucode/bin/ucode` is absent on Windows.
 - Source-only deploy verified remote `strategy-cli.uc` hash `1ea6089821e23915cb574750403723c379e87199ed1b07d4cd55474d4e11f72f`. Real browser apply now succeeds: active card is Avatar `z2k всё-в-одном (TLS/HTTP + QUIC + Discord)`, status says `Выбрана Применена Используется сейчас`, and source is `Avatar`. Router state revision is 11, `strategyStatus.id=avatar:z2k_all_in_one`, service is running, and `/tmp/zapret2-manager/applied.sha256` matches `/opt/zapret2/config`.
 - APK was not built; CI-only APK rule remains intact. No merge, push, branch deletion, or worktree deletion was performed.
+
+## Task 13 verification (2026-09-09)
+
+- `f1be5ff4` rebuilds the Components lifecycle around canonical terminal
+  rereads, persisted accepted operation ids, explicit rollback evidence, and
+  same-release repair through the existing transaction.
+- Canonical focused host/WSL run passed `54/54`; changed JavaScript syntax and
+  diff checks passed. The four historical `z2k-version-ux-behavior` failures
+  remain separately classified as baseline and are not claimed fixed.
+- Source-only deployment used the reviewed five-path manifest with local and
+  remote SHA-256 parity; `rpcd` restarted with PID `12591`.
+- Live LuCI authenticated as root, confirmed Avatar apply through the real
+  confirmation modal, then after hard reload showed Avatar
+  `z2k всё-в-одном (TLS/HTTP + QUIC + Discord)` as `Выбрана Применена
+  Используется сейчас`. Direct router `status_fast` showed one running
+  `nfqws2`, NFQUEUE 300 ownership, and `strategyStatus.id:
+  avatar:z2k_all_in_one`.
+- The immediate apply response included a transient background-status warning;
+  reload and direct RPC were clean, so the warning is retained as evidence and
+  not converted into a false failure.
+- No local APK build, push, merge, branch deletion, or worktree deletion was
+  performed.
