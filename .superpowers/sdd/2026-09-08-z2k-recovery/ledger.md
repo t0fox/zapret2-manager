@@ -397,3 +397,27 @@ file/interface and every task's internal consistency before Task 1.
 - Task 17 remains WORKING/NOT_READY only for the explicitly bounded physical
   injected rollback/live Discord Voice/independent final-review conditions.
   No merge or branch/worktree deletion was performed.
+
+## Task 17 latest runtime-contract continuation (2026-09-09)
+
+- Commit `d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89` fixes the reported
+  `Неизвестно / Сервис не подтвердил процесс` projection by preserving the
+  canonical `runtimeSummary`, coherence, local identity, and Detect fields;
+  `resource-update.uc` now exposes `compatibilityIdentity` in that summary.
+- RED was reproduced before the fix; the new router-shape regression is `1/1`,
+  focused model/page tests are `14/14`, runtime-summary is `7` with no
+  failures, syntax/diff checks are clean. Existing larger-suite fixture
+  failures remain documented pre-existing failures.
+- GitHub Actions run `34368745542` built the exact commit successfully and
+  uploaded one APK: 2,630,232 bytes, SHA-256
+  `1c1c84e2517658affd7ce68469ca5d02f00674f0868f71557571fb989fd28e5b`.
+  This is below the 2,645,317-byte baseline; no local APK build occurred.
+- After a hashed router backup, the old package was removed and verified
+  absent, then the exact CI APK was installed. Recovery was `state: none`,
+  pending activation was absent, runtime stayed healthy with one `nfqws2`,
+  NFQUEUE 300 owner/rules parity, and Avatar `z2k_all_in_one`.
+- Hard-reloaded authenticated LuCI shows Home `Работает`, Components `2 / 2`
+  with `Z2K Detect — Работает · arm64`, and Strategies Avatar All-in-One
+  selected/applied/current. Task 17 remains `WORKING/NOT_READY` only for the
+  already bounded injected physical rollback, live Discord Voice, and
+  independent whole-branch review conditions. No merge/delete performed.

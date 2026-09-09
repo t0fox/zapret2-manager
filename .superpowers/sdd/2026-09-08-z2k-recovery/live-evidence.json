@@ -228,5 +228,72 @@
       "task17": "WORKING/NOT_READY",
       "mergeOrBranchDeletion": "NOT_PERFORMED"
     }
+  },
+  "latestRuntimeContractFix": {
+    "commit": "d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89",
+    "reportedSymptom": "Неизвестно — Сервис не подтвердил процесс",
+    "rootCause": "Components dropped canonical Detect evidence and runtimeSummary omitted compatibilityIdentity",
+    "focusedTests": {
+      "runtimeContractShape": { "tests": 1, "passed": 1, "failed": 0 },
+      "uiModelAndPage": { "tests": 14, "passed": 14, "failed": 0 },
+      "runtimeSummary": { "tests": 7, "failed": 0, "skipped": 6 }
+    },
+    "ci": {
+      "runId": 34368745542,
+      "status": "success",
+      "artifactName": "z2m-full-apk-d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89",
+      "artifactDigest": "sha256:fda4c44c9795d25b75faf99d6b60412894eed4d1890f97f731dfa36da2854db2",
+      "apk": {
+        "filename": "zapret2-manager-full-0.1.0-r156.apk",
+        "bytes": 2630232,
+        "sha256": "1c1c84e2517658affd7ce68469ca5d02f00674f0868f71557571fb989fd28e5b"
+      }
+    },
+    "router": {
+      "backup": {
+        "path": "C:\\Temp\\z2m-ci-d4a233ff-2\\router-backup\\z2m-d4a233ff-pre2.tar.gz",
+        "bytes": 9226755,
+        "sha256": "ccd7eabc21455ea48d0b65c0055f8078c03059d7c04ba339c4457b26662e3f58"
+      },
+      "cleanInstall": {
+        "packageDeletedAndAbsent": true,
+        "packageInstalled": "zapret2-manager-full-0.1.0-r156",
+        "recovery": "state: none",
+        "pendingActivationJournal": false,
+        "statusFast": {
+          "serviceState": "running",
+          "runtimeInstances": 1,
+          "nfqueue": 300,
+          "nfqueueRegistered": true,
+          "nfqueueOwnerMatches": true,
+          "rulesPresent": true,
+          "strategyId": "avatar:z2k_all_in_one",
+          "warnings": []
+        },
+        "detect": {
+          "state": "ready",
+          "arch": "arm64",
+          "compatible": true,
+          "compatibilityIdentity": "c7ab2eedf9dc2341fa503d4f1067bfaf49873e8bca6cb75672ff30dd27027b66"
+        },
+        "installedHashes": {
+          "resource-update.uc": "831257e8cf034f9aa1708ca0e4af46217504f479bda05f02ac1498481884726f",
+          "z2m-components-model.js": "62333c44501d503eb6c34f9c2ede5ef976b2187f9ccde1c3df2e64c48dee0c99"
+        }
+      }
+    },
+    "browser": {
+      "hardReload": true,
+      "home": { "service": "Работает", "strategy": "z2k всё-в-одном", "nfqws2": "Работает" },
+      "components": { "mandatory": "2 / 2", "detect": "Работает · arm64" },
+      "strategies": { "avatarReady": 732, "z2kReady": 8, "user": 0, "activeSelectedAppliedCurrent": true }
+    },
+    "boundaries": {
+      "physicalInjectedRollback": "covered_by_WSL_UCode_transaction_tests",
+      "discordVoice": "NOT_RUN_NO_ACTIVE_CALL",
+      "independentFinalReview": "PENDING",
+      "task17": "WORKING/NOT_READY",
+      "mergeOrBranchDeletion": "NOT_PERFORMED"
+    }
   }
 }

@@ -257,3 +257,51 @@ APK/router/browser gates are now evidenced, but the broader injected physical
 rollback matrix, independent final whole-branch review, and user-only live
 Discord Voice call remain explicitly unverified. No merge or branch/worktree
 deletion has been performed.
+
+## Latest source-first runtime-contract fix (2026-09-09)
+
+The reported UI state `Неизвестно — Сервис не подтвердил процесс` was traced
+to `z2m-components-model.js` dropping canonical Detect evidence when the
+backend placed `coherence`/`local.compatibilityIdentity` beside the nested
+`runtimeSummary`. The backend projection also did not expose
+`compatibilityIdentity` inside `runtimeSummary`. Commit
+`d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89` fixes both boundaries and adds a
+router-shaped UI regression test.
+
+RED was reproduced before the production change (`actual degraded`, expected
+`ready`). GREEN evidence is: the new regression `1/1`; focused model/page
+tests `14/14`; runtime-summary suite `7` tests with `0` failures and `6`
+environment skips; syntax and `git diff --check` clean. The two failures in
+the larger coherent-UI fixture suite remain the pre-existing string-release
+fixture mismatch and were not changed by this fix.
+
+The exact commit was built only by GitHub Actions run
+[34368745542](https://github.com/t0fox/zapret2-manager/actions/runs/34368745542).
+Its artifact is `z2m-full-apk-d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89`,
+`zapret2-manager-full-0.1.0-r156.apk`, 2,630,232 bytes, SHA-256
+`1c1c84e2517658affd7ce68469ca5d02f00674f0868f71557571fb989fd28e5b`, below
+the 2,645,317-byte Task 1 baseline. No local APK build was used.
+
+Before replacement, router backup
+`C:\Temp\z2m-ci-d4a233ff-2\router-backup\z2m-d4a233ff-pre2.tar.gz` was
+captured at 9,226,755 bytes with SHA-256
+`ccd7eabc21455ea48d0b65c0055f8078c03059d7c04ba339c4457b26662e3f58`.
+The old package was removed and verified absent, then the exact CI APK was
+installed. Post-install package/recovery checks passed: package present,
+`state: none`, pending activation journal absent, `status_fast` running with
+one `nfqws2`, NFQUEUE 300 owner/rules parity, Avatar
+`avatar:z2k_all_in_one`, and no current warnings. Installed source hashes are
+`resource-update.uc=831257e8cf034f9aa1708ca0e4af46217504f479bda05f02ac1498481884726f`
+and `z2m-components-model.js=62333c44501d503eb6c34f9c2ede5ef976b2187f9ccde1c3df2e64c48dee0c99`.
+
+Fresh authenticated browser evidence after clean install and hard reload:
+Home says `Работает`, `nfqws2` is running, and the strategy card says
+`z2k всё-в-одном`; Components says `Система готова 2 / 2` and `Z2K Detect —
+Работает · arm64`; Strategies shows Avatar `732`, Z2K `8`, User `0`, with
+the Avatar All-in-One marked selected/applied/current. Existing root-password
+warning and historical watchdog entries remain environment history, not the
+current service state.
+
+The broader Task 17 boundaries remain unchanged: injected physical rollback,
+live Discord Voice, and independent whole-branch final review are not claimed;
+merge and branch/worktree deletion were not performed.

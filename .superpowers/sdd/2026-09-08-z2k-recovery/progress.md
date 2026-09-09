@@ -77,3 +77,24 @@ current on `#/strategies`, and typed scanner controls on `#/scanner`.
 Task 17 remains working/not-ready because the objective still bounds the live
 Discord Voice call and the independent whole-branch review as unresolved;
 there was no merge or branch/worktree deletion.
+
+## Runtime-contract symptom fix and exact CI APK (2026-09-09)
+
+Commit `d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89` fixes the source/UI contract
+behind `Неизвестно — Сервис не подтвердил процесс`: the Components model now
+retains canonical Detect evidence from the actual `resources_status` shape,
+and the backend runtime summary includes `compatibilityIdentity`. The new
+router-shaped regression passed `1/1`; focused UI passed `14/14`; runtime
+summary passed with `0` failures; syntax and diff checks passed.
+
+Source-first live evidence was healthy before APK installation. GitHub Actions
+run `34368745542` then built the exact commit, producing a 2,630,232-byte APK
+with SHA-256
+`1c1c84e2517658affd7ce68469ca5d02f00674f0868f71557571fb989fd28e5b`.
+The old package was removed and verified absent, the exact CI APK installed,
+and post-install runtime remained healthy with Avatar `z2k_all_in_one`, one
+`nfqws2`, and NFQUEUE 300 owner parity. Hard-reloaded browser evidence shows
+`Работает`, Components `2 / 2`, Detect `Работает · arm64`, and Avatar
+All-in-One selected/applied/current. Task 17 is still working/not-ready only
+for the previously bounded physical injected rollback, live Discord Voice,
+and independent final-review gates.

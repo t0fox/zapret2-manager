@@ -30,6 +30,17 @@
     "ciArtifactName": "z2m-full-apk-962ef345ce77e2dc796ac81263b7e9273fa5dd98",
     "candidateSha": "962ef345ce77e2dc796ac81263b7e9273fa5dd98"
   },
+  "latestCi": {
+    "status": "exact-current-fix-ci",
+    "ciRunId": 34368745542,
+    "ciArtifactName": "z2m-full-apk-d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89",
+    "candidateSha": "d4a233ff0b3f3a71838d18d1bb1bfdec4c2b7a89",
+    "filename": "zapret2-manager-full-0.1.0-r156.apk",
+    "bytes": 2630232,
+    "sha256": "1c1c84e2517658affd7ce68469ca5d02f00674f0868f71557571fb989fd28e5b",
+    "baselineBytes": 2645317,
+    "belowBaseline": true
+  },
   "apk": {
     "status": "exact-execution-ci",
     "exactExecutionSha": true,
