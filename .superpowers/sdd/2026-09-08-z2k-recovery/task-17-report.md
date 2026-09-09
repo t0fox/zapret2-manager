@@ -547,3 +547,50 @@ This closes the exact CI artifact, clean-install, runtime, and Avatar browser
 gates. Task 17 remains WORKING/NOT_READY because the broader failure,
 rollback, and live Discord Voice conditions were not fabricated or silently
 marked complete.
+
+---
+
+# Task 17 follow-up — absent autocircular identity sidecar
+
+Date: 2026-09-09
+Worktree: `G:\zapret2-manager\.worktrees\z2k-recovery-v3`
+
+## RED
+
+Added an independent regression for the clean-install sidecar boundary and ran:
+
+```text
+wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-recovery-v3 && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/z2k-autocircular-pool-identity.test.mjs'
+```
+
+Before the production change: **13 tests, 12 pass, 1 fail, 0 skipped**. The
+new absent-sidecar test received `ok:false`, `ESTATE`,
+`autocircular pool identity sidecar is empty` from the real UCode runtime.
+
+## Fix and GREEN
+
+`z2k_autocircular_identity_load()` now treats `null`, non-string empty reads,
+and whitespace-only reads as the legacy/absent result
+`{ identity: null, legacy: true, present: false }`. Non-empty input still goes
+through the existing JSON and schema validation, so malformed non-empty sidecar
+data remains fail-closed; the existing malformed-identity regression stayed
+green.
+
+- Focused UCode suite above: **13 pass, 0 fail, 0 skipped**.
+- UCode module import syntax check: **exit 0**.
+- `node --check tests/product/z2k-autocircular-pool-identity.test.mjs`: **exit 0**.
+- `git diff --check`: **exit 0**.
+- `node scripts/validate-knowledge.mjs`: **Knowledge validation passed.**
+
+## Files and commit
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/z2k-autocircular-identity.uc`
+- `tests/product/z2k-autocircular-pool-identity.test.mjs`
+- Implementation commit: `a2ae1185957efa066a450b49908140c89e93a29a`
+
+## Concerns and boundaries
+
+No router deployment, APK build, push, merge, or deletion was performed.
+Live CI-APK/router verification remains NOT_RUN for this follow-up. The absent
+test assumes the clean-install sidecar path is absent; that precondition was
+confirmed in the local UCode test environment.
