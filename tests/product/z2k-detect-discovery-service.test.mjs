@@ -183,7 +183,10 @@ test('canonical discovery status carries source, discovered count, and optional 
     { enabled: true, running: false, dnsSource: 'pkt', file: { count: 0 } }
   ];
   for (const state of states) {
-    const result = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify({ schema: 1, enabled: state.enabled, dnsSource: state.dnsSource })}; }, process: function() { return { instance: 'z2k-detect', running: ${state.running}, pid: ${state.running ? 4321 : 'null'}, count: ${state.running ? 1 : 0}, validated: ${state.running}, executable: '/usr/libexec/zapret2-manager/z2k-detect', outputOwned: ${state.running}, command: [] }; }, file: function() { return ${JSON.stringify(state.file)}; } })`);
+    const command = state.running
+      ? ['/usr/libexec/zapret2-manager/z2k-detect', 'run', ...(state.dnsSource == 'auto' ? [] : ['-dns-source', state.dnsSource]), '-publish', '/opt/zapret2/lists/discovered-domains.txt']
+      : [];
+    const result = invoke(`detect.z2k_detect_discovery_status({ authority: function() { return { ok: true, coherent: true }; }, config: function() { return ${JSON.stringify({ schema: 1, enabled: state.enabled, dnsSource: state.dnsSource })}; }, process: function() { return { instance: 'z2k-detect', running: ${state.running}, pid: ${state.running ? 4321 : 'null'}, count: ${state.running ? 1 : 0}, validated: ${state.running}, executable: '/usr/libexec/zapret2-manager/z2k-detect', outputOwned: ${state.running}, command: ${JSON.stringify(command)} }; }, file: function() { return ${JSON.stringify(state.file)}; } })`);
     assert.equal(result.schema, 1);
     assert.equal(result.enabled, state.enabled);
     assert.equal(result.running, state.running);

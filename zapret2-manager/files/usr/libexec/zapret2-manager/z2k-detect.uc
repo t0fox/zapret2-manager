@@ -168,8 +168,8 @@ export const z2k_detect_discovery_command = function(value) {
 	if (!config.ok) return config;
 	if (!config.enabled) return { ok: true, enabled: false, command: null };
 	let command = [RUNTIME_TARGET, 'run'];
-	if (config.dnsSource != 'auto') command = push(command, '-dns-source', config.dnsSource);
-	command = push(command, '-publish', DISCOVERY_LIST);
+	if (config.dnsSource != 'auto') push(command, '-dns-source', config.dnsSource);
+	push(command, '-publish', DISCOVERY_LIST);
 	return { ok: true, enabled: true, command: command, instance: DISCOVERY_INSTANCE };
 };
 
