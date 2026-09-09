@@ -594,3 +594,71 @@ No router deployment, APK build, push, merge, or deletion was performed.
 Live CI-APK/router verification remains NOT_RUN for this follow-up. The absent
 test assumes the clean-install sidecar path is absent; that precondition was
 confirmed in the local UCode test environment.
+
+---
+
+# Task 17 final source-first/APK continuation (2026-09-09)
+
+## Source-first gate
+
+The final production fix is commit
+`c6403068f9e59e1c75c631011c280ac08ede1dae`, changing the locked idempotent
+config-rollback path in `apply.uc` and its product regression coverage. Before
+any APK build, only the changed production source was copied to the router and
+tested. Local/router `apply.uc` SHA-256 matched at
+`32a7c3accbbb0afac48d8a142ac899318517c9c357df4436bd614a1e2330ac26`.
+
+The source gate returned recovery `state: none`; the same-digest locked probe
+returned `alreadyRestored: true`; a different digest failed closed with typed
+`EROLLBACK`; and the configuration digest stayed unchanged. The manager
+remained running with one `nfqws2`, NFQUEUE 300 ownership/rules, active Avatar,
+and no warnings.
+
+## CI artifact and clean install
+
+Only after the source gate passed, CI run `34341843538` built the exact
+production commit successfully. Artifact digest is
+`sha256:aec88e01f21b610baa155f0ba962e191cb5e165bab0b01646220f26a3dad5999`;
+the APK is `2,629,983` bytes with SHA-256
+`2dc855df3ec9dac56a02154318f7e31ce611b079f15cf21a90c513299351a05c`.
+No local APK build was used.
+
+After a hashed router backup at
+`C:\Temp\z2m-ci-c6403068-2\router-backup\z2m-c6403068-pre.tar.gz`, the old
+package was removed and its absence verified, then the exact CI APK was
+installed. Recovery hooks returned `state: none`; the pending activation
+journal was absent; installed production hashes matched; and runtime status
+remained healthy. A same-release `p-82.18` reinstall completed as
+`z2k-1788953055-7e6f132f48ff989a`, with `targetCanApply: true` and no blockers.
+
+## Focused host evidence and boundary
+
+The WSL/UCode coherent/lifecycle/async suite passed `53/53`. Detect passed
+`44/45` with one safe symlink skip and no failures. Scanner transient passed
+`23/24`; its one failure is a pre-existing static false-positive in the parent
+commit: the test rule matches the existing `${.../usr/libexec/...}` default
+path. It is not a c640 runtime or clean-install regression.
+
+LuCI after clean install and same-release reinstall still showed Avatar
+selected/applied/current, and Scanner rendered typed controls without a stuck
+loading state. A live Discord Voice call was unavailable and is explicitly not
+fabricated. Task 17 remains `WORKING/NOT_READY` until the independent final
+whole-branch review and the objective's user-only condition are resolved or
+formally bounded.
+
+## Additional live lifecycle/discovery evidence
+
+The installed router exposed p-82.17 as an installable prior release. Its real
+downgrade apply reached the pre-commit fetch gate and failed closed with typed
+`EUNAVAILABLE` because the upstream asset source was unavailable. The result
+reported `rollback.attempted: false` because mutation had not begun, while
+lifecycle cleanup succeeded. Recovery returned `state: none` and the current
+p-82.18 LKG/runtime remained healthy. Upgrade and repair are not claimed after
+this external-source failure.
+
+Discovery `auto` was enabled with PID 11535; after terminating it, procd
+respawned PID 13393 and preserved four learned domains. A `dnsmasq` restart
+returned `running:false` in this router environment, so the final state was
+restored to `auto/enabled/running`. This is live evidence, but not a green
+dnsmasq-source claim. The remaining physical injected rollback and live Discord
+Voice requirements remain explicitly bounded.

@@ -1,16 +1,16 @@
 {
   "schema": "z2k-recovery.live-evidence.v1",
   "capturedAt": "2026-09-09",
-  "candidateSha": "7dd27e084fc670e7c4d54ae31150b430dc11d692",
+  "candidateSha": "c6403068f9e59e1c75c631011c280ac08ede1dae",
   "ci": {
-    "runId": 34323028746,
+    "runId": 34341843538,
     "status": "success",
-    "artifactName": "z2m-full-apk-7dd27e084fc670e7c4d54ae31150b430dc11d692",
-    "artifactDigest": "cfcde2da845723678497b745d6595e6f50fc1940da6246f2a52309ea60a7f9bf",
+    "artifactName": "z2m-full-apk-c6403068f9e59e1c75c631011c280ac08ede1dae",
+    "artifactDigest": "aec88e01f21b610baa155f0ba962e191cb5e165bab0b01646220f26a3dad5999",
     "apk": {
       "filename": "zapret2-manager-full-0.1.0-r156.apk",
-      "bytes": 2629285,
-      "sha256": "43be72e71c069a8b9dc257788ca2f0b2f91d40aa9ef13e223509346b6a3c399c"
+      "bytes": 2629983,
+      "sha256": "2dc855df3ec9dac56a02154318f7e31ce611b079f15cf21a90c513299351a05c"
     },
     "nativeHelper": {
       "path": "/usr/libexec/zapret2-manager/z2m-core-helper",
@@ -36,8 +36,8 @@
       "warnings": []
     },
     "backup": {
-      "path": "C:\\Temp\\z2m-ci-7dd27e08\\router-backup\\z2m-lkg-7dd27e08.tar.gz",
-      "sha256": "5563A0C098083E2A9CE0E90282CA5AC41C62D9B0CDD1AF01B53A3F47394D76D7"
+      "path": "C:\\Temp\\z2m-ci-c6403068-2\\router-backup\\z2m-c6403068-pre.tar.gz",
+      "sha256": "3367FA9CD9A365DF681627693F6EE57EBC2B6585F30E4C6209817246F9C3B5B0"
     }
   },
   "browser": {
@@ -63,7 +63,9 @@
     "discordVoice": "NOT_RUN_NO_ACTIVE_CALL"
   },
   "packageFiles": {
-    "resourceUpdate": "7e5bf5ed65d221c45488222318c58c15d71200595b9001e72243d9db843ab4cb",
+    "apply": "32a7c3accbbb0afac48d8a142ac899318517c9c357df4436bd614a1e2330ac26",
+    "resourceUpdate": "9bb0616e13f6ed7d4edcd44a8c70a1d99c5f67be9839f38874cf65d03da16f41",
+    "autocircularIdentity": "6809274f586e8c5753b2d7f422aa42cae397cfe55a738206d0581fb31e6966b3",
     "scanner": "6f41317a0d214407296e99a35e0d0337edf15169775bb800af079ce7292b2800",
     "rpcd": "3582dc0bf8c8add544cbd1f560aa31f648f667fbc9d9fcfa231a24adefde1853"
   },
@@ -76,7 +78,58 @@
   },
   "discovery": {
     "before": "disabled/running=false/domains=4",
-    "enable": "enabled/running=true/pid=9009",
+    "enable": "enabled/running=true",
     "disable": "enabled=false/running=false"
+  },
+  "sourceFirst": {
+    "applySha256": "32a7c3accbbb0afac48d8a142ac899318517c9c357df4436bd614a1e2330ac26",
+    "resourceUpdateSha256": "9bb0616e13f6ed7d4edcd44a8c70a1d99c5f67be9839f38874cf65d03da16f41",
+    "recovery": { "ok": true, "recovered": false, "state": "none" },
+    "idempotentRestore": { "ok": true, "alreadyRestored": true },
+    "mismatchRestore": { "ok": false, "code": "EROLLBACK" },
+    "configUnchangedOnMismatch": true,
+    "runtimeHealthy": true
+  },
+  "cleanInstall": {
+    "packageDeleteExit": 0,
+    "packageAbsentExit": 1,
+    "packageAddExit": 0,
+    "pendingActivationJournal": false,
+    "installedHashesVerified": true
+  },
+  "sameReleaseReinstall": {
+    "operationId": "z2k-1788953055-7e6f132f48ff989a",
+    "state": "completed",
+    "operation": "reinstall",
+    "targetVersion": "p-82.18",
+    "targetCanApply": true,
+    "targetBlockingReasons": [],
+    "pendingActivationJournal": false
+  },
+  "lifecycleMatrix": {
+    "downgradePrepare": {
+      "targetVersion": "p-82.17",
+      "operation": "downgrade",
+      "state": "completed",
+      "apply": "EUNAVAILABLE",
+      "failureStage": "pre-commit-fetch",
+      "rollbackAttempted": false,
+      "lifecycleCleanup": true,
+      "currentLkgPreserved": true,
+      "reason": "upstream asset fetch unavailable"
+    },
+    "upgradeAndRepair": "NOT_RUN_AFTER_EXTERNAL_FETCH_FAILURE",
+    "physicalInjectedRollback": "covered_by_WSL_UCode_transaction_tests; no live-injected mutation performed"
+  },
+  "discoveryProcd": {
+    "enableAuto": { "enabled": true, "running": true, "pid": 11535, "domains": 4 },
+    "afterProcessTermination": { "enabled": true, "running": true, "pid": 13393, "respawned": true, "domains": 4 },
+    "dnsmasqRestart": { "enabled": true, "running": false, "domains": 4, "externalSourceUnavailable": true },
+    "restoredState": { "dnsSource": "auto", "enabled": true, "running": true, "domains": 4 }
+  },
+  "hostSuites": {
+    "coherentLifecycleAsync": { "tests": 53, "passed": 53, "failed": 0, "skipped": 0, "environment": "WSL UCode" },
+    "detect": { "tests": 45, "passed": 44, "failed": 0, "skipped": 1, "environment": "WSL UCode" },
+    "scannerTransient": { "tests": 24, "passed": 23, "failed": 1, "baseline": "static path-regex false-positive present in parent commit" }
   }
 }

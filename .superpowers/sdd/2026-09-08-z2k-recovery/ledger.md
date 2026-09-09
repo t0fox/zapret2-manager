@@ -328,3 +328,42 @@ file/interface and every task's internal consistency before Task 1.
   gate now pass, but the plan's broader failure/rollback matrix and live
   Discord Voice call remain unverified. No false PASS is claimed, and no
   merge or branch/worktree deletion has been performed.
+
+## Task 17 final source-first/APK continuation (2026-09-09)
+
+- Production candidate: `c6403068f9e59e1c75c631011c280ac08ede1dae`.
+- Source-first router gate passed before CI. `apply.uc` SHA-256 was
+  `32a7c3accbbb0afac48d8a142ac899318517c9c357df4436bd614a1e2330ac26` on
+  both sides. Recovery was `state: none`; idempotent restore returned
+  `alreadyRestored`; mismatch returned `EROLLBACK` and left config unchanged.
+- CI run `34341843538` succeeded and produced the exact artifact with digest
+  `sha256:aec88e01f21b610baa155f0ba962e191cb5e165bab0b01646220f26a3dad5999`.
+  APK SHA-256 is
+  `2dc855df3ec9dac56a02154318f7e31ce611b079f15cf21a90c513299351a05c`.
+- Clean uninstall/reinstall was completed from that artifact after a hashed
+  router backup. Package absence was verified between delete and add;
+  post-install recovery was `state: none`, no activation journal remained,
+  and runtime/NFQUEUE/Avatar status stayed healthy.
+- Same-release `p-82.18` reinstall completed as
+  `z2k-1788953055-7e6f132f48ff989a`, with `targetCanApply: true` and no
+  blocking reasons.
+- WSL focused coherent/lifecycle/async tests: `53/53`. Detect: `44/45`, one
+  safe symlink skip, no failure. Scanner transient: `23/24`; one pre-existing
+  static `${.../usr/libexec/...}` regex false-positive from the parent commit.
+- Task 17 remains `WORKING/NOT_READY` pending the independent final whole-
+  branch review and the objective's user-only live Discord Voice condition.
+  No merge or branch/worktree deletion has been performed.
+
+## Task 17 additional live boundaries (2026-09-09)
+
+- The router's real p-82.17 downgrade apply reached the pre-commit fetch gate
+  and failed typed `EUNAVAILABLE` because upstream asset fetch was unavailable.
+  `rollback.attempted` was false because no mutation began; lifecycle cleanup
+  succeeded and the p-82.18 LKG/runtime remained healthy. Upgrade and repair
+  are not claimed after this external-source failure.
+- Discovery `auto` was enabled, its process was terminated, and procd
+  respawned it with a new PID while preserving four learned domains. A
+  `dnsmasq` restart could not keep the process running in the current router
+  environment; the final state was restored to enabled/running with `auto`.
+- These results close additional runtime evidence but do not replace the
+  required injected physical rollback matrix or the live Discord Voice gate.

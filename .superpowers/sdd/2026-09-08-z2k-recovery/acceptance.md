@@ -135,3 +135,67 @@ This source run is not a substitute for the pending exact-current-APK gate.
 - Full failure/rollback/discovery matrix and live Discord Voice require more
   external runtime conditions than the Avatar regression and are not silently
   claimed by this report. In particular, a live Discord call was not fabricated.
+
+## Final source-first and clean-install candidate (2026-09-09)
+
+The previous candidate sections are historical. The final production candidate
+is `c6403068f9e59e1c75c631011c280ac08ede1dae`; only its production source was
+deployed to the router first. The changed `apply.uc` matched locally and on
+the router at SHA-256
+`32a7c3accbbb0afac48d8a142ac899318517c9c357df4436bd614a1e2330ac26`.
+
+The source-only gate passed before CI: recovery returned `state: none`, the
+idempotent restore probe returned `alreadyRestored: true`, a mismatched digest
+returned typed `EROLLBACK`, and the protected config digest stayed unchanged.
+The service remained running with one `nfqws2`, NFQUEUE 300 owner parity,
+Avatar active, and no warnings.
+
+Only after that gate, CI run
+[34341843538](https://github.com/t0fox/zapret2-manager/actions/runs/34341843538)
+built the exact candidate successfully. Artifact
+`z2m-full-apk-c6403068f9e59e1c75c631011c280ac08ede1dae` has digest
+`sha256:aec88e01f21b610baa155f0ba962e191cb5e165bab0b01646220f26a3dad5999`.
+The APK is `2,629,983` bytes with SHA-256
+`2dc855df3ec9dac56a02154318f7e31ce611b079f15cf21a90c513299351a05c`.
+No local APK build was used.
+
+Before clean replacement, the router backup was written to
+`C:\Temp\z2m-ci-c6403068-2\router-backup\z2m-c6403068-pre.tar.gz` with
+SHA-256 `3367FA9CD9A365DF681627693F6EE57EBC2B6585F30E4C6209817246F9C3B5B0`.
+The old package was removed and verified absent, then this exact CI APK was
+installed successfully. Post-install recovery reported `state: none`, the
+pending activation journal was absent, the package was `0.1.0-r156`, and the
+installed production hashes matched the candidate. Runtime status remained
+healthy.
+
+The same-release `p-82.18` prepare/reinstall completed as
+`z2k-1788953055-7e6f132f48ff989a`, with `targetCanApply: true` and no blocking
+reasons; no pending activation journal remained afterward. LuCI hard reload of
+`#/strategies` still showed Avatar selected/applied/current and the Scanner
+route rendered typed controls without a stuck loading state.
+
+The WSL/UCode focused coherent/lifecycle/async gate passed `53/53`; Detect
+passed `44/45` with one safe symlink skip and no failures. The transient
+Scanner suite passed `23/24`; its single failure is a pre-existing static
+false-positive in the parent commit because the rule matches the existing
+`${.../usr/libexec/...}` default path. It is recorded as baseline, not claimed
+as a c640 regression. A live Discord Voice call was unavailable, so that
+user-only condition remains explicitly unverified.
+
+## Additional live lifecycle/discovery boundary (2026-09-09)
+
+The router exposed `p-82.17` as an installable prior release. A real downgrade
+prepare completed, and its real apply reached the pre-commit fetch gate but
+failed closed with typed `EUNAVAILABLE` because the upstream asset source was
+unavailable. The result reported `rollback.attempted: false` because no
+mutation had begun, while lifecycle cleanup succeeded. Recovery afterward was
+`state: none` and the installed p-82.18 runtime/LKG stayed healthy. Upgrade and
+repair were not falsely reported after this external fetch failure; physical
+injected rollback remains covered by the WSL/UCode transaction suite rather
+than a live mutation injection.
+
+Discovery was exercised further on the installed build: `enable(auto)` started
+PID 11535, terminating that process produced a new procd PID 13393 with the
+same four learned domains, and the final state was restored to
+`auto/enabled/running`. A `dnsmasq` restart returned `running:false`, so that
+source-specific path is recorded as externally unavailable rather than green.
