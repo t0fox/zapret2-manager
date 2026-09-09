@@ -168,3 +168,55 @@ No router deploy, APK build, push, merge, or worktree deletion was performed.
 This is host-side focused verification only. Router deployment, live LuCI
 browser acceptance, APK packaging, and visual final approval were not run by
 request.
+
+---
+
+# Task 17 follow-up — malformed numeric host validation
+
+Independent review identified that malformed dotted-numeric values such as
+`999.999.999.999` and `256.0.0.1` were falling through from failed IPv4
+validation into the DNS-label validator, although native `detect_host` rejects
+them.
+
+## TDD RED
+
+Extended `tests/ui/scanner-final-review.test.mjs` with both malformed hosts and
+ran:
+
+```text
+node --test tests/ui/scanner-final-review.test.mjs
+4 tests, 3 pass, 1 fail
+Assertion: 999.999.999.999 had aria-invalid=false instead of true.
+```
+
+## Fix and GREEN
+
+The minimal production fix rejects dotted values made only of digits and dots
+when they are not valid IPv4, preventing DNS fallback. Valid IPv4, IPv6,
+single-label DNS, and the typed `modern`/`legacy`/`both` hello enum remain
+covered by the existing assertions.
+
+```text
+node --test tests/ui/scanner-final-review.test.mjs
+4 tests, 4 pass, 0 fail
+
+node --test tests/ui/scanner-final-review.test.mjs tests/ui/scanner-ui-rework.test.mjs tests/ui/scanner-p1-regressions.test.mjs tests/ui/scanner-product-lifecycle.test.mjs
+22 tests, 22 pass, 0 fail
+
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js
+exit 0
+
+node --check tests/ui/scanner-final-review.test.mjs
+exit 0
+
+git diff --check
+exit 0
+```
+
+Implementation commit: `1255ca5c` (`fix(scanner): reject malformed numeric hosts`).
+Committed files:
+
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js`
+- `tests/ui/scanner-final-review.test.mjs`
+
+No deploy, push, merge, APK build, or worktree deletion was performed.
