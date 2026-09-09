@@ -18,10 +18,17 @@
   },
   "measuredAfterProductionFileCount": 461,
   "after": {
-    "status": "pending-ci-task16",
-    "apkBytes": null,
-    "apkSha256": null,
-    "nativeHelperBytes": null
+    "status": "verified-ci-task16",
+    "apkBytes": 2628596,
+    "apkSha256": "91957adad6cf5df516f46a1c5324770ce7bb820f33601c8505e03020b6fd9895",
+    "nativeHelperBytes": 65523,
+    "scannerJsBytes": 38726,
+    "maintenanceJsBytes": 147203,
+    "assetsJsBytes": 50627,
+    "productionFileCount": 461,
+    "ciRunId": 34296321727,
+    "ciArtifactName": "z2m-full-apk-962ef345ce77e2dc796ac81263b7e9273fa5dd98",
+    "candidateSha": "962ef345ce77e2dc796ac81263b7e9273fa5dd98"
   },
   "apk": {
     "status": "exact-execution-ci",

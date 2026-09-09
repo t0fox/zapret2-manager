@@ -50,13 +50,14 @@ Task 1 baseline recorded 469 production package files and `scanner.c` at
 eight additional production files, leaving 461 production package files. The
 current source measurements are recorded in `size-baseline.json`.
 
-The user-required APK policy is CI-only. No local APK was built or used. The
-APK byte/hash/native-helper `after` values remain explicitly pending Task 16's
-fresh CI artifact; the hard `after.apkBytes <= before.apkBytes` gate is not
-claimed here.
+The user-required APK policy is CI-only. No local APK was built or used. Task
+16 supplied the exact candidate CI artifact: `2628596` bytes and SHA-256
+`91957adad6cf5df516f46a1c5324770ce7bb820f33601c8505e03020b6fd9895`; the
+native helper is `65523` bytes. The hard `after.apkBytes <= before.apkBytes`
+gate passes against the `2645317` byte baseline.
 
 ## Boundary
 
-Task 15 remains `IN_PROGRESS` in the ledger until Task 16 supplies the exact
-candidate CI APK and proves the hard size budget. No merge, branch deletion, or
-worktree deletion was performed.
+Task 15 is `VERIFIED` in the ledger after Task 16 supplied the exact candidate
+CI APK and proved the hard size budget. No merge, branch deletion, or worktree
+deletion was performed in this task.

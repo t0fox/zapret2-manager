@@ -12,13 +12,13 @@
 | 8 | VERIFIED | implementation `7fb84cc0` + fix `7b31d3e3`; 47/47 focused tests, node/diff checks, independent four-skill review PASS, source deploy, and cache-cleared live Components browser gate recorded in `task-8-report.md` |
 | 9 | VERIFIED | implementation `cdeecf59` + owner fix `a306709e`; 53/53 focused tests, independent Luna review PASS, source deploy with UI/backend hash parity, live `EMANAGED` owner RPC, and cache-cleared Resources browser gate recorded in `task-9-report.md` |
 | 10 | VERIFIED | call graph and exact KEEP_SHARED/REMOVE_LEGACY closure recorded in `scanner-callgraph.md`; RED closure run is 7 passed/1 expected legacy-remnant failure, with retained Detect and shared profile-adapter checks passing in `task-10-report.md` |
-| 11 | IN_PROGRESS | legacy native Scanner authority removed and focused WSL native/closure gates pass; CI-built package deployment and router runtime-absence proof remain for final verification in Task 16/17 |
+| 11 | VERIFIED | legacy native Scanner authority removed; focused WSL native/closure gates pass; exact Task 16 CI package installed and deployed helper is `65523` bytes with no legacy scanner helper surface |
 | 12 | VERIFIED | `task-12-report.md` + independent `task-12-review.md`; RED contract run, serial UCode focused suite `81/81`, repair marker/identity review, and diff check pass; router/CI package runtime gates remain deferred to Tasks 16/17 |
 | 13 | VERIFIED | `f1be5ff4`, `task-13-report.md`, `task-13-review.md`; canonical focused suite `54/54`, source-only deployment with five-path SHA parity, live Avatar apply/reload, and direct router `status_fast` proof |
 | 14 | VERIFIED | current docs/projection aligned to typed Detect, single Components/Core owner, managed Resources, and no native Scanner authority; knowledge `24/24`, validator, Quartz verify, and diff checks in `task-14-report.md` |
-| 15 | IN_PROGRESS | `task-15-report.md` + `task-15-review.md`; dead-code deletion and affected suites green; CI APK size/hash gate deferred to Task 16 |
-| 16 | TODO | |
-| 17 | TODO | |
+| 15 | VERIFIED | `task-15-report.md` + `task-15-review.md`; dead-code deletion and affected suites green; final CI APK is `2628596` bytes versus `2645317` baseline |
+| 16 | VERIFIED | exact candidate `962ef345`, CI run `34296321727` success, artifact/hash/manifest verified, focused/static gates recorded in `acceptance.md` |
+| 17 | IN_PROGRESS | exact CI APK clean-installed on the router; post-install runtime and Avatar browser state are healthy; full failure/rollback/discovery/Discord matrix remains explicitly bounded in `acceptance.md` |
 
 ## Task 8 verification (2026-09-09)
 
@@ -260,6 +260,35 @@ file/interface and every task's internal consistency before Task 1.
 - The canonical affected WSL UCode suite passed `53/53`; current Scanner UI
   passed `44/44`; Components/Resources/lifecycle affected tests passed `107/107`.
 - Production package file count fell from `469` to `461`; source/file metrics
-  are in `size-baseline.json`. No local APK was built; CI-only APK after
-  bytes/hash/native-helper evidence remains a Task 16 gate, so Task 15 stays
-  `IN_PROGRESS`.
+  are in `size-baseline.json`. The exact CI APK is `2628596` bytes versus the
+  `2645317` baseline; Task 15 is `VERIFIED`.
+
+## Task 16 verification (2026-09-09)
+
+- The full focused recovery command produced `216` tests with `212` passes,
+  `3` documented pre-existing package-helper environment/worktree failures,
+  and `1` safe-control-directory skip. The affected Scanner, Components,
+  Resources, lifecycle, discovery, knowledge, release, syntax, shell, and
+  diff gates are recorded in `acceptance.md`.
+- GitHub Actions run `34296321727` built candidate
+  `962ef345ce77e2dc796ac81263b7e9273fa5dd98` successfully in `32m19s` and
+  uploaded exactly one full APK artifact. The downloaded manifest and
+  `SHA256SUMS` agree on APK `91957adad6cf5df516f46a1c5324770ce7bb820f33601c8505e03020b6fd9895`,
+  `2628596` bytes. No local APK build was performed.
+- The reduced native helper is `65523` bytes; the package/file-count and
+  source metrics are recorded in `size-baseline.json`.
+
+## Task 17 live acceptance (2026-09-09)
+
+- LKG/config was exported before mutation. The old `zapret2-manager-full`
+  package was removed and verified absent, then the exact Task 16 APK was
+  installed with `apk add --allow-untrusted`; manager restart returned
+  helperd/watchdog healthy.
+- Post-install router `status_fast` proves one `nfqws2`, NFQUEUE 300 owner
+  parity, `serviceState: running`, and active `avatar:z2k_all_in_one`.
+- Authenticated LuCI hard-load of `#/strategies` after installation shows the
+  Avatar card selected/applied/current and no stuck loading. Full machine
+  live evidence is in `live-evidence.json`.
+- The remaining broad failure/rollback/discovery matrix and live Discord call
+  are explicitly bounded in `acceptance.md`; no synthetic voice-call result
+  is claimed.
