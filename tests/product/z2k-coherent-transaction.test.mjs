@@ -140,14 +140,21 @@ test('config rollback is idempotent for an already-restored digest and remains f
   const start = apply.indexOf('export const restore_transaction_config');
   const end = apply.indexOf('const APPLIED_IDENTITY', start);
   const restore = apply.slice(start, end);
-  const current = restore.indexOf('let current = config_sha256();');
-  const alreadyRestored = restore.indexOf('alreadyRestored: true');
-  const writer = restore.indexOf('restore_whole_file(');
+  const direct = restore.indexOf('if (locked() || lockedOverride === true)');
+  const current = restore.indexOf('let current = config_sha256();', direct);
+  const alreadyRestored = restore.indexOf('alreadyRestored: true', direct);
+  const writer = restore.indexOf('restore_whole_file(', direct);
   const verification = restore.indexOf('config_sha256() != snapshot.sha256');
-  assert.ok(current >= 0 && alreadyRestored > current && current < writer,
-    'matching config digest must return before restore_whole_file');
+  assert.ok(direct >= 0 && current > direct && alreadyRestored > current && current < writer,
+    'locked/override rollback must check the digest before restore_whole_file');
   assert.ok(writer >= 0 && verification > writer,
-    'mismatched config digest must retain restore and post-write verification');
+    'locked/override mismatch must retain restore and post-write verification');
+  assert.match(restore, /let digest_cmd = [\s\S]*let inner = [\s\S]*digest_cmd[\s\S]*digest_cmd/,
+    'unlocked rollback must build both digest checks inside the lock command');
+  assert.match(restore, /shell_escape\(APPLY_CLI\)[\s\S]*do_restore_file/,
+    'unlocked rollback must use the canonical locked restore writer');
+  assert.match(restore, /Z2M_CONFIG_LOCKED=1 flock -x/,
+    'unlocked rollback must acquire config.lock');
   assert.match(restore, /code: 'EROLLBACK'/);
 });
 

@@ -221,12 +221,50 @@ export const transaction_config_snapshot = function() {
 
 export const restore_transaction_config = function(snapshot, lockedOverride) {
 	if (!snapshot || snapshot.sha256 == null || snapshot.bytes == null) return { ok: false, error: { code: 'EINPUT', message: 'active config rollback evidence is incomplete' } };
-	let current = config_sha256();
-	if (current == snapshot.sha256) return { ok: true, alreadyRestored: true, sha256: snapshot.sha256 };
-	let restored = restore_whole_file('/opt/zapret2/config', snapshot.bytes, lockedOverride === true);
-	if (restored == null || config_sha256() != snapshot.sha256)
-		return { ok: false, error: { code: 'EROLLBACK', message: 'active config could not be restored to its recorded digest' } };
-	return { ok: true, restored: true, sha256: snapshot.sha256 };
+	let rollbackError = { ok: false, error: { code: 'EROLLBACK', message: 'active config could not be restored to its recorded digest' } };
+	// An existing transaction lock (or the explicit scanner/transaction
+	// override) already provides the authority for the digest check and write.
+	// Keep this path synchronous so lockedOverride retains its established
+	// caller-owned-lock semantics.
+	if (locked() || lockedOverride === true) {
+		let current = config_sha256();
+		if (current == snapshot.sha256) return { ok: true, alreadyRestored: true, sha256: snapshot.sha256 };
+		let restored = restore_whole_file('/opt/zapret2/config', snapshot.bytes, lockedOverride === true);
+		if (restored == null || config_sha256() != snapshot.sha256) return rollbackError;
+		return { ok: true, restored: true, sha256: snapshot.sha256 };
+	}
+
+	// Without a caller-owned lock the digest check, restore, and verification
+	// must be one flock/CAS operation.  Calling the existing apply CLI keeps the
+	// canonical writer and its atomic_replace_locked() boundary in charge.
+	if (!have_flock()) return rollbackError;
+	let path_f = secure_temp('/tmp/z2m-transaction-restore-path.XXXXXX');
+	let content_f = secure_temp('/tmp/z2m-transaction-restore-content.XXXXXX');
+	if (path_f == null || content_f == null) {
+		cleanup(path_f); cleanup(content_f);
+		return rollbackError;
+	}
+	try {
+		writefile(path_f, '/opt/zapret2/config\n');
+		writefile(content_f, '' + snapshot.bytes);
+	} catch (e) {
+		cleanup(path_f); cleanup(content_f);
+		return rollbackError;
+	}
+	let digest_cmd = "sha256sum " + shell_escape('/opt/zapret2/config') + " 2>/dev/null | cut -d ' ' -f 1";
+	let expected = shell_escape(snapshot.sha256);
+	let inner = 'current=$(' + digest_cmd + '); ' +
+		'if [ "$current" = ' + expected + ' ]; then printf already; ' +
+		'elif /usr/bin/ucode ' + shell_escape(APPLY_CLI) + ' do_restore_file ' + shell_escape(path_f) + ' ' + shell_escape(content_f) +
+		' >/dev/null && [ "$(' + digest_cmd + ')" = ' + expected + ' ]; then printf restored; else exit 1; fi';
+	let cmd = 'Z2M_CONFIG_LOCKED=1 flock -x ' + shell_escape(LOCKFILE) + ' -c ' + shell_escape(inner);
+	let result = command(cmd);
+	cleanup(path_f); cleanup(content_f);
+	let outcome = trim(result.out);
+	if (result.rc != 0) return rollbackError;
+	if (outcome == 'already') return { ok: true, alreadyRestored: true, sha256: snapshot.sha256 };
+	if (outcome == 'restored') return { ok: true, restored: true, sha256: snapshot.sha256 };
+	return rollbackError;
 };
 
 const APPLIED_IDENTITY = getenv('Z2M_APPLIED_IDENTITY') || '/tmp/zapret2-manager/applied.sha256';
