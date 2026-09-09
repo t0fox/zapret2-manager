@@ -136,6 +136,21 @@ test('pending rollback evidence captures exact receipt identity and runtime bund
   assert.match(coordinator, /keysToCompare[\s\S]*runtimeBundleDigest/);
 });
 
+test('config rollback is idempotent for an already-restored digest and remains fail-closed otherwise', () => {
+  const start = apply.indexOf('export const restore_transaction_config');
+  const end = apply.indexOf('const APPLIED_IDENTITY', start);
+  const restore = apply.slice(start, end);
+  const current = restore.indexOf('let current = config_sha256();');
+  const alreadyRestored = restore.indexOf('alreadyRestored: true');
+  const writer = restore.indexOf('restore_whole_file(');
+  const verification = restore.indexOf('config_sha256() != snapshot.sha256');
+  assert.ok(current >= 0 && alreadyRestored > current && current < writer,
+    'matching config digest must return before restore_whole_file');
+  assert.ok(writer >= 0 && verification > writer,
+    'mismatched config digest must retain restore and post-write verification');
+  assert.match(restore, /code: 'EROLLBACK'/);
+});
+
 test('production target operation fails closed for unresolved cross-family releases', { skip: !hasUcode }, () => {
   const result = invoke(`transaction.resource_center_test_target_operation({ testOnly: true, targetVersion: 'r-80.3', installedVersion: 'p-80.3' })`);
   assert.equal(result.ok, false, JSON.stringify(result));

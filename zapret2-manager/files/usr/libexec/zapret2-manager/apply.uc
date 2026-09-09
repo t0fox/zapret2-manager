@@ -221,6 +221,8 @@ export const transaction_config_snapshot = function() {
 
 export const restore_transaction_config = function(snapshot, lockedOverride) {
 	if (!snapshot || snapshot.sha256 == null || snapshot.bytes == null) return { ok: false, error: { code: 'EINPUT', message: 'active config rollback evidence is incomplete' } };
+	let current = config_sha256();
+	if (current == snapshot.sha256) return { ok: true, alreadyRestored: true, sha256: snapshot.sha256 };
 	let restored = restore_whole_file('/opt/zapret2/config', snapshot.bytes, lockedOverride === true);
 	if (restored == null || config_sha256() != snapshot.sha256)
 		return { ok: false, error: { code: 'EROLLBACK', message: 'active config could not be restored to its recorded digest' } };
