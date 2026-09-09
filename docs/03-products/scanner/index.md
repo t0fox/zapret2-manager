@@ -11,23 +11,22 @@ tags: [product, scanner, parity]
 
 # Сканер
 
-Scanner проверяет цель ограниченным набором кандидатов и возвращает evidence,
-а не мгновенно меняет production runtime.
+Scanner — это пользовательская оболочка для пяти upstream Detect-операций.
+Каждая операция возвращает bounded typed evidence и не меняет permanent
+Strategy или production runtime.
 
 ## Рабочий процесс
 
-1. Укажите target и scan profile.
-2. Запустите сканирование и наблюдайте стадии normalize → planning → candidate
-   → temporary test → probe → cleanup.
-3. Дождитесь `best` и проверьте score, latency, protocol и evidence.
-4. Откройте candidate в Strategy IDE, при необходимости измените его и выполните
-   Preview/Validate.
-5. Сохраните и примените через Strategy.
+1. Выберите одну команду: `probe`, `classify`, `quic`, `voice` или `tcp16`.
+2. Заполните только поля, которые нужны этой команде, и запустите Detect.
+3. Проверьте typed verdict, reason и raw evidence; inconclusive/unavailable
+   результат не превращается в успешный bypass.
+4. Если результат требует постоянного изменения Strategy, откройте обычный
+   каталог Strategy и отдельно пройдите Preview → Validate → Save → Apply.
 
-Временный NFQUEUE/helper принадлежит Scanner только на время теста. До и после
-проверяйте, что production queue и `nfqws2` сохранены, а temporary ownership
-удалён. `best: null` означает отсутствие доказанного результата, а не повод
-применять последний кандидат вслепую.
+Detect не является владельцем NFQUEUE, `nfqws2` или permanent Strategy. Эти
+границы остаются у Engine и Strategy соответственно. Ошибка Detect всегда
+показывается как typed result, а не маскируется под последний удачный вариант.
 
 Полномочия runtime и доказательства discovery записаны в документе
 [«Полномочия runtime сканера»](../../02-architecture/scanner-runtime-authority.md).

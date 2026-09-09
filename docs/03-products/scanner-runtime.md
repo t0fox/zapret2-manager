@@ -29,5 +29,7 @@ states remain canonical errors; they never fall back to the retired Scanner.
 
 ## Handoff
 
-Результат открывается в Strategy IDE с provenance, catalog digest и evidence.
-Permanent save/apply остаётся только за Strategy API.
+Detect публикует typed evidence, а не transient candidate и не готовую
+Strategy. Если пользователь хочет постоянное изменение, он отдельно выбирает
+вариант в каталоге Strategy и проходит обычный Preview → Validate → Save →
+Apply workflow; permanent save/apply остаётся только за Strategy API.

@@ -21,9 +21,9 @@ owner boundaries:
 - [Архитектурные решения](../07-decisions/index.md)
 - [Процесс работы со знаниями](./knowledge-workflow.md)
 
-Runtime ownership: Strategy владеет permanent Apply, Scanner создаёт только
-transient candidate, DNS сохраняет existing writer, а Telegram Proxy и WARP
-имеют отдельные lifecycle owners.
+Runtime ownership: Strategy владеет permanent Apply, typed Detect Scanner
+возвращает evidence без второго lifecycle, DNS сохраняет existing writer, а
+Telegram Proxy и WARP имеют отдельные lifecycle owners.
 
 ## Канонические технические страницы
 

@@ -14,8 +14,9 @@ tags: [ui, components, engine, z2k]
 Здесь находятся два обязательных foundation-компонента Z2M:
 
 - **Zapret2 Engine** — traffic-processing runtime;
-- **Z2K Core** — Lua/detectors и связанные runtime-данные, которыми владеет
-  Resource Center, но управляет страница компонентов.
+- **Z2K Core** — coherent Lua/Detect/compiler/runtime bundle и его lifecycle.
+  Страница компонентов — единственная mutation surface; Resource Center
+  показывает managed inventory и не создаёт второго Z2K owner.
 
 Страница не фиксирует готовность как «2 из 2»: итог вычисляется по фактическому
 `runtimeHealth` обязательных компонентов. У каждого компонента отдельно

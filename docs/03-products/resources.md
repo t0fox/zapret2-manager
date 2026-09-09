@@ -30,6 +30,11 @@ Z2K Core: «Актуально», «Доступно обновление», «�
 technical commit и manifest identity показываются только как техническая
 evidence, а не как installed release.
 
+Для Z2K Core эта страница read-only: direct refresh/update не создаёт
+независимый mutation path и возвращает ownership в Core. Установка, upgrade,
+reinstall, repair и rollback выполняются только через единственную карточку
+Z2K Core в «Система → Компоненты».
+
 После успешной активации Asset Registry сохраняет bounded activation receipt.
 Локальная release identity использует его как confirmed authority, затем может
 использовать только однозначное совпадение с известным manifest как inferred;

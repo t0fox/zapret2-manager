@@ -12,9 +12,11 @@ code: [zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc#z2k_res
 
 # Z2K Core
 
-Z2K Core — manager integration layer для Z2K runtime-assets. Он не создаёт
-второй пользовательский продукт: его owner — **Система → Компоненты**, а
-Strategy, Scanner и Resource Center используют его проверенные capabilities.
+Z2K Core — manager integration layer для coherent Z2K runtime-assets. Он не
+создаёт второй пользовательский продукт: его единственный lifecycle owner —
+**Система → Компоненты**, а Strategy, Detect Scanner и Resource Center
+используют его проверенные capabilities. Resource Center не является вторым
+Z2K writer.
 
 ## Контракт компонента
 

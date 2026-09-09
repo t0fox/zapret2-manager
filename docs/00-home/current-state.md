@@ -25,8 +25,8 @@ model is:
 - **Avatar Catalog** is an imported strategy/catalog source and donor reference,
   not a system component.
 - **Strategy** owns permanent Preview → Validate → Apply lifecycle. Scanner
-  results enter that same Strategy workflow; the scanner-orchestrator module is
-  present but not production authority.
+  exposes the five typed Z2K Detect operations and returns evidence only; it is
+  not a native Scanner authority or a second Strategy lifecycle.
 - **Telegram Proxy** and **WARP/MASQUE** are optional products with their own
   owners. They are not bundled into the manager package set.
 - **Services/Domains**, **Resources**, and **DNS** are data/routing surfaces;

@@ -1,27 +1,26 @@
 ---
 id: nfqueue
-title: "NFQUEUE и временный Scanner runtime"
+title: "NFQUEUE и runtime ownership"
 type: product
 status: current
 authority: evidence
 updated: 2026-08-22
 publish: true
 tags: [technology, nfqueue, scanner]
-code: [zapret2-manager/files/usr/libexec/zapret2-manager/scanner-transient.uc#scanner_candidate_activate]
+code: [zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc#health_block]
 ---
 
 # NFQUEUE
 
-Production queue принадлежит Engine. Scanner может использовать только
-временную, явно именованную ownership session и не должен менять production
-queue 300 или `nfqws2`.
+Production queue принадлежит Engine. Typed Detect не владеет NFQUEUE и не
+подменяет `nfqws2`; runtime status читает queue ownership и правила как
+evidence для Engine health.
 
 ## Evidence
 
-Перед session фиксируются process/queue/firewall/DNS/HTTPS baseline. Во время
-видны temporary table, helper/process и queue. После probe Scanner обязан
-удалить только свои объекты, проверить отсутствие temporary ownership и
-подтвердить, что production ownership не изменился.
+Для внутренних profile-activation операций общий runtime adapter может иметь
+временную ownership session с bounded cleanup. Это не является Scanner
+product API и не меняет permanent Engine ownership.
 
 Если cleanup не подтверждён, состояние остаётся `uncertain`/`recovery`, а не
 `success`. Это safety contract, а не UX-ошибка.

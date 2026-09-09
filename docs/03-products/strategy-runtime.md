@@ -26,5 +26,6 @@ apply-owner не создаётся.
 ## selected и applied
 
 `selected` — выбор интерфейса, `applied` — подтверждённое runtime-состояние,
-`favorite` — пользовательская отметка. Scanner candidate остаётся transient,
-пока пользователь не открыл его в IDE и не прошёл обычный Strategy workflow.
+`favorite` — пользовательская отметка. Detect Scanner возвращает evidence и
+не создаёт permanent candidate; постоянное изменение начинается только в
+обычном Strategy workflow.

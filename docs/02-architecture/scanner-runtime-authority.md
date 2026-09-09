@@ -42,9 +42,11 @@ as canonical errors; there is no Detect-to-old-Scanner fallback.
 
 - The canonical Scanner page exposes typed `probe`, `classify`, `quic`, `voice`
   and `tcp16` actions plus typed autodiscovery status/control.
-- History wiring must not change Scanner execution authority or introduce a new
+- History wiring must not change Detect execution authority or introduce a new
   storage/orchestrator.
-- Permanent Strategy Apply remains owned by the existing Strategy workflow.
+- Detect returns typed evidence only; it does not create candidates or own a
+  Strategy handoff. Permanent Strategy Apply remains owned by the existing
+  Strategy workflow.
 - The engine chooser is absent from the primary scan flow; diagnostic engine
   controls remain available in Diagnostics.
 - WARP remains a navigation/UI shell only until a production backend owner and

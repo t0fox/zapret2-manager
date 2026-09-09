@@ -12,10 +12,10 @@ code: [zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc#scanner_edi
 
 # Архитектура Scanner
 
-RPC создаёт bounded request, `scanner-cli-entry` передаёт его в canonical
-worker, planner materializes only candidates, а probe adapter выполняет
-реальную проверку.
+RPC создаёт bounded request, `scanner-cli-entry` передаёт его в typed Detect
+authority, а focused native helper выполняет ровно одну из пяти команд
+`probe`, `classify`, `quic`, `voice` или `tcp16`.
 
-Lifecycle evidence должен покрывать baseline, dependency preflight, temporary
-activation, stabilization, probe, cleanup и terminal reconciliation. При
-uncertain cleanup Scanner fail-closed.
+Detect валидирует JSON envelope и возвращает typed evidence. Он не materializes
+candidate, не владеет temporary NFQUEUE и не меняет permanent Strategy;
+Strategy Apply остаётся отдельным canonical workflow.
