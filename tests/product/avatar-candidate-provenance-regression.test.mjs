@@ -18,6 +18,8 @@ const HAS_UCODE = fs.existsSync(UCODE_BIN);
 
 const SNAPSHOT_ID = 'avatar-e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136';
 const SOURCE_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
+const Z2K_SNAPSHOT_ID = 'z2k-e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136';
+const Z2K_SOURCE_COMMIT = 'a'.repeat(40);
 
 function invoke(expression) {
   const source = [
@@ -68,6 +70,26 @@ function selectedAvatar() {
   };
 }
 
+function z2kEntry(overrides = {}) {
+  return {
+    id: 'z2k:z2k_all_in_one',
+    canonicalId: 'z2k:z2k_all_in_one',
+    sourceId: 'z2k',
+    sourceSnapshotId: Z2K_SNAPSHOT_ID,
+    sourceCommit: Z2K_SOURCE_COMMIT,
+    sourcePath: 'profiles/z2k_all_in_one.json',
+    entryKind: 'all-in-one',
+    provenance: {
+      repository: 'necronicle/z2k',
+      sourceId: 'z2k',
+      sourceCommit: Z2K_SOURCE_COMMIT,
+      sourcePath: 'profiles/z2k_all_in_one.json',
+      kind: 'strategy-catalog-import',
+    },
+    ...overrides,
+  };
+}
+
 test('canonical Avatar entry enriches omitted provenance snapshot before selection projection',
   { skip: !HAS_UCODE }, () => {
     const entry = avatarEntry();
@@ -94,6 +116,13 @@ test('canonical Avatar projection still rejects missing or mismatched source ide
       const result = invoke(`transaction.resource_center_test_candidate_catalog({ testOnly: true, coreSnapshot: { entries: [${JSON.stringify(entry)}] } })`);
       assert.equal(result.entries.length, 0, JSON.stringify(result));
     }
+  });
+
+test('non-user Z2K entry rejects omitted provenance snapshot identity',
+  { skip: !HAS_UCODE }, () => {
+    const entry = z2kEntry();
+    const result = invoke(`transaction.resource_center_test_candidate_catalog({ testOnly: true, coreSnapshot: { entries: [${JSON.stringify(entry)}] } })`);
+    assert.equal(result.entries.length, 0, JSON.stringify(result));
   });
 
 test('candidate catalog test seam rejects calls without the explicit testOnly guard',

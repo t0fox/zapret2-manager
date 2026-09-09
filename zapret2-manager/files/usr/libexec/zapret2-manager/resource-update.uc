@@ -2194,6 +2194,7 @@ function z2k_candidate_entry_projection(entry) {
 	let sourceSnapshotId = entry.sourceSnapshotId || provenance.sourceSnapshotId || null;
 	let sourceCommit = entry.sourceId == 'user' ? (entry.sourceCommit || provenance.sourceCommit || null) : entry.sourceCommit;
 	if (entry.sourceId != 'user' && (!string(sourceCommit) || sourceCommit == '' || !string(sourceSnapshotId)
+		|| (entry.sourceId == 'z2k' && (!string(provenance.sourceSnapshotId) || provenance.sourceSnapshotId == ''))
 		|| (provenance.sourceSnapshotId != null && provenance.sourceSnapshotId != sourceSnapshotId)
 		|| provenance.sourceCommit != sourceCommit)) return null;
 	let compatibility = entry.z2kCompatibilityIdentity || provenance.z2kCompatibilityIdentity || null;
