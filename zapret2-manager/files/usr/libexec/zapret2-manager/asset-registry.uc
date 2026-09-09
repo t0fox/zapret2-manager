@@ -9,7 +9,9 @@ const STATE = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_ASSET_REGIS
 const USER_ROOT = '/etc/zapret2-manager/assets';
 const STAGE_ROOT = '/tmp/z2m-resource-update';
 const ROLLBACK_STATE = '/etc/zapret2-manager/asset-registry.previous.json';
-const MAX_STATE_BYTES = 1024 * 1024;
+// V3 activation receipts carry the complete coherent runtime evidence. Keep
+// the registry bounded, but leave room for the configured receipt history.
+const MAX_STATE_BYTES = 4 * 1024 * 1024;
 const MAX_BUNDLE_ASSETS = 64;
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
 const MAX_ACTIVATION_RECEIPTS = 16;

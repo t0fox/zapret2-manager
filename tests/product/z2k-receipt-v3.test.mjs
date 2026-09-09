@@ -175,6 +175,29 @@ test('V3 registry finalization writes the coherent receipt without changing the 
   assert.match(source, /catalogDigest/);
 });
 
+test('Registry state accepts bounded V3 receipt history above the legacy 1 MiB limit', { skip: !hasUcode }, () => {
+  const value = fixture();
+  const registryStatePath = `/tmp/z2m-task6-large-registry-${process.pid}.json`;
+  const state = {
+    schema: 1,
+    revision: 17,
+    assets: value.registry.assets,
+    activationReceipts: [{ ...value.receipt, evidencePadding: 'x'.repeat(1024 * 1024) }],
+  };
+  fs.writeFileSync(registryStatePath, JSON.stringify(state));
+  assert.ok(fs.statSync(registryStatePath).size > 1024 * 1024);
+  try {
+    const listed = invokeModules('registry.asset_registry_list(null)', {
+      Z2M_ASSET_REGISTRY_STATE: registryStatePath,
+      Z2M_UPDATE_SOURCE_TEST: '1',
+    });
+    assert.equal(listed.ok, true, JSON.stringify(listed));
+    assert.equal(listed.activationReceipts.length, 1);
+  } finally {
+    try { fs.unlinkSync(registryStatePath); } catch {}
+  }
+});
+
 test('production-shaped finalization carries all coherent evidence into the sole Registry receipt', { skip: !hasUcode }, () => {
   const value = fixture();
   const compatibility = compatibilityIdentity();
