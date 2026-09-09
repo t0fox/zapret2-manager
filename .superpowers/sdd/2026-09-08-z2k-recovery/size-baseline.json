@@ -10,6 +10,19 @@
     "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js": 51088
   },
   "packageFileCount": 469,
+  "measuredAfterSourceBytes": {
+    "zapret2-manager/src/z2m-core-helper/scanner.c": 0,
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js": 38726,
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js": 147203,
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js": 50627
+  },
+  "measuredAfterProductionFileCount": 461,
+  "after": {
+    "status": "pending-ci-task16",
+    "apkBytes": null,
+    "apkSha256": null,
+    "nativeHelperBytes": null
+  },
   "apk": {
     "status": "exact-execution-ci",
     "exactExecutionSha": true,

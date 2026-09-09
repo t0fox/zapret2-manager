@@ -15,8 +15,8 @@
 | 11 | IN_PROGRESS | legacy native Scanner authority removed and focused WSL native/closure gates pass; CI-built package deployment and router runtime-absence proof remain for final verification in Task 16/17 |
 | 12 | VERIFIED | `task-12-report.md` + independent `task-12-review.md`; RED contract run, serial UCode focused suite `81/81`, repair marker/identity review, and diff check pass; router/CI package runtime gates remain deferred to Tasks 16/17 |
 | 13 | VERIFIED | `f1be5ff4`, `task-13-report.md`, `task-13-review.md`; canonical focused suite `54/54`, source-only deployment with five-path SHA parity, live Avatar apply/reload, and direct router `status_fast` proof |
-| 14 | TODO | |
-| 15 | TODO | |
+| 14 | VERIFIED | current docs/projection aligned to typed Detect, single Components/Core owner, managed Resources, and no native Scanner authority; knowledge `24/24`, validator, Quartz verify, and diff checks in `task-14-report.md` |
+| 15 | IN_PROGRESS | `task-15-report.md` + `task-15-review.md`; dead-code deletion and affected suites green; CI APK size/hash gate deferred to Task 16 |
 | 16 | TODO | |
 | 17 | TODO | |
 
@@ -233,3 +233,33 @@ file/interface and every task's internal consistency before Task 1.
   not converted into a false failure.
 - No local APK build, push, merge, branch deletion, or worktree deletion was
   performed.
+
+## Task 14 verification (2026-09-09)
+
+- Current Scanner, NFQUEUE, Strategy, Components, Resources, Z2K Core, and
+  developer architecture docs now describe the five typed Detect operations,
+  Engine NFQUEUE ownership, one Z2K Core lifecycle owner, and no native Scanner
+  authority or generic candidate/depth workflow.
+- Public projection NFQUEUE evidence now points to retained
+  `core/status-collector.uc#health_block`; the deployment manifest remains
+  unchanged because its `scanner-cli` and `scanner-runtime-adapter` entries
+  are KEEP_SHARED under the Task 10 call graph and no removed native Scanner
+  path is present.
+- Knowledge suite passed `24/24`; `validate-knowledge.mjs`, `docs.mjs verify`,
+  and `git diff --check` passed. Historical parity/archive documents remain
+  historical by design.
+- No router mutation, APK build, push, merge, branch deletion, or worktree
+  deletion was performed.
+
+## Task 15 reduction evidence (2026-09-09)
+
+- `task-15-candidates.md` records the caller-proof deletion list. Eight
+  unimported legacy Scanner UCode modules and their obsolete test-only
+  contracts/fixtures were removed; typed Detect, shared runtime, transient/state,
+  Strategy Apply, rollback, receipt, and Resources owners were retained.
+- The canonical affected WSL UCode suite passed `53/53`; current Scanner UI
+  passed `44/44`; Components/Resources/lifecycle affected tests passed `107/107`.
+- Production package file count fell from `469` to `461`; source/file metrics
+  are in `size-baseline.json`. No local APK was built; CI-only APK after
+  bytes/hash/native-helper evidence remains a Task 16 gate, so Task 15 stays
+  `IN_PROGRESS`.

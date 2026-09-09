@@ -704,8 +704,8 @@ test('Z2K update prepares the selected release and sends its target token to res
   await new Promise(resolve => setTimeout(resolve, 0));
 
   assert.equal(internals.state.z2kCheck, null, 'successful mutation must invalidate the pre-mutation check snapshot');
-  assert.deepEqual(JSON.parse(JSON.stringify(prepareCalls)), [{ version: 'r-80.3' }]);
-  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-80.2', planToken: 'z2k-target-v2:test' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(prepareCalls)), [{ version: 'r-80.3', repair: false }]);
+  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.3', operation: 'upgrade', installedVersion: 'r-80.2', repair: false, planToken: 'z2k-target-v2:test' }]);
 });
 
 test('Z2K update confirms target release before prepare and mutation', async () => {
@@ -748,8 +748,8 @@ test('Z2K update confirms target release before prepare and mutation', async () 
   await new Promise(resolve => setTimeout(resolve, 0));
   await new Promise(resolve => setTimeout(resolve, 0));
 
-  assert.deepEqual(JSON.parse(JSON.stringify(prepareCalls)), [{ version: 'r-80.4' }]);
-  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.4', operation: 'upgrade', installedVersion: 'r-80.3', planToken: 'z2k-target-v2:test' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(prepareCalls)), [{ version: 'r-80.4', repair: false }]);
+  assert.deepEqual(calls, [{ bundleId: 'z2k-curated-lua', confirm: true, targetVersion: 'r-80.4', operation: 'upgrade', installedVersion: 'r-80.3', repair: false, planToken: 'z2k-target-v2:test' }]);
   assert.deepEqual(toasts, [{ message: 'Z2K Core: Обновить до r-80.4.', kind: 'ok' }]);
 });
 

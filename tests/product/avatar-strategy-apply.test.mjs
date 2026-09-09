@@ -13,7 +13,6 @@ const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const GENERATION = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
-const RESULTS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc');
 const CATALOG_ROOT = path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 const CATALOG_DIGEST = JSON.parse(fs.readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8')).aggregateDigest;
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -367,7 +366,10 @@ function holdUcode(module, expression, env) {
 test('Apply accepts only authoritative persisted Strategy identity', () => storage(({ record, env }) => {
   const source = { strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST };
   const runtimeEnv = { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook() };
-  assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify(source)}).error.code`, runtimeEnv), 'EPREFLIGHT');
+  const first = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify(source)})`, runtimeEnv);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(first.identity.ok, true, JSON.stringify(first));
+  assert.equal(first.strategy.id, record.id);
   assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', {strategy_data:${JSON.stringify(strategy())}}).error.code`, runtimeEnv), 'EINPUT');
   assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({ ...source, revision: 2 })}).error.code`, runtimeEnv), 'ECONFLICT');
   assert.equal(invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({ ...source, candidate:'--filter-tcp=80' })}).error.code`, runtimeEnv), 'EINPUT');
@@ -906,13 +908,3 @@ test('runtime uncertainty records preserve bounded verified checks and rollback-
   })})`);
   assert.deepEqual(uncertain, { uncertain: true, rolledBack: false });
 }));
-test('scanner handoff: existing Strategy ID returned, unmatched generated cannot Apply, Save payload only', () => {
-  const existing = invoke(RESULTS, `mod.scanner_best_reference({ranked:[{strategyId:'catalog-one',strategyRevision:0,saveRequired:false}]},{})`);
-  assert.deepEqual(existing, { kind: 'strategy', strategyId: 'catalog-one', revision: 0, saveRequired: false });
-  const generated = invoke(RESULTS, `mod.scanner_best_reference({ranked:[{candidateId:'generated:one',identityKind:'generated',saveRequired:true}]},{})`);
-  assert.deepEqual(generated, { kind: 'generated', strategyId: null, revision: null, candidateId: 'generated:one', saveRequired: true });
-  const saved = invoke(RESULTS, `mod.scanner_save_generated_validate({candidate:{profile:{name:'generated'}},compiler:{version:'1'},catalog:{version:'2'},deps:[],provenance:{source:'scanner'}})`);
-  assert.equal(saved.ok, true);
-  assert.equal(saved.savePayload.type, 'SaveStrategy');
-  assert.doesNotMatch(fs.readFileSync(RESULTS, 'utf8'), /scanner_.*apply|apply_.*scanner/i);
-});

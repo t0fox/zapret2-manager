@@ -40,10 +40,15 @@ test('Scanner has exactly one canonical production source tree', () => {
 test('Scanner compatibility shell and typed Detect RPC are packaged without retired modules', () => {
   const makefile = read(path.join(BACKEND, 'Makefile'));
   const cli = read(path.join(CANONICAL, 'scanner-cli.uc'));
-  for (const module of ['scanner-cli.uc', 'scanner-cli-entry.uc', 'scanner-model.uc', 'scanner-results.uc']) {
+  for (const module of ['scanner-cli.uc', 'scanner-cli-entry.uc']) {
     assert.equal(fs.existsSync(path.join(CANONICAL, module)), true, module);
     assert.match(makefile, /files\/\*/);
   }
+  for (const retired of [
+    'scanner-targets.uc', 'scanner-solver.uc', 'scanner-results.uc',
+    'scanner-reconcile.uc', 'scanner-model.uc', 'scanner-generator.uc',
+    'scanner-dependency-preflight.uc', 'scanner-compiler-authority.uc',
+  ]) assert.equal(fs.existsSync(path.join(CANONICAL, retired)), false, retired);
   for (const retired of RETIRED) assert.equal(fs.existsSync(path.join(CANONICAL, retired)), false, retired);
   assert.match(cli, /z2k_detect_(probe|classify|quic|voice|tcp16)/);
   assert.match(cli, /z2k_detect_discovery/);
