@@ -71,7 +71,7 @@ function selectedAvatar() {
 test('canonical Avatar entry enriches omitted provenance snapshot before selection projection',
   { skip: !HAS_UCODE }, () => {
     const entry = avatarEntry();
-    const catalogInput = `{ coreSnapshot: { entries: [${JSON.stringify(entry)}] } }`;
+    const catalogInput = `{ testOnly: true, coreSnapshot: { entries: [${JSON.stringify(entry)}] } }`;
     const expression = `({ catalog: transaction.resource_center_test_candidate_catalog(${catalogInput}), projected: state.strategy_selection_project_candidate({ selected: ${JSON.stringify(selectedAvatar())}, candidateCatalog: transaction.resource_center_test_candidate_catalog(${catalogInput}) }) })`;
     const result = invoke(expression);
 
@@ -86,11 +86,19 @@ test('canonical Avatar entry enriches omitted provenance snapshot before selecti
 test('canonical Avatar projection still rejects missing or mismatched source identity',
   { skip: !HAS_UCODE }, () => {
     for (const entry of [
+      avatarEntry({ sourceCommit: null, provenance: avatarEntry().provenance }),
       avatarEntry({ sourceCommit: null, provenance: { ...avatarEntry().provenance, sourceCommit: null } }),
       avatarEntry({ provenance: { ...avatarEntry().provenance, sourceCommit: '0'.repeat(40) } }),
       avatarEntry({ provenance: { ...avatarEntry().provenance, sourceSnapshotId: 'avatar-other' } }),
     ]) {
-      const result = invoke(`transaction.resource_center_test_candidate_catalog({ coreSnapshot: { entries: [${JSON.stringify(entry)}] } })`);
+      const result = invoke(`transaction.resource_center_test_candidate_catalog({ testOnly: true, coreSnapshot: { entries: [${JSON.stringify(entry)}] } })`);
       assert.equal(result.entries.length, 0, JSON.stringify(result));
     }
+  });
+
+test('candidate catalog test seam rejects calls without the explicit testOnly guard',
+  { skip: !HAS_UCODE }, () => {
+    const result = invoke('transaction.resource_center_test_candidate_catalog({ coreSnapshot: { entries: [] } })');
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.error.code, 'EINPUT', JSON.stringify(result));
   });

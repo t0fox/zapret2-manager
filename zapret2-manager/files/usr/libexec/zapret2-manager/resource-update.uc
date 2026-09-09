@@ -2192,8 +2192,8 @@ function z2k_candidate_entry_projection(entry) {
 		|| provenance.repository != contract.repository || !z2k_candidate_kind_allowed(contract.kinds, provenance.kind)) return null;
 	if (contract.prefix != null && substr(entry.canonicalId, 0, length(contract.prefix)) != contract.prefix) return null;
 	let sourceSnapshotId = entry.sourceSnapshotId || provenance.sourceSnapshotId || null;
-	let sourceCommit = entry.sourceCommit || provenance.sourceCommit || null;
-	if (entry.sourceId != 'user' && (!string(sourceSnapshotId) || !string(sourceCommit)
+	let sourceCommit = entry.sourceId == 'user' ? (entry.sourceCommit || provenance.sourceCommit || null) : entry.sourceCommit;
+	if (entry.sourceId != 'user' && (!string(sourceCommit) || sourceCommit == '' || !string(sourceSnapshotId)
 		|| (provenance.sourceSnapshotId != null && provenance.sourceSnapshotId != sourceSnapshotId)
 		|| provenance.sourceCommit != sourceCommit)) return null;
 	let compatibility = entry.z2kCompatibilityIdentity || provenance.z2kCompatibilityIdentity || null;
@@ -2223,6 +2223,7 @@ function z2k_candidate_catalog(priorCatalog, coreSnapshot) {
 	return { verified: true, entries: entries, canonicalEntries: entries, ids: ids, canonicalIds: ids };
 }
 export const resource_center_test_candidate_catalog = function(input) {
+	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Candidate catalog test seam is restricted to controlled tests.');
 	return z2k_candidate_catalog(input && input.priorCatalog, input && input.coreSnapshot);
 };
 
