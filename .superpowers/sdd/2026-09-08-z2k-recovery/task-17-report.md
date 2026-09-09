@@ -720,3 +720,20 @@ source-first recovery, CI artifact, clean install, runtime, and browser gates
 are evidenced, while the broader injected physical rollback matrix,
 independent whole-branch review, and user-only live Discord Voice call remain
 unverified. No merge or branch/worktree deletion was performed.
+
+## Current validation correction (2026-09-09)
+
+Direct router checks against the installed CI candidate report package present,
+one running `nfqws2`, NFQUEUE 300 owner/rules parity, Avatar active, no current
+warnings, and coherent ready `p-82.18` Detect on `arm64`. Direct typed Detect
+results are probe `ok:true` with an upstream result; classify, QUIC, and TCP16
+typed `EDETECT_TIMEOUT` rather than `EINPUT`; and voice `ok:true` with
+`verdict: clear`. No active Discord call was present.
+
+The current focused Scanner suite is `27/27` passed, including the previously
+reported typed hello enum and hostname-validation findings. The YouTube browser
+experiment is explicitly excluded from router/autocircular acceptance because
+the workstation uses the user's VPN path; it does not prove traffic traversed
+this router or `nfqws2`. Live autocircular arm transition remains unverified.
+The existing Luna review thread returned no review message, so independent
+final review remains open.

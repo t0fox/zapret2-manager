@@ -421,3 +421,25 @@ file/interface and every task's internal consistency before Task 1.
   selected/applied/current. Task 17 remains `WORKING/NOT_READY` only for the
   already bounded injected physical rollback, live Discord Voice, and
   independent whole-branch review conditions. No merge/delete performed.
+
+## Task 17 current router validation correction (2026-09-09)
+
+- Direct router evidence remains healthy after the exact CI install: package
+  present, one `nfqws2`, NFQUEUE 300 registered with matching owner/rules,
+  Avatar active, and no current warnings. `z2k_detect_status` is coherent and
+  ready for `p-82.18` on `arm64`, with Detect SHA, compatibility identity, and
+  runtime bundle digest recorded in `live-evidence.json`.
+- Direct typed Detect evidence is: probe `ok:true` with an upstream result;
+  classify/QUIC/TCP16 typed `EDETECT_TIMEOUT` rather than `EINPUT`; voice
+  `ok:true` with `verdict: clear`. No live Discord call was active.
+- The current Scanner regression suite passed `27/27`, including the two old
+  review findings: typed `modern/legacy/both` hello values and valid
+  IPv4/IPv6/single-label host validation. This closes those stale findings;
+  the production fixes are already in the candidate APK.
+- The browser YouTube experiment is excluded from acceptance because the
+  workstation uses the user's VPN path. It does not prove traffic traversed
+  this router or `nfqws2`; live autocircular arm transition remains
+  `UNVERIFIED`. The existing Luna review thread returned no review message,
+  so independent final review remains open. `Ruling:` do not convert VPN
+  reachability into router traffic evidence; cost if wrong is a false PASS on
+  the required autocircular gate.

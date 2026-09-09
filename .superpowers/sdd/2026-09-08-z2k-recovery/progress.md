@@ -98,3 +98,17 @@ and post-install runtime remained healthy with Avatar `z2k_all_in_one`, one
 All-in-One selected/applied/current. Task 17 is still working/not-ready only
 for the previously bounded physical injected rollback, live Discord Voice,
 and independent final-review gates.
+
+## Router-side validation correction (2026-09-09)
+
+Direct router checks remain healthy: package present, one `nfqws2`, NFQUEUE 300
+owner/rules parity, Avatar active, no current warnings, and coherent ready
+`p-82.18` Detect on `arm64`. Probe and voice returned typed `ok:true`; classify,
+QUIC, and TCP16 returned typed `EDETECT_TIMEOUT`, not schema/input failures.
+The current Scanner-focused suite is `27/27` passed.
+
+The browser YouTube experiment is excluded because the workstation uses the
+user's VPN path; it cannot prove router traversal or autocircular arm
+transition. The live autocircular traffic gate remains unverified. The existing
+Luna reviewer thread returned no review message, so final independent review
+also remains open.

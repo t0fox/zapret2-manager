@@ -295,5 +295,50 @@
       "task17": "WORKING/NOT_READY",
       "mergeOrBranchDeletion": "NOT_PERFORMED"
     }
+  },
+  "currentValidationCorrection": {
+    "capturedAt": "2026-09-09",
+    "routerSide": {
+      "package": "zapret2-manager-full",
+      "statusFast": {
+        "serviceState": "running",
+        "runtimeInstances": 1,
+        "nfqueue": 300,
+        "nfqueueRegistered": true,
+        "nfqueueOwnerMatches": true,
+        "rulesPresent": true,
+        "strategyId": "avatar:z2k_all_in_one",
+        "warnings": []
+      },
+      "detectStatus": {
+        "state": "ready",
+        "coherent": true,
+        "release": "p-82.18",
+        "arch": "arm64",
+        "detectSha256": "686ccfb6bd3138eace564f5416608bdd03e16ea59621ba589d6b2d7f4f694ed0",
+        "compatibilityIdentity": "c7ab2eedf9dc2341fa503d4f1067bfaf49873e8bca6cb75672ff30dd27027b66",
+        "runtimeBundleDigest": "222d32cbb508f23463e654dc3f0bfe0253d7495dd6ca5ba3e4314f2b1f244345"
+      },
+      "typedDetect": {
+        "probe": "ok:true; upstream result returned",
+        "classify": "typed EDETECT_TIMEOUT; not EINPUT",
+        "quic": "typed EDETECT_TIMEOUT; not EINPUT",
+        "tcp16": "typed EDETECT_TIMEOUT; not EINPUT",
+        "voice": "ok:true; verdict clear; no active Discord call"
+      }
+    },
+    "scannerFocusedTests": { "tests": 27, "passed": 27, "failed": 0 },
+    "vpnBrowserTraffic": {
+      "youtubeTab": "EXCLUDED_FROM_ROUTER_ACCEPTANCE",
+      "reason": "The browser session uses the user's VPN path; loading YouTube does not prove LAN traffic traversed this router or nfqws2.",
+      "autocircularLiveTrafficGate": "UNVERIFIED"
+    },
+    "boundaries": {
+      "discordVoice": "NOT_RUN_NO_ACTIVE_CALL",
+      "physicalInjectedRollback": "covered_by_WSL_UCode_transaction_tests",
+      "independentFinalReview": "LUNA_AGENT_RETURNED_NO_REVIEW_MESSAGE",
+      "task17": "WORKING/NOT_READY",
+      "mergeOrBranchDeletion": "NOT_PERFORMED"
+    }
   }
 }

@@ -305,3 +305,30 @@ current service state.
 The broader Task 17 boundaries remain unchanged: injected physical rollback,
 live Discord Voice, and independent whole-branch final review are not claimed;
 merge and branch/worktree deletion were not performed.
+
+## Current router-side validation correction (2026-09-09)
+
+The current installed CI candidate was rechecked directly on the router. The
+package is present; `status_fast` reports one running `nfqws2`, NFQUEUE 300
+registered with matching owner/rules, Avatar `z2k_all_in_one`, and no current
+warnings. `z2k_detect_status` reports coherent `p-82.18`, ready `arm64`, Detect
+SHA `686ccfb6bd3138eace564f5416608bdd03e16ea59621ba589d6b2d7f4f694ed0`,
+compatibility identity
+`c7ab2eedf9dc2341fa503d4f1067bfaf49873e8bca6cb75672ff30dd27027b66`, and
+runtime bundle digest
+`222d32cbb508f23463e654dc3f0bfe0253d7495dd6ca5ba3e4314f2b1f244345`.
+
+Direct typed Detect calls on that router returned: probe `ok:true` with an
+upstream result; classify, QUIC, and TCP16 typed `EDETECT_TIMEOUT` rather than
+`EINPUT`; voice `ok:true` with `verdict: clear`. Voice still had no active
+Discord call, so it is not evidence of the required live-call path. The
+current Scanner regression set is `27/27` passed, including the native
+`modern/legacy/both` enum and valid IPv4/IPv6/single-label hosts.
+
+The YouTube tab opened in the browser during investigation is explicitly
+excluded from router/autocircular acceptance: the workstation is behind the
+user's VPN, so that page proves only VPN reachability, not that traffic crossed
+this router or `nfqws2`. The autocircular live-traffic arm transition therefore
+remains `UNVERIFIED`; no false evidence is recorded. The Luna reviewer was
+invoked on the existing agent thread, but returned no review message, so the
+independent final review also remains open.
