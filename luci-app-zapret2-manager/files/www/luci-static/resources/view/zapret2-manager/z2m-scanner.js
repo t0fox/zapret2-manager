@@ -55,15 +55,50 @@ function text(value) { return value === null || value === undefined ? '' : Strin
 function terminal(value) { return ['completed', 'cancelled', 'error'].indexOf(object(value).status) >= 0; }
 function statusValue(data) { return object(data && data.status || state.status); }
 function resultValue(data) { return object(data && data.report || state.report); }
+function isValidIPv4(value) {
+  var parts = value.split('.');
+  if (parts.length !== 4) return false;
+  for (var i = 0; i < parts.length; i++) {
+    if (!/^(?:0|[1-9]\d{0,2})$/.test(parts[i]) || Number(parts[i]) > 255) return false;
+  }
+  return true;
+}
+function isValidIPv6(value) {
+  var address = value.toLowerCase(), ipv4At = address.lastIndexOf('.');
+  if (ipv4At >= 0) {
+    var separator = address.lastIndexOf(':');
+    if (separator < 0) return false;
+    var ipv4 = address.slice(separator + 1);
+    if (!isValidIPv4(ipv4)) return false;
+    var octets = ipv4.split('.');
+    var high = ((Number(octets[0]) << 8) | Number(octets[1])).toString(16);
+    var low = ((Number(octets[2]) << 8) | Number(octets[3])).toString(16);
+    address = address.slice(0, separator + 1) + high + ':' + low;
+  }
+  if (address.indexOf(':') < 0) return false;
+  var compression = address.indexOf('::');
+  if (compression >= 0) {
+    if (address.indexOf('::', compression + 2) >= 0) return false;
+    var left = address.slice(0, compression), right = address.slice(compression + 2);
+    if (left.endsWith(':') || right.startsWith(':')) return false;
+  }
+  var groups = address.split(':'), count = 0;
+  for (var i = 0; i < groups.length; i++) {
+    if (!groups[i]) continue;
+    if (!/^[0-9a-f]{1,4}$/.test(groups[i])) return false;
+    count++;
+  }
+  return compression >= 0 ? count < 8 : count === 8;
+}
 function isValidHostname(host) {
   if (!host || typeof host !== 'string') return false;
   host = host.trim().toLowerCase();
   if (host.endsWith('.')) host = host.slice(0, -1);
   if (host.length < 1 || host.length > 253) return false;
-  if (host.indexOf(':') >= 0) return false;
   if (host.indexOf(' ') >= 0) return false;
-  if (host.indexOf('.') < 0) return false;
-  if (!/^[a-z0-9][a-z0-9.-]{1,252}$/.test(host)) return false;
+  if (isValidIPv4(host) || isValidIPv6(host)) return true;
+  if (host.indexOf(':') >= 0) return false;
+  if (!/^[a-z0-9][a-z0-9.-]*$/.test(host)) return false;
   if (host.startsWith('-') || host.endsWith('-') || host.startsWith('.') || host.endsWith('.')) return false;
   if (host.indexOf('..') >= 0) return false;
   var labels = host.split('.');
@@ -520,9 +555,9 @@ function fieldControl(field, value, disabled, hasError) {
   }
   if (field === 'hello') {
     var select = E('select', { class: 'z2m-select', name: attrs.name, disabled: attrs.disabled }, [
-      E('option', { value: 'both' }, _('Оба направления')),
-      E('option', { value: 'client' }, _('Только клиент')),
-      E('option', { value: 'server' }, _('Только сервер'))
+      E('option', { value: 'modern' }, _('Современный hello')),
+      E('option', { value: 'legacy' }, _('Устаревший hello')),
+      E('option', { value: 'both' }, _('Оба направления'))
     ]);
     select.value = value;
     return select;
