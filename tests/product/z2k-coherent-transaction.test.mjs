@@ -338,6 +338,28 @@ test('prepared active-state token binds selection, catalog, config, and enabled 
   assert.notEqual(rebound.planToken, valid.planToken, 'the persisted plan token must bind prior active config identity');
 });
 
+test('rollback accepts an internal selection revision bump when active identity is unchanged', { skip: !hasUcode }, () => {
+  const prior = priorActivationFixture();
+  const current = { ...structuredClone(prior), selectionRevision: prior.selectionRevision + 1 };
+  const result = invoke(`(() => {
+    let calls = { runtime: 0, registry: 0, source: 0, catalog: 0, strategy: 0, config: 0 };
+    let seams = {
+      pendingLoad: function() { return { phase: 'COMMITTED', priorActivation: ${JSON.stringify(prior)}, priorActiveStrategy: ${JSON.stringify(prior.selected)}, priorConfig: ${JSON.stringify(prior.config)}, priorRuntimeEnabledPresent: false, priorRuntimeEnabled: '1', sourceRestoreRequired: true, catalogRestoreRequired: true, priorCatalog: ${JSON.stringify(prior.catalog)}, sourceActivation: {} }; },
+      pendingWrite: function() { return true; }, pendingClear: function() { return true; },
+      activeStateSnapshot: function() { return { ok: true, activation: ${JSON.stringify(current)} }; },
+      runtimeRollback: function() { calls.runtime++; return { ok: true }; }, registryList: function() { return { ok: true, revision: 2, assets: [] }; }, registryAlreadyRestored: function() { return true; },
+      registryRollback: function() { calls.registry++; return { ok: true }; }, sourceRestore: function() { calls.source++; return { ok: true }; },
+      catalogRestore: function() { calls.catalog++; return { ok: true, generationId: 'catalog-old', indexDigest: '${DIGEST}' }; }, strategyRestore: function() { calls.strategy++; return { ok: true }; },
+      configRestore: function() { calls.config++; return { ok: true }; }, detectRestore: function() { return { ok: true }; }
+    };
+    let answer = transaction.resource_center_test_rollback_transaction({ testOnly: true, selected: { id: 'z2k-curated-lua' }, applied: { committedAssetRevision: 2 }, diagnostics: {}, runtimeActivated: false, seams });
+    return { answer, calls };
+  })()`);
+  assert.equal(result.answer.ok, true, JSON.stringify(result));
+  assert.equal(result.answer.recoveryRequired, false, JSON.stringify(result));
+  assert.deepEqual(result.calls, { runtime: 0, registry: 0, source: 1, catalog: 1, strategy: 1, config: 1 }, JSON.stringify(result));
+});
+
 test('rollback refuses to overwrite a newer user config or selection state', { skip: !hasUcode }, () => {
   const prior = priorActivationFixture();
   const newer = { ...structuredClone(prior), config: { bytes: 'user-new-config', sha256: 'e'.repeat(64) } };

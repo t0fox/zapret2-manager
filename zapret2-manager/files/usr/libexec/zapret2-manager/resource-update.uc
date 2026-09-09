@@ -1056,7 +1056,7 @@ function z2k_active_control_token(prior) {
 		|| type(prior.runtimeEnabledPresent) != 'bool') return null;
 	let selected = z2k_selected_activation_token(prior.selected);
 	if (selected == null) return null;
-	return z2k_token_value(prior.selectionRevision) + '|' + selected + '|config:' + z2k_token_value(prior.config.sha256)
+	return selected + '|config:' + z2k_token_value(prior.config.sha256)
 		+ '|enabled:' + (prior.runtimeEnabledPresent ? 'present:' + z2k_token_value(prior.runtimeEnabled) : 'absent');
 }
 function z2k_catalog_activation_token(prior) {
