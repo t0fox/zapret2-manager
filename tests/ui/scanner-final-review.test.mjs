@@ -157,3 +157,11 @@ test('classify still rejects invalid host input through UI validation', async ()
   assert.equal(result.hostInput.getAttribute('aria-invalid'), 'true');
   assert.equal(result.calls.length, 0);
 });
+
+test('classify rejects malformed dotted-numeric IPv4 hosts instead of treating them as DNS', async () => {
+  for (const host of ['999.999.999.999', '256.0.0.1']) {
+    const result = await submitClassifyHost(host);
+    assert.equal(result.hostInput.getAttribute('aria-invalid'), 'true', host);
+    assert.equal(result.calls.length, 0, host);
+  }
+});

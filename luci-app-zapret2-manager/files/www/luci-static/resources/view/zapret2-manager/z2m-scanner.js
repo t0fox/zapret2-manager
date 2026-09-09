@@ -97,6 +97,7 @@ function isValidHostname(host) {
   if (host.length < 1 || host.length > 253) return false;
   if (host.indexOf(' ') >= 0) return false;
   if (isValidIPv4(host) || isValidIPv6(host)) return true;
+  if (host.indexOf('.') >= 0 && /^[0-9.]+$/.test(host)) return false;
   if (host.indexOf(':') >= 0) return false;
   if (!/^[a-z0-9][a-z0-9.-]*$/.test(host)) return false;
   if (host.startsWith('-') || host.endsWith('-') || host.startsWith('.') || host.endsWith('.')) return false;
