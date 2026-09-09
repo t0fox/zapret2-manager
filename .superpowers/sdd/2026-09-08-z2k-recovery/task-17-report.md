@@ -390,3 +390,66 @@ deploy the reviewed package and repeat the Avatar-selected `p-82.18`
 enriched snapshot provenance reach `strategy_selection_project_candidate`, and
 confirm no `ECOMPATIBILITY` is returned. Apply/runtime/postflight and traffic
 proof remain separate gates.
+
+---
+
+# Fix-loop round 2 — restrict omitted provenance snapshot to Avatar
+
+Date: 2026-09-09
+Worktree: `G:\zapret2-manager\.worktrees\z2k-recovery-v3`
+Branch: `codex/z2k-recovery-v3`
+Review target: `6fc6f378ead8b5b41efc3fb504e4ef94d64717b8`
+
+## RED
+
+Added a canonical Z2K fixture with authoritative `entry.sourceSnapshotId` and
+matching `entry/provenance.sourceCommit`, but omitted
+`provenance.sourceSnapshotId`. The existing Avatar real-shape positive and
+prior Avatar negative cases remained in the fixture.
+
+Command:
+
+```text
+wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-recovery-v3 && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/avatar-candidate-provenance-regression.test.mjs'
+```
+
+Observed RED against the prior implementation:
+
+```text
+1..4
+# tests 4
+# pass 3
+# fail 1
+... non-user Z2K entry was accepted: actual entries.length 1 !== expected 0
+```
+
+## Fix
+
+`resource-update.uc` now requires non-empty `provenance.sourceSnapshotId` for
+`sourceId == 'z2k'` and still requires it to equal the authoritative projected
+entry snapshot. Avatar retains the narrowly scoped omission allowance, while
+authoritative non-user `sourceCommit` and mismatch rejection remain unchanged.
+
+## GREEN and bounded verification
+
+- Focused command above — **4 pass, 0 fail, 0 skipped**.
+- `node --check tests/product/avatar-candidate-provenance-regression.test.mjs` — passed.
+- `node scripts/validate-knowledge.mjs` — `Knowledge validation passed.`
+- `git diff --check` — passed.
+- An extended suite was started but intentionally stopped after focused GREEN
+  when the user requested stopping broad testing; no extended result is claimed.
+
+## Files and commit
+
+- Production/test commit: `4424f8970f50d899a121f42b18d4a340813d1f46`
+  (`fix: require Z2K provenance snapshot`)
+- Modified production: `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc`
+- Modified test: `tests/product/avatar-candidate-provenance-regression.test.mjs`
+- This section was appended; prior report content was not overwritten.
+
+## Remaining live-router verification
+
+NOT_RUN by scope: no deployment, rpcd restart, push, merge, or worktree
+deletion was performed. Live verification still needs the reviewed package on
+the router, the Avatar `p-82.18` prepare path, and a separate Z2K candidate
+check proving missing provenance snapshot is rejected at runtime.
