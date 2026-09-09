@@ -84,6 +84,17 @@ test('identity authority cannot be redirected by a production caller environment
   assert.equal(result.path, '/etc/zapret2-manager/state/autocircular/pool-identity.json');
 });
 
+test('absent sidecar is accepted as a legacy empty identity', { skip: !hasUcode }, () => {
+  const result = invoke('identity.z2k_autocircular_identity_load()');
+  assert.deepEqual(result, {
+    ok: true,
+    identity: null,
+    legacy: true,
+    present: false,
+    path: '/etc/zapret2-manager/state/autocircular/pool-identity.json'
+  });
+});
+
 test('semantic digest is stable for a clone and excludes no unproven fields', { skip: !hasUcode }, () => {
   const clone = JSON.parse(JSON.stringify(pool()));
   assert.equal(invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(pool())})`), invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(clone)})`));

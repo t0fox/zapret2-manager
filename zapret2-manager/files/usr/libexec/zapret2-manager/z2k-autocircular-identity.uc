@@ -108,7 +108,7 @@ function valid_map(value) { return identity_map(value) != null; }
 export const z2k_autocircular_identity_load = function() {
 	let raw = null;
 	try { raw = readfile(IDENTITY_PATH); } catch (e) { return { ok: true, identity: null, legacy: true, present: false, path: IDENTITY_PATH }; }
-	if (!string(raw) || !length(trim(raw))) return { ...fail('ESTATE', 'autocircular pool identity sidecar is empty'), path: IDENTITY_PATH };
+	if (raw == null || !string(raw) || !length(trim(raw))) return { ok: true, identity: null, legacy: true, present: false, path: IDENTITY_PATH };
 	let value = null;
 	try { value = json(raw); } catch (e) { return { ...fail('ESTATE', 'autocircular pool identity sidecar is malformed'), path: IDENTITY_PATH }; }
 	if (!object(value) || value.schema != 1 || !valid_map(value.pools)) return { ...fail('ESTATE', 'autocircular pool identity sidecar has an unsupported schema'), path: IDENTITY_PATH };
