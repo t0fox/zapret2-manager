@@ -220,3 +220,89 @@ Committed files:
 - `tests/ui/scanner-final-review.test.mjs`
 
 No deploy, push, merge, APK build, or worktree deletion was performed.
+
+---
+
+# Task 17 follow-up — Avatar canonical provenance lifecycle regression
+
+Date: 2026-09-09
+Worktree: `G:\zapret2-manager\.worktrees\z2k-recovery-v3`
+Branch: `codex/z2k-recovery-v3`
+
+## RED
+
+The independent fixture uses the live canonical Avatar identity:
+`avatar:z2k_all_in_one`, entry `sourceSnapshotId`
+`avatar-e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136`,
+entry/provenance `sourceCommit`
+`f9dd3ea47a2239514f396a843b475c92c33f0b4c`, and provenance repository,
+sourceId, sourcePath, and kind, with `provenance.sourceSnapshotId` omitted.
+
+Command:
+
+```text
+wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-recovery-v3 && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/avatar-candidate-provenance-regression.test.mjs'
+```
+
+Observed RED before the provenance fix:
+
+```text
+1..2
+# tests 2
+# pass 1
+# fail 1
+{"catalog":{"verified":true,"entries":[],"canonicalEntries":[],"ids":[],"canonicalIds":[]},"projected":{"ok":false,"error":{"code":"ECOMPATIBILITY","message":"Selected strategy has no verified candidate provenance.","id":"avatar:z2k_all_in_one"}}}
+```
+
+## Fix
+
+`resource-update.uc` remains the canonical candidate owner. The projection now
+accepts an omitted `provenance.sourceSnapshotId` only when the authoritative
+entry supplies `sourceSnapshotId`; if provenance supplies that field, it must
+still match. `sourceCommit` remains required for non-user entries and must
+exactly match between entry and provenance. The existing projection output
+enriches provenance with the authoritative snapshot ID, so
+`strategy_selection_project_candidate` receives verified provenance without a
+new authority or lifecycle.
+
+Added a narrow `resource_center_test_candidate_catalog` seam for the independent
+UCode-backed regression fixture. No canonical source generation or Strategy
+selection authority was changed.
+
+## GREEN and verification
+
+- Focused regression command above — **2 pass, 0 fail, 0 skipped**.
+- Extended UCode-backed command:
+
+  ```text
+  wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-recovery-v3 && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/avatar-candidate-provenance-regression.test.mjs tests/product/avatar-strategy-state.test.mjs tests/product/z2k-coherent-transaction.test.mjs tests/product/z2k-update-transaction.test.mjs'
+  ```
+
+  **66 pass, 0 fail, 0 skipped**.
+- Relevant contract/static command:
+
+  ```text
+  node --test tests/product/resource-center-transaction.test.mjs tests/product/z2k-review-projection.test.mjs tests/product/z2k-target-lifecycle-contract.test.mjs
+  node --check tests/product/avatar-candidate-provenance-regression.test.mjs
+  node scripts/validate-knowledge.mjs
+  git diff --check
+  ```
+
+  **23 pass, 0 fail, 0 skipped**; JS syntax passed; `Knowledge validation
+  passed.`; `git diff --check` passed.
+
+## Files and commit
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc`
+- `tests/product/avatar-candidate-provenance-regression.test.mjs`
+- Commit: `cc8e6cedb185983740930c74ceabba514375220e` (`fix: restore Avatar candidate provenance projection`)
+
+## Remaining live-router verification
+
+NOT_RUN by scope: no deployment, rpcd restart, push, merge, or worktree
+deletion was performed. Controller-owned live verification still needs to run
+against the router's current package: reproduce the Avatar-selected
+`z2k_prepare_version`/`p-82.18` path, confirm the candidate catalog contains
+`avatar:z2k_all_in_one` with enriched matching provenance, and confirm the
+prepare path no longer returns `ECOMPATIBILITY`. Any apply/runtime/postflight
+or traffic proof remains a separate live gate.
