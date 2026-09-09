@@ -45,6 +45,53 @@ No router/live evidence was collected, per task scope; controller-owned live
 proof is still needed. The existing native TCP16 baseline failure and the
 uninstalled UCode module import boundary remain separate concerns.
 
+## Follow-up: UCode array iteration root cause
+
+The first fix removed rpcd session metadata but left a UCode semantic bug in
+the exact-field loop. Direct UCode evidence:
+
+```text
+wsl.exe -d Ubuntu -- env LD_LIBRARY_PATH=/opt/ucode/lib /opt/ucode/bin/ucode -e 'let names=["domain","timeoutMs"]; for (let i in names) print("i=", i, " names[i]=", names[i], " type=", type(i), "\\n");'
+
+i=domain names[i]= type=string
+i=timeoutMs names[i]= type=string
+```
+
+Thus the old `for (let i in names) { let name = names[i]; ... }` passed empty
+lookup names to `exists()` and returned `EINPUT` for every direct Detect call;
+the JS VM harness had incorrectly hidden this by iterating array indices.
+
+RED with the real UCode runtime, before the follow-up production change:
+
+```text
+wsl.exe -d Ubuntu -- bash -lc "cd /mnt/g/zapret2-manager/.worktrees/z2k-recovery-v3 && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib LD_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/z2k-detect-rpc-boundary.test.mjs"
+
+5 tests, 4 pass, 1 fail: Detect RPC validates allowed fields with UCode array
+value iteration -> actual { ok:false, error:{ code:'EINPUT', ... } }.
+```
+
+Follow-up commit: `3b29a1d3` (`fix(rpcd): honor ucode array iteration in Detect boundary`).
+The minimal fix iterates `for (let name in names)` and preserves the existing
+exact field count, unknown-field rejection, type validation, and session-key
+stripping.
+
+GREEN:
+
+```text
+node --test tests/product/z2k-detect-rpc-boundary.test.mjs
+5 pass, 0 fail, 0 skipped (WSL/UCode runtime)
+
+node --test --test-concurrency=1 tests/product/z2k-detect-rpc-boundary.test.mjs tests/product/z2k-detect-rpc.test.mjs tests/product/z2k-detect-discovery-rpc-boundary.test.mjs tests/product/z2k-detect-discovery-service.test.mjs
+37 total, 36 pass, 0 fail, 1 skipped
+
+node --check tests/product/z2k-detect-rpc-boundary.test.mjs
+git diff --check
+node scripts/validate-knowledge.mjs
+```
+
+Live router redeploy/restart and direct ubus retest remain intentionally
+NOT_RUN in this follow-up; no deploy, push, or merge was performed.
+
 ---
 
 # Task 17 final-review UI fix update
