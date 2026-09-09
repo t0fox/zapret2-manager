@@ -306,3 +306,87 @@ against the router's current package: reproduce the Avatar-selected
 `avatar:z2k_all_in_one` with enriched matching provenance, and confirm the
 prepare path no longer returns `ECOMPATIBILITY`. Any apply/runtime/postflight
 or traffic proof remains a separate live gate.
+
+---
+
+# Fix-loop round 1 — authoritative Avatar sourceCommit and test seam guard
+
+Date: 2026-09-09
+Worktree: `G:\zapret2-manager\.worktrees\z2k-recovery-v3`
+Branch: `codex/z2k-recovery-v3`
+Review target: `cc8e6cedb185983740930c74ceabba514375220e`
+
+## RED
+
+Updated the independent Avatar fixture to invoke the candidate-catalog seam
+with `testOnly: true`, added the missing-authoritative-entry-commit case while
+retaining missing-both, mismatched-commit, and mismatched-snapshot negatives,
+and added a direct guard regression.
+
+Command:
+
+```text
+wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-recovery-v3 && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/avatar-candidate-provenance-regression.test.mjs'
+```
+
+Observed against the prior implementation:
+
+```text
+1..3
+# tests 3
+# pass 1
+# fail 2
+... missing entry sourceCommit was accepted: actual 1 !== expected 0
+... unguarded candidate catalog seam returned a catalog instead of ok:false/EINPUT
+```
+
+## Fix
+
+- For non-user entries, `resource-update.uc` now takes `sourceCommit` only
+  from the authoritative entry, requires it to be a non-empty string, and
+  requires exact equality with `provenance.sourceCommit`. The Avatar-only
+  omission allowance remains limited to `provenance.sourceSnapshotId`; an
+  authoritative entry snapshot continues to enrich projected provenance.
+- `resource_center_test_candidate_catalog` now rejects calls without
+  `testOnly: true` using the same controlled-test seam contract as adjacent
+  seams. The fixture passes `testOnly: true` for all intended calls.
+
+## GREEN and verification
+
+- Focused command above — **3 pass, 0 fail, 0 skipped**.
+- Extended UCode-backed command:
+
+  ```text
+  wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/g/zapret2-manager/.worktrees/z2k-recovery-v3 && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib LD_LIBRARY_PATH=/opt/ucode/lib node --test --test-concurrency=1 tests/product/avatar-candidate-provenance-regression.test.mjs tests/product/avatar-strategy-state.test.mjs tests/product/z2k-coherent-transaction.test.mjs tests/product/z2k-update-transaction.test.mjs'
+  ```
+
+  **67 pass, 0 fail, 0 skipped**.
+- Contract/static command:
+
+  ```text
+  node --test tests/product/resource-center-transaction.test.mjs tests/product/z2k-review-projection.test.mjs tests/product/z2k-target-lifecycle-contract.test.mjs
+  node --check tests/product/avatar-candidate-provenance-regression.test.mjs
+  node scripts/validate-knowledge.mjs
+  git diff --check
+  ```
+
+  **23 pass, 0 fail, 0 skipped**; JS syntax passed; `Knowledge validation
+  passed.`; `git diff --check` passed.
+
+## Files and commits
+
+- Production/test commit: `6fc6f378ead8b5b41efc3fb504e4ef94d64717b8`
+  (`fix: require authoritative Avatar source commit`)
+- Modified production: `zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc`
+- Modified test: `tests/product/avatar-candidate-provenance-regression.test.mjs`
+- This report is appended only; no prior report content was overwritten.
+
+## Remaining live-router verification
+
+NOT_RUN by scope: no deployment, rpcd restart, push, merge, or worktree
+deletion was performed. Controller-owned live verification still needs to
+deploy the reviewed package and repeat the Avatar-selected `p-82.18`
+`z2k_prepare_version` path, confirm the authoritative entry commit and
+enriched snapshot provenance reach `strategy_selection_project_candidate`, and
+confirm no `ECOMPATIBILITY` is returned. Apply/runtime/postflight and traffic
+proof remain separate gates.
