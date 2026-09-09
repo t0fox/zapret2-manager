@@ -52,3 +52,28 @@ successfully respawned by procd with four learned domains; dnsmasq-source
 restart was externally unavailable and the final auto/running state was
 restored. These do not close the required injected physical rollback or live
 Discord Voice gates.
+
+## Registry-bound fix and exact APK gate (2026-09-09)
+
+Commit `84e6f791e428989d5c73c3302973f8c040efcad8` fixes the valid V3 registry
+state rejection caused by the 1 MiB loader cap; the state reached 1,332,618
+bytes with six full activation receipts. The new 4 MiB bound is covered by the
+WSL/UCode receipt regression (`12/12` passed). Source-first deployment and
+recovery were completed before CI; the fixed source hash on both sides is
+`c10abf4728f286d88e939a1573d991af2ff403f7a44d4bf703ae61c51d917117`.
+
+CI run `34354220544` produced the exact `r156` APK with SHA-256
+`31d4610d47e6d60aca6ba603d62b47bc2cdf55eea5d88ccccdd849dc81d0ccc7` and
+artifact digest
+`sha256:5a87bd2d73bfc1fc782c1ada6bd317de88c4cf0fda189b9b79fcddffaa9b6f0c`.
+The package was cleanly removed, absence verified, and reinstalled on the
+router from that artifact. Post-install recovery was `state: none`, registry
+loading succeeded at 1,332,616 bytes, runtime was `running` with NFQUEUE 300,
+and `status-summary` was `p-82.18 / ready / verified / coherence aligned`.
+The same-release prepare/reinstall had no blocking reasons and left no pending
+journal. Fresh browser checks authenticated LuCI, Avatar selected/applied/
+current on `#/strategies`, and typed scanner controls on `#/scanner`.
+
+Task 17 remains working/not-ready because the objective still bounds the live
+Discord Voice call and the independent whole-branch review as unresolved;
+there was no merge or branch/worktree deletion.

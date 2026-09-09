@@ -367,3 +367,33 @@ file/interface and every task's internal consistency before Task 1.
   environment; the final state was restored to enabled/running with `auto`.
 - These results close additional runtime evidence but do not replace the
   required injected physical rollback matrix or the live Discord Voice gate.
+
+## Task 17 registry-bound fix and exact APK continuation (2026-09-09)
+
+- Root cause: six V3 activation receipts made the valid registry state
+  1,332,618 bytes, above the old 1 MiB loader cap. Finalization consequently
+  returned `ERECOVERY_REQUIRED` with nested `ESTATE` and left a rollback
+  journal. Commit `84e6f791e428989d5c73c3302973f8c040efcad8` raises the bound
+  to 4 MiB and adds a >1 MiB valid-state regression; WSL/UCode receipt tests
+  passed `12/12`.
+- Source-first router proof: fixed `asset-registry.uc` matched local/router at
+  SHA-256 `c10abf4728f286d88e939a1573d991af2ff403f7a44d4bf703ae61c51d917117`.
+  Recovery rolled back cleanly and cleared the journal; a fresh p-82.17 to
+  p-82.18 upgrade completed 42/42 through postflight, with aligned coherent
+  status and healthy Avatar/NFQUEUE runtime.
+- CI run `34354220544` succeeded. Artifact digest is
+  `sha256:5a87bd2d73bfc1fc782c1ada6bd317de88c4cf0fda189b9b79fcddffaa9b6f0c`;
+  exact r156 APK SHA-256 is
+  `31d4610d47e6d60aca6ba603d62b47bc2cdf55eea5d88ccccdd849dc81d0ccc7`.
+- The old package was removed and verified absent, then the exact CI APK was
+  installed from the hashed router backup. Recovery was `state: none`, the
+  1,332,616-byte registry loaded successfully, package/runtime status was
+  `p-82.18 / ready / verified / coherence aligned`, and no pending journal
+  remained. Same-release prepare/reinstall completed with no blockers and the
+  post-apply runtime stayed healthy.
+- Fresh authenticated LuCI browser evidence: Home `Работает`, active Avatar;
+  `#/strategies` Avatar 732 / Z2K 8 / User 0 with selected/applied/current
+  strategy; `#/scanner` typed controls and visible scan action, no stuck load.
+- Task 17 remains WORKING/NOT_READY only for the explicitly bounded physical
+  injected rollback/live Discord Voice/independent final-review conditions.
+  No merge or branch/worktree deletion was performed.

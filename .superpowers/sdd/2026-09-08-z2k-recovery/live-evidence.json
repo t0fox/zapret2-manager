@@ -131,5 +131,102 @@
     "coherentLifecycleAsync": { "tests": 53, "passed": 53, "failed": 0, "skipped": 0, "environment": "WSL UCode" },
     "detect": { "tests": 45, "passed": 44, "failed": 0, "skipped": 1, "environment": "WSL UCode" },
     "scannerTransient": { "tests": 24, "passed": 23, "failed": 1, "baseline": "static path-regex false-positive present in parent commit" }
+  },
+  "currentAcceptance": {
+    "commit": "84e6f791e428989d5c73c3302973f8c040efcad8",
+    "fix": {
+      "file": "zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc",
+      "rootCause": "valid V3 receipt state exceeded the old 1 MiB loader cap",
+      "maxStateBytes": 4194304,
+      "sourceSha256": "c10abf4728f286d88e939a1573d991af2ff403f7a44d4bf703ae61c51d917117",
+      "receiptSuite": { "tests": 12, "passed": 12, "failed": 0, "skipped": 0 }
+    },
+    "sourceFirst": {
+      "recovery": "rolled-back",
+      "pendingActivationJournal": false,
+      "upgrade": {
+        "from": "p-82.17",
+        "to": "p-82.18",
+        "assetCount": 42,
+        "downloaded": 42,
+        "verified": 42,
+        "staged": 42,
+        "applied": 42,
+        "postflightMatched": 42,
+        "statusSummary": "p-82.18 / ready / verified / coherence aligned"
+      }
+    },
+    "ci": {
+      "runId": 34354220544,
+      "status": "success",
+      "artifactName": "z2m-full-apk-84e6f791e428989d5c73c3302973f8c040efcad8",
+      "artifactDigest": "sha256:5a87bd2d73bfc1fc782c1ada6bd317de88c4cf0fda189b9b79fcddffaa9b6f0c",
+      "apk": {
+        "filename": "zapret2-manager-full-0.1.0-r156.apk",
+        "bytes": 2630075,
+        "sha256": "31d4610d47e6d60aca6ba603d62b47bc2cdf55eea5d88ccccdd849dc81d0ccc7"
+      }
+    },
+    "router": {
+      "backup": {
+        "path": "C:\\Temp\\z2m-ci-84e6f791\\router-backup\\z2m-84e6f791-pre.tar.gz",
+        "sha256": "30DF6219A9E976C8AA2BC939D6F87D451D88777A3C4358B6D1961442BE2801CA"
+      },
+      "cleanInstall": {
+        "packageDeleteExit": 0,
+        "packageAbsentVerified": true,
+        "packageAddExit": 0,
+        "package": "zapret2-manager-full-0.1.0-r156",
+        "installedApkSha256": "31d4610d47e6d60aca6ba603d62b47bc2cdf55eea5d88ccccdd849dc81d0ccc7",
+        "pendingActivationJournal": false,
+        "registryBytes": 1332616,
+        "recovery": "state: none"
+      },
+      "statusFast": {
+        "serviceState": "running",
+        "runtimeInstances": 1,
+        "nfqueue": 300,
+        "nfqueueRegistered": true,
+        "nfqueueOwnerMatches": true,
+        "strategyId": "avatar:z2k_all_in_one",
+        "warnings": []
+      },
+      "statusSummary": "p-82.18 / ready / verified / coherence aligned"
+    },
+    "sameReleaseReinstall": {
+      "prepareOperationId": "z2k-1788961225-59a3f05088531ffc",
+      "prepareState": "completed",
+      "operation": "reinstall",
+      "targetVersion": "p-82.18",
+      "targetCanApply": true,
+      "targetBlockingReasons": [],
+      "applyInvoked": true,
+      "pendingActivationJournal": false,
+      "postApplyHealthy": true
+    },
+    "browser": {
+      "authenticated": true,
+      "home": { "service": "Работает", "strategy": "z2k_all_in_one" },
+      "strategies": {
+        "route": "#/strategies",
+        "catalog": { "avatarReady": 732, "z2kReady": 8, "user": 0 },
+        "activeSelectedAppliedCurrent": true,
+        "noStuckLoading": true
+      },
+      "scanner": {
+        "route": "#/scanner",
+        "typedControls": true,
+        "startScanVisible": true,
+        "noStuckLoading": true
+      },
+      "rootPasswordWarning": true
+    },
+    "boundaries": {
+      "discordVoice": "NOT_RUN_NO_ACTIVE_CALL",
+      "physicalInjectedRollback": "covered_by_WSL_UCode_transaction_tests",
+      "independentFinalReview": "PENDING",
+      "task17": "WORKING/NOT_READY",
+      "mergeOrBranchDeletion": "NOT_PERFORMED"
+    }
   }
 }

@@ -662,3 +662,61 @@ returned `running:false` in this router environment, so the final state was
 restored to `auto/enabled/running`. This is live evidence, but not a green
 dnsmasq-source claim. The remaining physical injected rollback and live Discord
 Voice requirements remain explicitly bounded.
+
+---
+
+# Task 17 registry-bound fix and exact APK continuation (2026-09-09)
+
+## Root cause and source-first recovery
+
+The reported `Неизвестно / Сервис не подтвердил процесс` condition was traced
+through the lifecycle authority rather than masked in LuCI. V3 activation
+receipts contain complete coherent evidence; six receipts made the valid
+registry 1,332,618 bytes, while `asset-registry.uc` rejected anything above
+1 MiB. Finalization therefore returned `ERECOVERY_REQUIRED` with nested
+`ESTATE`, and the pending journal entered `ROLLING_BACK`.
+
+Commit `84e6f791e428989d5c73c3302973f8c040efcad8` raises the bounded loader
+limit to 4 MiB and adds the large-valid-state regression. WSL/UCode receipt
+tests passed `12/12`. The fixed source was deployed to the router first at
+matching SHA-256
+`c10abf4728f286d88e939a1573d991af2ff403f7a44d4bf703ae61c51d917117`.
+Recovery restored the previous p-82.17 LKG and cleared the journal; the next
+source-first upgrade to p-82.18 completed all 42 asset stages and postflight.
+
+## Exact CI APK and clean install
+
+CI run `34354220544` succeeded. Artifact digest:
+`sha256:5a87bd2d73bfc1fc782c1ada6bd317de88c4cf0fda189b9b79fcddffaa9b6f0c`.
+APK: `zapret2-manager-full-0.1.0-r156.apk`, 2,630,075 bytes,
+SHA-256 `31d4610d47e6d60aca6ba603d62b47bc2cdf55eea5d88ccccdd849dc81d0ccc7`.
+No local APK build was used.
+
+The hashed router backup is
+`C:\Temp\z2m-ci-84e6f791\router-backup\z2m-84e6f791-pre.tar.gz`,
+SHA-256 `30DF6219A9E976C8AA2BC939D6F87D451D88777A3C4358B6D1961442BE2801CA`.
+The previous package was removed and verified absent before installing this
+exact artifact. Install completed with all ten packages restored; post-install
+recovery returned `state: none`. The router now has package `0.1.0-r156`,
+registry size 1,332,616 bytes, no pending journal, one running `nfqws2`,
+NFQUEUE 300 owner parity, Avatar `z2k_all_in_one`, and
+`status-summary = p-82.18 / ready / verified / coherence aligned`.
+
+The same-release lifecycle prepare completed for `p-82.18` with operation
+`reinstall`, `targetCanApply: true`, and no blocking reasons; the one-shot
+apply left the runtime healthy and no pending journal.
+
+## Browser acceptance and boundaries
+
+After logging into LuCI with the router's existing blank root password,
+Home showed `Работает` and the active Avatar strategy. `#/strategies` rendered
+the catalog (Avatar 732, Z2K 8, User 0) and marked the active strategy
+selected/applied/current. `#/scanner` rendered typed diagnostic controls and
+`Начать сканирование`; there was no stuck loading state. The existing “No
+password set” warning remains an environment warning.
+
+Task 17 remains `WORKING/NOT_READY`, not PASS: the exact registry-bound fix,
+source-first recovery, CI artifact, clean install, runtime, and browser gates
+are evidenced, while the broader injected physical rollback matrix,
+independent whole-branch review, and user-only live Discord Voice call remain
+unverified. No merge or branch/worktree deletion was performed.

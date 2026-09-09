@@ -199,3 +199,61 @@ PID 11535, terminating that process produced a new procd PID 13393 with the
 same four learned domains, and the final state was restored to
 `auto/enabled/running`. A `dnsmasq` restart returned `running:false`, so that
 source-specific path is recorded as externally unavailable rather than green.
+
+## Registry-bound fix and exact current APK (2026-09-09)
+
+The live source-first failure was diagnosed precisely. V3 activation receipts
+carry the complete coherent runtime evidence, so six receipts made
+`/etc/zapret2-manager/asset-registry.json` 1,332,618 bytes. The previous
+`MAX_STATE_BYTES = 1024 * 1024` rejected this valid JSON during finalization,
+which produced the observed `ERECOVERY_REQUIRED` / nested `ESTATE` and left a
+`ROLLING_BACK` pending journal. Commit `84e6f791e428989d5c73c3302973f8c040efcad8`
+raises the bounded registry limit to 4 MiB and adds a regression for a valid
+state larger than 1 MiB. The focused WSL/UCode receipt suite is `12/12`
+passed, `0` failed, `0` skipped.
+
+The fixed source was deployed first to the router with exact local/remote
+SHA-256 `c10abf4728f286d88e939a1573d991af2ff403f7a44d4bf703ae61c51d917117`.
+Recovery then returned `state: rolled-back`, with runtime, registry, source,
+catalog, strategy, config, autocircular, and Detect restored; the pending
+journal was cleared. A fresh source-first upgrade `p-82.17 -> p-82.18`
+completed with `42/42` downloaded, verified, staged, applied, and postflight
+matched. The router then reported `p-82.18 / ready / verified / coherence
+aligned`, one running `nfqws2`, NFQUEUE 300 owner parity, Avatar
+`z2k_all_in_one`, and no pending journal.
+
+Only after that source gate, CI run
+[34354220544](https://github.com/t0fox/zapret2-manager/actions/runs/34354220544)
+successfully built and verified artifact
+`z2m-full-apk-84e6f791e428989d5c73c3302973f8c040efcad8` with artifact digest
+`sha256:5a87bd2d73bfc1fc782c1ada6bd317de88c4cf0fda189b9b79fcddffaa9b6f0c`.
+The manifest identifies commit `84e6f791e428989d5c73c3302973f8c040efcad8`,
+release `r156`, and APK
+`zapret2-manager-full-0.1.0-r156.apk`, 2,630,075 bytes, SHA-256
+`31d4610d47e6d60aca6ba603d62b47bc2cdf55eea5d88ccccdd849dc81d0ccc7`.
+No local APK build was performed.
+
+Before clean replacement, the router state/package database backup was written
+to `C:\Temp\z2m-ci-84e6f791\router-backup\z2m-84e6f791-pre.tar.gz` with
+SHA-256 `30DF6219A9E976C8AA2BC939D6F87D451D88777A3C4358B6D1961442BE2801CA`.
+The old package was removed and verified absent, then the exact CI APK was
+installed successfully; its router-side SHA matched the manifest. Post-install
+recovery returned `state: none`, package `0.1.0-r156` was present, the fixed
+source hash matched, the 1,332,616-byte registry was accepted, and the pending
+journal was absent. The same-release prepare/reinstall target was `p-82.18`,
+operation `reinstall`, `targetCanApply: true`, with no blocking reasons; its
+fresh apply left the runtime healthy and no pending journal.
+
+After authentication in LuCI, Home showed `Работает`, the active Avatar
+`z2k всё-в-одном`, and running `nfqws2`. Fresh post-install browser checks
+showed `#/strategies` with Avatar 732 / Z2K 8 / User 0, the active strategy
+marked selected/applied/current, and `#/scanner` with its typed diagnostic
+controls and `Начать сканирование`; neither route remained stuck in loading.
+The browser also exposes the existing root-password warning, which is an
+environment condition and not a package failure.
+
+Task 17 remains `WORKING/NOT_READY`: the registry-cap regression and exact
+APK/router/browser gates are now evidenced, but the broader injected physical
+rollback matrix, independent final whole-branch review, and user-only live
+Discord Voice call remain explicitly unverified. No merge or branch/worktree
+deletion has been performed.
