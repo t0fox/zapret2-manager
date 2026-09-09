@@ -614,6 +614,7 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 		strategies: local.strategyCount != null ? local.strategyCount : remote.strategyCount,
 		counts: counts, staticManagedCount: staticManagedCount,
 		dependencyClosure: closure, runtimeBundleDigest: digest,
+		compatibilityIdentity: compatibilityIdentity,
 		detect: detect, detectStatus: object(detect) ? detect.status : 'unknown', detectCompatible: detectCompatible,
 		engine: engine, sourceCommit: local.commit || null,
 		reconciliation: z2k_runtime_reconciliation(closure, installed),
@@ -3013,7 +3014,7 @@ function z2k_status_runtime(value) {
 	let out = z2k_status_copy(value, ['schema', 'installedRelease', 'availableRelease', 'health',
 		'updateState', 'attentionState', 'integrity', 'integrityOk', 'strategies', 'counts',
 		'staticManagedCount', 'runtimeBundleDigest', 'sourceCommit', 'blockingReviews',
-		'advisoryReviews', 'unknownUnconsumed', 'rebases', 'canApply', 'detect', 'detectStatus', 'detectCompatible']);
+		'advisoryReviews', 'unknownUnconsumed', 'rebases', 'canApply', 'compatibilityIdentity', 'detect', 'detectStatus', 'detectCompatible']);
 	if (value.dependencyClosure != null) out.dependencyClosure = z2k_status_closure(value.dependencyClosure);
 	let nested = ['engine', 'reconciliation', 'coherence', 'identity'];
 	for (let i = 0; i < length(nested); i++) {

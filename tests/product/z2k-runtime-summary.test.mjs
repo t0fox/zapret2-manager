@@ -83,6 +83,7 @@ test('backend summary exposes one typed runtime reconciliation for Resources and
   assert.equal(summary.health, 'ready');
   assert.equal(summary.canApply, true, 'advisory/unknown files must not block apply');
   assert.equal(summary.attentionState, 'review-advisory');
+  assert.equal(summary.compatibilityIdentity, 'd'.repeat(64));
   assert.equal(summary.detect.status, 'ready');
   assert.equal(summary.detect.compatible, true);
 });

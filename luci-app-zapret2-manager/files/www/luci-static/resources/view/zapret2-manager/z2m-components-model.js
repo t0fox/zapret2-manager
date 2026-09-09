@@ -212,33 +212,38 @@ function validDigest(value) {
 	return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
 }
 
-function normalizeDetect(value, runtime) {
+function normalizeDetect(value, runtime, parent) {
 	value = object(value);
 	runtime = object(runtime);
+	parent = object(parent);
+	var canonical = object(parent.runtimeSummary);
 	var nested = object(value.detect || value);
-	var coherence = object(runtime.coherence || value.coherence);
-	var architecture = first(nested.architecture || nested.arch, null);
-	var digest = first(nested.digest || nested.sha256, null);
-	var sourceCommit = first(nested.sourceCommit, null);
-	var runtimeSourceCommit = first(runtime.sourceCommit || runtime.installedSourceCommit, null);
-	var identity = first(runtime.compatibilityIdentity || value.runtime && value.runtime.compatibilityIdentity, null);
-	var bundleDigest = first(runtime.runtimeBundleDigest || value.runtime && value.runtime.bundleDigest, null);
+	var canonicalDetect = object(canonical.detect);
+	var coherence = object(runtime.coherence || canonical.coherence || parent.coherence || value.coherence);
+	var architecture = first(nested.architecture || nested.arch || canonicalDetect.architecture || canonicalDetect.arch, null);
+	var digest = first(nested.digest || nested.sha256 || canonicalDetect.digest || canonicalDetect.sha256, null);
+	var sourceCommit = first(nested.sourceCommit || canonicalDetect.sourceCommit, null);
+	var runtimeSourceCommit = first(runtime.sourceCommit || canonical.sourceCommit || runtime.installedSourceCommit || parent.sourceCommit || parent.installedSourceCommit, null);
+	var identity = first(runtime.compatibilityIdentity || canonical.compatibilityIdentity || parent.compatibilityIdentity || parent.local && parent.local.compatibilityIdentity || coherence.currentCompatibility && coherence.currentCompatibility.digest || value.runtime && value.runtime.compatibilityIdentity, null);
+	var bundleDigest = first(runtime.runtimeBundleDigest || canonical.runtimeBundleDigest || parent.runtimeBundleDigest || value.runtime && value.runtime.bundleDigest, null);
 	var coherenceStatus = coherence.coherenceStatus;
 	var compatibilityStatus = coherence.compatibilityStatus;
-	var coherent = runtime.health === 'ready' && ['coherent', 'aligned'].indexOf(coherenceStatus) >= 0
+	var runtimeHealth = first(runtime.health || canonical.health || parent.health, null);
+	var coherent = runtimeHealth === 'ready' && ['coherent', 'aligned'].indexOf(coherenceStatus) >= 0
 		&& (compatibilityStatus == null || compatibilityStatus === 'aligned')
 		|| value.coherent === true && value.state === 'ready';
 	var identityComplete = validDigest(identity) && validDigest(bundleDigest);
 	var sourceAligned = !sourceCommit || !runtimeSourceCommit || sourceCommit === runtimeSourceCommit;
-	var validatedReady = coherent && !!architecture && validDigest(digest) && identityComplete && sourceAligned;
-	var rawStatus = first(nested.status || nested.state || value.detectStatus || value.detectState, null);
+	var detectCompatible = nested.compatible !== false && canonicalDetect.compatible !== false && parent.detectCompatible !== false;
+	var validatedReady = coherent && !!architecture && validDigest(digest) && identityComplete && sourceAligned && detectCompatible;
+	var rawStatus = first(nested.status || nested.state || canonicalDetect.status || parent.detectStatus || value.detectStatus || value.detectState, null);
 	var status = validatedReady ? 'ready' : rawStatus === 'ready' ? 'unknown' : first(rawStatus, 'unknown');
 	return {
 		architecture: architecture,
 		status: status,
 		digest: digest,
 		sourceCommit: sourceCommit,
-		compatible: validatedReady && nested.compatible !== false
+		compatible: validatedReady
 	};
 }
 
@@ -369,7 +374,7 @@ function normalizeZ2k(input, engineReady) {
 	var remoteStatus = first(value.updateState || value.status || value.state || runtimeSummary && runtimeSummary.updateState, 'unknown');
 	var updateState = z2kUpdateState(remoteStatus);
 	var local = object(value.local);
-	var detect = normalizeDetect(runtimeSummary && runtimeSummary.detect || value.detect || local.detect, runtimeSummary || value);
+	var detect = normalizeDetect(runtimeSummary && runtimeSummary.detect || value.detect || local.detect, runtimeSummary || value, value);
 	if (engineReady !== true) {
 		detect.status = detect.status === 'ready' ? 'unknown' : detect.status;
 		detect.compatible = false;
