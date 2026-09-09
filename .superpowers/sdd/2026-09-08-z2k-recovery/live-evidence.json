@@ -1,16 +1,16 @@
 {
   "schema": "z2k-recovery.live-evidence.v1",
   "capturedAt": "2026-09-09",
-  "candidateSha": "962ef345ce77e2dc796ac81263b7e9273fa5dd98",
+  "candidateSha": "7dd27e084fc670e7c4d54ae31150b430dc11d692",
   "ci": {
-    "runId": 34296321727,
+    "runId": 34323028746,
     "status": "success",
-    "artifactName": "z2m-full-apk-962ef345ce77e2dc796ac81263b7e9273fa5dd98",
-    "artifactDigest": "c6e367cff05264f2812963232d47536083595bd22b5fa26e942252c039033965",
+    "artifactName": "z2m-full-apk-7dd27e084fc670e7c4d54ae31150b430dc11d692",
+    "artifactDigest": "cfcde2da845723678497b745d6595e6f50fc1940da6246f2a52309ea60a7f9bf",
     "apk": {
       "filename": "zapret2-manager-full-0.1.0-r156.apk",
-      "bytes": 2628596,
-      "sha256": "91957adad6cf5df516f46a1c5324770ce7bb820f33601c8505e03020b6fd9895"
+      "bytes": 2629285,
+      "sha256": "43be72e71c069a8b9dc257788ca2f0b2f91d40aa9ef13e223509346b6a3c399c"
     },
     "nativeHelper": {
       "path": "/usr/libexec/zapret2-manager/z2m-core-helper",
@@ -36,8 +36,8 @@
       "warnings": []
     },
     "backup": {
-      "path": "C:\\Temp\\z2m-ci-962ef345\\router-backup\\z2m-recovery-lkg-20260909-0426.tar.gz",
-      "sha256": "BD64AE5C740148480F63C2DBEB35455A6A12D8DDC6B4A7465437DE2491970A2D"
+      "path": "C:\\Temp\\z2m-ci-7dd27e08\\router-backup\\z2m-lkg-7dd27e08.tar.gz",
+      "sha256": "5563A0C098083E2A9CE0E90282CA5AC41C62D9B0CDD1AF01B53A3F47394D76D7"
     }
   },
   "browser": {
@@ -61,5 +61,22 @@
   },
   "userOnly": {
     "discordVoice": "NOT_RUN_NO_ACTIVE_CALL"
+  },
+  "packageFiles": {
+    "resourceUpdate": "7e5bf5ed65d221c45488222318c58c15d71200595b9001e72243d9db843ab4cb",
+    "scanner": "6f41317a0d214407296e99a35e0d0337edf15169775bb800af079ce7292b2800",
+    "rpcd": "3582dc0bf8c8add544cbd1f560aa31f648f667fbc9d9fcfa231a24adefde1853"
+  },
+  "detect": {
+    "probe": "ok",
+    "classify": "typed EDETECT_TIMEOUT (not EINPUT)",
+    "quic": "typed EDETECT_TIMEOUT",
+    "tcp16": "typed EDETECT_TIMEOUT",
+    "voice": "ok; no active Discord call"
+  },
+  "discovery": {
+    "before": "disabled/running=false/domains=4",
+    "enable": "enabled/running=true/pid=9009",
+    "disable": "enabled=false/running=false"
   }
 }

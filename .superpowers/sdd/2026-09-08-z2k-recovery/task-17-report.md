@@ -452,4 +452,98 @@ authoritative non-user `sourceCommit` and mismatch rejection remain unchanged.
 NOT_RUN by scope: no deployment, rpcd restart, push, merge, or worktree
 deletion was performed. Live verification still needs the reviewed package on
 the router, the Avatar `p-82.18` prepare path, and a separate Z2K candidate
-check proving missing provenance snapshot is rejected at runtime.
+ check proving missing provenance snapshot is rejected at runtime.
+
+---
+
+# Controller live verification continuation — current branch source
+
+Date: 2026-09-09
+Branch: `codex/z2k-recovery-v3`
+Current candidate SHA: `7dd27e084fc670e7c4d54ae31150b430dc11d692`
+
+The reviewed source was deployed to the router after preserving the prior
+files. Remote/local SHA parity:
+
+- `resource-update.uc`: `7e5bf5ed65d221c45488222318c58c15d71200595b9001e72243d9db843ab4cb`
+- `z2m-scanner.js`: `6f41317a0d214407296e99a35e0d0337edf15169775bb800af079ce7292b2800`
+
+The previous failed prepare record was archived under a scoped `/tmp` archive;
+no working package, runtime bundle, or user configuration was deleted.
+
+Same-release Avatar lifecycle source gate:
+
+- request: `z2k_prepare_version(version=p-82.18, repair=false)`;
+- operation: `z2k-1788937721-2165d294002081c1`;
+- terminal: `completed`;
+- target operation: `reinstall`;
+- `targetCanApply`: `true`;
+- blocking reasons: empty;
+- prior failure `ECOMPATIBILITY / avatar:z2k_all_in_one`: not reproduced.
+
+Postflight source/runtime gate:
+
+- `serviceState`: `running`;
+- exactly one `/opt/zapret2/nfq2/nfqws2`, PID 13282;
+- active strategy: `avatar:z2k_all_in_one`, origin `avatar_builtin`;
+- NFQUEUE 300 registered, owner matches, rules present;
+- browser hard reload/revisit: Avatar card shows selected/applied/current.
+
+This source verification does not replace the exact-current-APK gate. The
+current CI run, final artifact installation, final-artifact Detect/discovery
+checks, and broader failure/rollback/Discord matrix remain separately tracked
+as WORKING or unverified until proven.
+
+---
+
+# Exact current CI APK and browser continuation
+
+Date: 2026-09-09
+Production candidate SHA: `7dd27e084fc670e7c4d54ae31150b430dc11d692`
+Branch: `codex/z2k-recovery-v3`
+
+GitHub Actions run `34323028746` completed successfully. The exact artifact is
+`z2m-full-apk-7dd27e084fc670e7c4d54ae31150b430dc11d692`, digest
+`sha256:cfcde2da845723678497b745d6595e6f50fc1940da6246f2a52309ea60a7f9bf`.
+Its manifest APK is `zapret2-manager-full-0.1.0-r156.apk`, 2,629,285 bytes,
+SHA-256 `43be72e71c069a8b9dc257788ca2f0b2f91d40aa9ef13e223509346b6a3c399c`.
+No local APK build was used.
+
+Before install, the router LKG/config archive was created at
+`C:\Temp\z2m-ci-7dd27e08\router-backup\z2m-lkg-7dd27e08.tar.gz` with local
+SHA-256
+`5563A0C098083E2A9CE0E90282CA5AC41C62D9B0CDD1AF01B53A3F47394D76D7`.
+The old package was removed and verified absent; the exact CI APK was then
+installed with `apk add --allow-untrusted`. The remote APK hash matched the
+manifest. The installed package is `zapret2-manager-full-0.1.0-r156`.
+
+Installed file parity:
+
+- `resource-update.uc` —
+  `7e5bf5ed65d221c45488222318c58c15d71200595b9001e72243d9db843ab4cb`;
+- `z2m-scanner.js` —
+  `6f41317a0d214407296e99a35e0d0337edf15169775bb800af079ce7292b2800`;
+- `zapret2-manager.uc` —
+  `3582dc0bf8c8add544cbd1f560aa31f648f667fbc9d9fcfa231a24adefde1853`;
+- native helper — 65,523 bytes,
+  `7618e3bd7a5f0ff05da2ce61ddc30571bef590292aa6534f9ef45442cb86ba81`.
+
+Exact-current-APK runtime status remains healthy: one `nfqws2`, NFQUEUE 300
+registered with matching owner and rules, active Avatar
+`z2k_all_in_one`, and no warnings. Typed Detect checks returned probe/voice
+success and bounded `EDETECT_TIMEOUT` for classify/QUIC/TCP16; no EINPUT or
+generic contract failure was observed. Discovery passed disabled ->
+enabled/running -> disabled, with four discovered domains.
+
+After hard reload, authenticated LuCI `#/strategies` shows:
+
+- `z2k всё-в-одном (TLS/HTTP + QUIC + Discord)`;
+- `Выбрана Применена Используется сейчас`;
+- `Источник: Avatar`;
+- catalog `Avatar 732`, `Z2K 8`, `User 0`;
+- no stuck `Loading view…` state.
+
+This closes the exact CI artifact, clean-install, runtime, and Avatar browser
+gates. Task 17 remains WORKING/NOT_READY because the broader failure,
+rollback, and live Discord Voice conditions were not fabricated or silently
+marked complete.

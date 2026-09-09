@@ -292,3 +292,39 @@ file/interface and every task's internal consistency before Task 1.
 - The remaining broad failure/rollback/discovery matrix and live Discord call
   are explicitly bounded in `acceptance.md`; no synthetic voice-call result
   is claimed.
+
+## Task 17 current-candidate continuation (2026-09-09)
+
+- The live Avatar lifecycle regression was traced to canonical Avatar entries
+  whose authoritative entry carries `sourceSnapshotId` while provenance omits
+  that duplicated field. `resource-update.uc` now enriches only Avatar from
+  the authoritative entry, requires authoritative non-user `sourceCommit` and
+  exact provenance equality, and keeps Z2K snapshot/compatibility checks strict.
+- Fix-loop commits: `cc8e6ced`, `6fc6f378`, `4424f897`; independent scoped
+  review after the fix loop is PASS. Focused WSL/UCode regression is `4/4`;
+  syntax and diff checks pass.
+- Source-only router verification used exact remote/local SHA parity for the
+  current `resource-update.uc` and `z2m-scanner.js`. Same-release `p-82.18`
+  prepare/reinstall completed as operation
+  `z2k-1788937721-2165d294002081c1` with `targetCanApply: true` and no
+  blocking reasons; runtime remained healthy and Avatar remained active.
+- Browser hard reload/revisit after lifecycle shows `avatar:z2k_all_in_one`,
+  `Работает`, nfqws2 PID 13282, firewall applied, NFQUEUE 300, and the Avatar
+  strategy card marked selected/applied/current.
+- The exact current CI candidate `7dd27e084fc670e7c4d54ae31150b430dc11d692`
+  completed successfully in run `34323028746`. The downloaded APK is
+  `zapret2-manager-full-0.1.0-r156.apk`, 2,629,285 bytes, SHA-256
+  `43be72e71c069a8b9dc257788ca2f0b2f91d40aa9ef13e223509346b6a3c399c`.
+- The old package was removed and verified absent before installing that exact
+  CI APK. Installed file hashes match the reviewed candidate for
+  `resource-update.uc`, scanner, and rpcd. The native helper is 65,523 bytes.
+- Exact-current-APK Detect results are typed and bounded: probe/voice passed;
+  classify/QUIC/TCP16 returned `EDETECT_TIMEOUT`, not an input-contract error.
+  Discovery passed the disabled -> enabled/running -> disabled lifecycle.
+- After exact APK clean install and hard reload, authenticated LuCI again
+  shows Avatar `z2k всё-в-одном` selected, applied, and currently used; the
+  catalog remains Avatar 732 / Z2K 8 / User 0.
+- Task 17 remains WORKING/NOT_READY: the exact artifact and Avatar browser
+  gate now pass, but the plan's broader failure/rollback matrix and live
+  Discord Voice call remain unverified. No false PASS is claimed, and no
+  merge or branch/worktree deletion has been performed.

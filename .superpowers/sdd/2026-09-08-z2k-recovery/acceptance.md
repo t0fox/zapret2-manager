@@ -1,8 +1,8 @@
 # Z2K recovery acceptance evidence
 
 Date: 2026-09-09
-Candidate: `962ef345ce77e2dc796ac81263b7e9273fa5dd98`
-Execution branch: `codex/z2k-recovery-v2`
+Candidate: `7dd27e084fc670e7c4d54ae31150b430dc11d692`
+Execution branch: `codex/z2k-recovery-v3`
 Router: Cudy WBR3000UAX v1 (`mediatek/filogic`, ARMv8), OpenWrt 25.12.5
 
 ## Automated gates
@@ -26,20 +26,17 @@ Router: Cudy WBR3000UAX v1 (`mediatek/filogic`, ARMv8), OpenWrt 25.12.5
 
 ## CI APK gate
 
-The existing GitHub Actions workflow built the exact candidate; no APK was
-built locally.
+The exact current candidate was built by the existing GitHub Actions workflow;
+no APK was built locally. The previous `962ef345` artifact is an ancestor and
+is retained only as historical evidence, not as final-candidate proof.
 
-- Run: [34296321727](https://github.com/t0fox/zapret2-manager/actions/runs/34296321727)
-- Result: `success`, run `#325`, duration `32m19s`.
-- Artifact: `z2m-full-apk-962ef345ce77e2dc796ac81263b7e9273fa5dd98`
-- Artifact digest: `sha256:c6e367cff05264f2812963232d47536083595bd22b5fa26e942252c039033965`
-- APK: `zapret2-manager-full-0.1.0-r156.apk`
-- APK bytes: `2628596` (baseline `2645317`, reduction `16721` bytes)
-- APK SHA-256: `91957adad6cf5df516f46a1c5324770ce7bb820f33601c8505e03020b6fd9895`
-- `build-manifest.json` records the same candidate SHA and OpenWrt
-  25.12.5 mediatek/filogic target. `SHA256SUMS` matches the downloaded APK.
-- Native helper after package build: `65523` bytes;
-  router SHA-256 `7618e3bd7a5f0ff05da2ce61ddc30571bef590292aa6534f9ef45442cb86ba81`.
+- Run: [34323028746](https://github.com/t0fox/zapret2-manager/actions/runs/34323028746) (`success`, exact HEAD `7dd27e084fc670e7c4d54ae31150b430dc11d692`).
+- Artifact: `z2m-full-apk-7dd27e084fc670e7c4d54ae31150b430dc11d692`;
+  digest `sha256:cfcde2da845723678497b745d6595e6f50fc1940da6246f2a52309ea60a7f9bf`.
+- APK: `zapret2-manager-full-0.1.0-r156.apk`, `2,629,285` bytes,
+  SHA-256 `43be72e71c069a8b9dc257788ca2f0b2f91d40aa9ef13e223509346b6a3c399c`.
+- Baseline APK: `2,645,317` bytes; current delta: `-16,032` bytes.
+- Historical ancestor artifact: [34296321727](https://github.com/t0fox/zapret2-manager/actions/runs/34296321727), not valid for the current candidate.
 
 ## Source and router evidence
 
@@ -85,6 +82,50 @@ not the authorization page, and showed:
 
 The router still reports the pre-existing LuCI warning `No password set!`; no
 root password was changed.
+
+## Exact current APK installation
+
+Before replacing the package, the router LKG/config archive was exported to:
+
+`C:\Temp\z2m-ci-7dd27e08\router-backup\z2m-lkg-7dd27e08.tar.gz`
+
+Local backup SHA-256:
+`5563A0C098083E2A9CE0E90282CA5AC41C62D9B0CDD1AF01B53A3F47394D76D7`.
+
+The old package was removed and verified absent, then the exact CI APK above
+was copied to the router and installed with `apk add --allow-untrusted`.
+The remote APK SHA-256 matched the CI manifest. The installed package is
+`zapret2-manager-full-0.1.0-r156`; its packaged runtime file hashes are:
+
+- `resource-update.uc`: `7e5bf5ed65d221c45488222318c58c15d71200595b9001e72243d9db843ab4cb`;
+- `z2m-scanner.js`: `6f41317a0d214407296e99a35e0d0337edf15169775bb800af079ce7292b2800`;
+- `zapret2-manager.uc`: `3582dc0bf8c8add544cbd1f560aa31f648f667fbc9d9fcfa231a24adefde1853`;
+- native helper: `65523` bytes, SHA-256
+  `7618e3bd7a5f0ff05da2ce61ddc30571bef590292aa6534f9ef45442cb86ba81`.
+
+Post-install status remains healthy: one `nfqws2`, NFQUEUE 300 registered with
+matching owner and rules, active `avatar:z2k_all_in_one`, and no warnings.
+
+The exact current APK Detect boundary returned typed results: probe and voice
+completed successfully; classify, QUIC, and TCP16 returned bounded
+`EDETECT_TIMEOUT` rather than an input/contract error. Discovery returned
+disabled before, enabled/running after `enable`, and disabled/not running after
+`disable`, with four discovered domains retained.
+
+## Current candidate source/lifecycle evidence
+
+The current branch source was then deployed only as source for bounded runtime
+verification. Remote SHA-256 matched local SHA-256 for:
+
+- `resource-update.uc`: `7e5bf5ed65d221c45488222318c58c15d71200595b9001e72243d9db843ab4cb`
+- `z2m-scanner.js`: `6f41317a0d214407296e99a35e0d0337edf15169775bb800af079ce7292b2800`
+
+After archiving the prior failed prepare-job record, the current source passed
+same-release `p-82.18` prepare/reinstall with operation
+`z2k-1788937721-2165d294002081c1`, terminal `completed`,
+`targetCanApply: true`, and no blocking reasons. Runtime remained one healthy
+`nfqws2` process with Avatar `z2k_all_in_one`, NFQUEUE 300, and matching rules.
+This source run is not a substitute for the pending exact-current-APK gate.
 
 ## Explicit boundaries
 
