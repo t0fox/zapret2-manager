@@ -6,11 +6,9 @@ import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const PROVIDER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc');
 const CANONICAL = path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/tg-canonical-init.sh');
-const RUST_INIT = path.join(ROOT, 'tg-ws-proxy-rs/files/etc/init.d/tg-ws-proxy');
 
 const providerSrc = fs.readFileSync(PROVIDER, 'utf8');
 const canonicalInit = fs.readFileSync(CANONICAL, 'utf8');
-const rustInit = fs.readFileSync(RUST_INIT, 'utf8');
 
 // SINGLE SOURCE OF TRUTH: the full runtime adapter lives ONLY in
 // zapret2-manager/files/usr/share/zapret2-manager/tg-canonical-init.sh.
@@ -62,7 +60,6 @@ test('GREEN 2: DC coverage - DC_IPS looped into --dc-ip argv (no env alias upstr
   assert.match(canonicalInit, /DC_IPS=\$\(conf_val DC_IPS\)/, 'canonical must read DC_IPS from config');
   assert.match(canonicalInit, /for pair in \$DC_IPS/, 'canonical must loop over DC_IPS pairs');
   assert.match(canonicalInit, /--dc-ip/, 'canonical must pass each pair as --dc-ip argv');
-  assert.match(rustInit, /--dc-ip/, 'upstream rust init confirms --dc-ip argv contract');
   // ensure_shared_lifecycle repairs drift against canonical
   const fn = providerSrc.slice(
     providerSrc.indexOf('function ensure_shared_lifecycle'),
@@ -101,6 +98,10 @@ test('SINGLE-SOURCE: no divergent per-provider init installs remain', () => {
   const rsMakefile = fs.readFileSync(path.join(ROOT, 'tg-ws-proxy-rs/Makefile'), 'utf8');
   assert.doesNotMatch(rsMakefile, /^\t\$\(INSTALL_BIN\) \.\/files\/etc\/init\.d\/tg-ws-proxy/m,
     'Rust package must NOT install its own /etc/init.d/tg-ws-proxy');
+  assert.doesNotMatch(goMakefile, /^\s*PROVIDES\s*:/m,
+    'Go package must not retain an unowned virtual-provider compatibility alias');
+  assert.doesNotMatch(rsMakefile, /^\s*PROVIDES\s*:/m,
+    'Rust package must not retain an unowned virtual-provider compatibility alias');
   // Manager package ships the canonical file
   const managerFiles = [];
   function walk(dir) {
@@ -112,4 +113,6 @@ test('SINGLE-SOURCE: no divergent per-provider init installs remain', () => {
   walk(path.join(ROOT, 'zapret2-manager/files'));
   assert.ok(managerFiles.some(f => f.endsWith('tg-canonical-init.sh')),
     'manager files/ must ship tg-canonical-init.sh');
+  assert.equal(fs.existsSync(path.join(ROOT, 'tg-ws-proxy-rs/files/etc/init.d/tg-ws-proxy')), false,
+    'provider package must not retain an unused duplicate init source');
 });

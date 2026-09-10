@@ -26,7 +26,6 @@ define Package/tg-ws-proxy-rs
   SUBMENU:=DPI bypass
   TITLE:=TG WS Proxy Rust (optional, pinned v1.7.1)
   DEPENDS:=@TARGET_mediatek_filogic
-  PROVIDES:=tg-ws-proxy-provider
   CONFLICTS:=tg-ws-proxy-go
 endef
 
@@ -53,8 +52,6 @@ define Package/tg-ws-proxy-rs/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tg-ws-proxy $(1)/usr/bin/tg-ws-proxy
 	# Init is manager-owned single source - provider only installs binary
-	# $(INSTALL_DIR) $(1)/etc/init.d
-	# $(INSTALL_BIN) ./files/etc/init.d/tg-ws-proxy $(1)/etc/init.d/tg-ws-proxy
 	$(INSTALL_DIR) $(1)/etc/tg-ws-proxy
 	$(INSTALL_CONF) ./files/etc/tg-ws-proxy/config.conf $(1)/etc/tg-ws-proxy/config.conf
 	$(INSTALL_DIR) $(1)/usr/share/licenses/tg-ws-proxy-rs

@@ -46,8 +46,8 @@ test('shared lifecycle repair: init drift rewritten, secret in proxycfg format',
   const canonical = fs.readFileSync(path.join(ROOT, 'zapret2-manager', 'files',
     'usr', 'share', 'zapret2-manager', 'tg-canonical-init.sh'), 'utf8');
   assert.match(canonical, /^#!\/bin\/sh \/etc\/rc\.common/, 'canonical init is a complete rc.common script');
-  assert.match(fs.readFileSync(path.join(ROOT, 'tg-ws-proxy-rs', 'files', 'etc', 'init.d', 'tg-ws-proxy'), 'utf8'),
-    /^#!\/bin\/sh \/etc\/rc\.common/, 'upstream reference init stays for comparison');
+  assert.equal(fs.existsSync(path.join(ROOT, 'tg-ws-proxy-rs', 'files', 'etc', 'init.d', 'tg-ws-proxy')), false,
+    'the provider package must not retain a duplicate init source');
   assert.match(fn, /SECRET=/, 'secret file uses canonical SECRET= key');
   assert.match(fn, /TG_SECRET=/, 'legacy TG_SECRET storage is recognised for migration');
   assert.match(fn, /\{48\}/, 'legacy 48-hex secret is truncated to the canonical 32-hex form');
