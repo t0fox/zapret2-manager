@@ -52,9 +52,18 @@ test('health projection preserves five-state semantics and owner actions', () =>
   assert.equal(result.cards.warp.status, 'off');
   assert.equal(result.cards.warp.optional, true);
   assert.equal(result.cards.engine.freshness.state, 'fresh');
-  assert.equal(result.cards.engine.owner.route, 'engine');
+  assert.equal(result.cards.engine.owner.route, 'components');
+  assert.equal(result.cards.nfqws2.owner.route, 'components');
+  assert.equal(result.cards.firewall.owner.route, 'components');
   assert.equal(result.cards.scanner.owner.route, 'scan');
   assert.ok(result.cards.scanner.reason);
+});
+
+test('monitoring owners only link to visible production routes', () => {
+  const page = fs.readFileSync(PAGE, 'utf8');
+  const model = fs.readFileSync(MODEL, 'utf8');
+  assert.doesNotMatch(model, /engine:\s*'engine'|firewall:\s*'system'/);
+  assert.doesNotMatch(page, /#\/engine|#\/system/);
 });
 
 test('missing or stale evidence can never render as OK', () => {

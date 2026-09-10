@@ -38,7 +38,7 @@ var HEALTH_LABELS = {
   ok: 'OK', off: 'OFF', degraded: 'DEGRADED', unknown: 'UNKNOWN', error: 'ERROR'
 };
 var HEALTH_ROUTES = {
-  engine: 'engine', nfqws2: 'engine', strategy: 'strategies', firewall: 'system',
+  engine: 'components', nfqws2: 'components', strategy: 'strategies', firewall: 'components',
   scanner: 'scan', dns: 'dns-routing', telegram: 'telegram-tunnel', proxy: 'telegram-tunnel',
   warp: 'warp'
 };
