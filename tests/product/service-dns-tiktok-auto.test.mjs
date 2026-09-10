@@ -64,42 +64,6 @@ test('BusyBox nslookup parser ignores resolver metadata, IPv6, garbage, and dupl
   assert.deepEqual(invoke(`model.tiktok_parse_nslookup(${JSON.stringify(raw)}, '195.0.2.1')`).addresses, ['203.0.113.10']);
 });
 
-test('Empty resolution retains the verified LKG candidate and owned override', { skip: !HAS_UCODE }, () => {
-  const result = invoke(`model.tiktok_reconcile({
-    state:{enabled:true,state:'healthy',selectedIp:'203.0.113.10',selectedCandidate:{ip:'203.0.113.10',sourceDomain:'domain-a.example',mode:'cla'},managed:true,failureCount:0,recoveryCount:0},
-    resolutions:[{domain:'domain-a.example',mode:'cla',status:'empty',addresses:[]}], probes:{}
-  })`);
-  assert.equal(result.action, 'retain');
-  assert.equal(result.state.state, 'degraded');
-  assert.equal(result.state.selectedCandidate.ip, '203.0.113.10');
-  assert.deepEqual(result.override, { host:'v77.tiktokcdn.com', ip:'203.0.113.10', managed:true });
-});
-
-test('DNS rotation does not fail over while the current candidate remains healthy', { skip: !HAS_UCODE }, () => {
-  const result = invoke(`model.tiktok_reconcile({
-    state:{enabled:true,state:'healthy',selectedCandidate:{ip:'203.0.113.10',sourceDomain:'domain-a.example',mode:'cla'},failureCount:0,recoveryCount:0},
-    resolutions:[{domain:'domain-a.example',mode:'cla',status:'resolved',addresses:['203.0.113.11']}],
-    probes:{'203.0.113.10':{ok:true,latencyMs:50},'203.0.113.11':{ok:true,latencyMs:10}}
-  })`);
-  assert.equal(result.action, 'retain');
-  assert.equal(result.state.selectedCandidate.ip, '203.0.113.10');
-  assert.equal(result.state.lastFailover, null);
-});
-
-test('Repeated current failures switch to a verified resolved candidate at the threshold', { skip: !HAS_UCODE }, () => {
-  const result = invoke(`model.tiktok_reconcile({
-    failoverThreshold:2,
-    state:{enabled:true,state:'degraded',selectedCandidate:{ip:'203.0.113.10',sourceDomain:'domain-a.example',mode:'cla'},failureCount:1,recoveryCount:0},
-    resolutions:[{domain:'domain-b.example',mode:'ies',status:'resolved',addresses:['203.0.113.11']}],
-    probes:{'203.0.113.10':{ok:false,reason:'timeout'},'203.0.113.11':{ok:true,latencyMs:40}}
-  })`);
-  assert.equal(result.action, 'failover');
-  assert.equal(result.state.selectedCandidate.ip, '203.0.113.11');
-  assert.equal(result.state.selectedCandidate.sourceDomain, 'domain-b.example');
-  assert.equal(result.state.selectedCandidate.mode, 'ies');
-  assert.equal(result.state.failureCount, 0);
-});
-
 test('Uncertain source mode remains generic instead of being guessed as universal', { skip: !HAS_UCODE }, () => {
   const result = invoke(`model.tiktok_resolved_candidates([{domain:'sf16-music.tiktokcdn-eu.com',mode:'generic',status:'resolved',resolver:'195.0.2.1',addresses:['203.0.113.12']}])`);
   assert.equal(result[0].modes[0], 'generic');

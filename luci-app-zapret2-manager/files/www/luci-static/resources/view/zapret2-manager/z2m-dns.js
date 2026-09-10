@@ -28,6 +28,8 @@ var state = {
   dnsCheck: null,
   operation: null, lastOperation: null,
   tiktokAuto: null, tiktokAutoLocal: null, tiktokAutoBusy: false, tiktokAutoTimer: null,
+  tiktokOperation: null, tiktokOperationTimer: null, tiktokOperationInFlight: false,
+  tiktokOperationRetries: 0, tiktokOperationTarget: null, tiktokOperationGeneration: 0,
   serviceOperationTimer: null, serviceOperationInFlight: false,
   openPane: null, disposed: false, deferred: {}, loadToken: 0, deferredTimer: null
 };
@@ -36,6 +38,14 @@ function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' ? value : {}; }
 function display(value) { return value == null || value === '' ? '—' : String(value); }
+function tiktokPendingState(value, enabled, phase) {
+  var next = Object.assign({}, object(value), {
+    enabled: enabled === true,
+    state: phase || (enabled === true ? 'checking' : 'applying'),
+    error: null
+  });
+  return next;
+}
 function componentState(item) {
   if (item.ok === true || item.running === true) return { label: _('работает'), kind: 'g' };
   if (item.ok === false) return { label: _('ошибка'), kind: 'r' };
@@ -160,10 +170,19 @@ function tiktokAutoStateLabel(value) {
     healthy: _('Работает штатно'),
     active: _('Исправление активно'), failover: _('Исправление активно'),
     checking: _('Ищем рабочий CDN…'), searching: _('Ищем рабочий CDN…'), probing: _('Ищем рабочий CDN…'),
+    applying: _('Применяем настройку…'), verifying: _('Проверяем результат…'),
     degraded: _('Не удалось найти рабочий CDN'), 'no-candidates': _('Не удалось найти рабочий CDN'),
     error: _('Проверка TikTok завершилась ошибкой'),
     off: _('Автоисправление выключено'), disabled: _('Автоисправление выключено')
   })[String(stateValue || 'off').toLowerCase()] || _('Состояние TikTok недоступно');
+}
+function tiktokOperationLabel(operation) {
+  var phase = String(operation && (operation.phase || operation.status || operation.state) || 'queued').toLowerCase();
+  return ({
+    queued: _('Запрос принят, подготавливаем настройку…'),
+    running: _('Проверяем CDN и применяем настройку…'),
+    verifying: _('Проверяем результат…')
+  })[phase] || _('Обновляем состояние…');
 }
 function tiktokSelectedCandidate(auto) {
   var selected = auto && auto.selectedCandidate;
@@ -239,7 +258,7 @@ function serviceDnsChanges() {
 function scheduleTiktokAutoCheck(ctx) {
   if (state.tiktokAutoTimer) window.clearTimeout(state.tiktokAutoTimer);
   state.tiktokAutoTimer = null;
-  if (!state.tiktokAuto || state.tiktokAuto.enabled !== true || !ctx.api.dns.serviceTiktokCheck) return;
+  if (state.tiktokAutoBusy || state.tiktokOperation || !state.tiktokAuto || state.tiktokAuto.enabled !== true || !ctx.api.dns.serviceTiktokCheck) return;
   state.tiktokAutoTimer = window.setTimeout(function () {
     state.tiktokAutoTimer = null;
     ctx.api.dns.serviceTiktokCheck().then(function () {
@@ -1310,6 +1329,144 @@ function render(ctx) {
   }
 
   /* ---- access pane ---- */
+  function clearTiktokOperation() {
+    if (state.tiktokOperationTimer) window.clearTimeout(state.tiktokOperationTimer);
+    state.tiktokOperationTimer = null;
+    state.tiktokOperationInFlight = false;
+    state.tiktokOperation = null;
+    state.tiktokOperationRetries = 0;
+    state.tiktokOperationTarget = null;
+    state.tiktokAutoBusy = false;
+    state.tiktokOperationGeneration++;
+  }
+  function scheduleTiktokOperationPoll(operationId, generation, delay) {
+    if (state.disposed || generation !== state.tiktokOperationGeneration || !state.tiktokOperation ||
+      state.tiktokOperationTimer || state.tiktokOperationInFlight || !operationId) return;
+    state.tiktokOperationTimer = window.setTimeout(function () {
+      state.tiktokOperationTimer = null;
+      pollTiktokOperation(operationId, generation);
+    }, delay == null ? 700 : delay);
+  }
+  function finishTiktokOperation(status, generation) {
+    if (state.disposed || generation !== state.tiktokOperationGeneration || !state.tiktokOperation) return;
+    var target = state.tiktokOperationTarget === true;
+    state.tiktokOperation = Object.assign({}, state.tiktokOperation, { phase: 'verifying', state: 'verifying' });
+    state.tiktokAutoLocal = tiktokPendingState(state.tiktokAutoLocal || state.tiktokAuto, target, 'verifying');
+    if (typeof ctx.rerender === 'function') ctx.rerender();
+    return ctx.api.dns.serviceTiktokStatus().then(function (actual) {
+      if (!actual || actual.ok === false) throw actual || new Error('service_dns_tiktok_status failed');
+      var settled = actual.enabled === target && (target === false || actual.state !== 'checking');
+      if (!settled) {
+        state.tiktokOperationRetries++;
+        if (state.tiktokOperationRetries > 8) throw new Error('TikTok operation did not reach a stable state');
+        state.tiktokOperation = Object.assign({}, state.tiktokOperation, { phase: 'verifying', state: 'verifying' });
+        state.tiktokAutoLocal = tiktokPendingState(actual, target, 'verifying');
+        if (typeof ctx.rerender === 'function') ctx.rerender();
+        scheduleTiktokOperationPoll(status.operationId, generation, 800);
+        return;
+      }
+      state.tiktokAutoLocal = actual;
+      var succeeded = target ? actual.state !== 'error' : actual.state === 'off';
+      clearTiktokOperation();
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+      if (succeeded) shell.showToast(target ? _('Автоисправление TikTok включено.') : _('Автоисправление TikTok выключено.'), 'ok');
+      else shell.showToast(_('Автоисправление TikTok включено, но рабочий CDN не найден.'), 'warn');
+    }).catch(function (error) {
+      if (state.disposed || generation !== state.tiktokOperationGeneration || !state.tiktokOperation) return;
+      state.tiktokOperationRetries++;
+      if (state.tiktokOperationRetries <= 8) {
+        state.tiktokAutoLocal = tiktokPendingState(state.tiktokAutoLocal || state.tiktokAuto, target, 'verifying');
+        if (typeof ctx.rerender === 'function') ctx.rerender();
+        scheduleTiktokOperationPoll(status.operationId, generation, 800);
+        return;
+      }
+      clearTiktokOperation();
+      state.tiktokAutoLocal = Object.assign({}, state.tiktokAutoLocal || state.tiktokAuto || {}, { state: 'error', error: error });
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+      showError(error);
+    });
+  }
+  function scheduleTiktokStatusRecovery(generation, delay) {
+    if (state.disposed || generation !== state.tiktokOperationGeneration || !state.tiktokOperation || state.tiktokOperationTimer || state.tiktokOperationInFlight) return;
+    state.tiktokOperationTimer = window.setTimeout(function () {
+      state.tiktokOperationTimer = null;
+      recoverTiktokStatus(generation);
+    }, delay == null ? 800 : delay);
+  }
+  function recoverTiktokStatus(generation) {
+    if (state.disposed || generation !== state.tiktokOperationGeneration || state.tiktokOperationInFlight || !state.tiktokOperation) return;
+    var target = state.tiktokOperationTarget === true;
+    state.tiktokOperationInFlight = true;
+    ctx.api.dns.serviceTiktokStatus().then(function (actual) {
+      state.tiktokOperationInFlight = false;
+      if (!actual || actual.ok === false) throw actual || new Error('service_dns_tiktok_status failed');
+      var settled = actual.enabled === target && (target === false || actual.state !== 'checking');
+      if (!settled) {
+        state.tiktokOperationRetries++;
+        if (state.tiktokOperationRetries > 8) throw new Error('TikTok operation did not reach a stable state');
+        state.tiktokAutoLocal = tiktokPendingState(actual, target, 'verifying');
+        if (typeof ctx.rerender === 'function') ctx.rerender();
+        scheduleTiktokStatusRecovery(generation, 800);
+        return;
+      }
+      state.tiktokAutoLocal = actual;
+      var succeeded = target ? actual.state !== 'error' : actual.state === 'off';
+      clearTiktokOperation();
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+      if (succeeded) shell.showToast(target ? _('Автоисправление TikTok включено.') : _('Автоисправление TikTok выключено.'), 'ok');
+      else shell.showToast(_('Автоисправление TikTok включено, но рабочий CDN не найден.'), 'warn');
+    }).catch(function (error) {
+      state.tiktokOperationInFlight = false;
+      if (state.disposed || generation !== state.tiktokOperationGeneration || !state.tiktokOperation) return;
+      state.tiktokOperationRetries++;
+      if (state.tiktokOperationRetries <= 8) {
+        state.tiktokAutoLocal = tiktokPendingState(state.tiktokAutoLocal || state.tiktokAuto, target, 'verifying');
+        if (typeof ctx.rerender === 'function') ctx.rerender();
+        scheduleTiktokStatusRecovery(generation, 800);
+        return;
+      }
+      clearTiktokOperation();
+      state.tiktokAutoLocal = Object.assign({}, state.tiktokAutoLocal || state.tiktokAuto || {}, { state: 'error', error: error });
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+      showError(error);
+    });
+  }
+  function pollTiktokOperation(operationId, generation) {
+    if (state.disposed || generation !== state.tiktokOperationGeneration || state.tiktokOperationInFlight || !state.tiktokOperation) return;
+    state.tiktokOperationInFlight = true;
+    edit(ctx.api.dns.serviceApplyStatus, { operationId: operationId }).then(function (answer) {
+      if (!answer || answer.ok === false) throw answer || new Error('service_dns_apply_status failed');
+      var operation = answer.operation || answer;
+      state.tiktokOperation = Object.assign({}, state.tiktokOperation, operation, { operationId: operation.operationId || operationId });
+      state.tiktokOperationInFlight = false;
+      var phase = String(operation.phase || operation.state || 'queued').toLowerCase();
+      if (phase === 'failed' || phase === 'rolled-back' || phase === 'cancelled' || phase === 'canceled' || phase === 'stopped') {
+        clearTiktokOperation();
+        state.tiktokAutoLocal = Object.assign({}, state.tiktokAutoLocal || state.tiktokAuto || {}, { state: 'error', error: operation.error || answer });
+        if (typeof ctx.rerender === 'function') ctx.rerender();
+        showError(operation.error || answer);
+        return;
+      }
+      if (phase === 'completed' || phase === 'applied' || operation.finished === true) return finishTiktokOperation(operation, generation);
+      state.tiktokAutoLocal = tiktokPendingState(state.tiktokAutoLocal || state.tiktokAuto, state.tiktokOperationTarget === true, phase === 'running' ? 'checking' : 'applying');
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+      scheduleTiktokOperationPoll(operationId, generation, 800);
+    }).catch(function (error) {
+      state.tiktokOperationInFlight = false;
+      if (state.disposed || generation !== state.tiktokOperationGeneration || !state.tiktokOperation) return;
+      state.tiktokOperationRetries++;
+      state.tiktokAutoLocal = tiktokPendingState(state.tiktokAutoLocal || state.tiktokAuto, state.tiktokOperationTarget === true, 'verifying');
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+      if (state.tiktokOperationRetries <= 8) {
+        scheduleTiktokOperationPoll(operationId, generation, 800);
+        return;
+      }
+      clearTiktokOperation();
+      state.tiktokAutoLocal = Object.assign({}, state.tiktokAutoLocal || state.tiktokAuto || {}, { state: 'error', error: error });
+      if (typeof ctx.rerender === 'function') ctx.rerender();
+      showError(error);
+    });
+  }
   function clearServiceOperation() {
     if (state.serviceOperationTimer) window.clearTimeout(state.serviceOperationTimer);
     state.serviceOperationTimer = null;
@@ -1438,23 +1595,36 @@ function render(ctx) {
           autoSwitch.setAttribute('data-state', auto.enabled === true ? 'on' : 'off');
           autoSwitch.setAttribute('aria-checked', auto.enabled === true ? 'true' : 'false');
           autoSwitch.disabled = state.tiktokAutoBusy === true;
+          autoSwitch.setAttribute('aria-busy', state.tiktokAutoBusy === true ? 'true' : 'false');
           function toggleTiktok(enabled) {
-            if (!ctx.api.dns.serviceTiktokSetAsync || state.tiktokAutoBusy) return;
+            if (!ctx.api.dns.serviceTiktokSetAsync || state.tiktokAutoBusy || state.tiktokOperation) return;
+            var generation = ++state.tiktokOperationGeneration;
             state.tiktokAutoBusy = true;
+            state.tiktokOperationTarget = enabled === true;
+            state.tiktokOperationRetries = 0;
+            state.tiktokOperation = { phase: 'queued', operationId: null, target: enabled === true };
+            state.tiktokAutoLocal = tiktokPendingState(state.tiktokAuto, enabled, enabled ? 'checking' : 'applying');
             autoSwitch.disabled = true;
             autoSwitch.classList.add('busy');
-            ctx.api.dns.serviceTiktokSetAsync(edit(ctx.api.dns.serviceTiktokSetAsync, { enabled: enabled })).then(function (answer) {
-              if (answer && answer.operationId) state.operation = answer;
-              return ctx.api.dns.serviceTiktokStatus ? ctx.api.dns.serviceTiktokStatus() : answer;
-            }).then(function (status) {
-              if (status && status.ok !== false) state.tiktokAutoLocal = status;
-              state.tiktokAutoBusy = false;
+            if (typeof ctx.rerender === 'function') ctx.rerender();
+            Promise.resolve().then(function () {
+              return ctx.api.dns.serviceTiktokSetAsync(edit(ctx.api.dns.serviceTiktokSetAsync, { enabled: enabled }));
+            }).then(function (answer) {
+              if (!answer || answer.ok === false || !answer.operationId) throw answer || new Error('TikTok operation was not accepted');
+              if (generation !== state.tiktokOperationGeneration || !state.tiktokOperation) return;
+              state.tiktokOperation = Object.assign({}, state.tiktokOperation, answer, { phase: answer.state || 'queued' });
+              state.tiktokAutoLocal = tiktokPendingState(state.tiktokAutoLocal || state.tiktokAuto, enabled, enabled ? 'checking' : 'applying');
               if (typeof ctx.rerender === 'function') ctx.rerender();
-              return status;
+              scheduleTiktokOperationPoll(answer.operationId, generation, 350);
             }).catch(function (error) {
-              state.tiktokAutoBusy = false;
-              showError(error);
+              if (generation !== state.tiktokOperationGeneration || !state.tiktokOperation) return;
+              // The request can be lost after rpcd accepted the job. Keep the
+              // visible pending state and let status recovery decide whether
+              // the operation really failed before showing an RPC error.
+              state.tiktokOperation = Object.assign({}, state.tiktokOperation, { phase: 'verifying', error: error });
+              state.tiktokAutoLocal = tiktokPendingState(state.tiktokAutoLocal || state.tiktokAuto, enabled, 'verifying');
               if (typeof ctx.rerender === 'function') ctx.rerender();
+              scheduleTiktokStatusRecovery(generation, 350);
             });
           }
           autoSwitch.addEventListener('keydown', function (event) {
@@ -1477,6 +1647,7 @@ function render(ctx) {
             E('div', { 'class': 'z2m-service-dns-tiktok-head' }, [E('strong', {}, _('Автоисправление ленты')), autoSwitch]),
             E('div', { 'class': 'z2m-service-dns-tiktok-status' }, [
               E('span', {}, tiktokAutoStateLabel(auto)),
+              state.tiktokAutoBusy ? E('span', { 'class': 'z2m-service-dns-tiktok-progress', role: 'status', 'aria-live': 'polite' }, tiktokOperationLabel(state.tiktokOperation)) : null,
               E('span', { 'class': 'z2m-service-dns-tiktok-source' }, [_('Источник CDN: '), E('code', {}, sourceValue), selectedMode ? ' · ' + tiktokModeLabel(selectedMode) : '']),
               E('span', { 'class': 'z2m-service-dns-tiktok-counts' }, _('Результат: ') + resolvedSummary),
               tiktokProbe ? E('code', { title: _('Проверенный CDN и задержка') }, _('Текущий адрес ') + tiktokProbe) : null
@@ -1810,9 +1981,16 @@ function unmount() {
   state.openPane = null;
   if (state.serviceOperationTimer) window.clearTimeout(state.serviceOperationTimer);
   if (state.tiktokAutoTimer) window.clearTimeout(state.tiktokAutoTimer);
+  if (state.tiktokOperationTimer) window.clearTimeout(state.tiktokOperationTimer);
   state.serviceOperationTimer = null;
   state.tiktokAutoTimer = null;
+  state.tiktokOperationTimer = null;
   state.serviceOperationInFlight = false;
+  state.tiktokOperationInFlight = false;
+  state.tiktokOperation = null;
+  state.tiktokAutoBusy = false;
+  state.tiktokOperationTarget = null;
+  state.tiktokOperationGeneration++;
 }
 
 return baseclass.extend({

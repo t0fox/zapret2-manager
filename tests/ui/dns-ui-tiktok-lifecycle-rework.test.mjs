@@ -27,7 +27,7 @@ test('TikTok control is an accessible busy-aware button and refreshes actual sta
   assert.match(DNS, /aria-checked/);
   assert.match(DNS, /keydown/);
   assert.match(DNS, /autoSwitch\.disabled\s*=\s*state\.tiktokAutoBusy/);
-  assert.match(DNS, /serviceTiktokSet[\s\S]*serviceTiktokStatus/);
+  assert.match(DNS, /serviceTiktokSet[\s\S]*scheduleTiktokStatusRecovery|serviceTiktokSet[\s\S]*pollTiktokOperation/);
   assert.match(DNS, /Текущий IP|selectedIp/);
 });
 
