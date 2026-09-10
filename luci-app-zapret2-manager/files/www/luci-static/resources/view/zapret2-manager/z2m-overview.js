@@ -360,6 +360,54 @@ function render(ctx) {
     if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Сервер подтвердил отсутствие пакета') };
     return unavailableCard(_('Сервер не сообщил состояние zapret2'));
   }
+  function unknownComponentValue(detail) {
+    return { value: _('Состояние неизвестно'), kind: 'warning', detail: detail || _('Сервер не сообщил состояние компонента') };
+  }
+  function componentEngineStatus() {
+    return Object.assign({}, object(status.engine), object(engineStatus.status), object(engineStatus.engine), engineStatus);
+  }
+  function engineComponentValue() {
+    if (envelopeError('status') || envelopeError('engineStatus')) return unavailableCard(_('Состояние Engine недоступно'));
+    var engine = componentEngineStatus();
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: _('Сервер подтвердил отсутствие пакета') };
+    if (engine.installed !== true) return unknownComponentValue(_('Сервер не сообщил, установлен ли Zapret2 Engine'));
+    var page = ComponentsModel.normalizePage({ engine: engine, z2k: object(resourcesStatus.z2k) });
+    var truth = page.components[0];
+    if (truth.runtimeHealth === 'broken') return { value: _('Ошибка'), kind: 'error', detail: _('Zapret2 Engine требует восстановления') };
+    var process = processValue();
+    if (process.value === _('Недоступно')) return unknownComponentValue(_('Сервер не подтвердил состояние Engine'));
+    return {
+      value: process.value === _('Работает') ? _('Работает') : _('Установлен'),
+      kind: process.kind,
+      detail: process.detail
+    };
+  }
+  function z2kComponentValue() {
+    if (envelopeError('resourcesStatus')) return unavailableCard(_('Состояние Z2K Core недоступно'));
+    var engine = componentEngineStatus();
+    var z2k = object(resourcesStatus.z2k);
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: _('Требуется совместимый Zapret2 Engine') };
+    if (!Object.keys(z2k).length) return unknownComponentValue(_('Сервер не сообщил состояние Z2K Core'));
+    var page = ComponentsModel.normalizePage({ engine: engine, z2k: z2k });
+    var truth = page.components[1];
+    if (truth.runtimeHealth === 'missing') return { value: _('Не установлен'), kind: 'stopped', detail: truth.summary || _('Требуется совместимый Zapret2 Engine') };
+    if (truth.runtimeHealth === 'broken') return { value: _('Требует внимания'), kind: 'warning', detail: truth.summary || _('Z2K Core требует восстановления') };
+    if (truth.updateState === 'update-available') return { value: truth.updatePresentation.label, kind: 'warning', detail: _('Откройте Компоненты для проверки обновления') };
+    if (truth.runtimeHealth === 'ready') return { value: _('Готово'), kind: 'running', detail: _('Z2K Core готов к работе') };
+    if (truth.runtimeHealth === 'degraded') return { value: _('Требует проверки'), kind: 'warning', detail: truth.summary || _('Проверьте состояние ресурсов') };
+    return unknownComponentValue(_('Сервер не подтвердил состояние Z2K Core'));
+  }
+  function componentSummaryCard(loading) {
+    var engine = loading ? { value: _('Загрузка…'), kind: '', detail: null } : engineComponentValue();
+    var z2k = loading ? { value: _('Загрузка…'), kind: '', detail: null } : z2kComponentValue();
+    return {
+      id: 'card-zapret2', label: _('Zapret2 / Z2K'), icon: 'cpu', href: '#/components',
+      rows: [
+        { label: _('Zapret2 Engine'), value: engine.value, kind: engine.kind, detail: engine.detail },
+        { label: _('Z2K Core'), value: z2k.value, kind: z2k.kind, detail: z2k.detail }
+      ]
+    };
+  }
   function componentUpdateSummary() {
     var z2k = object(resourcesStatus.z2k);
     if (!Object.keys(z2k).length) return null;
@@ -419,14 +467,13 @@ function render(ctx) {
   function statusCards() {
     if (!data.status && !data.engineStatus && !data.systemStatus) {
       return [
-        { id: 'card-nfqws', label: 'nfqws2', value: _('Загрузка…'), detail: null, kind: '', icon: 'nfqws' },
+        componentSummaryCard(true),
         { id: 'card-strategy', label: _('Стратегия'), value: _('Загрузка…'), detail: null, kind: '', icon: 'strategy' },
         { id: 'card-autostart', label: _('Автозапуск'), value: _('Загрузка…'), detail: null, kind: '', icon: 'autostart' },
         { id: 'card-system', label: _('Система'), value: _('Загрузка…'), detail: null, kind: '', icon: 'system' },
         { id: 'card-telegram', label: _('Telegram Proxy'), value: _('Загрузка…'), detail: null, kind: '', icon: 'service:telegram', href: '#/telegram-tunnel' }
       ];
     }
-    var process = processValue();
     var canonicalName = format.text(view.strategy.name);
     var strategyName = strategyPresentation(canonicalName);
     var activeName = format.text(strategyName.primary);
@@ -440,7 +487,7 @@ function render(ctx) {
     var system = systemCardValue();
     var telegram = telegramCardValue();
     return [
-      { id: 'card-nfqws', label: 'nfqws2', value: process.value, detail: process.detail, kind: process.kind, icon: 'nfqws' },
+      componentSummaryCard(false),
       { id: 'card-strategy', label: _('Стратегия'), value: strategy.value, detail: strategy.detail, kind: strategy.kind, icon: 'strategy' },
       { id: 'card-autostart', label: _('Автозапуск'), value: autostart.value, detail: autostart.detail, kind: autostart.kind, icon: 'autostart' },
       { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' },

@@ -190,6 +190,16 @@
 .z2m-view#z2m-view-overview .status-card-value.error{color:var(--red)}
 .z2m-view#z2m-view-overview .status-card-value.warning{color:var(--orange)}
 .z2m-view#z2m-view-overview .status-card-detail{margin-top:4px;color:var(--tx3);font-size:11px;overflow-wrap:anywhere}
+.z2m-view#z2m-view-overview .status-card-action:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.z2m-view#z2m-view-overview .status-card-rows{display:grid;gap:7px;margin-top:2px}
+.z2m-view#z2m-view-overview .status-card-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;align-items:baseline}
+.z2m-view#z2m-view-overview .status-card-row-label{min-width:0;color:var(--tx2);font-size:12px;overflow-wrap:anywhere}
+.z2m-view#z2m-view-overview .status-card-row-value{color:var(--tx);font-size:13px;font-weight:600;text-align:right;overflow-wrap:anywhere}
+.z2m-view#z2m-view-overview .status-card-row-value.running{color:var(--green)}
+.z2m-view#z2m-view-overview .status-card-row-value.stopped{color:var(--tx)}
+.z2m-view#z2m-view-overview .status-card-row-value.warning{color:var(--orange)}
+.z2m-view#z2m-view-overview .status-card-row-value.error{color:var(--red)}
+.z2m-view#z2m-view-overview .status-card-row-detail{grid-column:1 / -1;color:var(--tx3);font-size:11px;overflow-wrap:anywhere}
 .z2m-view#z2m-view-overview #card-strategy .status-card-detail{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .z2m-view#z2m-view-overview .status-card-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;margin-top:6px}
 .z2m-view#z2m-view-overview .status-card-meta-item{display:flex;align-items:baseline;justify-content:space-between;gap:5px;min-width:0}
@@ -3231,6 +3241,8 @@
 @media(max-width:520px){
   .z2m-app .z2m-view#z2m-view-overview .status-grid{grid-template-columns:1fr}
   .z2m-app .z2m-view#z2m-view-overview #card-telegram{grid-column:auto}
+  .z2m-app .z2m-view#z2m-view-overview .status-card-row{grid-template-columns:1fr;gap:2px}
+  .z2m-app .z2m-view#z2m-view-overview .status-card-row-value{text-align:left}
 }
 @media(prefers-reduced-motion:reduce){
   .z2m-app .z2m-view#z2m-view-overview .status-card{transition-duration:.01ms}
