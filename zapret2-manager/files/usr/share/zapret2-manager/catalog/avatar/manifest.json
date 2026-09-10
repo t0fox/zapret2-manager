@@ -8,7 +8,7 @@
   "physicalEntryCount": 1828,
   "uniqueStrategyIdCount": 724,
   "duplicateIdGroupCount": 503,
-  "aggregateDigest": "9ad8c97ca6c8cf31ec290b4d1fd0787576c71bfdc5381f20db12417d60403608",
+  "aggregateDigest": "62458ae0d176b3c7ce7f6674efd554c846d231a6eb5dcc331c1333e3f5b17c59",
   "aggregateDigestAlgorithm": "sha256(source-order lines \"<file-sha256>  catalogs/<relative-path>\\n\")",
   "levelEntryCounts": {
     "advanced": 557,
@@ -1336,8 +1336,8 @@
     },
     {
       "path": "builtin/z2k_circular.txt",
-      "byteSize": 3113,
-      "sha256": "d4e998e7a38c1232525c712f4d2411d64fe6f11ee22e2ed45be6dc0def348b7e",
+      "byteSize": 3100,
+      "sha256": "f3dc8e3d0e2e3f575d4bc7064ff913b0a6def4b20bba936abcae239f361ac874",
       "level": "builtin",
       "protocol": "tcp",
       "physicalEntryCount": 1,

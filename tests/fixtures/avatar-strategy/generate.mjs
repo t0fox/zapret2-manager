@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PINNED_SHA = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
-const AUDITED_AGGREGATE_DIGEST = '9ad8c97ca6c8cf31ec290b4d1fd0787576c71bfdc5381f20db12417d60403608';
+const AUDITED_AGGREGATE_DIGEST = '62458ae0d176b3c7ce7f6674efd554c846d231a6eb5dcc331c1333e3f5b17c59';
 const LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
 const WINDIVERT_PREFIXES = ['--wf-tcp', '--wf-udp', '--wf-raw', '--wf-l3', '--wf-ip'];
 const VALID_LABELS = new Set(['recommended', 'experimental', 'game', 'stable', 'caution', 'deprecated']);

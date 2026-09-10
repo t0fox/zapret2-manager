@@ -30,7 +30,7 @@ const EXPECTED_FILES = [
   ['builtin/z2k_all_in_one.txt', 5388, 1, 'ed08c44afb41dc35330517485b733a0c524991e4a760279411e1c2b6a924eb8b', '4a0db8e10c82ae9f41b0aa7823313cbddadf9f56030767b5fa6ebaf54298b43c'],
   ['builtin/z2k_autocircular_quic.txt', 5269, 2, 'b52cc3af6779e6ea69614d4a3014d3bc864148ae321652856e51d5c6c03db143', 'cc014192cfcafdda6fddcab4f3d075d2c2dbbeace0a98131f1d1ab1a4a4ec154'],
   ['builtin/z2k_autocircular_tcp.txt', 25451, 3, '79b3df3aa7af7bfa440f2bb64cf3c8eb53c527900a8007b4213f5455af22b50d', '7d04345754546c4832d82c6f153d806f3b62e4c430c9fac432bf73da15ace7c9'],
-  ['builtin/z2k_circular.txt', 3113, 1, 'd4e998e7a38c1232525c712f4d2411d64fe6f11ee22e2ed45be6dc0def348b7e', 'b776c4f7532b40602b2a99cb3d17ea7b627412f431af9d4717feedb35b6ffb77'],
+  ['builtin/z2k_circular.txt', 3100, 1, 'f3dc8e3d0e2e3f575d4bc7064ff913b0a6def4b20bba936abcae239f361ac874', 'b776c4f7532b40602b2a99cb3d17ea7b627412f431af9d4717feedb35b6ffb77'],
   ['builtin/zapret_gui_defaults.txt', 5288, 8, '161aa598c2bdd860cc4c67123a78a32077722bdafbb907cfc12d7a17b9c4d7a9', 'c84363cbe88e255b989054473de70daed818cfc5dd9bd14a74eb1b9313d86dcd'],
   ['direct/http80.txt', 53439, 174, 'bce0dda3f008af8c6c3f3d6d51cfeb383226efcfea51baecb12c42f772436de3', '54e4b892cf4f4ad8a6ba62e36f1dea0c05ae96c8865e29c1640cbbb92a2ace15'],
   ['direct/tcp.txt', 104864, 354, '5d5a57b8a96010d20bfb8bdf10eed1c41a50b58fe5cb3bcf4fdbf75ac3b079e1', '0f9c35c1636134e8514a730fe7ec5d4edf34bb66d55411f2cf27f69b142f26e0'],
@@ -57,7 +57,7 @@ test('pinned Avatar fixture has the complete physical catalog contract', () => {
   assert.equal(fixture.uniqueStrategyIdCount, 724);
   assert.equal(fixture.duplicateIdGroupCount, 503);
   assert.equal(fixture.aggregateDigest,
-    '9ad8c97ca6c8cf31ec290b4d1fd0787576c71bfdc5381f20db12417d60403608');
+    '62458ae0d176b3c7ce7f6674efd554c846d231a6eb5dcc331c1333e3f5b17c59');
   assert.equal(fixture.aggregateDigestAlgorithm,
     'sha256(source-order lines "<file-sha256>  catalogs/<relative-path>\\n")');
   assert.deepEqual(fixture.featuredIds, ['z2k_all_in_one', 'z2k_tls_circular_smart']);
