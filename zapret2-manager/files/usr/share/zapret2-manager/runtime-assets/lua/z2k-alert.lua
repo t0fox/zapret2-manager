@@ -1563,7 +1563,6 @@ end
 
 -- ----------------------------------------------------------------------------
 -- z2k_silent_drop_detector — packet-count-based detection of silent ТСПУ drop.
--- Ported from github.com/ALFiX01/GoodbyeZapret/blob/main/Project/bin/lua/silent-drop-detector.lua
 --
 -- Идея: ТСПУ может silent-drop'ать pakets без отправки RST/FIN/Alert. У нас
 -- content-based детекторы (z2k_tls_alert_fatal, z2k_*_mid_stream_stall) этот
