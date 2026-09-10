@@ -94,7 +94,7 @@ test('strategyOptionsForPool derives pool size from unique strategy indices when
   };
   const options = model.strategyOptionsForPool('sized_pool', 1, pools);
   assert.equal(options.length, 3);
-  assert.deepEqual(options.map((o) => o.name), ['One', 'Two', 'Three']);
+  assert.deepEqual(JSON.parse(JSON.stringify(options.map((o) => o.name))), ['One', 'Two', 'Three']);
 });
 
 test('strategyOptionsForPool honors an explicit size larger than the unique strategy count', () => {
@@ -137,7 +137,7 @@ test('strategyOptionsForPool marks the option matching currentStrategy as select
   const model = loadModel();
   const pools = { basic_pool: { key: 'basic_pool', size: 3 } };
   const options = model.strategyOptionsForPool('basic_pool', 2, pools);
-  assert.deepEqual(options.map((o) => o.selected), [false, true, false]);
+  assert.deepEqual(JSON.parse(JSON.stringify(options.map((o) => o.selected))), [false, true, false]);
 });
 
 // --- resolveStrategyName -------------------------------------------------

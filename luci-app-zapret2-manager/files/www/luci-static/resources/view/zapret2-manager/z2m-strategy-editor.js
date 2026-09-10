@@ -537,14 +537,6 @@ return baseclass.extend({
         preview.dataset.operation = 'preview';
         hosts.previewActionsHost.appendChild(preview);
       }
-      if (ctx && ctx.api && ctx.api.strategies && ctx.api.strategies.test) {
-        var testButton = element(document, 'button', 'btn btn-ghost', 'Тестировать');
-        testButton.type = 'button';
-        testButton.dataset.action = 'editorTest';
-        hosts.actionsHost.insertBefore(testButton, hosts.actionsHost.lastChild);
-      } else {
-        (hosts.previewActionsHost || hosts.actionsHost).appendChild(element(document, 'span', 'ide-capability-note', 'Временный тест недоступен; используйте проверку и превью.'));
-      }
     }
     function render() {
       strategy = editorState.strategy;

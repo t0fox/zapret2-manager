@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager-full
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=156
+PKG_RELEASE:=163
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKG_FLAGS:=nonshared
@@ -26,8 +26,7 @@ define Package/zapret2-manager-full
   CATEGORY:=Network
   SUBMENU:=DPI bypass
   TITLE:=Complete Zapret2 Manager backend and LuCI
-  DEPENDS:=@TARGET_mediatek_filogic +ucode +ucode-mod-fs +ucode-mod-io +ucode-mod-socket +ucode-mod-uloop +luci-base +kmod-nfnetlink-queue +kmod-nft-queue +ncat +flock +uclient-fetch +ca-bundle +unzip +jsonfilter +libjson-c
-  PROVIDES:=zapret2-manager luci-app-zapret2-manager
+  DEPENDS:=@TARGET_mediatek_filogic +ucode +ucode-mod-fs +ucode-mod-io +ucode-mod-socket +ucode-mod-uloop +luci-base +kmod-nfnetlink-queue +kmod-nft-queue +flock +uclient-fetch +ca-bundle +jsonfilter +libjson-c
   PKG_FLAGS:=nonshared
 endef
 
@@ -68,11 +67,6 @@ define Build/Compile
 		-o $(PKG_BUILD_DIR)/z2m-root-bootstrap
 	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
 		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
-		$(PKG_BUILD_DIR)/backend-src/z2m-scanner-firewall-helper.c \
-		$(TARGET_LDFLAGS) -ljson-c \
-		-o $(PKG_BUILD_DIR)/z2m-scanner-firewall-helper
-	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
-		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
 		$(PKG_BUILD_DIR)/backend-src/z2m-helperd/z2m-helperd.c \
 		$(PKG_BUILD_DIR)/backend-src/z2m-helperd/transport.c \
 		$(PKG_BUILD_DIR)/backend-src/z2m-helperd/supervise.c \
@@ -96,7 +90,6 @@ define Package/zapret2-manager-full/install
 	chmod 0644 $(1)/usr/share/rpcd/ucode/*.uc
 	find $(1)/usr/share/zapret2-manager -type f -exec chmod 0644 {} +
 	chmod 0644 $(1)/etc/zapret2-manager/*.json
-	chmod 0640 $(1)/etc/zapret2-manager/ipset/*.txt
 	chmod 0600 $(1)/etc/zapret2-manager/state.json
 	chmod 0644 $(1)/usr/share/luci/menu.d/*.json
 	chmod 0644 $(1)/usr/share/rpcd/acl.d/*.json
@@ -104,7 +97,6 @@ define Package/zapret2-manager-full/install
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-root-bootstrap $(1)/usr/libexec/zapret2-manager/z2m-root-bootstrap
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-scanner-firewall-helper $(1)/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-helperd $(1)/usr/libexec/zapret2-manager/z2m-helperd
 endef
 
@@ -112,10 +104,10 @@ define Package/zapret2-manager-full/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
 # One deterministic lifecycle for the self-contained package: persistent
-# roots, strategy state and catalog migration, LuCI cache invalidation, one
-# rpcd reload, one manager restart, then bounded runtime evidence. Migration
-# failures remain visible and never replace verified legacy state with a
-# partial generation.
+# roots, strategy state and the verified catalog read index, LuCI cache
+# invalidation, one rpcd reload, one manager restart, then bounded runtime
+# evidence. An existing unified generation remains authoritative; a clean
+# install materializes the package-owned index directly.
 /usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
 if [ ! -e /etc/zapret2-manager/strategies ] && [ ! -L /etc/zapret2-manager/strategies ]; then
   mkdir -p /etc/zapret2-manager/strategies || exit $$?
@@ -132,31 +124,13 @@ if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-mana
   mv -f "$$strategy_state_tmp" /etc/zapret2-manager/strategy-state.json || { rm -f "$$strategy_state_tmp"; exit 1; }
 fi
 rm -f /etc/zapret2-manager/catalog/repair-required
-migration_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-migration-cli.uc 2>/dev/null)"
-migration_ok=0
-index_path=/etc/zapret2-manager/catalog/strategy-catalog-index.json
-case "$$migration_out" in
-  *'"ok": true'*|*'"ok":true'*) migration_ok=1; rm -f /etc/zapret2-manager/catalog/migration-required ;;
-  *)
-    mkdir -p /etc/zapret2-manager/catalog
-    : > /etc/zapret2-manager/catalog/migration-required
-    logger -t zapret2-manager -p daemon.err "strategy catalog source migration unavailable; retaining verified legacy catalog"
-    ;;
-esac
-if [ "$$migration_ok" -eq 1 ] && [ ! -f "$$index_path" ]; then
-  migration_ok=0
-fi
 index_ok=0
-if [ "$$migration_ok" -eq 1 ]; then
-  index_ok=1
-else
-  for attempt in 1 2; do
-    index_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-index-cli.uc 2>/dev/null)"
-    case "$$index_out" in
-      *'"written": true'*|*'"written":true'*) index_ok=1; break ;;
-    esac
-  done
-fi
+for attempt in 1 2; do
+  index_out="$$(/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-index-cli.uc 2>/dev/null)"
+  case "$$index_out" in
+    *'"written": true'*|*'"written":true'*) index_ok=1; break ;;
+  esac
+done
 if [ "$$index_ok" -ne 1 ]; then
   mkdir -p /etc/zapret2-manager/catalog
   : > /etc/zapret2-manager/catalog/repair-required

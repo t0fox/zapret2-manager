@@ -82,7 +82,7 @@ function z2kValue() {
       releaseName: 'Z2K r-80.2',
       releaseBody: 'Исправления списков и detector assets.',
       installable: true,
-      changes: { modified: 2, added: 1, removed: 0 },
+      deviceChanges: { modified: 2, added: 1, removed: 0 },
       operation: 'upgrade',
     },
   };
@@ -140,6 +140,11 @@ test('Z2K UI owns catalog/detail/prepare lifecycle and does not promote advisory
   assert.match(maintenanceSource, /versionDetails/);
   assert.match(maintenanceSource, /prepareVersion/);
   assert.match(maintenanceSource, /confirmAction/);
-  assert.match(maintenanceSource, /!component\.catalog\s*\|\|\s*!component\.catalog\.length/);
-  assert.doesNotMatch(maintenanceSource, /advisoryReviews\.join/);
+  assert.doesNotMatch(maintenanceSource, /legacyCatalogFallback/);
+  const dependencySummary = maintenanceSource.slice(
+    maintenanceSource.indexOf('function renderZ2KDependencySummary'),
+    maintenanceSource.indexOf('function renderZ2KCompiledDependencySummary')
+  );
+  assert.match(dependencySummary, /advisoryReviews\.join/,
+    'advisory review evidence belongs only in the technical dependency details');
 });

@@ -17,11 +17,10 @@ owner boundaries:
 
 - [Архитектура](../02-architecture/index.md)
 - [Контракты](../04-contracts/index.md)
-- [Паритет Avatar и Z2K](../05-parity/index.md)
 - [Архитектурные решения](../07-decisions/index.md)
 - [Процесс работы со знаниями](./knowledge-workflow.md)
 
-Runtime ownership: Strategy владеет permanent Apply, typed Detect Scanner
+Runtime ownership: Strategy владеет permanent Apply, Z2K Detect возвращает typed
 возвращает evidence без второго lifecycle, DNS сохраняет existing writer, а
 Telegram Proxy и WARP имеют отдельные lifecycle owners.
 
@@ -30,7 +29,6 @@ Telegram Proxy и WARP имеют отдельные lifecycle owners.
 - [Архитектура Z2M](./architecture.md)
 - [Владение runtime](./runtime-ownership.md)
 - [Жизненный цикл Strategy](./strategy-lifecycle.md)
-- [Архитектура Scanner](./scanner-architecture.md)
 - [Интеграция Z2K и Avatar](./z2k-avatar-integration.md)
 - [Модель ресурсов и assets](./resource-asset-model.md)
 - [API и RPC](./api-rpc.md)

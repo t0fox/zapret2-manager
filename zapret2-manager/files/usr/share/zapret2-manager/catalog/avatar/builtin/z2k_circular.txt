@@ -14,7 +14,7 @@
 #     бакет ротации, а не плодят состояние по dest-IP.
 #
 # Стратегия самодостаточна: только встроенные блобы (fake_default_tls/http)
-# и hex-паттерны seqovl — без --blob и init_vars. state.tsv (выученная
+# и hex-паттерны seqovl — без --blob. state.tsv (выученная
 # стратегия) сохраняется автоматически через z2k-state-persist.
 
 [z2k_tls_circular_smart]

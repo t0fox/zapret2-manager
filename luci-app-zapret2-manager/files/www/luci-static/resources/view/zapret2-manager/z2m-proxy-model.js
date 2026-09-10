@@ -89,8 +89,7 @@ function draft(baseline, next) {
     blocker: null,
     changes: {
       settings: { label: 'Настройки Telegram Proxy', before: before, after: after }
-    },
-    advanced: { expectedRevision: baseline.revision !== undefined ? baseline.revision : object(baseline.config).revision }
+    }
   };
 }
 function activity(rows, limit) {

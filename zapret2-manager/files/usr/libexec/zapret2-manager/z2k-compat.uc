@@ -2,11 +2,6 @@
 import { readfile, stat, popen } from 'fs';
 import { z2k_candidate_compatibility_identity_valid } from './z2k-coherent-candidate.uc';
 
-function fail(code, message, details) {
-  let v = { ok: false, error: { code: code, message: message } };
-  if (details != null) v.error.details = details;
-  return v;
-}
 function text(v) { return v == null ? '' : '' + v; }
 function shell_quote(v) {
   let out = "'", raw = text(v);
@@ -39,10 +34,6 @@ function is_compatible_raw(raw) {
 
 // Shared candidate gate — authority is the staged bytes.
 // Order: 1) exists/regular 2) actual SHA 3) actual==expected 4) semantics
-export const z2k_state_persist_compat_raw = function(raw) {
-  return is_compatible_raw(raw);
-};
-
 export const z2k_candidate_gate = function(sourcePath, candidatePath, expectedSha256) {
   if (type(sourcePath) != 'string' || length(sourcePath) == 0) return { ok: false, status: 'review-required', error: { code: 'EINPUT', message: 'invalid sourcePath' }, sourcePath: sourcePath, expectedSha256: expectedSha256, actualSha256: null };
   if (type(candidatePath) != 'string' || !regular(candidatePath)) return { ok: false, status: 'review-required', error: { code: 'EINPUT', message: 'candidate not found or not regular file' }, sourcePath: sourcePath, expectedSha256: expectedSha256, actualSha256: null };

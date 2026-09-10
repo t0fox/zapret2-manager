@@ -14,45 +14,29 @@ const between = (source, start, end) => {
   return source.slice(from, to === -1 ? source.length : to);
 };
 
-test('PERF-2 scanner polling updates local state without a route refresh', () => {
+test('PERF-2 Z2K Detect page hydrates status and discovery without legacy scanner polling', () => {
   const source = ui('z2m-scanner.js');
-  const polling = between(source, 'function schedule(ctx)', 'function load(ctx)');
-  assert.doesNotMatch(polling, /refresh\(ctx\)|ctx\.refresh\(['"]scan['"]\)/,
-    'scanner status polling must not reload the route');
-  assert.match(polling, /rerender|renderActive|renderAll/i,
-    'scanner polling must publish local state to the current view');
+  const load = between(source, 'function load(ctx)', 'function icon');
+  assert.match(load, /ctx\.api\.z2kDetectStatus\(\)/,
+    'the visible Detect page must hydrate its canonical readiness state');
+  assert.match(load, /loadDiscovery\(ctx, generation\)/,
+    'the visible Detect page must hydrate its discovery state');
+  assert.doesNotMatch(source, /function schedule\(ctx\)/,
+    'the retired scanner polling surface must not return');
+  const start = between(source, 'function start(ctx, controls)', 'function renderEvidence');
+  assert.match(start, /state\.status\s*=\s*\{ status: 'running'/,
+    'manual Detect runs must publish local progress before the bounded RPC');
+  assert.match(start, /ctx\.rerender\(\)|refresh\(ctx\)/,
+    'manual Detect runs must update the current visible view');
 });
 
-test('PERF-2 services polling uses one runStatus result and local rerender', () => {
+test('PERF-2 Services uses one bounded Detect probe per health check', () => {
   const source = ui('z2m-services.js');
-  const polling = between(source, 'function pollServiceRun(ctx, id)', 'function serviceProtocols');
-  assert.equal((polling.match(/runStatus/g) || []).length, 1,
-    'services polling must have one authoritative orchestra.runStatus read');
-  assert.doesNotMatch(polling, /ctx\.refresh\(['"]services['"]\)/,
-    'non-terminal service polling must not reload the full route');
-  assert.match(polling, /localRerender\(ctx\)/, 'service status changes must rerender locally');
-});
-
-test('PERF-2 secondary strategy workflows poll locally without route reloads', () => {
-  const auto = ui('z2m-auto.js');
-  const runs = ui('z2m-runs.js');
-  const workflow = ui('z2m-strategy-workflow-core.js');
-  const autoPoll = between(auto, 'function schedulePoll(ctx, auto)', 'function mutationError');
-  const runsPoll = between(runs, 'function poll(ctx)', 'function mutation(ctx');
-  const runsApplyPoll = between(runs, 'function pollApply(ctx)', 'function candidateRows');
-  const orchestraPoll = between(workflow, 'function poll(ctx, runId)', 'function mount(ctx)');
-  for (const source of [auto, runs, workflow])
-    assert.match(source, /function localRerender\(ctx\)[\s\S]*ctx\.rerender/,
-      'secondary strategy workflow must expose the app local rerender bridge');
-  for (const [name, source] of [['auto', autoPoll], ['runs', runsPoll], ['runs-apply', runsApplyPoll], ['orchestra', orchestraPoll]]) {
-    assert.match(source, /localRerender\(ctx\)/, `${name} polling must publish local state`);
-    assert.doesNotMatch(source, /ctx\.refresh\(['"]strategy['"]\)/,
-      `${name} polling must not reload the full strategy route`);
-  }
-  assert.match(autoPoll, /catch\(function \(error\) \{[\s\S]*localRerender\(ctx\)/,
-    'auto polling errors must reach the live UI');
-  assert.match(runsPoll, /state\.pollWarning[\s\S]*localRerender\(ctx\)/,
-    'run polling errors must reach the live UI');
+  assert.doesNotMatch(source, /orchestra|runStart|runStatus|runId|setTimeout/);
+  assert.match(source, /ctx\.api\.z2kDetectProbe\(domain, 6000\)/);
+  assert.match(source, /function probeDomain\(service\)/);
+  assert.match(source, /EDETECT_SCHEMA/);
+  assert.doesNotMatch(source, /Посмотреть диагностику/);
 });
 
 test('PERF-2 Telegram navigation is local-first and releases mutation busy before enrichment', () => {
@@ -102,7 +86,8 @@ test('PERF-2 Control readiness retries status only and never events_tail', () =>
     'readiness confirmation must not repeat the combined logs read');
   assert.doesNotMatch(confirm, /eventsTail/,
     'readiness confirmation must be status-only');
-  assert.match(fetch, /statusFast|service\.status/);
+  assert.match(fetch, /statusFast/);
+  assert.doesNotMatch(fetch, /service\.status\b/);
 });
 
 test('PERF-2 diagnostics defers upstream Telegram health behind local cards', () => {
@@ -224,7 +209,7 @@ test('PERF-2 benchmark harness exposes bounded browser-lane scenarios', () => {
   for (const scenario of [
     'dashboard-cold', 'dashboard-revisit', 'strategies-navigation', 'strategy-apply',
     'telegram-navigation', 'telegram-start', 'telegram-stop', 'telegram-restart',
-    'telegram-health-action', 'dns-navigation', 'services-check', 'scanner-polling',
+    'telegram-health-action', 'dns-navigation', 'services-check',
     'components-navigation', 'diagnostics-navigation', 'logs-navigation', 'contention'
   ])
     assert.match(source, new RegExp(`(?:['"]${scenario}['"]|\\b${scenario}\\s*:)`));

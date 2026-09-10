@@ -56,8 +56,6 @@ function decorateSemantic(asset, indexes) {
 }
 
 var USER_KINDS = { 'imported': true, 'user-created': true };
-// System kinds are everything else except we treat generated separately (not auto-user)
-var PACKAGE_IDS = { 'package-baseline': true, 'package': true };
 
 function isUserKind(kind) {
 	return kind === 'imported' || kind === 'user-created';
@@ -114,13 +112,6 @@ function z2kUpdateState(value) {
 	value = object(value);
 	var runtime = canonicalSummary(value.runtimeSummary);
 	return UpdatePresentation.normalize(value.updateState || value.status || value.state || runtime && runtime.updateState);
-}
-
-function releaseValue(value) {
-	if (value && typeof value === 'object' && !Array.isArray(value)) {
-		return text(value.value || value.version || value.release);
-	}
-	return text(value);
 }
 
 function canonicalZ2kGroupState(summary) {
@@ -211,11 +202,9 @@ function buildStrategySourceCards(value) {
 	return cards;
 }
 
-function buildModel(resources, assets, opts) {
+function buildModel(resources, assets) {
 	resources = object(resources);
 	assets = object(assets);
-	opts = object(opts);
-	var advanced = opts.advanced === true;
 	var z2k = object(resources.z2k || resources.component);
 	var runtimeSummary = canonicalSummary(z2k.runtimeSummary) || canonicalSummary(resources.runtimeSummary) || canonicalSummary(object(z2k.local).runtimeSummary);
 	var fallbackClosure = canonicalSummary(z2k.dependencyClosure) || {};
@@ -253,7 +242,8 @@ function buildModel(resources, assets, opts) {
 	var groups = [];
 	for (var si = 0; si < sources.length; si++) {
 		var src = sources[si];
-		var isPackage = PACKAGE_IDS[src.id] || src.kind === 'package';
+		// Package-baseline is an internal registry authority, not a Resource Center surface.
+		if (src.id === 'package-baseline' || src.kind === 'package') continue;
 		var group = {
 			id: src.id,
 			label: src.label,
@@ -264,8 +254,6 @@ function buildModel(resources, assets, opts) {
 			assets: [],
 			counts: {},
 			total: 0,
-			hiddenBasic: isPackage,
-			isTechnical: isPackage,
 			state: 'current',
 			bundleUpdateState: null,
 			bundlePresentation: null,
@@ -286,8 +274,7 @@ function buildModel(resources, assets, opts) {
 		assets: [],
 		counts: {},
 		total: 0,
-		hiddenBasic: false,
-		state: 'current'
+			state: 'current'
 	};
 	// Keep user group separate but include in groups for summary? We will add at end
 	groupsById['user'] = userGroup;
@@ -383,13 +370,12 @@ function buildModel(resources, assets, opts) {
 		// Use provenance.source as repo
 		assignAsset(reg, hint, regProv);
 		// If not assigned and is user kind, force user (assignAsset already handles)
-		// If still not assigned and kind is builtin/package, it should go to package-baseline
-		if (!seen[regId]) {
-			var knd = text(regProv.kind);
-			if (knd === 'builtin/package' && byId['package-baseline']) {
-				groupsById['package-baseline'].assets.push(reg);
-				seen[regId] = true;
-			} else if (!isUserKind(knd) && knd === 'catalog/upstream') {
+			// Package-owned assets are internal registry state and are not a user resource.
+			if (!seen[regId]) {
+				var knd = text(regProv.kind);
+				if (knd === 'builtin/package') {
+					seen[regId] = true;
+				} else if (!isUserKind(knd) && knd === 'catalog/upstream') {
 				// Try repository fallback again with more lenient matching
 				var r = text(regProv.source) || text(regProv.repository);
 				if (r) {
@@ -432,7 +418,6 @@ function buildModel(resources, assets, opts) {
 
 	// Derive counts and state per group
 	var visibleGroups = [];
-	var hiddenGroups = [];
 	var summary = { total: 0, system: 0, user: 0, state: 'current', stateLabel: humanStateLabel('current'), updateCallout: null };
 	var maxSummaryRank = -1;
 
@@ -466,11 +451,7 @@ function buildModel(resources, assets, opts) {
 	for (var gi = 0; gi < groups.length; gi++) {
 		var g = groups[gi];
 		updateGroupMetrics(g);
-		if (g.hiddenBasic) {
-			hiddenGroups.push(g);
-		} else {
-			visibleGroups.push(g);
-		}
+		visibleGroups.push(g);
 	}
 	updateGroupMetrics(userGroup);
 	// User group is always visible but may be empty; include in visibleGroups at end
@@ -514,7 +495,6 @@ function buildModel(resources, assets, opts) {
 	return {
 		summary: summary,
 		groups: visibleGroups,
-		hiddenGroups: hiddenGroups,
 		allGroups: groups.concat([userGroup]),
 		userGroup: userGroup,
 		z2k: z2k,

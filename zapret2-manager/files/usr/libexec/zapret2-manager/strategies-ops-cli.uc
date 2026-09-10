@@ -2,9 +2,8 @@
 'use strict';
 
 import { readfile } from 'fs';
-import { strategies_state, strategies_state_clear, strategies_state_set, strategies_state_delete,
-	strategies_pools, strategies_cleanup_deprecated,
-	strategies_debug_get, strategies_debug_set,
+import { strategies_state, strategies_state_clear, strategies_state_set,
+	strategies_pools,
 	healthcheck_status_rpc, healthcheck_run_rpc, healthcheck_enable_rpc,
 	healthcheck_disable_rpc, healthcheck_config_rpc } from './strategies-ops.uc';
 import { strategy_catalog_source_status, strategy_catalog_update } from './strategy-catalog-update.uc';
@@ -22,11 +21,7 @@ let mode = ARGV[0], input = request_file(ARGV[1]), result = null;
 if (mode == 'state') result = strategies_state();
 else if (mode == 'state-clear') result = strategies_state_clear(input);
 else if (mode == 'state-set') result = strategies_state_set(input);
-else if (mode == 'state-delete') result = strategies_state_delete(input);
 else if (mode == 'pools') result = strategies_pools();
-else if (mode == 'cleanup-deprecated') result = strategies_cleanup_deprecated();
-else if (mode == 'debug-get') result = strategies_debug_get();
-else if (mode == 'debug-set') result = strategies_debug_set(input);
 else if (mode == 'health-status') result = healthcheck_status_rpc();
 else if (mode == 'health-run') result = healthcheck_run_rpc(input);
 else if (mode == 'health-enable') result = healthcheck_enable_rpc(input);

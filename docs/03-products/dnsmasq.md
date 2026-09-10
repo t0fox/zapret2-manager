@@ -7,20 +7,19 @@ authority: canonical
 updated: 2026-08-22
 publish: true
 tags: [technology, dns, dnsmasq]
-code: [zapret2-manager/files/usr/libexec/zapret2-manager/dns-product.uc#dns_product_apply]
+code: [zapret2-manager/files/usr/libexec/zapret2-manager/dns-product.uc#dns_product_validate]
 ---
 
 # DNS и dnsmasq
 
-DNS product facade объединяет overrides, global routing и service-DNS, но
-сохраняет existing dnsmasq writer как единственного владельца записи.
+DNS product facade объединяет состояние DNS и каталог провайдеров для видимого
+DNS UI, но сохраняет существующие writers как единственных владельцев записи.
 
-## Preview и Apply
+## Контракт
 
-`Preview` показывает exact result выбранного scope. `Validate` проверяет
-структуру и revision. `Apply` сначала сохраняет draft через соответствующий
-writer, затем запускает его canonical apply. Rollback доступен только при
-наличии подтверждённого snapshot.
+`Get` и `Status` читают сводное состояние, а `Validate` проверяет структуру и
+revision. Изменения проходят через владельца соответствующего scope: DNS
+overrides, global routing, service-DNS или provider catalog.
 
 Ошибки должны сохранять structured code: `dnsmasq unavailable`, invalid
 config, provider unreachable, timeout и external conflict — разные причины и

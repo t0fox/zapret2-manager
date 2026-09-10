@@ -34,13 +34,13 @@ test('Z2K compiler does not re-parse fragments after its post-transform validati
 	const compiler = readFileSync(path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
 		'zapret2-manager', 'strategy-compiler.uc'), 'utf8');
 	const apply = readFileSync(path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
-		'zapret2-manager', 'profiles-apply.uc'), 'utf8');
+		'zapret2-manager', 'strategy-apply-runtime.uc'), 'utf8');
 
 	assert.match(compiler, /validate_fragment\(fragments\[i\], enabled\[i\]\.id, false\)/,
 		'compiler must retain its post-transform structural validation');
-	assert.match(compiler, /profiles_render_candidate\(drafts, true\)/,
+	assert.match(compiler, /strategy_render_candidate\(drafts, true\)/,
 		'compiler must use the validated renderer after that proof');
-	assert.match(apply, /profiles_render_candidate = function\(profiles, alreadyValidated\)/,
+	assert.match(apply, /strategy_render_candidate = function\(profiles, alreadyValidated\)/,
 		'renderer must expose an explicit internal validated path');
 	assert.match(apply, /alreadyValidated !== true/,
 		'renderer validation bypass must require an explicit trusted flag');

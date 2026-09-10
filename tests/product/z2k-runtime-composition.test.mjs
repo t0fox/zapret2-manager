@@ -125,7 +125,6 @@ test('canonical runtime composition module exposes the five planned lifecycle fu
   assert.match(source, /runtimeAssets/);
   assert.match(source, /luaInit/);
   assert.match(source, /dependencyIndex/);
-  assert.match(source, /scannerOverlay/);
 });
 
 test('candidate preparation can bind the final plan token after composing membership', () => {
@@ -444,7 +443,7 @@ test('runtime CLI keeps candidate and installed materialization distinct and pos
   assert.doesNotMatch(source, /export\s+const/);
   assert.match(source, /runtime-composition-api\.uc/);
   assert.match(api, /export const runtime_composition_cli_dispatch/);
-  for (const consumer of ['candidate-materialize', 'installed-materialize', 'scanner', 'install-proof', 'postflight'])
+  for (const consumer of ['candidate-materialize', 'installed-materialize', 'install-proof', 'postflight'])
     assert.match(api, new RegExp(consumer));
   assert.match(api, /resolveCandidate\(input\.preparedTarget/);
   assert.match(api, /resolveInstalled\(input\)/);
@@ -478,8 +477,8 @@ test('runtime CLI activation output resolves a lifecycle asset on the router UCo
   try {
     const result = invokeCli(`cli.runtime_composition_cli_activation_output(${JSON.stringify({
       snapshotId: HASH('s') + '|rows\nasset|newline', compositionSnapshotId: HASH('p') + '|composition\nrow', membershipDigest: HASH('x'),
-      runtimeAssets: [entry], luaInit: [entry], scannerOverlay: [],
-    })}, false)`, {
+      runtimeAssets: [entry], luaInit: [entry],
+    })})`, {
       Z2M_UPDATE_SOURCE_TEST: '1',
       Z2M_ASSET_REGISTRY_STATE: registryPath,
     });
@@ -520,8 +519,8 @@ test('runtime CLI accepts semantic hostlist entries backed by Registry blob asse
   try {
     const result = invokeCli(`cli.runtime_composition_cli_activation_output(${JSON.stringify({
       snapshotId: HASH('s'), compositionSnapshotId: HASH('p'), membershipDigest: HASH('x'),
-      runtimeAssets: [entry], luaInit: [], scannerOverlay: [],
-    })}, false)`, {
+      runtimeAssets: [entry], luaInit: [],
+    })})`, {
       Z2M_UPDATE_SOURCE_TEST: '1',
       Z2M_ASSET_REGISTRY_STATE: registryPath,
     });

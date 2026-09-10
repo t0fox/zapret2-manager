@@ -7,13 +7,13 @@
 // (/usr/libexec/zapret2-manager/catalog/services.json). Mutations target
 // ONLY domainInclude (path from lists-model.json) through the sanctioned
 // apply.uc list writer. The ownership ledger lives in state.json `catalog`
-// (preserved by profiles-draft). Non-domainInclude mechanisms are REPORTED
+// (preserved by manager-state). Non-domainInclude mechanisms are REPORTED
 // as unsupported, never applied. proxyRoute/unsupportedGeo are never
 // pretended to be supported.
 
 import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { read_list_file, write_list_file } from './apply.uc';
-import { load_state, save_state } from './profiles-draft.uc';
+import { load_state, save_state } from './manager-state.uc';
 import { PATHS } from './constants.uc';
 import { append_ndjson, event_id } from './events.uc';
 
@@ -474,15 +474,6 @@ function verify_after_apply(desired, fileEntriesAfter, preview) {
 	return { ok: (length(mismatches) == 0), mismatches: mismatches };
 }
 
-// ---------------------------------------------------------------------------
-// public API
-// ---------------------------------------------------------------------------
-function support_status(lc) {
-	// catalog validity gates everything (fail-closed)
-	if (!lc.ok) return { valid: false, errors: lc.errors };
-	return { valid: true, errors: [] };
-}
-
 // ---- export aliases for the health-matrix slice (same catalog reader and
 // ledger — there is no second catalog implementation in the tree) ---------
 export const cat_load = load_catalog;
@@ -515,17 +506,6 @@ export const catalog_list = function() {
 		stale: lc.staleServices,
 		overlaps: lc.overlaps
 	};
-};
-
-export const catalog_get = function(input) {
-	let id = (type(input) == 'object' && input != null) ? input.id : null;
-	if (type(id) != 'string') return err('EINPUT', 'missing id');
-	let lc = load_catalog();
-	if (!lc.ok) return err('ETARGET', 'catalog is invalid', { errors: lc.errors });
-	for (let i = 0; i < length(lc.doc.services); i++) {
-		if (lc.doc.services[i].id == id) return { ok: true, service: lc.doc.services[i] };
-	}
-	return err('ESTATE', 'no service with id ' + id);
 };
 
 export const catalog_status = function() {

@@ -128,13 +128,12 @@ function normalizeEngine(input) {
 	var installedVersion = versionFrom(check.installed)
 		|| first(check.installedRelease, null)
 		|| first(status.installedRelease || status.packageVersion, null);
-	var artifactKind = first(status.artifactKind || status.artifact || (status.patchSeries && status.patchSeries.length ? 'legacy-compatibility-build' : null), null);
+	var artifactKind = first(status.artifactKind || status.artifact, null);
 	var availableVersion = versionFrom(check.available) || first(check.availableRelease || check.latestRelease || check.latestVersion, null);
 	if (availableVersion === null && !remoteBlocked) availableVersion = versionFrom(status.available) || versionFrom(catalog.available) || versionFrom(candidate) || versionFrom(catalogCandidate);
 	var installedIdentity = { version: installedVersion, artifactKind: artifactKind };
 	var updateState = engineUpdate(input, status);
-	var upstreamRelease = artifactKind === 'legacy-compatibility-build' ? null
-		: first(status.upstreamRelease || (artifactKind === 'vanilla-bol-van-release' ? installedVersion : null), null);
+	var upstreamRelease = first(status.upstreamRelease || (artifactKind === 'vanilla-bol-van-release' ? installedVersion : null), null);
 	var capabilities = object(status.capabilities);
   var capabilityReady = capabilities.ready !== undefined ? capabilities.ready : capabilities.available;
   var capabilityTotal = capabilities.total !== undefined ? capabilities.total : capabilities.required;
@@ -322,13 +321,9 @@ function normalizeZ2kDetails(value) {
       unknown: array(input.unknown)
     };
   }
-  var legacyChanges = value.changes || {};
-  var releaseChanges = normalizeChanges(value.releaseChanges || legacyChanges);
-  var installChanges = normalizeChanges(value.installChanges || value.changes || value.releaseChanges || {});
-  // deviceChanges is the canonical target-plan projection. Keep the older
-  // installChanges/changes fields as compatibility fallbacks for older RPC
-  // payloads, but never use release history as the preferred device source.
-  var deviceChanges = normalizeChanges(value.deviceChanges || value.installChanges || value.changes || {});
+  var releaseChanges = normalizeChanges(value.releaseChanges);
+  var installChanges = normalizeChanges(value.installChanges);
+  var deviceChanges = normalizeChanges(value.deviceChanges);
   var compareDiagnostics = value.compareDiagnostics && typeof value.compareDiagnostics === 'object' && !Array.isArray(value.compareDiagnostics)
     ? value.compareDiagnostics : null;
   return {
@@ -350,7 +345,6 @@ function normalizeZ2kDetails(value) {
     releaseChanges: releaseChanges,
     deviceChanges: deviceChanges,
     installChanges: installChanges,
-    changes: deviceChanges,
     compareUrl: first(value.compareUrl, null),
     compareDiagnostics: compareDiagnostics ? {
       requested: compareDiagnostics.requested === true,
@@ -422,12 +416,8 @@ function normalizeZ2k(input, engineReady) {
       ? 'Autocircular, detectors и расширения Zapret2.'
       : 'Z2K Core требует проверки целостности ресурсов.';
   } else {
-		// Legacy fallback: Lua counts alone are not a runtime verdict; readiness
-		// requires canonical V3/runtime/Detect coherence.
-    var legacyEvidence = z2kLuaEvidence(value);
     if (remoteStatus === 'broken' || remoteStatus === 'missing') healthState = remoteStatus;
-		else if (legacyEvidence) healthState = 'degraded';
-    else healthState = 'degraded';
+		else healthState = 'degraded';
     if (explicitHealth) {
       var claimed = health(explicitHealth, 'degraded');
       var severity = { ready: 0, degraded: 1, broken: 2, missing: 3 };

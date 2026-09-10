@@ -50,7 +50,7 @@ Every state snapshot has this exact top-level shape:
   exactly once; observation alone never increments it.
 - `generatedAt` is the snapshot timestamp.
 - `serviceState` is one of `engine_missing`, `running`, `stopped`, `partial`,
-  `error`, `paused`, or `passthrough`.
+  `error`, or `paused`.
 - `runtime.processes` contains Process Identity objects.
 - `runtime.namespaces` contains Namespace Ownership objects.
 - `transactions` contains Transaction objects described below.

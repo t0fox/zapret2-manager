@@ -102,8 +102,8 @@ function flush() { return new Promise((resolve) => setTimeout(resolve, 0)); }
 test('Scanner product same-tab rerender preserves the child generation for typed Detect start', async () => {
   const { ctx, product, calls, probeGate } = makeScenario();
   const root = product.render(ctx);
-  const start = findNode(root, (value) => value.tag === 'button' && value.attrs.label === 'Начать сканирование');
-  assert.ok(start, 'product render must expose the Scanner start action');
+  const start = findNode(root, (value) => value.tag === 'button' && value.attrs.label === 'Запустить измерение');
+  assert.ok(start, 'product render must expose the Z2K Detect start action');
 
   start.callback();
   await flush();

@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -6,40 +7,38 @@ function read(rel) {
   return readFileSync(resolve(rel), 'utf8');
 }
 
-describe('Maintenance polish — Settings removal and Backup UX', () => {
+function expect(value) {
+  return {
+    toContain(expected) { assert.ok(value.includes(expected), `expected value to contain ${expected}`); },
+    toBe(expected) { assert.equal(value, expected); },
+    not: { toContain(expected) { assert.equal(value.includes(expected), false, `expected value not to contain ${expected}`); } }
+  };
+}
+
+describe('Maintenance polish — product-owned Backup UX', () => {
   const maintenance = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
   const navigation = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js');
 
-  it('Settings tab is hidden in visible subnav', () => {
-    expect(navigation).toContain("id: 'settings'");
-    // Must have hidden: true for settings
-    const settingsSection = navigation.slice(navigation.indexOf("id: 'settings'") - 100, navigation.indexOf("id: 'settings'") + 200);
-    expect(settingsSection).toContain('hidden: true');
-    // System group should still have only two visible items: components and backups
-    const systemGroup = navigation.slice(navigation.indexOf("id: 'system'"), navigation.indexOf("id: 'system'") + 800);
-    // Count visible (non-hidden) items in system group — should be 2, not 3
-    expect(systemGroup).toContain("id: 'components'");
-    expect(systemGroup).toContain("id: 'backups'");
+  it('navigation contains no hidden Settings or compatibility route', () => {
+    expect(navigation).not.toContain("id: 'settings'");
+    expect(navigation).not.toContain('hidden: true');
+    expect(navigation).not.toContain('ALIASES');
+    expect(navigation).toContain("id: 'components'");
+    expect(navigation).toContain("id: 'backups'");
   });
 
-  it('activePane maps /settings to components for compatibility', () => {
-    expect(maintenance).toContain("if (route === 'settings') return 'components'");
-    expect(maintenance).not.toContain("if (route === 'settings') return 'settings'");
+  it('maintenance owns only Components and Backups panes', () => {
+    expect(maintenance).not.toContain('renderSettings');
+    expect(maintenance).not.toContain("route === 'settings'");
+    expect(maintenance).toContain("if (route === 'backups') return 'backups'");
   });
 
-  it('Advanced toggle is available on Components as a simple row (not a separate section)', () => {
-    expect(maintenance).toContain('z2m-components-advanced-row');
+  it('Components does not expose a hidden advanced mode', () => {
+    expect(maintenance).not.toContain('z2m-components-advanced-row');
     expect(maintenance).not.toContain('z2m-components-section--advanced');
     expect(maintenance).not.toContain('z2m-advanced-block');
-    expect(maintenance).toContain('Расширенный режим');
-    expect(maintenance).toContain('Показывать технические данные и диагностические поля.');
-    // Must use existing store semantics
-    expect(maintenance).toContain('ctx.store.get().ui');
-    expect(maintenance).toContain('ctx.store.update');
-    expect(maintenance).toContain('ui.advanced');
-    // Must be inside renderComponents, not only renderSettings
-    const advancedRow = maintenance.slice(maintenance.indexOf('z2m-components-advanced-row') - 500, maintenance.indexOf('z2m-components-advanced-row') + 1000);
-    expect(advancedRow).toContain('switchControl');
+    expect(maintenance).not.toContain('Расширенный режим');
+    expect(maintenance).not.toContain('ui.advanced');
   });
 
   it('Backup top card uses Создать резервную копию and Создать полную копию', () => {
@@ -71,13 +70,9 @@ describe('Maintenance polish — Settings removal and Backup UX', () => {
     expect(maintenance).not.toContain("_('Восстановить этот архив')");
   });
 
-  it('manifestSha256 hidden when advanced=false, visible when advanced=true', () => {
-    expect(maintenance).toContain('var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced)');
-    expect(maintenance).toContain("(advanced && record.manifestSha256)");
-    expect(maintenance).toContain("'SHA-256: ' + record.manifestSha256.slice(0, 8)");
-    // Should not show full sha unconditionally
-    const shaLine = maintenance.slice(maintenance.indexOf('SHA-256:'), maintenance.indexOf('SHA-256:') + 200);
-    expect(shaLine).toContain('slice(0, 8)');
+  it('Backup rows do not expose internal manifest hashes', () => {
+    expect(maintenance).not.toContain('manifestSha256');
+    expect(maintenance).not.toContain('SHA-256:');
   });
 
   it('Backup list shows only 5 initially with Показать все / Скрыть старые', () => {

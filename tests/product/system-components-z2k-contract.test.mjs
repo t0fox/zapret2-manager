@@ -24,5 +24,4 @@ test('initial Resource Center status stays network-free while explicit check car
   assert.match(source, /manifestCurrent:\s*signed\.manifest\.current/);
   assert.match(source, /schema:\s*2/);
   assert.match(source, /preparedTarget/);
-  assert.match(source, /ELEGACY_LIFECYCLE/);
 });

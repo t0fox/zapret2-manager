@@ -11,7 +11,6 @@ var SCANNER_LOAD_WAIT_MS = 5000;
 var state = { activeTab: 'search', child: null, childContext: null, host: null, nav: null, root: null, ctx: null, history: [], detail: null, historyError: null };
 var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
 var DETECT_OPERATIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
-function operationNeedsTarget(operation) { return ['probe', 'classify', 'quic'].indexOf(operation) >= 0; }
 var DETECT_NUMERIC_BOUNDS = { port: { min: 1, max: 65535 }, repeats: { min: 1, max: 32 }, timeoutMs: { min: 1, max: 120000 } };
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -90,9 +89,8 @@ function historyStatusClass(item) {
 function humanDate(value) { var time = dateValue(value); return time ? new Date(time).toLocaleString() : _('Дата неизвестна'); }
 function historyTimestamp(item) { var normalized = normalizeDetectHistory(item); return normalized ? normalized.createdAt : null; }
 function historyTime(value) { var time = dateValue(value); return time ? new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : _('Время неизвестно'); }
-function diagnosticRecord() { return false; }
 function historySort(items) {
-  return array(items).map(normalizeDetectHistory).filter(function (item) { return !!item; }).sort(function (a, b) { return Number(diagnosticRecord(a)) - Number(diagnosticRecord(b)) || dateValue(historyTimestamp(b)) - dateValue(historyTimestamp(a)); });
+  return array(items).map(normalizeDetectHistory).filter(function (item) { return !!item; }).sort(function (a, b) { return dateValue(historyTimestamp(b)) - dateValue(historyTimestamp(a)); });
 }
 function historyGroupKey(value) { var time = dateValue(value); return time ? new Date(time).toISOString().slice(0, 10) : 'undated'; }
 function historyGroupLabel(key) {
@@ -108,7 +106,6 @@ function historyCounts(item) {
   var normalized = normalizeDetectHistory(item);
   return normalized ? normalized.operation.toUpperCase() + ' · ' + detectVerdict(normalized) : _('История недоступна');
 }
-function historyBest(record) { var normalized = normalizeDetectHistory(record); return normalized ? normalized.report.data : {}; }
 function historyDetailBody(ctx, record) {
   var normalized = normalizeDetectHistory(record);
   if (!normalized) return ctx.shell.statePanel({ title: _('История недоступна'), message: _('Запись не содержит подтверждённого результата Z2K Detect.'), kind: 'info' });
@@ -135,7 +132,7 @@ function childFor(tab) { return tab === 'search' ? Scanner : null; }
 function activeLabel(tab) { return (TABS.filter(function (item) { return item.id === tab; })[0] || TABS[0]).label; }
 function boundedChildLoad(child, ctx) {
   var work = child && child.load ? child.load(ctx) : Promise.resolve({});
-  return Promise.race([Promise.resolve(work), new Promise(function (resolve, reject) { window.setTimeout(function () { reject({ code: 'EDETECT_TIMEOUT', message: _('Загрузка Scanner превысила ограниченное время.') }); }, SCANNER_LOAD_WAIT_MS); })]);
+  return Promise.race([Promise.resolve(work), new Promise(function (resolve, reject) { window.setTimeout(function () { reject({ code: 'EDETECT_TIMEOUT', message: _('Загрузка Z2K Detect превысила ограниченное время.') }); }, SCANNER_LOAD_WAIT_MS); })]);
 }
 function historyList(ctx) {
   return Promise.resolve().then(function () {
@@ -173,12 +170,12 @@ function renderHistory(ctx) {
   state.history.forEach(function (item) { var key = historyGroupKey(historyTimestamp(item)); if (!groups[key]) { groups[key] = []; order.push(key); } groups[key].push(item); });
   var groupNodes = order.map(function (key) {
     var rows = groups[key].map(function (item) {
-      var request = object(item.request), debug = diagnosticRecord(item), started = historyTimestamp(item), action = ctx.shell.button(item.status === 'running' || item.status === 'probing' ? _('Открыть') : _('Подробнее'), 'sm', function () { openHistoryDetail(ctx, item, action); });
-      return E('article', { 'class': 'z2m-scanner-history-row', 'data-scanner-history-id': item.id }, [E('div', { 'class': 'z2m-scanner-history-icon' }, [icon(debug ? 'bug' : 'history')]), E('div', { 'class': 'z2m-scanner-history-main' }, [E('strong', {}, historyRequestLabel(request, item.operation)), E('span', {}, started ? historyTime(started) : _('Время неизвестно')), debug ? E('span', { 'class': 'z2m-scanner-debug-label' }, _('Диагностический запуск')) : null]), E('div', { 'class': 'z2m-scanner-history-result' }, [E('span', { 'class': 'z2m-scanner-status-badge ' + historyStatusClass(item) }, [icon(item.status === 'error' ? 'circle-alert' : (item.status === 'completed' && (object(item.counts).working || 0) > 0) ? 'circle-check' : item.status === 'cancelled' ? 'stop-square' : 'activity'), E('span', {}, historyStatusLabel(item))]), E('span', { 'class': 'z2m-dim' }, historyCounts(item))]), E('div', { 'class': 'z2m-scanner-history-action' }, action)]);
+      var request = object(item.request), started = historyTimestamp(item), action = ctx.shell.button(_('Подробнее'), 'sm', function () { openHistoryDetail(ctx, item, action); });
+      return E('article', { 'class': 'z2m-scanner-history-row', 'data-scanner-history-id': item.id }, [E('div', { 'class': 'z2m-scanner-history-icon' }, [icon('history')]), E('div', { 'class': 'z2m-scanner-history-main' }, [E('strong', {}, historyRequestLabel(request, item.operation)), E('span', {}, started ? historyTime(started) : _('Время неизвестно'))]), E('div', { 'class': 'z2m-scanner-history-result' }, [E('span', { 'class': 'z2m-scanner-status-badge ' + historyStatusClass(item) }, [icon('circle-check'), E('span', {}, historyStatusLabel(item))]), E('span', { 'class': 'z2m-dim' }, historyCounts(item))]), E('div', { 'class': 'z2m-scanner-history-action' }, action)]);
     });
     return E('section', { 'class': 'z2m-scanner-history-group' }, [E('h3', {}, historyGroupLabel(key)), E('div', { 'class': 'z2m-scanner-history-list' }, rows)]);
   });
-  var content = state.historyError ? ctx.shell.statePanel({ title: _('История недоступна'), message: state.historyError.message, kind: 'error' }) : (groupNodes.length ? E('div', { 'class': 'z2m-scanner-history-groups' }, groupNodes) : ctx.shell.statePanel({ message: _('Сканирования ещё не выполнялись.'), kind: 'info' }));
+  var content = state.historyError ? ctx.shell.statePanel({ title: _('История недоступна'), message: state.historyError.message, kind: 'error' }) : (groupNodes.length ? E('div', { 'class': 'z2m-scanner-history-groups' }, groupNodes) : ctx.shell.statePanel({ message: _('Измерений ещё не выполнялось.'), kind: 'info' }));
   return E('section', { 'class': 'z2m-panel z2m-scanner-history', id: 'z2m-scanner-history' }, [E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('history'), E('strong', {}, _('История проверок Z2K Detect'))]), E('span', { 'class': 'z2m-dim' }, _('Предыдущие типизированные действия Detect'))]), content]);
 }
 function renderNavigation(ctx) {
@@ -225,7 +222,7 @@ function render(ctx) {
   state.ctx = ctx;
   state.activeTab = tabFrom(ctx);
   state.root = E('section', { 'class': 'z2m-view on z2m-scanner-product', id: 'z2m-view-scanner-product' }, [
-    E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Сканирование')), E('p', {}, _('Диагностика, классификация и история проверок сайтов'))])])
+    E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Z2K Detect')), E('p', {}, _('Типизированные измерения, диагностика и история сайтов'))])])
   ]);
   state.nav = renderNavigation(ctx);
   state.host = E('div', { id: 'z2m-scanner-product-host' });
@@ -237,4 +234,4 @@ function render(ctx) {
 function mount() {}
 function unmount() { unmountChild(); state.root = null; state.host = null; state.nav = null; state.ctx = null; }
 
-return baseclass.extend({ id: 'scanner-product', title: _('Сканирование'), subtitle: _('Диагностика и история'), load: load, render: render, mount: mount, unmount: unmount });
+return baseclass.extend({ id: 'detect-product', title: _('Z2K Detect'), subtitle: _('Диагностика и история'), load: load, render: render, mount: mount, unmount: unmount });

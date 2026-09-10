@@ -13,9 +13,9 @@ test('events.ndjson writer ensures parent directory before lock (E2E-003)', () =
     'must derive parent from path');
 });
 
-test('luci-app Makefile installs icons alongside js/css (E2E-002 404 fix)', () => {
-  const mk = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(mk, /INSTALL_DIR.*icons/);
-  assert.match(mk, /wildcard.*icons\/\*\.svg/);
-  assert.match(mk, /INSTALL_DATA.*icon.*www\/luci-static\/resources\/view\/zapret2-manager\/icons\//);
+test('full package installs the complete LuCI asset tree including icons (E2E-002 404 fix)', () => {
+  const mk = fs.readFileSync(path.join(root, 'zapret2-manager-full/Makefile'), 'utf8');
+  assert.match(mk, /\$\(CP\) \$\(PKG_BUILD_DIR\)\/luci-files\/\* \$\(1\)\//);
+  assert.match(mk, /find \$\(1\)\/www\/luci-static\/resources\/view\/zapret2-manager/);
+  assert.ok(fs.existsSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/icons')));
 });

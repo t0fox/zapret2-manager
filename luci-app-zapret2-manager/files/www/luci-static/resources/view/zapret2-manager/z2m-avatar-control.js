@@ -87,9 +87,10 @@ function restoreLogViewport() {
 }
 
 function fetchData(ctx) {
-  return Promise.allSettled([
-    (ctx.statusFast || ctx.api.service.statusFast || ctx.api.service.status)(),
-    edit(ctx.api.monitor.eventsTail, { limit: 30 })
+	var read = ctx.statusFast || ctx.api.service.statusFast;
+	return Promise.allSettled([
+		typeof read === 'function' ? read() : Promise.reject(new Error('status_fast unavailable')),
+		edit(ctx.api.maintenance.eventsTail, { limit: 30 })
   ]).then(function (results) {
     return {
       status: settled(results[0], ctx.api),
@@ -98,7 +99,8 @@ function fetchData(ctx) {
   });
 }
 function fetchStatus(ctx, options) {
-  return Promise.resolve((ctx.statusFast || ctx.api.service.statusFast || ctx.api.service.status)(options || {})).then(function (value) {
+  var read = ctx.statusFast || ctx.api.service.statusFast;
+  return Promise.resolve(typeof read === 'function' ? read(options || {}) : Promise.reject(new Error('status_fast unavailable'))).then(function (value) {
     return { status: { value: value || {} }, logs: runtime.logs };
   });
 }
@@ -109,21 +111,14 @@ function strategyId(data) {
   return direct.id || direct.strategyId || direct.name || null;
 }
 
-function strategyFromList(answer, id) {
-  var value = payload(answer);
-  var rows = Array.isArray(value) ? value : value.strategies || value.items || value.list || [];
-  if (!Array.isArray(rows)) return null;
-  for (var i = 0; i < rows.length; i++) {
-    var row = object(rows[i]);
-    if (String(row.id || row.strategyId || '') === String(id)) return row;
-  }
-  return null;
-}
-
 function resolveStrategy(ctx, data) {
   var id = strategyId(data);
   if (!id || !ctx.api.strategies) return Promise.resolve(data);
-  if (ctx.api.strategies.get) return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
+  if (typeof ctx.api.strategies.get !== 'function') {
+    data.strategy = { error: { code: 'strategy_get_unavailable', message: 'strategies.get недоступен' } };
+    return Promise.resolve(data);
+  }
+  return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
       var normalized = payload(answer);
       return normalized.strategy || normalized;
     }).then(function (candidate) {
@@ -133,11 +128,6 @@ function resolveStrategy(ctx, data) {
     data.strategy = { error: ctx.api.normalizeError(error) };
     return data;
   });
-  // Compatibility fallback for an older backend that has no targeted get.
-  return ctx.api.strategies.list ? ctx.api.strategies.list().then(function (answer) {
-    data.strategy = { value: strategyFromList(answer, id) };
-    return data;
-  }) : Promise.resolve(data);
 }
 
 function refresh(ctx, token, render) {

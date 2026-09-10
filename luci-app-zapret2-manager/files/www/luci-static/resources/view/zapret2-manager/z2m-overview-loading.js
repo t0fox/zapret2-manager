@@ -1,5 +1,5 @@
 'use strict';
-// Progressive dashboard loading orchestration.
+// Progressive Dashboard loading scheduler.
 //
 // The app shell has already fetched status_fast before the Dashboard module is
 // mounted. Reuse that result for the first meaningful render, then enrich the
@@ -76,8 +76,8 @@ function createLoader(options) {
 		function scheduleDeferred(data) {
 			var jobs = [
 				{ key: 'events', lane: 'critical-local', label: _('журнала событий'), run: function () {
-					return ctx.api.monitor && typeof ctx.api.monitor.eventsTail === 'function'
-						? edit(ctx.api.monitor.eventsTail, { limit: 8 }) : {};
+					return ctx.api.maintenance && typeof ctx.api.maintenance.eventsTail === 'function'
+						? edit(ctx.api.maintenance.eventsTail, { limit: 8 }) : {};
 				} },
 				{ key: 'strategy', lane: 'critical-local', label: _('активной стратегии'), run: function () {
 					return resolveCanonicalStrategy(ctx, data.status, edit);
@@ -92,14 +92,10 @@ function createLoader(options) {
 				{ key: 'systemStatus', lane: 'fast-local', label: _('состояния системы'), run: function () {
 					return ctx.api.maintenance && typeof ctx.api.maintenance.status === 'function' ? ctx.api.maintenance.status() : {};
 				} },
-				{ key: 'preview', lane: 'optional-heavy', label: _('предпросмотра стратегии'), run: function () {
-					return ctx.api.strategy && typeof ctx.api.strategy.preview === 'function'
-						? ctx.api.strategy.preview() : {};
-				} },
 				{ key: 'recommendations', lane: 'optional-heavy', label: _('рекомендаций'), run: function () {
 					if (ctx.api.strategies && typeof ctx.api.strategies.recommendations === 'function')
 						return ctx.api.strategies.recommendations();
-					return typeof options.recommendationsRpc === 'function' ? options.recommendationsRpc() : {};
+					return {};
 				} },
 				{ key: 'versionStatus', lane: 'remote', label: _('версий'), run: function () {
 					return ctx.api.maintenance && typeof ctx.api.maintenance.versions === 'function' ? ctx.api.maintenance.versions() : {};
@@ -151,8 +147,8 @@ function createLoader(options) {
 		var bootstrap = hasInitial(ctx.initial)
 			? Promise.resolve(initialEnvelope(ctx.initial))
 			: Promise.resolve().then(function () {
-				var read = ctx.statusFast || ctx.api.service && (ctx.api.service.statusFast || ctx.api.service.status);
-				var request = ctx.statusFast ? read({ forceFresh: true }) : read();
+				var read = ctx.statusFast || ctx.api.service && ctx.api.service.statusFast;
+				var request = typeof read === 'function' ? (ctx.statusFast ? read({ forceFresh: true }) : read()) : Promise.reject(new Error('status_fast unavailable'));
 				return bound(request, _('быстрого состояния')).then(function (value) {
 					return { status: 'fulfilled', value: value };
 				}, function (error) { return { status: 'rejected', reason: error }; });

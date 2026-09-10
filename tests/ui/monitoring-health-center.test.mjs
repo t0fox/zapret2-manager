@@ -32,7 +32,11 @@ function healthyData() {
     engine: { value: { ok: true, status: 'running', generatedAt: 1_724_200_000 } },
     dns: { value: { ok: true, generatedAt: 1_724_200_000, service_dns: { running: true, appliedRevision: 3, lastOperation: { verified: true } } } },
     telegram: { value: { ok: true, generatedAt: 1_724_200_000, installed: true, status: 'running', readiness: { ready: true } } },
-    proxy: { value: { ok: true, generatedAt: 1_724_200_000, status: 'running' } }
+    proxy: { value: {
+      ok: true,
+      generatedAt: 1_724_200_000,
+      checks: [{ name: 'package', ok: true }, { name: 'pid', ok: true }]
+    } }
   };
 }
 
@@ -48,9 +52,18 @@ test('health projection preserves five-state semantics and owner actions', () =>
   assert.equal(result.cards.warp.status, 'off');
   assert.equal(result.cards.warp.optional, true);
   assert.equal(result.cards.engine.freshness.state, 'fresh');
-  assert.equal(result.cards.engine.owner.route, 'engine');
+  assert.equal(result.cards.engine.owner.route, 'components');
+  assert.equal(result.cards.nfqws2.owner.route, 'components');
+  assert.equal(result.cards.firewall.owner.route, 'components');
   assert.equal(result.cards.scanner.owner.route, 'scan');
   assert.ok(result.cards.scanner.reason);
+});
+
+test('monitoring owners only link to visible production routes', () => {
+  const page = fs.readFileSync(PAGE, 'utf8');
+  const model = fs.readFileSync(MODEL, 'utf8');
+  assert.doesNotMatch(model, /engine:\s*'engine'|firewall:\s*'system'/);
+  assert.doesNotMatch(page, /#\/engine|#\/system/);
 });
 
 test('missing or stale evidence can never render as OK', () => {
@@ -77,6 +90,23 @@ test('failed component is ERROR, absent backend is UNKNOWN, and disabled proxy i
   assert.equal(result.cards.engine.status, 'unknown');
   assert.equal(result.cards.telegram.status, 'off');
   assert.equal(result.cards.dns.status, 'error');
+});
+
+test('missing engine does not turn dependent firewall absence into an outage', () => {
+  const model = loadModel();
+  const data = healthyData();
+  data.fast.value.serviceState = 'engine_missing';
+  data.fast.value.engine = { installed: false, runtimeContract: false };
+  data.fast.value.runtime = { present: false, rulesPresent: null };
+  data.fast.value.health.queue = { number: 300, registered: false, ownerConflict: false };
+  data.engine.value = { ok: true, state: 'engine_missing', serviceState: 'engine_missing', generatedAt: 1_724_200_000 };
+
+  const result = model.normalizeHealth(data, { now: 1_724_200_010 });
+
+  assert.equal(result.cards.engine.status, 'off');
+  assert.equal(result.cards.nfqws2.status, 'off');
+  assert.equal(result.cards.firewall.status, 'off');
+  assert.match(result.cards.firewall.reason, /не установлен/i);
 });
 
 test('technical projection is redacted and keeps report behind explicit action', () => {

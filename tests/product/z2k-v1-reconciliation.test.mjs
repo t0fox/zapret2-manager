@@ -103,20 +103,6 @@ test('same-release FRESH reconciliation requires exact v1 version/sourceCommit a
   assert.doesNotMatch(coordinator, /current.*classification.*historical|historical.*current.*classification/i);
 });
 
-test('canonical LEGACY_VERIFIED state still requires the exact V1 reconciliation check', { skip: !HAS_UCODE }, () => {
-  const value = fixture([]);
-  const result = invokeCoordinator(`coordinator.resource_center_test_v1_reconciliation_check(${JSON.stringify({
-    testOnly: true,
-    listed: value.registry,
-    resolved: { version: legacy.version, commitSha: legacy.sourceCommit, assets: legacy.assets.map(entry => ({
-      id: entry.id, type: entry.type, sha256: entry.sha256, sourcePath: entry.sourcePath,
-    })) },
-  })})`);
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(result.required, true, JSON.stringify(result));
-  assert.equal(result.operation, 'reinstall', JSON.stringify(result));
-});
-
 test('same-release V1 reconciliation takes byte size from the Registry-backed membership', () => {
   const coordinator = read(coordinatorPath);
   const start = coordinator.indexOf('function z2k_v1_reconciliation_check');

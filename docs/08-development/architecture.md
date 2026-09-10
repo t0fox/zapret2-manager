@@ -18,6 +18,6 @@ Z2M разделяет UI navigation, RPC facade, product owner и runtime adapt
 
 ## Основные владельцы
 
-Strategy владеет permanent Apply; Scanner — temporary test и result handoff;
-Engine владеет production `nfqws2`/NFQUEUE; DNS — existing dnsmasq writer;
+Strategy владеет permanent Apply; Z2K Detect — bounded measurement and typed
+evidence; Engine владеет production `nfqws2`/NFQUEUE; DNS — existing dnsmasq writer;
 Asset Registry — typed runtime-assets; TG и WARP — optional owners.

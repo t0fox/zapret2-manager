@@ -18,7 +18,7 @@ tags: [troubleshooting, diagnostics]
 - [Strategy не применяется](./strategy-not-applied.md)
 - [NFQUEUE не готова](./nfqueue-not-ready.md)
 - [Сайт всё ещё не открывается](./site-still-blocked.md)
-- [Scanner не нашёл результат](./scanner-no-result.md)
+- [Z2K Detect не дал результата](./scanner-no-result.md)
 - [Telegram Proxy не запускается](./telegram-not-running.md)
 - [DNS не работает](./dns-not-working.md)
 - [UI не загружается](./ui-not-loading.md)

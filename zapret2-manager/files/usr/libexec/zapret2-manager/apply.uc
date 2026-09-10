@@ -2,7 +2,7 @@
 // apply.uc — the SINGLE writer for /opt/zapret2/config (upstream's shell config).
 //
 // This is the sanctioned apply path: the only place in the shipped tree that
-// writes /opt/zapret2/config. service.uc (pause, passthrough, rollback) calls
+// writes /opt/zapret2/config. service.uc (pause and rollback lifecycle) calls
 // read_var/set_var here; it never writes the file itself, and no other module
 // may. Two places changing one file would break generation accounting.
 //
@@ -222,8 +222,8 @@ export const transaction_config_snapshot = function() {
 export const restore_transaction_config = function(snapshot, lockedOverride) {
 	if (!snapshot || snapshot.sha256 == null || snapshot.bytes == null) return { ok: false, error: { code: 'EINPUT', message: 'active config rollback evidence is incomplete' } };
 	let rollbackError = { ok: false, error: { code: 'EROLLBACK', message: 'active config could not be restored to its recorded digest' } };
-	// An existing transaction lock (or the explicit scanner/transaction
-	// override) already provides the authority for the digest check and write.
+	// An existing transaction lock (or the explicit caller-owned override)
+	// already provides the authority for the digest check and write.
 	// Keep this path synchronous so lockedOverride retains its established
 	// caller-owned-lock semantics.
 	if (locked() || lockedOverride === true) {
@@ -295,9 +295,8 @@ function preserve_trailing_newline(raw, rendered) {
 }
 
 function atomic_replace_locked(path, content, callerHoldsLock) {
-	// Scanner owns the external config.lock holder during its transient
-	// session. It may use the same atomic writer without recursively flocking;
-	// every other caller still requires Z2M_CONFIG_LOCKED=1.
+	// The caller-owned transaction lock may use the same atomic writer without
+	// recursively flocking; every other caller still requires Z2M_CONFIG_LOCKED=1.
 	if ((!locked() && callerHoldsLock !== true) || path != CONFIG) return null;
 	let tmp = secure_temp(path + '.tmp.XXXXXX');
 	if (tmp == null) return null;
@@ -444,26 +443,4 @@ export const write_list_file = function(path, entries) {
 		return null;
 	}
 	return out;
-};
-
-// Scanner uses the same Apply substrate for observation only. These entry
-// points deliberately have no write capability: transient execution is owned
-// by the bounded runtime adapter, never by a second config writer.
-export const scanner_transient_lock = function(testEvidence) {
-	return { ok: true, owner: 'config/global', held: true, verified: 'test-shim' };
-	if (getenv('Z2M_CONFIG_LOCKED') != '1' || !have_flock())
-		return { ok: false, code: 'ELOCK', message: 'transient Scanner session requires the existing config transaction lock' };
-	// The fixed caller enters this module under the existing config flock. A
-	// non-blocking child probe must fail while that real lock is held; success
-	// proves the environment marker was forged or the lock was released.
-	let probe = command('flock -n ' + shell_escape(LOCKFILE) + ' -c true');
-	return probe.rc == 0
-		? { ok: false, code: 'ELOCK', message: 'config transaction lock ownership could not be verified' }
-		: { ok: true, owner: 'config/global', held: true, verified: 'flock' };
-};
-
-export const scanner_transient_config_snapshot = function() {
-	let bytes = read_config_bytes(), sha = config_sha256();
-	if (sha == null) return { ok: false, code: 'ESNAPSHOT', message: 'authoritative config snapshot is unavailable' };
-	return { ok: true, config: { bytes: bytes, sha256: sha } };
 };

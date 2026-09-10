@@ -5,10 +5,6 @@ var ROOT = typeof globalThis !== 'undefined' ? globalThis :
   typeof window !== 'undefined' ? window : this;
 var WRAPPED = '__z2mRuntimeGuardWrapped';
 
-function object(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-}
-
 function normalizedError(label, timeoutMs) {
   return {
     code: 'ETIMEOUT',
@@ -38,46 +34,6 @@ function withTimeout(promise, timeoutMs, label) {
       reject(error);
     });
   });
-}
-
-function synthesizeStatus(value) {
-  if (!value || typeof value !== 'object') return value;
-  var next = Object.assign({}, value);
-  var runtime = object(value.runtime);
-  var health = object(value.health);
-  var queue = object(health.queue);
-  var qlen = object(health.qlenHealth);
-  var current = String(value.serviceState || value.state || '').toLowerCase();
-  var computed = current;
-  var reason = null;
-
-  if (current !== 'paused' && current !== 'passthrough') {
-    if (runtime.present === false) {
-      computed = queue.registered === true ? 'error' : 'stopped';
-      reason = queue.registered === true
-        ? _('NFQUEUE зарегистрирована, но процесс nfqws2 отсутствует.')
-        : _('Процесс nfqws2 не запущен.');
-    } else if (runtime.present === true && runtime.rulesPresent === false) {
-      computed = 'partial';
-      reason = _('Процесс запущен, но таблица/правила nftables отсутствуют.');
-    } else if (runtime.present === true && queue.registered === false) {
-      computed = 'error';
-      reason = _('Процесс запущен, но NFQUEUE не зарегистрирована в ядре.');
-    } else if (runtime.present === true && queue.ownerConflict === true) {
-      computed = 'error';
-      reason = _('NFQUEUE зарегистрирована другим процессом.');
-    } else if (runtime.present === true && qlen.state === 'critical') {
-      computed = 'error';
-      reason = _('Очередь NFQUEUE находится в критическом состоянии.');
-    }
-  }
-
-  if (computed && computed !== current) {
-    next.serviceState = computed;
-    next.statusReconciled = true;
-    next.statusReconcileReason = reason || _('Runtime-факты противоречат сводному статусу.');
-  }
-  return next;
 }
 
 function wrap(owner, key, timeoutMs, label, transform) {
@@ -136,13 +92,9 @@ function installDomObserver() {
 function install(api) {
   api = api || {};
   installDomObserver();
-  wrap(api.service, 'status', 20000, 'status', synthesizeStatus);
   wrap(api.dns, 'diagnose', 20000, 'dnsprov_diagnose');
   wrap(api.dns, 'check', 20000, 'dns_check');
-  wrap(api.dns, 'servicePreview', 20000, 'service_dns_preview');
   wrap(api.dns, 'serviceApplyStatus', 20000, 'service_dns_apply_status');
-  wrap(api.orchestra, 'probePreflight', 30000, 'orchestra_probe_preflight');
-  wrap(api.orchestra, 'runStatus', 30000, 'orchestra_run_status');
   return api;
 }
 

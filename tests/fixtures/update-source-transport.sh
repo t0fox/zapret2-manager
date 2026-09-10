@@ -28,10 +28,6 @@ case "$mode" in
 		: > "$output"
 		printf '%s' '{"status":304}' > "$meta"
 		;;
-	blockcheckw)
-		printf '%s' '{"tag_name":"v1.2.3","name":"BlockCheckW 1.2.3"}' > "$output"
-		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
-		;;
 	engine)
 		printf '%s' '[{"tag_name":"v1.0.5","draft":false,"prerelease":false,"published_at":"2026-08-29T00:00:00Z","id":105,"assets":[{"name":"zapret2-v1.0.5-openwrt-embedded.tar.gz","state":"uploaded","size":1024,"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","browser_download_url":"https://github.com/bol-van/zapret2/releases/download/v1.0.5/zapret2-v1.0.5-openwrt-embedded.tar.gz"},{"name":"sha256sum.txt","state":"uploaded","size":64,"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","browser_download_url":"https://github.com/bol-van/zapret2/releases/download/v1.0.5/sha256sum.txt"}]}]' > "$output"
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"

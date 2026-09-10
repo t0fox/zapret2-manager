@@ -126,7 +126,7 @@ async function submitClassifyHost(host) {
   const hostInput = harness.container.querySelector('[name="detect-host"]');
   hostInput.value = host;
   hostInput.dispatch('input');
-  harness.root.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Начать сканирование').dispatch('click');
+  harness.root.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Запустить измерение').dispatch('click');
   await new Promise((resolve) => setTimeout(resolve, 0));
   const currentHost = harness.container.querySelector('[name="detect-host"]');
   scanner.unmount();

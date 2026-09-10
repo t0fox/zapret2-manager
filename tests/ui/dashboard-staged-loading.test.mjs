@@ -25,24 +25,23 @@ function deferred() {
 
 function makeApi() {
   const calls = {
-    statusFast: 0, preview: 0, events: 0, recommendations: 0,
+		statusFast: 0, events: 0, recommendations: 0,
     tgStatus: 0, proxyHealth: 0, strategy: 0, engine: 0, system: 0, versions: 0, resources: 0
   };
   const gates = {
-    statusFast: deferred(), preview: deferred(), events: deferred(),
+		statusFast: deferred(), events: deferred(),
     recommendations: deferred(), tgStatus: deferred(), proxyHealth: deferred(), strategy: deferred(),
     engine: deferred(), system: deferred(), versions: deferred(), resources: deferred()
   };
   const api = {
     service: { statusFast: () => { calls.statusFast++; return gates.statusFast.promise; } },
     engine: { status: () => { calls.engine++; return gates.engine.promise; } },
-    maintenance: {
-      status: () => { calls.system++; return gates.system.promise; },
-      versions: () => { calls.versions++; return gates.versions.promise; }
-    },
-    resources: { status: () => { calls.resources++; return gates.resources.promise; } },
-    strategy: { preview: () => { calls.preview++; return gates.preview.promise; } },
-    monitor: { eventsTail: () => { calls.events++; return gates.events.promise; } },
+		maintenance: {
+			status: () => { calls.system++; return gates.system.promise; },
+			versions: () => { calls.versions++; return gates.versions.promise; },
+			eventsTail: () => { calls.events++; return gates.events.promise; }
+		},
+		resources: { status: () => { calls.resources++; return gates.resources.promise; } },
     strategies: {
       recommendations: () => { calls.recommendations++; return gates.recommendations.promise; },
       get: () => { calls.strategy++; return gates.strategy.promise; }
@@ -92,7 +91,7 @@ test('Dashboard bootstrap reuses the app-shell status and does not wait for defe
   assert.deepEqual(data.status.value, initial,
     'first render must be backed by the already-fetched app-shell status');
   assert.equal(calls.statusFast, 0, 'Dashboard must not issue a duplicate status_fast');
-  assert.equal(calls.engine + calls.system + calls.versions + calls.resources + calls.preview + calls.events, 0,
+	assert.equal(calls.engine + calls.system + calls.versions + calls.resources + calls.events, 0,
     'deferred reads must not start before the bootstrap promise is returned');
   assert.equal(scheduled.length, 1, 'deferred scheduler must be queued after bootstrap');
 });
@@ -115,9 +114,7 @@ test('Dashboard deferred reads use at most two in-flight RPCs and publish each b
   await flush();
   assert.deepEqual(runtime.deferred.events.value.events, [{ id: 'e1', message: 'ready' }],
     'events must publish as soon as their own RPC settles');
-  assert.ok(runtime.deferred.preview === undefined || runtime.deferred.preview.value === undefined,
-    'a slow strategy preview must not gate the event block');
-  Object.values(gates).forEach(gate => gate.resolve({}));
+	Object.values(gates).forEach(gate => gate.resolve({}));
   await flush();
 });
 
@@ -131,8 +128,7 @@ test('Dashboard Telegram status is an independent deferred block', async () => {
 
   // Let the bounded scheduler drain until the Telegram read is admitted.
   for (let i = 0; i < 8 && !calls.tgStatus; i++) {
-    gates.preview.resolve({});
-    gates.events.resolve({});
+		gates.events.resolve({});
     gates.recommendations.resolve({});
     gates.engine.resolve({});
     gates.system.resolve({});

@@ -50,14 +50,12 @@ test('P03-FULL operational cards use canonical RPCs and async bounded refreshes'
   const api = read('z2m-api.js');
   for (const marker of [
     'healthcheck.status', 'healthcheck.run', 'healthcheck.config',
-    'strategies.learnedState', 'strategies.learnedReset',
-    'strategies.debugGet', 'strategies.debugSet', 'openJournal',
+    'strategies.learnedState', 'strategies.learnedReset', 'openJournal',
     'refreshHealthcheck', 'outage_guard', 'autoReset'
   ]) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), marker);
   for (const marker of [
     'healthcheckStatus', 'healthcheckRun', 'healthcheckEnable', 'healthcheckDisable',
-    'healthcheckConfig', 'strategiesState', 'strategiesStateClear',
-    'strategiesDebugGet', 'strategiesDebugSet'
+    'healthcheckConfig', 'strategiesState', 'strategiesStateClear'
   ]) assert.match(api, new RegExp(marker), marker);
   assert.match(page, /catalogProgressTimer/);
   assert.match(page, /clearInterval\(state\.catalogProgressTimer\)/);
@@ -71,8 +69,11 @@ test('P03-FULL initial load is lazy and does not issue a duplicate strategy deta
 });
 
 test('P03-FULL keeps the canonical route wired to the Strategies module', () => {
-  const route = read('z2m-strategy-page.js');
-  assert.match(route, /require view\.zapret2-manager\.z2m-strategies/);
-  assert.match(route, /return Strategies/);
-  assert.doesNotMatch(route, /zapret-gui|avatarDD.*api|fetch\s*\(/i);
+  const app = read('app.js');
+  const page = read('z2m-strategies.js');
+  assert.match(app, /require view\.zapret2-manager\.z2m-strategies as Strategies/);
+  assert.match(app, /strategies:\s*Strategies/);
+  assert.match(page, /return baseclass\.extend/);
+  assert.doesNotMatch(app, /z2m-strategy-page|fetch\s*\(/i);
+  assert.doesNotMatch(page, /avatarDD.*api|fetch\s*\(/i);
 });

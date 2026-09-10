@@ -12,9 +12,7 @@ var state = {
   working: null,
   error: null,
   runBusy: false,
-  preflightReady: false,
   checks: {},
-  checkTimer: null,
   disposed: false
 };
 
@@ -93,83 +91,49 @@ function serviceIconData(item) {
   return { name: 'service:' + (aliases[id] || id), color: colors[id] || '#4b9fd5' };
 }
 
-function checkTerminal(phase) {
-  return ['completed', 'failed', 'error', 'cancelled', 'canceled', 'timeout'].indexOf(String(phase || '').toLowerCase()) >= 0;
-}
-
-function checkVerdict(run) {
-  var value = String(run && (run.serviceVerdict || run.verdict || run.result && run.result.verdict || '') || '').toLowerCase();
-  if (/strategy|candidate|blocked|needs/.test(value)) return 'strategy';
-  if (/ok|pass|working|available|success|healthy/.test(value)) return 'working';
-  if (/error|fail|timeout|unavailable/.test(value)) return 'error';
-  return null;
-}
-
 function checkLabel(record) {
   if (!record) return null;
   if (record.status === 'checking') return _('Проверяем…');
-  return ({ working: _('Работает'), strategy: _('Требует стратегии'), error: _('Ошибка') })[record.status] || _('Состояние недоступно');
+  return ({ working: _('Доступен'), blocked: _('Проверка не пройдена'), error: _('Ошибка') })[record.status] || _('Состояние недоступно');
 }
 
-function pollServiceRun(ctx, id) {
-  var record = state.checks[id];
-  if (state.disposed || !record || !record.runId || state.checkTimer) return;
-  state.checkTimer = window.setTimeout(function () {
-    state.checkTimer = null;
-    if (state.disposed || !state.checks[id]) return;
-    edit(ctx.api.orchestra.runStatus, { runId: record.runId }).then(function (answer) {
-      var run = answer && (answer.run || answer.activeRun || answer);
-      record.phase = run && run.phase || record.phase;
-      record.verdict = checkVerdict(run);
-      if (checkTerminal(record.phase)) {
-        record.status = record.verdict || (String(record.phase).toLowerCase() === 'completed' ? 'strategy' : 'error');
-        record.run = run;
-      }
-      return localRerender(ctx);
-    }).then(function () {
-      var latest = state.checks[id];
-      if (latest && latest.status === 'checking') pollServiceRun(ctx, id);
-    }).catch(function (error) {
-      state.checks[id] = { status: 'error', message: normalizeError(ctx.api, error).message };
-      return localRerender(ctx);
-    });
-  }, 1800);
+function probeDomain(service) {
+  var source = object(service && service.source);
+  var domains = array(source.domains);
+  return domains.length ? String(domains[0]).trim().toLowerCase() : null;
 }
 
-function serviceProtocols(service) {
-  var protocols = array(service && service.protocols);
-  return protocols.length ? protocols : ['tcp_https'];
+function probeData(answer) {
+  if (!answer || answer.ok !== true || !answer.data || typeof answer.data.stdout !== 'string')
+    throw { code: 'EDETECT_SCHEMA', message: _('Z2K Detect вернул неполный результат.') };
+  try {
+    var result = JSON.parse(answer.data.stdout);
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('not an object');
+    return result;
+  } catch (error) {
+    throw { code: 'EDETECT_SCHEMA', message: _('Z2K Detect вернул некорректный JSON.') };
+  }
 }
 
 function startServiceRun(ctx, service) {
   if (state.runBusy) return Promise.resolve(null);
   var id = service && service.id;
   if (!id) return Promise.resolve(null);
+  var domain = probeDomain(service);
+  if (!domain) {
+    state.checks[id] = { status: 'error', message: _('Для сервиса нет проверяемого домена.') };
+    return localRerender(ctx);
+  }
   state.runBusy = true;
-  state.preflightReady = false;
-  state.checks[id] = { status: 'checking', phase: 'preflight' };
-  ctx.refresh('services');
-  return ctx.api.orchestra.probePreflight().then(function (preflight) {
-    state.preflightReady = !!(preflight && preflight.ok === true && preflight.status !== 'missing-dependency');
-    if (!state.preflightReady) throw preflight || { code: 'EPROBEDEPENDENCY', message: _('Проверка зависимостей не пройдена.') };
-    return edit(ctx.api.orchestra.runStart, {
-      targetType: 'service',
-      targetId: id,
-      protocols: serviceProtocols(service),
-      candidateMode: 'zapret2gui-only',
-      candidateIds: [],
-      repeats: 1,
-      perAttemptTimeoutSec: 15,
-      totalTimeoutSec: 180,
-      maxCandidates: 4,
-      maxAttempts: 12
-    });
-  }).then(function (answer) {
-    if (!answer || answer.ok !== true || !answer.run || !answer.run.runId)
-      throw answer || { code: 'ETARGET', message: _('Backend не принял запуск проверки.') };
-    state.checks[id] = { status: 'checking', phase: answer.run.phase || 'queued', runId: answer.run.runId };
-    pollServiceRun(ctx, id);
-    return answer;
+  state.checks[id] = { status: 'checking', domain: domain };
+  return ctx.api.z2kDetectProbe(domain, 6000).then(function (answer) {
+    var data = probeData(answer);
+    var verdict = String(data.PathVerdict || data.verdict || (data.TLSOK === true ? 'clear' : data.FailureCode || 'observed')).toLowerCase();
+    state.checks[id] = {
+      status: verdict === 'clear' || verdict === 'ok' || verdict === 'available' ? 'working' : 'blocked',
+      domain: domain,
+      message: data.PathReason || data.FailureReason || data.reason || null
+    };
   }).catch(function (error) {
     var normalized = normalizeError(ctx.api, error);
     state.checks[id] = { status: 'error', message: normalized.message };
@@ -177,7 +141,7 @@ function startServiceRun(ctx, service) {
     return null;
   }).finally(function () {
     state.runBusy = false;
-    ctx.refresh('services');
+    return localRerender(ctx);
   });
 }
 
@@ -235,10 +199,9 @@ function renderCatalog(ctx) {
       var icon = E('span', { 'class': 'z2m-service-dns-icon', style: 'color:' + iconData.color + ';background:' + iconData.color + '22' }, [Icons.wrappedNode(iconData.name, { size: 22, fallback: 'network' })]);
       var meta = [categoryLabel(item.category), item.domainCount ? ' · ' + item.domainCount + ' ' + _('доменов') : ''].join('');
       var statusNode = check ? E('div', { 'class': 'z2m-service-check-status ' + check.status, role: 'status' }, [E('span', {}, checkLabel(check)), check.message ? E('span', {}, check.message) : null]) : null;
-      var diagnostic = check && check.status !== 'checking' ? shell.button(_('Посмотреть диагностику'), 'link sm', function () { ctx.navigate('strategy'); }) : null;
       var toggle = shell.switchControl({ checked: on, label: item.name || item.id, onChange: function () { var next = clone(state.working); next.enabled = DomainHubModel.togglePackage(next.enabled, item.id); stage(ctx, next); } });
       var nameLine = E('div', { 'class': 'z2m-service-dns-name-line' }, [E('strong', { 'class': 'z2m-service-name' }, item.name || item.id), toggle]);
-      var copyNode = E('div', { 'class': 'z2m-service-dns-copy' }, [nameLine, E('small', { 'class': 'z2m-service-domains' }, meta), statusNode, diagnostic]);
+      var copyNode = E('div', { 'class': 'z2m-service-dns-copy' }, [nameLine, E('small', { 'class': 'z2m-service-domains' }, meta), statusNode]);
       var actions = E('div', { 'class': 'z2m-service-catalog-actions' }, [shell.button(check && check.status === 'checking' ? _('Проверяем…') : _('Проверить'), 'sm', function () { startServiceRun(ctx, item); }, state.runBusy || !!(check && check.status === 'checking'))]);
       body.appendChild(E('div', { 'class': 'z2m-service-dns-row' + (changed ? ' changed' : ''), 'data-service-id': item.id }, [E('div', { 'class': 'z2m-service-dns-row-main' }, [icon, copyNode]), E('div', { 'class': 'z2m-service-dns-action' }, actions)]));
     });
@@ -505,5 +468,5 @@ return baseclass.extend({
   load: load,
   render: render,
   mount: function () { state.disposed = false; },
-  unmount: function () { state.disposed = true; if (state.checkTimer) window.clearTimeout(state.checkTimer); state.checkTimer = null; }
+  unmount: function () { state.disposed = true; state.runBusy = false; state.checks = {}; }
 });

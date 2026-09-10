@@ -8,7 +8,7 @@
 // All mutations keep a last-good snapshot for rollback.
 
 import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
-import { load_state, save_state } from './profiles-draft.uc';
+import { load_state, save_state } from './manager-state.uc';
 import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
 
 const SNAP_DIR = '/tmp/zapret2-manager/last-good/dns-global';
@@ -23,8 +23,6 @@ function run(cmd) {
 function err(code, message, stage) {
 	return { ok: false, stage: (stage != null) ? stage : null, error: { code: code, message: message } };
 }
-
-function now_iso() { return trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out); }
 
 function effective_providers() {
 	let result = dns_provider_catalog_get();
@@ -124,12 +122,6 @@ function provider_by_id(id) {
 	return null;
 }
 
-function provider_resolver_ips(id) {
-	let p = provider_by_id(id);
-	if (!p || type(p.ipv4) != 'array' || !length(p.ipv4)) return [];
-	return p.ipv4;
-}
-
 function resolve_mode_ip(mode, providerId) {
 	if (mode == 'system') return '';
 	let p = provider_by_id(providerId);
@@ -163,7 +155,7 @@ export const dns_global_get = function() {
 		providerCatalog: catalog,
 		modes: ['system', 'doh', 'dot', 'udp'],
 		rollbackAvailable: snapshot_available(),
-		note: 'global DNS changes are drafted, previewed and applied atomically'
+		note: 'global DNS changes are drafted and applied atomically'
 	};
 };
 
@@ -193,50 +185,6 @@ export const dns_global_set = function(input) {
 	return { ok: true, revision: draft.revision, draft: draft };
 };
 
-export const dns_global_preview = function() {
-	let draft = load_draft();
-	let catalogError = catalog_guard(draft);
-	if (catalogError) return catalogError;
-	let current = current_dnsmasq_state();
-	let changes = [];
-
-	if (draft.mode == 'system') {
-		if (current.wanPeerdns == '0' || current.servers != null && length(current.servers) > 0)
-			push(changes, { key: 'mode', before: 'custom', after: 'system', detail: 'peer DNS restored; manager servers removed' });
-	} else {
-		push(changes, { key: 'mode', before: 'system', after: draft.mode, detail: 'DNS mode set to ' + draft.mode });
-		if (draft.primary) {
-			let ip = resolve_mode_ip(draft.mode, draft.primary);
-			push(changes, { key: 'primary', before: '', after: draft.primary, detail: 'primary upstream: ' + (ip || 'provider not found') });
-		}
-		if (draft.secondary && draft.secondary != '') {
-			let ip2 = resolve_mode_ip(draft.mode, draft.secondary);
-			push(changes, { key: 'secondary', before: '', after: draft.secondary, detail: 'secondary upstream: ' + (ip2 || 'provider not found') });
-		}
-	}
-	if (draft.hijack != current.hijackActive)
-		push(changes, { key: 'hijack', before: current.hijackActive, after: draft.hijack, detail: draft.hijack ? 'port 53 intercept will be added' : 'port 53 intercept will be removed' });
-	if (draft.cacheSize != current.cacheSize && draft.cache)
-		push(changes, { key: 'cacheSize', before: current.cacheSize, after: draft.cacheSize, detail: 'cache size: ' + current.cacheSize + ' -> ' + draft.cacheSize });
-	if (draft.edns !== false && draft.edns != (current.edns || false))
-		push(changes, { key: 'edns', before: false, after: draft.edns, detail: 'EDNS Client Subnet' });
-	if (draft.strictOrder != current.strictOrder)
-		push(changes, { key: 'strictOrder', before: current.strictOrder, after: draft.strictOrder, detail: 'strict DNS order' });
-	if (draft.blockAaaa != current.filterAaaa)
-		push(changes, { key: 'blockAaaa', before: current.filterAaaa, after: draft.blockAaaa, detail: 'block IPv6 AAAA responses' });
-	if (draft.customRules != '')
-		push(changes, { key: 'customRules', before: '', after: draft.customRules, detail: draft.customRules.split('\n').length + ' custom lines' });
-
-	return {
-		ok: true,
-		mode: 'preview',
-		changes: changes,
-		zeroWrites: !length(changes),
-		revision: draft.revision,
-		note: 'preview only; no mutations performed'
-	};
-};
-
 function snapshot_global() {
 	try { mkdir('/tmp/zapret2-manager/last-good'); } catch (e) { }
 	try { mkdir(SNAP_DIR); } catch (e) { }
@@ -245,16 +193,6 @@ function snapshot_global() {
 	run('cp -f /etc/zapret2-manager/state.json ' + SNAP_DIR + '/dns-global-state.json 2>/dev/null');
 	let nftDump = run('nft list table inet fw4 2>/dev/null');
 	writefile(SNAP_DIR + '/nftables-dump.txt', nftDump.out || '');
-	return true;
-}
-
-function rollback_global() {
-	run('cp -f ' + SNAP_DIR + '/dhcp.conf /etc/config/dhcp 2>/dev/null');
-	run('cp -f ' + SNAP_DIR + '/network.conf /etc/config/network 2>/dev/null');
-	if (stat(SNAP_DIR + '/dns-global-state.json'))
-		run('cp -f ' + SNAP_DIR + '/dns-global-state.json /etc/zapret2-manager/state.json 2>/dev/null');
-	run('/etc/init.d/dnsmasq restart');
-	run('/etc/init.d/network reload');
 	return true;
 }
 
@@ -376,18 +314,5 @@ export const dns_global_apply = function() {
 		rollbackAvailable: true,
 		snapshot: SNAP_DIR,
 		note: (ok ? 'dns-global applied and verified' : 'apply completed but verification failed; check dnsmasq status')
-	};
-};
-
-export const dns_global_rollback = function() {
-	if (!snapshot_available()) return err('ESTATE', 'no dns-global snapshot to roll back to');
-	rollback_global();
-
-	let check = trim(run('nslookup openwrt.org 127.0.0.1 2>&1').out);
-	let ok = index(check, 'Address') >= 0 || index(check, 'Name:') >= 0;
-	return {
-		ok: ok,
-		action: 'rollback',
-		note: 'global DNS snapshot restored and services restarted'
 	};
 };

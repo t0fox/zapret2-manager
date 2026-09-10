@@ -11,7 +11,7 @@ import { resolveInstalled, resolveCandidate, verifyMaterialized, verifyActivatio
 // but large enough for the canonical target and its resolved closure.
 const MAX_INPUT_BYTES = 32 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
-const CONSUMERS = ['candidate-materialize', 'installed-materialize', 'scanner', 'install-proof', 'postflight'];
+const CONSUMERS = ['candidate-materialize', 'installed-materialize', 'install-proof', 'postflight'];
 const PACKAGE_ROOT = getenv('Z2M_RUNTIME_PACKAGE_ROOT') || '/usr/share/zapret2-manager';
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -59,7 +59,7 @@ function materialize_source(entry, listed) {
 		&& index(entry.packagePath, '..') < 0 && index(entry.packagePath, sprintf('%c', 92)) < 0) return entry.packagePath;
 	return null;
 }
-export const runtime_composition_cli_activation_output = function(result, includeScannerOverlay) {
+export const runtime_composition_cli_activation_output = function(result) {
 	let listed = asset_registry_list(null);
 	if (!listed.ok) return listed;
 	// Snapshot identities intentionally contain the canonical identity rows,
@@ -75,11 +75,6 @@ export const runtime_composition_cli_activation_output = function(result, includ
 		let entry = result.luaInit[i];
 		push(lines, 'LUA_INIT|' + entry.id + '|' + entry.type + '|' + entry.kind + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256 + '|' + entry.runtimeOrder);
 	}
-	if (includeScannerOverlay === true) for (let i = 0; i < length(result.scannerOverlay || []); i++) {
-		let entry = result.scannerOverlay[i];
-		if (!object(entry) || entry.type != 'scanner-overlay') return fail('EINPUT', 'scanner overlay entry is not diagnostic-only');
-		push(lines, 'OVERLAY|' + entry.id + '|' + entry.type + '|' + entry.kind + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256 + '|' + entry.byteSize + '|' + (entry.runtimeOrder == null ? '' : entry.runtimeOrder));
-	}
 	return { ok: true, output: join('\n', lines) + '\n' };
 };
 
@@ -91,8 +86,7 @@ export const runtime_composition_cli_dispatch = function(consumer, input) {
 		if (!object(input.preparedTarget)) return fail('EINPUT', 'candidate materialization requires a prepared target');
 		return bounded(resolveCandidate(input.preparedTarget, input.context));
 	}
-	if (consumer == 'installed-materialize' || consumer == 'scanner' || consumer == 'install-proof') {
-		if (consumer == 'scanner' && input.includeScannerInLuaInit === true) return fail('EINPUT', 'scanner overlay cannot become production luaInit');
+	if (consumer == 'installed-materialize' || consumer == 'install-proof') {
 		let installed = resolveInstalled(input);
 		if (!installed.ok) return bounded(installed);
 		if (installed.compositionStatus != 'canonical') return fail('RECONCILIATION_REQUIRED', 'canonical runtime composition is required before this consumer can run');

@@ -37,7 +37,7 @@ function materialize(module) {
 }
 function loadCore(module, ctx, status) {
   return Promise.resolve(module.load ? module.load(ctx) : {}).then(function (data) {
-    return envelope(true, status || { installed: true, compatibilityMode: true }, data || {}, null);
+    return envelope(true, status || { installed: true }, data || {}, null);
   });
 }
 function loadGuarded(module, ctx) {
@@ -58,7 +58,7 @@ function loadGuarded(module, ctx) {
 }
 function installButton(ctx) {
   return ctx.shell.button(_('Установить движок'), 'primary', function () {
-    return ctx.navigate('maintenance');
+    return ctx.navigate('components');
   });
 }
 function blocker(module, ctx) {

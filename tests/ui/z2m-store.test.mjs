@@ -26,9 +26,9 @@ test('store publishes immutable root updates and supports unsubscribe', () => {
   const unsubscribe = store.subscribe(state => seen.push(state));
   const initial = store.get();
 
-  const updated = store.update({ ui: { tab: 'dns-routing', advanced: true } });
+  const updated = store.update({ ui: { tab: 'dns-routing' } });
   assert.notStrictEqual(updated, initial);
-  assert.deepEqual(JSON.parse(JSON.stringify(updated.ui)), { tab: 'dns-routing', advanced: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(updated.ui)), { tab: 'dns-routing' });
   assert.equal(seen.length, 1);
   assert.strictEqual(seen[0], updated);
 

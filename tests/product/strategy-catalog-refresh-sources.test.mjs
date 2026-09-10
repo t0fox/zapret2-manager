@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
@@ -11,15 +12,37 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc');
 const GENERATION_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
 const SOURCES_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
+const SOURCE_REFRESH_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 const TRANSPORT = path.join(ROOT, 'tests/fixtures/strategy-source-refresh/transport.sh');
 const HARNESS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compile.sh');
+const AVATAR_PACKAGE_ROOT = path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 
 function sandbox(label) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `z2m-catalog-refresh-${label}-`));
+}
+
+function avatarFixture(commit) {
+  const root = sandbox(`avatar-fixture-${commit.slice(0, 6)}`);
+  fs.cpSync(AVATAR_PACKAGE_ROOT, root, { recursive: true });
+  const relative = 'advanced/http80_zapret2_advanced.txt';
+  const file = path.join(root, relative);
+  fs.appendFileSync(file, `\n# exact refresh fixture ${commit}\n`);
+  const manifestPath = path.join(root, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.source.commit = commit;
+  const content = fs.readFileSync(file);
+  const item = manifest.files.find(candidate => candidate.path === relative);
+  item.byteSize = content.length;
+  item.sha256 = crypto.createHash('sha256').update(content).digest('hex');
+  const aggregate = manifest.files.slice().sort((left, right) => left.path.localeCompare(right.path))
+    .map(candidate => `${candidate.sha256}  catalogs/${candidate.path}\n`).join('');
+  manifest.aggregateDigest = crypto.createHash('sha256').update(aggregate).digest('hex');
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  return root;
 }
 
 function environment(root, mode = 'ok', extraEnv = {}) {
@@ -35,7 +58,6 @@ function environment(root, mode = 'ok', extraEnv = {}) {
     Z2M_UPDATE_SOURCE_TRANSPORT: TRANSPORT,
     Z2M_STRATEGY_SOURCE_CONTENT_TRANSPORT: TRANSPORT,
     Z2M_Z2K_OFFICIAL_COMPILE_HARNESS: HARNESS,
-    Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '0',
     Z2M_STRATEGY_AVATAR_PACKAGE_ROOT: path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar'),
     Z2M_UPDATE_SOURCE_TEST: '1',
     Z2M_FIXTURE_MODE: mode,
@@ -43,8 +65,7 @@ function environment(root, mode = 'ok', extraEnv = {}) {
   };
 }
 
-function invoke(root, module, functionName, args = [], mode = 'ok', extraEnv = {}) {
-  const source = `import * as mod from ${JSON.stringify(module)}; print(sprintf('%J', mod.${functionName}(${args.map(JSON.stringify).join(', ')})));`;
+function invokeCode(root, source, mode = 'ok', extraEnv = {}) {
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
@@ -56,6 +77,12 @@ function invoke(root, module, functionName, args = [], mode = 'ok', extraEnv = {
   return JSON.parse(result.stdout);
 }
 
+function invoke(root, module, functionName, args = [], mode = 'ok', extraEnv = {}) {
+  return invokeCode(root,
+    `import * as mod from ${JSON.stringify(module)}; print(sprintf('%J', mod.${functionName}(${args.map(JSON.stringify).join(', ')})));`,
+    mode, extraEnv);
+}
+
 function seed(root) {
   fs.writeFileSync(path.join(root, 'refresh-state.json'), JSON.stringify({
     operationId: 'test-refresh', state: 'running', phase: 'queued', percent: 5,
@@ -64,47 +91,30 @@ function seed(root) {
   }));
 }
 
-test('catalog refresh fetches, verifies, merges, and activates every enabled source', () => {
-  const root = sandbox('all');
+test('catalog refresh activates the current Avatar source and leaves Z2K Core ownership intact', () => {
+  const root = sandbox('avatar');
   seed(root);
   const result = invoke(root, MODULE, 'catalog_refresh_worker_run');
   assert.equal(result.state, 'completed', JSON.stringify(result));
   assert.equal(result.result.sourceSnapshots.avatar.mode, 'fresh');
-  assert.equal(result.result.sourceSnapshots.z2k.mode, 'fresh');
+  assert.equal(result.result.sourceSnapshots.z2k, undefined);
   assert.match(result.result.generationId, /^generation-/);
   assert.deepEqual(result.phaseHistory, [
-    'queued', 'avatar-fetch', 'avatar-verify', 'z2k-fetch', 'z2k-verify',
-    'merge', 'indexing', 'activating', 'done',
+    'queued', 'avatar-fetch', 'avatar-verify', 'merge', 'indexing', 'activating', 'done',
   ]);
+  const catalog = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  assert.equal(catalog.ok, true, JSON.stringify(catalog));
+  assert.ok(catalog.index.sources.avatar);
+  assert.equal(catalog.index.sources.z2k, undefined);
   const status = invoke(root, MODULE, 'catalog_refresh_status', [], 'error');
   assert.equal(status.phase, 'done');
   assert.equal(status.percent, 100);
 });
 
-test('one source failure uses its current LKG and still publishes the successful source result', () => {
+test('Avatar refresh failure uses its current LKG and preserves the active generation', () => {
   const root = sandbox('lkg');
   seed(root);
   const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
-  const initialGeneration = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(initialGeneration.ok, true, JSON.stringify(initialGeneration));
-
-  seed(root);
-  const second = invoke(root, MODULE, 'catalog_refresh_worker_run', [], 'z2k-error');
-  assert.equal(second.state, 'completed', JSON.stringify(second));
-  assert.equal(second.result.sourceSnapshots.avatar.mode, 'fresh');
-  assert.equal(second.result.sourceSnapshots.z2k.mode, 'lkg');
-  assert.equal(second.result.sourceSnapshots.z2k.error.code, 'ENETWORK');
-  const after = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(after.ok, true, JSON.stringify(after));
-  assert.match(after.index.sources.z2k.snapshotId, /^z2k-/);
-});
-
-test('both source failures preserve the previously active generation', () => {
-  const root = sandbox('preserve');
-  seed(root);
-  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
   const initial = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
   assert.equal(initial.ok, true, JSON.stringify(initial));
 
@@ -112,12 +122,14 @@ test('both source failures preserve the previously active generation', () => {
   const second = invoke(root, MODULE, 'catalog_refresh_worker_run', [], 'error');
   assert.equal(second.state, 'completed', JSON.stringify(second));
   assert.equal(second.result.preserved, true, JSON.stringify(second));
-  assert.equal(second.result.generationId, initial.index.generationId);
+  assert.equal(second.result.sourceSnapshots.avatar.mode, 'lkg');
+  assert.equal(second.result.sourceSnapshots.avatar.error.code, 'ENETWORK');
+  assert.equal(second.result.generationId, first.result.generationId);
   const after = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
   assert.equal(after.index.generationId, initial.index.generationId);
 });
 
-test('source failure without an LKG is a bounded refresh error and publishes no generation', () => {
+test('Avatar failure without an LKG is a bounded refresh error and publishes no generation', () => {
   const root = sandbox('no-lkg');
   seed(root);
   const result = invoke(root, MODULE, 'catalog_refresh_worker_run', [], 'error');
@@ -128,146 +140,100 @@ test('source failure without an LKG is a bounded refresh error and publishes no 
   assert.equal(generation.error.code, 'ESTALE');
 });
 
-test('source enablement rebuilds the unified catalog from exact LKG snapshots without fetching', () => {
+test('single-source Avatar preparation failure returns a bounded error state', () => {
+  const root = sandbox('single-source-fetch-failure');
+  seed(root);
+  invoke(root, MODULE, 'catalog_refresh_worker_run');
+  const disableZ2K = invoke(root, MODULE, 'catalog_source_set_enabled', ['z2k', false, 1]);
+  assert.equal(disableZ2K.ok, true, JSON.stringify(disableZ2K));
+  const failed = invoke(root, MODULE, 'catalog_refresh_source', ['avatar'], 'error');
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  assert.equal(failed.error.code, 'ENETWORK');
+  assert.equal(failed.state.state, 'error');
+  assert.equal(failed.state.error.code, 'ENETWORK');
+});
+
+test('source enablement rebuilds the unified catalog from exact Avatar LKG without fetching', () => {
   const root = sandbox('toggle');
   seed(root);
   const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
-  const disabled = invoke(root, SOURCES_MODULE, 'strategy_source_set_enabled', ['z2k', false, 1]);
-  assert.equal(disabled.ok, true, JSON.stringify(disabled));
-  const rebuilt = invoke(root, MODULE, 'catalog_refresh_rebuild');
-  assert.equal(rebuilt.ok, true, JSON.stringify(rebuilt));
-  const afterDisable = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(afterDisable.index.sources.z2k, undefined);
-  assert.ok(afterDisable.index.sources.avatar);
-  const enabled = invoke(root, SOURCES_MODULE, 'strategy_source_set_enabled', ['z2k', true, 2]);
-  assert.equal(enabled.ok, true, JSON.stringify(enabled));
-  const reenabled = invoke(root, MODULE, 'catalog_refresh_rebuild');
-  assert.equal(reenabled.ok, true, JSON.stringify(reenabled));
+  const disableZ2K = invoke(root, MODULE, 'catalog_source_set_enabled', ['z2k', false, 1]);
+  assert.equal(disableZ2K.ok, true, JSON.stringify(disableZ2K));
+
+  const disabledAvatar = invoke(root, MODULE, 'catalog_source_set_enabled', ['avatar', false, 2]);
+  assert.equal(disabledAvatar.ok, true, JSON.stringify(disabledAvatar));
+  const withoutAvatar = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  assert.equal(withoutAvatar.index.sources.avatar, undefined);
+
+  const enabledAvatar = invoke(root, MODULE, 'catalog_source_set_enabled', ['avatar', true, 3]);
+  assert.equal(enabledAvatar.ok, true, JSON.stringify(enabledAvatar));
   const afterEnable = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.ok(afterEnable.index.sources.z2k);
+  assert.equal(afterEnable.index.sources.avatar.snapshotId, first.result.sourceSnapshots.avatar.snapshotId);
 });
 
-test('generation publication failure rolls fresh source activation back with the old generation', () => {
-  const root = sandbox('transaction-rollback');
+test('generation publication failure keeps the active Avatar generation unchanged', () => {
+  const root = sandbox('rebuild-rollback');
   seed(root);
-  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
-  const before = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
-  assert.equal(before.source.currentSnapshotId, first.result.sourceSnapshots.z2k.snapshotId);
-
-  seed(root);
-  const failed = invoke(root, MODULE, 'catalog_refresh_worker_run', [], 'v2', {
-    Z2M_STRATEGY_GENERATION_FAIL_PHASE: 'pointer',
+  invoke(root, MODULE, 'catalog_refresh_worker_run');
+  const before = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  const failed = invoke(root, MODULE, 'catalog_refresh_rebuild', [], 'ok', {
+    Z2M_STRATEGY_CATALOG_ACTIVE_POINTER: path.join(root, 'missing', 'active.json'),
   });
-  assert.equal(failed.state, 'error', JSON.stringify(failed));
-  const after = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  const after = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  assert.equal(after.index.generationId, before.index.generationId);
+});
+
+test('single-source Avatar refresh rolls back activation when generation publication fails', () => {
+  const root = sandbox('single-source-rollback');
+  seed(root);
+  invoke(root, MODULE, 'catalog_refresh_worker_run');
+  const disableZ2K = invoke(root, MODULE, 'catalog_source_set_enabled', ['z2k', false, 1]);
+  assert.equal(disableZ2K.ok, true, JSON.stringify(disableZ2K));
+  const before = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['avatar']);
+  const beforeGeneration = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+
+  const failed = invoke(root, MODULE, 'catalog_refresh_source', ['avatar'], 'ok', {
+    Z2M_STRATEGY_CATALOG_ACTIVE_POINTER: path.join(root, 'missing', 'active.json'),
+  });
+  assert.equal(failed.ok, false, JSON.stringify(failed));
+  const after = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['avatar']);
+  const generation = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
   assert.equal(after.source.currentSnapshotId, before.source.currentSnapshotId);
   assert.equal(after.source.lastKnownGoodSnapshotId, before.source.lastKnownGoodSnapshotId);
-  const generation = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(generation.ok, true, JSON.stringify(generation));
-  assert.equal(generation.index.generationId, first.result.generationId);
+  assert.equal(generation.index.generationId, beforeGeneration.index.generationId);
 });
 
-test('single-source RPC coordinator stages before activation and rolls back on publication failure', () => {
-  const root = sandbox('single-source-transaction');
-  seed(root);
-  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
-  const before = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
-  const beforeGeneration = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  const failed = invoke(root, MODULE, 'catalog_refresh_source', ['z2k'], 'v2', {
-    Z2M_STRATEGY_GENERATION_FAIL_PHASE: 'pointer',
-  });
-  assert.equal(failed.ok, false, JSON.stringify(failed));
-  const afterFailure = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
-  const generationAfterFailure = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(afterFailure.source.currentSnapshotId, before.source.currentSnapshotId);
-  assert.equal(generationAfterFailure.index.generationId, beforeGeneration.index.generationId);
-
-  const succeeded = invoke(root, MODULE, 'catalog_refresh_source', ['z2k'], 'v2');
-  assert.equal(succeeded.ok, true, JSON.stringify(succeeded));
-  assert.notEqual(succeeded.snapshot.snapshotId, before.source.currentSnapshotId);
-  const afterSuccess = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
-  assert.equal(afterSuccess.source.currentSnapshotId, succeeded.snapshot.snapshotId);
-});
-
-test('source enablement transaction restores config when generation publication fails', () => {
-  const root = sandbox('toggle-transaction');
-  seed(root);
-  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
-  const failed = invoke(root, MODULE, 'catalog_source_set_enabled', ['z2k', false, 1], 'ok', {
-    Z2M_STRATEGY_GENERATION_FAIL_PHASE: 'pointer',
-  });
-  assert.equal(failed.ok, false, JSON.stringify(failed));
-  const configAfterFailure = invoke(root, SOURCES_MODULE, 'strategy_sources_get');
-  assert.equal(configAfterFailure.config.sources.z2k.enabled, true);
-  const generationAfterFailure = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.ok(generationAfterFailure.index.sources.z2k);
-
-  const disabled = invoke(root, MODULE, 'catalog_source_set_enabled', ['z2k', false, 1]);
-  assert.equal(disabled.ok, true, JSON.stringify(disabled));
-  const generationAfterDisable = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(generationAfterDisable.index.sources.z2k, undefined);
-});
-
-test('stale refresh journal rolls source activation back after a process crash', () => {
+test('stale Avatar activation journal rolls back after a process crash', () => {
   const root = sandbox('crash-recovery');
   seed(root);
-  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
+  invoke(root, MODULE, 'catalog_refresh_worker_run');
   const before = invoke(root, SOURCES_MODULE, 'strategy_sources_get');
-  const refreshed = invoke(root, path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc'), 'strategy_source_refresh', ['z2k'], 'v2');
-  assert.equal(refreshed.ok, true, JSON.stringify(refreshed));
-  const ahead = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
-  assert.notEqual(ahead.source.currentSnapshotId, before.sources.z2k.currentSnapshotId);
+  const beforeGeneration = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
+  const fixture = avatarFixture('1'.repeat(40));
+  const activated = invokeCode(root, `import * as refresh from ${JSON.stringify(SOURCE_REFRESH_MODULE)}; import * as store from ${JSON.stringify(SOURCES_MODULE)}; let prepared = refresh.strategy_source_refresh_prepare('avatar'); print(sprintf('%J', store.strategy_source_install_verified_snapshot('avatar', { verified: true, snapshot: prepared.snapshot })));`, 'avatar-v2', {
+    Z2M_AVATAR_FIXTURE_ROOT: fixture,
+  });
+  assert.equal(activated.ok, true, JSON.stringify(activated));
+  const ahead = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['avatar']);
+  assert.notEqual(ahead.source.currentSnapshotId, before.sources.avatar.currentSnapshotId);
+
   fs.writeFileSync(path.join(root, 'refresh-state.json'), JSON.stringify({
-    operationId: 'crashed-refresh', state: 'running', phase: 'z2k-fetch', percent: 35,
+    operationId: 'crashed-refresh', state: 'running', phase: 'activating', percent: 90,
     startedAt: 1, heartbeatAt: 1, finishedAt: null, result: null, error: null,
     transaction: { kind: 'catalog-refresh', phase: 'staged',
       previousActivations: {
-        avatar: { currentSnapshotId: before.sources.avatar.currentSnapshotId, lastKnownGoodSnapshotId: before.sources.avatar.lastKnownGoodSnapshotId },
-        z2k: { currentSnapshotId: before.sources.z2k.currentSnapshotId, lastKnownGoodSnapshotId: before.sources.z2k.lastKnownGoodSnapshotId }
-      }, desiredSources: {} }
+        avatar: { currentSnapshotId: before.sources.avatar.currentSnapshotId,
+          lastKnownGoodSnapshotId: before.sources.avatar.lastKnownGoodSnapshotId },
+        z2k: { currentSnapshotId: before.sources.z2k.currentSnapshotId,
+          lastKnownGoodSnapshotId: before.sources.z2k.lastKnownGoodSnapshotId },
+      }, desiredSources: {} },
   }));
   const recovered = invoke(root, MODULE, 'catalog_refresh_status', [], 'error');
   assert.equal(recovered.state, 'error', JSON.stringify(recovered));
   assert.equal(recovered.error.code, 'ERECOVERED', JSON.stringify(recovered));
-  const after = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
-  assert.equal(after.source.currentSnapshotId, before.sources.z2k.currentSnapshotId);
+  const after = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['avatar']);
   const generation = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(generation.index.generationId, first.result.generationId);
-});
-
-test('stale journal commits when the generation pointer already contains the staged source set', () => {
-  const root = sandbox('crash-commit');
-  seed(root);
-  const first = invoke(root, MODULE, 'catalog_refresh_worker_run');
-  assert.equal(first.state, 'completed', JSON.stringify(first));
-  const before = invoke(root, SOURCES_MODULE, 'strategy_sources_get');
-  const refreshed = invoke(root, path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc'), 'strategy_source_refresh', ['z2k'], 'v2');
-  assert.equal(refreshed.ok, true, JSON.stringify(refreshed));
-  const current = invoke(root, SOURCES_MODULE, 'strategy_sources_get');
-  const rebuilt = invoke(root, MODULE, 'catalog_refresh_rebuild');
-  assert.equal(rebuilt.ok, true, JSON.stringify(rebuilt));
-  fs.writeFileSync(path.join(root, 'refresh-state.json'), JSON.stringify({
-    operationId: 'crashed-after-publish', state: 'running', phase: 'activating', percent: 90,
-    startedAt: 1, heartbeatAt: 1, finishedAt: null, result: null, error: null,
-    transaction: { kind: 'catalog-refresh', phase: 'publishing',
-      previousActivations: {
-        avatar: { currentSnapshotId: before.sources.avatar.currentSnapshotId, lastKnownGoodSnapshotId: before.sources.avatar.lastKnownGoodSnapshotId },
-        z2k: { currentSnapshotId: before.sources.z2k.currentSnapshotId, lastKnownGoodSnapshotId: before.sources.z2k.lastKnownGoodSnapshotId }
-      }, desiredSources: {
-        avatar: { enabled: true, snapshotId: current.sources.avatar.currentSnapshotId },
-        z2k: { enabled: true, snapshotId: current.sources.z2k.currentSnapshotId }
-      } }
-  }));
-  const recovered = invoke(root, MODULE, 'catalog_refresh_status', [], 'error');
-  assert.equal(recovered.state, 'completed', JSON.stringify(recovered));
-  assert.equal(recovered.result.recovered, 'committed', JSON.stringify(recovered));
-  const generation = invoke(root, GENERATION_MODULE, 'strategy_catalog_generation_read');
-  assert.equal(generation.index.generationId, rebuilt.generationId);
-  const after = invoke(root, SOURCES_MODULE, 'strategy_source_get', ['z2k']);
-  assert.equal(after.source.currentSnapshotId, current.sources.z2k.currentSnapshotId);
+  assert.equal(after.source.currentSnapshotId, before.sources.avatar.currentSnapshotId);
+  assert.equal(generation.index.generationId, beforeGeneration.index.generationId);
 });

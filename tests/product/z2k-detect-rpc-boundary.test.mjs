@@ -52,7 +52,7 @@ function loadHandlers() {
   context.z2k_detect_status = () => ({ ok: true });
 
   const start = rpc.indexOf('function z2k_detect_input(req)');
-  const end = rpc.indexOf('function job_get_method(req)', start);
+  const end = rpc.indexOf('// ---- maintenance + backups', start);
   assert.ok(start >= 0 && end > start, 'Detect RPC handler block must be extractable');
   const registrationLines = operations.map(kind => {
     const line = rpc.split(/\r?\n/).find(value =>
@@ -99,7 +99,7 @@ test('Detect RPC validates allowed fields with UCode array value iteration', {
   skip: !ucode || !fs.existsSync(ucode),
 }, () => {
   const start = rpc.indexOf('function z2k_detect_input(req)');
-  const end = rpc.indexOf('function job_get_method(req)', start);
+  const end = rpc.indexOf('// ---- maintenance + backups', start);
   assert.ok(start >= 0 && end > start, 'Detect RPC handler block must be extractable');
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2k-detect-rpc-'));
   const script = path.join(tempDir, 'boundary.uc');

@@ -8,7 +8,7 @@
 
 import { avatar_tokenize, strategy_normalize, strategy_enabled_profiles } from './strategy-model.uc';
 import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
-import { profiles_render_candidate, profiles_candidate_round_trip } from './profiles-apply.uc';
+import { strategy_render_candidate, strategy_candidate_round_trip } from './strategy-apply-runtime.uc';
 import { native_preflight } from './native-preflight.uc';
 import { runtime_argument_token } from './runtime-asset-paths.uc';
 import { z2k_dependency_closure } from './z2k-dependency-closure.uc';
@@ -28,7 +28,7 @@ const COMPILER_SEMANTIC_MANIFEST = {
 	dependencies: 'blob-lua-function-hostlist-ipset.ordered-complete.v1',
 	dependencyOutput: 'available.items.missing.structurallyCompilable.nativeValidation.v1',
 	structuralValidation: 'parse.validate.single-profile.pre-and-post-transform.v1',
-	rendering: 'profiles_render_candidate.round-trip.v1',
+	rendering: 'strategy_render_candidate.round-trip.v1',
 	candidateIdentity: 'sha256.rendered-candidate-utf8.v1',
 	candidateOutput: 'args.fragments.count.dependencies.validation.applicability.sha256.v1',
 	nativePreflight: 'opt-in.validate-or-execution-admission.v1',
@@ -71,13 +71,6 @@ function option_info(token) {
 	let body = substr(token, 2), eq = index(body, '=');
 	if (eq < 0) return { name: body, value: null, hasEquals: false };
 	return { name: substr(body, 0, eq), value: substr(body, eq + 1), hasEquals: true };
-}
-
-function copy_array(value) {
-	let result = [];
-	if (type(value) != 'array') return result;
-	for (let i = 0; i < length(value); i++) push(result, value[i]);
-	return result;
 }
 
 function safe_path_text(value) {
@@ -217,11 +210,6 @@ function autowrap(tokens) {
 	for (let i = 0; i < length(prefix); i++) push(result, prefix[i]);
 	for (let i = 0; i < length(tokens); i++) push(result, tokens[i]);
 	return result;
-}
-
-function list_descriptor(environment, key) {
-	if (!is_object(environment.lists)) return null;
-	return environment.lists[key];
 }
 
 function descriptor_path(descriptor, fallback) {
@@ -691,9 +679,9 @@ function compile_normalized(strategy, environment) {
 	// Each transformed fragment was parsed and validated above.  Keep the
 	// renderer's normal validation for draft/apply callers, but avoid parsing
 	// these same large Z2K fragments a third time on the read-only compiler path.
-	let rendered = profiles_render_candidate(drafts, true);
+	let rendered = strategy_render_candidate(drafts, true);
 	if (!rendered.ok) return error_result('EINPUT', 'Profile renderer refused transformed fragments', { renderer: rendered });
-	if (!profiles_candidate_round_trip(rendered.candidate, rendered.fragments))
+	if (!strategy_candidate_round_trip(rendered.candidate, rendered.fragments))
 		return error_result('EINTERNAL', 'Profile renderer round-trip proof failed');
 	let digest = digest_text(rendered.candidate);
 	if (digest == null) return error_result('EINTERNAL', 'SHA-256 is unavailable for candidate identity');

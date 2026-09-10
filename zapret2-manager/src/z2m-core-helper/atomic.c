@@ -242,15 +242,3 @@ int z2m_atomic_write_json(const struct z2m_request *r,const struct z2m_root *roo
 	if(expected!=NULL){const char *code;if(z2m_root_mount_id(root_fd,&root_mount,&code)<0)return fail(r,code,"path_resolve");if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,expected,true,root_mount);}
 	return z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
 }
-
-int z2m_atomic_write_json_revision(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const unsigned char *content,size_t length)
-{
-	json_object *path_value,*expected_value,*create_value,*current,*revision_value;const char *path,*code;int64_t expected;bool allow_create;struct stat st;int fd;uint64_t mount;
-	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"expectedRevision",&expected_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);expected=json_object_get_int64(expected_value);allow_create=json_object_get_boolean(create_value);
-	if(z2m_root_mount_id(root_fd,&mount,&code)<0)return fail(r,code,"path_resolve");
-	if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");
-	fd=z2m_open_regular(root_fd,path,&st,&code);
-	if(fd<0){if(strcmp(code,"ENOENT")!=0||expected!=-1||!allow_create)return fail(r,"ECONFLICT","precondition");}
-	else {unsigned char *bytes=malloc((size_t)st.st_size+1);if(bytes==NULL){close(fd);return fail(r,"EINTERNAL","internal");}if(read(fd,bytes,(size_t)st.st_size)!=(ssize_t)st.st_size){free(bytes);close(fd);return fail(r,"EIO","read");}bytes[st.st_size]='\0';json_tokener *tokener=json_tokener_new();current=json_tokener_parse_ex(tokener,(char*)bytes,(int)st.st_size);json_tokener_free(tokener);free(bytes);close(fd);if(current==NULL||!json_object_object_get_ex(current,"revision",&revision_value)||!json_object_is_type(revision_value,json_type_int)||json_object_get_int64(revision_value)!=expected){json_object_put(current);return fail(r,"ECONFLICT","precondition");}json_object_put(current);}
-	return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,NULL,true,mount);
-}

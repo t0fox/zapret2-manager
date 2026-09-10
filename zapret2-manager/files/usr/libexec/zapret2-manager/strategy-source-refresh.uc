@@ -136,10 +136,6 @@ function compile_z2k_exact(sourceCommit) {
 		sourceFiles: plan.sourceFiles, sourceUrls: plan.sourceUrls, fileSha256: fileSha256 };
 }
 
-export const strategy_source_z2k_compiler_plan = function(selected) {
-	return z2k_versions.z2k_strategy_compiler_plan(selected);
-};
-
 // Core-only exact source boundary. It has no HEAD/branch discovery and is not
 // wired to the source-refresh RPC; the caller must supply the selected release
 // identity and the runtime inventory used for the dependency closure.
@@ -192,12 +188,10 @@ function validate_z2k_candidate(snapshot, dependencyInventory) {
 	let entry = snapshot && snapshot.entries && snapshot.entries[0];
 	if (!object(entry) || !string(entry.args) || entry.args == '')
 		return error('EPREFLIGHT', 'Z2K candidate has no compiled Strategy arguments');
-	let testBypass = getenv('Z2M_UPDATE_SOURCE_TEST') == '1' && getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0';
 	let cleanBootstrap = object(dependencyInventory) && dependencyInventory.deferred === true && dependencyInventory.engineReady === true;
 	let preflight_entry = function(candidate) {
 		if (!object(candidate) || !string(candidate.args) || candidate.args == '')
 			return { ok: false, validation: { status: 'rejected', reason: 'compiled Strategy arguments are empty' } };
-		if (testBypass) return { ok: true, validation: { status: 'not_checked', reason: 'test-only native validation bypass' } };
 		let result = null;
 		try { result = native_preflight(candidate.args, dependencyInventory && dependencyInventory.runtimeComposition || null, dependencyInventory); }
 		catch (e) { result = null; }
@@ -260,11 +254,6 @@ function extract_avatar_archive(archive) {
 	let catalogRoot = substr(manifest, 0, rindex(manifest, '/'));
 	return { ok: true, root: catalogRoot, staging: root };
 }
-function install(id, snapshot) {
-	let result = sources.strategy_source_install_verified_snapshot(id, { verified: true, snapshot: snapshot });
-	return result.ok ? result : error(result.error && result.error.code || 'EWRITE', result.error && result.error.message || 'Source snapshot installation failed');
-}
-
 function prepare_refresh(id) {
 	if (id == 'z2k') return managed_z2k();
 	if (id != 'avatar') return error('EINPUT', 'Unknown strategy source');
@@ -292,18 +281,6 @@ function prepare_refresh(id) {
 // The catalog refresh coordinator uses this prepare-only boundary so a source
 // cannot advance current/LKG before the candidate generation is publishable.
 export const strategy_source_refresh_prepare = prepare_refresh;
-
-// Kept for the direct source RPC and older callers. Validation (including the
-// generated Z2K All-in-One) is completed before this compatibility activation.
-export const strategy_source_refresh = function(id) {
-	let prepared = prepare_refresh(id);
-	if (!prepared.ok) return prepared;
-	let installed = install(id, prepared.snapshot);
-	if (!installed.ok) return installed;
-	return { ok: true, sourceId: id, metadata: prepared.metadata, snapshot: prepared.snapshot,
-		idempotent: installed.source.currentSnapshotId == prepared.snapshot.snapshotId,
-		metadataTransport: prepared.metadataTransport };
-};
 
 export const strategy_source_get = sources.strategy_source_get;
 export const strategy_source_current_snapshot = sources.strategy_source_current_snapshot;

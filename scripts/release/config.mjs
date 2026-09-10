@@ -19,11 +19,9 @@ export const releaseConfig = Object.freeze({
     'luci-base',
     'kmod-nfnetlink-queue',
     'kmod-nft-queue',
-    'ncat',
     'flock',
     'uclient-fetch',
     'ca-bundle',
-    'unzip',
     'jsonfilter',
     'libjson-c'
   ]),
@@ -34,10 +32,6 @@ export const releaseConfig = Object.freeze({
     z2mRuntime: true,
     engine: false,
     telegramProxy: false
-  }),
-  compatibility: Object.freeze({
-    provides: Object.freeze(['zapret2-manager', 'luci-app-zapret2-manager']),
-    legacyPackages: Object.freeze(['zapret2-manager', 'luci-app-zapret2-manager'])
   }),
   installation: Object.freeze({
     trustMode: 'allow-untrusted',

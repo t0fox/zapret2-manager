@@ -24,9 +24,9 @@ model is:
   second user-installable product.
 - **Avatar Catalog** is an imported strategy/catalog source and donor reference,
   not a system component.
-- **Strategy** owns permanent Preview → Validate → Apply lifecycle. Scanner
-  exposes the five typed Z2K Detect operations and returns evidence only; it is
-  not a native Scanner authority or a second Strategy lifecycle.
+- **Strategy** owns permanent Preview → Validate → Apply lifecycle. Z2K Detect
+  exposes five typed measurement operations and returns evidence only; it does
+  not own the Engine or a second Strategy lifecycle.
 - **Telegram Proxy** and **WARP/MASQUE** are optional products with their own
   owners. They are not bundled into the manager package set.
 - **Services/Domains**, **Resources**, and **DNS** are data/routing surfaces;
@@ -34,11 +34,10 @@ model is:
 
 ## Current information architecture
 
-The canonical navigation groups are Home; DPI (Management, Strategies,
-Scanner); Proxy/Routing (WARP/MASQUE, Telegram Proxy); Lists/Data
+The canonical navigation groups are Home; DPI (Management, Strategies, Z2K
+Detect); Proxy/Routing (WARP/MASQUE, Telegram Proxy); Lists/Data
 (Services/Domains, Resources, DNS); Diagnostics (Monitoring, Logs); and System
-(Components, Backups, Settings). Compatibility routes may remain, but they do
-not create duplicate product lifecycles.
+(Components, Backups). There are no compatibility product routes.
 
 ## Release readiness
 
@@ -70,8 +69,8 @@ must remain explicitly marked NOT_RUN or NOT_YET_RUN in the relevant report.
 
 ## Do not touch in this documentation slice
 
-Preserve Scanner, native ownership helper, NFQUEUE, Strategy, DNS, Telegram,
-LuCI runtime behavior, router state, and unrelated release-owned changes.
+Preserve Z2K Detect, NFQUEUE, Strategy, DNS, Telegram, LuCI runtime behavior,
+router state, and unrelated release-owned changes.
 
 For exact dynamic state, inspect `git status --short --branch`,
 `git branch --show-current`, `git rev-parse HEAD`, `git log --oneline`, and

@@ -7,12 +7,11 @@ const canonicalJsonPath = 'docs/04-contracts/z2m-canonical-json-v1.md';
 
 const roots = [
   'persistent_state', 'snapshots', 'registry', 'secrets',
-  'runtime', 'jobs', 'locks', 'staging'
+  'runtime', 'jobs', 'staging'
 ];
 const operations = [
   'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
-  'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned',
-  'lock_acquire', 'lock_release', 'lock_status',
+  'mkdir_private', 'sha256_regular',
   'z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'
 ];
 const exits = {
@@ -30,77 +29,69 @@ const expectedRoots = {
     base: '/etc/zapret2-manager/state', storage: 'persistent', persistence: 'survives_reboot',
     ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
     maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
-    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    directoryFsync: 'required',
     objectType: 'directory', noFollowRoot: true, allowedOperations: [
       'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
-      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+      'mkdir_private', 'sha256_regular'
     ]
   },
   snapshots: {
     base: '/etc/zapret2-manager/snapshots', storage: 'persistent', persistence: 'survives_reboot',
     ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
     maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
-    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    directoryFsync: 'required',
     objectType: 'directory', noFollowRoot: true, allowedOperations: [
       'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
-      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+      'mkdir_private', 'sha256_regular'
     ]
   },
   registry: {
     base: '/etc/zapret2-manager/registry', storage: 'persistent', persistence: 'survives_reboot',
     ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
     maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
-    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    directoryFsync: 'required',
     objectType: 'directory', noFollowRoot: true, allowedOperations: [
       'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
-      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+      'mkdir_private', 'sha256_regular'
     ]
   },
   secrets: {
     base: '/etc/zapret2-manager/secrets', storage: 'persistent', persistence: 'survives_reboot',
     ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
     maxReadBytes: 0, maxDepth: 8, mkdirPolicy: 'private_only',
-    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    directoryFsync: 'required',
     objectType: 'directory', noFollowRoot: true, allowedOperations: [
-      'stat_regular', 'atomic_write', 'atomic_write_json', 'mkdir_private',
-      'rename_owned', 'unlink_owned'
+      'stat_regular', 'atomic_write', 'atomic_write_json', 'mkdir_private'
     ]
   },
   runtime: {
     base: '/tmp/zapret2-manager/runtime', storage: 'tmpfs', persistence: 'cleared_on_reboot',
     ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
     maxReadBytes: 1048576, maxDepth: 12, mkdirPolicy: 'private_only',
-    deletePolicy: 'owned_token_only', directoryFsync: 'not_required',
+    directoryFsync: 'not_required',
     objectType: 'directory', noFollowRoot: true, allowedOperations: [
       'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
-      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+      'mkdir_private', 'sha256_regular'
     ]
   },
   jobs: {
     base: '/tmp/zapret2-manager/jobs', storage: 'tmpfs', persistence: 'cleared_on_reboot',
     ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
     maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
-    deletePolicy: 'owned_token_only', directoryFsync: 'not_required',
+    directoryFsync: 'not_required',
     objectType: 'directory', noFollowRoot: true, allowedOperations: [
       'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
-      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+      'mkdir_private', 'sha256_regular'
     ]
-  },
-  locks: {
-    base: '/tmp/zapret2-manager/locks', storage: 'tmpfs', persistence: 'cleared_on_reboot',
-    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
-    maxReadBytes: 0, maxDepth: 1, mkdirPolicy: 'denied', deletePolicy: 'denied',
-    directoryFsync: 'not_required', objectType: 'directory', noFollowRoot: true,
-    allowedOperations: ['lock_acquire', 'lock_release', 'lock_status']
   },
   staging: {
     base: '/tmp/zapret2-manager/staging', storage: 'tmpfs', persistence: 'cleared_on_reboot',
     ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
     maxReadBytes: 4194304, maxDepth: 12, mkdirPolicy: 'private_only',
-    deletePolicy: 'owned_token_only', directoryFsync: 'not_required',
+    directoryFsync: 'not_required',
     objectType: 'directory', noFollowRoot: true, allowedOperations: [
       'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
-      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+      'mkdir_private', 'sha256_regular'
     ]
   }
 };
@@ -155,7 +146,7 @@ test('protocol v1 is a bounded one-request process with strict JSON framing', ()
   });
 });
 
-test('root policy is closed, complete, and isolates secrets, locks, and staging', () => {
+test('root policy is closed, complete, and isolates secrets and staging', () => {
   const value = manifest();
   assert.deepEqual(value.roots, expectedRoots);
   assert.deepEqual(value.rootOpenPolicy, {
@@ -173,12 +164,8 @@ test('root policy is closed, complete, and isolates secrets, locks, and staging'
   });
 
   assert.deepEqual(value.roots.secrets.allowedOperations,
-    ['stat_regular', 'atomic_write', 'atomic_write_json', 'mkdir_private', 'rename_owned', 'unlink_owned']);
+    ['stat_regular', 'atomic_write', 'atomic_write_json', 'mkdir_private']);
   assert.equal(value.roots.secrets.maxReadBytes, 0);
-  assert.deepEqual(value.roots.locks.allowedOperations,
-    ['lock_acquire', 'lock_release', 'lock_status']);
-  assert.equal(value.roots.locks.mkdirPolicy, 'denied');
-  assert.equal(value.roots.locks.deletePolicy, 'denied');
   assert.equal(value.constraints.crossRootRename, 'denied');
   assert.equal(value.constraints.stagingAsPersistentAtomicSource, 'denied');
 });
@@ -267,19 +254,6 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.atomic_write_json.status, 'implemented');
   assert.equal(value.operations.mkdir_private.status, 'milestone_2');
   assert.equal(value.operations.sha256_regular.status, 'milestone_2');
-  for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name)))
-    if (!['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) assert.equal(value.operations[name].status, 'reserved_unsupported', name);
-  for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name))) {
-    if (['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'].includes(name)) continue;
-    assert.deepEqual(value.operations[name].unsupportedBehavior, {
-      errorCode: 'EUNSUPPORTED',
-      dispatch: 'reject_before_operation_dispatch',
-      sideEffects: 'none',
-      response: 'complete_failure_envelope',
-      exitCategory: 'policy_denied',
-      exitCode: 3
-    }, name);
-  }
   assert.equal(value.operations.read_regular.limits.maxOutputBytes, 6 * 1024 * 1024);
   assert.equal(value.operations.read_regular.requestSchema.properties.maxBytes.maximum,
     4 * 1024 * 1024);
@@ -291,14 +265,6 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.secrets, undefined);
   assert.ok(!value.operations.read_regular.roots.includes('secrets'));
   assert.ok(!value.operations.sha256_regular.roots.includes('secrets'));
-  assert.equal(value.operations.rename_owned.requestSchema.properties.ownershipToken.pattern,
-    '^[a-f0-9]{64}$');
-  assert.equal(value.operations.unlink_owned.requestSchema.properties.ownershipToken.pattern,
-    '^[a-f0-9]{64}$');
-  for (const name of ['lock_acquire', 'lock_release', 'lock_status']) {
-    assert.deepEqual(value.operations[name].roots, ['locks']);
-    assert.equal(value.operations[name].status, 'reserved_unsupported');
-  }
   for (const name of ['atomic_write', 'atomic_write_json']) {
     assert.equal(value.operations[name].requestSchema.properties.mode.const, '0600');
     assert.equal(value.operations[name].requestSchema.properties.uid.const, 0);
@@ -334,7 +300,7 @@ test('errors are stable, bounded, and map to one exit category', () => {
   const expectedCodes = [
     'EMALFORMED', 'ESCHEMA', 'EREQUESTTOOBIG', 'EDENIED', 'EROOT', 'EPATH',
     'EUNSUPPORTED', 'ECAPABILITY', 'ENOENT', 'ENOTREG', 'ESYMLINK', 'EXDEV', 'ETOOBIG', 'EIO',
-    'ECONFLICT', 'ECLEANUPUNKNOWN', 'ELOCKED', 'ETIMEOUT', 'EOWNERSHIP', 'ECOMMITUNKNOWN', 'EINTERNAL',
+    'ECONFLICT', 'ECLEANUPUNKNOWN', 'ELOCKED', 'ECOMMITUNKNOWN', 'EINTERNAL',
     'EINCOMPLETE'
   ];
   assert.deepEqual(sorted(Object.keys(value.errors)), sorted(expectedCodes));
@@ -352,7 +318,7 @@ test('errors are stable, bounded, and map to one exit category', () => {
   }
   for (const code of ['EMALFORMED', 'ESCHEMA', 'EREQUESTTOOBIG', 'EDENIED',
     'EROOT', 'EPATH', 'EUNSUPPORTED', 'ECAPABILITY', 'ENOENT', 'ENOTREG', 'ESYMLINK',
-    'EXDEV', 'ETOOBIG', 'EIO', 'ELOCKED', 'ETIMEOUT', 'EOWNERSHIP']) {
+    'EXDEV', 'ETOOBIG', 'EIO', 'ELOCKED']) {
     assert.equal(value.errors[code].committed, false, code);
     assert.equal(value.errors[code].durability, 'unchanged', code);
   }
@@ -387,7 +353,7 @@ test('errors are stable, bounded, and map to one exit category', () => {
   assert.ok(value.errors.ETOOBIG.allowedStages.includes('canonical_size'));
 });
 
-test('reserved atomic write decoded input limit fits the bounded request wire independently', () => {
+test('atomic write decoded input limit fits the bounded request wire independently', () => {
   const value = manifest();
   const operation = value.operations.atomic_write;
   assert.equal(operation.requestSchema.properties.content.maxDecodedBytes, 521028);
@@ -422,7 +388,7 @@ test('ucode mapping supplies generation and closes helper and transport failures
         EDENIED: 'EINPUT', EROOT: 'EDEPENDENCY', EPATH: 'EINPUT',
         EUNSUPPORTED: 'EDEPENDENCY', ECAPABILITY: 'EDEPENDENCY', ENOENT: 'EDEPENDENCY', ENOTREG: 'EDEPENDENCY',
         ESYMLINK: 'EDEPENDENCY', EXDEV: 'EDEPENDENCY', ETOOBIG: 'EINPUT', EIO: 'EDEPENDENCY',
-        ECONFLICT: 'ECONFLICT', ECLEANUPUNKNOWN: 'EAPPLY', ELOCKED: 'ELOCKED', ETIMEOUT: 'ELOCKED', EOWNERSHIP: 'EOWNERSHIP',
+        ECONFLICT: 'ECONFLICT', ECLEANUPUNKNOWN: 'EAPPLY', ELOCKED: 'ELOCKED',
         ECOMMITUNKNOWN: 'EAPPLY', EINTERNAL: 'EINTERNAL', EINCOMPLETE: 'EDEPENDENCY'
       },
       details: {

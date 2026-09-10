@@ -17,7 +17,7 @@ test('NEGATIVE gate: missing _state or get_record -> review-required, rebases []
   const missingState = read('tests/fixtures/z2k-candidate-negative/z2k-state-persist-missing-state.lua');
   const missingGet = read('tests/fixtures/z2k-candidate-negative/z2k-state-persist-missing-getrecord.lua');
 
-  // The upstream file itself should have a helper is_compatible_raw or similar.
+  // The shared candidate gate owns the semantic check.
   // We simulate what the gate should do: check for required symbols as words, not substrings.
   function isCompatibleRaw(raw) {
     if (typeof raw !== 'string') return false;
@@ -35,10 +35,9 @@ test('NEGATIVE gate: missing _state or get_record -> review-required, rebases []
   assert.equal(isCompatibleRaw(missingState), false, 'missing _state must be incompatible');
   assert.equal(isCompatibleRaw(missingGet), false, 'missing get_record must be incompatible');
 
-  // The gate is expected to be exposed in production code as z2k_state_persist_compat_raw or is_compatible_raw
-  // Check that production file actually exports such a helper (will fail until implemented)
-  const upstreamUc = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc');
-  assert.match(upstreamUc, /is_compatible_raw|compat_raw|is_state_persist_compatible_raw/, 'production must expose pure raw compatibility helper for testability');
+  const compatUc = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-compat.uc');
+  assert.match(compatUc, /function is_compatible_raw/);
+  assert.doesNotMatch(read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc'), /is_state_persist_compatible|fetch_untrusted_manifest\(/);
 
   // Also verify that plan would put missing candidate in reviews, not updates, and rebases stays []
   // Simulate plan branching

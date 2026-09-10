@@ -3,7 +3,7 @@
 // CLI boundary for the unified domain hub adapter.
 
 import { readfile, popen } from 'fs';
-import { domain_hub_get, domain_hub_preview, domain_hub_apply } from './domain-hub.uc';
+import { domain_hub_get, domain_hub_apply } from './domain-hub.uc';
 
 const LOCKFILE = '/tmp/zapret2-manager/state.lock';
 
@@ -34,13 +34,6 @@ function edit_string(file) {
 let mode = ARGV[0];
 if (mode == 'get') {
 	print(sprintf('%J', domain_hub_get()) + '\n');
-} else if (mode == 'preview') {
-	let edit = edit_string(ARGV[1]);
-	if (edit == null) {
-		print(sprintf('%J', { ok: false, error: { code: 'EINPUT', message: 'missing edit file' } }) + '\n');
-		exit(1);
-	}
-	print(sprintf('%J', domain_hub_preview(edit)) + '\n');
 } else if (mode == 'apply') {
 	if (getenv('Z2M_DOMAIN_HUB_LOCKED') == null && have_flock()) {
 		if (flock_apply(ARGV[1])) exit(0);
@@ -52,6 +45,6 @@ if (mode == 'get') {
 	}
 	print(sprintf('%J', domain_hub_apply(edit)) + '\n');
 } else {
-	print('usage: domain-hub-cli.uc get | preview <edit-file> | apply <edit-file>\n');
+	print('usage: domain-hub-cli.uc get | apply <edit-file>\n');
 	exit(1);
 }

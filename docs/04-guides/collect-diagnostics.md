@@ -13,8 +13,8 @@ tags: [guides, diagnostics]
 
 Откройте **Диагностика → Мониторинг**, затем используйте кнопку сбора отчёта,
 если она доступна. В отчёт должны входить component status, Engine/Strategy,
-firewall/NFQUEUE, Scanner readiness, DNS, TG, logs, version, memory и storage.
+firewall/NFQUEUE, Z2K Detect readiness, DNS, TG, logs, version, memory и storage.
 
 Перед отправкой проверьте, что secrets не включены. Для bug report приложите
 время, симптом, ожидаемый результат и relevant log tail. Domain probe запускайте
-из Scanner Diagnostics, а не дублируйте его в Monitoring.
+из Z2K Detect, а не дублируйте его в Monitoring.

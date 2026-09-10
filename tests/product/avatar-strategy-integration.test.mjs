@@ -22,27 +22,22 @@ const SOURCE_REFRESH_PATH = path.join(ROOT, 'zapret2-manager/files/usr/libexec/z
 const SOURCES_PATH = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
 const stubProductModule = names => names.map(name => `export const ${name} = function () { return { ok: true }; };`).join('\n') + '\n';
 fs.writeFileSync(DNS_PRODUCT_PATH, stubProductModule([
-  'dns_product_get', 'dns_product_providers', 'dns_product_status', 'dns_product_preview',
-  'dns_product_validate', 'dns_product_apply', 'dns_product_rollback',
+  'dns_product_get', 'dns_product_status', 'dns_product_validate',
 ]));
 fs.writeFileSync(TG_PRODUCT_PATH, stubProductModule([
-  'tg_product_get', 'tg_product_catalog', 'tg_product_status', 'tg_product_versions',
-  'tg_product_operation_status', 'tg_product_validate', 'tg_product_preview', 'tg_product_apply',
-  'tg_product_health', 'tg_product_check_updates', 'tg_product_switch', 'tg_product_install',
-  'tg_product_update', 'tg_product_remove', 'tg_product_purge', 'tg_product_start',
+  'tg_product_catalog', 'tg_product_status', 'tg_product_versions',
+  'tg_product_operation_status', 'tg_product_check_updates', 'tg_product_switch', 'tg_product_remove', 'tg_product_purge', 'tg_product_start',
   'tg_product_stop', 'tg_product_restart',
 ]));
 test.after(() => fs.rmSync(RPC_PRODUCT_STUB_ROOT, { recursive: true, force: true }));
-const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-apply-runtime.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const STATUS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-status.uc');
-const STATUS_COMPAT = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
+const STATUS_COLLECTOR = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc');
 const RPC = path.join(ROOT, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const ACL = path.join(ROOT, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
-const PAGE = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js');
-const PAGE_ADAPTER = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-page.js');
-const WORKFLOW_CORE = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-workflow-core.js');
-const MAKEFILE = path.join(ROOT, 'zapret2-manager/Makefile');
+const PAGE = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
+const MAKEFILE = path.join(ROOT, 'zapret2-manager-full/Makefile');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
@@ -103,7 +98,7 @@ function runtimeComposition(overrides = {}) {
     membershipDigest: HASH, observedRegistryRevision: 17,
     lifecycleIdentity: { kind: 'installed', release: 'r-80.3', sourceCommit: 'c'.repeat(40) },
     receiptIdentity: { receiptId: 'receipt-r-80.3' }, runtimeAssets: [], luaInit: [],
-    dependencyIndex: {}, scannerOverlay: [], ...overrides,
+    dependencyIndex: {}, ...overrides,
   };
 }
 
@@ -156,8 +151,8 @@ function storage(callback) {
     Z2M_STRATEGY_APPLY_BLOCK: path.join(lastGood, 'apply-block.json'),
     Z2M_STRATEGY_APPLY_LEASE: path.join(lastGood, 'apply-lease.json'),
     Z2M_STRATEGY_CONFIG_LOCK: path.join(runtime, 'config.lock'),
-    Z2M_STRATEGY_PROFILE_MODULE: APPLY,
-    Z2M_STRATEGY_PROFILE_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply-cli.uc'),
+    Z2M_STRATEGY_APPLY_RUNTIME_MODULE: APPLY,
+    Z2M_STRATEGY_APPLY_RUNTIME_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-apply-runtime-cli.uc'),
     Z2M_STRATEGY_STATE_MODULE: STATE,
     Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
     Z2M_STRATEGY_LOCK: path.join(runtime, 'strategy.lock'),
@@ -237,7 +232,7 @@ test('Strategy identity survives catalog -> Preview -> Validate -> Apply -> stat
 }));
 
 test('rollback and identity reconciliation preserve the authoritative selection boundary', () => storage(({ env }) => {
-  const rollback = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, ${JSON.stringify(CANDIDATE_HASH)}, null)`, {
+  const rollback = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, ${JSON.stringify(CANDIDATE_HASH)}, null)`, {
     ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       restart: [{ rc: 1, out: 'restart failed' }, { rc: 0, out: '' }],
       verify: [{ ok: false, checks: runtimeChecks(false) }, { ok: true, checks: runtimeChecks(true) }],
@@ -275,68 +270,37 @@ test('catalog digest, duplicate winner, protocol sets, package assets, and impor
       assert.equal(new Set(catalog[protocol][set]).size, catalog[protocol][set].length);
     }
   }
-  assert.equal(manifest.physicalFileCount, 23);
+  assert.equal(manifest.physicalFileCount, 21);
   assert.deepEqual(fs.readdirSync(CATALOG_ROOT, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort(), ['advanced', 'basic', 'builtin', 'direct']);
   for (const file of expectedManifest.files) {
     const asset = path.join(CATALOG_ROOT, ...file.path.split('/'));
     assertCatalogMode(asset, file.path);
     assert.equal(createHash('sha256').update(fs.readFileSync(asset)).digest('hex'), file.sha256, file.path);
   }
-  const draft = { schema: 1, profiles: [{ id: 'p1', name: 'Imported', opt: '--filter-tcp=443' }] };
-  const cliSource = read(CLI);
-  const importSource = cliSource.slice(cliSource.indexOf('function import_diagnostic'), cliSource.indexOf('function catalog_root'));
-  assert.match(cliSource, /strategy_import_profiles_from_state/);
-  assert.doesNotMatch(importSource, /save_state|profiles_apply_candidate\(|NFQWS2_OPT/);
-  const imported = invoke(CLI, `mod.strategy_import_profiles_from_state(${JSON.stringify(draft)}, {mode:'preview'})`);
-  assert.equal(imported.ok, true);
-  assert.equal(imported.runtimeMutation, false);
-  assert.deepEqual(imported.strategy.profiles.map(profile => profile.args), ['--filter-tcp=443']);
-
-  storage(({ env, root }) => {
-    const before = treeSnapshot(root);
-    const preview = invoke(CLI, `mod.strategy_cli_dispatch_test('import_profiles',{mode:'preview'},{importProfiles:{draftState:${JSON.stringify(draft)}}})`, {
-      ...env, Z2M_STRATEGY_SERVER_TEST: '1',
-    });
-    assert.equal(preview.ok, true);
-    assert.equal(preview.runtimeMutation, false);
-    assert.deepEqual(treeSnapshot(root), before);
-  });
 });
 
-test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain explicit', () => {
+test('RPC, ACL, UI reachability, current status projection, and out-of-scope boundaries remain explicit', () => {
   const rpc = read(RPC);
   const acl = JSON.parse(read(ACL))['zapret2-manager'];
   const page = read(PAGE);
-  const adapter = read(PAGE_ADAPTER);
-  const workflowCore = read(WORKFLOW_CORE);
   const cli = read(CLI);
-  const statusCompat = read(STATUS_COMPAT);
-  const methods = ['strategies_list', 'strategies_get', 'strategies_preview', 'strategies_validate', 'strategies_apply', 'strategies_catalog_status', 'strategies_catalog_reload', 'strategies_import_profiles'];
+  const statusCollector = read(STATUS_COLLECTOR);
+  const methods = ['strategies_list', 'strategies_get', 'strategies_preview', 'strategies_validate', 'strategies_apply', 'strategies_catalog_status', 'strategies_catalog_reload'];
   for (const method of methods) assert.match(rpc, new RegExp(`\\b${method}:\\s*\\{`), method);
-  for (const method of ['strategies_create', 'strategies_update', 'strategies_delete', 'strategies_duplicate', 'strategies_favorite', 'strategies_apply', 'strategies_import_profiles'])
+  for (const method of ['strategies_create', 'strategies_update', 'strategies_delete', 'strategies_duplicate', 'strategies_favorite', 'strategies_apply'])
     assert.ok(acl.write.ubus['zapret2-manager'].includes(method), method);
   assert.match(page, /ctx\.api\.strategies\.list/);
-  assert.match(page, /ctx\.api\.service\.status/);
-  assert.match(page, /Compatibility|Advanced/);
-  assert.match(workflowCore, /Compatibility \/ Profiles/);
-  assert.match(workflowCore, /indexOf\(state\.tab\) < 0/);
-  assert.match(adapter, /primaryModule\(mode\)/);
-  assert.match(statusCompat, /schema\s*:\s*3/);
+  assert.match(page, /ctx\.api\.service\.statusFast/);
+  assert.doesNotMatch(page, /Compatibility|Advanced/);
+  assert.match(page, /return baseclass\.extend/);
+  assert.match(statusCollector, /schema:\s*'status\.v1'/);
+  assert.match(statusCollector, /status\.runtimeSummary\s*=\s*runtime_summary\(status\)/);
+  assert.doesNotMatch(statusCollector, /legacy_status_v3|status-compat/);
   assert.doesNotMatch(page, /ctx\.api\.orchestra/);
-  assert.doesNotMatch(rpc, /strategy.*Orchestra|ORCH_CLI.*STRATEGY/i);
+  assert.doesNotMatch(rpc, /ORCH_CLI|orchestra-cli\.uc|strategies_import_profiles/i);
   assert.doesNotMatch(cli, /schema\s*[:=]\s*4|catalog_updater|online updater|router migration/i);
   assert.doesNotMatch(page, /DNS migration|router migration|online updater/i);
   assert.doesNotMatch(MAKEFILE, /catalogs\/presets compatibility tree/);
-
-  const status3 = invoke(STATUS_COMPAT, `mod.legacy_status_v3(${JSON.stringify({
-    schemaVersion: 1, generation: 7, generatedAt: '2026-08-10T12:00:00Z', serviceState: 'stopped',
-    runtime: { processes: [], namespaces: [] }, transactions: [], jobs: [], warnings: [],
-  })}, ${JSON.stringify({
-    generatedAt: '2026-08-10T12:00:10Z', engine: {}, runtime: {}, applied: {}, draft: {}, drift: {},
-    health: {}, system: {}, upstream: {}, warnings: [],
-  })})`);
-  assert.equal(status3.schema, 3);
-  assert.equal(status3.runtimeSummary.source, 'status-v3');
 
   const rpcSource = rpcSignatureSource('strategies_catalog_status', {});
   const rpcStatus = invokeSource(rpcSource, {

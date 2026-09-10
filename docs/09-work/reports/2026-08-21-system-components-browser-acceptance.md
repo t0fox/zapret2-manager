@@ -10,8 +10,8 @@ Viewport: `1920 x 1080`
 - System exposes exactly three visible pages: `Компоненты`, `Резервные копии`, `Настройки`.
 - `Компоненты` renders `2 / 2 готовы`; Engine is `Готов`, version `v1.0.4`; Z2K remains explicitly `Совместимость не подтверждена` / `Версия не установлена`.
 - Engine management stays behind the Components page and shows the official `bol-van/zapret2` authority.
-- `Резервные копии` shows the default action `Создать полный backup · Всё`; advanced scopes remain behind `Дополнительно`.
-- `Настройки` contains only the supported `Расширенный режим` control.
+- `Резервные копии` shows the default action `Создать полный backup · Всё`; scoped backup actions remain available in the backup panel.
+- `Компоненты` contains only the supported component lifecycle controls.
 - No `Avatar`, Telegram Proxy, WARP, or Resource Center ownership appears in the Components DOM.
 - No install, update, reinstall, uninstall, delete, restore, or backup-create action was triggered.
 

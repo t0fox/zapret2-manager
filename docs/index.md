@@ -14,7 +14,7 @@ tags: [home, knowledge]
 Управление zapret2 на OpenWrt через LuCI.
 
 zapret2-manager (Z2M) объединяет установку и проверку компонентов, выбор
-стратегии обхода DPI, Scanner, DNS, ресурсы, Telegram Proxy и диагностику.
+стратегии обхода DPI, Z2K Detect, DNS, ресурсы, Telegram Proxy и диагностику.
 Постоянные изменения выполняются только каноническими страницами Z2M; эта
 документация не заменяет UI и не добавляет неподдерживаемых возможностей.
 
@@ -31,7 +31,7 @@ zapret2-manager (Z2M) объединяет установку и проверк�
 
 - обход DPI через совместимые `nfqws2` и Strategy;
 - каталог, Visual/Raw IDE и жизненный цикл стратегий;
-- Scanner с временными кандидатами и передачей результата в Strategy;
+- Z2K Detect с типизированными измерениями без изменения Strategy;
 - Autocircular: `auto`, `frozen`, `excluded`;
 - Telegram Proxy и WARP / MASQUE, если соответствующий backend установлен;
 - Resource Center для данных и runtime-assets;
@@ -44,17 +44,17 @@ zapret2-manager (Z2M) объединяет установку и проверк�
 3. В разделе **Система → Компоненты** проверьте Zapret2 Engine и Z2K Core.
 4. В разделе **Стратегии** откройте рекомендованную стратегию, выполните Preview/Validate и Apply.
 5. В разделе **Управление** проверьте `nfqws2`, автозапуск и NFQUEUE.
-6. Проверьте целевой сайт. Если результата нет, используйте Scanner или [разбор проблем](./05-troubleshooting/index.md).
+6. Проверьте целевой сайт. Если результата нет, используйте Z2K Detect или [разбор проблем](./05-troubleshooting/index.md).
 
 ## Разделы интерфейса
 
 - [Главная](./03-products/dashboard.md) — сводка состояния и ссылки на владельцев.
-- [Обход DPI](./03-products/control.md) — Управление, Стратегии, Сканирование.
+- [Обход DPI](./03-products/control.md) — Управление, Стратегии, Z2K Detect.
 - [Списки и данные](./03-products/services-domains.md) — сервисы, домены и [ресурсы](./03-products/resources.md).
 - [DNS](./03-products/dns.md) — профили, preview, apply, проверка и откат.
 - [Прокси и маршрутизация](./03-products/telegram-proxy.md) — Telegram Proxy и [WARP / MASQUE](./03-products/warp.md).
 - [Диагностика](./03-products/monitoring.md) — мониторинг и [журналы](./03-products/logs.md).
-- [Система](./03-products/components.md) — компоненты, [backup](./03-products/backups.md) и настройки.
+- [Система](./03-products/components.md) — компоненты и [backup](./03-products/backups.md).
 
 Технические контракты и архитектурные доказательства доступны в [разделе для
 разработчиков](./08-development/index.md). Внутренние планы, AI-контракты и

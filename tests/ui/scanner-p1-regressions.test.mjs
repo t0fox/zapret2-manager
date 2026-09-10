@@ -110,7 +110,7 @@ function input(harness, name) {
 }
 
 function startButton(harness) {
-  return harness.root.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Начать сканирование');
+  return harness.root.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Запустить измерение');
 }
 
 test('invalid domain focuses the new invalid control after rerender', async () => {

@@ -22,7 +22,7 @@ const roots = {
   persistent_state: 'etc/zapret2-manager/state', snapshots: 'etc/zapret2-manager/snapshots',
   registry: 'etc/zapret2-manager/registry', secrets: 'etc/zapret2-manager/secrets',
   runtime: 'tmp/zapret2-manager/runtime', jobs: 'tmp/zapret2-manager/jobs',
-  locks: 'tmp/zapret2-manager/locks', staging: 'tmp/zapret2-manager/staging',
+  staging: 'tmp/zapret2-manager/staging',
 };
 
 function request(value, target, rootName = 'runtime') {

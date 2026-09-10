@@ -8,13 +8,11 @@ const frontendRoot = path.join(root, 'luci-app-zapret2-manager/files/www/luci-st
 const read = name => fs.readFileSync(path.join(frontendRoot, name), 'utf8');
 
 test('current donor provenance is documented without historical audit dependencies', () => {
-  const parity = fs.readFileSync(path.join(root, 'docs/01-project/avatar-parity.md'), 'utf8');
-  const notice = fs.readFileSync(path.join(root, 'docs/third-party/avatarDD-zapret-gui.md'), 'utf8');
-  assert.match(parity, /38ed85ce487c6b3dbdf703a5be197795f7c0cad1/);
-  assert.match(parity, /DONOR FILE.*Z2M BOUNDARY ADAPTATION/s);
-  assert.match(notice, /Copyright \(c\) 2026 avatarDD/);
-  assert.match(notice, /MIT/);
-  assert.doesNotMatch(parity, /05-parity|09-work|audit snapshot|milestone report/i);
+  const provenance = fs.readFileSync(path.join(root, 'docs/03-products/strategy/source-provenance.md'), 'utf8');
+  assert.match(provenance, /avatarDD\/zapret-gui/);
+  assert.match(provenance, /f9dd3ea47a2239514f396a843b475c92c33f0b4c/);
+  assert.match(provenance, /lossless importer/);
+  assert.doesNotMatch(provenance, /05-parity|09-work|audit snapshot|milestone report/i);
 });
 
 test('active LuCI uses the Z2M navigation and contains no donor HTTP/sidebar binding', () => {
@@ -27,16 +25,24 @@ test('active LuCI uses the Z2M navigation and contains no donor HTTP/sidebar bin
   }
   assert.match(app, /z2m-navigation as Navigation/);
   assert.match(app, /Shell\.primaryNavigation\(Navigation/);
+  for (const route of ['dashboard', 'control', 'strategies', 'scan', 'warp', 'telegram-tunnel', 'services', 'resources', 'dns-routing', 'monitor', 'logs', 'components', 'backups'])
+    assert.match(navigation, new RegExp(`id: '${route}'`), route);
+  for (const removed of ['unified-routing', 'settings'])
+    assert.doesNotMatch(navigation, new RegExp(`id: '${removed}'`), removed);
+  assert.doesNotMatch(navigation, /ALIASES|LEGACY_PARAMS|hidden:\s*true/);
   assert.doesNotMatch(production, /(?:fetch|XMLHttpRequest)\s*\([^)]*['"]\/api\//);
   assert.doesNotMatch(production, /z2m-sidebar|['"]sidebar['"]/i);
 });
 
 test('only the current Strategy page is reachable from the application route map', () => {
   const app = read('app.js');
-  const route = read('z2m-strategy-page.js');
-  assert.match(app, /strategies:\s*Strategy/);
-  assert.match(route, /z2m-strategies/);
-  assert.doesNotMatch(route, /z2m-strategy-workflow|z2m-strategy\.js/);
+  const page = read('z2m-strategies.js');
+  assert.match(app, /require view\.zapret2-manager\.z2m-strategies as Strategies/);
+  assert.match(app, /strategies:\s*Strategies/);
+  assert.match(page, /return baseclass\.extend/);
+  assert.doesNotMatch(app, /z2m-strategy-page|z2m-strategy-workflow|z2m-strategy\.js/);
+  assert.doesNotMatch(page, /z2m-strategy-page|z2m-strategy-workflow|z2m-strategy\.js/);
+  assert.equal(fs.existsSync(path.join(frontendRoot, 'z2m-strategy-page.js')), false);
   assert.equal(fs.existsSync(path.join(frontendRoot, 'strategies.js')), false);
   assert.equal(fs.existsSync(path.join(frontendRoot, 'orchestra.js')), false);
 });

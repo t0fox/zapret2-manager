@@ -12,7 +12,7 @@ tags: [guides, howto]
 # Практические руководства
 
 - [Как выбрать и применить Strategy](./choose-strategy.md)
-- [Как использовать Scanner](./use-scanner.md)
+- [Как использовать Z2K Detect](./use-scanner.md)
 - [Как добавить домен вручную](./add-domain.md)
 - [Как настроить DNS](./check-dns.md)
 - [Как установить Telegram Proxy](./install-telegram-proxy.md)

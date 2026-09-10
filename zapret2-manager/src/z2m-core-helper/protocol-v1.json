@@ -26,7 +26,7 @@
       "properties": {
         "protocolVersion": { "const": 1 },
         "requestId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
-        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "atomic_write_json_revision", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status", "z2k_detect_probe", "z2k_detect_classify", "z2k_detect_quic", "z2k_detect_voice", "z2k_detect_tcp16", "ownership_create", "ownership_ready", "ownership_delete", "ownership_status"] },
+        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "z2k_detect_probe", "z2k_detect_classify", "z2k_detect_quic", "z2k_detect_voice", "z2k_detect_tcp16"] },
         "arguments": { "type": "object" }
       }
     },
@@ -54,7 +54,7 @@
           "additionalProperties": false,
           "required": ["code", "message", "retryable", "committed", "durability", "stage"],
           "properties": {
-            "code": { "type": "string", "enum": ["EMALFORMED", "ESCHEMA", "EREQUESTTOOBIG", "EDENIED", "EROOT", "EPATH", "EUNSUPPORTED", "ECAPABILITY", "ENOENT", "ENOTREG", "ESYMLINK", "EXDEV", "ETOOBIG", "EIO", "ECONFLICT", "ECLEANUPUNKNOWN", "ELOCKED", "ETIMEOUT", "EOWNERSHIP", "ECOMMITUNKNOWN", "EINTERNAL", "EINCOMPLETE"] },
+            "code": { "type": "string", "enum": ["EMALFORMED", "ESCHEMA", "EREQUESTTOOBIG", "EDENIED", "EROOT", "EPATH", "EUNSUPPORTED", "ECAPABILITY", "ENOENT", "ENOTREG", "ESYMLINK", "EXDEV", "ETOOBIG", "EIO", "ECONFLICT", "ECLEANUPUNKNOWN", "ELOCKED", "ECOMMITUNKNOWN", "EINTERNAL", "EINCOMPLETE"] },
             "message": { "type": "string", "maxLength": 512 },
             "retryable": { "type": "boolean" },
             "committed": { "type": ["boolean", "null"] },
@@ -106,8 +106,6 @@
     "ECONFLICT": { "message": "Managed object precondition changed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["precondition"] },
     "ECLEANUPUNKNOWN": { "message": "Candidate cleanup could not be proven.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["candidate_cleanup"] },
     "ELOCKED": { "message": "Lock is held by another operation.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
-    "ETIMEOUT": { "message": "Lock acquisition timed out.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
-    "EOWNERSHIP": { "message": "Manager ownership evidence did not match.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["ownership_verify"] },
     "ECOMMITUNKNOWN": { "message": "Commit may be visible but durability is unknown.", "retryable": false, "committed": true, "durability": "unknown", "allowedExitCategories": ["commit_uncertain"], "allowedStages": ["directory_fsync"] },
     "EINTERNAL": { "message": "Helper failed internally.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["internal"], "allowedStages": ["internal", "response_encode", "canonical_encode"] },
     "EINCOMPLETE": { "message": "Helper could not emit one complete response.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["response_incomplete"], "allowedStages": ["response_encode", "response_write"] }
@@ -155,14 +153,13 @@
     "unsafeRootOpen": "fail_capability"
   },
   "roots": {
-    "persistent_state": { "base": "/etc/zapret2-manager/state", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "snapshots": { "base": "/etc/zapret2-manager/snapshots", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "registry": { "base": "/etc/zapret2-manager/registry", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "secrets": { "base": "/etc/zapret2-manager/secrets", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 8, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "atomic_write", "atomic_write_json", "mkdir_private", "rename_owned", "unlink_owned"] },
-    "runtime": { "base": "/tmp/zapret2-manager/runtime", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 1048576, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "jobs": { "base": "/tmp/zapret2-manager/jobs", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "locks": { "base": "/tmp/zapret2-manager/locks", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 1, "mkdirPolicy": "denied", "deletePolicy": "denied", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["lock_acquire", "lock_release", "lock_status"] },
-    "staging": { "base": "/tmp/zapret2-manager/staging", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] }
+    "persistent_state": { "base": "/etc/zapret2-manager/state", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular"] },
+    "snapshots": { "base": "/etc/zapret2-manager/snapshots", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular"] },
+    "registry": { "base": "/etc/zapret2-manager/registry", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular"] },
+    "secrets": { "base": "/etc/zapret2-manager/secrets", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 8, "mkdirPolicy": "private_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "atomic_write", "atomic_write_json", "mkdir_private"] },
+    "runtime": { "base": "/tmp/zapret2-manager/runtime", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 1048576, "maxDepth": 12, "mkdirPolicy": "private_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular"] },
+    "jobs": { "base": "/tmp/zapret2-manager/jobs", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular"] },
+    "staging": { "base": "/tmp/zapret2-manager/staging", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 12, "mkdirPolicy": "private_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular"] }
   },
   "operations": {
     "stat_regular": {
@@ -208,46 +205,6 @@
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["sha256", "byteLength"], "properties": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 10000 },
       "ownership": "Denied for secrets; hashes one verified regular descriptor.", "crashSemantics": "Read-only and emits no partial digest success.", "idempotency": "Idempotent for unchanged bytes on the opened descriptor."
-    },
-    "rename_owned": {
-      "milestone": 3, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
-      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "fromPath", "toPath", "ownershipToken", "replace"], "properties": { "root": { "type": "string" }, "fromPath": { "type": "string" }, "toPath": { "type": "string" }, "ownershipToken": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "replace": { "type": "boolean" } } },
-      "successSchema": { "type": "object", "additionalProperties": false, "required": ["renamed", "committed", "durability"], "properties": { "renamed": { "const": true }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
-      "limits": { "maxInputBytes": 8192, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
-      "ownership": "Same-root only; both names require future manager-owned token evidence and an operation-scoped internal flock.", "crashSemantics": "No implementation until ownership evidence is designed; future persistent rename must fsync affected directories and report uncertainty.", "idempotency": "Not generally idempotent; retries require ownership and destination-state reread."
-    },
-    "unlink_owned": {
-      "milestone": 3, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
-      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "ownershipToken", "missingOk"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "ownershipToken": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "missingOk": { "type": "boolean" } } },
-      "successSchema": { "type": "object", "additionalProperties": false, "required": ["removed", "durability"], "properties": { "removed": { "type": "boolean" }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
-      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
-      "ownership": "Regular manager-owned objects only; future token evidence and operation-scoped internal flock are mandatory.", "crashSemantics": "No implementation until ownership evidence is designed; future persistent deletion must fsync the parent and report uncertainty.", "idempotency": "Idempotent only with missingOk after verified ownership; otherwise deletion is single-use."
-    },
-    "lock_acquire": {
-      "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
-      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "timeoutMs"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._/-]+$" }, "owner": { "type": "string", "minLength": 1, "maxLength": 128 }, "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 30000 } } },
-      "successSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "token"], "properties": { "name": { "type": "string" }, "owner": { "type": "string" }, "token": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
-      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
-      "ownership": "Broker-only future operation; no lease is emulated by a short-lived process.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Not idempotent; a successful future acquisition creates one broker-held identity."
-    },
-    "lock_release": {
-      "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
-      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "token"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256 }, "owner": { "type": "string", "minLength": 1, "maxLength": 128 }, "token": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
-      "successSchema": { "type": "object", "additionalProperties": false, "required": ["released"], "properties": { "released": { "const": true } } },
-      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
-      "ownership": "Broker-only future operation requiring exact name, owner, and token.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Single-use; double release must fail ownership or lease validation."
-    },
-    "lock_status": {
-      "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
-      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256 } } },
-      "successSchema": { "type": "object", "additionalProperties": false, "required": ["held", "owner"], "properties": { "held": { "type": "boolean" }, "owner": { "type": ["string", "null"] } } },
-      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
-      "ownership": "Broker-only diagnostic metadata; token is never disclosed.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Idempotent observation of future broker state."
     },
     "z2k_detect_probe": {
       "milestone": 10, "status": "implemented", "roots": [],
@@ -306,8 +263,8 @@
         "EDENIED": "EINPUT", "EROOT": "EDEPENDENCY", "EPATH": "EINPUT",
         "EUNSUPPORTED": "EDEPENDENCY", "ECAPABILITY": "EDEPENDENCY", "ENOENT": "EDEPENDENCY", "ENOTREG": "EDEPENDENCY",
         "ESYMLINK": "EDEPENDENCY", "EXDEV": "EDEPENDENCY", "ETOOBIG": "EINPUT",
-        "EIO": "EDEPENDENCY", "ECONFLICT": "ECONFLICT", "ECLEANUPUNKNOWN": "EAPPLY", "ELOCKED": "ELOCKED", "ETIMEOUT": "ELOCKED",
-        "EOWNERSHIP": "EOWNERSHIP", "ECOMMITUNKNOWN": "EAPPLY",
+        "EIO": "EDEPENDENCY", "ECONFLICT": "ECONFLICT", "ECLEANUPUNKNOWN": "EAPPLY", "ELOCKED": "ELOCKED",
+        "ECOMMITUNKNOWN": "EAPPLY",
         "EINTERNAL": "EINTERNAL", "EINCOMPLETE": "EDEPENDENCY"
       },
       "details": {

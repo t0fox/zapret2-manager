@@ -12,6 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-refresh.uc');
 const SOURCE_STORE_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-sources.uc');
 const HARNESS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-compile.sh');
+const TIMEOUT_HELPER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-official-timeout.sh');
 const TRANSPORT = path.join(ROOT, 'tests/fixtures/strategy-source-refresh/transport.sh');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -32,7 +33,7 @@ function invoke(root, expression, extraEnv = {}, module = MODULE) {
       Z2M_UPDATE_SOURCE_LOCK_ROOT: path.join(root, 'metadata-locks'),
       Z2M_STRATEGY_SOURCE_CONTENT_TRANSPORT: TRANSPORT,
       Z2M_Z2K_OFFICIAL_COMPILE_HARNESS: HARNESS,
-      Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '0',
+      Z2M_Z2K_OFFICIAL_TIMEOUT_HELPER: TIMEOUT_HELPER,
       Z2M_UPDATE_SOURCE_TEST: '1',
       Z2M_FIXTURE_MODE: 'ok',
       ...extraEnv,
@@ -91,9 +92,9 @@ function installZ2kSnapshot(root, snapshot, extra = {}) {
   })})`, {}, SOURCE_STORE_MODULE);
 }
 
-test('direct Z2K strategy refresh is Core-managed and fail-closed', () => {
+test('Z2K source preparation is Core-managed and fail-closed', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-z2k-managed-'));
-  const result = invoke(root, "mod.strategy_source_refresh('z2k')");
+  const result = invoke(root, "mod.strategy_source_refresh_prepare('z2k')");
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.error.code, 'EMANAGED');
   assert.equal(result.error.owner, 'z2k-core');
@@ -166,7 +167,7 @@ test('Core compiler preparation uses the selected sourceCommit for every source 
   const log = path.join(root, 'transport.log');
   const selected = 'd'.repeat(40);
   const branchHeadWhenDifferent = 'a'.repeat(40);
-  const prepared = invoke(root, `mod.strategy_source_z2k_compiler_plan({ sourceCommit: '${selected}' })`, {
+  const prepared = invoke(root, `mod.strategy_source_z2k_compile_exact({ sourceCommit: '${selected}' })`, {
     Z2M_FIXTURE_TRANSPORT_LOG: log,
   });
   assert.equal(prepared.ok, true, JSON.stringify(prepared));

@@ -8,6 +8,8 @@ const fast = fs.readFileSync(path.join(root,
   'zapret2-manager/files/usr/libexec/zapret2-manager/status-fast.uc'), 'utf8');
 const collector = fs.readFileSync(path.join(root,
   'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc'), 'utf8');
+const gate = fs.readFileSync(path.join(root,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/engine-gate.uc'), 'utf8');
 const helperPath = path.join(root,
   'zapret2-manager/files/usr/libexec/zapret2-manager/core/nft-rule-observation.uc');
 
@@ -31,4 +33,12 @@ test('shared nft detector is fail-closed: present, absent, and observation failu
   assert.match(helper, /return null/);
   assert.match(helper, /catch\s*\([^)]*\)[\s\S]*return null/,
     'nft command failure must remain unknown, not become a false positive');
+});
+
+test('fast and full status share the canonical engine missing state', () => {
+  assert.match(fast, /import \{ engine_gate_status \} from '\.\/engine-gate\.uc';/);
+  assert.match(collector, /import \{ engine_gate_status \} from '\.\.\/engine-gate\.uc';/);
+  assert.match(fast, /state:\s*gate\.state/);
+  assert.match(collector, /state:\s*gate\.state/);
+  assert.match(gate, /state:\s*contract \? 'installed' : 'engine_missing'/);
 });

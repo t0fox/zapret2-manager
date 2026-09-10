@@ -161,14 +161,14 @@ test('production E2E uses physically owned SDK state and no shared build symlink
 });
 
 test('package payload explicitly includes every production M3 artifact', () => {
-  const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
-  const install = /define Package\/zapret2-manager\/install\n([\s\S]*?)\nendef/.exec(makefile)?.[1];
+  const makefile = fs.readFileSync('zapret2-manager-full/Makefile', 'utf8');
+  const install = /define Package\/zapret2-manager-full\/install\n([\s\S]*?)\nendef/.exec(makefile)?.[1];
   assert.ok(install, 'package install block must exist');
   for (const artifact of ['z2m-helperd', 'z2m-core-helper', 'z2m-root-bootstrap'])
     assert.match(install, new RegExp(`INSTALL_BIN[^\n]*${artifact}[^\n]*/usr/libexec/zapret2-manager/${artifact}`),
       `package must explicitly install ${artifact}`);
-  assert.match(install, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//,
-    'package must include the runtime file tree containing core/native-helper.uc');
+  assert.match(install, /\$\(CP\)\s+\$\(PKG_BUILD_DIR\)\/backend-files\/\*\s+\$\(1\)\//,
+    'package must include the assembled runtime file tree containing core/native-helper.uc');
   assert.ok(fs.existsSync('zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc'));
   assert.ok(fs.existsSync('zapret2-manager/files/etc/init.d/zapret2-manager'));
 });

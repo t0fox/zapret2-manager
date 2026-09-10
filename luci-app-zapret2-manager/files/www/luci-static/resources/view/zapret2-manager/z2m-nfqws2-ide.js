@@ -41,7 +41,7 @@
    * the reference local and deliberately limits it to completion metadata;
    * compilation and capability checks remain server-owned.  Names and value
    * groups below mirror the donor's current nfqws2/Z2K vocabulary, including
-   * circular orchestration and detector/hostkey values.
+   * circular processing and detector/hostkey values.
    */
   var specFlags = {
     '--filter-tcp': { type: 'csv-port', label: 'TCP ports', desc: 'TCP target ports' },
@@ -77,15 +77,15 @@
     circular: { desc: 'Run ordered circular strategy steps', file: 'zapret-lib.lua', circular: true },
     z2k_dynamic_ttl: { desc: 'Z2K dynamic TTL fooling', file: 'zapret-lib.lua', z2k: true }
   };
-  var detectorValues = ['standard_failure_detector', 'combined_failure_detector', 'udp_aggressive_failure_detector', 'silent_drop_detector', 'z2k_mid_stream_stall', 'z2k_http_mid_stream_stall', 'z2k_tls_stalled', 'z2k_tls_alert_fatal', 'z2k_silent_drop_detector', 'standard_success_detector', 'combined_success_detector', 'udp_protocol_success_detector', 'z2k_http_success_positive_only', 'z2k_success_no_reset', 'z2k_http_partial_response'];
-  var hostkeyValues = ['standard_hostkey', 'get_grouped_hostname', 'udp_global_hostkey', 'z2k_nohost_key'];
+  var detectorValues = ['standard_failure_detector', 'z2k_mid_stream_stall', 'z2k_http_mid_stream_stall', 'z2k_tls_stalled', 'z2k_tls_alert_fatal', 'z2k_silent_drop_detector', 'standard_success_detector', 'z2k_http_success_positive_only', 'z2k_success_no_reset', 'z2k_http_partial_response'];
+  var hostkeyValues = ['standard_hostkey', 'z2k_nohost_key'];
   var iffValues = ['cond_true', 'cond_false', 'cond_random', 'cond_payload_str', 'cond_tcp_has_ts', 'cond_lua'];
   var luaSubargs = {
     fake: ['blob', 'payload', 'tls_mod', 'dir', 'optional', 'ip_ttl', 'ip6_ttl', 'tcp_seq', 'tcp_ack', 'tcp_ts', 'tcp_md5', 'repeats', 'fwmark', 'ifout'],
     circular: ['strategy', 'final', 'cond', 'cond_neg', 'detector', 'failure_detector', 'success', 'hostkey', 'preload', 'blob'],
     z2k_dynamic_ttl: ['strategy', 'hostkey', 'min', 'max', 'delta']
   };
-  var luaSubargValues = { detector: detectorValues, failure_detector: detectorValues, success: detectorValues, hostkey: hostkeyValues, cond: iffValues, iff: iffValues, preload: ['strategy_preload', 'strategy_preload_history'], fool: ['z2k_dynamic_ttl'], tls_mod: ['rnd', 'rndsni', 'dupsid', 'padencap', 'sni'] };
+  var luaSubargValues = { detector: detectorValues, failure_detector: detectorValues, success: detectorValues, hostkey: hostkeyValues, cond: iffValues, iff: iffValues, fool: ['z2k_dynamic_ttl'], tls_mod: ['rnd', 'rndsni', 'dupsid', 'padencap', 'sni'] };
 
   function text(value) { return value === null || value === undefined ? '' : String(value); }
   function uniquePush(list, value) { if (value && list.indexOf(value) < 0) list.push(value); }

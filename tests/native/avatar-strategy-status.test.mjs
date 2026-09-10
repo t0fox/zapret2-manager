@@ -258,7 +258,7 @@ test('collect_strategy_status derives drift when the current user revision is ne
   }
 });
 
-test('actual status collector publishes strategyStatus while preserving schema-3 fields and runtimeSummary', () => {
+test('actual status collector publishes strategyStatus through the current status projection', () => {
   const storage = temporaryStrategyStorage();
   let result;
   try {
@@ -266,7 +266,7 @@ test('actual status collector publishes strategyStatus while preserving schema-3
   } finally {
     fs.rmSync(storage.root, { recursive: true, force: true });
   }
-  assert.equal(result.schema, 3);
+  assert.equal(result.schema, 'status.v1');
   assert.ok(result.strategyStatus);
   assert.deepEqual(Object.keys(result).sort(), [
     'applied', 'draft', 'drift', 'engine', 'generatedAt', 'generation', 'health', 'jobs',
@@ -274,5 +274,5 @@ test('actual status collector publishes strategyStatus while preserving schema-3
     'upstream', 'warnings',
   ]);
   assert.equal(result.runtimeSummary.schemaVersion, 1);
-  assert.equal(result.runtimeSummary.source, 'status-v3');
+  assert.equal(result.runtimeSummary.source, 'status.v1');
 });

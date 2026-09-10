@@ -95,7 +95,7 @@ function makeScanner(storage, gates, statusGates, options = {}) {
 function flush() { return new Promise(resolve => setTimeout(resolve, 0)); }
 
 function startButton(buttons) {
-	const button = buttons.find(candidate => candidate.attrs.label === 'Начать сканирование');
+	const button = buttons.find(candidate => candidate.attrs.label === 'Запустить измерение');
 	assert.ok(button, 'render must expose the typed Detect start action');
 	return button;
 }

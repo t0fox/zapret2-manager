@@ -15,5 +15,5 @@ tags: [troubleshooting, diagnostics, bug-report]
 результат, фактический статус, bounded tail Журналов и diagnostic report.
 
 Проверьте report на отсутствие секретов, токенов, ключей, личных доменов и
-полного конфига. Для Scanner добавьте stage, candidate count, cleanup evidence
-и `best`; для Strategy — revision/digest и код Validate.
+полного конфига. Для Z2K Detect добавьте operation, typed verdict, target и
+technical evidence; для Strategy — revision/digest и код Validate.

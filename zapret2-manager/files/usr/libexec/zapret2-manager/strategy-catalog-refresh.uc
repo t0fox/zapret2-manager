@@ -122,11 +122,6 @@ function generation_matches_transaction(transaction) {
 	}
 	return true;
 }
-function clear_transaction(state) {
-	state.transaction = null;
-	state.heartbeatAt = now();
-	return state_save(state);
-}
 function rollback_sources(activations) {
 	let failures = [];
 	for (let id in ['avatar', 'z2k']) {
@@ -144,7 +139,8 @@ function finish_transaction_error(state, result) {
 	state.error = result && result.error ? result.error : { code: 'EUNAVAILABLE', message: 'Catalog transaction failed' };
 	state.finishedAt = now();
 	state.heartbeatAt = state.finishedAt;
-	return state_save(state);
+	state_save(state);
+	return state;
 }
 function recovery_failure(state, transaction, error) {
 	state.state = 'error';

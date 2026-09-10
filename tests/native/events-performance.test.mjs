@@ -10,7 +10,7 @@ test('event writers share the bounded flock append helper', () => {
   assert.match(helper, /export const append_ndjson/);
   assert.match(helper, /flock -w 2/);
   assert.match(helper, /printf/);
-  for (const name of ['service.uc', 'catalog.uc', 'profiles-apply.uc', 'proxycfg.uc', 'watchdog.uc', 'strategies-ops.uc']) {
+  for (const name of ['service.uc', 'catalog.uc', 'strategy-apply-runtime.uc', 'proxycfg.uc', 'watchdog.uc', 'strategies-ops.uc']) {
     assert.match(read(name), /append_ndjson\(/, `${name} must use append_ndjson`);
   }
 });

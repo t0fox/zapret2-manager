@@ -40,6 +40,7 @@ const LUCI_EXTERNALS = () => ({
   'baseclass': MiniBaseclass,
   'view': MiniBaseclass.extend({ __name__: 'LuCI.view' }),
   'rpc': { declare: function () { return function () { return Promise.resolve({}); }; } },
+  'request': { post: function () { return Promise.resolve({ ok: true, json: function () { return [{ jsonrpc: '2.0', result: [0, {}] }]; } }); } },
   'poll': { add: function () {}, remove: function () {}, start: function () {}, stop: function () {} },
   'ui': {}
 });

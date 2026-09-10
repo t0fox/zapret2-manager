@@ -60,33 +60,23 @@ const calls = {
     canonicalOwner: 'journal.events_tail',
   }),
   dnsProductGet: rpc('dns_product_get', { canonicalOwner: 'dns.product-snapshot' }),
-  dnsProductProviders: rpc('dns_product_providers', { canonicalOwner: 'dns.provider-catalog' }),
   dnsProductStatus: rpc('dns_product_status', { canonicalOwner: 'dns.product-snapshot' }),
   dnsGet: rpc('dns_get', { canonicalOwner: 'dns.product-snapshot' }),
   dnsGlobalGet: rpc('dns_global_get', { canonicalOwner: 'dns.product-snapshot' }),
   serviceDnsStatus: rpc('service_dns_status', { canonicalOwner: 'dns.product-snapshot' }),
-  serviceDnsProviders: rpc('service_dns_providers', { canonicalOwner: 'dns.service-catalog' }),
   dnsprovComponents: rpc('dnsprov_components', { canonicalOwner: 'dns.provider-catalog' }),
-  dnsprovProviders: rpc('dnsprov_providers', { canonicalOwner: 'dns.provider-catalog' }),
   catalogList: rpc('catalog_list', { canonicalOwner: 'services.catalog' }),
+  detectProbe: rpc('z2k_detect_probe', {
+    payload: JSON.stringify({ domain: process.env.Z2M_PERF_DOMAIN || 'example.com', timeoutMs: 6000 }),
+    canonicalOwner: 'z2k-detect.probe', timeout: 60000,
+  }),
   tiktokStatus: rpc('service_dns_tiktok_status', { canonicalOwner: 'dns.tiktok' }),
   resourcesStatus: rpc('resources_status', { canonicalOwner: 'z2k.resources-status' }),
   resourcesVersions: rpc('z2k_versions', { canonicalOwner: 'z2k.resources-catalog' }),
   maintenanceStatus: rpc('maintenance_status', { canonicalOwner: 'system.maintenance-status', timeout: 60000 }),
   versions: rpc('versions', { canonicalOwner: 'system.versions', timeout: 60000 }),
   diagnosticsExport: rpc('diagnostics_export', { canonicalOwner: 'diagnostics.export' }),
-  orchestraStatus: rpc('orchestra_status', { canonicalOwner: 'orchestra.status' }),
-  orchestraHistory: rpc('orchestra_history', { canonicalOwner: 'orchestra.history' }),
-  orchestraHistoryPaginated: rpc('orchestra_history_paginated', {
-    payload: JSON.stringify({ limit: '50' }),
-    canonicalOwner: 'orchestra.history',
-  }),
   domainHubGet: rpc('domain_hub_get', { object: 'zapret2-manager-domain-hub', canonicalOwner: 'services.domain-hub' }),
-  orchestraProbePreflight: rpc('orchestra_probe_preflight', { canonicalOwner: 'orchestra.preflight' }),
-  orchestraRunStatus: rpc('orchestra_run_status', {
-    payload: editPayload(process.env.Z2M_PERF_RUN_ID ? { runId: process.env.Z2M_PERF_RUN_ID } : {}),
-    canonicalOwner: 'orchestra.run-status',
-  }),
   engineReleases: rpc('engine_releases', { object: 'zapret2-manager-engine', canonicalOwner: 'engine.catalog', timeout: 60000 }),
   engineStatus: rpc('engine_status', { object: 'zapret2-manager-engine', canonicalOwner: 'engine.status' }),
   proxyCapabilities: rpc('proxy_capabilities', { canonicalOwner: 'telegram.local-capabilities', timeout: 60000 }),
@@ -103,10 +93,6 @@ const calls = {
   tgProductStart: rpc('tg_product_start', { canonicalOwner: 'telegram.lifecycle-mutation', timeout: 120000 }),
   tgProductStop: rpc('tg_product_stop', { canonicalOwner: 'telegram.lifecycle-mutation', timeout: 120000 }),
   tgProductRestart: rpc('tg_product_restart', { canonicalOwner: 'telegram.lifecycle-mutation', timeout: 120000 }),
-  scannerStatus: rpc('scanner_status', {
-    payload: editPayload(process.env.Z2M_PERF_SCANNER_ID ? { id: process.env.Z2M_PERF_SCANNER_ID } : {}),
-    canonicalOwner: 'scanner.status',
-  }),
 };
 
 function call(name, overrides = {}) {
@@ -123,8 +109,7 @@ function dnsNavigationPhases() {
         call('serviceDnsStatus'), call('dnsGlobalGet'),
       ] },
       { name: 'legacy-enrichment', mode: 'limited', concurrency: 2, calls: [
-        call('dnsProductProviders'), call('serviceDnsProviders'), call('dnsprovComponents'),
-        call('dnsprovProviders'), call('catalogList'), call('tiktokStatus'),
+        call('dnsprovComponents'), call('catalogList'), call('tiktokStatus'),
       ] },
     ];
   }
@@ -214,11 +199,8 @@ const scenarios = {
   'services-check': {
     phases: [
       { name: 'service-read', mode: 'serial', calls: [call('domainHubGet')] },
-      { name: 'bounded-poll', mode: 'limited', concurrency: 2, calls: [call('orchestraProbePreflight'), call('orchestraStatus')] },
+      { name: 'bounded-health', mode: 'serial', calls: [call('detectProbe')] },
     ],
-  },
-  'scanner-polling': {
-    phases: [{ name: 'status-poll', mode: 'serial', calls: [call('scannerStatus')] }],
   },
   'components-navigation': {
     phases: [
@@ -554,13 +536,12 @@ async function runScenario(name, definition) {
   };
 }
 
-function legacyCalls() {
+function aggregateCalls() {
   return [
     call('statusFast'), call('status'), call('strategiesList'), call('strategiesCatalogStatus'),
-    call('strategiesRecommendations'), call('eventsTail'), call('dnsProductGet'), call('dnsProductProviders'),
+    call('strategiesRecommendations'), call('eventsTail'), call('dnsProductGet'),
     call('dnsProductStatus'), call('serviceDnsStatus'), call('tiktokStatus'), call('resourcesStatus'),
-    call('maintenanceStatus'), call('diagnosticsExport'), call('orchestraStatus'), call('orchestraHistory'),
-    call('orchestraHistoryPaginated'), call('engineReleases'), call('engineStatus'), call('proxyCapabilities'),
+    call('maintenanceStatus'), call('diagnosticsExport'), call('engineReleases'), call('engineStatus'), call('proxyCapabilities'),
     call('proxyStatus'), call('proxyConfigGet'), call('proxyHealth'), call('tgProductStatus'),
     call('tgProductOperationStatus'),
   ];
@@ -569,7 +550,7 @@ function legacyCalls() {
 async function runLegacy() {
   const baseline = [];
   for (let round = 0; round < rounds; round++) {
-    for (const definition of legacyCalls()) baseline.push(await runCall(definition));
+    for (const definition of aggregateCalls()) baseline.push(await runCall(definition));
   }
   const contention = await Promise.all([
     ...Array.from({ length: fanout }, () => runCall(call('strategiesRecommendations'))),
@@ -578,7 +559,7 @@ async function runLegacy() {
   console.log(JSON.stringify({
     schema: 'z2m-rpc-starvation.v2', target: host, rounds, fanout, timeoutMs,
     mutationAllowed, baseline: summarize(baseline), contention, contentionSummary: summarize(contention),
-    note: 'Legacy aggregate is retained for continuity; scenario reports are the PERF-2 acceptance format.',
+    note: 'Aggregate covers current product lanes; scenario reports are the PERF-2 acceptance format.',
   }, null, 2));
 }
 

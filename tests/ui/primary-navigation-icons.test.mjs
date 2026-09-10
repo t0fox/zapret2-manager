@@ -25,10 +25,13 @@ test('primary navigation keeps the six IA groups, labels, order, and routes', ()
   ]);
 
   for (const route of [
-    'dashboard', 'control', 'strategies', 'scan', 'unified-routing', 'warp',
+    'dashboard', 'control', 'strategies', 'scan', 'warp',
     'telegram-tunnel', 'services', 'resources', 'dns-routing', 'monitor', 'logs',
-    'components', 'backups', 'settings'
+    'components', 'backups'
   ]) assert.match(navigation, new RegExp(`id:\\s*'${route.replace('-', '\\-')}'`));
+  for (const removed of ['unified-routing', 'diagnostics', 'system', 'settings'])
+    assert.doesNotMatch(navigation, new RegExp(`\\{ id: '${removed.replace('-', '\\-')}'`));
+  assert.doesNotMatch(navigation, /hidden:\s*true/);
   assert.match(app, /Shell\.primaryNavigation\(Navigation, tabFromHash\(\), navigateTo\)/);
 });
 

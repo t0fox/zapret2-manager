@@ -438,10 +438,6 @@ function public_preview(plan) {
 	};
 }
 
-export const domain_hub_preview = function(edit) {
-	return public_preview(build_plan(edit));
-};
-
 function safe_id(value) {
 	if (type(value) != 'string' || length(value) < 1 || length(value) > 96) return null;
 	for (let i = 0; i < length(value); i++) {

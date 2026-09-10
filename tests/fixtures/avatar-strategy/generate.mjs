@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PINNED_SHA = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
-const AUDITED_AGGREGATE_DIGEST = 'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136';
+const AUDITED_AGGREGATE_DIGEST = '62458ae0d176b3c7ce7f6674efd554c846d231a6eb5dcc331c1333e3f5b17c59';
 const LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
 const WINDIVERT_PREFIXES = ['--wf-tcp', '--wf-udp', '--wf-raw', '--wf-l3', '--wf-ip'];
 const VALID_LABELS = new Set(['recommended', 'experimental', 'game', 'stable', 'caution', 'deprecated']);
@@ -230,13 +230,14 @@ function buildManifest(source) {
   return manifest;
 }
 
-function assertAuditedManifest(manifest) {
-  if (manifest.physicalFileCount !== 23
-      || manifest.physicalEntryCount !== 1836
-      || manifest.uniqueStrategyIdCount !== 732
+function assertCurrentManifest(manifest) {
+  if (manifest.physicalFileCount !== 21
+      || manifest.physicalEntryCount !== 1828
+      || manifest.uniqueStrategyIdCount !== 724
       || manifest.duplicateIdGroupCount !== 503
-      || manifest.aggregateDigest !== AUDITED_AGGREGATE_DIGEST) {
-    throw new Error('Fixture regeneration only: source does not match the audited Avatar catalog contract');
+      || manifest.aggregateDigest !== AUDITED_AGGREGATE_DIGEST
+      || manifest.files.some(file => /blockcheck|orchestra/i.test(file.path))) {
+    throw new Error('Fixture regeneration only: source does not match the current Avatar catalog contract');
   }
 }
 
@@ -244,6 +245,6 @@ const source = requireInstalledCatalog();
 const output = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'manifest.expected.json');
 mkdirSync(path.dirname(output), { recursive: true });
 const manifest = buildManifest(source);
-assertAuditedManifest(manifest);
+assertCurrentManifest(manifest);
 writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`wrote ${output}`);

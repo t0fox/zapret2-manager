@@ -13,6 +13,8 @@ const RPC = readFileSync(path.join(ROOT,
   'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
 const CLI_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const SERVICE_CATALOG_CLI_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/catalog-cli.uc');
 const CATALOG_REFRESH_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-refresh.uc');
 const GENERATION_PATH = path.join(ROOT,
@@ -34,19 +36,16 @@ const stubProductModule = names => names
   .map(name => `export const ${name} = function () { return { ok: true }; };`)
   .join('\n') + '\n';
 fs.writeFileSync(DNS_PRODUCT_PATH, stubProductModule([
-  'dns_product_get', 'dns_product_providers', 'dns_product_status',
-  'dns_product_preview', 'dns_product_validate', 'dns_product_apply',
-  'dns_product_rollback',
+  'dns_product_get', 'dns_product_status', 'dns_product_validate',
 ]));
 fs.writeFileSync(TG_PRODUCT_PATH, stubProductModule([
-  'tg_product_get', 'tg_product_catalog', 'tg_product_status', 'tg_product_versions',
-  'tg_product_operation_status', 'tg_product_validate', 'tg_product_preview',
-  'tg_product_apply', 'tg_product_health', 'tg_product_check_updates',
-  'tg_product_switch', 'tg_product_install', 'tg_product_update', 'tg_product_remove',
+  'tg_product_catalog', 'tg_product_status', 'tg_product_versions',
+  'tg_product_operation_status', 'tg_product_check_updates', 'tg_product_switch', 'tg_product_remove',
   'tg_product_purge', 'tg_product_start', 'tg_product_stop', 'tg_product_restart',
 ]));
 test.after(() => fs.rmSync(RPC_PRODUCT_STUB_ROOT, { recursive: true, force: true }));
 const CLI = readFileSync(CLI_PATH, 'utf8');
+const SERVICE_CATALOG_CLI = readFileSync(SERVICE_CATALOG_CLI_PATH, 'utf8');
 const ACL = readFileSync(path.join(ROOT,
   'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json'), 'utf8');
 const CATALOG_ROOT = path.join(ROOT,
@@ -66,16 +65,15 @@ const METHODS = [
   'strategies_list', 'strategies_get', 'strategies_create', 'strategies_update',
   'strategies_delete', 'strategies_duplicate', 'strategies_favorite',
   'strategies_preview', 'strategies_validate', 'strategies_apply',
-  'strategies_catalog_status', 'strategies_catalog_reload', 'strategies_import_profiles',
+  'strategies_catalog_status', 'strategies_catalog_reload',
 ];
 const READ_METHODS = [
   'strategies_list', 'strategies_get', 'strategies_preview', 'strategies_validate',
-  'strategies_catalog_status', 'strategies_catalog_reload', 'status',
+  'strategies_catalog_status', 'strategies_catalog_reload',
 ];
 const WRITE_METHODS = [
   'strategies_create', 'strategies_update', 'strategies_delete',
   'strategies_duplicate', 'strategies_favorite', 'strategies_apply',
-  'strategies_import_profiles',
 ];
 
 function invokeValues(functionName, values, env = {}) {
@@ -399,13 +397,13 @@ test('Default Strategy list resolves the real winner IDs and emits compact summa
       Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
     });
     assert.equal(result.ok, true);
-    assert.equal(CATALOG_MANIFEST.uniqueStrategyIdCount, 732);
-    assert.equal(CATALOG_MANIFEST.winnerOrder.length, 732);
+    assert.equal(CATALOG_MANIFEST.uniqueStrategyIdCount, EXPECTED_MANIFEST.uniqueStrategyIdCount);
+    assert.equal(CATALOG_MANIFEST.winnerOrder.length, EXPECTED_MANIFEST.uniqueStrategyIdCount);
     assert.deepEqual(CATALOG_MANIFEST.winnerOrder, EXPECTED_MANIFEST.winnerOrder);
-    assert.equal(result.strategies.length, 732);
+    assert.equal(result.strategies.length, EXPECTED_MANIFEST.uniqueStrategyIdCount);
     const ids = result.strategies.map(strategy => strategy.id);
     assert.deepEqual(ids, EXPECTED_MANIFEST.winnerOrder);
-    assert.equal(new Set(ids).size, 732);
+    assert.equal(new Set(ids).size, EXPECTED_MANIFEST.uniqueStrategyIdCount);
     for (const strategy of result.strategies) {
       assert.ok(strategy.is_builtin === true);
       assert.equal(Object.hasOwn(strategy, 'blobs'), false, `${strategy.id} list blobs`);
@@ -486,30 +484,6 @@ test('RPC Preview uses authoritative server runtime composition and ignores clie
   assert.equal(forged.error.code, 'EINPUT');
 });
 
-test('runtime composition projects canonical assets into compiler descriptors', () => {
-  const projected = invokeValues('strategy_runtime_environment_from_composition', [
-    {
-      listMode: 'none',
-      paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
-      functions: {}, blobs: {}, lua: {}, lists: {},
-    },
-    {
-      ok: true,
-      runtimeAssets: [
-        { id: 'blob:canonical-list', kind: 'hostlist', runtimeTarget: '/runtime-assets/lists/extra_strats/TCP/RKN/List.txt' },
-        { id: 'lua:canonical', kind: 'lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua' },
-      ],
-    },
-  ]);
-
-  const list = projected.lists['/runtime-assets/lists/extra_strats/TCP/RKN/List.txt'];
-  assert.ok(list);
-  assert.equal(list.path, 'extra_strats/TCP/RKN/List.txt');
-  assert.equal(list.root, '/opt/zapret2/lists');
-  assert.equal(list.safe, true);
-  assert.equal(projected.lua['/runtime-assets/lua/z2k-modern-core.lua'].root, '/opt/zapret2/lua');
-});
-
 test('Apply candidate binding uses the canonical runtime asset path mapping', () => {
   const bound = invokeValues('strategy_runtime_bind_candidate', [{
     ok: true,
@@ -553,8 +527,8 @@ test('full list is measured before any projection is allowed', () => {
       .map(strategy => strategy.id);
     const users = fullList.strategies.filter(strategy => strategy.origin === 'user');
     assert.deepEqual(builtinIds, EXPECTED_MANIFEST.winnerOrder);
-    assert.equal(builtinIds.length, 732);
-    assert.equal(new Set(builtinIds).size, 732);
+    assert.equal(builtinIds.length, EXPECTED_MANIFEST.uniqueStrategyIdCount);
+    assert.equal(new Set(builtinIds).size, EXPECTED_MANIFEST.uniqueStrategyIdCount);
     assert.equal(users.length, 1);
     assert.equal(users[0].id, 'user-one');
     assert.equal(users[0].is_active, false);
@@ -606,16 +580,16 @@ test('Strategy read paths use direct in-process dispatch while mutations retain 
   }
 });
 
-test('strategies_list stays bounded under synthetic 732, 1000, and 1500-entry scaling', () => {
+test('strategies_list stays bounded under current-catalog, 1000, and 1500-entry scaling', () => {
   const storage = temporaryStrategyStorage();
   writeUserStrategy(storage);
   try {
     const list = invokeValues('strategy_cli_dispatch', ['list', {}], strategyStorageEnv(storage));
-    for (const count of [732, 1000, 1500]) {
+    for (const count of [CATALOG_MANIFEST.uniqueStrategyIdCount, 1000, 1500]) {
       const synthetic = Array.from({ length: count }, (_, index) => list.strategies[index % list.strategies.length]);
       const bytes = Buffer.byteLength(JSON.stringify({ ok: true, strategies: synthetic, state: list.state }));
       assert.ok(bytes < 1024 * 1024, `${count} strategies exceeds 1 MiB: ${bytes}`);
-      if (count === 732) assert.ok(bytes <= 768 * 1024, `${count} strategies exceeds production budget: ${bytes}`);
+      if (count === CATALOG_MANIFEST.uniqueStrategyIdCount) assert.ok(bytes <= 768 * 1024, `${count} strategies exceeds production budget: ${bytes}`);
       console.log(`# synthetic strategies_list: ${count} strategies, ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB)`);
     }
   } finally {
@@ -678,7 +652,7 @@ test('RPC rejects malformed or tampered catalog evidence before serving Strategy
   }
 });
 
-test('RPC storage rejects traversal, builtin/extension collisions, shell input, and oversized Strategy/Profile data', () => {
+test('RPC storage rejects traversal, builtin/extension collisions, shell input, and oversized Strategy data', () => {
   const storage = temporaryStrategyStorage();
   const env = strategyStorageEnv(storage);
   const marker = path.join(storage.root, 'shell-injection-marker');
@@ -722,17 +696,6 @@ test('RPC storage rejects traversal, builtin/extension collisions, shell input, 
     assert.equal(oversizedStrategy.ok, false);
     assert.equal(oversizedStrategy.error.code, 'EINPUT');
 
-    const oversizedProfile = invokeValues('strategy_import_profiles_test', [
-      { mode: 'preview' },
-      { importProfiles: { draftState: {
-        schema: 1,
-        profiles: Array.from({ length: 257 }, (_, index) => ({
-          id: `oversized-${index}`, name: 'Oversized', opt: '--filter-tcp=443',
-        })),
-      } } },
-    ], { ...env, Z2M_STRATEGY_SERVER_TEST: '1' });
-    assert.equal(oversizedProfile.ok, false);
-    assert.equal(oversizedProfile.error.code, 'EINPUT');
   } finally {
     fs.rmSync(storage.root, { recursive: true, force: true });
   }
@@ -855,7 +818,7 @@ test('Strategy RPC registration keeps fixed CLI modes and explicit error envelop
   assert.match(RPC, /error:\s*\{\s*code:\s*'EINPUT'/);
   assert.match(RPC, /error:\s*\{\s*code:\s*'ETARGET'/);
   for (const mode of ['create', 'update', 'delete', 'duplicate', 'favorite',
-    'preview', 'validate', 'apply', 'import_profiles'])
+    'preview', 'validate', 'apply'])
     assert.match(RPC, new RegExp(`strategy_edit_action\\(['"]${mode}['"]`), mode);
   assert.match(RPC, /strategy_noarg_action\(['"]catalog_reload['"]/);
   for (const mode of ['list', 'get', 'catalog_status'])
@@ -871,8 +834,7 @@ test('Strategy CLI dispatch exposes state and catalog operations without a gener
   for (const name of ['user_create', 'user_update', 'user_delete', 'favorite'])
     assert.match(CLI, new RegExp(`strategy_state\\['strategy_' \\+ '${name}'\\]`), name);
   for (const mode of ['list', 'get', 'create', 'update', 'delete', 'duplicate',
-    'favorite', 'preview', 'validate', 'apply', 'catalog_status', 'catalog_reload',
-    'import_profiles']) {
+    'favorite', 'preview', 'validate', 'apply', 'catalog_status', 'catalog_reload']) {
     assert.match(CLI, new RegExp(`mode\\s*==\\s*['"]${mode}['"]`), mode);
   }
   assert.match(CLI, /strategy_cli_dispatch/);
@@ -949,15 +911,19 @@ test('Preview and Validate retain inline Strategy input while Apply accepts only
   assert.match(CLI, /transient_composition_valid/);
 });
 
-test('Strategy CLI uses separate service catalog and Orchestra adapters', () => {
+test('service catalog RPC exposes only the current read projection', () => {
   assert.match(RPC, /CATALOG_CLI\s*=\s*['"]\/usr\/libexec\/zapret2-manager\/catalog-cli\.uc/);
-  assert.match(RPC, /ORCH_CLI\s*=\s*['"]\/usr\/libexec\/zapret2-manager\/orchestra-cli\.uc/);
-  assert.match(RPC, /catalog_(?:list|get|status|preview|apply)_method/);
+  assert.match(RPC, /catalog_list_method/);
+  assert.match(RPC, /catalog_list:\s*\{[\s\S]*catalog_list_method/);
+  assert.doesNotMatch(RPC, /(?<!strategies_)catalog_(?:status|preview|apply)_method/);
+  assert.doesNotMatch(RPC, /(?<!strategies_)catalog_(?:status|preview|apply):\s*\{/);
+  assert.match(SERVICE_CATALOG_CLI, /ARGV\[0\] != 'list'/);
+  assert.doesNotMatch(SERVICE_CATALOG_CLI, /\bcatalog_(?:status|preview|apply)\b|flock|read_args/);
+  assert.doesNotMatch(RPC, /ORCH_CLI|orchestra-cli\.uc/);
   assert.doesNotMatch(RPC, /strategies_.*CATALOG_CLI|CATALOG_CLI.*strategies_/);
-  assert.doesNotMatch(RPC, /strategies_.*ORCH_CLI|ORCH_CLI.*strategies_/);
 });
 
-test('ACL grants the exact Strategy read/write split and preserves existing Profile/Orchestra ACLs', () => {
+test('ACL grants the exact current Strategy read/write split and excludes retired product families', () => {
   const acl = JSON.parse(ACL);
   const object = acl['zapret2-manager'];
   const read = object.read.ubus['zapret2-manager'];
@@ -968,27 +934,9 @@ test('ACL grants the exact Strategy read/write split and preserves existing Prof
   for (const method of WRITE_METHODS) assert.ok(!read.includes(method), `write leaked to read ${method}`);
   assert.ok(!write.includes('strategies_catalog_reload'));
   assert.ok(!read.includes('strategies_create'));
-  assert.ok(read.includes('profiles_list') && write.includes('profiles_create'));
-  assert.ok(read.includes('orchestra_status') && write.includes('orchestra_run_start'));
+  for (const retired of ['profiles_list', 'profiles_create', 'orchestra_status', 'orchestra_run_start']) {
+    assert.equal(read.includes(retired), false, `retired read ACL ${retired}`);
+    assert.equal(write.includes(retired), false, `retired write ACL ${retired}`);
+  }
   for (const method of METHODS) assert.ok(read.includes(method) || write.includes(method), method);
-});
-
-test('Profile import dispatches the explicit Task 13 preview/create operation', () => {
-  assert.match(CLI, /mode == 'import_profiles'[\s\S]*strategy_import_profiles\(input\)/);
-  assert.match(CLI, /strategy_import_profiles_test\(input, context\)/);
-  assert.match(CLI, /import \{ load_state \} from '\.\/profiles-draft\.uc'/);
-  const result = invokeValues('strategy_cli_dispatch', ['import_profiles', {}]);
-  assert.equal(result.error.code, 'EINPUT');
-});
-
-test('RPC import cannot fabricate a legacy draft through request context', () => {
-  const forged = {
-    schema: 1,
-    profiles: [{ id: 'forged-profile', name: 'Forged', opt: '--filter-tcp=1' }],
-  };
-  const result = invokeRpcMethod('strategies_import_profiles', {
-    edit: JSON.stringify({ mode: 'preview', importProfiles: { draftState: forged } }),
-  });
-  if (result.ok) assert.notEqual(result.strategy?.id, 'forged-profile');
-  else assert.ok(['EINPUT', 'ECHILD'].includes(result.error.code), result.error.code);
 });

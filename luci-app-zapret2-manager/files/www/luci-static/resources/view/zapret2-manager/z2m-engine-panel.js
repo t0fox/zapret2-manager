@@ -299,13 +299,13 @@ function build(ctx, state) {
       { label: _('Статус'), value: Model.stateLabel(status.state) },
       { label: _('Установленный release'), value: truth.installed.version },
       { label: _('Доступная версия'), value: truth.available.version },
-      { label: _('Тип артефакта'), value: truth.artifactKind === 'legacy-compatibility-build' ? _('Legacy compatibility build') : truth.artifactKind },
-      { label: _('Источник'), value: truth.artifactKind === 'legacy-compatibility-build' ? 'bol-van/zapret2 · ' + _('совместимая сборка manager') : 'bol-van/zapret2 · ' + _('Официальный release') },
+      { label: _('Тип артефакта'), value: truth.artifactKind },
+      { label: _('Источник'), value: 'bol-van/zapret2 · ' + _('Официальный release') },
       { label: _('Служба'), value: Model.serviceLabel(status.serviceState) },
       { label: _('Совместимость'), value: truth.compatibility.state === 'compatible' ? _('Подтверждена') : truth.compatibility.state === 'incompatible' ? _('Несовместим') : _('Не подтверждена') }
     ]),
     technical
-  ], status.installed ? (truth.artifactKind === 'legacy-compatibility-build' ? _('Legacy compatibility build установлена; доступен официальный stock release.') : _('Официальный release bol-van/zapret2 установлен.')) : _('Официальный release bol-van/zapret2 не установлен.'));
+  ], status.installed ? _('Официальный release bol-van/zapret2 установлен.') : _('Официальный release bol-van/zapret2 не установлен.'));
 
   var checkPanel;
   if (state.check && state.check.ok === false) {

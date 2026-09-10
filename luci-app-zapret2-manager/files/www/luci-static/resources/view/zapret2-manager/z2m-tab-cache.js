@@ -4,18 +4,8 @@
 var DEFAULT_TTLS = {
   dashboard: 10000,
   strategies: 15000,
-  lists: 30000,
-  hostlists: 30000,
   'dns-routing': 20000,
-  'telegram-tunnel': 12000,
-  ipsets: 30000,
-  blobs: 30000,
-  lua: 30000,
-  hosts: 30000,
-  updates: 20000,
-  zapret: 20000,
-  autostart: 20000,
-  settings: 20000
+  'telegram-tunnel': 12000
 };
 
 function create(options) {

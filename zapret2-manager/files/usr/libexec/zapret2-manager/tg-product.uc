@@ -2,9 +2,8 @@
 
 // Canonical Telegram Proxy facade.  The existing proxy, config, and provider
 // modules remain the only owners of runtime state and mutations.
-import { proxy_capabilities, proxy_status } from './proxy.uc';
-import { proxycfg_get, proxycfg_validate, proxycfg_preview, proxycfg_apply,
-	proxycfg_health, proxycfg_start, proxycfg_stop, proxycfg_restart } from './proxycfg.uc';
+import { proxy_status } from './proxy.uc';
+import { proxycfg_get, proxycfg_health, proxycfg_start, proxycfg_stop, proxycfg_restart } from './proxycfg.uc';
 import { proxy_provider_catalog, proxy_provider_status,
 	proxy_provider_versions, proxy_provider_check_updates, proxy_provider_install,
 	proxy_provider_remove, proxy_provider_purge, proxy_provider_operation_status } from './proxy-provider.uc';
@@ -104,7 +103,6 @@ export const tg_product_status = function () {
 	STATUS_CACHE = { at: now, value: value };
 	return { ...value, statusCacheHit: false };
 };
-export const tg_product_get = function () { return tg_product_status(); };
 export const tg_product_versions = function () {
 	let source = proxy_provider_versions(), rows = [];
 	let hasStale = false;
@@ -139,14 +137,8 @@ export const tg_product_operation_status = function (input) {
 		return { ok: true, operation: null, state: 'idle' };
 	return { ok: true, operation: answer.operation, state: answer.operation.state };
 };
-export const tg_product_validate = function (input) { return proxycfg_validate(input); };
-export const tg_product_preview = function (input) { return proxycfg_preview(input); };
-export const tg_product_apply = function (input) { invalidate_status_cache(); return proxycfg_apply(input); };
-export const tg_product_health = function (input) { return proxycfg_health(input || {}); };
 export const tg_product_check_updates = function (input) { return proxy_provider_check_updates(input); };
 export const tg_product_switch = function (input) { invalidate_status_cache(); return proxy_provider_install(input); };
-export const tg_product_install = function (input) { invalidate_status_cache(); return proxy_provider_install(input); };
-export const tg_product_update = function (input) { invalidate_status_cache(); return proxy_provider_install(input); };
 export const tg_product_remove = function (input) { invalidate_status_cache(); return proxy_provider_remove(input); };
 export const tg_product_purge = function (input) { invalidate_status_cache(); return proxy_provider_purge(input); };
 export const tg_product_start = function () { invalidate_status_cache(); return proxycfg_start(); };

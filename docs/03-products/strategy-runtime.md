@@ -13,8 +13,8 @@ code: [zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc#strateg
 # Strategy runtime
 
 Strategy — канонический владелец permanent Preview → Validate → Save → Apply.
-RPC facade, IDE и Scanner handoff используют этот lifecycle; параллельный
-apply-owner не создаётся.
+RPC facade и IDE используют этот lifecycle; Z2K Detect возвращает только
+измерение и evidence, а параллельный apply-owner не создаётся.
 
 ## Границы проверки
 
@@ -26,6 +26,6 @@ apply-owner не создаётся.
 ## selected и applied
 
 `selected` — выбор интерфейса, `applied` — подтверждённое runtime-состояние,
-`favorite` — пользовательская отметка. Detect Scanner возвращает evidence и
-не создаёт permanent candidate; постоянное изменение начинается только в
-обычном Strategy workflow.
+`favorite` — пользовательская отметка. Z2K Detect возвращает evidence и не
+создаёт permanent candidate; постоянное изменение начинается только в обычном
+Strategy workflow.

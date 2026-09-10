@@ -19,7 +19,7 @@ tags: [products, index]
 - [Главная](./dashboard.md)
 - [Управление](./control.md)
 - [Стратегии](./strategy/index.md)
-- [Сканирование](./scanner/index.md)
+- [Z2K Detect](./scanner/index.md)
 
 ## Прокси и данные
 
@@ -35,19 +35,14 @@ tags: [products, index]
 - [Журналы](./logs.md)
 - [Компоненты](./components.md)
 - [Резервные копии](./backups.md)
-- [Настройки](./settings.md)
 
 ## Технические product-страницы
 
 - [Стратегии](./strategy/index.md)
-- [Сканер](./scanner/index.md)
-- [BlockCheck](./blockcheck/index.md)
-- [Глубокий поиск](./deep-search/index.md)
 - [Zapret2 Engine](./zapret2-engine.md)
 - [Z2K Core](./z2k-core.md)
 - [Strategy runtime](./strategy-runtime.md)
 - [Autocircular](./autocircular.md)
-- [Scanner runtime](./scanner-runtime.md)
 - [Avatar Catalog](./avatar-catalog.md)
 - [Asset Registry](./asset-registry.md)
 - [NFQUEUE](./nfqueue.md)

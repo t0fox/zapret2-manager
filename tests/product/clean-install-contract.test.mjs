@@ -8,18 +8,16 @@ import path from 'node:path';
 //
 // The Manager APK must leave a freshly installed router in a verified running
 // state WITHOUT reboot:
-//   persistent bootstrap -> strategy state seed -> source-generation migration
-//   -> legacy compact catalog index fallback (idempotent, written-checked,
-//   never silently swallowed) -> rpcd reload ->
+//   persistent bootstrap -> strategy state seed -> verified catalog read index
+//   materialization (idempotent, written-checked, never silently swallowed)
+//   -> rpcd reload ->
 //   enable AND restart -> procd/helperd/socket evidence -> bounded status_fast proof.
 //
 // This is a static source contract test: it parses the actual postinst recipe
 // shipped to the target (Makefile heredoc), so drift fails CI before any flash.
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const MAKEFILE = path.join(ROOT, 'zapret2-manager', 'Makefile');
-const FULL_MAKEFILE = path.join(ROOT, 'zapret2-manager-full', 'Makefile');
-const LUCI_MAKEFILE = path.join(ROOT, 'luci-app-zapret2-manager', 'Makefile');
+const MAKEFILE = path.join(ROOT, 'zapret2-manager-full', 'Makefile');
 
 function postinstRecipe(makefile, packageName) {
   const source = readFileSync(makefile, 'utf8');
@@ -51,8 +49,8 @@ function assertOrder(body, steps) {
   }
 }
 
-test('manager postinst builds the catalog index idempotently without pre-deletion', () => {
-  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+test('full package postinst builds the catalog index idempotently without pre-deletion', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager-full');
   assert.doesNotMatch(body, /rm\s+-f[^\n]*strategy-catalog-index\.json/,
     'postinst must not destroy an existing read index before rebuilding it');
   assert.match(body, /strategy-catalog-index-cli\.uc/,
@@ -61,14 +59,12 @@ test('manager postinst builds the catalog index idempotently without pre-deletio
   assert.doesNotMatch(body, /index-cli\.uc[^\n]*\|\|[[:space:]]*true/,
     'swallowing index build failure with || true is forbidden');
   assertOrder(body, [
-    ['source-generation migration', 'strategy-catalog-migration-cli.uc'],
-    ['legacy index fallback', 'strategy-catalog-index-cli.uc'],
+    ['catalog read index', 'strategy-catalog-index-cli.uc'],
   ]);
-  assert.match(body, /migration-required/, 'migration failure must remain explicitly observable');
 });
 
-test('manager postinst enables AND restarts the service with runtime verification', () => {
-  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+test('full package postinst enables AND restarts the service with runtime verification', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager-full');
   assertOrder(body, [
     ['persistent bootstrap', 'z2m-root-bootstrap persistent'],
     ['rpcd plugin reload', 'kill -HUP'],
@@ -84,20 +80,8 @@ test('manager postinst enables AND restarts the service with runtime verificatio
   assert.match(body, /status_fast/, 'bounded bounded status_fast proof required');
 });
 
-test('manager postinst materializes the package runtime bridge when Engine is already installed', () => {
-  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
-  const sync = body.indexOf('strategy-runtime-assets-sync.sh');
-  const rpcd = body.indexOf('rpcd_pid=');
-  assert.ok(sync >= 0, 'clean install must invoke the canonical runtime asset sync');
-  assert.ok(sync < rpcd, 'runtime asset sync must run before rpcd/service restart');
-  assert.match(body, /-x\s+\/opt\/zapret2\/nfq2\/nfqws2/,
-    'manager-only install must not fabricate an Engine runtime tree');
-  assert.match(body, /strategy-runtime-assets-sync\.sh[^\n]*2>&1/,
-    'runtime sync failure must remain visible during package installation');
-});
-
-test('full release postinst materializes the package runtime bridge when Engine is already installed', () => {
-  const body = postinstRecipe(FULL_MAKEFILE, 'zapret2-manager-full');
+test('full package postinst materializes the package runtime bridge when Engine is already installed', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager-full');
   const sync = body.indexOf('strategy-runtime-assets-sync.sh');
   const rpcd = body.indexOf('rpcd_pid=');
   assert.ok(sync >= 0, 'full package clean install must invoke the canonical runtime asset sync');
@@ -108,8 +92,8 @@ test('full release postinst materializes the package runtime bridge when Engine 
     'full package runtime sync failure must remain visible during package installation');
 });
 
-test('manager postinst seeds state with factory-image base utilities only', () => {
-  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+test('full package postinst seeds state with factory-image base utilities only', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager-full');
   assert.doesNotMatch(body, /\binstall\s+-d\b/,
     'postinst must not require the optional install utility for directory creation');
   assert.doesNotMatch(body, /\|\s*install\s+-o\b/,
@@ -122,14 +106,14 @@ test('manager postinst seeds state with factory-image base utilities only', () =
     'created persistent state must retain restrictive permissions');
 });
 
-test('manager postinst records an explicit repair marker when the index cannot be built', () => {
-  const body = postinstRecipe(MAKEFILE, 'zapret2-manager');
+test('full package postinst records an explicit repair marker when the index cannot be built', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager-full');
   assert.match(body, /repair-required/, 'repair-required marker must be persisted on unrecoverable index failure');
   assert.match(body, /logger[^\n]*zapret2-manager/, 'failure must be logged, not silent');
 });
 
-test('luci app postinst keeps LuCI cache invalidation for immediate availability', () => {
-  const body = postinstRecipe(LUCI_MAKEFILE, 'luci-app-zapret2-manager');
+test('full package postinst keeps LuCI cache invalidation for immediate availability', () => {
+  const body = postinstRecipe(MAKEFILE, 'zapret2-manager-full');
   assert.match(body, /luci-indexcache/, 'LuCI index cache purge retained');
   assert.match(body, /rpcd reload|kill -HUP/, 'rpcd reload/HUP retained');
 });

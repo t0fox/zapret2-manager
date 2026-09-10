@@ -19,7 +19,7 @@ test('TG product status has a short cache and invalidates it after mutations', (
   assert.match(source, /const STATUS_CACHE_TTL_SEC = 3/);
   assert.match(source, /let STATUS_CACHE = null/);
   assert.match(source, /statusCacheHit/);
-  for (const name of ['tg_product_apply', 'tg_product_switch', 'tg_product_start', 'tg_product_stop', 'tg_product_restart']) {
+  for (const name of ['tg_product_switch', 'tg_product_start', 'tg_product_stop', 'tg_product_restart']) {
     const start = source.indexOf(`export const ${name}`);
     const end = source.indexOf('\n};', start);
     assert.notEqual(start, -1, `${name} must exist`);

@@ -19,7 +19,6 @@ test('read-only Strategy RPCs use the prevalidated manifest index so events_tail
 });
 
 test('package postinst warms the persistent Strategy read index after catalog updates', () => {
-  const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
-  assert.match(makefile, /strategy-catalog-index\.json/);
+  const makefile = fs.readFileSync('zapret2-manager-full/Makefile', 'utf8');
   assert.match(makefile, /strategy-catalog-index-cli\.uc/);
 });

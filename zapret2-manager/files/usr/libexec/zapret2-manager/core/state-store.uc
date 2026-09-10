@@ -81,7 +81,7 @@ function schema_error(message) {
 }
 
 export const state_validate = function(value) {
-	let services = ['engine_missing', 'running', 'stopped', 'partial', 'error', 'paused', 'passthrough'];
+	let services = ['engine_missing', 'running', 'stopped', 'partial', 'error', 'paused'];
 	if (!exact_fields(value, ['schemaVersion', 'generation', 'generatedAt', 'serviceState',
 		'runtime', 'transactions', 'jobs', 'warnings']) || value.schemaVersion !== 1 ||
 		!integer(value.generation) || !timestamp(value.generatedAt) ||

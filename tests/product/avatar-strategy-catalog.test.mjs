@@ -86,7 +86,7 @@ test('runtime winner follows level/file/source/cache-key traversal', () => {
   const catalog = load();
   assert.deepEqual(catalog.winnerOrder.slice(0, 3), expected.winnerOrder.slice(0, 3));
   assert.equal(catalog.winners.z2k_all_in_one.winner, true);
-  assert.equal(catalog.physicalEntries.length, 1836);
+  assert.equal(catalog.physicalEntries.length, expected.physicalEntryCount);
 });
 
 test('installed manifest provenance and inventory remain exact', () => {

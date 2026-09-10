@@ -11,7 +11,8 @@ test('P01 Dashboard follows the current accepted composition and order', () => {
   const composition = `${page}\n${dashboard}`;
   const required = [
     'page-header', 'Главная', 'Обзор состояния системы', 'status-grid',
-    'card-nfqws', 'nfqws2', 'card-strategy', 'Стратегия',
+    'card-zapret2', 'Компоненты', 'Zapret2 Engine', 'Z2K Core', '#/components',
+    'card-strategy', 'Стратегия',
     'card-telegram', 'Telegram Proxy',
     'card-autostart', 'Автозапуск', 'card-system', 'Система',
     'zapret2',
@@ -35,31 +36,66 @@ test('P01 Dashboard follows the current accepted composition and order', () => {
   assert.match(composition, /page-description/);
 });
 
-test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
+test('P01 Dashboard exposes one clickable component summary with independent engine and Z2K rows', () => {
+  const page = read('z2m-overview.js');
+  const dashboard = read('z2m-avatar-dashboard.js');
+  const cardSection = page.slice(page.indexOf('function statusCards()'), page.indexOf('function eventRows'));
+  const componentSection = page.slice(page.indexOf('function componentSummaryCard'), page.indexOf('function componentUpdateSummary'));
+  const composition = `${componentSection}\n${cardSection}\n${dashboard}`;
+  assert.match(componentSection, /id: 'card-zapret2'/);
+  assert.match(componentSection, /label: _\('Компоненты'\)/);
+  assert.match(componentSection, /href: '#\/components'/);
+  assert.match(componentSection, /headerArrow: true/);
+  assert.match(componentSection, /context:/);
+  assert.match(composition, /engineComponentValue\(\)/);
+  assert.match(composition, /z2kComponentValue\(\)/);
+  assert.match(componentSection, /label: _\('Zapret2 Engine'\)/);
+  assert.match(componentSection, /label: _\('Z2K Core'\)/);
+  assert.match(composition, /status-card-rows/);
+  assert.match(dashboard, /status-card-status/);
+  assert.match(dashboard, /status-card-header-arrow/);
+  assert.match(dashboard, /status-card-context/);
+  assert.doesNotMatch(componentSection, /Сервер подтвердил отсутствие пакета/);
+  assert.doesNotMatch(componentSection, /detail: _\('Требуется совместимый Zapret2 Engine'\)/);
+  assert.doesNotMatch(cardSection, /card-nfqws|label: 'nfqws2'/);
+  assert.doesNotMatch(dashboard, /nfqws-status|nfqws-detail/);
+});
+
+test('P01 component summary keeps confirmed engine absence distinct from unknown state', () => {
+  const page = read('z2m-overview.js');
+  const cardSection = page.slice(page.indexOf('function unknownComponentValue'), page.indexOf('function componentUpdateSummary'));
+  assert.match(cardSection, /engine\.installed === false/);
+  assert.match(cardSection, /_\('Не установлен'\)/);
+  assert.match(cardSection, /ComponentsModel\.normalizePage/);
+  assert.match(cardSection, /_\('Состояние неизвестно'\)/);
+  assert.doesNotMatch(cardSection, /engine\.installed === false[\s\S]{0,180}_\('Недоступно'\)/);
+});
+
+test('P01 Dashboard keeps Z2M APIs and the bounded Detect domain checker', () => {
   const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   assert.match(page, /ctx\.api\.service\.start/);
   assert.match(page, /ctx\.api\.service\.stop/);
-  assert.match(page, /ctx\.api\.monitor\.eventsTail/);
-  assert.match(page, /ctx\.api\.orchestra\.runStart/);
-  assert.match(page, /ctx\.api\.orchestra\.runStatus/);
+	assert.match(page, /ctx\.api\.maintenance\.eventsTail/);
+  assert.match(page, /ctx\.api\.z2kDetectProbe\(domain, 6000\)/);
+  assert.match(page, /Z2K Detect/);
+  assert.doesNotMatch(page, /ctx\.api\.orchestra|runStart|runStatus|runId/);
   assert.match(page, /ctx\.api\.tg\.product\.status\(\)/);
   assert.doesNotMatch(page, /ctx\.api\.dns\.serviceStatus/);
   assert.doesNotMatch(page, /['"]\/api\//);
   assert.doesNotMatch(page, /fetch\s*\(/);
 });
 
-test('P01 Dashboard initial load does not wait for unused Orchestra reads', () => {
+test('P01 Dashboard initial load does not wait for the bounded Detect checker', () => {
   const loading = read('z2m-overview-loading.js');
   const orchestration = `${read('z2m-overview.js')}\n${loading}`;
   assert.match(loading, /hasInitial\(ctx\.initial\)/);
-  assert.match(loading, /ctx\.api\.strategy\.preview\(\)/);
-  assert.match(loading, /ctx\.api\.monitor\.eventsTail/);
+	assert.doesNotMatch(loading, /ctx\.api\.strategy\.preview/);
+	assert.match(loading, /ctx\.api\.maintenance\.eventsTail/);
   assert.match(orchestration, /ctx\.rerender/);
   assert.match(loading, /scheduleDeferred/);
   assert.match(loading, /MAX_DEFERRED_IN_FLIGHT/);
   assert.match(loading, /runtime\.deferred\[job\.key\]/);
-  assert.doesNotMatch(loading, /ctx\.api\.orchestra\.runHistory\(\)/);
-  assert.doesNotMatch(loading, /ctx\.api\.orchestra\.status\(\)/);
+  assert.doesNotMatch(`${orchestration}\n${read('z2m-overview-model.js')}`, /orchestra|runHistory|runStatus|runStart|lastRun|activeRun|corpus/);
 });
 
 test('P01 status cards consume structured status evidence without collapsing to unavailable', () => {

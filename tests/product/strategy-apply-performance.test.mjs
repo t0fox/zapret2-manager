@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8');
 const CLI = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
-const APPLY = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const APPLY = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-apply-runtime.uc');
 const CANONICAL_PAGE = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
 
 function region(source, start, end) {
@@ -30,7 +30,7 @@ function assertOrdered(source, patterns) {
 test('Strategy Apply compiles without native preflight and the locked writer owns exactly one authoritative preflight', () => {
   const apply = region(CLI, 'export const strategy_apply =', 'function strategy_reconcile_locked');
   const candidate = region(CLI, 'function strategy_apply_candidate', 'function bind_executable_candidate');
-  const locked = region(APPLY, 'function profiles_apply_candidate_locked', 'export const profiles_apply_candidate');
+  const locked = region(APPLY, 'function strategy_apply_candidate_locked', 'export const strategy_apply_candidate');
 
   assert.match(apply, /trusted\.environment\.validate\s*=\s*false/);
   assert.match(apply, /trusted\.environment\.executionAdmission\s*=\s*false/);
@@ -40,9 +40,9 @@ test('Strategy Apply compiles without native preflight and the locked writer own
 
 test('Cached Preview is never Apply authority and Apply revalidates the final installed composition inside the lock', () => {
   const apply = region(CLI, 'export const strategy_apply =', 'function strategy_reconcile_locked');
-  const locked = region(APPLY, 'function profiles_apply_candidate_locked', 'export const profiles_apply_candidate');
+  const locked = region(APPLY, 'function strategy_apply_candidate_locked', 'export const strategy_apply_candidate');
 
-  assert.match(apply, /profiles_apply_candidate\(candidate\.candidate, candidate\.digest, projection\)/);
+  assert.match(apply, /strategy_apply_candidate\(candidate\.candidate, candidate\.digest, projection\)/);
   assert.match(locked, /resolveInstalled\(\{\}\)/);
   assert.match(locked, /runtime.*snapshot|snapshot.*runtime/i);
   assert.match(locked, /native_preflight_for_apply\(candidate/);
@@ -62,7 +62,7 @@ test('Apply uses condition-based bounded readiness for initial and rollback rest
 
 test('Readiness polling exposes immediate, delayed, and timeout outcomes to the existing rollback verdict', () => {
   const verify = region(APPLY, 'function transaction_verify', 'function transaction_restore');
-  const decision = region(APPLY, 'export const profiles_rollback_decision', 'function event_apply');
+  const decision = region(APPLY, 'function strategy_rollback_decision', 'function apply_candidate_pipeline');
 
   assert.match(verify, /readiness|poll/i);
   assert.match(verify, /verify_status|result\.readiness/);
@@ -72,7 +72,7 @@ test('Readiness polling exposes immediate, delayed, and timeout outcomes to the 
 
 test('Strategy Apply retains ESTALE, Z2K dependency closure, and runtime bundle digest admission', () => {
   const apply = region(CLI, 'export const strategy_apply =', 'function strategy_reconcile_locked');
-  const locked = region(APPLY, 'function profiles_apply_candidate_locked', 'export const profiles_apply_candidate');
+  const locked = region(APPLY, 'function strategy_apply_candidate_locked', 'export const strategy_apply_candidate');
 
   assert.match(apply, /strategy_apply_projection\([\s\S]*installedSnapshot/);
   assert.match(locked, /resolveInstalled\(\{\}\)/);
@@ -116,9 +116,9 @@ test('Canonical Strategies Apply paints backend identity before refresh and quar
 });
 
 test('Locked Strategy projection validates the binding before the sole native preflight', () => {
-  const locked = region(APPLY, 'function profiles_apply_candidate_locked', 'export const profiles_apply_candidate');
+  const locked = region(APPLY, 'function strategy_apply_candidate_locked', 'export const strategy_apply_candidate');
 
-  assert.match(locked, /profiles_projection_boundary\(expectedHash\)/);
+  assert.match(locked, /strategy_projection_boundary\(expectedHash\)/);
   assert.match(locked, /projection_valid\(projection, expectedHash\)/);
   assert.match(APPLY, /runtime_binding_valid\(value\.runtimeBinding\)/);
   assert.ok(locked.indexOf('projection_valid(projection, expectedHash)') < locked.indexOf('resolveInstalled({})'));
@@ -134,7 +134,7 @@ test('Strategy Apply reuses RPC runtime composition and leaves only a test/direc
     /let trusted = server_context\(/,
     /let installedSnapshot = trusted\.runtimeComposition/,
     /strategy_apply_candidate\(/,
-    /profiles_apply_candidate\(/
+    /strategy_apply_candidate\(/
   ]);
   assert.equal((apply.match(/runtime_composition_for_apply\(/g) || []).length, 1);
 });
@@ -145,7 +145,7 @@ test('Strategy Apply keeps projection validation loadable and releases the guard
 
   assert.ok(APPLY.indexOf('function runtime_binding_valid') < APPLY.indexOf('function projection_valid'));
   assert.match(projection, /observedRegistryRevision/);
-  assert.match(apply, /try \{ applied = profiles_apply_candidate\([\s\S]*?\}\s*catch \(e\)/);
+  assert.match(apply, /try \{ applied = strategy_apply_candidate\([\s\S]*?\}\s*catch \(e\)/);
   assert.match(apply, /Strategy transaction failed before returning a bounded result/);
   assert.match(apply, /strategy_apply_finish\([\s\S]*begun\.operationNonce, projection\)/);
 });
@@ -190,7 +190,7 @@ test('Locked transaction keeps Strategy identity calls in the authoritative UCod
 
 test('Apply exposes bounded per-stage timing evidence without making it an authority', () => {
   const apply = region(CLI, 'export const strategy_apply =', 'function strategy_reconcile_locked');
-  const locked = region(APPLY, 'function profiles_apply_candidate_locked', 'export const profiles_apply_candidate');
+  const locked = region(APPLY, 'function strategy_apply_candidate_locked', 'export const strategy_apply_candidate');
 
   assert.match(CLI, /function monotonic_ms\(/);
   assert.match(APPLY, /function monotonic_ms\(/);

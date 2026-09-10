@@ -12,7 +12,6 @@ function object(value) { return type(value) == 'object' && value != null; }
 function array(value) { return type(value) == 'array'; }
 function string(value) { return type(value) == 'string'; }
 function integer(value) { return type(value) == 'int'; }
-function text(value) { return value == null ? '' : '' + value; }
 function copy(value) { try { return json(sprintf('%J', value)); } catch (e) { return value; } }
 function fail(code, message, extra) {
 	let result = { ok: false, error: { code: code, message: message } };

@@ -21,7 +21,8 @@ test('P03-V2 removes raw catalog digest from the primary summary', () => {
   const page = read('z2m-strategies.js');
   assert.doesNotMatch(page, /value\.digest\s*\?\s*value\.digest\.slice\(0,\s*12\)/);
   assert.match(page, /counts\.files/);
-  assert.match(page, /counts\.uniqueStrategies/);
+  assert.match(page, /stats\.avatar\.count/);
+  assert.match(page, /stats\.z2k\.count/);
   assert.match(page, /value\.ok\s*===\s*true/);
 });
 

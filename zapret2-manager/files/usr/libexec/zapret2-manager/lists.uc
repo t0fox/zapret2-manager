@@ -26,9 +26,9 @@
 // ipset.
 //
 // Mirrors tests/lib/lists-model.mjs (model rules) and
-// tests/lib/lists-logic.mjs (normalize_domain, find_conflicts,
-// check_domain). ucode does not run locally; the node self-tests prove the
-// algorithm; runtime confirmed on target via smoke.sh.
+// tests/lib/lists-logic.mjs (normalize_domain, find_conflicts). ucode does not
+// run locally; the node self-tests prove the algorithm; runtime confirmed on
+// target via smoke.sh.
 
 import { readfile, stat } from 'fs';
 import { read_list_file, write_list_file } from './apply.uc';
@@ -93,29 +93,6 @@ function find_conflicts(include, exclude) {
 		if (ex[n]) { push(conflicts, n); seen[n] = true; }
 	}
 	return conflicts;
-}
-
-// _in_list is declared BEFORE check_domain (ucode does not hoist `function`
-// declarations in module mode — a helper must precede its first caller).
-function _in_list(n, arr) {
-	if (!arr) return false;
-	for (let i = 0; i < length(arr); i++)
-		if (normalize_domain(arr[i]) == n) return true;
-	return false;
-}
-
-function check_domain(domain, lists) {
-	let n = normalize_domain(domain);
-	let inInc = _in_list(n, lists.userInclude);
-	let inExc = _in_list(n, lists.userExclude);
-	let inAuto = _in_list(n, lists.autohostlist);
-	return {
-		domain: n,
-		userInclude: inInc,
-		userExclude: inExc,
-		autohostlist: inAuto,
-		conflict: inInc && inExc
-	};
 }
 
 // ---- mapping type validation (mirrors tests/lib/lists-model.mjs) ------------
@@ -243,18 +220,4 @@ export const lists_set = function(edit_str) {
 		push(written, k);
 	}
 	return { ok: true, written: written };
-};
-
-// Check whether a domain falls under the autohostlist or the user lists.
-// The main user-confusion source: "I added a domain manually, but the auto-
-// hostlist covers it, or vice versa."
-export const lists_check_domain = function(domain) {
-	if (MODEL == null)
-		return { ok: false, error: 'list model unavailable' };
-	let st = lists_get();
-	return check_domain(domain, {
-		userInclude: st.lists.domainInclude.entries,
-		userExclude: st.lists.domainExclude.entries,
-		autohostlist: st.lists.autohostlist.entries
-	});
 };

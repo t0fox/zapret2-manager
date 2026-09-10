@@ -1,31 +1,25 @@
 'use strict';
-// jobs.uc — generic job infrastructure (SLICE 4) + the blockcheck wrapper.
-// Mirrors tests/lib/jobs-logic.mjs (v2 lifecycle) and
-// tests/lib/blockcheck-logic.mjs (mode env, domain validation, summary
-// parsing). Records: one JSON file per job in /tmp/zapret2-manager/jobs/.
+// jobs.uc — bounded service-health job lifecycle.
+// Records: one JSON file per job in /tmp/zapret2-manager/jobs/.
 //
 // Contract (docs/contracts/ubus.md "Long operations"):
 //   pending → running → succeeded | failed
 //           (any non-terminal) → cancelled
-//           (any) → rolled_back   (reserved; used by future rollback jobs)
 //           (succeeded|failed) → expired
 // Transitions are forward-only; an invalid move returns null (never a silent
-// no-op). The scanner (/opt/zapret2/blockcheck2.sh) is CALLED, never
-// reimplemented. Cancel sends INT so the scanner unpreparse its own firewall
-// artifacts. No fabricated progress percentage — elapsed seconds only.
+// no-op). The health runner owns bounded network probes. No fabricated
+// progress percentage — elapsed seconds only.
 
 import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
 import { cat_load, cat_ledger, cat_domain_include_path } from './catalog.uc';
 
 const JDIR = '/tmp/zapret2-manager/jobs';
-const RUNNER = '/usr/libexec/zapret2-manager/blockcheck-run.sh';
 const HEALTH_RUNNER = '/usr/libexec/zapret2-manager/health-run.sh';
-const SCANNER = '/opt/zapret2/blockcheck2.sh';
 const JOB_TTL_SEC = 600;
 const JOB_MAX_HISTORY = 10;
 const LOG_TAIL_BYTES = 4096;
 const LOG_MAX_BYTES = 262144;
-const JOB_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled', 'rolled_back', 'expired'];
+const JOB_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled', 'expired'];
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -40,9 +34,19 @@ function err(code, message) {
 	return { ok: false, error: { code: code, message: message } };
 }
 
+function normalize_health_domain(value) {
+	if (type(value) != 'string') return null;
+	let domain = lc(trim(value));
+	if (substr(domain, 0, 7) == 'http://') domain = substr(domain, 7);
+	else if (substr(domain, 0, 8) == 'https://') domain = substr(domain, 8);
+	let cut = index(domain, '/');
+	if (cut >= 0) domain = substr(domain, 0, cut);
+	if (length(domain) > 253 || !match(domain, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/)) return null;
+	return domain;
+}
+
 function is_terminal(status) {
-	return (status == 'succeeded' || status == 'failed' || status == 'cancelled'
-		|| status == 'rolled_back' || status == 'expired');
+	return (status == 'succeeded' || status == 'failed' || status == 'cancelled' || status == 'expired');
 }
 
 // ---------------------------------------------------------------------------
@@ -111,8 +115,8 @@ function sort_by_created(records) {
 // ---------------------------------------------------------------------------
 function transition2(job, to, extra) {
 	let ok = false;
-	if (job.status == 'pending' && (to == 'running' || to == 'cancelled' || to == 'rolled_back')) ok = true;
-	else if (job.status == 'running' && (to == 'succeeded' || to == 'failed' || to == 'cancelled' || to == 'rolled_back')) ok = true;
+	if (job.status == 'pending' && (to == 'running' || to == 'cancelled')) ok = true;
+	else if (job.status == 'running' && (to == 'succeeded' || to == 'failed' || to == 'cancelled')) ok = true;
 	else if ((job.status == 'succeeded' || job.status == 'failed' || job.status == 'cancelled') && to == 'expired') ok = true;
 	if (!ok) return null;
 	let now = time();
@@ -136,21 +140,15 @@ function proc_alive(pid, fingerprint) {
 	return (index(cmd, fingerprint) >= 0);
 }
 
-// crash_recover_all() — a non-terminal job whose runner is dead is failed
-// (crash recovery); a surviving scanner child is INT-signalled so it
-// unpreparse its own firewall artifacts.
+// crash_recover_all() — a non-terminal job whose runner is dead is failed.
 function crash_recover_all() {
 	let recs = list_records();
 	for (let i = 0; i < length(recs); i++) {
 		if (!recs[i].parsed) continue;
 		let job = recs[i].record;
 		if (is_terminal(job.status)) continue;
-		let runnerFingerprint = job.runnerFingerprint || (job.kind == 'healthmatrix' ? 'health-run.sh' : 'blockcheck-run.sh');
-		let childFingerprint = job.childFingerprint || 'blockcheck2.sh';
+		let runnerFingerprint = job.runnerFingerprint || 'health-run.sh';
 		if (proc_alive(job.runnerPid, runnerFingerprint)) continue;
-		if (proc_alive(job.childPid, childFingerprint)) {
-			run('kill -INT -' + job.childPid + ' 2>/dev/null || kill -INT ' + job.childPid + ' 2>/dev/null');
-		}
 		let t = transition2(job, 'failed', { error: 'runner died (crash recovery)' });
 		if (t) write_record(t);
 	}
@@ -191,192 +189,22 @@ function sweep() {
 }
 
 // ---------------------------------------------------------------------------
-// blockcheck logic mirrors (mode env, domain validation, summary parsing)
+// bounded service-health job records
 // ---------------------------------------------------------------------------
-function mode_env(mode) {
-	// timeouts empirically grounded (acceptance: a real 1-domain quick scan
-	// was still mid-strategy-set at 304s on the target)
-	if (mode == 'quick') return { scanlevel: 'quick', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 600 };
-	if (mode == 'domains') return { scanlevel: 'standard', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 1200 };
-	if (mode == 'full') return { scanlevel: 'force', enableHttp: 1, enableTls12: 1, enableTls13: 1, enableHttp3: 1, repeats: 1, timeoutSec: 2400 };
-	return null;
-}
-
-function domain_chars_ok(d) {
-	for (let i = 0; i < length(d); i++) {
-		let c = ord(substr(d, i, 1));
-		let ok = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
-			|| c == 46 || c == 95 || c == 126 || c == 47 || c == 37 || c == 43 || c == 45;
-		if (!ok) return false;
-	}
-	return true;
-}
-
-function validate_domains(input) {
-	// input: array or space-separated string → { ok, domains } | { ok:false, reason }
-	let list = [];
-	if (type(input) == 'array') list = input;
-	else if (type(input) == 'string') {
-		let parts = split(input, ' ');
-		for (let i = 0; i < length(parts); i++) if (length(trim(parts[i]))) push(list, trim(parts[i]));
-	} else {
-		return { ok: false, reason: 'missing domains' };
-	}
-	let clean = [];
-	for (let i = 0; i < length(list); i++) {
-		let d = trim('' + list[i]);
-		if (length(d)) push(clean, d);
-	}
-	if (length(clean) == 0) return { ok: false, reason: 'no domains given' };
-	if (length(clean) > 10) return { ok: false, reason: 'too many domains (max 10)' };
-	let total = 0;
-	for (let i = 0; i < length(clean); i++) {
-		total += length(clean[i]) + 1;
-		if (total > 512) return { ok: false, reason: 'domains too long (total > 512)' };
-		if (!domain_chars_ok(clean[i])) return { ok: false, reason: 'invalid characters in domain ' + clean[i] };
-	}
-	return { ok: true, domains: clean };
-}
-
-function shell_escape(s) {
-	let out = "'";
-	for (let i = 0; i < length(s); i++) {
-		let c = substr(s, i, 1);
-		if (c == "'") out += "'\\''";
-		else out += c;
-	}
-	return out + "'";
-}
-
-// parse_summary(logText) → { recommendations, summary, common } — mirrors
-// tests/lib/blockcheck-logic.mjs. Manual prefix scanning (no regex).
-function parse_success_line(l) {
-	// !!!!! <testf>: working strategy found for ipv<N> <dom> : <daemon> <strategy> !!!!!
-	if (substr(l, 0, 6) != '!!!!! ') return null;
-	let tail = substr(l, length(l) - 6);
-	if (tail != ' !!!!!' && tail != '!!!!!') return null;
-	let body = substr(l, 6, length(l) - 12);
-	let marker = ': working strategy found for ';
-	let mp = index(body, marker);
-	if (mp < 0) return null;
-	let testf = substr(body, 0, mp);
-	let rest = substr(body, mp + length(marker));
-	let sp = index(rest, ' ');
-	if (sp < 0) return null;
-	let ipver = substr(rest, 0, sp);
-	let rest2 = substr(rest, sp + 1);
-	let sep = index(rest2, ' : ');
-	if (sep < 0) return null;
-	let dom = substr(rest2, 0, sep);
-	let rest3 = substr(rest2, sep + 3);
-	let sp2 = index(rest3, ' ');
-	if (sp2 < 0) return null;
-	return { test: testf, ipver: ipver, domain: dom, daemon: substr(rest3, 0, sp2), strategy: substr(rest3, sp2 + 1), raw: l };
-}
-
-function parse_summary(logText) {
-	let lines = split(logText, '\n');
-	let recommendations = [];
-	let summary = [];
-	let common = [];
-	let section = 'run';
-	for (let i = 0; i < length(lines); i++) {
-		let l = lines[i];
-		if (substr(l, length(l) - 1) == '\r') l = substr(l, 0, length(l) - 1);
-		if (l == '* SUMMARY') { section = 'summary'; continue; }
-		if (l == '* COMMON') { section = 'common'; continue; }
-		let rec = parse_success_line(l);
-		if (rec != null) { push(recommendations, rec); continue; }
-		let t = trim(l);
-		if (t == '') continue;
-		if (section == 'summary') {
-			// <testf> ipv<N> <dom> : <result> — skip prose lines
-			let sp = index(t, ' ');
-			if (sp <= 0) continue;
-			let testf = substr(t, 0, sp);
-			let rest = substr(t, sp + 1);
-			if (substr(rest, 0, 3) != 'ipv') continue;
-			let sp2 = index(rest, ' ');
-			if (sp2 < 0) continue;
-			let ipver = substr(rest, 0, sp2);
-			let rest2 = substr(rest, sp2 + 1);
-			let sep = index(rest2, ' : ');
-			if (sep < 0) continue;
-			push(summary, { test: testf, ipver: ipver, domain: substr(rest2, 0, sep), result: substr(rest2, sep + 3) });
-			continue;
-		}
-		if (section == 'common') {
-			let sp = index(t, ' ');
-			if (sp <= 0) continue;
-			let testf = substr(t, 0, sp);
-			let rest = substr(t, sp + 1);
-			if (substr(rest, 0, 3) != 'ipv') continue;
-			let sep = index(rest, ' : ');
-			if (sep < 0) continue;
-			let ipver = substr(rest, 0, sep);
-			push(common, { test: testf, ipver: ipver, result: substr(rest, sep + 3) });
-		}
-	}
-	return { recommendations: recommendations, summary: summary, common: common };
-}
-
-function truncate_log_text(text, maxBytes) {
-	if (length(text) <= maxBytes) return text;
-	let tail = substr(text, length(text) - maxBytes);
-	let nl = index(tail, '\n');
-	let body = (nl >= 0) ? substr(tail, nl + 1) : tail;
-	return '[log truncated to last ' + maxBytes + ' bytes]\n' + body;
-}
-
-function log_tail(id, maxBytes) {
-	let raw = readfile(JDIR + '/' + id + '.log');
-	if (!raw) return '';
-	let tail = (length(raw) > maxBytes) ? substr(raw, length(raw) - maxBytes) : raw;
-	return tail;
-}
-
-function elapsed_sec(job) {
-	if (job.startedAt == null) return null;
-	let end = (job.finishedAt != null) ? job.finishedAt : time();
-	return (end > job.startedAt) ? (end - job.startedAt) : 0;
-}
-
 function public_job(job) {
 	return {
-		id: job.id, kind: job.kind, mode: job.mode, domains: job.domains,
+		id: job.id, kind: job.kind, mode: job.mode, services: job.services,
 		status: job.status, createdAt: job.createdAt, startedAt: job.startedAt,
 		finishedAt: job.finishedAt, timeoutSec: job.timeoutSec,
 		rc: job.rc, error: job.error, cancelled: job.cancelled,
 		engineRunning: job.engineRunning,
-		elapsedSec: elapsed_sec(job),
-		recommendations: (job.recommendations != null) ? job.recommendations : [],
-		summary: (job.summaryParsed != null) ? job.summaryParsed : null
+		elapsedSec: elapsed_sec(job)
 	};
 }
 
 // ---------------------------------------------------------------------------
 // public API
 // ---------------------------------------------------------------------------
-export const job_list = function() {
-	crash_recover_all();
-	let kept = sweep();
-	let out = [];
-	for (let i = length(kept) - 1; i >= 0; i--) push(out, public_job(kept[i]));
-	return { ok: true, jobs: out };
-};
-
-export const job_get = function(input) {
-	crash_recover_all();
-	sweep();
-	let id = (type(input) == 'object' && input != null) ? input.id : null;
-	if (type(id) != 'string') return err('EINPUT', 'missing job id');
-	let job = read_record(id);
-	if (job == null) return err('ESTATE', 'no job with id ' + id);
-	let out = public_job(job);
-	out.logTail = log_tail(id, LOG_TAIL_BYTES);
-	return { ok: true, job: out };
-};
-
 function next_seq() {
 	ensure_jdir();
 	let n = 0;
@@ -392,86 +220,6 @@ function engine_running() {
 	return (trim(r.out) != '') ? true : false;
 }
 
-export const blockcheck_start = function(input) {
-	crash_recover_all();
-	sweep();
-	let mode = (type(input) == 'object' && input != null && type(input.mode) == 'string') ? input.mode : 'quick';
-	let env = mode_env(mode);
-	if (env == null) return err('EINPUT', 'unknown mode ' + mode + ' (quick|domains|full)');
-	// upstream TEST set: 'standard' (default) or 'custom' (the operator's
-	// small 10-list.sh set — the bounded drill surface). Whitelist only.
-	let testset = 'standard';
-	if (type(input) == 'object' && input != null && type(input.test) == 'string') {
-		if (input.test != 'standard' && input.test != 'custom')
-			return err('EINPUT', 'unknown test set ' + input.test + ' (standard|custom)');
-		testset = input.test;
-	}
-	let domainsInput = (type(input) == 'object' && input != null) ? input.domains : null;
-	let vd = validate_domains(domainsInput != null ? domainsInput : 'rutracker.org');
-	if (!vd.ok) return err('EINPUT', vd.reason);
-	if (!stat(SCANNER)) return err('ETARGET', 'upstream scanner not found at ' + SCANNER + ' (blockcheck is unavailable, not simulated)');
-	if (!stat(RUNNER)) return err('EINTERNAL', 'job runner not installed at ' + RUNNER);
-
-	// at most ONE active blockcheck job
-	let recs = list_records();
-	for (let i = 0; i < length(recs); i++) {
-		if (!recs[i].parsed) continue;
-		let job = recs[i].record;
-		if (job.kind == 'blockcheck' && !is_terminal(job.status))
-			return err('ECONFLICT', 'blockcheck job ' + job.id + ' is already ' + job.status);
-	}
-
-	let now = time();
-	let id = 'job-' + now + '-' + next_seq();
-	let job = {
-		version: 2, id: id, kind: 'blockcheck', mode: mode, testset: testset, domains: vd.domains,
-		status: 'pending', createdAt: now, startedAt: null, finishedAt: null,
-		runnerPid: null, childPid: null,
-		timeoutSec: env.timeoutSec,
-		logPath: JDIR + '/' + id + '.log',
-		rc: null, error: null, cancelled: false,
-		engineRunning: engine_running(),
-		recommendations: [], summaryParsed: null,
-		provenance: { source: 'upstream blockcheck2.sh', mode: mode, domains: vd.domains, engineRunning: engine_running() }
-	};
-
-	// the runner's env file (constants + validated domains, single-quote escaped)
-	let envtext = "BATCH='1'\nTEST=" + shell_escape(testset) + "\nIPVS='4'\nSCANLEVEL=" + shell_escape('' + env.scanlevel) + '\n'
-		+ 'ENABLE_HTTP=' + shell_escape('' + env.enableHttp) + '\n'
-		+ 'ENABLE_HTTPS_TLS12=' + shell_escape('' + env.enableTls12) + '\n'
-		+ 'ENABLE_HTTPS_TLS13=' + shell_escape('' + env.enableTls13) + '\n'
-		+ 'ENABLE_HTTP3=' + shell_escape('' + env.enableHttp3) + '\n'
-		+ 'REPEATS=' + shell_escape('' + env.repeats) + '\n'
-		+ "PARALLEL='0'\n"
-		+ 'TIMEOUT=' + shell_escape('' + env.timeoutSec) + '\n'
-		+ 'DOMAINS=' + shell_escape(join(' ', vd.domains)) + '\n';
-	ensure_jdir();
-	writefile(JDIR + '/' + id + '.env', envtext);
-	writefile(JDIR + '/' + id + '.log', '');
-	write_record(job);
-
-	// spawn the detached runner (returns immediately)
-	let p = popen('setsid ash ' + RUNNER + ' ' + id + ' </dev/null >/dev/null 2>&1 &', 'r');
-	if (p) p.close();
-
-	return { ok: true, job: public_job(job), warning: job.engineRunning ? 'nfqws2 is running — upstream warns bypass should be disabled during a scan; results may be unreliable' : null };
-};
-
-export const blockcheck_cancel = function(input) {
-	crash_recover_all();
-	sweep();
-	let id = (type(input) == 'object' && input != null) ? input.id : null;
-	if (type(id) != 'string') return err('EINPUT', 'missing job id');
-	let job = read_record(id);
-	if (job == null) return err('ESTATE', 'no job with id ' + id);
-	if (job.kind != 'blockcheck') return err('ESTATE', 'job ' + id + ' is not a blockcheck job (kind=' + job.kind + ')');
-	if (is_terminal(job.status)) return err('ESTATE', 'job ' + id + ' is already ' + job.status);
-	// the runner polls this flag and INT-signals the scanner (which then
-	// unpreparse its own firewall artifacts) — cancel is REAL, not a flag
-	writefile(JDIR + '/' + id + '.cancel', '' + time() + '\n');
-	return { ok: true, cancelling: true, id: id };
-};
-
 export const hm_cancel = function(input) {
 	crash_recover_all();
 	sweep();
@@ -483,26 +231,6 @@ export const hm_cancel = function(input) {
 	if (is_terminal(job.status)) return err('ESTATE', 'job ' + id + ' is already ' + job.status);
 	writefile(JDIR + '/' + id + '.cancel', '' + time() + '\n');
 	return { ok: true, cancelling: true, id: id };
-};
-
-export const blockcheck_status = function() {
-	crash_recover_all();
-	let kept = sweep();
-	// filter to blockcheck-kind jobs only
-	let bcJobs = [];
-	for (let i = 0; i < length(kept); i++) {
-		if (kept[i].kind == 'blockcheck') push(bcJobs, kept[i]);
-	}
-	if (length(bcJobs) == 0) return { ok: true, job: null, note: 'no blockcheck jobs yet' };
-	// the active blockcheck job, else the newest blockcheck
-	let active = null;
-	for (let i = 0; i < length(bcJobs); i++) {
-		if (!is_terminal(bcJobs[i].status)) { active = bcJobs[i]; break; }
-	}
-	let job = (active != null) ? active : bcJobs[length(bcJobs) - 1];
-	let out = public_job(job);
-	out.logTail = log_tail(job.id, LOG_TAIL_BYTES);
-	return { ok: true, job: out };
 };
 
 // ---------------------------------------------------------------------------
@@ -530,8 +258,8 @@ function classify_curl_stage(rc, httpCode) {
 }
 
 function classify_service(probes) {
-	if (probes.catalog != null && probes.catalog.domainsPresent == false)
-		return { class: 'skipped', reason: 'service domains are not in the user list (service disabled?)' };
+	// catalog presence is diagnostic only. A selected service still owns a
+	// bounded probe even when the reduced catalog does not list its domains.
 	if (probes.dns == null || probes.dns.ok != true)
 		return { class: 'dns', reason: 'local resolution failed' };
 	let tcp = (probes.tcp != null) ? classify_curl_stage(probes.tcp.rc, null) : { outcome: 'fail', layer: 'unknown' };
@@ -633,24 +361,41 @@ export const health_matrix_start = function(input) {
 	let ll = cat_ledger(lc.doc.digest);
 	if (!ll.ok) return err('ESTATE', 'catalog ledger is malformed: ' + ll.reason);
 
-	// targets: requested services, else ledger-enabled, else whole catalog
+	// targets: requested services, else ledger-enabled, else whole catalog.
+	// Custom domains are validated here as well as in the settings owner so
+	// the job runner never receives an arbitrary URL from a direct caller.
 	let requested = (type(input) == 'object' && input != null && type(input.services) == 'array') ? input.services : null;
-	let ids = [];
-	if (requested != null) ids = requested;
-	else if (length(ll.ledger.enabled) > 0) ids = ll.ledger.enabled;
-	else for (let i = 0; i < length(lc.doc.services); i++) push(ids, lc.doc.services[i].id);
+	let serviceIds = [];
+	if (requested != null) {
+		for (let i = 0; i < length(requested); i++) push(serviceIds, requested[i]);
+	} else if (length(ll.ledger.enabled) > 0) {
+		for (let i = 0; i < length(ll.ledger.enabled); i++) push(serviceIds, ll.ledger.enabled[i]);
+	} else {
+		for (let i = 0; i < length(lc.doc.services); i++) push(serviceIds, lc.doc.services[i].id);
+	}
+	let customInput = (type(input) == 'object' && input != null && input.custom_domains != null) ? input.custom_domains : [];
+	if (type(customInput) != 'array') return err('EINPUT', 'custom_domains must be an array');
+	let customDomains = [];
+	for (let i = 0; i < length(customInput); i++) {
+		let domain = normalize_health_domain(customInput[i]);
+		if (domain == null) return err('EINPUT', 'custom_domains contains an invalid domain');
+		if (index(customDomains, domain) < 0) push(customDomains, domain);
+	}
+	if (length(customDomains) > 16) return err('EINPUT', 'too many custom domains (max 16)');
 
 	let targets = [];
 	let unknown = [];
-	for (let i = 0; i < length(ids); i++) {
+	for (let i = 0; i < length(serviceIds); i++) {
 		let svc = null;
 		for (let j = 0; j < length(lc.doc.services); j++)
-			if (lc.doc.services[j].id == ids[i]) { svc = lc.doc.services[j]; break; }
-		if (svc == null) push(unknown, ids[i]);
+			if (lc.doc.services[j].id == serviceIds[i]) { svc = lc.doc.services[j]; break; }
+		if (svc == null) push(unknown, serviceIds[i]);
 		else push(targets, svc);
 	}
 	if (length(unknown) > 0) return err('EINPUT', 'unknown service ids: ' + join(', ', unknown));
-	if (length(targets) == 0) return err('EINPUT', 'no services to probe');
+	for (let i = 0; i < length(customDomains); i++)
+		push(targets, { id: 'custom' + (i + 1), domains: [customDomains[i]], custom: true });
+	if (length(targets) == 0) return err('EINPUT', 'no services or custom domains to probe');
 	if (length(targets) > 16) return err('EINPUT', 'too many targets (max 16 per matrix)');
 	if (!stat(HEALTH_RUNNER)) return err('EINTERNAL', 'health runner not installed at ' + HEALTH_RUNNER);
 
@@ -681,9 +426,11 @@ export const health_matrix_start = function(input) {
 		+ 'UPSTREAM_DNS=' + shell_escape(upstreamDns) + '\n'
 		+ 'LISTFILE=' + shell_escape(cat_domain_include_path()) + '\n';
 	let svcNames = '';
+	let ids = [];
 	for (let i = 0; i < length(targets); i++) {
 		if (i > 0) svcNames += ' ';
 		svcNames += targets[i].id;
+		push(ids, targets[i].id);
 		let doms = '';
 		let domsArr = (type(targets[i].domains) == 'array') ? targets[i].domains : [];
 		let maxD = (length(domsArr) > 2) ? 2 : length(domsArr);
@@ -699,13 +446,12 @@ export const health_matrix_start = function(input) {
 		version: 2, id: id, kind: 'healthmatrix', mode: 'matrix',
 		services: ids,
 		status: 'pending', createdAt: now, startedAt: null, finishedAt: null,
-		runnerPid: null, childPid: null,
+		runnerPid: null,
 		timeoutSec: timeoutSec,
 		logPath: JDIR + '/' + id + '.log',
 		rc: null, error: null, cancelled: false,
 		engineRunning: engine_running(),
-		recommendations: [], summaryParsed: null,
-		provenance: { source: 'service health matrix v1', catalogVersion: lc.doc.catalogVersion, digest: lc.doc.digest, engineRunning: engine_running() }
+		provenance: { source: 'service health matrix v1', catalogVersion: lc.doc.catalogVersion, digest: lc.doc.digest, custom_domains: customDomains, engineRunning: engine_running() }
 	};
 	ensure_jdir();
 	writefile(JDIR + '/' + id + '.env', envtext);
@@ -716,7 +462,7 @@ export const health_matrix_start = function(input) {
 	let p = popen('setsid ash ' + HEALTH_RUNNER + ' ' + id + ' </dev/null >/dev/null 2>&1 &', 'r');
 	if (p) p.close();
 
-	return { ok: true, job: public_job(job), note: 'bounded probes over catalog targets; classifications are per-layer diagnostics, not service-availability verdicts' };
+	return { ok: true, job: public_job(job), note: 'bounded probes over catalog and validated custom targets; classifications are per-layer diagnostics, not service-availability verdicts' };
 };
 
 export const health_matrix_get = function() {
@@ -743,20 +489,10 @@ export const health_matrix_get = function() {
 export const mark_running = function(id, runnerPid) {
 	let job = read_record(id);
 	if (job == null) return err('ESTATE', 'no job with id ' + id);
-	let fingerprint = job.kind == 'healthmatrix' ? 'health-run.sh' : 'blockcheck-run.sh';
+	let fingerprint = 'health-run.sh';
 	let t = transition2(job, 'running', { runnerPid: runnerPid, runnerFingerprint: fingerprint });
 	if (t == null) return err('ESTATE', 'invalid transition to running');
 	write_record(t);
-	return { ok: true };
-};
-
-export const mark_child = function(id, childPid) {
-	let job = read_record(id);
-	if (job == null) return err('ESTATE', 'no job with id ' + id);
-	if (is_terminal(job.status)) return err('ESTATE', 'job already ' + job.status);
-	job.childPid = childPid;
-	job.childFingerprint = 'blockcheck2.sh';
-	write_record(job);
 	return { ok: true };
 };
 
@@ -765,27 +501,14 @@ function finish_common(id, to, extra) {
 	if (job == null) return err('ESTATE', 'no job with id ' + id);
 	let t = transition2(job, to, extra);
 	if (t == null) return err('ESTATE', 'invalid transition to ' + to + ' from ' + job.status);
-	// parse the log into recommendations + truncate to the cap
 	let raw = readfile(JDIR + '/' + id + '.log');
-	if (raw) {
-		let parsed = parse_summary(raw);
-		let prov = (t.provenance != null) ? t.provenance : { source: 'upstream blockcheck2.sh', mode: t.mode, domains: t.domains, engineRunning: t.engineRunning };
-		let recs = [];
-		for (let i = 0; i < length(parsed.recommendations); i++) {
-			let r = parsed.recommendations[i];
-			r.provenance = prov;
-			push(recs, r);
-		}
-		t.recommendations = recs;
-		t.summaryParsed = { summary: parsed.summary, common: parsed.common };
-		if (length(raw) > LOG_MAX_BYTES) writefile(JDIR + '/' + id + '.log', truncate_log_text(raw, LOG_MAX_BYTES));
-	}
+	if (raw && length(raw) > LOG_MAX_BYTES) writefile(JDIR + '/' + id + '.log', truncate_log_text(raw, LOG_MAX_BYTES));
 	write_record(t);
 	return { ok: true };
 }
 
 export const mark_finished = function(id, rc) {
-	return finish_common(id, (rc == 0) ? 'succeeded' : 'failed', { rc: rc, error: (rc == 0) ? null : ('scanner exited ' + rc) });
+	return finish_common(id, (rc == 0) ? 'succeeded' : 'failed', { rc: rc, error: (rc == 0) ? null : ('health runner exited ' + rc) });
 };
 
 export const mark_cancelled = function(id) {

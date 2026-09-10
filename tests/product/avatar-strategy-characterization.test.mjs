@@ -16,9 +16,7 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 
 const EXPECTED_FILES = [
   ['advanced/discord_voice_zapret2_advanced.txt', 17822, 75, '5da32af9b03f005405a1c3aecb608354e81763895cd2396c6e0edb56042a8844', '9ad81008ac689d6f4690ca3d07b63cdeeb63ce75f9ba6a540fbdb075d2827b3b'],
-  ['advanced/http80_blockcheckw.txt', 1216, 2, '3fe64a1df68247b62685f6d89663de19797e4794482bada49046fc2ea750f805', '89633ab90c9f80831dce4b63ae8967f99fdb4fe3038e8ed1e443f7bba751e65a'],
   ['advanced/http80_zapret2_advanced.txt', 31935, 127, '50769638b45bcb968e1edba2b9db6932c9bc4caaeae19e7a933e4200feddf3fe', 'a5023fc54799cc103603154e702c85a440e01c6e82a7f3ab8fe8a3a9fbcc0e15'],
-  ['advanced/tcp_blockcheckw.txt', 3039, 6, 'bfe77d1610317182f1f86316aaaa17107e081e9b505bb704afe509d3c516d865', '900fe8fac4c4c8cb5fad4c41bc4d70c83e42dfc04dfdd05354999b123e7c1830'],
   ['advanced/tcp_fake_zapret2_advanced.txt', 6218, 24, 'f3d75636a7e9c686f71bef55b9af22efaaafd67bfb8d086386db04c0658293c9', '4d37865decfa4c50f2819a711526cd5d38caa8f4553d8ae87d72fad0c45d969a'],
   ['advanced/tcp_z2k_advanced.txt', 1502, 3, '8625f516ecb9993199d6bb96116b50b86128bb27301f6929148b481f8534f995', '60deb0b7e47e243a767e58837fd841e0cf99cca4a3ec3880b6f4ad937ca4bad8'],
   ['advanced/tcp_zapret2_advanced.txt', 64915, 253, '0a9b988e01a36abb3dc27eaa296b626186e620a62556b386edaec73afa907b14', '7a261fdca04c3fb03e723e9066dfbb2e0b1065584c1ace51471c710ff7fdef2e'],
@@ -32,7 +30,7 @@ const EXPECTED_FILES = [
   ['builtin/z2k_all_in_one.txt', 5388, 1, 'ed08c44afb41dc35330517485b733a0c524991e4a760279411e1c2b6a924eb8b', '4a0db8e10c82ae9f41b0aa7823313cbddadf9f56030767b5fa6ebaf54298b43c'],
   ['builtin/z2k_autocircular_quic.txt', 5269, 2, 'b52cc3af6779e6ea69614d4a3014d3bc864148ae321652856e51d5c6c03db143', 'cc014192cfcafdda6fddcab4f3d075d2c2dbbeace0a98131f1d1ab1a4a4ec154'],
   ['builtin/z2k_autocircular_tcp.txt', 25451, 3, '79b3df3aa7af7bfa440f2bb64cf3c8eb53c527900a8007b4213f5455af22b50d', '7d04345754546c4832d82c6f153d806f3b62e4c430c9fac432bf73da15ace7c9'],
-  ['builtin/z2k_circular.txt', 3113, 1, 'd4e998e7a38c1232525c712f4d2411d64fe6f11ee22e2ed45be6dc0def348b7e', 'b776c4f7532b40602b2a99cb3d17ea7b627412f431af9d4717feedb35b6ffb77'],
+  ['builtin/z2k_circular.txt', 3100, 1, 'f3dc8e3d0e2e3f575d4bc7064ff913b0a6def4b20bba936abcae239f361ac874', 'b776c4f7532b40602b2a99cb3d17ea7b627412f431af9d4717feedb35b6ffb77'],
   ['builtin/zapret_gui_defaults.txt', 5288, 8, '161aa598c2bdd860cc4c67123a78a32077722bdafbb907cfc12d7a17b9c4d7a9', 'c84363cbe88e255b989054473de70daed818cfc5dd9bd14a74eb1b9313d86dcd'],
   ['direct/http80.txt', 53439, 174, 'bce0dda3f008af8c6c3f3d6d51cfeb383226efcfea51baecb12c42f772436de3', '54e4b892cf4f4ad8a6ba62e36f1dea0c05ae96c8865e29c1640cbbb92a2ace15'],
   ['direct/tcp.txt', 104864, 354, '5d5a57b8a96010d20bfb8bdf10eed1c41a50b58fe5cb3bcf4fdbf75ac3b079e1', '0f9c35c1636134e8514a730fe7ec5d4edf34bb66d55411f2cf27f69b142f26e0'],
@@ -41,10 +39,10 @@ const EXPECTED_FILES = [
 ];
 
 const EXPECTED_DIGESTS = {
-  duplicateGroups: 'ab90abdeb9f5168a7858e9ed5d0e25fe7b2af0368b6676063b2cd1a2364433f4',
-  winnerOrder: '596cc2ea5d4f1752f900cf54de869da73bdfda356775005aa844f6dafe452fd3',
-  physicalEntries: '9dea964abe6f5e80532d0272ced94498dc22daf260034088de2b3366cdc13674',
-  sets: 'f43ca59e617f3e8d2f7f3e2edf71c76066a36f9b4a97f2610be7e3f8c1e80e66',
+  duplicateGroups: '0be6a838bae954ff4afbf86bf65d9f92911b64161c2780538c9877f95ef5b03a',
+  winnerOrder: '594a80c3c5abb170843f67f57880993fbbcfcbd4bac8003afaf38c57f3d4bfb8',
+  physicalEntries: '1e372a617d5b95b4bfb0f89d75732f2a54d054b2f589bcbc455fea6acdcaf55b',
+  sets: '4c03ed3df97bfecb8b3758d99601c44635daf9a1d5102758f21a1b6c76c1cce2',
 };
 
 test('pinned Avatar fixture has the complete physical catalog contract', () => {
@@ -54,12 +52,12 @@ test('pinned Avatar fixture has the complete physical catalog contract', () => {
     repository: 'avatarDD/zapret-gui',
     commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
   });
-  assert.equal(fixture.physicalFileCount, 23);
-  assert.equal(fixture.physicalEntryCount, 1836);
-  assert.equal(fixture.uniqueStrategyIdCount, 732);
+  assert.equal(fixture.physicalFileCount, 21);
+  assert.equal(fixture.physicalEntryCount, 1828);
+  assert.equal(fixture.uniqueStrategyIdCount, 724);
   assert.equal(fixture.duplicateIdGroupCount, 503);
   assert.equal(fixture.aggregateDigest,
-    'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136');
+    '62458ae0d176b3c7ce7f6674efd554c846d231a6eb5dcc331c1333e3f5b17c59');
   assert.equal(fixture.aggregateDigestAlgorithm,
     'sha256(source-order lines "<file-sha256>  catalogs/<relative-path>\\n")');
   assert.deepEqual(fixture.featuredIds, ['z2k_all_in_one', 'z2k_tls_circular_smart']);
@@ -78,12 +76,12 @@ test('manifest inventory preserves audited files and physical arithmetic', () =>
     digest(file.sourceOrder),
   ]), EXPECTED_FILES);
   assert.deepEqual(fixture.levelEntryCounts, {
-    advanced: 565,
+    advanced: 557,
     basic: 496,
     builtin: 100,
     direct: 675,
   });
-  assert.deepEqual(fixture.protocolEntryCounts, { tcp: 1402, udp: 434 });
+  assert.deepEqual(fixture.protocolEntryCounts, { tcp: 1394, udp: 434 });
   assert.equal(new Set(fixture.physicalEntries.map(entry => entry.id)).size,
     fixture.uniqueStrategyIdCount);
   assert.equal(new Set(fixture.duplicateGroups.map(group => group.id)).size,
@@ -149,7 +147,7 @@ test('manifest freezes exact set membership and featured IDs', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(fixture.sets).map(([protocol, sets]) => [
     protocol, Object.fromEntries(Object.entries(sets).map(([name, ids]) => [name, ids.length])),
   ])), {
-    tcp: { quick: 30, standard: 80, full: 630 },
+    tcp: { quick: 30, standard: 80, full: 622 },
     udp: { quick: 30, standard: 80, full: 104 },
   });
   assert.equal(fixture.featuredIds.length, 2);

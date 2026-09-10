@@ -15,7 +15,7 @@ function emit(value) { print(sprintf('%J', value) + '\n'); }
 if (length(ARGV) > 0) {
 	let consumer = ARGV[0], result = runtime_composition_cli_dispatch(consumer, request_file(ARGV[1]));
 	if (ARGV[2] == 'activation-tsv' && result && result.ok === true) {
-		let output = runtime_composition_cli_activation_output(result, consumer == 'scanner');
+		let output = runtime_composition_cli_activation_output(result);
 		if (output.ok) { print(output.output); exit(0); }
 		result = output;
 	}

@@ -57,7 +57,7 @@ Future production files:
 - Modify: `zapret2-manager/src/z2m-core-helper/protocol.c` for canonical value span/schema integration.
 - Modify: `zapret2-manager/src/z2m-core-helper/atomic.c` to extract `z2m_atomic_write_bytes()` only.
 - Modify: `zapret2-manager/src/z2m-core-helper/main.c` to preflight before root open/lock and dispatch the shared byte engine.
-- Modify: `zapret2-manager/Makefile` to compile `canonical.c`.
+- Modify: `zapret2-manager-full/Makefile` to compile `canonical.c`.
 - Modify: `zapret2-manager/src/z2m-core-helper/protocol-v1.json` only in the final status transition.
 - Create/modify: `tests/native/core/atomic-write-json.test.mjs` for helper integration, side-effect, and publication parity tests.
 - Create/modify: `tests/native/core/atomic-write-json-property.test.mjs` for production-vs-corpus properties.
@@ -309,7 +309,7 @@ git commit -m "refactor: share atomic byte publication engine"
 **Files:**
 - Modify: `zapret2-manager/src/z2m-core-helper/main.c`
 - Modify: `zapret2-manager/src/z2m-core-helper/protocol.c`
-- Modify: `zapret2-manager/Makefile`
+- Modify: `zapret2-manager-full/Makefile`
 - Test: `tests/native/core/atomic-write-json.test.mjs`
 
 **Interfaces:**
@@ -344,7 +344,7 @@ failure leaves the filesystem untouched.
 - [ ] **Step 5: Commit**
 
 ```sh
-git add zapret2-manager/src/z2m-core-helper/main.c zapret2-manager/src/z2m-core-helper/protocol.c zapret2-manager/Makefile tests/native/core/atomic-write-json.test.mjs
+git add zapret2-manager/src/z2m-core-helper/main.c zapret2-manager/src/z2m-core-helper/protocol.c zapret2-manager-full/Makefile tests/native/core/atomic-write-json.test.mjs
 git commit -m "feat: integrate atomic write json dispatch"
 ```
 

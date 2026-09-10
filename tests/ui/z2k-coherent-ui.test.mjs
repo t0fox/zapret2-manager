@@ -56,7 +56,7 @@ function engine(status = {}) {
 function coherentRuntime(overrides = {}) {
   return {
     health: 'ready',
-    installedRelease: 'p-2026.09',
+    installedRelease: { value: 'p-2026.09', confidence: 'confirmed', authority: 'activation-receipt' },
     strategies: 42,
     sourceCommit,
     runtimeBundleDigest: runtimeDigest,
@@ -76,7 +76,16 @@ function coherentRuntime(overrides = {}) {
 function pageFor(runtimeSummary, z2k = {}) {
   return componentsModel.normalizePage({
     engine: engine(),
-    z2k: { runtimeSummary, ...z2k }
+    z2k: {
+      runtimeSummary,
+      local: {
+        installed: true,
+        integrityOk: true,
+        lua: { ready: 7, total: 7 },
+        installedRelease: runtimeSummary.installedRelease
+      },
+      ...z2k
+    }
   });
 }
 

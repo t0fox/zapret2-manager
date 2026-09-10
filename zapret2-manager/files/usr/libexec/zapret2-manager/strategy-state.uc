@@ -459,12 +459,6 @@ function read_document_readonly(path) {
 	return { ok: true, raw: raw, value: value };
 }
 
-function hash_file(path) {
-	let result = command('sha256sum ' + shell_quote(path) + " 2>/dev/null | awk '{print $1}'");
-	let digest = trim(result.output);
-	return sha256(digest) ? digest : null;
-}
-
 function temporary_path(target) {
 	let slash = rindex(target, '/'), directory = substr(target, 0, slash);
 	let result = command('umask 077; mktemp ' + shell_quote(directory + '/.strategy-state.XXXXXX') + ' 2>/dev/null');
@@ -956,9 +950,6 @@ export const strategy_apply_begin = function(input) {
 };
 
 export const strategy_apply_end = function(input) {
-	let injected = null, raw = getenv('Z2M_STRATEGY_APPLY_END_RESULT');
-	if (raw != null && length(raw) <= 4096) try { injected = json(raw); } catch (e) { injected = null; }
-	if (is_object(injected)) return injected;
 	return locked(function() {
 		if (!is_object(input) || !bounded_string(input.applyNonce, 256)) return error('EINPUT', 'Strategy Apply operation nonce is required.');
 		let lease = apply_lease_read();
@@ -971,7 +962,7 @@ export const strategy_apply_end = function(input) {
 };
 
 // Apply commits only the narrow selected identity projection. Config bytes
-// remain owned by profiles-apply.uc and are never written here.
+// remain owned by strategy-apply-runtime.uc and are never written here.
 export const strategy_selection_apply = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !integer(input.expectedRevision))

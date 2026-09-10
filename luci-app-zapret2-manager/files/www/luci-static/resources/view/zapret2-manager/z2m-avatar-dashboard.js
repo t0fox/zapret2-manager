@@ -15,31 +15,44 @@ function icon(type) {
 
 function statusCard(card) {
   var valueIds = {
-    'card-nfqws': 'nfqws-status', 'card-strategy': 'strategy-name',
+    'card-strategy': 'strategy-name',
     'card-autostart': 'autostart-status', 'card-system': 'system-info',
     'card-telegram': 'telegram-status',
     'card-zapret-ver': 'zapret-ver-value', 'card-process': 'process-status',
     'card-firewall': 'firewall-status'
   };
   var detailIds = {
-    'card-nfqws': 'nfqws-detail', 'card-strategy': 'strategy-detail',
+    'card-strategy': 'strategy-detail',
     'card-autostart': 'autostart-detail', 'card-system': 'system-detail',
     'card-telegram': 'telegram-detail',
     'card-zapret-ver': 'zapret-ver-detail', 'card-process': 'process-detail',
     'card-firewall': 'firewall-detail'
   };
+  function row(item) {
+    return E('div', { 'class': 'status-card-row' }, [
+      E('span', { 'class': 'status-card-row-label' }, item.label),
+      E('span', { 'class': 'status-card-status status-card-row-value ' + (item.kind || '') }, item.value),
+      item.detail ? E('span', { 'class': 'status-card-row-detail' }, item.detail) : null
+    ]);
+  }
   var tag = card.href ? 'a' : 'div';
+  var header = [
+    icon(card.icon),
+    E('span', { 'class': 'status-card-label' }, card.label)
+  ];
+  if (card.headerArrow) header.push(E('span', { 'class': 'status-card-header-arrow', 'aria-hidden': 'true' }, '→'));
+  var body = Array.isArray(card.rows)
+    ? E('div', { 'class': 'status-card-rows' }, card.rows.map(row))
+    : E('div', { id: valueIds[card.id] || null, 'class': 'status-card-value ' + (card.kind || '') }, card.value);
   return E(tag, {
     id: card.id,
     href: card.href || null,
     'class': 'status-card' + (card.href ? ' status-card-action' : '')
   }, [
-    E('div', { 'class': 'status-card-header' }, [
-      icon(card.icon),
-      E('span', { 'class': 'status-card-label' }, card.label)
-    ]),
-    E('div', { id: valueIds[card.id] || null, 'class': 'status-card-value ' + (card.kind || '') }, card.value),
-    card.detail ? E('div', { id: detailIds[card.id] || null, 'class': 'status-card-detail' }, card.detail) : null
+    E('div', { 'class': 'status-card-header' }, header),
+    body,
+    !Array.isArray(card.rows) && card.detail ? E('div', { id: detailIds[card.id] || null, 'class': 'status-card-detail' }, card.detail) : null,
+    card.context ? E('div', { 'class': 'status-card-context' }, card.context) : null
   ]);
 }
 

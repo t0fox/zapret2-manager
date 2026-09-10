@@ -11,7 +11,7 @@ test('Telegram Proxy exposes the service-first information architecture', () => 
   for (const label of ['Обзор', 'Компонент', 'Настройки', 'Журнал'])
     assert.match(tg, new RegExp(`label: _\\('${label}'\\)`), label);
   assert.match(tg, /providerInstalled\(pstatus\.installed\) \? 'overview' : 'component'/);
-  assert.match(tg, /PANE_ALIASES|paneAliases|legacy.*status/i);
+  assert.doesNotMatch(tg, /PANE_ALIASES|paneAliases|legacy.*status/i);
   assert.match(tg, /Проверить/);
   assert.match(tg, /Ещё/);
   assert.match(tg, /Технические сведения/);
@@ -52,7 +52,7 @@ test('Telegram Proxy read-only load cannot remain on the initial skeleton foreve
   assert.match(core, /function scheduleDeferred/);
   assert.match(core, /ctx\.api\.proxy\.status\(\)/);
   assert.match(core, /ctx\.api\.tg\.product\.versions\(\)/);
-  assert.match(core, /ctx\.api\.monitor\.eventsTail/);
+  assert.match(core, /ctx\.api\.maintenance\.eventsTail/);
   const loadStart = core.indexOf('function load(ctx)');
   const loadEnd = core.indexOf('\nfunction appliedConfig', loadStart);
   assert.doesNotMatch(core.slice(loadStart, loadEnd), /edit\(ctx\.api\.proxy\.health,\s*\{\}\)/,

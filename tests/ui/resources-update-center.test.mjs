@@ -10,7 +10,6 @@ test('Resources page keeps the canonical Asset Registry center and segmented fil
   for (const label of ['Ресурсы', 'Все ·', 'Системные ·', 'Мои ·', 'Открыть workspace']) assert.match(page, new RegExp(label));
   assert.match(page, /shell\.segmented/);
   assert.match(page, /ctx\.api\.resources\.(status|check)/);
-  assert.match(page, /assetTypeForRoute/);
   assert.match(page, /asset\.type === 'blob'/);
   assert.doesNotMatch(page, /<table/);
 });
@@ -35,8 +34,8 @@ test('Resource Center exposes one lazy route-aware workspace for first-class ass
     'assets.asn', 'Синтаксическая проверка недоступна', 'references',
     'assets.importUrl', 'Дублировать как пользовательский ресурс',
   ]) assert.match(page, new RegExp(fragment.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), fragment);
-  assert.match(page, /assetTypeForRoute/);
-  assert.match(page, /routeParams/);
+  assert.match(page, /function openAsset\(asset\)/);
+  assert.doesNotMatch(page, /assetTypeForRoute|routeParams.*(?:type|id|asset)/);
   assert.doesNotMatch(page, /fetch\s*\(/);
 });
 

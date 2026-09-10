@@ -17,7 +17,7 @@ const BUNDLE_ID = 'z2k-curated-lua';
 const MAX_ENTRIES = 128;
 const MAX_IDENTITY_BYTES = 256 * 1024;
 const KINDS = ['lua', 'blob', 'hostlist', 'ipset', 'binary', 'config', 'other'];
-const ENTRY_TYPES = ['package-static', 'lifecycle-managed', 'bootstrap', 'scanner-overlay'];
+const ENTRY_TYPES = ['package-static', 'lifecycle-managed', 'bootstrap'];
 const PACKAGE_COMPOSITION = '/usr/share/zapret2-manager/runtime-composition-package.json';
 
 function object(value) { return type(value) == 'object' && value != null; }
@@ -38,8 +38,6 @@ function valid_kind(value) { return contains(KINDS, value); }
 function valid_entry_type(value) { return contains(ENTRY_TYPES, value); }
 function safe_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function safe_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
-function entry_field(entry, name, fallback) { return object(entry) && entry[name] != null ? entry[name] : fallback; }
-
 function normalized_entry(raw, expectedType) {
 	if (!object(raw) || !string(raw.id) || !length(raw.id) || length(raw.id) > 128 || !string(raw.kind) || !valid_kind(raw.kind)) return fail('EINPUT', 'runtime entry kind or id is invalid');
 	let entry = copy(raw);
@@ -50,7 +48,6 @@ function normalized_entry(raw, expectedType) {
 		|| !valid_digest(entry.contentSha256) || !integer(entry.byteSize) || entry.byteSize < 0) return fail('EINPUT', 'runtime entry schema is invalid', { id: raw.id });
 	if (entry.type == 'package-static' && entry.owner != 'package') return fail('EOWNERSHIP', 'package-static entry has a non-package owner', { id: raw.id });
 	if (entry.type == 'lifecycle-managed' && entry.owner != 'z2k-core') return fail('EOWNERSHIP', 'lifecycle-managed entry has a non-Z2K owner', { id: raw.id });
-	if (entry.type == 'scanner-overlay' && entry.owner != 'scanner') return fail('EOWNERSHIP', 'scanner overlay has a non-scanner owner', { id: raw.id });
 	if (entry.type == 'lifecycle-managed' && ((entry.kind == 'lua' && entry.role != 'lua-init')
 		|| (entry.kind != 'lua' && entry.role != 'dependency'))) return fail('EINPUT', 'lifecycle entry role is not canonical for its kind', { id: raw.id });
 	if (entry.type == 'lifecycle-managed' && (!z2k_release_valid(entry.version) || !valid_commit(entry.sourceCommit)
@@ -200,10 +197,6 @@ function lua_subset(entries) {
 	for (let i = 0; i < length(entries); i++) if (entries[i].kind == 'lua' && entries[i].role == 'lua-init') push(lua, entries[i]);
 	return sorted_copy(lua, sort_by_order);
 }
-function scanner_overlay(input) {
-	if (!array(input)) return { ok: true, entries: [] };
-	return normalize_entries(input, 'scanner-overlay');
-}
 function remove_ids(value) {
 	if (value == null) return { ok: true, ids: [] };
 	if (!array(value) || length(value) > MAX_ENTRIES) return fail('EINPUT', 'candidate removals are invalid');
@@ -216,12 +209,12 @@ function remove_ids(value) {
 	return { ok: true, ids: ids };
 }
 
-function compose(state, authority, lifecycleEntries, staticEntries, scannerEntries, removals) {
+function compose(state, authority, lifecycleEntries, staticEntries, removals) {
 	let all = [], staticResult = package_static_input(staticEntries);
 	if (!staticResult.ok) return staticResult;
 	for (let i = 0; i < length(staticResult.entries); i++) push(all, staticResult.entries[i]);
 	for (let i = 0; i < length(lifecycleEntries || []); i++) push(all, lifecycleEntries[i]);
-	let runtimeAssets = sorted_copy(all), luaInit = lua_subset(all), overlay = scannerEntries || [];
+	let runtimeAssets = sorted_copy(all), luaInit = lua_subset(all);
 	let lifecycleIdentity = identity_text('z2k-lifecycle-v2', sprintf('%J', identity_authority(authority)), lifecycleEntries || [], luaInit, removals || []);
 	let compositionIdentity = identity_text('z2k-composition-v2', lifecycleIdentity, runtimeAssets, luaInit, removals || []);
 	let membershipIdentity = identity_text('z2k-membership-v2', '', lifecycleEntries || [], luaInit, removals || []);
@@ -235,7 +228,7 @@ function compose(state, authority, lifecycleEntries, staticEntries, scannerEntri
 		compatibilityIdentity: authority.compatibilityIdentity || null,
 		observedRegistryRevision: authority.observedRegistryRevision == null ? null : authority.observedRegistryRevision,
 		runtimeAssets: runtimeAssets, luaInit: luaInit, dependencyIndex: dependency_index(runtimeAssets),
-		scannerOverlay: overlay, membershipDigest: membershipIdentity,
+		membershipDigest: membershipIdentity,
 		authority: authority,
 	};
 	if (state == 'installed') result.installedAuthorityRevision = authority.installedAuthorityRevision;
@@ -341,14 +334,13 @@ function input_registry(input) { return object(input) && object(input.registry) 
 export const resolveInstalled = function(input) {
 	let source = object(input) ? input : {}, listed = input_registry(source);
 	if (!object(listed) || listed.ok !== true || !integer(listed.revision)) return fail('EINCONSISTENT', 'Asset Registry is unavailable');
-	let receipt = source.receipt || latest_receipt(listed), staticBase = source.staticBase, scanner = scanner_overlay(source.scannerOverlay);
-	if (!scanner.ok) return scanner;
+	let receipt = source.receipt || latest_receipt(listed), staticBase = source.staticBase;
 	if (receipt && receipt.schema == 'asset-activation-receipt.v1') {
 		let legacy = v1_membership(receipt, listed);
 		if (!legacy.ok) return legacy;
 		return { ok: true, schemaVersion: 2, lifecycleState: 'V1_VERIFIED_MEMBERSHIP', state: 'V1_VERIFIED_MEMBERSHIP', compositionStatus: 'incomplete',
 			reconciliationRequired: true, receiptIdentity: receipt, observedRegistryRevision: listed.revision,
-			legacyMembership: legacy.recorded, dependencyIndex: {}, scannerOverlay: scanner.entries,
+			legacyMembership: legacy.recorded, dependencyIndex: {},
 			blockingReasons: ['RECONCILIATION_REQUIRED'], reconciliation: { required: true, mode: 'same-release FRESH', operation: 'reinstall' },
 			authority: { kind: 'installed', release: receipt.version, sourceCommit: receipt.sourceCommit, receiptId: receipt.receiptId || null, observedRegistryRevision: listed.revision } };
 	}
@@ -362,7 +354,7 @@ export const resolveInstalled = function(input) {
 			observedRegistryRevision: listed.revision, z2kMembership: coherent.entries,
 			z2kCompatibilityIdentity: receipt.z2kCompatibilityIdentity || null,
 			compatibilityIdentity: receipt.compatibilityIdentity || null, coherenceStatus: 'coherent' };
-		return compose('installed', installedAuthority, coherent.entries, staticBase, scanner.entries, []);
+		return compose('installed', installedAuthority, coherent.entries, staticBase, []);
 	}
 	let authority = v2_authority(receipt, listed);
 	if (!authority.ok) return authority;
@@ -372,7 +364,7 @@ export const resolveInstalled = function(input) {
 		observedRegistryRevision: listed.revision, z2kMembership: authority.entries,
 		z2kCompatibilityIdentity: receipt.z2kCompatibilityIdentity || null,
 		compatibilityIdentity: receipt.compatibilityIdentity || null };
-	return compose('installed', installedAuthority, authority.entries, staticBase, scanner.entries, []);
+	return compose('installed', installedAuthority, authority.entries, staticBase, []);
 };
 
 function resource_center_target(value) {
@@ -387,9 +379,8 @@ export const resolveCandidate = function(preparedTarget, context) {
 		|| !valid_commit(preparedTarget.targetCommit || preparedTarget.targetCommitSha) || !valid_digest(preparedTarget.manifestSha256)
 		|| !valid_digest(preparedTarget.classificationSha256) || (!preparing && (!string(preparedTarget.planToken) || !length(preparedTarget.planToken)))
 		|| !integer(preparedTarget.baseRegistryRevision) || preparedTarget.baseRegistryRevision < 0) return fail('EINPUT', 'prepared Z2K target is incomplete');
-	// Existing runtime-composition callers may resolve ordering/CAS before the
-	// Detect staging task supplies a complete candidateInput. That compatibility
-	// path is explicitly unverified and never claims a coherent identity.
+	// A complete candidateInput is required before the mutation identity is
+	// claimed; the Resource Center target remains the only production authority.
 	let coherent = null;
 	if (object(preparedTarget.candidateInput)) {
 		let candidateInput = copy(preparedTarget.candidateInput);
@@ -430,7 +421,7 @@ export const resolveCandidate = function(preparedTarget, context) {
 		z2kCompatibilityIdentity: preparedTarget.z2kCompatibilityIdentity || null,
 		compatibilityIdentity: coherent ? coherent.compatibilityIdentity : null,
 		coherentCandidate: coherent, coherenceStatus: coherent ? 'coherent' : 'unverified' };
-	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase, preparedTarget.scannerOverlay || [], removals.ids);
+	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase, removals.ids);
 };
 
 function evidence_file(evidence, entry) {
@@ -534,16 +525,4 @@ export const runtime_strategy_preflight = function(input) {
 	if (!object(input.candidateRuntime) || input.candidateRuntime.closureReady !== true || input.candidateRuntime.nativeReady !== true)
 		return fail('ECOMPATIBILITY', 'active strategy does not close over the candidate runtime or pass native preflight', { sourceId: sourceId, id: selectedId });
 	return { ok: true, selectedId: selectedId, sourceId: sourceId, origin: contract.origin, owner: contract.owner, strategyClass: contract.strategyClass };
-};
-
-// Test-only production seam for the post-materialize failure boundary.  It
-// models the physical runtime owner: readiness failure must restore the prior
-// snapshot before the transaction can report a closed rollback.
-export const runtime_materialize_failure_rollback = function(input) {
-	if (!object(input) || input.testOnly !== true || input.failure != 'readiness') return fail('EINPUT', 'runtime rollback seam is restricted to readiness injection');
-	let physical = input.materializedIdentity || 'Y', prior = input.priorIdentity || 'X';
-	if (type(input.restore) != 'function') return fail('EINPUT', 'runtime rollback seam is incomplete');
-	let restored = input.restore(prior);
-	if (!restored || restored.ok !== true) return fail('EROLLBACK', 'physical runtime rollback failed', { recoveryRequired: true });
-	return { ok: false, error: { code: 'ERUNTIME', message: 'post-materialize runtime readiness failed' }, restored: true, physicalIdentity: prior, recoveryRequired: false };
 };

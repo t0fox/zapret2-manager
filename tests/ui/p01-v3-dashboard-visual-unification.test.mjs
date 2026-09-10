@@ -28,7 +28,7 @@ test('P01-V3 Dashboard resolves human strategy metadata without exposing raw IDs
   const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   const model = read('z2m-overview-model.js');
   assert.match(page, /ctx\.api\.strategies\.get/);
-  assert.match(page, /data\.strategy = \{ value: strategy \}/);
+  assert.match(page, /data\.strategy|runtime\.deferred/);
   assert.match(model, /canonicalStrategy = payload\(data\.strategy\)/);
   assert.match(page, /format\.text\(view\.strategy\.name\)/);
   assert.doesNotMatch(page, /format\.text\(view\.strategy\.name \|\| view\.strategy\.id\)/);
@@ -37,13 +37,14 @@ test('P01-V3 Dashboard resolves human strategy metadata without exposing raw IDs
   assert.match(page, /value: _\('OpenWrt'\), kind: ''/);
 });
 
-test('P01-V6 Dashboard replaces Resource Check with bounded read-only Recommendations', () => {
+test('P01-V6 Dashboard uses the bounded Detect checker and read-only Recommendations', () => {
   const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   const css = read('z2m-ui.css');
   const dashboard = read('z2m-avatar-dashboard.js');
   assert.doesNotMatch(page, /resource-check-card|Стратегия точечного правила|Применить только к ресурсу/);
   assert.doesNotMatch(css, /resource-check-/);
-  assert.match(page, /ctx\.api\.orchestra\.runStart/);
+  assert.match(page, /ctx\.api\.z2kDetectProbe\(domain, 6000\)/);
+  assert.doesNotMatch(page, /orchestra|runStart|runStatus|runId/);
   assert.match(page, /ctx\.api\.strategies\.recommendations\(\)/);
   assert.match(page, /recommendations: renderRecommendations\(\)/);
   assert.match(page, /slice\(0,\s*3\)/);

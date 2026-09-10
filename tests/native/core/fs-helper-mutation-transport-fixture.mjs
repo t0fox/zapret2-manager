@@ -1,4 +1,4 @@
-const mutations = new Set(['atomic_write', 'atomic_write_json', 'mkdir_private', 'rename_owned', 'unlink_owned']);
+const mutations = new Set(['atomic_write', 'atomic_write_json', 'mkdir_private']);
 
 export function classifyHelperTransport({ operation, exitCode, response }) {
   if (exitCode !== 74 && response !== null) return null;

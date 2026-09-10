@@ -1,7 +1,7 @@
 'use strict';
 import { readfile, stat, unlink, popen } from 'fs';
 import { asset_registry_list } from './asset-registry.uc';
-import { z2k_candidate_gate, z2k_state_persist_compat_raw } from './z2k-compat.uc';
+import { z2k_candidate_gate } from './z2k-compat.uc';
 import * as update_source from './update-source.uc';
 import { z2k_dependency_graph, z2k_dependency_class } from './z2k-dependencies.uc';
 
@@ -59,16 +59,6 @@ function registry_assets() {
 function installedShaFor(path, assets) {
 	let listed = assets || registry_assets(), asset = registry_asset_for(path, listed);
 	return asset && asset.contentSha256 || null;
-}
-function is_compatible_raw(raw) {
-	// Deprecated wrapper — use z2k-compat.uc as authority.
-	// Kept for backward compat; delegates to shared module.
-	return z2k_state_persist_compat_raw(raw);
-}
-function is_state_persist_compatible(expectedDigest) {
-	// Deprecated — plan is now pure, check-time uses content-bound candidate gate.
-	// Kept for compat; not used in pure plan.
-	return false;
 }
 function sha256_file(path) {
 	// Local helper for check-time candidate verification (mirrors z2k-compat).
@@ -191,12 +181,6 @@ function fetch_untrusted_manifest_once() {
 	if (result.ok !== true || result.payload == null) return fail(result.error && result.error.code || 'EUNAVAILABLE', 'Не удалось получить UPDATES.json.', { source: result.origin || 'raw-content' });
 	return { ok: true, manifest: result.payload, sourceCommit: sourceCommit, trustMode: 'allow-untrusted', contentSha256: result.contentSha256 || null };
 }
-function fetch_untrusted_manifest() {
-	// Kept for compat — single attempt. New check uses retry wrapper.
-	return fetch_untrusted_manifest_once();
-}
-
-export const z2k_state_persist_compat_raw = function(raw) { return is_compatible_raw(raw); };
 export const z2k_upstream_plan = function(remoteManifest) { return plan(remoteManifest); };
 export const z2k_upstream_check = function() {
 	if (!ALLOW_UNTRUSTED) return fail('EUNSUPPORTED', 'Signed Z2K verification is disabled in this build.');

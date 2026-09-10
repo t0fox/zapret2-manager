@@ -41,28 +41,15 @@ function loadComponentsModel() {
 // ---------------------------------------------------------------------------
 const NOW = 1724200010;
 
-function productionFast() {
-  // Real status_fast.uc output: rulesPresent is null, not true
+function productionFast(rulesPresent = null) {
+  // Real status_fast.uc output: rulesPresent is a bounded nft observation.
   return {
     generatedAt: NOW - 5,
     serviceState: 'running',
     engine: { installed: true },
-    runtime: { present: true, rulesPresent: null },
+    runtime: { present: true, rulesPresent },
     health: { queue: { number: 300, registered: true, ownerPid: 3403, ownerConflict: false } },
     strategyStatus: { id: 'z2k_all_in_one', name: 'z2k_all_in_one', revision: 0 },
-  };
-}
-
-function productionFullStatus() {
-  // Real /tmp/zapret2-manager/status.json via service.status() (cached collector)
-  // Contains real nft evidence: rulesPresent true, ISO generatedAt
-  return {
-    generatedAt: '2026-08-26T12:37:18Z',
-    stale: false,
-    runtimeSummary: {
-      nfqueue: { number: 300, registered: true, ownerMatches: true, rulesPresent: true },
-    },
-    runtime: { present: true, rulesPresent: true },
   };
 }
 
@@ -160,14 +147,30 @@ test('REGRESSION: normalizeZ2k consumes production backend schema (local field)'
   const engineReady = { installed: true, serviceState: 'running', runtimeRunning: true, compatible: true };
   const z2kProduction = {
     status: 'unknown',
+    state: 'ready',
+    coherent: true,
     trustMode: 'allow-untrusted',
     verified: false,
+    architecture: 'arm64',
+    digest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    runtimeBundleDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    compatibilityIdentity: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+    compatible: true,
     local: {
       installed: true,
       integrityOk: true,
       lua: { ready: 7, total: 7 },
+      detect: {
+        architecture: 'arm64',
+        state: 'ready',
+        coherent: true,
+        status: 'ready',
+        digest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        compatible: true,
+      },
       revision: 1,
       commit: '54b6765',
+      installedRelease: { value: 'p-82.18', confidence: 'confirmed', authority: 'activation-receipt-v3' },
     },
   };
   const page = model.normalizePage({
@@ -182,13 +185,12 @@ test('REGRESSION: normalizeZ2k consumes production backend schema (local field)'
 });
 
 // ---------------------------------------------------------------------------
-// 5. Firewall: production-shaped status_fast (rulesPresent:null) + cached full evidence
+// 5. Firewall: production-shaped bounded status_fast evidence
 // ---------------------------------------------------------------------------
-test('REGRESSION: healthy NFQUEUE/firewall is OK with production-shaped status_fast + cached full evidence', () => {
+test('REGRESSION: healthy NFQUEUE/firewall is OK with production-shaped status_fast evidence', () => {
   const model = loadMonitorModel();
   const data = {
-    fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
+    fast: { value: productionFast(true) },
     system: { value: { uptimeSec: 3600, memory: { availableKb: 100000 } } },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -200,7 +202,7 @@ test('REGRESSION: healthy NFQUEUE/firewall is OK with production-shaped status_f
 
 test('REGRESSION: firewall without any rules evidence is UNKNOWN, never OK, but not permanently DEGRADED', () => {
   const model = loadMonitorModel();
-  const fastNoRules = productionFast(); // rulesPresent null, no full envelope
+  const fastNoRules = productionFast(); // rulesPresent null: no rules evidence
   const data = {
     fast: { value: fastNoRules },
     system: { value: { uptimeSec: 3600 } },
@@ -226,7 +228,6 @@ test('REGRESSION: dns_product_status provides observation timestamp so fresh hea
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -240,7 +241,6 @@ test('REGRESSION: stale DNS evidence is never OK', () => {
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: staleDns() },
@@ -257,7 +257,6 @@ test('REGRESSION: WARP with no backend owner is OFF/not-installed, not UNKNOWN',
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -272,7 +271,6 @@ test('REGRESSION: WARP OFF does not pollute "Что требует вниман�
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -290,7 +288,6 @@ test('REGRESSION: optional TG Proxy not-installed is OFF and not a warning', () 
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -306,7 +303,6 @@ test('REGRESSION: Telegram Proxy stopped (installed but not running) is OFF, not
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -320,7 +316,6 @@ test('REGRESSION: Telegram Proxy running healthy is OK (requires timestamp)', ()
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -350,7 +345,6 @@ test('REGRESSION: proxy runtime production payload maps to OK/OFF correctly', ()
   };
   const dataOk = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -368,7 +362,6 @@ test('REGRESSION: proxy runtime production payload maps to OK/OFF correctly', ()
   };
   const dataOff = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -385,7 +378,6 @@ test('REGRESSION: installed+broken optional component still appears in warnings'
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { value: { ok: true } },
     dns: { value: healthyDnsFresh() },
@@ -401,7 +393,6 @@ test('REGRESSION: UNKNOWN on real RPC failure stays UNKNOWN/ERROR and is not mas
   const model = loadMonitorModel();
   const data = {
     fast: { value: productionFast() },
-    full: { value: productionFullStatus() },
     system: { value: {} },
     engine: { error: { message: 'engine rpc failed' } },
     dns: { value: healthyDnsFresh() },

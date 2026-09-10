@@ -123,7 +123,7 @@ test('invalid Scanner domain focuses the replacement control after rerender', as
   const ctx = context();
   const rootNode = scanner.render(ctx, { status: { status: 'ready' }, report: null });
   const domain = rootNode.find((node) => node.tagName === 'INPUT' && node.getAttribute('name') === 'detect-domain');
-  const start = rootNode.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Начать сканирование');
+  const start = rootNode.find((node) => node.tagName === 'BUTTON' && node.textContent === 'Запустить измерение');
 
   domain.value = 'not a host';
   start.click();

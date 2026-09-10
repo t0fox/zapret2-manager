@@ -19,7 +19,7 @@ kept semantic rather than embedding a volatile Git commit.
 | Category | Current scope | Action | Publication |
 | --- | --- | --- | --- |
 | `CURRENT_NORMATIVE` | `docs/02-architecture/`, `docs/04-contracts/`, `docs/07-decisions/`, and `docs/12-ai/` contracts | Keep and link from an index | Per-document `publish` flag; AI contracts remain private |
-| `CURRENT_REFERENCE` | `docs/03-products/`, `docs/05-parity/`, `docs/06-upstreams/`, `docs/08-development/`, and `docs/11-operations/` | Keep, update from implementation evidence | Publish only user/reference material |
+| `CURRENT_REFERENCE` | `docs/03-products/`, `docs/06-upstreams/`, `docs/08-development/`, and `docs/11-operations/` | Keep, update from implementation evidence | Publish only user/reference material |
 | `CURRENT_USER_DOC` | `README.md`, `docs/index.md`, product indexes, and public reference pages | Keep concise and route to canonical owners | `publish: true` only for safe public pages |
 | `CURRENT_INTERNAL` | `docs/00-home/`, `docs/09-work/`, and private AI/operations notes | Keep as working evidence; do not publish by default | `publish: false` for internal state, plans, reports, and contracts |
 | `SUPERSEDED` | Tracked legacy `docs/superpowers/` plans/specs moved to `docs/99-archive/superpowers/` | Archive with migration manifest rows | Never publish archive material |
@@ -32,11 +32,11 @@ kept semantic rather than embedding a volatile Git commit.
   inventory are the deterministic entry surface.
 - **Project and architecture:** `docs/01-project/` and `docs/02-architecture/`
   describe scope and runtime ownership.
-- **Products:** `docs/03-products/` routes Strategy, Scanner, BlockCheck, and
-  Deep Search. Optional Telegram Proxy and WARP/MASQUE remain explicitly
-  optional runtime products; they do not become manager package components.
-- **Contracts and parity:** `docs/04-contracts/`, `docs/05-parity/`, and
-  `docs/07-decisions/` contain the compatibility and authority boundaries.
+- **Products:** `docs/03-products/` routes the visible Strategy, Detect,
+  Telegram Proxy, WARP/MASQUE, DNS, resource, and system journeys. Optional
+  runtime products do not become manager package components.
+- **Contracts and decisions:** `docs/04-contracts/` and `docs/07-decisions/`
+  contain the compatibility and authority boundaries.
 - **Upstreams and development:** `docs/06-upstreams/` and
   `docs/08-development/` record source provenance and the validation workflow.
 - **Work and operations:** `docs/09-work/` is evidence/plans/specs and

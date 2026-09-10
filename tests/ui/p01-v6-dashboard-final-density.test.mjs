@@ -5,13 +5,15 @@ import fs from 'node:fs';
 const ROOT = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const read = (name) => fs.readFileSync(`${ROOT}/${name}`, 'utf8');
 
-test('P01-V6 removes Resource Check presentation while retaining its backend path', () => {
+test('P01-V6 keeps the Dashboard domain check as a bounded Z2K Detect measurement', () => {
   const page = read('z2m-overview.js');
   const css = read('z2m-ui.css');
   assert.doesNotMatch(page, /resource-check-card/);
   assert.doesNotMatch(page, /Стратегия точечного правила/);
   assert.doesNotMatch(page, /Применить только к ресурсу/);
-  assert.match(page, /ctx\.api\.orchestra\.runStart/);
+  assert.match(page, /dashboard-domain-check/);
+  assert.match(page, /ctx\.api\.z2kDetectProbe\(domain, 6000\)/);
+  assert.doesNotMatch(page, /orchestra|runStart|runStatus|runId/);
   assert.doesNotMatch(css, /resource-check-/);
 });
 

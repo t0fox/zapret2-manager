@@ -67,9 +67,6 @@ function lua_compat_ver() {
 	return length(num) ? (+num) : null;
 }
 
-// export alias for the orchestra adapter (one compat reader, no duplication)
-export const maint_lua_compat = lua_compat_ver;
-
 export const versions = function() {
 	let os = null;
 	let rel = readfile('/etc/openwrt_release');
@@ -167,7 +164,7 @@ export const maintenance_status = function() {
 	}
 	// backups summary (dir presence only — the full list is backup_list)
 	let backups = {};
-	let scopes = ['engineConfig', 'ourState', 'lists', 'profiles'];
+	let scopes = ['engineConfig', 'ourState', 'lists'];
 	for (let i = 0; i < length(scopes); i++) {
 		let cur = '/etc/zapret2-manager/backups/' + scopes[i] + '/current';
 		backups[scopes[i]] = { hasBackup: stat(cur) ? true : false };

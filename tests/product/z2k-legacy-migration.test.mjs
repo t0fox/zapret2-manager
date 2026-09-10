@@ -47,15 +47,15 @@ test('production-shaped migration prepare/commit/rollback uses one transaction a
   const legacy = receipt('asset-activation-receipt.v2');
   const coherent = receipt('asset-activation-receipt.v3');
   const input = { testOnly: true, activeReceipt: legacy, finalReceipt: coherent, ...data };
-  const prepared = invoke(`resource.resource_center_test_migration_transaction(${JSON.stringify({ ...input, phase: 'prepare' })})`, resourcePath, 'resource');
+  const prepared = invoke(`migration.z2k_migration_prepare(${JSON.stringify(input)})`);
   assert.equal(prepared.ok, true);
   assert.equal(prepared.migration.required, true);
   assert.deepEqual(prepared.migration.preserved.runtimeData, data.runtimeData);
-  const committed = invoke(`resource.resource_center_test_migration_transaction(${JSON.stringify({ ...input, phase: 'commit', prepared: prepared.migration })})`, resourcePath, 'resource');
+  const committed = invoke(`migration.z2k_migration_commit(${JSON.stringify({ ...input, prepared: prepared.migration })})`);
   assert.equal(committed.ok, true);
   assert.equal(committed.activeReceipt.schema, 'asset-activation-receipt.v3');
   assert.deepEqual(committed.preserved.discoveredDomains, data.discoveredDomains);
-  const rolledBack = invoke(`resource.resource_center_test_migration_transaction(${JSON.stringify({ ...input, phase: 'failure', prepared: prepared.migration })})`, resourcePath, 'resource');
+  const rolledBack = invoke(`migration.z2k_migration_rollback(${JSON.stringify({ prepared: prepared.migration, reason: input.reason })})`);
   assert.equal(rolledBack.ok, false);
   assert.equal(rolledBack.activeReceipt.schema, 'asset-activation-receipt.v2');
   assert.deepEqual(rolledBack.preserved.userStrategies, data.userStrategies);
@@ -64,8 +64,8 @@ test('production-shaped migration prepare/commit/rollback uses one transaction a
 test('failed migration preserves the active V2 receipt and every user/runtime field', { skip: !hasUcode }, () => {
   const input = { testOnly: true, phase: 'prepare', activeReceipt: receipt('asset-activation-receipt.v2'),
     discoveredDomains: ['example.org'], sourceSelection: { id: 'user' }, exclusions: ['skip.example'], userStrategies: [{ id: 'mine' }], runtimeData: { enabled: true } };
-  const prepared = invoke(`resource.resource_center_test_migration_transaction(${JSON.stringify(input)})`, resourcePath, 'resource');
-  const result = invoke(`resource.resource_center_test_migration_transaction(${JSON.stringify({ ...input, phase: 'failure', prepared: prepared.migration })})`, resourcePath, 'resource');
+  const prepared = invoke(`migration.z2k_migration_prepare(${JSON.stringify(input)})`);
+  const result = invoke(`migration.z2k_migration_rollback(${JSON.stringify({ prepared: prepared.migration, reason: input.reason })})`);
   assert.equal(result.ok, false);
   assert.equal(result.mutated, false);
   assert.equal(result.activeReceipt.schema, 'asset-activation-receipt.v2');
@@ -79,34 +79,13 @@ test('failed migration preserves the active V2 receipt and every user/runtime fi
 test('successful migration writes V3 and preserves discovered domains and user data', { skip: !hasUcode }, () => {
   const input = { testOnly: true, phase: 'prepare', activeReceipt: receipt('asset-activation-receipt.v2'), finalReceipt: receipt('asset-activation-receipt.v3'),
     discoveredDomains: ['example.org'], sourceSelection: { id: 'user' }, exclusions: ['skip.example'], userStrategies: [{ id: 'mine' }], runtimeData: { enabled: true } };
-  const prepared = invoke(`resource.resource_center_test_migration_transaction(${JSON.stringify(input)})`, resourcePath, 'resource');
-  const result = invoke(`resource.resource_center_test_migration_transaction(${JSON.stringify({ ...input, phase: 'commit', prepared: prepared.migration })})`, resourcePath, 'resource');
+  const prepared = invoke(`migration.z2k_migration_prepare(${JSON.stringify(input)})`);
+  const result = invoke(`migration.z2k_migration_commit(${JSON.stringify({ ...input, prepared: prepared.migration })})`);
   assert.equal(result.ok, true);
   assert.equal(result.activeReceipt.schema, 'asset-activation-receipt.v3');
   assert.deepEqual(result.preserved.discoveredDomains, ['example.org']);
   assert.deepEqual(result.preserved.userStrategies, [{ id: 'mine' }]);
   assert.deepEqual(result.preserved.runtimeData, { enabled: true });
-});
-
-test('canonical Resource Center rollback invokes migration rollback and retains the legacy authority', { skip: !hasUcode }, () => {
-  const legacy = receipt('asset-activation-receipt.v2');
-  const preserved = { discoveredDomains: ['example.org'], sourceSelection: { id: 'user' }, exclusions: ['skip.example'],
-    userStrategies: [{ id: 'mine' }], runtimeData: { enabled: true } };
-  const migration = { schema: 'z2k-migration-prepared.v1', required: true, state: 'LEGACY_Z2K', legacyReceipt: legacy, preserved };
-  const result = invoke(`(() => {
-    let pending = { phase: 'COMMITTED', migration: ${JSON.stringify(migration)}, sourceRestoreRequired: false, catalogRestoreRequired: false };
-    let seams = {
-      pendingLoad: function() { return pending; }, pendingWrite: function(value, phase) { value.phase = phase; return true; }, pendingClear: function() { return true; },
-      runtimeRollback: function() { return { ok: true, restored: true }; }, registryList: function() { return { ok: true, revision: 2, assets: [], activationReceipts: [] }; }, registryAlreadyRestored: function() { return true; },
-      registryRollback: function() { return { ok: true, restored: true }; }, sourceRestore: function() { return { ok: true, restored: true }; }, detectRestore: function() { return { ok: true, restored: true }; }
-    };
-    return resource.resource_center_test_rollback_transaction({ testOnly: true, selected: { id: 'z2k-curated-lua' }, applied: { committedAssetRevision: 2 }, diagnostics: {}, runtimeActivated: true, seams });
-  })()`, resourcePath, 'resource');
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(result.migrationRollback.required, true, JSON.stringify(result));
-  assert.equal(result.migrationRollback.state, 'LEGACY_Z2K', JSON.stringify(result));
-  assert.equal(result.migrationRollback.activeReceipt.schema, 'asset-activation-receipt.v2', JSON.stringify(result));
-  assert.deepEqual(result.migrationRollback.preserved, preserved, JSON.stringify(result));
 });
 
 test('production Resource Center owns migration prepare/finalize/rollback wiring', () => {

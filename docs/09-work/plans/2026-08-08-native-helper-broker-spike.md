@@ -62,7 +62,7 @@ tags: [plan, native, helper, broker]
 
 ### Existing files modified conditionally
 
-- `zapret2-manager/Makefile`: add socket dependency only after proof; compile/install daemon after full spike GREEN.
+- `zapret2-manager-full/Makefile`: add socket dependency only after proof; compile/install daemon after full spike GREEN.
 - `zapret2-manager/files/etc/init.d/zapret2-manager`: named `helperd` and `watchdog` procd instances after bootstrap.
 - `tests/native/package-helper.test.mjs`: package closure and no-generic-exec assertions.
 - `scripts/test/native.sh`: replace intentional-red direct-process M3 probe only after broker M3 is fully green.
@@ -152,14 +152,14 @@ raw evidence, mark the plan BLOCKED, and do not continue to Task 2.
 
 - [ ] **Step 7: Commit socket proof and dependency only after PASS**
 
-After exact-target PASS, add `+ucode-mod-socket` to `zapret2-manager/Makefile`
+After exact-target PASS, add `+ucode-mod-socket` to `zapret2-manager-full/Makefile`
 and its package regression assertion. Commit:
 
 ```bash
 git add tests/native/core/z2m-helperd-spike.c \
   tests/native/core/native-helper-broker-spike.uc \
   tests/native/core/native-helper-broker-spike.test.mjs \
-  tests/native/package-helper.test.mjs zapret2-manager/Makefile
+  tests/native/package-helper.test.mjs zapret2-manager-full/Makefile
 git commit -m "test(core): prove exact-target AF_UNIX transport"
 ```
 
@@ -393,7 +393,7 @@ git commit -m "test(core): prove native helper broker transport"
 - Create: `zapret2-manager/src/z2m-helperd/transport.c`
 - Create: `zapret2-manager/src/z2m-helperd/supervise.c`
 - Create: `tests/native/core/native-helper-broker.test.mjs`
-- Modify: `zapret2-manager/Makefile`
+- Modify: `zapret2-manager-full/Makefile`
 - Modify: `tests/native/package-helper.test.mjs`
 
 **Interfaces:**
@@ -434,7 +434,7 @@ Run broker tests, package tests, strict production compile, shared non-M3 gate,
 and `git diff --check`.
 
 ```bash
-git add zapret2-manager/src/z2m-helperd zapret2-manager/Makefile \
+git add zapret2-manager/src/z2m-helperd zapret2-manager-full/Makefile \
   tests/native/core/native-helper-broker.test.mjs tests/native/package-helper.test.mjs
 git commit -m "feat(core): add fixed native helper broker"
 ```

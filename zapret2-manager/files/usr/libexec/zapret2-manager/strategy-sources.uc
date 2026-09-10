@@ -24,8 +24,7 @@ function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{4
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function integer(value) { return type(value) == 'int' && value >= 0; }
 function native_verified(value) {
-	return object(value) && (value.status == 'verified'
-		|| (value.status == 'not_checked' && getenv('Z2M_UPDATE_SOURCE_TEST') == '1'));
+	return object(value) && value.status == 'verified';
 }
 function native_deferred(value) {
 	return object(value) && value.status == 'deferred'
@@ -401,10 +400,6 @@ export const strategy_source_install_verified_snapshot = function(id, prepared) 
 		return error('ECOMPATIBILITY', 'Selected Core identity does not match the Z2K source snapshot');
 	let state = load_state(id);
 	if (!state.ok) return state;
-	// Deterministic failure seam for native/product tests only. It is gated by
-	// the existing test contract and is not exposed through RPC or UI.
-	if (getenv('Z2M_STRATEGY_SOURCE_TEST') == '1' && getenv('Z2M_STRATEGY_SOURCE_INSTALL_FAIL') == id)
-		return error('EWRITE', 'Injected source snapshot installation failure', id);
 	let path = snapshot_path(id, snapshot.snapshotId);
 	if (!atomic_write(path, sprintf('%J', snapshot))) return error('EIO', 'Verified source snapshot could not be stored');
 	let next = copy(state.state);

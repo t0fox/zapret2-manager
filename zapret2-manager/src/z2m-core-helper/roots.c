@@ -19,7 +19,6 @@ static const struct z2m_root roots[] = {
 	{"secrets","/etc/zapret2-manager/secrets",0,8,true,false,true,true},
 	{"runtime","/tmp/zapret2-manager/runtime",1048576,12,true,true,true,false},
 	{"jobs","/tmp/zapret2-manager/jobs",4194304,16,true,true,true,false},
-	{"locks","/tmp/zapret2-manager/locks",0,1,false,false,false,false},
 	{"staging","/tmp/zapret2-manager/staging",4194304,12,true,true,true,false}
 };
 

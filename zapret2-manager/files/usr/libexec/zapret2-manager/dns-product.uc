@@ -2,11 +2,11 @@
 
 // Canonical DNS product facade. It coordinates the existing DNS owners; it
 // does not replace their state or write paths.
-import { dns_get, dns_set, dns_validate, dns_apply_preview, dns_apply_run, dns_rollback } from './dns.uc';
-import { dns_global_get, dns_global_set, dns_global_preview, dns_global_apply, dns_global_rollback } from './dns-global.uc';
+import { dns_get, dns_validate } from './dns.uc';
+import { dns_global_get } from './dns-global.uc';
 import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
 import { dns_provider_catalog_upsert_override, dns_provider_catalog_reset_override, dns_provider_catalog_create, dns_provider_catalog_update, dns_provider_catalog_delete } from './dns-provider-catalog.uc';
-import { service_dns_providers, service_dns_status, service_dns_preview, service_dns_set, service_dns_apply, service_dns_rollback } from './service-dns.uc';
+import { service_dns_providers, service_dns_status } from './service-dns.uc';
 
 function object(value) { return type(value) == 'object' && value != null ? value : {}; }
 function request_value(req) {
@@ -41,11 +41,6 @@ export const dns_product_get = function() {
 		global: global,
 		service_dns: service
 	};
-};
-
-export const dns_product_providers = function() {
-	let result = dns_provider_catalog_get();
-	return { ok: result.ok === true, schema: result.schema || null, revision: result.revision || 0, providers: result.providers || [], generatedAt: result.generatedAt || null, error: result.error || null };
 };
 
 function provider_input(req) {
@@ -117,38 +112,5 @@ export const dns_product_validate = function(req) {
 		return { ok: true, valid: true, scope: input.scope, revision: input.revision };
 	}
 	if (input.scope == 'global') return { ok: true, valid: true, scope: input.scope, revision: input.revision };
-	return error('EINPUT', 'unsupported DNS product scope');
-};
-
-export const dns_product_preview = function(req) {
-	let input = scope_input(req);
-	if (input.scope == 'overrides') return dns_apply_preview();
-	if (input.scope == 'service_dns') return service_dns_preview();
-	if (input.scope == 'global') return dns_global_preview();
-	return error('EINPUT', 'unsupported DNS product scope');
-};
-
-export const dns_product_apply = function(req) {
-	let input = scope_input(req);
-	if (input.scope == 'overrides') {
-		let saved = dns_set({ entries: input.value.entries || [], revision: input.revision });
-		return saved.ok === true ? dns_apply_run() : saved;
-	}
-	if (input.scope == 'service_dns') {
-		let saved = service_dns_set({ args: { selections: input.value.selections || {} } });
-		return saved.ok === true ? service_dns_apply({ args: { revision: saved.draftRevision } }) : saved;
-	}
-	if (input.scope == 'global') {
-		let saved = dns_global_set(Object.assign({}, input.value, { revision: input.revision }));
-		return saved.ok === true ? dns_global_apply() : saved;
-	}
-	return error('EINPUT', 'unsupported DNS product scope');
-};
-
-export const dns_product_rollback = function(req) {
-	let input = scope_input(req);
-	if (input.scope == 'overrides') return dns_rollback();
-	if (input.scope == 'service_dns') return service_dns_rollback();
-	if (input.scope == 'global') return dns_global_rollback();
 	return error('EINPUT', 'unsupported DNS product scope');
 };

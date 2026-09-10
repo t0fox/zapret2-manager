@@ -1,6 +1,5 @@
 'use strict';
 'require baseclass';
-'require rpc';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
 'require view.zapret2-manager.z2m-components-model as ComponentsModel';
 'require view.zapret2-manager.z2m-update-presentation as UpdatePresentation';
@@ -10,11 +9,9 @@
 'require view.zapret2-manager.z2m-avatar-dashboard as AvatarDashboard';
 'require view.zapret2-manager.z2m-icons as Icons';
 
-var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0, mountedLoadToken: null,
+var runtime = { target: '', measurement: null, overrideStrategyId: null, deferred: {}, loadToken: 0, mountedLoadToken: null,
   lifecycle: { pending: false, action: null, result: null },
   events: { initialized: false, keys: [], follow: true, unread: 0 } };
-var recommendationsRpc = rpc.declare({ object: 'zapret2-manager', method: 'strategies_recommendations', reject: true });
-
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -25,18 +22,6 @@ function payload(value) {
     break;
   }
   return object(value);
-}
-function phaseLabel(value) {
-  return {
-    completed: _('Проверка завершена'), partial: _('Проверка завершена частично'),
-    failed: _('Не удалось завершить проверку'), stopped: _('Проверка остановлена'),
-    'timed-out': _('Проверка превысила время ожидания'), timeout: _('Проверка превысила время ожидания'),
-    interrupted: _('Проверка прервана'), 'infrastructure-error': _('Ошибка инфраструктуры')
-  }[String(value || '').toLowerCase()] || _('Проверка выполняется');
-}
-function phaseKind(value) {
-  return ['failed', 'timed-out', 'timeout', 'infrastructure-error', 'interrupted'].indexOf(String(value || '').toLowerCase()) >= 0 ? 'r'
-    : String(value || '').toLowerCase() === 'completed' ? 'g' : 'b';
 }
 function settled(result, api) {
   return result.status === 'fulfilled'
@@ -49,30 +34,6 @@ function normalizeTarget(value) {
   try { if (/^[a-z]+:\/\//.test(raw)) raw = new URL(raw).hostname; } catch (e) {}
   return raw.replace(/^https?:\/\//, '').split('/')[0].split('@').pop().split(':')[0].replace(/\.$/, '');
 }
-function candidates(preview) {
-  return preview && preview.comboCatalog && Array.isArray(preview.comboCatalog.candidates)
-    ? preview.comboCatalog.candidates : [];
-}
-function candidateId(candidate) {
-  var value = candidate && (candidate.managerId || candidate.candidateId || candidate.id);
-  return value === null || value === undefined || value === '' ? null : String(value);
-}
-function activeStrategy(preview) {
-  var strategyState = preview && preview.strategyState || {};
-  return strategyState.active || preview && preview.active || null;
-}
-function statusStrategyId(status) {
-  var strategy = object(object(status).strategyStatus);
-  return strategy.id || strategy.strategyId || strategy.name || null;
-}
-function resolveCanonicalStrategy(ctx, statusEnvelope) {
-  var id = statusStrategyId(payload(statusEnvelope));
-  if (!id || !ctx.api.strategies || !ctx.api.strategies.get) return Promise.resolve(null);
-  return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
-    var value = payload(answer);
-    return value.strategy || value.item || value;
-  });
-}
 function runningState(status) {
   var value = RuntimeState.state(status);
   return value === 'running' ? true : value === 'stopped' ? false : null;
@@ -84,10 +45,9 @@ function load(ctx) {
 	// rpcd fan-out capped while allowing one slow optional read to yield to the
 	// rest of the Dashboard.
 	return OverviewLoading.createLoader({
-		runtime: runtime,
-		settled: settled,
-		edit: edit,
-		recommendationsRpc: recommendationsRpc
+		 runtime: runtime,
+		 settled: settled,
+		 edit: edit
 	}).load(ctx);
 }
 
@@ -101,21 +61,10 @@ function render(ctx) {
   var systemStatus = payload(data.systemStatus);
   var versionStatus = payload(data.versionStatus);
   var resourcesStatus = payload(data.resourcesStatus);
-  var preview = payload(data.preview);
   var recommendations = payload(data.recommendations);
   var tgStatus = payload(data.tgStatus);
   var tgHealth = payload(data.tgHealth);
-  var active = activeStrategy(preview);
-  var catalog = candidates(preview);
-  var snapshot = ctx.store.get();
-  var activeId = format.text(view.strategy.id || active && (active.candidateId || active.managerId));
   var running = runningState(status);
-  var advanced = !!(snapshot.ui && snapshot.ui.advanced);
-
-  function showError(error) {
-    var normalized = ctx.api.normalizeError(error);
-    shell.showToast(normalized && normalized.message, 'err');
-  }
   function reload() { return ctx.refresh('overview'); }
   function lifecycleErrorDetail(error) {
     if (error && error.message) return String(error.message);
@@ -142,7 +91,7 @@ function render(ctx) {
       return ctx.api.service.restart();
     }).then(function (answer) {
       if (!answer || answer.ok === false) throw answer || new Error('lifecycle request failed');
-      // Bounded verification only: the full collector is diagnostics authority.
+      // Bounded verification only: status_fast is the UI runtime authority.
       return ctx.api.service.statusFast();
     }).then(function (answer) {
       var actual = RuntimeState.state(payload(answer));
@@ -194,53 +143,6 @@ function render(ctx) {
       E('span', {}, resultMessage)
     ]);
   }
-  function setAdvanced(mode) {
-    var current = ctx.store.get();
-    ctx.store.update({ ui: Object.assign({}, current.ui, { advanced: mode === 'advanced' }) });
-  }
-  function openHelp() {
-    shell.openModal(_('Как это работает'), E('div', {}, [
-      E('p', {}, _('Применённая конфигурация, активная проверка и завершённый результат отображаются раздельно.')),
-      E('p', {}, _('Рабочий статус показывается только после положительного подтверждения сервера. Неподтверждённые блоки скрываются.')),
-      E('p', {}, _('Расширенный режим раскрывает технические идентификаторы, argv и служебные сведения.'))
-    ]));
-  }
-  function reportRow(label, value) {
-    var text = format.text(value);
-    if (text === null) return null;
-    return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [
-      E('div', {}, [E('div', { 'class': 'nm' }, label), E('div', { 'class': 'co' }, text)])
-    ]);
-  }
-  function openReport() {
-    if (!view.lastRun) return;
-    var rows = compact([
-      advanced ? reportRow(_('Идентификатор запуска'), view.lastRun.runId) : null,
-      reportRow(_('Состояние'), phaseLabel(view.lastRun.phase)),
-      reportRow(_('Открывается'), view.corpus.opened !== null && view.corpus.total !== null
-        ? view.corpus.opened + ' / ' + view.corpus.total : null),
-      reportRow(_('Медианная задержка'), view.corpus.medianLatencyMs !== null
-        ? view.corpus.medianLatencyMs + ' мс' : null),
-      reportRow(_('Завершено'), format.timestamp(view.lastRun.completedAt || view.lastRun.finishedAt))
-    ]);
-    var blocks = [];
-    if (rows.length) blocks.push(E('div', { 'class': 'z2m-change-list' }, rows));
-    if (view.corpus.failedDomains.length) {
-      blocks.push(E('div', { 'class': 'z2m-dim z2m-failure-title' }, _('Неоткрывшиеся домены')));
-      blocks.push(E('div', { 'class': 'z2m-overview-failures' }, view.corpus.failedDomains.map(function (domain) {
-        return shell.chip(domain, 'r');
-      }).filter(Boolean)));
-    }
-    if (blocks.length) shell.openModal(_('Отчёт проверки'), E('div', {}, blocks));
-  }
-
-  var modeControl = shell.segmented([
-    { id: 'simple', label: _('Простой') },
-    { id: 'advanced', label: _('Расширенный') }
-  ], advanced ? 'advanced' : 'simple', setAdvanced, {
-    id: 'z2m-overview-mode',
-    'aria-label': _('Режим интерфейса')
-  });
 
   var targetInput = E('input', {
     type: 'text', value: runtime.target, placeholder: 'store.steampowered.com',
@@ -249,30 +151,45 @@ function render(ctx) {
   targetInput.value = runtime.target;
   targetInput.addEventListener('input', function () { runtime.target = targetInput.value; });
   var runResult = E('div', { id: 'z2m-overview-check-result', 'class': 'z2m-overview-check-result', 'aria-live': 'polite' });
-
-  function renderRunResult(run) {
-    run = object(run);
-    var phase = format.text(run.phase);
-    var target = format.text(run.target || run.domain || normalizeTarget(targetInput.value));
-    var nodes = [];
-    if (phase !== null) nodes.push(shell.chip(phaseLabel(phase), phaseKind(phase)));
-    if (target !== null) nodes.push(E('span', { 'class': 'z2m-muted' }, target));
-    runResult.replaceChildren(nodes.length ? E('div', { 'class': 'z2m-inline-state' }, nodes) : null);
+  function detectData(answer) {
+    if (!answer || answer.ok !== true || !answer.data || typeof answer.data.stdout !== 'string')
+      throw { code: 'EDETECT_SCHEMA', message: _('Z2K Detect вернул неполный результат.') };
+    var result;
+    try { result = JSON.parse(answer.data.stdout); } catch (error) {
+      throw { code: 'EDETECT_SCHEMA', message: _('Z2K Detect вернул некорректный JSON.') };
+    }
+    if (!result || typeof result !== 'object' || Array.isArray(result))
+      throw { code: 'EDETECT_SCHEMA', message: _('Z2K Detect вернул результат неверного типа.') };
+    return result;
   }
-  function pollRun() {
-    if (!runtime.runId) return;
-    edit(ctx.api.orchestra.runStatus, { runId: runtime.runId }).then(function (answer) {
-      var currentRun = object(answer && answer.run);
-      renderRunResult(currentRun);
-      var phase = format.text(currentRun.phase);
-      if (phase !== null && ['completed','partial','failed','stopped','timed-out','timeout','interrupted','infrastructure-error'].indexOf(phase) < 0)
-        runtime.timer = window.setTimeout(pollRun, 1800);
-    }).catch(function (error) {
-      runtime.runId = null;
-      if (runtime.timer) window.clearTimeout(runtime.timer);
-      runtime.timer = null;
-      showError(error);
-    });
+  function detectPresentation(result) {
+    var verdict = String(result.PathVerdict || result.verdict || (result.TLSOK === true ? 'clear' : result.FailureCode || 'observed')).toLowerCase();
+    if (verdict === 'clear' || verdict === 'ok' || verdict === 'available')
+      return { kind: 'g', label: _('Доступен') };
+    if (verdict === 'blocked' || verdict === 'failed' || verdict === 'error' || result.FailureCode)
+      return { kind: 'r', label: _('Проверка не пройдена') };
+    return { kind: 'o', label: _('Результат получен') };
+  }
+  function renderMeasurement() {
+    var measurement = runtime.measurement;
+    if (!measurement) {
+      runResult.replaceChildren(E('span', { 'class': 'z2m-muted' }, _('Введите домен и запустите короткую проверку пути.')));
+      return;
+    }
+    if (measurement.status === 'loading') {
+      runResult.replaceChildren(shell.statePanel({ message: _('Проверка через Z2K Detect…'), kind: 'loading' }));
+      return;
+    }
+    if (measurement.error) {
+      runResult.replaceChildren(shell.statePanel({ title: _('Проверка недоступна'), message: measurement.error.message, kind: 'error' }));
+      return;
+    }
+    var presentation = detectPresentation(measurement.data);
+    var reason = measurement.data.PathReason || measurement.data.FailureReason || measurement.data.reason || _('Результат получен от Z2K Detect.');
+    runResult.replaceChildren(E('div', { 'class': 'z2m-inline-state' }, [
+      shell.chip(presentation.label, presentation.kind),
+      E('span', { 'class': 'z2m-muted' }, measurement.domain + ' · ' + reason)
+    ]));
   }
   function checkResource() {
     var domain = normalizeTarget(targetInput.value);
@@ -280,21 +197,32 @@ function render(ctx) {
       shell.showToast(_('Введите корректный домен или URL.'), 'err');
       return;
     }
-    runResult.replaceChildren(shell.statePanel({ message: _('Запуск проверки…'), kind: 'loading' }));
-    edit(ctx.api.orchestra.runStart, {
-      targetType: 'domain', domain: domain, protocols: ['tcp_https'],
-      candidateMode: 'zapret2gui-only', candidateIds: [], repeats: 2,
-      perAttemptTimeoutSec: 20, totalTimeoutSec: 600, maxCandidates: 20, maxAttempts: 60
-    }).then(function (answer) {
-      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId || answer.run.targetCount === 0 || answer.run.totalCandidates === 0)
-        throw answer || new Error('run start failed: 0 targets');
-      runtime.runId = answer.run.runId;
-      renderRunResult(answer.run);
-      pollRun();
-    }).catch(showError);
+    var loadToken = runtime.loadToken;
+    runtime.measurement = { status: 'loading', domain: domain };
+    renderMeasurement();
+    ctx.api.z2kDetectProbe(domain, 6000).then(function (answer) {
+      if (loadToken !== runtime.loadToken) return;
+      runtime.measurement = { status: 'complete', domain: domain, data: detectData(answer) };
+      renderMeasurement();
+    }).catch(function (error) {
+      if (loadToken !== runtime.loadToken) return;
+      runtime.measurement = { status: 'error', domain: domain, error: ctx.api.normalizeError(error) };
+      renderMeasurement();
+    });
+  }
+  function renderResourceChecker() {
+    renderMeasurement();
+    return E('section', { id: 'dashboard-domain-check', 'class': 'card z2m-overview-domain-check' }, [
+      E('div', { 'class': 'card-title' }, _('Проверить домен')),
+      E('p', { 'class': 'z2m-muted' }, _('Короткая проверка доступности через Z2K Detect.')),
+      E('div', { 'class': 'z2m-btnrow z2m-overview-domain-check-controls' }, [
+        targetInput,
+        shell.button(_('Проверить'), 'primary sm', checkResource)
+      ]),
+      runResult
+    ]);
   }
 
-  function envelopeValue(key) { return object(data[key] && data[key].value); }
   function envelopeError(key) { return data[key] && data[key].error; }
   function statusKind(value) {
     if (value === true) return 'g';
@@ -303,17 +231,6 @@ function render(ctx) {
     if (value === 'running' || value === 'active' || value === 'enabled' || value === 'ready' || value === 'ok' || value === 'installed') return 'g';
     if (value === 'stopped' || value === 'disabled' || value === 'failed' || value === 'error') return 'r';
     return 'o';
-  }
-  function statusText(value, fallback) {
-    if (value === true) return _('Включено');
-    if (value === false) return _('Выключено');
-    var labels = {
-      mismatch: _('Расхождение'), installed: _('Установлен'), unavailable: _('Недоступно'),
-      running: _('Работает'), stopped: _('Остановлен'), ready: _('Готово'), degraded: _('Требует проверки'),
-      unknown: _('Состояние неизвестно'), operation: _('Выполняется'), error: _('Ошибка')
-    };
-    if (labels[String(value || '').toLowerCase()]) return labels[String(value || '').toLowerCase()];
-    return format.text(value) || fallback || _('Недоступно');
   }
   function reasonLabel(code) {
     var labels = {
@@ -324,17 +241,6 @@ function render(ctx) {
       'process-missing': _('Процесс nfqws2 не найден')
     };
     return labels[String(code || '').toLowerCase()] || _('Сервер не предоставил подробности');
-  }
-  function durationLabel(seconds) {
-    var value = Number(seconds);
-    if (!isFinite(value) || value < 0) return _('неизвестно');
-    value = Math.floor(value);
-    var days = Math.floor(value / 86400);
-    var hours = Math.floor((value % 86400) / 3600);
-    var minutes = Math.floor((value % 3600) / 60);
-    if (days) return days + _(' д ') + hours + _(' ч');
-    if (hours) return hours + _(' ч ') + minutes + _(' мин');
-    return minutes + _(' мин');
   }
   function memoryLabel(kb) {
     var value = Number(kb);
@@ -360,6 +266,12 @@ function render(ctx) {
     if (snapshot.state === 'stopped') return { value: _('Остановлен'), kind: 'stopped', detail: _('Процесс не запущен') };
     if (snapshot.state === 'mismatch') return { value: _('Расхождение'), kind: 'warning', detail: _('Процесс и NFQUEUE работают, но применённая конфигурация изменилась') };
     return { value: _('Недоступно'), kind: 'warning', detail: _('Сервер не подтвердил состояние процесса') };
+  }
+  function componentVersion(value) {
+    value = object(value);
+    var installed = object(value.installed);
+    var release = object(value.installedRelease);
+    return format.text(value.version || installed.version || release.value);
   }
   function unavailableCard(detail) {
     return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Сервер не сообщил состояние') };
@@ -423,17 +335,70 @@ function render(ctx) {
     if (engine.installed === true) {
       var truth = ComponentsModel.normalizeEngine({ status: engine });
       var installedRelease = format.text(truth.installed.version);
-      if (truth.artifactKind === 'legacy-compatibility-build') return {
-        value: installedRelease || _('Legacy compatibility build'), kind: '',
-        detail: _('Legacy compatibility build · доступен официальный stock release')
-      };
       return {
         value: installedRelease || _('Установлен'), kind: '',
         detail: _('Официальный release bol-van/zapret2')
       };
     }
-    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Сервер подтвердил отсутствие пакета') };
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: null };
     return unavailableCard(_('Сервер не сообщил состояние zapret2'));
+  }
+  function unknownComponentValue(detail) {
+    return { value: _('Состояние неизвестно'), kind: 'warning', detail: detail || _('Сервер не сообщил состояние компонента') };
+  }
+  function componentEngineStatus() {
+    return Object.assign({}, object(status.engine), object(engineStatus.status), object(engineStatus.engine), engineStatus);
+  }
+  function engineComponentValue() {
+    if (envelopeError('status') || envelopeError('engineStatus')) return unavailableCard(_('Состояние Engine недоступно'));
+    var engine = componentEngineStatus();
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: null };
+    if (engine.installed !== true) return unknownComponentValue(_('Сервер не сообщил, установлен ли Zapret2 Engine'));
+    var page = ComponentsModel.normalizePage({ engine: engine, z2k: object(resourcesStatus.z2k) });
+    var truth = page.components[0];
+    var version = componentVersion(truth);
+    if (truth.runtimeHealth === 'broken') return { value: _('Ошибка'), kind: 'error', detail: version };
+    var process = processValue();
+    if (process.value === _('Недоступно')) return unknownComponentValue(_('Сервер не подтвердил состояние Engine'));
+    return {
+      value: process.value === _('Работает') ? _('Работает') : _('Установлен'),
+      kind: process.kind,
+      detail: version
+    };
+  }
+  function z2kComponentValue() {
+    if (envelopeError('resourcesStatus')) return unavailableCard(_('Состояние Z2K Core недоступно'));
+    var engine = componentEngineStatus();
+    var z2k = object(resourcesStatus.z2k);
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: null };
+    if (!Object.keys(z2k).length) return unknownComponentValue(_('Сервер не сообщил состояние Z2K Core'));
+    var page = ComponentsModel.normalizePage({ engine: engine, z2k: z2k });
+    var truth = page.components[1];
+    var version = componentVersion(truth);
+    if (truth.runtimeHealth === 'missing') return { value: _('Не установлен'), kind: 'stopped', detail: null };
+    if (truth.runtimeHealth === 'broken') return { value: _('Требует внимания'), kind: 'warning', detail: version };
+    if (truth.updateState === 'update-available') return { value: truth.updatePresentation.label, kind: 'warning', detail: version };
+    if (truth.runtimeHealth === 'ready') return { value: _('Готово'), kind: 'running', detail: version };
+    if (truth.runtimeHealth === 'degraded') return { value: _('Требует проверки'), kind: 'warning', detail: version };
+    return unknownComponentValue(_('Сервер не подтвердил состояние Z2K Core'));
+  }
+  function componentContext(engine, z2k) {
+    if (engine.value === _('Не установлен')) return _('Сначала установите Zapret2 Engine');
+    if (engine.kind === 'error' || z2k.kind === 'error') return _('Откройте Компоненты для восстановления.');
+    if (engine.kind === 'warning' || z2k.kind === 'warning') return _('Откройте Компоненты для проверки состояния.');
+    return null;
+  }
+  function componentSummaryCard(loading) {
+    var engine = loading ? { value: _('Загрузка…'), kind: '', detail: null } : engineComponentValue();
+    var z2k = loading ? { value: _('Загрузка…'), kind: '', detail: null } : z2kComponentValue();
+    return {
+      id: 'card-zapret2', label: _('Компоненты'), icon: 'cpu', href: '#/components', headerArrow: true,
+      rows: [
+        { label: _('Zapret2 Engine'), value: engine.value, kind: engine.kind, detail: engine.detail },
+        { label: _('Z2K Core'), value: z2k.value, kind: z2k.kind, detail: z2k.detail }
+      ],
+      context: componentContext(engine, z2k)
+    };
   }
   function componentUpdateSummary() {
     var z2k = object(resourcesStatus.z2k);
@@ -494,28 +459,27 @@ function render(ctx) {
   function statusCards() {
     if (!data.status && !data.engineStatus && !data.systemStatus) {
       return [
-        { id: 'card-nfqws', label: 'nfqws2', value: _('Загрузка…'), detail: null, kind: '', icon: 'nfqws' },
+        componentSummaryCard(true),
         { id: 'card-strategy', label: _('Стратегия'), value: _('Загрузка…'), detail: null, kind: '', icon: 'strategy' },
         { id: 'card-autostart', label: _('Автозапуск'), value: _('Загрузка…'), detail: null, kind: '', icon: 'autostart' },
         { id: 'card-system', label: _('Система'), value: _('Загрузка…'), detail: null, kind: '', icon: 'system' },
         { id: 'card-telegram', label: _('Telegram Proxy'), value: _('Загрузка…'), detail: null, kind: '', icon: 'service:telegram', href: '#/telegram-tunnel' }
       ];
     }
-    var process = processValue();
     var canonicalName = format.text(view.strategy.name);
     var strategyName = strategyPresentation(canonicalName);
     var activeName = format.text(strategyName.primary);
     var strategySecondary = format.text(strategyName.secondary);
     var strategy = activeName !== null
       ? { value: activeName, kind: 'running', detail: strategySecondary || _('Активная стратегия') }
-      : envelopeError('preview')
+      : envelopeError('strategy')
         ? { value: _('Недоступно'), kind: 'warning', detail: _('Сервер не сообщил стратегию') }
         : { value: _('Не выбрана'), kind: '', detail: _('Подтверждённая стратегия отсутствует') };
     var autostart = autostartCardValue();
     var system = systemCardValue();
     var telegram = telegramCardValue();
     return [
-      { id: 'card-nfqws', label: 'nfqws2', value: process.value, detail: process.detail, kind: process.kind, icon: 'nfqws' },
+      componentSummaryCard(false),
       { id: 'card-strategy', label: _('Стратегия'), value: strategy.value, detail: strategy.detail, kind: strategy.kind, icon: 'strategy' },
       { id: 'card-autostart', label: _('Автозапуск'), value: autostart.value, detail: autostart.detail, kind: autostart.kind, icon: 'autostart' },
       { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' },
@@ -611,7 +575,7 @@ function render(ctx) {
     var learnedEvidence = object(item.learnedEvidence);
     var healthEvidence = object(item.healthEvidence);
     if (item.upstreamRecommended === true) reasons.push(_('Рекомендуется каталогом'));
-    if (scannerEvidence.verified === true) reasons.push(_('Подтверждено сканированием'));
+    if (scannerEvidence.verified === true) reasons.push(_('Подтверждено Z2K Detect'));
     if (learnedEvidence.count > 0 || asArray(learnedEvidence.domains).length) reasons.push(_('Подтверждено историей'));
     if (healthEvidence.recentlyHealthy === true || healthEvidence.status === 'healthy') reasons.push(_('Проверено проверкой состояния'));
     return reasons;
@@ -660,7 +624,10 @@ function render(ctx) {
     quickActions: renderQuickActions(),
     recommendations: renderRecommendations(),
     recentEvents: renderEvents(),
-    extension: componentUpdateSummary()
+    extension: E('div', { 'class': 'z2m-overview-extensions' }, [
+      renderResourceChecker(),
+      componentUpdateSummary()
+    ])
   });
 }
 
@@ -668,14 +635,12 @@ function mount() {
   runtime.mountedLoadToken = runtime.loadToken;
 }
 function unmount() {
-  if (runtime.timer) window.clearTimeout(runtime.timer);
-  runtime.timer = null;
-  runtime.runId = null;
   // Invalidate page-local deferred work before the next tab can reuse the
   // shared runtime object. Late RPC results must not repaint a newer page.
   if (runtime.mountedLoadToken === runtime.loadToken) runtime.loadToken++;
   runtime.mountedLoadToken = null;
   runtime.deferred = {};
+  runtime.measurement = null;
   runtime.events = { initialized: false, keys: [], follow: true, unread: 0 };
 }
 

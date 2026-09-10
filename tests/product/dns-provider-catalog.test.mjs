@@ -100,7 +100,7 @@ test('service DNS and product facade expose one effective provider identity', ()
 test('service DNS status propagates catalog and normalized-state failures', () => {
   const source = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc', 'utf8');
   const start = source.indexOf('export const service_dns_status');
-  const end = source.indexOf('export const service_dns_preview', start);
+  const end = source.indexOf('export const service_dns_set', start);
   const status = source.slice(start, end);
   assert.match(status, /if\s*\(!d\.ok\)\s*return/);
   assert.match(status, /if\s*\(!normalized\.ok\)\s*return\s+normalized/);
@@ -142,7 +142,7 @@ test('global DNS fails closed when its shared provider catalog is unavailable', 
   assert.match(source, /let\s+catalog\s*=\s*dns_provider_catalog_get\(\)/);
   assert.match(source, /catalog\.ok\s*===\s*true/);
   assert.match(source, /ok:\s*catalog\.ok\s*===\s*true/);
-  assert.match(source, /dns_global_preview[\s\S]*catalog_guard/);
+  assert.match(source, /dns_global_apply[\s\S]*catalog_guard/);
   assert.match(source, /dns_global_apply[\s\S]*catalog_guard/);
 });
 

@@ -11,15 +11,12 @@ var HUMAN_STATES = { current: _('Актуально'), update: _('Доступн
 function text(value, fallback) { return value == null || value === '' ? (fallback || '') : String(value); }
 function json(value) { return JSON.stringify(value); }
 function label(type) { return ({ ipset: _('IP-набор'), blob: _('Бинарный ресурс'), lua: _('Lua-скрипт'), hostlist: _('Список доменов'), hosts: _('Hosts'), geosite: _('GeoSite'), geoip: _('GeoIP') })[type] || _('Ресурс'); }
-function group(type) { return ({ lua: _('Lua'), blob: _('Блобы'), hostlist: _('Списки доменов'), hosts: _('Hosts'), ipset: _('IP-наборы'), geosite: _('Geo data'), geoip: _('Geo data') })[type] || _('Прочее'); }
 function icon(type) { return ({ lua: 'λ', blob: '◆', hostlist: '⌁', hosts: '⌂', ipset: '#', geosite: '◎', geoip: '◎' })[type] || '◇'; }
 function semanticType(asset) { return asset && (asset.semanticKind || asset.type) || null; }
-function assetTypeForRoute(route, params) { return params && params.type || ({ ipsets: 'ipset', blobs: 'blob', lua: 'lua', hosts: 'hosts', hostlists: 'hostlist' }[route] || null); }
 function refs(asset) { return Array.isArray(asset && asset.references) ? asset.references : []; }
 function management(asset) { return asset && asset.management && typeof asset.management === 'object' ? asset.management : {}; }
 function genericEditable(asset) { return management(asset).editable === true; }
 function lifecycleManaged(asset) { var policy = management(asset); return policy.owner === 'z2k-core' && policy.mode === 'lifecycle'; }
-function mutable(asset) { return genericEditable(asset); }
 function stateBadge(row) { var state = row.state || 'unknown'; return AvatarUi.statusBadge(state, { label: text(row.status, HUMAN_STATES[state] || HUMAN_STATES.unknown), kind: state === 'current' ? 'good' : state === 'update' ? 'warn' : state === 'error' || state === 'attention' ? 'danger' : 'muted' }); }
 function updateBadge(presentation) { return AvatarUi.statusBadge(presentation.state, { label: presentation.label, kind: presentation.kind === 'g' ? 'good' : presentation.kind === 'r' ? 'danger' : presentation.kind === 'o' ? 'warn' : 'muted' }); }
 function message(ctx, value) { return ctx.api.normalizeError(value).message; }
@@ -55,26 +52,6 @@ function load(ctx) {
     ctx.api.strategies.sourcesGet().catch(function (error) { return { ok: false, error: ctx.api.normalizeError(error) }; })
   ]).then(function (values) { return { value: { resources: values[0] || {}, assets: values[1] || {}, strategySources: values[2] || {} } }; });
 }
-function metadata(asset) { var provenance = asset.provenance || {}, policy = management(asset), semantic = semanticType(asset); return E('dl', { 'class': 'z2m-asset-meta' }, [E('dt', {}, _('Владелец')), E('dd', {}, lifecycleManaged(asset) ? _('Управляется Z2K Core') : asset.ownership === 'package' ? _('Package / immutable') : text(asset.ownership, _('Manager'))), E('dt', {}, _('Семантика')), E('dd', {}, label(semantic)), E('dt', {}, _('Тип хранения')), E('dd', {}, label(asset.type)), E('dt', {}, _('Версия')), E('dd', {}, text(provenance.version, '—')), E('dt', {}, _('Ревизия')), E('dd', {}, text(asset.revision, '—')), E('dt', {}, _('SHA-256')), E('dd', { 'class': 'mono' }, text(asset.contentSha256, '—')), E('dt', {}, _('Размер')), E('dd', {}, text(asset.byteSize, '0') + ' байт'), E('dt', {}, _('Управление')), E('dd', {}, lifecycleManaged(asset) ? _('Lifecycle: только через Компоненты') : policy.editable === true ? _('Workspace editable') : _('Только чтение')), E('dt', {}, _('Provenance')), E('dd', {}, text(provenance.kind, '—') + (provenance.source ? ' · ' + provenance.source : '')), E('dt', {}, _('Используется')), E('dd', {}, refs(asset).length ? refs(asset).map(function (ref) { return ref.consumer; }).join(', ') : _('нет ссылок'))]); }
-function detailModal(ctx, asset) {
-  ctx.shell.openModal(
-    _('Ресурс ' + text(asset.name || asset.id)),
-    E('div', { 'class': 'z2m-resource-detail' }, [
-      E('p', {}, [
-        E('strong', {}, text(asset.name || asset.id)),
-        E('span', { 'class': 'z2m-dim' }, ' · ' + label(semanticType(asset)))
-      ]),
-      metadata(asset),
-      E('details', {}, [
-        E('summary', {}, _('Технические детали')),
-        E('pre', {}, JSON.stringify(asset, null, 2))
-      ])
-    ]),
-    ctx.shell.button(_('Закрыть'), 'primary', ctx.shell.closeModal)
-  );
-}
-function resourceCard(ctx, asset, open) { var actions = E('div', { 'class': 'z2m-resource-actions' }), semantic = semanticType(asset); actions.appendChild(ctx.shell.button(_('Открыть workspace'), 'primary sm', function () { open(asset); })); actions.appendChild(ctx.shell.button(_('Подробнее'), 'link sm', function () { detailModal(ctx, asset); })); if (lifecycleManaged(asset)) actions.appendChild(E('span', { 'class': 'z2m-dim' }, _('Управляется Z2K Core'))); else if (!genericEditable(asset) && refs(asset).length) actions.appendChild(E('span', { 'class': 'z2m-dim' }, _('Удаление запрещено: есть ссылки'))); return E('article', { 'class': 'z2m-resource-row', 'data-resource-id': text(asset.id) }, [E('span', { 'class': 'z2m-resource-type-icon', 'aria-hidden': 'true' }, icon(semantic)), E('div', { 'class': 'z2m-resource-main' }, [E('strong', {}, text(asset.name || asset.id)), E('span', { 'class': 'z2m-resource-subtitle' }, label(semantic)), E('span', { 'class': 'z2m-resource-meta' }, lifecycleManaged(asset) ? _('Управляется Z2K Core') + (asset.provenance && asset.provenance.version ? ' · ' + asset.provenance.version : '') : asset.ownership === 'package' ? _('Package baseline · immutable') : text(asset.provenance && asset.provenance.kind, _('Asset Registry')))]), E('div', { 'class': 'z2m-resource-state' }, [stateBadge(asset), refs(asset).length ? E('span', { 'class': 'z2m-dim' }, _('Используется: ') + refs(asset).map(function (ref) { return ref.consumer; }).join(', ')) : null]), actions]); }
-
 function importPanel(ctx, assets) { var rows = Array.isArray(assets) ? assets : [], existing = {}, type = E('select', { 'class': 'z2m-select', name: 'asset-type', autocomplete: 'off', 'aria-label': _('Тип ресурса') }), id = E('input', { type: 'text', name: 'asset-id', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', 'class': 'z2m-input', placeholder: 'hostlist:example', 'aria-label': _('Стабильный ID') }), content = E('textarea', { name: 'asset-content', autocomplete: 'off', spellcheck: 'false', rows: 5, placeholder: _('Текст ресурса; для blob/geo используйте hex'), 'aria-label': _('Содержимое ресурса') }), status = E('span', { 'class': 'z2m-dim' }); rows.forEach(function (asset) { existing[asset.id] = asset; }); ['lua', 'blob', 'ipset', 'hostlist', 'hosts', 'geosite', 'geoip'].forEach(function (value) { type.appendChild(E('option', { value: value }, label(value))); }); var button = ctx.shell.button(_('Импортировать'), 'primary', function () { var value = text(id.value).trim(), kind = type.value, current = existing[value], encoded = null; if (!value || value.indexOf(kind + ':') !== 0) { status.textContent = _('ID должен иметь вид type:slug.'); status.className = 'warnbar'; return; } if (current && lifecycleManaged(current)) { status.textContent = _('Этот ID принадлежит Z2K Core и не может быть перезаписан здесь.'); status.className = 'warnbar'; return; } try { encoded = ['blob', 'geosite', 'geoip'].indexOf(kind) >= 0 ? Tooling.bytesToBase64(Tooling.hexToBytes(content.value)) : Tooling.textToBase64(content.value); } catch (error) { status.textContent = error.message; status.className = 'warnbar'; return; } button.disabled = true; status.textContent = current ? _('Обновляем…') : _('Импортируем…'); var call = current ? ctx.api.assets.update(json({ id: value, expectedRevision: current.revision, contentBase64: encoded })) : ctx.api.assets.import(json({ type: kind, id: value, contentBase64: encoded, provenance: { kind: 'imported' } })); call.then(function (answer) { if (!answer || answer.ok === false || answer.error) throw answer; status.textContent = _('Ресурс сохранён.'); return ctx.refresh(ctx.route); }).catch(function (error) { status.textContent = message(ctx, error); status.className = 'warnbar'; }).then(function () { button.disabled = false; }); }); return E('div', { 'class': 'z2m-import-panel' }, [E('div', { 'class': 'z2m-inline-form' }, [type, id]), content, E('div', { 'class': 'z2m-inline-form' }, [button, status])]); }
 
 function hexRows(bytes, max) { return Tooling.boundedHexView(bytes, { maxBytes: max || 4096, columns: 16 }).rows.map(function (row) { return row.offset.toString(16).padStart(8, '0') + '  ' + row.hex.padEnd(47, ' ') + '  ' + row.ascii; }).join('\n'); }
@@ -203,8 +180,7 @@ function render(ctx) {
       ctx.shell.statePanel({ title: _('Asset Registry недоступен'), message: normalizedAssetsError.message || _('Не удалось загрузить Asset Registry.'), kind: 'error', actions: [ctx.shell.button(_('Повторить'), 'primary sm', function () { return ctx.refresh(ctx.route); })] })
     ]);
   }
-  var advanced = !!(ctx.store && ctx.store.ui && ctx.store.ui.advanced);
-  var model = ResourcesModel.buildModel(resources, { assets: assetsData }, { advanced: advanced });
+  var model = ResourcesModel.buildModel(resources, { assets: assetsData });
   var summary = model.summary;
   var canonicalZ2k = resources.z2k || resources.component || {};
   var canonicalRuntime = canonicalZ2k.runtimeSummary || resources.runtimeSummary || {};
@@ -214,23 +190,10 @@ function render(ctx) {
     ? canonicalRuntime.staticManagedCount : canonicalZ2k.staticManagedCount;
   var allVisible = model.groups.filter(function (group) { return group.kind !== 'strategy-catalog'; });
   var sourceCards = ResourcesModel.buildStrategySourceCards(strategySources);
-  var hiddenGroups = model.hiddenGroups || [];
 
   var filter = 'all';
   var searchQuery = '';
   var expanded = {};
-  var assetType = assetTypeForRoute(ctx.route, ctx.routeParams);
-  var summaryForRoute = summary;
-  if (assetType) {
-    var routeTotal = 0;
-    var routeUser = 0;
-    allVisible.forEach(function (group) {
-      var count = group.assets.filter(function (asset) { return semanticType(asset) === assetType; }).length;
-      routeTotal += count;
-      if (group.id === 'user') routeUser += count;
-    });
-    summaryForRoute = Object.assign({}, summary, { total: routeTotal, user: routeUser });
-  }
 
   var root = E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' });
   var body = E('div', { 'class': 'z2m-resource-body' });
@@ -245,12 +208,8 @@ function render(ctx) {
     return (asset.id && asset.id.toLowerCase().indexOf(s) >= 0) || (asset.name && asset.name.toLowerCase().indexOf(s) >= 0) || (semanticType(asset) && semanticType(asset).toLowerCase().indexOf(s) >= 0) || (asset.type && asset.type.toLowerCase().indexOf(s) >= 0);
   }
 
-  function matchesRoute(asset) {
-    return !assetType || semanticType(asset) === assetType;
-  }
-
   function routeAssets(group) {
-    return group.assets.filter(matchesRoute);
+    return group.assets;
   }
 
   function filteredGroups() {
@@ -263,7 +222,6 @@ function render(ctx) {
       // For user filter, even if group has 0 assets, show user group
       // Apply search: keep group if any asset matches or group label matches
       var typedAssets = routeAssets(g);
-      if (assetType && !typedAssets.length && g.id !== 'user') continue;
       if (q) {
         var labelMatch = g.label && g.label.toLowerCase().indexOf(q) >= 0;
         var anyAssetMatch = false;
@@ -434,13 +392,6 @@ function render(ctx) {
 
     var children = [headerRow];
 
-    if (advanced && group.source) {
-      var adv = [];
-      if (group.source.commit) adv.push(E('div', { 'class': 'z2m-dim mono' }, _('Commit источника') + ': ' + text(group.source.commit)));
-      if (group.commit && group.commit !== group.source.commit) adv.push(E('div', { 'class': 'z2m-dim mono' }, _('Provenance: ') + text(group.commit)));
-      if (adv.length) children.push(E('details', { 'class': 'z2m-resource-group-adv' }, [E('summary', {}, _('▸ Технические сведения')), E('div', {}, adv)]));
-    }
-
     if (isExpanded && assets.length) {
       var filteredAssets = [];
       var q2 = searchQuery.trim().toLowerCase();
@@ -459,19 +410,10 @@ function render(ctx) {
         var showBadge = ResourcesModel.shouldShowBadge(asset);
         var assetBadge = showBadge ? stateBadge(asset) : null;
         var used = refs(asset).length ? refs(asset).map(function (r) { return r.consumer; }).join(', ') : '—';
-        var advMeta = null;
-        if (advanced) {
-          var parts = [];
-          if (asset.contentSha256) parts.push(asset.contentSha256.slice(0, 12) + '…');
-          if (asset.provenance && asset.provenance.kind) parts.push(asset.provenance.kind);
-          if (asset.revision) parts.push('r' + asset.revision);
-          advMeta = E('div', { 'class': 'z2m-dim mono' }, parts.join(' · '));
-        }
         return E('div', { 'class': 'z2m-resource-table-row', 'data-resource-id': text(asset.id) }, [
           E('div', { 'class': 'z2m-resource-table-name' }, [
             E('span', { 'class': 'z2m-resource-type-icon' }, icon(semanticType(asset))),
             E('span', {}, E('strong', {}, text(asset.name || asset.id))),
-            advMeta,
             assetBadge ? E('span', { 'class': 'z2m-resource-table-badge' }, assetBadge) : null
           ]),
           E('span', { 'class': 'z2m-dim' }, label(semanticType(asset))),
@@ -510,32 +452,16 @@ function render(ctx) {
     if (!cards.length) {
       empty = AvatarUi.state('empty', { title: _('Ничего не найдено'), body: _('Попробуйте изменить фильтр или поисковый запрос.') });
     }
-    var technical = null;
-    if (advanced && hiddenGroups.length) {
-      var pkg = hiddenGroups.find(function(g){ return g.id === 'package-baseline'; });
-      if (pkg) {
-        technical = E('details', { 'class': 'z2m-resource-technical' }, [
-          E('summary', {}, _('Дополнительно')),
-          E('div', { 'class': 'z2m-resource-technical-body' }, [
-             E('div', {}, [E('strong', {}, pkg.label), E('div', { 'class': 'z2m-dim mono' }, _('Commit: ') + text(pkg.commit || (pkg.source && pkg.source.commit) || '—'))]),
-             pkg.source && pkg.source.version ? E('div', { 'class': 'z2m-dim' }, _('Версия: ') + text(pkg.source.version)) : null,
-             pkg.source && pkg.source.repository ? E('div', { 'class': 'z2m-dim mono' }, text(pkg.source.repository)) : null,
-             E('div', { 'class': 'z2m-dim' }, ResourcesModel.resourceCountText(pkg.total)),
-             pkg.source && pkg.source.kind ? E('div', { 'class': 'z2m-dim' }, _('Provenance: ') + text(pkg.source.kind)) : null
-          ].filter(Boolean))
-        ]);
-      }
-    }
-    return E('div', { 'class': 'z2m-resource-groups' }, [].concat([renderStrategySources()]).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
+    return E('div', { 'class': 'z2m-resource-groups' }, [].concat([renderStrategySources()]).concat(cards).concat(empty ? [empty] : []));
   }
 
   var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов…'), 'aria-label': _('Поиск ресурсов') });
   searchInput.addEventListener('input', function () { searchQuery = searchInput.value; body.replaceChildren(renderBody()); });
 
   var filterTabs = ctx.shell.segmented([
-    { id: 'all', label: _('Все · ' + summaryForRoute.total) },
-    { id: 'system', label: _('Системные · ' + summaryForRoute.system) },
-    { id: 'user', label: _('Мои · ' + summaryForRoute.user) }
+    { id: 'all', label: _('Все · ' + summary.total) },
+    { id: 'system', label: _('Системные · ' + summary.system) },
+    { id: 'user', label: _('Мои · ' + summary.user) }
   ], filter, function (id) { filter = id; body.replaceChildren(renderBody()); }, { 'aria-label': _('Фильтр ресурсов') });
 
   var addBtn = ctx.shell.button(_('+ Добавить ресурс'), 'primary sm', openImport);
@@ -557,13 +483,6 @@ function render(ctx) {
   root.appendChild(controls);
   root.appendChild(body);
   body.replaceChildren(renderBody());
-
-  var routeId = ctx.routeParams && (ctx.routeParams.id || ctx.routeParams.asset);
-  if (routeId) {
-    var sel = null;
-    for (var i = 0; i < assetsData.length; i++) if (assetsData[i].id === routeId) { sel = assetsData[i]; break; }
-    if (sel) openAsset(sel);
-  }
 
   return root;
 }

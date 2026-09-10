@@ -39,7 +39,7 @@ function reachableModules(root, entry = 'app.js') {
 test('all shipped LuCI require references resolve to case-sensitive files', () => {
   const result = resolveLuCIRequireClosure(ROOT);
   assert.deepEqual(result.missing, [], JSON.stringify(result.missing, null, 2));
-  assert.ok(result.references.get('app.js')?.some((module) => module.name === 'z2m-blockcheck-page'));
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), /z2m-blockcheck-page|BlockCheck/);
 });
 
 test('CodeMirror vendor is shipped as a static asset outside the LuCI require closure', () => {
@@ -74,13 +74,13 @@ test('reachability test catches an orphan module', () => {
 test('closure test catches a missing module before deployment', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ui-closure-'));
   try {
-    fs.writeFileSync(path.join(temp, 'app.js'), "'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';\n");
+    fs.writeFileSync(path.join(temp, 'app.js'), "'require view.zapret2-manager.z2m-missing-module as Missing';\n");
     const result = resolveLuCIRequireClosure(temp);
     assert.deepEqual(result.missing, [{
       from: 'app.js',
       namespace: 'view.zapret2-manager',
-      module: 'z2m-blockcheck-page',
-      expected: 'z2m-blockcheck-page.js',
+      module: 'z2m-missing-module',
+      expected: 'z2m-missing-module.js',
     }]);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
@@ -90,14 +90,14 @@ test('closure test catches a missing module before deployment', () => {
 test('closure test catches case-only path drift', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ui-case-'));
   try {
-    fs.writeFileSync(path.join(temp, 'app.js'), "'require view.zapret2-manager.z2m-BlockCheck-page as BlockCheck';\n");
-    fs.writeFileSync(path.join(temp, 'z2m-blockcheck-page.js'), '');
+    fs.writeFileSync(path.join(temp, 'app.js'), "'require view.zapret2-manager.z2m-Missing-page as Missing';\n");
+    fs.writeFileSync(path.join(temp, 'z2m-missing-page.js'), '');
     const result = resolveLuCIRequireClosure(temp);
     assert.deepEqual(result.missing, [{
       from: 'app.js',
       namespace: 'view.zapret2-manager',
-      module: 'z2m-BlockCheck-page',
-      expected: 'z2m-BlockCheck-page.js',
+      module: 'z2m-Missing-page',
+      expected: 'z2m-Missing-page.js',
     }]);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
@@ -108,7 +108,7 @@ test('engine-gated views preserve LuCI constructor contract', () => {
   const gate = fs.readFileSync(path.join(ROOT, 'z2m-engine-gate.js'), 'utf8');
   assert.match(gate, /return\s+baseclass\.extend\(wrapped\)/);
   assert.match(gate, /Object\.getOwnPropertyNames\(module\.prototype\)/);
-  for (const entrypoint of ['z2m-domain-hub-page.js', 'z2m-dns-page.js', 'z2m-monitor.js']) {
+  for (const entrypoint of ['z2m-domain-hub-page.js', 'z2m-dns-page.js']) {
     const body = fs.readFileSync(path.join(ROOT, entrypoint), 'utf8');
     assert.match(body, /return\s+EngineGate\.wrap\(/, entrypoint);
   }

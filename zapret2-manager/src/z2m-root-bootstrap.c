@@ -23,7 +23,6 @@ static const struct managed_root managed_roots[] = {
     { "/etc/zapret2-manager/secrets", SELECT_PERSISTENT },
     { "/tmp/zapret2-manager/runtime", SELECT_RUNTIME },
     { "/tmp/zapret2-manager/jobs", SELECT_RUNTIME },
-    { "/tmp/zapret2-manager/locks", SELECT_RUNTIME },
     { "/tmp/zapret2-manager/staging", SELECT_RUNTIME },
 };
 

@@ -54,7 +54,6 @@ test('full event history keeps the same Russian semantic columns', () => {
   assert.match(maintenanceModel, /source: text\(event\.source \|\| event\.component\)/);
   assert.match(maintenanceModel, /Date\.parse/);
   assert.match(maintenanceModel, /slice\(-Math\.floor\(limit\)\)/);
-  assert.match(avatarLog, /function messageLabel/);
   assert.match(avatarLog, /Параметр NFQWS2_ENABLE=/);
   assert.match(avatarLog, /function timestamp/);
   assert.match(avatarLog, /function normalizeRows/);
@@ -63,7 +62,6 @@ test('full event history keeps the same Russian semantic columns', () => {
 test('Logs page is a dedicated full-fidelity route wired to AvatarLog', () => {
   assert.match(diagnostics, /require view\.zapret2-manager\.z2m-avatar-log as AvatarLog/);
   assert.match(app, /logs:\s*Diagnostics/);
-  assert.match(app, /diagnostics:\s*Diagnostics/);
   assert.doesNotMatch(app, /logs:\s*Monitor/);
   assert.match(nav, /id:\s*'logs',\s*label:\s*_\('Журналы'\)/);
   assert.match(avatarLog, /id:\s*'logs'/);
@@ -200,7 +198,7 @@ test('Russian product event presentation translates structured event codes and b
   assert.match(avatarLog, /function formatEventMessage/);
   assert.match(avatarLog, /Перезапуск nfqws2: запрос успешно выполнен/);
   assert.match(avatarLog, /Проверка завершена: изменений в обученном состоянии не требуется/);
-  assert.match(avatarLog, /Применён черновик профилей/);
+  assert.match(avatarLog, /Стратегия применена и проверена/);
   assert.match(avatarLog, /Проверка доступности завершена/);
   assert.match(avatarLog, /rawMessage/);
 });

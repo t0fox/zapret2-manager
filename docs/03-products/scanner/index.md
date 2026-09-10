@@ -1,17 +1,17 @@
 ---
-id: product-scanner-index
-title: "Сканер"
+id: product-z2k-detect-index
+title: "Z2K Detect"
 type: product
 status: current
 authority: index
 updated: 2026-08-13
 publish: true
-tags: [product, scanner, parity]
+tags: [product, z2k-detect]
 ---
 
-# Сканер
+# Z2K Detect
 
-Scanner — это пользовательская оболочка для пяти upstream Detect-операций.
+Z2K Detect — это пользовательская оболочка для пяти upstream Detect-операций.
 Каждая операция возвращает bounded typed evidence и не меняет permanent
 Strategy или production runtime.
 
@@ -28,5 +28,6 @@ Detect не является владельцем NFQUEUE, `nfqws2` или perma
 границы остаются у Engine и Strategy соответственно. Ошибка Detect всегда
 показывается как typed result, а не маскируется под последний удачный вариант.
 
-Полномочия runtime и доказательства discovery записаны в документе
-[«Полномочия runtime сканера»](../../02-architecture/scanner-runtime-authority.md).
+Runtime authority остаётся у Z2K Detect: UI вызывает только типизированные
+`z2k_detect_*` RPC, а permanent Strategy Apply выполняется отдельным Strategy
+journey.

@@ -64,7 +64,6 @@ function error(code, message, path) {
 function copy(value) {
 	try { return json(sprintf('%J', value)); } catch (e) { return null; }
 }
-function trim_ws(value) { return trim(value == null ? '' : '' + value); }
 function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{40}$/); }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function valid_release(value) { return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/); }
@@ -320,7 +319,6 @@ function standalone_projection(model, profile, index, sourceCommit, compiler, re
 	}
 	return { ok: true, entry: one };
 }
-function composition_digest(value) { return digest(sprintf('%J', value)); }
 function profile_field_values(profiles, field) {
 	let result = [];
 	for (let profile in profiles) push(result, profile[field]);

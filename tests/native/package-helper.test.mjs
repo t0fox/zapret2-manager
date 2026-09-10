@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
-const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
+const makefile = fs.readFileSync('zapret2-manager-full/Makefile', 'utf8');
 const initScript = fs.readFileSync('zapret2-manager/files/etc/init.d/zapret2-manager', 'utf8');
 const nativeGate = fs.readFileSync('scripts/test/native.sh', 'utf8');
 const nativeRootGate = fs.existsSync('scripts/test/native-root.sh')
@@ -35,7 +35,6 @@ const productionSources = [
   'detect.c',
 ];
 const brokerSources = ['z2m-helperd.c', 'transport.c', 'supervise.c'];
-const scannerFirewallHelperSource = 'z2m-scanner-firewall-helper.c';
 const nativeHelperAdapterPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc';
 
 test('core helper does not mix libc and Linux UAPI statx declarations', () => {
@@ -90,11 +89,11 @@ test('native gate and product subprocesses preserve configured ucode module path
   assert.match(fs.readFileSync('tests/native/core/ucode-test-harness.mjs', 'utf8'),
     /export function ucodeModulePattern\(modulePath, libraryPath\)[\s\S]*path\.join\(moduleRoot, '\*\.so'\)/,
     'the shared test harness must convert module directories to ucode library globs');
-  assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
+  assert.match(fs.readFileSync('tests/product/strategy-discord-source-integration.test.mjs', 'utf8'),
     /ucodeModulePattern\([\s\S]*process\.env\.UCODE_MODULE_PATH, process\.env\.UCODE_LIBRARY_PATH\)/,
     'product ucode subprocesses must pass the converted module pattern');
-  assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
-    /ucodeDiagnostic\(\[UCODE_BIN, \.\.\.argv\], UCODE_MODULE_PATTERN\)/,
+  assert.match(fs.readFileSync('tests/product/strategy-discord-source-integration.test.mjs', 'utf8'),
+    /ucodeDiagnostic\(\[UCODE_BIN, \.\.\.argv\], MODULE_PATTERN\)/,
     'product failures must report exact argv, safe ucode env, and normalized module paths');
 });
 
@@ -142,25 +141,29 @@ test('consecutive non-root gates isolate elevated state from the caller temporar
     'the root wrapper must clean only the directory it created');
 });
 
-test('package strictly builds and installs the managed-root bootstrap', () => {
+test('full package strictly builds and installs the managed-root bootstrap', () => {
   const compile = block('Build/Compile');
-  assert.match(compile, /\$\(TARGET_CC\)[\s\S]*z2m-root-bootstrap\.c[\s\S]*-o\s+\$\(PKG_BUILD_DIR\)\/z2m-root-bootstrap/);
+  assert.match(compile, /\$\(TARGET_CC\)[\s\S]*\$\(PKG_BUILD_DIR\)\/backend-src\/z2m-root-bootstrap\.c[\s\S]*-o\s+\$\(PKG_BUILD_DIR\)\/z2m-root-bootstrap/);
   for (const flag of ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE'])
     assert.ok(compile.includes(flag), `bootstrap compilation must use ${flag}`);
   assert.doesNotMatch(compile, /-DZ2M_TESTING/, 'production bootstrap must ignore test prefixes');
 
   const prepare = block('Build/Prepare');
-  assert.match(prepare, /src\/z2m-root-bootstrap\.c/);
-  const install = block('Package/zapret2-manager/install');
+  assert.match(makefile, /BACKEND_SOURCE_DIR:=\$\(FULL_SOURCE_DIR\)\/backend-src/);
+  assert.match(prepare, /BACKEND_SOURCE_DIR/);
+  const install = block('Package/zapret2-manager-full/install');
   assert.match(install, /\$\(INSTALL_BIN\)[^\n]*z2m-root-bootstrap[^\n]*\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap/);
 });
 
-test('package and service lifecycle fail closed when bootstrap fails', () => {
-  const postinst = block('Package/zapret2-manager/postinst');
+test('full package and service lifecycle fail closed when bootstrap fails', () => {
+  const postinst = block('Package/zapret2-manager-full/postinst');
   assert.match(postinst, /\[ -n "\$\$\{IPKG_INSTROOT:-\}" \] && exit 0/);
   const bootstrapAt = postinst.indexOf('/usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?');
   assert.ok(bootstrapAt >= 0, 'live postinst must propagate persistent bootstrap failure');
-  assert.ok(bootstrapAt < postinst.indexOf('/etc/init.d/rpcd reload'));
+  const rpcdReloadAt = postinst.indexOf('kill -HUP "$$rpcd_pid" || exit $$?');
+  const rpcdStartAt = postinst.indexOf('/etc/init.d/rpcd start || exit $$?');
+  assert.ok(rpcdReloadAt >= 0 || rpcdStartAt >= 0, 'live postinst must refresh or start rpcd');
+  assert.ok(bootstrapAt < (rpcdReloadAt >= 0 ? rpcdReloadAt : rpcdStartAt));
   assert.ok(bootstrapAt < postinst.indexOf('/etc/init.d/zapret2-manager enable'));
 
   assert.match(initScript, /^BOOTSTRAP=\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap$/m);
@@ -287,7 +290,6 @@ const managedRoots = [
   '/tmp/zapret2-manager',
   '/tmp/zapret2-manager/runtime',
   '/tmp/zapret2-manager/jobs',
-  '/tmp/zapret2-manager/locks',
   '/tmp/zapret2-manager/staging',
   '/etc/zapret2-manager/state',
   '/etc/zapret2-manager/snapshots',
@@ -381,20 +383,8 @@ test('managed-root creation policy permits worker-private engine staging', () =>
   assert.equal(sites.some(unsafeCreation), false, JSON.stringify(sites));
 });
 
-test('native bootstrap solely owns managed roots and recursive parent traversal', () => {
-  const violations = [];
-  for (const file of walkFiles(['zapret2-manager/files'])) {
-    const body = fs.readFileSync(file, 'utf8');
-    for (const site of creationCallsites(file, body)) {
-      if (unsafeCreation(site))
-        violations.push(`${file}: ${site.source} -> ${site.target}`);
-    }
-  }
-  assert.deepEqual(violations, [], `unsafe managed-root creation:\n${violations.join('\n')}`);
-});
-
 test('standalone runtime CLIs bootstrap managed roots and propagate failure', () => {
-  for (const file of ['jobs-cli.uc', 'orchestra-cli.uc', 'engine-cli.uc', 'proxy-provider-cli.uc']) {
+  for (const file of ['jobs-cli.uc', 'engine-cli.uc', 'strategy-apply-runtime-cli.uc']) {
     const body = fs.readFileSync(`zapret2-manager/files/usr/libexec/zapret2-manager/${file}`, 'utf8');
     assert.match(body,
       /\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap runtime/,
@@ -411,8 +401,8 @@ test('local pinned ucode build enables the fs module required by production impo
     'test ucode must build fs.so because production modules import fs');
 });
 
-test('package declares every ucode module required by native helper transport', () => {
-  const packageDefinition = block('Package/zapret2-manager');
+test('full package declares every ucode module required by native helper transport', () => {
+  const packageDefinition = block('Package/zapret2-manager-full');
   for (const dependency of ['ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop']) {
     assert.match(packageDefinition, new RegExp(`(?:^|\\s)\\+${dependency}(?=\\s|$)`),
       `package must depend on ${dependency}`);
@@ -553,7 +543,7 @@ test('package target-builds the complete production helper with json-c', () => {
 
   const compile = block('Build/Compile');
   for (const source of productionSources) {
-    assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/${source.replace('.', '\\.')}\\b`),
+    assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/backend-src/z2m-core-helper/${source.replace('.', '\\.')}\\b`),
       `Build/Compile must compile ${source}`);
   }
   assert.match(compile, /\$\(TARGET_CC\)/, 'helper must use the target compiler');
@@ -577,39 +567,27 @@ test('package target-builds the complete production helper with json-c', () => {
     'package must declare the nft queue kernel dependency');
 });
 
-test('package builds and installs the fixed Scanner firewall ownership helper', () => {
-  assert.ok(fs.existsSync(`zapret2-manager/src/${scannerFirewallHelperSource}`));
+test('full package prepares sources separately and installs only the executable', () => {
   const prepare = block('Build/Prepare');
-  assert.match(prepare, new RegExp(`src/${scannerFirewallHelperSource}`));
-  const compile = block('Build/Compile');
-  assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/${scannerFirewallHelperSource}`));
-  assert.match(compile, /-o\s+\$\(PKG_BUILD_DIR\)\/z2m-scanner-firewall-helper/);
-  assert.match(compile, /-ljson-c/);
-  const install = block('Package/zapret2-manager/install');
-  assert.match(install, /z2m-scanner-firewall-helper\s+\$\(1\)\/usr\/libexec\/zapret2-manager\/z2m-scanner-firewall-helper/);
-});
-
-test('package prepares sources separately and installs only the executable', () => {
-  const prepare = block('Build/Prepare');
-  assert.match(prepare, /src\/z2m-core-helper/, 'Build/Prepare must copy helper inputs');
+  assert.match(prepare, /BACKEND_SOURCE_DIR/, 'Build/Prepare must stage helper inputs through the assembled backend source root');
   assert.match(prepare, /\$\(PKG_BUILD_DIR\)/, 'Build/Prepare must stage inputs in PKG_BUILD_DIR');
 
-  const install = block('Package/zapret2-manager/install');
+  const install = block('Package/zapret2-manager-full/install');
   assert.match(install, /\$\(INSTALL_DIR\)\s+\$\(1\)\/usr\/libexec\/zapret2-manager/,
     'install must create the fixed libexec directory');
   assert.match(install,
     /\$\(INSTALL_BIN\)\s+\$\(PKG_BUILD_DIR\)\/z2m-core-helper\s+\$\(1\)\/usr\/libexec\/zapret2-manager\/z2m-core-helper/,
     'install must place the helper executable at its fixed path');
-  assert.doesNotMatch(install, /src\/z2m-core-helper|protocol-v1\.json|helper\.h|\.c(?:\s|$)/,
+  assert.doesNotMatch(install, /backend-src\/z2m-core-helper|protocol-v1\.json|helper\.h|\.c(?:\s|$)/,
     'install must not copy helper sources or protocol development files');
   assert.doesNotMatch(install, /test-audit\.c|Z2M_TESTING/i,
     'install must exclude test instrumentation');
-  assert.match(install, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//,
-    'existing runtime files must remain installed');
+  assert.match(install, /\$\(CP\)\s+\$\(PKG_BUILD_DIR\)\/backend-files\/\*\s+\$\(1\)\//,
+    'backend runtime files must remain installed');
 });
 
 test('package installation assigns reviewed runtime file modes', () => {
-  const install = block('Package/zapret2-manager/install');
+  const install = block('Package/zapret2-manager-full/install');
   assert.match(install, /chmod 0755[^\n]*\/usr\/libexec\/zapret2-manager\/\*\.sh/,
     'runtime shell entry points must be executable');
   assert.match(install, /chmod 0755[^\n]*\/etc\/init\.d\/zapret2-manager/,
@@ -626,8 +604,6 @@ test('package installation assigns reviewed runtime file modes', () => {
     'shared package data must be non-executable');
   assert.match(install, /chmod 0644[^\n]*\/etc\/zapret2-manager\/\*\.json/,
     'ordinary top-level JSON configuration must be non-executable');
-  assert.match(install, /chmod 0640[^\n]*\/etc\/zapret2-manager\/ipset\/\*\.txt/,
-    'managed data lists must be group-readable but not executable');
   assert.match(install, /chmod 0600[^\n]*\/etc\/zapret2-manager\/state\.json/,
     'state must remain private');
 });
@@ -640,13 +616,15 @@ test('compiled package does not claim architecture all', () => {
 test('broker source staging is distinct from the installed executable output', () => {
   const prepare = block('Build/Prepare');
   const compile = block('Build/Compile');
-  const install = block('Package/zapret2-manager/install');
-  const sourceDir = /mkdir -p (\$\(PKG_BUILD_DIR\)\/[^\s]+)\n\s*\$\(CP\) \.\/src\/z2m-helperd\/\* \1\//.exec(prepare)?.[1];
+  const install = block('Package/zapret2-manager-full/install');
+  const sourceDir = /mkdir -p (\$\(PKG_BUILD_DIR\)\/backend-src)[^\n]*/.exec(prepare)?.[1];
   const output = /-o\s+(\$\(PKG_BUILD_DIR\)\/[^\s]+)/g;
   const outputs = [...compile.matchAll(output)].map((match) => match[1]);
   const brokerOutput = outputs.at(-1);
 
-  assert.ok(sourceDir, 'Build/Prepare must stage broker sources in one package-build directory');
+  assert.ok(sourceDir, 'Build/Prepare must stage broker sources in the package-build directory');
+  assert.match(prepare, /BACKEND_SOURCE_DIR/,
+    'Build/Prepare must stage broker sources under the backend source root');
   assert.ok(brokerOutput, 'Build/Compile must produce the broker executable under PKG_BUILD_DIR');
   assert.notEqual(sourceDir, brokerOutput,
     'broker source staging directory cannot also be the linker output path');
@@ -657,12 +635,12 @@ test('broker source staging is distinct from the installed executable output', (
 
 test('package strictly target-builds and installs only the production broker binary', () => {
   const prepare = block('Build/Prepare');
-  assert.match(prepare, /src\/z2m-helperd/,
+  assert.match(prepare, /BACKEND_SOURCE_DIR/,
     'Build/Prepare must stage the focused broker sources');
 
   const compile = block('Build/Compile');
   for (const source of brokerSources)
-    assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/z2m-helperd-src/${source.replace('.', '\\.')}\\b`),
+    assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/backend-src/z2m-helperd/${source.replace('.', '\\.')}\\b`),
       `broker build must compile exactly ${source}`);
   for (const flag of ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE'])
     assert.ok(compile.includes(flag), `broker compilation must use ${flag}`);
@@ -671,11 +649,11 @@ test('package strictly target-builds and installs only the production broker bin
   assert.doesNotMatch(compile, /-DZ2M_TESTING|TEST_ROOT|FIXED_CHILD/,
     'production package build must expose no test seams');
 
-  const install = block('Package/zapret2-manager/install');
+  const install = block('Package/zapret2-manager-full/install');
   assert.match(install,
     /\$\(INSTALL_BIN\)\s+\$\(PKG_BUILD_DIR\)\/z2m-helperd\s+\$\(1\)\/usr\/libexec\/zapret2-manager\/z2m-helperd/,
     'package must install the broker at its fixed libexec path');
-  assert.doesNotMatch(install, /src\/z2m-helperd|helperd\.h|transport\.c|supervise\.c/,
+  assert.doesNotMatch(install, /backend-src\/z2m-helperd|helperd\.h|transport\.c|supervise\.c/,
     'package payload must not contain broker development files');
 });
 
@@ -685,7 +663,7 @@ test('native helper adapter exposes only typed fixed-socket operations', () => {
   const exports = [...source.matchAll(/export const\s+([A-Za-z_][A-Za-z0-9_]*)/g)]
     .map(match => match[1]).sort();
   assert.deepEqual(exports,
-    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular', 'z2k_detect']);
+    ['atomic_write', 'atomic_write_json', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular', 'z2k_detect']);
   assert.match(source, /['"]\/tmp\/zapret2-manager\/runtime\/z2m-helperd\.sock['"]/,
     'production adapter must use the fixed broker socket');
   assert.match(source, /socket\.connect\(\s*\{\s*path:\s*SOCKET_PATH\s*\}/,

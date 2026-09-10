@@ -1,9 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 function read(rel) {
   return readFileSync(resolve(rel), 'utf8');
+}
+
+function expect(value) {
+  return {
+    toContain(expected) { assert.ok(value.includes(expected), `expected value to contain ${expected}`); },
+    toBe(expected) { assert.equal(value, expected); },
+    not: { toContain(expected) { assert.equal(value.includes(expected), false, `expected value not to contain ${expected}`); } }
+  };
 }
 
 describe('Component status semantics — unified GREEN/AMBER/RED/MUTED', () => {

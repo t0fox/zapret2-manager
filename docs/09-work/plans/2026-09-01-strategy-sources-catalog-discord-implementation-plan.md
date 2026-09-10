@@ -263,7 +263,7 @@ strategy-catalog-update.uc
 strategy-model.uc
 strategy-cli.uc
 strategies-ops.uc / strategies-ops-cli.uc
-discord-profile.uc
+strategy-discord-donor.uc
 rpcd zapret2-manager.uc
 rpcd ACL
 z2m-strategies.js
@@ -297,7 +297,7 @@ git diff --check
   - `strategy-catalog-refresh.uc` currently verifies/reindexes existing catalog;
   - `strategy-catalog.uc` is Avatar-specific;
   - `strategy-catalog-update.uc` already has complete-snapshot verification/LKG behavior;
-  - `discord-profile.uc` hardcodes `z2k_all_in_one` and false Avatar provenance;
+  - `strategy-discord-donor.uc` must derive donors from the verified catalog and preserve source provenance;
   - resource manifest already distinguishes strategy-catalog vs asset-bundle.
 - [ ] Persist the approved spec and this plan in the repo as docs-only commit before production code.
 - [ ] Run current focused catalog/Avatar/Strategy/Resource tests and record exact baseline counts.
@@ -868,7 +868,8 @@ git commit -m "fix: resolve Discord donors from canonical catalog"
 
 # 14. Task 11 — “Включить Discord” through normal Strategy lifecycle only
 
-RED test: Discord enable path must NOT directly call `profiles_apply_candidate`.
+Current contract: Discord enablement uses the normal Strategy Apply lifecycle;
+there is no separate profile writer.
 
 When current Strategy lacks Discord:
 
@@ -889,15 +890,13 @@ Preserve unrelated current profiles.
 
 Reject duplicate/conflicting `discord_udp` rather than adding two.
 
-Retire old mutation path:
-- migrate all production callers;
-- compatibility wrapper may delegate to canonical Strategy lifecycle;
-- no separate direct writer remains.
+There is no separate Discord writer or compatibility wrapper; the canonical
+Strategy Apply lifecycle is the only mutation owner.
 
 Audit:
 
 ```bash
-rg -n "profiles_apply_candidate|discord_apply|z2k_all_in_one|avatar-catalog" \
+rg -n "discord_apply|strategies_apply|z2k_all_in_one|avatar-catalog" \
   zapret2-manager/files/usr/libexec/zapret2-manager \
   luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager
 ```
@@ -1349,4 +1348,3 @@ If any required row is unproven, overall status stays `WORKING`; continue engine
 - Discord hardcoding/provenance defect and second-writer risk are both covered.
 - Real-router acceptance includes refresh, filters, source disable, reboot, Discord active detection and Discord Apply.
 - No unrelated product redesign is included.
-

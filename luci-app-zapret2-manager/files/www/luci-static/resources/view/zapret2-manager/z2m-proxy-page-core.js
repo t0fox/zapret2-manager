@@ -53,9 +53,6 @@ var state = {
   mountedLoadToken: null
 };
 
-var PANE_ALIASES = { install: 'component', status: 'overview', activity: 'journal' };
-function paneId(value) { return PANE_ALIASES[value] || value; }
-
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function array(value) { return Array.isArray(value) ? value : []; }
 function compact(value) { return array(value).filter(function (item) { return item !== null && item !== undefined; }); }
@@ -194,7 +191,7 @@ function scheduleDeferred(ctx, token, requestHealth) {
       return ctx.api.tg.product.versions();
     } },
     { key: 'events', label: _('журнала proxy'), run: function () {
-      return edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 });
+		return edit(ctx.api.maintenance.eventsTail, { limit: 50 });
     } }
   ];
   // Keep the existing two-slot metadata scheduler predictable. Health is
@@ -226,9 +223,9 @@ function load(ctx) {
   state.deferred = {};
   if (state.deferredTimer) clearTimeout(state.deferredTimer);
   state.deferredTimer = null;
-  // Keep the local bootstrap fast, then verify Telegram in the deferred pass
-  // on every page visit so a new tab never gets stuck on an old warning.
-  var requestHealth = true;
+  // Ordinary browsing is local-first. An upstream Telegram probe is an
+  // explicit user action from the service card, never a hidden page load.
+  var requestHealth = false;
   state.fullHealthRequested = false;
   // tg_product_status is the canonical local aggregator. It already includes
   // proxy runtime/config health with upstream:false, so it is the sole source
@@ -603,16 +600,6 @@ function saveSettings(ctx, data) {
     ctx.shell.showToast(_('Настройки сохранены.'), 'ok');
     return ctx.refresh('proxy');
   }).catch(function (e) { showError(ctx, e); });
-}
-function truthLabel(truth) {
-  var labels = {
-    stopped: _('Остановлен'), starting: _('Запускается'), healthy: _('Работает'),
-    degraded: _('Деградация'), unsupported: _('Не установлен'), error: _('Ошибка')
-  };
-  return labels[truth] || truth;
-}
-function truthKind(truth) {
-  return truth === 'healthy' ? 'g' : truth === 'stopped' || truth === 'starting' ? 'o' : 'r';
 }
 function confirm(ctx, title, message, label, action, danger) {
   return ctx.shell.avatar.confirm({
@@ -1709,10 +1696,6 @@ function settingsPane(ctx, data) {
       return result;
     });
   }
-  function toggleAdvanced() {
-    state.tgSettingsAdvanced = !state.tgSettingsAdvanced;
-    ctx.root.replaceChildren(render(ctx));
-  }
   function setLanAccess(enabled) {
     var next = clone(settings);
     next.host = enabled && lanAddress ? lanAddress : '127.0.0.1';
@@ -1849,8 +1832,7 @@ function render(ctx) {
   });
   var normalized = ProxyModel.normalize(merged);
   if (state.pane == null) state.pane = providerInstalled(pstatus.installed) ? 'overview' : 'component';
-  state.pane = paneId(state.pane);
-  var panes = {
+    var panes = {
     component: installPane(ctx, data),
     overview: statusPane(ctx, data, normalized),
     settings: settingsPane(ctx, data),
@@ -1864,7 +1846,7 @@ function render(ctx) {
     { id: 'settings', label: _('Настройки') },
     { id: 'journal', label: _('Журнал') }
   ], state.pane, function (id) {
-    state.pane = paneId(id);
+    state.pane = id;
     paneHost.replaceChildren(panes[state.pane]);
   }, { 'aria-label': _('Разделы Telegram Proxy') });
   var errors = [];
@@ -1968,7 +1950,7 @@ return baseclass.extend({
   render: render,
   mount: function (ctx) {
     state.mountedLoadToken = state.loadToken;
-    scheduleDeferred(ctx, state.loadToken, true);
+    scheduleDeferred(ctx, state.loadToken, false);
   },
   unmount: unmount,
   createAdapter: createAdapter

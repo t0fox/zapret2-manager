@@ -11,7 +11,6 @@ const enginePanelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci
 const overviewPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js');
 const appPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js');
 const statusCollectorPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc');
-const statusCompatPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
 
 function loadLuCIModel(file) {
   const source = fs.readFileSync(file, 'utf8');
@@ -67,7 +66,8 @@ test('official release remains the only normal version authority while build met
   assert.match(collector, /apk info -e zapret2/);
   assert.match(collector, /packagePresent/);
   assert.match(collector, /serviceState/);
-  assert.match(fs.readFileSync(statusCompatPath, 'utf8'), /observations\.serviceState != null \? observations\.serviceState/);
+  assert.match(collector, /schema:\s*'status\.v1'/);
+  assert.doesNotMatch(collector, /legacy_status_v3|status-compat/);
 });
 
 test('legacy engine package removal verifies that APK ownership is actually gone', () => {

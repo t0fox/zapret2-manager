@@ -13,9 +13,8 @@ code: [zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc#strategies_
 # Жизненный цикл Strategy
 
 IDE вызывает canonical Strategy API. Полный путь: открыть → clone/create →
-редактировать → validate → preview → test, если runtime предоставляет safe
-test → save → apply. Stale revision и изменившийся catalog digest дают
-conflict, а не silent overwrite.
+редактировать → validate → preview → save → apply. Stale revision и
+изменившийся catalog digest дают conflict, а не silent overwrite.
 
-Scanner result входит в тот же workflow через provenance и transient status;
-новый permanent apply endpoint не создаётся.
+Z2K Detect result может быть использован как evidence для того же workflow через
+provenance и transient status; новый permanent apply endpoint не создаётся.

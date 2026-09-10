@@ -16,19 +16,18 @@ test('top-level LuCI shell invalidates old modules before replacing page content
   assert.match(app, /storeUnsubscribe\(\)/);
 });
 test('long-running top-level pages expose unmount cleanup boundaries', () => {
-  for (const name of ['z2m-overview.js', 'z2m-strategy-page.js', 'z2m-scanner.js', 'z2m-blockcheck-page.js', 'z2m-dns-page.js', 'z2m-monitor.js']) {
+  for (const name of ['z2m-overview.js', 'z2m-strategies.js', 'z2m-scanner.js', 'z2m-dns-page.js']) {
     const source = read(name);
     assert.match(source, /unmount\s*:/, `${name} lacks an unmount hook`);
   }
-  assert.match(read('z2m-overview.js'), /clearTimeout/);
-  assert.match(read('z2m-blockcheck-page.js'), /clearTimeout|disposed/);
+  assert.match(read('z2m-overview.js'), /loadToken|generation/);
   assert.match(read('z2m-scanner.js'), /clearTimeout|generation|disposed/);
 });
 
-test('LuCI package wildcard installs the shared JS and CSS assets', () => {
-  const makefile = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /wildcard .*\/\*\.js/);
-  assert.match(makefile, /wildcard .*\/\*\.css/);
+test('full package installs the assembled shared JS and CSS assets', () => {
+  const makefile = fs.readFileSync(path.join(root, 'zapret2-manager-full/Makefile'), 'utf8');
+  assert.match(makefile, /\$\(CP\) \$\(PKG_BUILD_DIR\)\/luci-files\/\* \$\(1\)\//);
+  assert.match(makefile, /find \$\(1\)\/www\/luci-static\/resources\/view\/zapret2-manager/);
   assert.equal(fs.existsSync(path.join(frontend, 'z2m-avatar-ui.js')), true);
   assert.equal(fs.existsSync(path.join(frontend, 'z2m-avatar-ui.css')), true);
 });

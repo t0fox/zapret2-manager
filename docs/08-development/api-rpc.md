@@ -17,5 +17,6 @@ UBUS methods разделены на bounded read, edit и async operations. О�
 теряется в `UBUS Unknown error`.
 
 Для Strategy важны `list`, `get`, `preview`, `validate`, `create/update`,
-`duplicate`, `favorite` и `apply`; для Scanner — start/status/results/stop и
-handoff. Request temp files имеют bounded size и private permissions.
+`duplicate`, `favorite` и `apply`; для Z2K Detect — bounded typed measurement
+operations and status. Request temp files имеют bounded size и private
+permissions.

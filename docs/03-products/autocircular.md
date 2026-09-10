@@ -7,7 +7,7 @@ authority: current-ui
 updated: 2026-08-22
 publish: true
 tags: [technology, autocircular, strategy]
-code: [zapret2-manager/files/usr/libexec/zapret2-manager/auto-strategy.uc#auto_state_save]
+code: [zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops.uc#strategies_autocircular_reconcile]
 ---
 
 # Autocircular
