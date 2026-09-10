@@ -24,8 +24,7 @@ const LIMITS = { lua: 4 * 1024 * 1024, blob: 16 * 1024 * 1024, ipset: 1024 * 102
 const EXT = { lua: 'lua', blob: 'bin', ipset: 'txt', hostlist: 'txt', geosite: 'db', geoip: 'db', hosts: 'txt' };
 const TYPES = ['lua', 'blob', 'ipset', 'hostlist', 'geosite', 'geoip', 'hosts'];
 const PROVENANCE = ['builtin/package', 'imported', 'user-created', 'generated', 'catalog/upstream'];
-const LEGACY_LUA_FILES = ['zapret-lib.lua', 'zapret-antidpi.lua', 'zapret-auto.lua',
-	'zapret-obfs.lua', 'zapret-pcap.lua', 'zapret-tests.lua'];
+const LEGACY_LUA_FILES = ['zapret-lib.lua', 'zapret-antidpi.lua', 'zapret-auto.lua'];
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }

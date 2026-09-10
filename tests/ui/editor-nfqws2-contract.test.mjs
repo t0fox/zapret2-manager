@@ -164,3 +164,13 @@ test('existing Nfqws2Ide covers required completion contexts and asset filtering
     assert.ok(matches.some(item => item.text === expected), text);
   }
 });
+
+test('Nfqws2Ide does not advertise retired detector or preload modules', () => {
+  const source = fs.readFileSync(path.join(viewRoot, 'z2m-nfqws2-ide.js'), 'utf8');
+  for (const retired of [
+    'combined_failure_detector', 'combined_success_detector',
+    'udp_aggressive_failure_detector', 'udp_protocol_success_detector',
+    'silent_drop_detector', 'udp_global_hostkey', 'get_grouped_hostname',
+    'strategy_preload', 'strategy_preload_history',
+  ]) assert.doesNotMatch(source, new RegExp(`\\b${retired}\\b`), retired);
+});

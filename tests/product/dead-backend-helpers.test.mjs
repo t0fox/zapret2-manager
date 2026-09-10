@@ -57,3 +57,28 @@ test('runtime materialization has no test-only fault injection hook', () => {
   );
   assert.doesNotMatch(source, /Z2M_TEST_FAIL_AFTER/);
 });
+
+test('retired runtime Lua assets are not shipped', () => {
+  for (const relativePath of [
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/domain-grouping.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/zapret-tests.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/combined-detector.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/init_vars.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/silent-drop-detector.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/strategies.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/strategy-lock-manager.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/strategy-stats.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/zapret-16kb.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/zapret-obfs.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/zapret-pcap.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/zapret-rst-flood.lua',
+    'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/zapret-wgobfs.lua',
+  ]) {
+    assert.equal(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} is not a current runtime asset`);
+  }
+  const registry = fs.readFileSync(
+    path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc'),
+    'utf8',
+  );
+  assert.doesNotMatch(registry, /zapret-tests\.lua/);
+});
