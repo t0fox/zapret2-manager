@@ -5,6 +5,7 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
 const overview = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js'), 'utf8');
+const overviewLoading = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview-loading.js'), 'utf8');
 const enginePanel = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-panel.js'), 'utf8');
 const maintenance = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js'), 'utf8');
 const engineModel = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-model.js'), 'utf8');
@@ -29,7 +30,7 @@ test('lifecycle result is visible and buttons stay locked while the request is p
 test('Dashboard maps machine reason codes to product copy and system facts', () => {
   assert.match(overview, /reasonLabel/);
   assert.doesNotMatch(overview, /format\.text\(summary\.reasonCode\)/);
-  assert.match(overview, /ctx\.api\.maintenance\.status\(\)/);
+  assert.match(overviewLoading, /ctx\.api\.maintenance\.status\(\)/);
   assert.match(overview, /hostname|memoryAvailable|uptime/i);
 });
 
@@ -46,15 +47,19 @@ test('engine normal rows use Russian product labels and official source mapping'
   assert.doesNotMatch(enginePanel, /Проверить release/);
 });
 
-test('primary navigation has reversible canonical routes and one hash listener', () => {
-  for (const route of ['dashboard', 'control', 'services', 'diagnostics', 'updates', 'engine', 'backups'])
+test('primary navigation exposes only finished canonical routes and one hash listener', () => {
+  for (const route of ['dashboard', 'control', 'services', 'monitor', 'components', 'backups'])
     assert.match(navigation, new RegExp("id: '" + route + "'"));
+  for (const removed of ['diagnostics', 'updates', 'engine', 'settings', 'system', 'unified-routing'])
+    assert.doesNotMatch(navigation, new RegExp("\\{ id: '" + removed + "'"));
+  assert.doesNotMatch(navigation, /ALIASES|LEGACY_PARAMS|hidden:\s*true/);
   assert.match(app, /hashHandler = function \(\) \{ activate\(tabFromHash\(\)\); \}/);
   assert.match(app, /window\.removeEventListener\('hashchange', hashHandler\)/);
 });
 
-test('page teardown clears Dashboard and maintenance pollers', () => {
-  assert.match(overview, /function unmount\(\)[\s\S]*clearTimeout\(runtime\.timer\)/);
+test('page teardown invalidates Dashboard deferred work and clears maintenance pollers', () => {
+  assert.match(overview, /function unmount\(\)[\s\S]*runtime\.loadToken\+\+/);
+  assert.match(overview, /runtime\.measurement = null/);
   assert.match(enginePanel, /function unmount\(ctx\)[\s\S]*clearInterval\(ctx\.engineState\.timer\)/);
   assert.match(maintenance, /function unmount\(ctx\)[\s\S]*state\.engineOperationTimer[\s\S]*clearInterval/);
 });

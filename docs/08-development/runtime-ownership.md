@@ -16,6 +16,5 @@ code: [zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc#strategies_
 facade передаёт операцию владельцу, owner меняет state/runtime и возвращает
 structured evidence.
 
-Scanner-orchestrator может существовать как исходный модуль, но не становится
-production authority. Аналогично IDE не пишет firewall, DNS не создаёт второй
+Detect measurement не становится владельцем runtime. Аналогично IDE не пишет firewall, DNS не создаёт второй
 dnsmasq, а Monitoring не становится новым poller каждого subsystem.

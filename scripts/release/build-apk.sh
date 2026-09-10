@@ -84,7 +84,7 @@ SDK_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print -quit)
 
 printf 'release build: updating and installing OpenWrt feeds\n'
 FEED_NAMES='base packages luci'
-FEED_PACKAGES='ucode ucode-mod-fs ucode-mod-io ucode-mod-socket ucode-mod-uloop luci-base kmod-nfnetlink-queue kmod-nft-queue ncat flock uclient-fetch ca-bundle unzip jsonfilter libjson-c'
+FEED_PACKAGES='ucode ucode-mod-fs ucode-mod-io ucode-mod-socket ucode-mod-uloop luci-base kmod-nfnetlink-queue kmod-nft-queue flock uclient-fetch ca-bundle jsonfilter libjson-c'
 FEEDS_READY=0
 for FEED_ATTEMPT in 1 2 3; do
 	if (
@@ -146,7 +146,6 @@ require_staged_dir() {
 STAGED_ROOT="*/.pkgdir/$FULL_PACKAGE"
 require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-core-helper" 'z2m-core-helper'
 require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-root-bootstrap" 'z2m-root-bootstrap'
-require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper" 'scanner firewall helper'
 require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/z2m-helperd" 'z2m-helperd'
 require_staged_file "$STAGED_ROOT/usr/libexec/zapret2-manager/*.uc" 'backend ucode files'
 require_staged_file "$STAGED_ROOT/usr/share/rpcd/ucode/zapret2-manager.uc" 'rpcd object'
@@ -165,15 +164,13 @@ APK_TOOL=$(find "$SDK_DIR/staging_dir/host" -type f -name apk -perm -u+x -print 
 [ -n "$APK_TOOL" ] || die 'OpenWrt SDK-native apk tool is missing'
 
 FULL_METADATA_JSON=$("$APK_TOOL" adbdump --format json "$FULL_APK") || die 'full package metadata could not be decoded by SDK apk'
-verify_metadata_field() {
-	local field=$1
-	local expected=$2
-	if ! printf '%s' "$FULL_METADATA_JSON" | FIELD="$field" EXPECTED="$expected" node --input-type=module -e '
+verify_dependency() {
+  local expected=$1
+  if ! printf '%s' "$FULL_METADATA_JSON" | EXPECTED="$expected" node --input-type=module -e '
 import fs from "node:fs";
 const metadata = JSON.parse(fs.readFileSync(0, "utf8"));
-const field = process.env.FIELD;
 const expected = process.env.EXPECTED;
-const values = metadata.info?.[field] ?? metadata[field];
+const values = metadata.info?.depends ?? metadata.depends;
 const list = Array.isArray(values) ? values : [values];
 const abiVersioned = new RegExp(`^${expected}[0-9]+$`);
 if (!list.some((value) => {
@@ -181,24 +178,19 @@ if (!list.some((value) => {
   return normalized === expected || normalized.startsWith(`${expected}=`) || abiVersioned.test(normalized);
 })) process.exit(1);
 '; then
-		die "full package metadata is missing $field: $expected"
+		die "full package metadata is missing dependency: $expected"
 	fi
 }
 for dependency in $FEED_PACKAGES; do
-	verify_metadata_field depends "$dependency"
+	verify_dependency "$dependency"
 done
-verify_metadata_field provides zapret2-manager
-verify_metadata_field provides luci-app-zapret2-manager
-
 PAYLOAD_DIR="$WORK_DIR/full-payload"
 mkdir -p "$PAYLOAD_DIR"
 "$APK_TOOL" extract --allow-untrusted --no-chown --destination "$PAYLOAD_DIR" "$FULL_APK" || die 'full package payload could not be extracted by SDK apk'
 for relative in \
 	usr/libexec/zapret2-manager/z2m-core-helper \
 	usr/libexec/zapret2-manager/z2m-root-bootstrap \
-	usr/libexec/zapret2-manager/z2m-scanner-firewall-helper \
 	usr/libexec/zapret2-manager/z2m-helperd \
-	usr/libexec/zapret2-manager/strategy-catalog-migration-cli.uc \
 	usr/share/rpcd/ucode/zapret2-manager.uc \
 	usr/share/zapret2-manager/runtime-composition-package.json \
 	usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua \
@@ -249,10 +241,6 @@ const manifest = {
   artifact,
   externalDependencies: [...releaseConfig.externalDependencies],
   bundled: { ...releaseConfig.bundled },
-  compatibility: {
-    provides: [...releaseConfig.compatibility.provides],
-    legacyPackages: [...releaseConfig.compatibility.legacyPackages]
-  },
   excludedOptionalPackages: [...releaseConfig.excludedOptionalPackages],
   installation: { ...releaseConfig.installation }
 };

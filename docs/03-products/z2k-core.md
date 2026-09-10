@@ -14,7 +14,7 @@ code: [zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc#z2k_res
 
 Z2K Core — manager integration layer для coherent Z2K runtime-assets. Он не
 создаёт второй пользовательский продукт: его единственный lifecycle owner —
-**Система → Компоненты**, а Strategy, Detect Scanner и Resource Center
+**Система → Компоненты**, а Strategy, Z2K Detect и Resource Center
 используют его проверенные capabilities. Resource Center не является вторым
 Z2K writer.
 
@@ -33,5 +33,5 @@ downgrade и opaque plan token. После явного подтверждени
 bounded staging path, затем Asset Registry выполняет одну transaction и
 postflight. Ошибка проверки возвращается как structured error; partial или
 hybrid publication не должна становиться новым active state. Старый
-`z2k_component_apply` оставлен только как retired compatibility boundary и
-возвращает `ELEGACY_LIFECYCLE`.
+component-совместимый lifecycle удалён. Применение выполняется только
+через подготовленный target Resource Center и его текущую transaction boundary.

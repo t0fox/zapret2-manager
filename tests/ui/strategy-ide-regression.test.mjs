@@ -88,7 +88,7 @@ test('Strategy page uses full snapshots and structured preview diagnostics', () 
   assert.match(pageSource, /function isFullStrategy\(strategy\)/);
   assert.match(pageSource, /function ensureFullStrategy\(strategy/);
   assert.match(pageSource, /function cloneStrategy\(strategy\)/);
-  assert.match(pageSource, /Preview profile count mismatch/);
+  assert.match(pageSource, /Количество профилей не совпадает/);
   assert.match(pageSource, /profiles_count/);
   assert.match(pageSource, /Technical details|Технические сведения/);
   assert.doesNotMatch(pageSource, /Resolved assets\/dependencies:<\/b>.*JSON\.stringify/);

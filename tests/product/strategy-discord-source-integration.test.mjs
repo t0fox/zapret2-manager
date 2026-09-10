@@ -9,7 +9,7 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const GENERATION = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
-const DISCORD = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile.uc');
+const DISCORD = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-discord-donor.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);

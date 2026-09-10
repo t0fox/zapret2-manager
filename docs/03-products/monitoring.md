@@ -16,7 +16,7 @@ tags: [ui, monitoring, health]
 **ERROR**. `UNKNOWN` не равен OK: read failure или устаревшее evidence не
 маскируются зелёной галочкой.
 
-Проверяйте `nfqws2`, active/applied Strategy, firewall/NFQUEUE, Scanner
+Проверяйте `nfqws2`, active/applied Strategy, firewall/NFQUEUE, Z2K Detect
 readiness, DNS, Telegram Proxy, WARP (если установлен), память, CPU, uptime и
 storage. Каждое evidence имеет timestamp/freshness.
 

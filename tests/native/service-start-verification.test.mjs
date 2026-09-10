@@ -6,9 +6,11 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..', '..');
 const servicePath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/service.uc');
 const collectorPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc');
+const nftObservationPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/nft-rule-observation.uc');
 
 const source = () => fs.readFileSync(servicePath, 'utf8');
 const collector = () => fs.readFileSync(collectorPath, 'utf8');
+const nftObservation = () => fs.readFileSync(nftObservationPath, 'utf8');
 
 function functionBody(text, name) {
   const start = text.indexOf(`function ${name}()`);
@@ -48,7 +50,8 @@ test('engine actions invoke the OpenWrt init owner through rc.common', () => {
 });
 
 test('status collector treats a table without NFQUEUE 300 rules as not ready', () => {
-  const text = collector();
+  const text = nftObservation();
+  assert.match(collector(), /import \{ nft_rules_present \} from '\.\/nft-rule-observation\.uc'/);
   assert.ok(text.includes("index(raw, 'queue num ' + NFQUEUE)"));
   assert.ok(text.includes("index(raw, ' to ' + NFQUEUE)"),
     'collector must accept the current nftables queue ... to 300 rendering');

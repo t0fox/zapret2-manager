@@ -41,15 +41,6 @@ test('Engine keeps runtime health, artifact identity, availability, update state
   assert.equal(engine.runtimeHealth, 'ready', 'compatibility attention must not poison runtime health');
 });
 
-test('Engine legacy artifact is not rendered as an official upstream release', () => {
-  const engine = pageFor('legacy-compatibility-engine').components.find(item => item.id === 'engine');
-
-  assert.deepEqual(JSON.parse(JSON.stringify(engine.installed)), { version: 'r77-z2m-202608232258', artifactKind: 'legacy-compatibility-build' });
-  assert.equal(engine.upstreamRelease, null);
-  assert.equal(engine.available.version, 'v1.0.4');
-  assert.equal(engine.updateState, 'update-available');
-});
-
 test('Z2K preserves receipt and bounded inference confidence without treating provenance as release', () => {
   const confirmed = pageFor('z2k-current-confirmed-receipt').components.find(item => item.id === 'z2k-core');
   const inferred = pageFor('z2k-inferred-release').components.find(item => item.id === 'z2k-core');
@@ -84,7 +75,7 @@ test('Missing check timestamp remains unknown instead of borrowing provenance or
   assert.equal(page.components.find(item => item.id === 'z2k-core').checkedAt, null);
 });
 
-test('legacy Lua counts cannot claim ready without canonical V3 runtime and Detect coherence', () => {
+test('package Lua counts cannot claim ready without canonical V3 runtime and Detect coherence', () => {
   const page = model.normalizePage({
     engine: { status: {
       installed: true, serviceState: 'running', runtimeRunning: true, compatible: true,

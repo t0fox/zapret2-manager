@@ -250,5 +250,5 @@ test('z2k-compat must be pure: no network, no registry mutation, no manifest fet
   const compat = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-compat.uc');
   assert.doesNotMatch(compat, /uclient-fetch|fetch_untrusted_manifest|asset_registry_apply/);
   assert.match(compat, /z2k_candidate_gate/);
-  assert.match(compat, /z2k_state_persist_compat_raw/);
+  assert.match(compat, /function is_compatible_raw/);
 });

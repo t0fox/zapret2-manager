@@ -240,11 +240,7 @@ function draft(baseline, next) {
     sources: clone(sourceOps),
     applicable: blocker === null,
     blocker: blocker,
-    changes: changes,
-    advanced: {
-      expectedRevision: text(baseline.revision),
-      expectedCatalogDigest: text(baseline.catalogDigest)
-    }
+    changes: changes
   };
 }
 return baseclass.extend({

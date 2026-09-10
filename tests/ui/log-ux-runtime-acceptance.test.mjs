@@ -303,7 +303,7 @@ test('AvatarLog sequence cursor continuity, pause/resume, clear, and Russian tra
   const backendEvents = [
     { id: 'ev1', seq: 1, ts: '2026-08-18T10:00:00Z', code: 'manual_restart', severity: 'info', source: 'ui', msg: 'Перезапуск nfqws2: запрос завершён' },
     { id: 'ev2', seq: 2, ts: '2026-08-18T10:00:00Z', category: 'healthcheck', severity: 'warn', source: 'healthcheck', msg: 'healthcheck probe run completed', reachable: 2 },
-    { id: 'ev3', seq: 3, ts: '2026-08-18T10:00:00Z', category: 'config', severity: 'info', source: 'ui', msg: 'draft profiles applied (1 profiles) and verified' }
+    { id: 'ev3', seq: 3, ts: '2026-08-18T10:00:00Z', category: 'config', severity: 'info', source: 'ui', msg: 'Strategy applied and verified', profiles: 1 }
   ];
 
   let polledParams = [];
@@ -339,7 +339,7 @@ test('AvatarLog sequence cursor continuity, pause/resume, clear, and Russian tra
   // Check Russian presentation on initial events
   assert.equal(initialData.logs[0].message, 'Перезапуск nfqws2: запрос успешно выполнен');
   assert.match(initialData.logs[1].message, /Проверка доступности завершена/);
-  assert.match(initialData.logs[2].message, /Применён черновик профилей \(1 профиль\) и проверен/);
+  assert.match(initialData.logs[2].message, /Стратегия применена и проверена \(1 профиль\)/);
 
   // 2. Render Page
   const pageRoot = AvatarLog.render({
@@ -381,7 +381,7 @@ test('AvatarLog sequence cursor continuity, pause/resume, clear, and Russian tra
   for (let i = 0; i < allNormalized.length; i++) {
     assert.equal(allNormalized[i].seq, i + 1);
     // Ensure 0 English messages for known events
-    assert.doesNotMatch(allNormalized[i].message, /draft profiles applied|probe run completed|learned-state match/);
+    assert.doesNotMatch(allNormalized[i].message, /Strategy applied and verified|probe run completed|learned-state match/);
   }
 
   AvatarLog.unmount();
@@ -419,7 +419,7 @@ test('AvatarLog technical details regression: normal translated events have NO d
     { id: 'ev1', code: 'manual_restart', source: 'ui', msg: 'Перезапуск nfqws2: запрос завершён' },
     { id: 'ev2', category: 'healthcheck', source: 'healthcheck', msg: 'healthcheck probe run completed', reachable: 2 },
     { id: 'ev3', category: 'healthcheck', source: 'healthcheck', msg: 'healthcheck completed with no targeted learned-state match' },
-    { id: 'ev4', category: 'config', source: 'ui', msg: 'draft profiles applied (1 profiles) and verified' },
+    { id: 'ev4', category: 'config', source: 'ui', msg: 'Strategy applied and verified', profiles: 1 },
     { id: 'ev5', code: 'process_unexpected_loss', source: 'watchdog', msg: 'nfqws2 process gone; recovery start rc=0' }
   ];
 

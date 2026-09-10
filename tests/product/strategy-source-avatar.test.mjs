@@ -43,7 +43,8 @@ test('Avatar adapter exposes the verified catalog as an immutable source snapsho
   assert.equal(result.snapshot.repository, 'avatarDD/zapret-gui');
   assert.match(result.snapshot.sourceCommit, /^[0-9a-f]{7,40}$/);
   assert.match(result.snapshot.contentDigest, /^[0-9a-f]{64}$/);
-  assert.equal(result.snapshot.entryCount, 1836);
+  const manifest = JSON.parse(fs.readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8'));
+  assert.equal(result.snapshot.entryCount, manifest.physicalEntryCount);
   assert.equal(result.snapshot.immutable, true);
 });
 

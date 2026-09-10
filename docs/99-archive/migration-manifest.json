@@ -49,9 +49,9 @@
     "AUTHORITY": "manual",
     "STATUS": "done",
     "TARGET_PATH": "docs/05-parity/avatar-parity.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/05-parity/index.md"],
-    "NOTES": "Git rename recorded by 6b2337d.",
+    "NOTES": "Retired parity product documentation deleted with its superseded ownership chain.",
     "OLD_BLOB_SHA": "1e4a037962880c1814415b3c15bdb4d1b90cc689"
   },
   {
@@ -71,9 +71,9 @@
     "AUTHORITY": "plan",
     "STATUS": "done",
     "TARGET_PATH": "docs/09-work/plans/2026-08-08-native-state-storage-foundation.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/09-work/index.md"],
-    "NOTES": "Git rename recorded by 6cd640b.",
+    "NOTES": "Retired catalog parity plan deleted with the removed product surface.",
     "OLD_BLOB_SHA": "4576cc7a9e3d8774dea8420928c607823bd6e8a5"
   },
   {
@@ -93,9 +93,9 @@
     "AUTHORITY": "plan",
     "STATUS": "done",
     "TARGET_PATH": "docs/09-work/plans/2026-08-12-avatar-strategy-scanner-parity.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/09-work/index.md"],
-    "NOTES": "Git rename recorded by 6cd640b.",
+    "NOTES": "Retired scanner parity plan deleted with the removed product surface.",
     "OLD_BLOB_SHA": "018459a1445a78f43f6ba3cad532e4968f5b4d5f"
   },
   {
@@ -104,9 +104,9 @@
     "AUTHORITY": "plan",
     "STATUS": "done",
     "TARGET_PATH": "docs/09-work/plans/avatar-strategy-catalog-parity.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/09-work/index.md"],
-    "NOTES": "Git rename recorded by 6cd640b.",
+    "NOTES": "Retired catalog parity plan deleted with the removed product surface.",
     "OLD_BLOB_SHA": "178eb4c0c472764799b19e0c9634326d439ebde0"
   },
   {
@@ -137,9 +137,9 @@
     "AUTHORITY": "spec",
     "STATUS": "done",
     "TARGET_PATH": "docs/09-work/specs/2026-08-10-avatar-strategy-catalog-parity-design.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/09-work/index.md"],
-    "NOTES": "Git rename recorded by 6cd640b.",
+    "NOTES": "Retired catalog parity specification deleted with the removed product surface.",
     "OLD_BLOB_SHA": "8fd9b07ea50aee3b5b232db0f89bd83dae6ede9e"
   },
   {
@@ -148,9 +148,9 @@
     "AUTHORITY": "spec",
     "STATUS": "done",
     "TARGET_PATH": "docs/09-work/specs/2026-08-10-profiles-product-slice-design.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/09-work/index.md"],
-    "NOTES": "Git rename recorded by 6cd640b.",
+    "NOTES": "Retired Profiles product specification deleted with the removed product surface.",
     "OLD_BLOB_SHA": "297e4d4c89c3a9e7361485175461cac451ddb04d"
   },
   {
@@ -159,9 +159,9 @@
     "AUTHORITY": "spec",
     "STATUS": "done",
     "TARGET_PATH": "docs/09-work/specs/2026-08-12-avatar-strategy-scanner-parity-design.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/09-work/index.md"],
-    "NOTES": "Git rename recorded by 6cd640b.",
+    "NOTES": "Retired scanner parity specification deleted with the removed product surface.",
     "OLD_BLOB_SHA": "e17958a2be962d226e55051e4f0b813c5f825770"
   },
   {
@@ -170,21 +170,10 @@
     "AUTHORITY": "plan",
     "STATUS": "done",
     "TARGET_PATH": "docs/99-archive/superpowers/plans/2026-08-20-product-ia-scanner-nfqueue.md",
-    "ACTION": "move",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
-    "NOTES": "Superseded scratch-plan path archived during Knowledge Vault cleanup.",
+    "NOTES": "Retired scanner IA plan deleted with the removed product surface.",
     "OLD_BLOB_SHA": "ddbce0e226d4d312e05e1c33a69e3ea0908a61eb"
-  },
-  {
-    "OLD_PATH": "docs/superpowers/plans/2026-08-21-system-components-ia.md",
-    "TYPE": "plan",
-    "AUTHORITY": "plan",
-    "STATUS": "done",
-    "TARGET_PATH": "docs/99-archive/superpowers/plans/2026-08-21-system-components-ia.md",
-    "ACTION": "move",
-    "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
-    "NOTES": "Superseded scratch-plan path archived during Knowledge Vault cleanup.",
-    "OLD_BLOB_SHA": "be41c7b1df51add2f14cf4e4316e366f1d8ac5f0"
   },
   {
     "OLD_PATH": "docs/superpowers/specs/2026-08-20-product-ia-scanner-nfqueue-design.md",
@@ -192,20 +181,9 @@
     "AUTHORITY": "spec",
     "STATUS": "done",
     "TARGET_PATH": "docs/99-archive/superpowers/specs/2026-08-20-product-ia-scanner-nfqueue-design.md",
-    "ACTION": "move",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
-    "NOTES": "Superseded scratch-spec path archived during Knowledge Vault cleanup.",
+    "NOTES": "Retired scanner IA specification deleted with the removed product surface.",
     "OLD_BLOB_SHA": "dadcfa1e0e33133f34153ab2dc14a799fe209672"
-  },
-  {
-    "OLD_PATH": "docs/superpowers/specs/2026-08-21-system-components-ia-design.md",
-    "TYPE": "spec",
-    "AUTHORITY": "spec",
-    "STATUS": "done",
-    "TARGET_PATH": "docs/99-archive/superpowers/specs/2026-08-21-system-components-ia-design.md",
-    "ACTION": "move",
-    "REFERENCED_BY": ["docs/00-home/knowledge-inventory.md"],
-    "NOTES": "Superseded scratch-spec path archived during Knowledge Vault cleanup.",
-    "OLD_BLOB_SHA": "027dac86edb16ebcc515305633a3d3977e94f1be"
   }
 ]

@@ -13,15 +13,16 @@ test('Home allows slow but bounded read-only RPC responses from embedded routers
 });
 
 test('Home keeps canonical active strategy when optional preview fails', () => {
-  assert.match(overview, /var strategy = activeName !== null[\s\S]*?envelopeError\('preview'\)/,
-    'canonical status_fast strategy must take precedence over preview errors');
+  assert.match(overview, /var strategy = activeName !== null[\s\S]*?envelopeError\('strategy'\)/,
+    'canonical status_fast strategy must take precedence over optional strategy read errors');
 });
 
 test('critical Home/Strategy/Telegram reads use real bounded request transport', () => {
   assert.match(api, /var Z2K_READ_TIMEOUT_MS = 15000;/,
     'critical reads need a transport timeout independent of rpc.declare options');
-  assert.match(api, /function z2kReadRpc\(method, params\)/);
-  assert.match(api, /request\.post\(rpc\.getBaseURL\(\), \[message\], \{\s*timeout: Z2K_READ_TIMEOUT_MS/);
+  assert.match(api, /function z2kReadRpc\(method, params, timeoutMs\)/,
+    'critical reads may supply a caller-specific bounded timeout');
+  assert.match(api, /request\.post\(rpc\.getBaseURL\(\), \[message\], \{\s*timeout: Number\(timeoutMs\) \|\| Z2K_READ_TIMEOUT_MS/);
   for (const method of [
     'status_fast', 'strategies_catalog_status', 'proxy_status', 'proxy_health', 'events_tail'
   ]) {

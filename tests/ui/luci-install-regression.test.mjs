@@ -9,8 +9,8 @@ const VIEWS = path.join(
   'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager',
 );
 const APP_SOURCE = fs.readFileSync(path.join(VIEWS, 'app.js'), 'utf8');
-const LUCI_MAKEFILE = fs.readFileSync(
-  path.join(ROOT, 'luci-app-zapret2-manager/Makefile'),
+const FULL_MAKEFILE = fs.readFileSync(
+  path.join(ROOT, 'zapret2-manager-full/Makefile'),
   'utf8',
 );
 
@@ -22,17 +22,17 @@ const REMOVED_ALIAS_MODULES = [
 ];
 
 const CANONICAL_REQUIRES = [
-  ['Api', 'z2m-api', path.join(VIEWS, 'z2m-engine.js')],
+  ['Api', 'z2m-api', path.join(VIEWS, 'app.js')],
   ['Navigation', 'z2m-navigation', path.join(VIEWS, 'app.js')],
   ['Maintenance', 'z2m-maintenance', path.join(VIEWS, 'app.js')],
 ];
 
 function makefileBlock(defineName) {
   const marker = `define Package/${defineName}`;
-  const start = LUCI_MAKEFILE.indexOf(marker);
+  const start = FULL_MAKEFILE.indexOf(marker);
   assert.ok(start >= 0, `Makefile must define Package/${defineName}`);
-  const end = LUCI_MAKEFILE.indexOf('\nendef', start);
-  return LUCI_MAKEFILE.slice(start, end);
+  const end = FULL_MAKEFILE.indexOf('\nendef', start);
+  return FULL_MAKEFILE.slice(start, end);
 }
 
 test('every LuCI view module returns a factory, never an imported instance', () => {
@@ -80,31 +80,18 @@ test('runtime modules import the canonical modules directly', () => {
   }
 });
 
-for (const hook of [
-  'luci-app-zapret2-manager/postinst',
-  'luci-app-zapret2-manager/postrm',
-]) {
-  test(`${hook} clears LuCI caches and reloads rpcd`, () => {
+test('full package postinst clears LuCI caches and reloads rpcd', () => {
+    const hook = 'zapret2-manager-full/postinst';
     const script = makefileBlock(hook);
     const cacheClearAt = script.indexOf('rm -f /tmp/luci-indexcache');
     assert.ok(cacheClearAt >= 0, `${hook} must clear the LuCI index cache`);
     assert.match(script, /rm -rf \/tmp\/luci-modulecache/);
 
-    const reloadAt = script.indexOf('/etc/init.d/rpcd reload');
+    const reloadAt = script.indexOf('kill -HUP');
     assert.ok(
       reloadAt > cacheClearAt,
       `${hook} must reload rpcd after clearing the LuCI caches`,
     );
 
-    assert.match(
-      script,
-      /kill -HUP \$\$\(pidof rpcd\)/,
-      `${hook} must keep a safe kill -HUP fallback for rpcd`,
-    );
-
-    // Expanded shell (make doubles the dollars): verify the fallback is
-    // guarded so it can never fail the package script.
-    const expanded = script.replaceAll('$$(', '$(').replaceAll('$${', '${');
-    assert.match(expanded, /2>\/dev\/null \|\| true/, `${hook} HUP fallback must be failure-tolerant`);
+    assert.match(script, /kill -HUP/, 'full package must refresh rpcd after cache invalidation');
   });
-}

@@ -1,5 +1,5 @@
 'use strict';
-// dnsprov.uc — DNS provider catalog + resolver-component diagnostics
+// dnsprov.uc — resolver-component diagnostics
 // (Phase E). Mirrors tests/lib/dnsprov-logic.mjs.
 //
 // This phase adds INTELLIGENCE only: it never changes the router's resolver
@@ -154,22 +154,6 @@ export const dnsprov_components = function() {
 			nameservers: resolvAuto
 		},
 		note: 'detected read-only; unknown states are reported, never guessed'
-	};
-};
-
-// ---------------------------------------------------------------------------
-// providers
-// ---------------------------------------------------------------------------
-export const dnsprov_providers = function() {
-	let catalog = dns_provider_catalog_get();
-	if (!catalog.ok) return err('ETARGET', 'effective provider catalog is invalid', { errors: [catalog.error.message] });
-	return {
-		ok: true,
-		schema: catalog.providerSchema || 1,
-		version: catalog.version || null,
-		revision: catalog.revision,
-		providers: catalog.providers,
-		note: 'DoH endpoints are DATA — nothing here activates DoH or changes the router resolver'
 	};
 };
 

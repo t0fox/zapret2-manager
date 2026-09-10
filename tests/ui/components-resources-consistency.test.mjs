@@ -15,9 +15,9 @@ const components = fs.readFileSync(componentsPath, 'utf8');
 const shell = fs.readFileSync(shellPath, 'utf8');
 
 test('Resources renders canonical filter counts and the short user label', () => {
-  assert.match(assets, /label:\s*_\('Все · ' \+ summaryForRoute\.total\)/);
-  assert.match(assets, /label:\s*_\('Системные · ' \+ summaryForRoute\.system\)/);
-  assert.match(assets, /label:\s*_\('Мои · ' \+ summaryForRoute\.user\)/);
+  assert.match(assets, /label:\s*_\('Все · ' \+ summary\.total\)/);
+  assert.match(assets, /label:\s*_\('Системные · ' \+ summary\.system\)/);
+  assert.match(assets, /label:\s*_\('Мои · ' \+ summary\.user\)/);
 });
 
 test('Resources gives strategy catalog source presentation instead of zero assets', () => {
@@ -41,12 +41,13 @@ test('Components owns its page card typography in the feature stylesheet', () =>
 test('Resource Center keeps one update authority and removes the summary card contract', () => {
   assert.doesNotMatch(ui, /\.z2m-resource-summary\{/);
   assert.doesNotMatch(assets, /z2m-resource-summary/);
-  assert.match(assets, /summary\.updateCallout/);
+  assert.match(assets, /var summary = model\.summary/);
+  assert.match(assets, /summary\.total/);
 });
 
 test('Resource counts use the existing Russian pluralization authority', () => {
   assert.doesNotMatch(assets, /pkg\.total \+ ' ' \+ _\('ресурсов'\)/);
-  assert.match(assets, /ResourcesModel\.resourceCountText\(pkg\.total\)/);
+  assert.match(assets, /ResourcesModel\.resourceCountText\(managedCount\)/);
 });
 
 test('Components uses readable sentence-case section headings', () => {
@@ -56,5 +57,5 @@ test('Components uses readable sentence-case section headings', () => {
 });
 
 test('The shell cache-busts the updated visual assets', () => {
-  assert.match(shell, /components-resources-corrective-pass-20260830-r5/);
+  assert.match(shell, /var revision = '\?v=header-branding-20260903-r1-visual-theme-20260904-r2'/);
 });

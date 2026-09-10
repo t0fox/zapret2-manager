@@ -1,11 +1,10 @@
 'use strict';
-// backup.uc — backup/restore for the four independent scopes (ЦЕЛЬ cleanup/15).
+// backup.uc — backup/restore for the three independent current scopes.
 //
 // Four scopes, each backed up and restored INDEPENDENTLY (user picks which):
 //   engineConfig — /opt/zapret2/config (real format: quoted values, single-line NFQWS2_OPT)
 //   ourState    — /etc/zapret2-manager/state.json (our own state)
 //   lists       — ipset/ list files (user domain/IP lists) [VERIFY:ROUTER exact paths]
-//   profiles    — /etc/zapret2-manager/profiles [VERIFY:ROUTER]
 //
 // Storage: /etc/zapret2-manager/backups/<scope>/{current,history/<unixtime>}.
 // ONE current copy + a history by capture time, at most 3 entries. On the 4th entry
@@ -38,7 +37,7 @@ import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 // strings are not indexable — s[i] is invalid), and XOR is `^`, never `~`
 // (a bare `a ~ b` SEGFAULTS the compiler — proven on target).
 import { read_var, write_list_file, restore_whole_file } from './apply.uc';
-import { restore_state_raw, restore_drafts, load_state } from './profiles-draft.uc';
+import { restore_state_raw } from './manager-state.uc';
 
 // local aliases so the rest of the file reads naturally
 function jparse(t) { return json(t); }
@@ -88,27 +87,14 @@ const SCOPES = {
 		syntaxCheck: (path, content) => null,
 		restoreWrite: 'lists'
 	},
-	profiles: {
-		// draft profiles as a PORTABLE export (the profiles array from
-		// state.json — survives state format changes; restores via the draft
-		// machinery, preserving service keys and the id sequence).
-		paths: [ '/etc/zapret2-manager/profiles.json' ],
-		syntaxCheck: (path, content) => {
-			let a = null;
-			try { a = jparse(content); } catch (e) { return 'not valid JSON'; }
-			return (type(a) == 'array') ? null : 'profiles export is not an array';
-		},
-		restoreWrite: 'profiles'
-	}
 };
 
 // restoreWrite kinds:
 //   engineConfig — apply.uc restore_whole_file (the SANCTIONED single writer;
 //                  backup restore used to write /opt/zapret2/config directly —
 //                  a forbidden second writer, fixed in Slice 5)
-//   ourState     — profiles-draft restore_state_raw (validated + locked)
+//   ourState     — manager-state restore_state_raw (validated + locked)
 //   lists        — apply.uc write_list_file per path (the list writer)
-//   profiles     — profiles-draft restore_drafts (draft machinery)
 
 // ---- helpers (mirror backup-logic.mjs) ---------------------------------------
 
@@ -230,18 +216,11 @@ function ensure_dir(path) {
 }
 
 // snapshot the live files for a scope — returns an ARRAY of {path, content,
-// mode, owner} (mode/owner preserved for restore). The 'profiles' scope
-// exports the draft profiles ARRAY from state.json (portable).
+// mode, owner} (mode/owner preserved for restore).
 function snapshot(scope) {
 	let files = [];
 	let cfg = SCOPES[scope];
 	if (!cfg) return null;
-	if (scope == 'profiles') {
-		let ls = load_state();
-		let arr = (ls.ok) ? ls.state.profiles : [];
-		push(files, { path: cfg.paths[0], content: jstringify(arr), mode: null, owner: null });
-		return files;
-	}
 	for (let i = 0; i < length(cfg.paths); i++) {
 		let p = cfg.paths[i];
 		let c = readfile(p);
@@ -307,12 +286,6 @@ function restore_write(scope, f) {
 			if (length(trim(lines[i]))) push(entries, trim(lines[i]));
 		let w = write_list_file(f.path, entries);
 		return (w != null) ? null : ('list writer failed for ' + f.path);
-	}
-	if (kind == 'profiles') {
-		let arr = null;
-		try { arr = jparse(f.content); } catch (e) { return 'profiles export not valid JSON'; }
-		let r = restore_drafts(arr);
-		return r.ok ? null : r.reason;
 	}
 	return 'no sanctioned writer for scope ' + scope;
 }
@@ -431,7 +404,7 @@ function load_archive(scope, takenAt) {
 
 export const list_backups = function() {
 	let out = {};
-	let scopes = ['engineConfig', 'ourState', 'lists', 'profiles'];
+	let scopes = ['engineConfig', 'ourState', 'lists'];
 	for (let si = 0; si < length(scopes); si++) {
 		let scope = scopes[si];
 		let cfg = SCOPES[scope];

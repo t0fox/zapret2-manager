@@ -20,7 +20,7 @@ function active_id() { try { return trim(readfile(ACTIVE) || ''); } catch (e) { 
 function log(job, message) { if (type(job.log) != 'array') job.log = []; push(job.log, { at: time(), phase: job.phase, message: '' + message }); while (length(job.log) > 120) shift(job.log); }
 function public_job(job) { return job == null ? null : { id: job.id, action: job.action, phase: job.phase, progress: job.progress, createdAt: job.createdAt, updatedAt: job.updatedAt, startedAt: job.startedAt, finishedAt: job.finishedAt, cancellable: job.cancellable === true, cancelRequested: job.cancelRequested === true, result: job.result, error: job.error, rollback: job.rollback, log: job.log || [] }; }
 function active_job() { let id = active_id(); if (safe_id(id) == null) return null; let job = read_job(id); if (job == null || terminal(job.phase)) { try { unlink(ACTIVE); } catch (e) {} return null; } return job; }
-function conflict() { if (active_job() != null) return 'engine-operation'; if (stat('/tmp/zapret2-manager/pending-rollback') != null || stat('/tmp/zapret2-manager/apply.lock') != null) return 'strategy'; if (stat('/tmp/zapret2-manager/orchestra-apply.lock') != null || stat('/tmp/zapret2-manager/orchestra-run.lock') != null) return 'orchestra'; if (stat('/tmp/zapret2-manager/backup-restore.lock') != null) return 'backup-restore'; let b = trim(run("grep -l '\"status\":\"\\(pending\\|running\\)\"' /tmp/zapret2-manager/jobs/*.json 2>/dev/null | head -n 1").out); return length(b) ? 'runtime-job' : null; }
+function conflict() { if (active_job() != null) return 'engine-operation'; if (stat('/tmp/zapret2-manager/pending-rollback') != null || stat('/tmp/zapret2-manager/apply.lock') != null) return 'strategy'; if (stat('/tmp/zapret2-manager/backup-restore.lock') != null) return 'backup-restore'; return null; }
 function start(action, candidate, preserve) { setup(); let busy = conflict(); if (busy != null) return fail('EBUSY', 'Конфликтующая операция уже выполняется.', { conflict: busy }); let id = new_id(); if (id == null) return fail('EINTERNAL', 'Не удалось создать operation id.'); let old = installed_engine(), job = { schema: 'engine-operation.v2', id: id, action: action, phase: 'queued', progress: 0, createdAt: time(), updatedAt: time(), startedAt: null, finishedAt: null, cancellable: true, cancelRequested: false, preserveConfig: preserve !== false, candidate: candidate, previous: old, result: null, error: null, rollback: null, log: [{ at: time(), phase: 'queued', message: 'Операция поставлена в очередь.' }] }; if (!atomic(job_path(id), job) || !writefile(ACTIVE, id + '\n')) return fail('ESTATE', 'Не удалось сохранить engine job.'); run("chmod 600 '" + ACTIVE + "' '" + job_path(id) + "'"); if (run("setsid '" + WORKER + "' '" + id + "' >/dev/null 2>&1 &").rc != 0) return fail('EWORKER', 'Не удалось запустить worker.'); return { ok: true, operation: public_job(job) }; }
 function checked(input) { if (type(input) != 'object' || input == null || type(input.checkToken) != 'string') return fail('EINPUT', 'Передайте version и checkToken.'); let record = load_checked_candidate(input.checkToken); return record.ok ? record.record.candidate : record; }
 
@@ -39,7 +39,7 @@ function canonical_engine_releases(input) {
 	let latest = null;
 	for (let i = 0; i < length(answer.releases || []); i++) if (answer.releases[i].artifactKind == 'vanilla-bol-van-release') { latest = answer.releases[i]; break; }
 	if (latest == null && length(answer.releases || [])) latest = answer.releases[0];
-	let needsUpdate = latest != null && (truth && truth.artifactKind == 'legacy-compatibility-build' || installed.installedRelease == null || installed.installedRelease != latest.installedRelease);
+	let needsUpdate = latest != null && (installed.installedRelease == null || installed.installedRelease != latest.installedRelease);
 	answer.installed = { version: installed.installedRelease || null, artifactKind: truth && truth.artifactKind || null };
 	answer.available = { version: latest && latest.installedRelease || null, artifactKind: latest && latest.artifactKind || null };
 	answer.updateState = latest == null ? 'unknown' : needsUpdate ? 'update-available' : 'current';
@@ -60,7 +60,6 @@ function canonical_engine_check(input) {
 export const engine_check_release = function (input) { return canonical_engine_check(input); };
 export const engine_install = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('install', candidate, true); };
 export const engine_update = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('update', candidate, true); };
-export const engine_downgrade = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('downgrade', candidate, true); };
 export const engine_reinstall = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('reinstall', candidate, true); };
 export const engine_uninstall = function (input) { if (type(input) != 'object' || input == null || input.confirm != 'REMOVE') return fail('EINPUT', 'Удаление требует подтверждение REMOVE.'); let old = installed_engine(); return old.installed ? start('uninstall', null, input.preserveConfig !== false) : { ok: true, changed: false, state: 'engine_missing' }; };
 export const engine_operation_status = function (input) { let job = input != null && input.id != null ? read_job(input.id) : active_job(); return { ok: true, operation: public_job(job) }; };
@@ -100,11 +99,7 @@ export const commit_state = function (id) {
 	let nfq2sha = caps.nfqws2Sha256;
 	if (nfq2sha == null && candidate.nfqws2Sha256 != null) nfq2sha = candidate.nfqws2Sha256;
 	if (nfq2sha == null) nfq2sha = '';
-	let baseCommit = '';
-	if (candidate.baseCommit != null) baseCommit = candidate.baseCommit;
-	let patchSeries = [];
-	if (candidate.patchSeries != null) patchSeries = candidate.patchSeries;
-	let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', artifactKind: candidate.artifactKind, installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: null, upstreamRepository: 'bol-van/zapret2', assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, capabilities: {}, nfqws2Sha256: nfq2sha, baseCommit: baseCommit, patchSeries: patchSeries, installedAt: time() };
+	let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', artifactKind: candidate.artifactKind, installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: null, upstreamRepository: 'bol-van/zapret2', assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, capabilities: {}, nfqws2Sha256: nfq2sha, installedAt: time() };
 	for (let i = 0; i < length(required); i++) value.capabilities[required[i]] = true;
 	return save_engine_state(value) ? { ok: true, state: value } : fail('ESTATE', 'Engine state не записан.');
 };

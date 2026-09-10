@@ -40,7 +40,7 @@ test('installation contract keeps engine and Telegram Proxy independent', () => 
 test('artifact verifier accepts the exact three-file single-artifact manifest shape', () => {
   const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-release-verifier-'));
   try {
-    const identity = packageIdentity('zapret2-manager/Makefile');
+    const identity = packageIdentity('zapret2-manager-full/Makefile');
     const artifactName = `${releaseConfig.packages[0]}-${identity.version}-r${identity.release}-filogic.apk`;
     const artifactFile = path.join(dist, artifactName);
     fs.writeFileSync(artifactFile, 'fixture-full');
@@ -69,10 +69,6 @@ test('artifact verifier accepts the exact three-file single-artifact manifest sh
       excludedOptionalPackages: [...releaseConfig.excludedOptionalPackages],
       installation: { ...releaseConfig.installation },
       bundled: { ...releaseConfig.bundled },
-      compatibility: {
-        provides: [...releaseConfig.compatibility.provides],
-        legacyPackages: [...releaseConfig.compatibility.legacyPackages]
-      },
       externalDependencies: [...releaseConfig.externalDependencies]
     };
     fs.writeFileSync(path.join(dist, 'build-manifest.json'), `${JSON.stringify(manifest)}\n`);

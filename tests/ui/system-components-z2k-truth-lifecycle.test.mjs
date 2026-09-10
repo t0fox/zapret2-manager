@@ -189,7 +189,7 @@ test('actually missing Z2K still renders Не установлен', () => {
   const ctx = makeContext(internals, missing);
   const text = textOf(internals.renderComponents(ctx, ctx.data));
 
-  assert.match(text, /УстановленоНе установлен/);
+  assert.match(text, /Установлено[\s\S]*Не установлен/);
 });
 
 test('review-required exposes a standalone review explanation and safe re-check', () => {

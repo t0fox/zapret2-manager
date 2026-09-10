@@ -6,7 +6,6 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '../..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 const upstream = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-upstream.uc');
-const component = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-component.uc');
 const resourceUpdate = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
 const versions = read('zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
 const generator = read('tools/generate-z2k-classification.mjs');
@@ -15,7 +14,6 @@ const nativePreflight = read('zapret2-manager/files/usr/libexec/zapret2-manager/
 const nativeManifest = JSON.parse(read('zapret2-manager/files/usr/share/zapret2-manager/native-preflight.json'));
 const nativeManifestSource = read('zapret2-manager/files/usr/share/zapret2-manager/native-preflight.json');
 const strategyCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
-const scannerAdapter = read('zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh');
 
 test('classification policy is explicit: production shell drift is advisory, trust roots are blocking', () => {
   assert.match(generator, /reviewPolicy/);
@@ -40,18 +38,6 @@ test('canonical plan separates update availability from attention and apply elig
   assert.match(upstream, /unknown.*blocking|blocking.*unknown/i);
 });
 
-test('component planner consumes canonical upstream plan instead of a second precedence machine', () => {
-  const start = component.indexOf('export const z2k_component_plan');
-  const end = component.indexOf('export const z2k_component_apply');
-  assert.ok(start >= 0 && end > start);
-  const planBody = component.slice(start, end);
-  assert.match(planBody, /z2k_upstream_plan\(remoteManifest\)/);
-  assert.doesNotMatch(planBody, /for \(let sourcePath in keys\(checked\.manifest\.files_sha256\)\)/);
-  assert.doesNotMatch(planBody, /if \(length\(watched\)\)/);
-  assert.match(planBody, /attentionState/);
-  assert.match(planBody, /canApply/);
-});
-
 test('check state carries a bounded plan token and update consumes the checked snapshot', () => {
   assert.match(resourceUpdate, /planToken/);
   assert.match(resourceUpdate, /ECHECK_STALE/);
@@ -69,9 +55,6 @@ test('available release and activation receipt version come from the selected ca
   assert.match(resourceUpdate, /targetVersion:\s*resolved\.version/);
   assert.match(resourceUpdate, /sourceCommit:\s*target\.targetCommitSha/);
   assert.match(resourceUpdate, /version:\s*target\.targetVersion/);
-  const componentApply = component.slice(component.indexOf('export const z2k_component_apply'));
-  assert.match(componentApply, /ELEGACY_LIFECYCLE/);
-  assert.doesNotMatch(componentApply, /z2k_upstream_check\(\)|asset_registry_apply_bundle/);
 });
 
 test('compiler-input changes remain non-applicable through target preparation and release details', () => {
@@ -98,10 +81,10 @@ test('Strategy Apply owns two resolver snapshots and final CAS before profile mu
   assert.match(strategyCli, /runtime-composition\.uc/,
     'Strategy Apply must use the canonical resolver rather than a client snapshot');
   const first = strategyCli.indexOf('resolveInstalled');
-  const writer = strategyCli.lastIndexOf('profiles_apply_candidate');
+  const writer = strategyCli.lastIndexOf('strategy_apply_candidate');
   const final = strategyCli.lastIndexOf('resolveInstalled');
   assert.ok(first >= 0 && final > first && writer > final,
-    'Apply must resolve, preflight, re-resolve and only then call the profile writer');
+    'Apply must resolve, preflight, re-resolve and only then call the Strategy writer');
   assert.match(strategyCli, /ESTALE/,
     'Registry/receipt/composition changes must fail closed as ESTALE');
   assert.match(strategyCli, /observedRegistryRevision|membershipDigest|compositionSnapshotId/,

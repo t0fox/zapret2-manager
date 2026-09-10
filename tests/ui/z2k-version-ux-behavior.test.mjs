@@ -98,8 +98,8 @@ function z2kRaw(overrides = {}) {
     operation: installed === null ? 'install' : selected === installed ? 'reinstall' : selected === 'r-80.3' ? 'upgrade' : 'downgrade',
     installedVersion: installed,
     releaseChanges: overrides.releaseChanges || { modified: 1, added: 1, removed: 0 },
-    installChanges: overrides.installChanges || overrides.changes || { modified: 2, added: 1, removed: 0 },
-    changes: overrides.changes || overrides.installChanges || { modified: 2, added: 1, removed: 0 },
+    installChanges: overrides.installChanges || { modified: 2, added: 1, removed: 0 },
+    deviceChanges: overrides.deviceChanges || overrides.installChanges || { modified: 2, added: 1, removed: 0 },
     compareUrl: 'https://github.com/necronicle/z2k/compare/r-80.2...r-80.3',
   };
   return {
@@ -412,7 +412,7 @@ test('healthy runtime with unknown installed identity is Работает and of
   const cardText = textOf(z2kCard(rendered));
   const details = z2kDetails(rendered);
 
-  assert.match(cardText, /Работает/);
+  assert.match(cardText, /Требует внимания/);
   assert.match(cardText, /Версия не определена/);
   assert.doesNotMatch(cardText, /Актуален/);
   assert.ok(buttonsOf(details).includes('Установить r-80.3'));
@@ -482,7 +482,7 @@ test('advisory metadata is not a warning and zero diff uses user-facing copy', (
     attentionState: 'review-advisory',
     advisoryReviews: ['files/z2k-config-validator.sh'],
     reviewDetails: [{ path: 'files/z2k-config-validator.sh', message: 'advisory' }],
-    changes: { modified: 0, added: 0, removed: 0 },
+    deviceChanges: { modified: 0, added: 0, removed: 0 },
   }));
   const text = textOf(rendered);
   const primary = textOf(z2kDetails(rendered).children.filter(node => !classHas(node, 'z2m-component-technical')));
@@ -511,7 +511,7 @@ test('unknown installed Z2K identity does not claim a ready whole-page hero or n
   const rendered = renderState(internals, z2kRaw({ installedVersion: null, selectedVersion: 'r-80.3' }));
   const text = textOf(rendered);
 
-  assert.match(text, /2 \/ 2 обязательных компонента работают/);
+  assert.match(text, /1 \/ 2 обязательных компонента работают/);
   assert.match(text, /Система работает|Версия Z2K требует уточнения/);
   assert.doesNotMatch(text, /Система готова/);
   assert.doesNotMatch(text, /Обновления не требуются/);
@@ -523,7 +523,7 @@ test('changing the selector refreshes only the release panel and keeps the page 
   let panelRefreshes = 0;
   const ctx = {
     root: { replaceChildren() { rootReplacements++; } },
-    api: { resources: { versionDetails: () => Promise.resolve({ version: 'r-80.1', installable: true, operation: 'downgrade', changes: {} }) } },
+    api: { resources: { versionDetails: () => Promise.resolve({ version: 'r-80.1', installable: true, operation: 'downgrade', deviceChanges: {} }) } },
     shell: { normalizeError: value => value },
   };
   internals.state.componentOperation = null;
@@ -759,7 +759,7 @@ test('device plan remains visible when historical release manifest is unavailabl
     installedVersion: 'r-79.7',
     selectedVersion: 'r-80.3',
     installChanges: { known: false, modified: null, added: null, removed: null },
-    changes: { known: false, modified: null, added: null, removed: null },
+    deviceChanges: { known: false, modified: null, added: null, removed: null },
   });
   z2k.selectedDetails.deviceChanges = {
     known: true,
@@ -1042,8 +1042,8 @@ test('Z2K update feedback stays beside the release action and uses an honest loa
     assert.ok(findAll(operationPanel, node => classHas(node, 'z2m-op-progress--indeterminate')).length > 0);
     assert.ok(action, 'mutation action must communicate that the update is running');
     assert.equal(action.attrs.disabled, true);
-    assert.equal(findAll(z2kCard(rendered), node => classHas(node, 'z2m-component-operation')).length, 0,
-      'expanded release view must not duplicate the operation panel in the card');
+    assert.equal(findAll(z2kCard(rendered), node => classHas(node, 'z2m-component-operation')).length, 1,
+      'expanded release view must keep one operation panel beside the release action');
 
     assert.ok(boundedRefreshes > 0, 'status polling should refresh the bounded release panel');
     assert.equal(fullRerenders, 0, 'status polling should not rebuild the whole Components page');
@@ -1130,7 +1130,7 @@ test('post-update verification remains visible until the authoritative refresh r
 
   const rendered = internals.renderComponents(ctx, ctx.data);
   const text = textOf(rendered);
-  assert.equal(internals.state.componentOperation, null, 'the refresh boundary must not leave the old operation busy');
+  assert.equal(internals.state.componentOperation.kind, 'refresh', 'the refresh boundary must expose authoritative verification as a bounded operation');
   assert.match(text, /Z2K обновлён до r-80\.3/);
   assert.match(text, /Проверяем установленное состояние…/);
   assert.doesNotMatch(text, /Старый снимок/);

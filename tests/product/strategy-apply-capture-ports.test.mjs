@@ -9,7 +9,7 @@ const read = (relPath) => fs.readFileSync(path.join(ROOT, relPath), 'utf8');
 
 // Load ucode and JS implementations
 const applySource = read('zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc');
-const profilesApplySource = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const strategyApplySource = read('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-apply-runtime.uc');
 const profilesSource = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles.uc');
 
 // Reference JS parser / canonicalizer that mirrors the ucode derive_capture_ports contract
@@ -283,9 +283,9 @@ test('TEST 7: restart failure triggers full snapshot rollback restoring OPT and 
 // ---------------------------------------------------------------------------
 // TEST 8 — runtime verify checks capture ports in production source
 // ---------------------------------------------------------------------------
-test('TEST 8: profiles-apply source integrates port capture into transaction pipeline', () => {
-  assert.match(profilesApplySource, /derive_capture_ports/, 'profiles-apply must derive capture ports from candidate');
-  assert.match(profilesApplySource, /set_vars_cas|set_var_cas/, 'profiles-apply must write vars via CAS');
+test('TEST 8: Strategy Apply integrates port capture into transaction pipeline', () => {
+  assert.match(strategyApplySource, /derive_capture_ports/, 'Strategy Apply must derive capture ports from candidate');
+  assert.match(strategyApplySource, /set_vars_cas|set_var_cas/, 'Strategy Apply must write vars via CAS');
   assert.match(applySource, /set_vars_cas|set_vars_locked/, 'apply.uc must support atomic multi-variable write');
 });
 

@@ -17,7 +17,6 @@ test('release contract names exactly one self-contained manager APK', () => {
   for (const helper of [
     'z2m-core-helper',
     'z2m-root-bootstrap',
-    'z2m-scanner-firewall-helper',
     'z2m-helperd',
   ]) assert.match(fullMakefile, new RegExp(helper), helper);
   for (const pathFragment of [
@@ -33,12 +32,11 @@ test('release contract names exactly one self-contained manager APK', () => {
     'full package must not nest package installation, archives, or vendored kmods');
 });
 
-test('full package owns split-package migration through compatibility provides', () => {
-  assert.match(fullMakefile, /PROVIDES:=zapret2-manager\s+luci-app-zapret2-manager/);
+test('full package has no retired split-package compatibility surface', () => {
+  assert.doesNotMatch(fullMakefile, /PROVIDES\s*:/);
   assert.doesNotMatch(fullMakefile, /define Package\/zapret2-manager-full\/(?:postrm|prerm)/);
   assert.match(fullMakefile, /Package\/zapret2-manager-full\/postinst/);
   assert.match(fullMakefile, /luci-indexcache/);
-  assert.match(fullMakefile, /strategy-catalog-migration-cli\.uc/);
   assert.equal((fullMakefile.match(/kill -HUP/g) ?? []).length, 1);
   assert.equal((fullMakefile.match(/\/etc\/init\.d\/zapret2-manager restart/g) ?? []).length, 1);
 });

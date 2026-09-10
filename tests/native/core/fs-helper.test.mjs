@@ -22,7 +22,7 @@ const roots = {
   persistent_state: 'etc/zapret2-manager/state', snapshots: 'etc/zapret2-manager/snapshots',
   registry: 'etc/zapret2-manager/registry', secrets: 'etc/zapret2-manager/secrets',
   runtime: 'tmp/zapret2-manager/runtime', jobs: 'tmp/zapret2-manager/jobs',
-  locks: 'tmp/zapret2-manager/locks', staging: 'tmp/zapret2-manager/staging'
+  staging: 'tmp/zapret2-manager/staging'
 };
 
 function wsl(args, options = {}) {
@@ -272,11 +272,10 @@ test('scanner rejects escaped NUL object keys at top-level and nested levels', (
   for (const wire of wires) expectFailure(invoke(wire), 2, 'ESCHEMA', null);
 });
 
-test('all eight exact root aliases are recognized and policy authorization remains closed', () => {
+test('all supported root aliases are recognized', () => {
   for (const root of Object.keys(roots)) {
     const run = invoke(request('stat_regular', { root, path: 'missing' }, `root-${root}`));
-    if (root === 'locks') expectFailure(run, 3, 'EDENIED', `root-${root}`);
-    else expectFailure(run, 4, 'ENOENT', `root-${root}`);
+    expectFailure(run, 4, 'ENOENT', `root-${root}`);
   }
 });
 
@@ -434,22 +433,6 @@ test('unrecoverable partial stdout exits response-incomplete category', () => {
   assert.ok(run.stdout.length > 0 && run.stdout.length <= 8);
 });
 
-test('ownership and public lock operations return EUNSUPPORTED before filesystem access and have no side effects', () => {
-  const marker = `${testRoot}/${roots.runtime}/must-not-exist`;
-  const operations = {
-    rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
-    unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
-    lock_acquire: { name: 'test', owner: 'owner', timeoutMs: 0 },
-    lock_release: { name: 'test', owner: 'owner', token: 'a'.repeat(64) },
-    lock_status: { name: 'test' }
-  };
-  for (const [operation, args] of Object.entries(operations)) {
-    const run = invoke(request(operation, args));
-    expectFailure(run, 3, 'EUNSUPPORTED');
-  }
-  assert.equal(wsl(['test', '-e', marker]).status, 1);
-});
-
 test('mkdir_private uses a nonblocking per-root process lock and releases it on completion or crash', async () => {
   const args = { root: 'runtime', path: 'lock-target', mode: '0700', uid: 0, gid: 0, existOk: false };
   const holder = spawnInvoke(request('mkdir_private', args, 'holder'), { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
@@ -591,7 +574,6 @@ test('mkdir_private validates its closed schema, root depth, canonical path, and
     expectFailure(invoke(request('mkdir_private', mkdirArgs('runtime', value))),
       value.includes('..') || value.startsWith('/') ? 2 : 3,
       value.includes('..') || value.startsWith('/') ? 'ESCHEMA' : 'EPATH');
-  expectFailure(invoke(request('mkdir_private', mkdirArgs('locks', 'denied'))), 3, 'EDENIED');
   assert.equal(wsl(['test', '-e', `${testRoot}/${roots.runtime}/schema-mode`]).status, 1);
 });
 
@@ -771,35 +753,26 @@ test('mkdir_private reports persistent durability uncertainty and tmpfs visibili
   await holderResult;
 });
 
-test('reserved operations validate their complete closed schemas before EUNSUPPORTED', () => {
+test('current operations validate their complete closed schemas before execution', () => {
   const invalid = [
     request('atomic_write', { root: 'runtime', path: 'x', content: '', mode: '0644', uid: 0, gid: 0, allowCreate: true }),
     request('atomic_write_json', { root: 'runtime', path: 'x', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true, extra: true }),
     request('mkdir_private', { root: 'runtime', path: 'x', mode: '0700', uid: 1, gid: 0, existOk: true }),
     request('sha256_regular', { root: 'runtime', path: 'x', maxBytes: 1.5 }),
-    request('rename_owned', { root: 'runtime', fromPath: 'a', toPath: 'b', ownershipToken: 'short', replace: false }),
-    request('unlink_owned', { root: 'runtime', path: 'x', ownershipToken: 'g'.repeat(64), missingOk: false }),
-    request('lock_acquire', { name: 'bad name', owner: 'owner', timeoutMs: 0 }),
-    request('lock_release', { name: 'test', owner: '', token: 'a'.repeat(64) }),
-    request('lock_status', { name: 'x'.repeat(257) })
   ];
   for (const value of invalid) expectFailure(invoke(value), 2, 'ESCHEMA');
 });
 
-test('every path-bearing reserved schema applies the canonical path contract before EUNSUPPORTED', () => {
-  const token = 'a'.repeat(64);
+test('every current path-bearing schema applies the canonical path contract before execution', () => {
   const operations = {
     atomic_write: { root: 'runtime', path: 'x', content: '', mode: '0600', uid: 0, gid: 0, allowCreate: true },
     atomic_write_json: { root: 'runtime', path: 'x', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
     mkdir_private: { root: 'runtime', path: 'x', mode: '0700', uid: 0, gid: 0, existOk: false },
-    sha256_regular: { root: 'runtime', path: 'x', maxBytes: 1 },
-    rename_owned: { root: 'runtime', fromPath: 'x', toPath: 'y', ownershipToken: token, replace: false },
-    unlink_owned: { root: 'runtime', path: 'x', ownershipToken: token, missingOk: false }
+    sha256_regular: { root: 'runtime', path: 'x', maxBytes: 1 }
   };
   const invalidPaths = ['/absolute', 'a/../b', 'bad\tpath', 'nonascii-é'];
   for (const [operation, base] of Object.entries(operations)) {
-    const fields = operation === 'rename_owned' ? ['fromPath', 'toPath'] : ['path'];
-    for (const field of fields) {
+    for (const field of ['path']) {
       for (const invalidPath of invalidPaths) {
         const value = request(operation, { ...base, [field]: invalidPath });
         const wire = invalidPath === 'nonascii-é'
@@ -1013,9 +986,8 @@ test('sha256_regular rejects wrong owner, mode, path, depth, schema, and integer
   expectFailure(invoke(request('sha256_regular', { ...shaArgs('jobs', 'sha-wide', 1), extra: true })), 2, 'ESCHEMA');
 });
 
-test('sha256_regular remains denied for secrets and locks', () => {
+test('sha256_regular remains denied for secrets', () => {
   expectFailure(invoke(request('sha256_regular', shaArgs('secrets', 'anything', 0))), 3, 'EDENIED');
-  expectFailure(invoke(request('sha256_regular', shaArgs('locks', 'anything', 0))), 3, 'EDENIED');
 });
 
 test('sha256_regular retries EINTR, handles short reads, and fails closed on read error', () => {
@@ -1143,20 +1115,6 @@ test('sha256_regular maps only actual shared-lock contention to ELOCKED', () => 
   assert.equal(run.response.error.stage, 'lock_acquire');
 });
 
-test('ownership and public lock operations remain unsupported and side-effect-free after SHA promotion', () => {
-  const marker = `${testRoot}/${roots.runtime}/sha-promotion-must-not-exist`;
-  const operations = {
-    rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'sha-promotion-must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
-    unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
-    lock_acquire: { name: 'sha-promotion', owner: 'owner', timeoutMs: 0 },
-    lock_release: { name: 'sha-promotion', owner: 'owner', token: 'a'.repeat(64) },
-    lock_status: { name: 'sha-promotion' }
-  };
-  for (const [operation, args] of Object.entries(operations))
-    expectFailure(invoke(request(operation, args)), 3, 'EUNSUPPORTED');
-  assert.equal(wsl(['test', '-e', marker]).status, 1);
-});
-
 test('atomic_write creates, replaces, converges, and preserves arbitrary bytes exactly', () => {
   const base = `${testRoot}/${roots.runtime}`;
   for (const [name, content] of [['atomic-empty', Buffer.alloc(0)], ['atomic-binary', Buffer.from([0, 255, 0, 192, 128, 1])], ['atomic-invalid-utf8', Buffer.from([0xc3, 0x28, 0xff])]]) {
@@ -1179,7 +1137,6 @@ test('atomic_write enforces create precondition, closed schema, path, policy, an
     const deep = pathValue.split('/').length > 12 && !pathValue.includes('..');
     expectFailure(invoke(request('atomic_write', { ...valid, path: pathValue })), deep ? 3 : 2, deep ? 'EPATH' : 'ESCHEMA');
   }
-  expectFailure(invoke(request('atomic_write', { ...valid, root: 'locks' })), 3, 'EDENIED');
   for (const content of ['YQ', 'YQ===', 'Y Q==', 'YQ=/', '****', 'YR==']) expectFailure(invoke(request('atomic_write', { ...valid, content })), 2, 'ESCHEMA');
   expectFailure(invoke(request('atomic_write', { ...valid, content: Buffer.alloc(521029).toString('base64') })), 2, 'ESCHEMA');
 });
@@ -1478,17 +1435,6 @@ test('atomic_write classifies persistent durability and final replacement honest
   expectCommitUnknown(await result, 'atomic-final-race'); assert.equal(wsl(['cat', `${base}/atomic-final-race`]).stdout, 'foreign');
 });
 
-test('ownership and public lock operations remain unsupported and side-effect-free', () => {
-  const marker = `${testRoot}/${roots.runtime}/atomic-reserved-marker`;
-  const operations = {
-    rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'atomic-reserved-marker', ownershipToken: 'a'.repeat(64), replace: false },
-    unlink_owned: { root: 'runtime', path: 'atomic-reserved-marker', ownershipToken: 'a'.repeat(64), missingOk: false },
-    lock_acquire: { name: 'atomic', owner: 'owner', timeoutMs: 0 }, lock_release: { name: 'atomic', owner: 'owner', token: 'a'.repeat(64) }, lock_status: { name: 'atomic' }
-  };
-  for (const [operation, args] of Object.entries(operations)) expectFailure(invoke(request(operation, args)), 3, 'EUNSUPPORTED');
-  assert.equal(wsl(['test', '-e', marker]).status, 1);
-});
-
 function readTargetBytes(root, relative) {
   const target = `${testRoot}/${roots[root]}/${relative}`;
   const run = wsl(['cat', target], { encoding: 'buffer' });
@@ -1623,7 +1569,6 @@ test('atomic_write_json enforces its exact seven-field reserved schema, fixed mo
   for (const args of invalid) expectFailure(invoke(request('atomic_write_json', args)), 2, 'ESCHEMA');
   expectFailure(invoke(request('atomic_write_json', { ...valid, path: 'bad path' })), 2, 'ESCHEMA');
   expectFailure(invoke(request('atomic_write_json', { ...valid, path: `${'a/'.repeat(16)}a` })), 3, 'EPATH');
-  expectFailure(invoke(request('atomic_write_json', { ...valid, root: 'locks' })), 3, 'EDENIED');
   expectFailure(invoke(request('atomic_write_json', atomicJsonArgs('runtime', 'json-missing.json', { a: 1 }, false))), 4, 'ENOENT');
 });
 

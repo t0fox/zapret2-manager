@@ -11,7 +11,6 @@ const PACKAGE_FILES = new Map([
   ['usr/libexec/zapret2-manager/z2m-helperd', 0o755],
   ['usr/libexec/zapret2-manager/z2m-core-helper', 0o755],
   ['usr/libexec/zapret2-manager/z2m-root-bootstrap', 0o755],
-  ['usr/libexec/zapret2-manager/z2m-scanner-firewall-helper', 0o755],
   ['usr/libexec/zapret2-manager/core/native-helper.uc', 0o644],
   ['etc/init.d/zapret2-manager', 0o755],
 ]);
@@ -20,17 +19,15 @@ const BUILD_BASENAMES = new Map([
   ['usr/libexec/zapret2-manager/z2m-helperd', 'z2m-helperd'],
   ['usr/libexec/zapret2-manager/z2m-core-helper', 'z2m-core-helper'],
   ['usr/libexec/zapret2-manager/z2m-root-bootstrap', 'z2m-root-bootstrap'],
-  ['usr/libexec/zapret2-manager/z2m-scanner-firewall-helper', 'z2m-scanner-firewall-helper'],
 ]);
 const REQUIRED_FEED_LINKS = new Map([
   ['package/feeds/base/uclient', '../../../feeds/base/libs/uclient'],
   ['package/feeds/base/jsonfilter', '../../../feeds/base/utils/jsonfilter'],
   ['package/feeds/base/ustream-ssl', '../../../feeds/base/libs/ustream-ssl'],
-  ['package/feeds/packages/unzip', '../../../feeds/packages/utils/unzip'],
 ]);
 const PACKAGE_DEPENDENCIES = [
   'ucode', 'ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop',
-  'ncat', 'flock', 'uclient-fetch', 'ca-bundle', 'unzip', 'jsonfilter', 'libjson-c',
+  'flock', 'uclient-fetch', 'ca-bundle', 'jsonfilter', 'libjson-c',
 ];
 const SOCKET = 'tmp/zapret2-manager/runtime/z2m-helperd.sock';
 const CURL_CONFIG_SHA256 = '24a339331d64510a797fde4e6c0b31e36c247525d0e57cb2530d752161a5ace6';
@@ -385,7 +382,7 @@ before(() => {
    fs.cpSync(path.join(repo, 'zapret2-manager'), isolatedPackage, { recursive: true });
     configureIsolatedFeeds(isolatedPackage);
    assert.equal(sha256(path.join(isolatedPackage, 'Makefile')),
-      sha256(path.join(repo, 'zapret2-manager/Makefile')),
+      sha256(path.join(repo, 'zapret2-manager-full/Makefile')),
       'isolated package source differs from repository package source');
    assert.notEqual(fs.realpathSync(path.join(sourceSdk, 'package/feeds/z2m-latest')), fs.realpathSync(repo),
      'OPENWRT_SDK stale-feed characterization unexpectedly changed');

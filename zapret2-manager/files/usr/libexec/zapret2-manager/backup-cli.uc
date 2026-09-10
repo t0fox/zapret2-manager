@@ -7,7 +7,7 @@ import { readfile, popen } from 'fs';
 import { backup_scope, restore_scope, list_backups, preview_restore, delete_backup } from './backup.uc';
 
 const LOCKFILE = '/tmp/zapret2-manager/backup.lock';
-const SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
+const SCOPES = ['engineConfig', 'ourState', 'lists'];
 
 function have_flock() {
 	let process = popen('command -v flock 2>/dev/null', 'r');

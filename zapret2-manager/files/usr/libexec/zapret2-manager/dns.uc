@@ -13,14 +13,14 @@
 //     dnsmasq's own option lists.
 //
 // Draft entries live in state.json (the `dns` co-owned key, preserved by
-// profiles-draft). dns_apply: preview → snapshot → write hosts file →
+// manager-state). dns_apply: preview → snapshot → write hosts file →
 // register addnhosts (uci, once) → dnsmasq reload → verify (process, port
 // 53, per-entry nslookup) → rollback on failure + manual dns_rollback.
 // dnsmasq reload is HUP-based (no listener drop). No direct browser UCI
 // writes — all writes go through this module.
 
 import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
-import { load_state, save_state } from './profiles-draft.uc';
+import { load_state, save_state } from './manager-state.uc';
 
 const OVERRIDES_PATH = '/etc/zapret2-manager/dns-overrides.hosts';
 const DHCP_CONF = '/etc/config/dhcp';
@@ -594,22 +594,4 @@ export const dns_check = function(input) {
 		push(results, { domain: e.domain, expectedIp: e.ip, matched: found });
 	}
 	return { ok: true, results: results, allMatch: allMatch };
-};
-
-export const dns_restore_auto = function() {
-	let snap = '/tmp/zapret2-manager/last-good/dns-auto';
-	try { mkdir('/tmp/zapret2-manager/last-good'); } catch (e) { }
-	try { mkdir(snap); } catch (e) { }
-	run('uci export network > ' + snap + '/network.uci');
-	let change = run("uci set network.wan.peerdns='1'; uci delete network.wan.dns; uci commit network; /etc/init.d/network reload");
-	if (change.rc != 0) {
-		if (stat(snap + '/network.uci')) run('uci -q import network < ' + snap + '/network.uci; uci commit network; /etc/init.d/network reload');
-		return err('ETARGET', 'failed to restore automatic WAN DNS', 'apply');
-	}
-	let check = run("ubus call network.interface.wan status");
-	if (check.rc != 0) {
-		if (stat(snap + '/network.uci')) run('uci -q import network < ' + snap + '/network.uci; uci commit network; /etc/init.d/network reload');
-		return err('EVERIFY', 'WAN status unavailable after restoring automatic DNS', 'verify');
-	}
-	return { ok: true, action: 'restore-automatic', snapshot: snap, peerdns: true };
 };

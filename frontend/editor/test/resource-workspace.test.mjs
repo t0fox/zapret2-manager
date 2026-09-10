@@ -103,7 +103,6 @@ function loadResources() {
     buildModel: (_resources, input) => ({
       summary: { total: input.assets.length, user: input.assets.length, stateLabel: 'Актуально' },
       groups: [{ id: 'user', label: 'Мои ресурсы', counts: { lua: input.assets.length }, total: input.assets.length, state: 'current', assets: input.assets }],
-      hiddenGroups: [],
     }),
     shouldShowBadge: () => true,
   };

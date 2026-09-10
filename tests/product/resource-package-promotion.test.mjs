@@ -43,7 +43,7 @@ test('dependency regression: registry overlay lua functions are exposed to compi
   assert.match(registry, /asset_registry_environment/);
   assert.match(registry, /for \(let name in legacy_function_names\(raw\)\) environment\.functions\[name\]/);
   assert.match(registry, /readfile\(asset\.path\)/);
-  assert.ok(registry.indexOf('add_legacy_environment(environment)') < registry.indexOf('for (let i = 0; i < length(listed.assets); i++)'), 'legacy must be loaded before registry overlay');
+  assert.ok(registry.indexOf('for (let i = 0; i < length(listed.assets); i++)') < registry.indexOf('add_legacy_environment(environment, listed)'), 'runtime environment must load after Registry descriptors exist');
 });
 
 test('rollback preserves package baseline and can restore previous package-backed identity', () => {

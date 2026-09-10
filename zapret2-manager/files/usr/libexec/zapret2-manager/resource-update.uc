@@ -8,7 +8,7 @@ import { z2k_upstream_check, z2k_upstream_plan } from './z2k-upstream.uc';
 import { z2k_candidate_gate } from './z2k-compat.uc';
 import { z2k_resolve_version, z2k_compare_versions, z2k_target_operation, z2k_asset_id_from_classification } from './z2k-versions.uc';
 import { z2k_registry_installed_release, z2k_registry_receipt_state } from './z2k-installed-release.uc';
-import { resolveCandidate, resolveInstalled, resolveTargetRuntimeInput, resolveRepairTarget, runtime_composition_candidate_cas, runtime_strategy_preflight, runtime_materialize_failure_rollback, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
+import { resolveCandidate, resolveInstalled, resolveTargetRuntimeInput, resolveRepairTarget, runtime_composition_candidate_cas, runtime_strategy_preflight, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
 import { read_var, config_sha256, transaction_config_snapshot, restore_transaction_config } from './apply.uc';
 import { engine_status } from './engine-manager.uc';
 import * as strategy_sources from './strategy-sources.uc';
@@ -21,7 +21,7 @@ import { catalog_refresh_rebuild } from './strategy-catalog-refresh.uc';
 import { strategy_catalog_generation_read, strategy_catalog_generation_publish } from './strategy-catalog-generation.uc';
 import { strategy_selection_get_readonly, strategy_selection_get, strategy_selection_restore, strategy_selection_project_candidate } from './strategy-state.uc';
 import { z2k_detect_candidate, z2k_detect_stage, z2k_detect_prepare, z2k_detect_publish_prepared, z2k_detect_restore, z2k_detect_finalize, z2k_detect_status } from './z2k-detect.uc';
-import { z2k_migration_state, z2k_lua_function_closure, z2k_migration_prepare, z2k_migration_commit, z2k_migration_rollback } from './z2k-migration.uc';
+import { z2k_lua_function_closure, z2k_migration_prepare, z2k_migration_commit, z2k_migration_rollback } from './z2k-migration.uc';
 import * as autocircular_ops from './strategies-ops.uc';
 
 const MANIFEST = '/usr/share/zapret2-manager/resources/manifest.json';
@@ -57,22 +57,6 @@ const Z2K_STATUS_RPC_MAX_BYTES = 64 * 1024;
 const Z2K_PACKAGE_LUA_ORDER_BASE = 100;
 const Z2K_DETECT_TARGET = '/usr/libexec/zapret2-manager/z2k-detect';
 let z2k_active_detect_publication = null;
-
-// Read-only boundary used by status/transaction tests and future callers. The
-// migration itself remains inside the ordinary Asset Registry transaction.
-export const resource_center_z2k_migration_state = function(input) { return z2k_migration_state(input); };
-export const resource_center_test_lua_function_closure = function(input) {
-	if (type(input) != 'object' || input == null || input.testOnly !== true) return { ok: false, error: { code: 'EINPUT', message: 'Lua closure test seam is restricted to controlled tests.' } };
-	return z2k_lua_function_closure(input);
-};
-export const resource_center_test_migration_transaction = function(input) {
-	if (type(input) != 'object' || input == null || input.testOnly !== true || type(input.phase) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'Migration transaction test seam is restricted to controlled tests.' } };
-	if (input.phase == 'prepare') return z2k_migration_prepare(input);
-	if (type(input.prepared) != 'object' || input.prepared == null) return { ok: false, error: { code: 'EINPUT', message: 'Migration transaction test seam has no prepared evidence.' } };
-	if (input.phase == 'failure') return z2k_migration_rollback({ prepared: input.prepared, reason: input.reason });
-	if (input.phase == 'commit') return z2k_migration_commit({ prepared: input.prepared, finalReceipt: input.finalReceipt, activeReceipt: input.activeReceipt, preserved: input });
-	return { ok: false, error: { code: 'EINPUT', message: 'Migration transaction phase is unsupported.' } };
-};
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -625,12 +609,6 @@ function z2k_runtime_summary(local, remote, engine, staticManagedCount, installe
 		identity: { closureDigest: closure && closure.runtimeBundleDigest || null, installedDigest: local.runtimeBundleDigest || null, coherent: closureReady }
 	};
 }
-export const z2k_runtime_summary_projection = function(local, remote, engine, staticManagedCount, installed) {
-	return z2k_runtime_summary(local, remote, engine, staticManagedCount, installed);
-};
-export const z2k_static_managed_count_projection = function(installed, local) {
-	return z2k_static_managed_count(installed, local);
-};
 function z2k_apply_runtime_summary(remote, local, summary) {
 	remote.runtimeSummary = summary;
 	remote.health = summary.health;
@@ -1190,10 +1168,6 @@ function z2k_v1_reconciliation_check(listed, resolved) {
 	if (expectedCount != length(receipt.assets || [])) return fail('RECONCILIATION_REQUIRED', 'FRESH same-release target contains a membership change relative to V1.');
 	return { ok: true, required: true, operation: 'reinstall', version: receipt.version, sourceCommit: receipt.sourceCommit };
 }
-export const resource_center_test_v1_reconciliation_check = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.listed) || !object(input.resolved)) return fail('EINPUT', 'Internal V1 reconciliation test seam is restricted to controlled tests.');
-	return z2k_v1_reconciliation_check(input.listed, input.resolved);
-};
 function z2k_registry_asset_type(item) {
 	if (!object(item)) return null;
 	if (item.type == 'lua' || item.type == 'blob' || item.type == 'ipset' || item.type == 'hostlist') return item.type;
@@ -1249,15 +1223,6 @@ function valid_prepared_target(value) {
 	}
 	return valid_digest(value.runtimeBundleDigest) && z2k_target_token(value, value.preparedAt) == value.planToken;
 }
-export const resource_center_test_prepared_target_token = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.target)) return { ok: false, error: { code: 'EINPUT', message: 'Prepared target token test seam is restricted to controlled tests.' } };
-	let computed = z2k_target_token(input.target, input.target.preparedAt);
-	return { ok: true, computedPlanToken: computed, tokenEqual: computed == input.target.planToken };
-};
-export const resource_center_test_valid_prepared_target = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.target)) return { ok: false, error: { code: 'EINPUT', message: 'Prepared target validation test seam is restricted to controlled tests.' } };
-	return { ok: true, valid: valid_prepared_target(input.target) };
-};
 function z2k_target_from_state(state) { return state && state.preparedTarget && valid_prepared_target(state.preparedTarget) ? state.preparedTarget : null; }
 function load_prepared_target_file() {
 	let raw = readfile(PREPARED_TARGET_STATE);
@@ -1723,35 +1688,6 @@ function z2k_runtime_rollback() {
 	if (!restarted.ok) return { ok: false, restored: true, error: restarted.error || null, restart: restarted };
 	return { ok: true, restored: true, restart: restarted };
 }
-export const z2k_runtime_confirmed_target = function(listed, classification, authority) {
-	let active = [], activeById = {}, historical = {}, receipts = listed.activationReceipts || [];
-	for (let i = 0; i < length(listed.assets || []); i++) {
-		let asset = listed.assets[i], provenance = asset && asset.provenance;
-		if (!provenance || provenance.kind != 'catalog/upstream' || provenance.bundleId != 'z2k-curated-lua') continue;
-		let item = z2k_classification_for(classification, provenance.sourcePath);
-		if (!z2k_runtime_exact(item) || !runtime_target_path(item.runtimeTarget)) return fail('EVERIFY', 'Confirmed Z2K asset has no safe runtime mapping.', { id: asset.id });
-		push(active, { id: asset.id, type: asset.type, sourcePath: provenance.sourcePath, runtimeTarget: item.runtimeTarget, sha256: asset.contentSha256, byteSize: asset.byteSize });
-		activeById[asset.id] = true;
-	}
-	for (let i = 0; i < length(receipts); i++) {
-		let receipt = receipts[i];
-		if (!z2k_receipt_header_valid(receipt)) continue;
-		for (let j = 0; j < length(receipt.assets); j++) {
-			let recorded = receipt.assets[j];
-			if (object(recorded) && string(recorded.id) && !historical[recorded.id]) historical[recorded.id] = recorded;
-		}
-	}
-	let removeTargets = [];
-	for (let id in historical) {
-		if (activeById[id]) continue;
-		let recorded = historical[id], descriptor = z2k_receipt_runtime_descriptor(id, recorded.type, receipts, classification);
-		if (!descriptor.ok) return descriptor;
-		push(removeTargets, descriptor.descriptor);
-	}
-	sort(active, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
-	sort(removeTargets, function(a, b) { return a.id == b.id ? 0 : (a.id < b.id ? -1 : 1); });
-	return { ok: true, target: { targetVersion: authority.value, operation: 'materialize', assets: active, removeIds: [], removeTargets: removeTargets } };
-};
 export const z2k_runtime_materialize_confirmed = function() {
 	let listed = asset_registry_list(null);
 	if (!listed.ok) return listed;
@@ -2025,33 +1961,6 @@ function z2k_rollback_after_runtime_failure(selected, applied, diagnostics, runt
 	completed.restoredIdentity = z2k_rollback_restored_identity(pending, completed);
 	return z2k_rollback_finish(completed, migrationRollback);
 }
-export const resource_center_test_rollback_transaction = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.seams)) return fail('EINPUT', 'Internal rollback test seam is restricted to controlled tests.');
-	let seams = input.seams;
-	if (type(seams.pendingLoad) != 'function' || type(seams.pendingWrite) != 'function' || type(seams.pendingClear) != 'function'
-		|| type(seams.runtimeRollback) != 'function' || type(seams.registryList) != 'function' || type(seams.registryAlreadyRestored) != 'function'
-		|| type(seams.registryRollback) != 'function' || type(seams.sourceRestore) != 'function' || type(seams.detectRestore) != 'function') return fail('EINPUT', 'Internal rollback test seam is incomplete.');
-	seams.testOnly = true;
-	return z2k_rollback_after_runtime_failure(input.selected || { id: 'z2k-curated-lua' }, input.applied || {}, input.diagnostics || {}, input.runtimeActivated === true, seams);
-};
-export const resource_center_test_guard_finish = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.publication) || !object(input.result) || !object(input.seams)
-		|| type(input.seams.detectRestore) != 'function' || type(input.seams.detectFinalize) != 'function') return fail('EINPUT', 'Internal guard test seam is incomplete.');
-	z2k_active_detect_publication = input.publication;
-	let seams = { testOnly: true, detectRestore: input.seams.detectRestore, detectFinalize: input.seams.detectFinalize };
-	let answer = z2k_runtime_guard_finish({ ok: true, owned: false }, null, [], input.result, seams);
-	z2k_active_detect_publication = null;
-	return answer;
-};
-export const resource_center_test_rollback_expected_revision = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.applied) || !object(input.listed) || !object(input.pending)) return fail('EINPUT', 'Internal rollback revision test seam is restricted to controlled tests.');
-	return z2k_rollback_expected_revision(input.applied, input.listed, input.pending);
-};
-export const resource_center_test_rollback_identity = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.pending) || !object(input.pending.rollbackIdentity) || !object(input.actualReceipt)) return fail('EINPUT', 'Internal rollback identity test seam is restricted to controlled tests.');
-	let identity = input.pending.rollbackIdentity, expected = identity.receipt || null;
-	return { ok: expected != null && z2k_rollback_identity_matches(identity, expected, input.actualReceipt), receiptId: input.actualReceipt.receiptId || null, runtimeBundleDigest: input.actualReceipt.runtimeBundleDigest || null };
-};
 function z2k_pending_prior_state_matches(pending) {
 	if (!object(pending)) return fail('ERECOVERY_REQUIRED', 'Prior activation evidence is missing.');
 	let listed = asset_registry_list(null);
@@ -2078,14 +1987,6 @@ function z2k_pending_prior_state_matches(pending) {
 	return { ok: true, registry: true, receipt: true, config: true, selection: true, catalog: true, runtime: true };
 }
 
-export const resource_center_test_recovery_contract = function(input) {
-	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Internal recovery contract seam is restricted to controlled tests.');
-	let pending = object(input.pending) ? input.pending : input, phase = pending.phase, runtimeActivated = pending.runtimeActivationIntent === true || phase == 'RUNTIME_ACTIVATING' || phase == 'MATERIALIZED' || phase == 'PROCESS_VERIFIED' || phase == 'SOURCE_ACTIVATING' || phase == 'SOURCE_ACTIVATED' || phase == 'ROLLING_BACK';
-	let stable = input.priorStateProven === true || (input.detectMatchesPrior === true && input.receiptMatchesPrior === true && input.registryMatchesPrior === true && input.runtimeMatchesPrior === true && input.catalogMatchesPrior === true);
-	if (phase == 'PREPARED' && pending.registryMutationIntent !== false) { let blocked = fail('ERECOVERY_REQUIRED', 'Ambiguous PREPARED evidence is retained until Registry/runtime/catalog/receipt state is proven.'); blocked.cleared = false; blocked.rollbackRequired = true; blocked.runtimeActivated = runtimeActivated; return blocked; }
-	if (!stable) { let blocked = fail('ERECOVERY_REQUIRED', 'Recovery evidence is incomplete; the pending marker must remain durable.'); blocked.cleared = false; blocked.rollbackRequired = phase != 'PREPARED'; blocked.runtimeActivated = runtimeActivated; return blocked; }
-	return { ok: true, cleared: true, rollbackRequired: false, runtimeActivated: runtimeActivated };
-};
 function z2k_pending_identity_valid(pending) {
 	if (!object(pending) || !string(pending.candidateSnapshotId) || !string(pending.membershipDigest)
 		|| !string(pending.targetVersion) || !string(pending.targetCommit) || !string(pending.planToken)
@@ -2119,10 +2020,6 @@ function z2k_finalized_pending_matches(pending, listed) {
 		&& type(receipt.installedAuthorityRevision) == 'int'
 		&& receipt.installedAuthorityRevision <= listed.revision;
 }
-export const resource_center_test_finalized_pending_matches = function(pending, listed) {
-	if (!object(pending) || pending.testOnly !== true) return false;
-	return z2k_finalized_pending_matches(pending, listed);
-};
 function z2k_finalized_runtime_matches(pending, listed, suppliedProof) {
 	let authority = z2k_registry_receipt_state(listed), receipt = authority && authority.receipt;
 	if (!authority || authority.state != 'COHERENT_VERIFIED' || !object(receipt) || receipt.schema != 'asset-activation-receipt.v3') return fail('ERECOVERY_REQUIRED', 'FINALIZED recovery requires a coherent V3 receipt before runtime verification.');
@@ -2148,12 +2045,6 @@ function z2k_finalized_runtime_matches(pending, listed, suppliedProof) {
 	if (!process.ok) return fail('ERECOVERY_REQUIRED', 'FINALIZED recovery process identity does not match the installed receipt.', { process: process.error });
 	return { ok: true, snapshotId: resolved.snapshotId, membershipDigest: resolved.membershipDigest, materialized: materialized, process: process };
 }
-export const resource_center_test_finalized_recovery = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.pending) || !object(input.listed)) return fail('EINPUT', 'Internal FINALIZED recovery test seam is restricted to controlled tests.');
-	let matches = z2k_finalized_pending_matches(input.pending, input.listed);
-	if (!matches) return fail('ERECOVERY_REQUIRED', 'Finalized test evidence does not match the installed authority.');
-	return z2k_finalized_runtime_matches(input.pending, input.listed, input.runtimeProof);
-};
 function z2k_pending_detect_restore(pending) {
 	return object(pending) && object(pending.detectPublication) ? z2k_detect_restore(pending.detectPublication) : { ok: true, skipped: true };
 }
@@ -2167,14 +2058,6 @@ function z2k_prior_activation_matches(prepared, current) {
 	if (expected != actual) return fail('ECHECK_STALE', 'Prepared Z2K operation is stale because active strategy, catalog, config, source, or enabled state changed.', { preparedPriorActivationDigest: expected, currentPriorActivationDigest: actual });
 	return { ok: true, priorActivationDigest: expected };
 }
-
-export const resource_center_test_prepared_state_guard = function(input) {
-	if (!object(input) || input.testOnly !== true || !object(input.preparedActivation) || !object(input.currentActivation)) return fail('EINPUT', 'Internal prepared-state test seam is restricted to controlled tests.');
-	let target = { targetVersion: 'r-test', targetCommitSha: 'a', manifestSha256: 'b', localFingerprint: 'c', classificationSha256: 'd', runtimeBundleDigest: 'e', compilerSnapshotDigest: 'f', compatibilityIdentity: 'g', operation: 'update', removeIds: [], removeTargets: [], priorActivation: input.preparedActivation };
-	let token = z2k_target_token(target, type(input.preparedAt) == 'int' ? input.preparedAt : 1), gate = z2k_prior_activation_matches(input.preparedActivation, input.currentActivation);
-	if (!gate.ok) return { ok: false, error: gate.error, planToken: token, mutationCount: 0 };
-	return { ok: true, planToken: token, priorActivationDigest: gate.priorActivationDigest, mutationCount: 1 };
-};
 
 function z2k_candidate_source_contract(sourceId) {
 	if (sourceId == 'z2k') return { origin: 'z2k_builtin', owner: 'z2k-core', strategyClass: 'official-z2k', repository: 'necronicle/z2k', prefix: 'z2k:', kinds: ['official-top-level-profile', 'strategy-catalog-import'] };
@@ -2224,11 +2107,6 @@ function z2k_candidate_catalog(priorCatalog, coreSnapshot) {
 	if (object(coreSnapshot) && type(coreSnapshot.standaloneCandidates) == 'array') for (let candidate in coreSnapshot.standaloneCandidates) append(candidate);
 	return { verified: true, entries: entries, canonicalEntries: entries, ids: ids, canonicalIds: ids };
 }
-export const resource_center_test_candidate_catalog = function(input) {
-	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Candidate catalog test seam is restricted to controlled tests.');
-	return z2k_candidate_catalog(input && input.priorCatalog, input && input.coreSnapshot);
-};
-
 function z2k_strategy_preflight(target) {
 	return runtime_strategy_preflight({ activeStrategy: target && target.activeStrategy || null,
 		candidateCatalog: target && target.candidateCatalog || null,
@@ -2505,82 +2383,6 @@ function z2k_coherent_finalize_request(input) {
 		detect: detectIdentity, detectIdentity: detectIdentity, runtimeMembership: membership, z2kMembership: membership,
 		committedAssetRevision: input.committedAssetRevision, activationEvidence: input.activationEvidence } };
 }
-export const resource_center_test_coherent_finalize_request = function(input) {
-	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Internal coherent finalization test seam is restricted to controlled tests.');
-	return z2k_coherent_finalize_request(input);
-};
-
-// Failure-injection seam for the actual pre-commit gate.  It deliberately
-// exposes mutation counters so the focused test proves that a rejected Detect
-// or strategy candidate never reaches Registry/runtime publication.
-export const resource_center_test_precommit_failure = function(input) {
-	if (!object(input) || input.testOnly !== true || (input.failure != 'detect-sha' && input.failure != 'strategy-preflight' && input.failure != 'strategy-provenance-mismatch'))
-		return fail('EINPUT', 'Internal pre-commit failure seam is restricted to controlled tests.');
-	let mutations = { registry: 0, runtime: 0 }, activeIdentity = 'X', digest = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-	let target = { detectArtifact: { sha256: digest }, activeStrategy: null, candidateCatalog: { ids: [] }, candidateRuntime: { closureReady: true, nativeReady: true } };
-	let staged = { candidate: { sha256: digest } };
-	if (input.failure == 'detect-sha') staged.candidate.sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-	else if (input.failure == 'strategy-preflight') {
-		target.activeStrategy = { id: 'avatar-selected', canonicalStrategyId: 'avatar-selected', sourceId: 'avatar', origin: 'avatar_builtin', selected: true };
-		target.candidateRuntime = { closureReady: false, nativeReady: false };
-	} else {
-		let selectedSource = input.selectedSource == 'user' ? 'user' : 'avatar';
-		let catalogSource = input.catalogSource == 'avatar' ? 'avatar' : 'user';
-		let selectedId = 'avatar:stable', selectedContract = z2k_candidate_source_contract(selectedSource), catalogContract = z2k_candidate_source_contract(catalogSource);
-		let sourceSnapshotId = catalogSource + '-snapshot', sourceCommit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-		let rawEntry = { id: selectedId, canonicalId: selectedId, sourceId: catalogSource, sourceSnapshotId: sourceSnapshotId, sourceCommit: sourceCommit,
-			entryKind: catalogSource == 'z2k' ? 'all-in-one' : null,
-			provenance: { repository: catalogContract.repository, sourceId: catalogSource, sourceSnapshotId: sourceSnapshotId,
-				sourceCommit: sourceCommit, kind: catalogSource == 'avatar' ? 'strategy-catalog' : 'user-strategy' } };
-		target.activeStrategy = { id: selectedId, canonicalStrategyId: selectedId, sourceId: selectedSource, origin: selectedContract.origin, selected: true };
-		target.candidateCatalog = { entries: [z2k_candidate_entry_projection(rawEntry)] };
-	}
-	let gate = z2k_precommit_gate(target, { lifecycleState: 'candidate' }, staged);
-	if (gate.ok === true) { mutations.registry++; mutations.runtime++; activeIdentity = 'Y'; }
-	return gate.ok === true ? { ok: true, mutations: mutations, activeIdentity: activeIdentity } : { ok: false, error: gate.error, rollback: { attempted: false, ok: true, restored: null }, mutations: mutations, activeIdentity: activeIdentity };
-};
-
-// Controlled result seam for the postflight contract.  The production path
-// supplies the same restoredIdentity from the durable pending snapshot after
-// the existing rollback owners have verified their physical state.
-export const resource_center_test_postflight_failure = function(input) {
-	if (!object(input) || input.testOnly !== true) return fail('EINPUT', 'Internal postflight test seam is restricted to controlled tests.');
-	let restoredIdentity = { release: 'p-82.18', runtimeBundleDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', detectSha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', catalogDigest: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', strategyIdentity: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' };
-	let rollback = { ok: true, restoredIdentity: restoredIdentity, physicalIdentityBefore: 'candidate', physicalIdentityAfter: 'lkg' };
-	let result = fail('EPOSTFLIGHT', 'postflight failed', { rollback: rollback });
-	return z2k_runtime_guard_finish({ ok: true, owned: false }, null, [], result, { testOnly: true });
-};
-
-export const resource_center_test_target_operation = function(input) {
-	if (!object(input) || input.testOnly !== true || !string(input.targetVersion) || !string(input.installedVersion)) return fail('EINPUT', 'Internal target operation test seam is restricted to controlled tests.');
-	let operation = z2k_target_operation(input.targetVersion, input.installedVersion);
-	if (operation == null) return { ok: false, error: { code: 'EORDER_UNRESOLVED', message: 'Z2K release family ordering is unresolved.' }, operation: null, mutations: 0 };
-	return { ok: true, operation: operation, mutations: 0 };
-};
-
-export const resource_center_test_post_materialize_failure = function(input) {
-	let physical = 'Y';
-	let priorReceipt = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-lkg', runtimeBundleDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', assets: [] };
-	let currentReceipt = { schema: 'asset-activation-receipt.v1', receiptId: 'receipt-candidate', runtimeBundleDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', assets: [] };
-	let rollbackIdentity = { receipt: priorReceipt, receiptId: priorReceipt.receiptId, runtimeBundleDigest: priorReceipt.runtimeBundleDigest };
-	let priorState = { physicalIdentity: 'X', receipt: priorReceipt }, activeState = { physicalIdentity: physical, receipt: currentReceipt }, restoreInvoked = false;
-	let result = runtime_materialize_failure_rollback({ testOnly: input && input.testOnly === true, failure: 'readiness', materializedIdentity: activeState.physicalIdentity, priorIdentity: priorState.physicalIdentity, restore: function(previous) {
-		restoreInvoked = true;
-		if (previous != priorState.physicalIdentity) return { ok: false, restored: false };
-		activeState = { physicalIdentity: priorState.physicalIdentity, receipt: priorState.receipt };
-		physical = activeState.physicalIdentity;
-		return { ok: true, restored: true };
-	} });
-	if (result && result.physicalIdentity == null) result.physicalIdentity = physical;
-	if (result) result.lkgEvidence = { initialActiveReceiptId: currentReceipt.receiptId, initialActiveRuntimeBundleDigest: currentReceipt.runtimeBundleDigest, restoreInvoked: restoreInvoked,
-		priorReceiptId: priorReceipt.receiptId, currentReceiptId: currentReceipt.receiptId,
-		restoredReceiptId: activeState.receipt.receiptId, priorRuntimeBundleDigest: priorReceipt.runtimeBundleDigest,
-		currentRuntimeBundleDigest: currentReceipt.runtimeBundleDigest, restoredRuntimeBundleDigest: activeState.receipt.runtimeBundleDigest,
-		restoredReceipt: activeState.receipt, restoredByIdentity: z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeState.receipt),
-		restored: restoreInvoked && activeState.physicalIdentity == priorState.physicalIdentity && z2k_rollback_identity_matches(rollbackIdentity, rollbackIdentity.receipt, activeState.receipt) };
-	return result;
-};
-
 function z2k_apply_prepared(request, selected, sourceValue, listed, diagPathUsed) {
 	let state = load_check_state(), target = z2k_target_from_state(state), requestedVersion = request && request.targetVersion;
 	if (!target || !string(requestedVersion) || requestedVersion != target.targetVersion || request.planToken != target.planToken || request.operation != target.operation || (request.installedVersion !== target.previousVersion)) return fail('ECHECK_STALE', 'Z2K update requires a matching prepared operation and installed baseline; prepare the release again.');
@@ -3140,10 +2942,9 @@ export const resource_center_check = function () {
 };
 export const resource_center_update = function (request) {
 	if (!object(request) || request.confirm !== true) return fail('EINPUT', 'explicit update confirmation is required');
-	// Branch detection for diagnostics: z2k-runtime vs bundle-based
+	// Record the canonical bundle path for diagnostics.
 	let diagPathUsed = null;
-	if (request.component == 'z2k-runtime') return fail('ELEGACY_LIFECYCLE', 'The legacy Z2K component lifecycle is retired; prepare a release target first.');
-	else if (request.bundleId) diagPathUsed = 'bundle:' + text(request.bundleId);
+	if (request.bundleId) diagPathUsed = 'bundle:' + text(request.bundleId);
 	else diagPathUsed = 'unknown';
 	let controlled = inline_bundle(request); if (controlled != null) {
 		if (object(controlled)) { controlled.pathUsed = 'controlled-bundle'; controlled.diagnostics = { pathUsed: 'controlled-bundle', remoteRevision: null, planned: 0, downloaded: 0, verified: 0, staged: 0, applied: controlled.updated || 0, postflightMatched: 0, skipped: [], targetAssets: [] }; }

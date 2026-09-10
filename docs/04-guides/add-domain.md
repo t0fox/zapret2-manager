@@ -15,5 +15,5 @@ tags: [guides, domains]
 формате и сохраните. Затем выберите нужный hostlist/IPSet или профиль Strategy.
 
 Не добавляйте IP вместо домена, если текущий owner ожидает domain selector.
-Проверьте Preview/Validate и runtime evidence. Обнаруженный Scanner домен — не
+Проверьте Preview/Validate и runtime evidence. Обнаруженный Z2K Detect домен — не
 то же самое, что пользовательская запись; provenance сохраняется отдельно.

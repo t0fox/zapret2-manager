@@ -1,7 +1,6 @@
 'use strict';
 'require baseclass';
 
-var MAX_ROWS = 200;
 var SECRET_KEY = /secret|token|password|link|url/i;
 
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -11,10 +10,6 @@ function text(value) {
   if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return null;
   var result = String(value).trim();
   return result || null;
-}
-function integer(value) {
-  var number = Number(value);
-  return isFinite(number) && Math.floor(number) === number ? number : null;
 }
 function number(value) {
   var result = Number(value);
@@ -38,102 +33,6 @@ function timestamp(value) {
   if (result === null) return null;
   return result > 100000000000 ? Math.floor(result / 1000) : Math.floor(result);
 }
-function normalizeRow(value) {
-  value = object(value);
-  var details = redact(object(value.details || value.technical));
-  var queue = integer(value.queue !== undefined ? value.queue : value.qnum);
-  var drops = number(value.drops !== undefined ? value.drops : value.queueDropped);
-  var errors = number(value.errors !== undefined ? value.errors : value.errorCount);
-  return {
-    timestamp: timestamp(value.timestamp !== undefined ? value.timestamp : value.ts),
-    host: text(value.host || value.domain || value.target),
-    decision: text(value.decision || value.verdict || value.action),
-    profile: text(value.profile || value.profileName || value.candidateName),
-    rule: text(value.rule || value.ruleId || value.attribution),
-    queue: queue,
-    drops: drops === null ? 0 : drops,
-    errors: errors === null ? 0 : errors,
-    message: text(value.message || value.detail),
-    details: details
-  };
-}
-function basicRow(row) {
-  return {
-    timestamp: row.timestamp,
-    host: row.host,
-    decision: row.decision,
-    profile: row.profile,
-    rule: row.rule,
-    queue: row.queue,
-    drops: row.drops,
-    errors: row.errors,
-    message: row.message
-  };
-}
-function normalize(value) {
-  value = object(value);
-  var rows = array(value.rows || value.items || value.events).slice(0, MAX_ROWS).map(normalizeRow).filter(function (row) {
-    return row.timestamp !== null || row.host !== null || row.decision !== null || row.message !== null;
-  });
-  return {
-    rows: rows,
-    basicRows: rows.map(basicRow),
-    advancedRows: rows.map(function (row) { return Object.assign({}, basicRow(row), { details: row.details }); }),
-    nextCursor: text(value.nextCursor),
-    generatedAt: timestamp(value.generatedAt),
-    summary: redact(object(value.summary)),
-    warnings: array(value.warnings).map(redact)
-  };
-}
-function contains(value, needle) {
-  if (value === null || value === undefined) return false;
-  return String(value).toLowerCase().indexOf(needle) >= 0;
-}
-function filter(snapshot, filters) {
-  snapshot = object(snapshot);
-  filters = object(filters);
-  var query = String(filters.query || '').trim().toLowerCase();
-  var decision = text(filters.decision);
-  var profile = text(filters.profile);
-  var queue = integer(filters.queue);
-  return array(snapshot.rows).filter(function (row) {
-    if (decision !== null && row.decision !== decision) return false;
-    if (profile !== null && row.profile !== profile) return false;
-    if (queue !== null && row.queue !== queue) return false;
-    if (query && !contains(row.host, query) && !contains(row.decision, query) &&
-        !contains(row.profile, query) && !contains(row.rule, query) && !contains(row.message, query)) return false;
-    return true;
-  });
-}
-function polling(value) {
-  value = object(value);
-  return {
-    shouldPoll: value.mounted === true && value.paused !== true && value.inflight !== true,
-    mutation: null
-  };
-}
-function kpis(rows) {
-  var result = { rows: 0, bypass: 0, blocked: 0, drops: 0, errors: 0 };
-  array(rows).forEach(function (row) {
-    result.rows++;
-    var decision = String(row.decision || '').toLowerCase();
-    if (decision === 'bypass' || decision === 'allowed' || decision === 'pass') result.bypass++;
-    if (decision === 'blocked' || decision === 'drop' || decision === 'reject') result.blocked++;
-    result.drops += Number(row.drops || 0);
-    result.errors += Number(row.errors || 0);
-  });
-  return result;
-}
-function view(snapshot, filters) {
-  var rows = filter(snapshot, filters);
-  return {
-    rows: rows,
-    basicRows: rows.map(basicRow),
-    advancedRows: rows.map(function (row) { return Object.assign({}, basicRow(row), { details: redact(row.details) }); }),
-    kpis: kpis(rows)
-  };
-}
-
 var HEALTH_STATUSES = ['ok', 'off', 'degraded', 'unknown', 'error'];
 var HEALTH_LABELS = {
   ok: 'OK', off: 'OFF', degraded: 'DEGRADED', unknown: 'UNKNOWN', error: 'ERROR'
@@ -184,7 +83,7 @@ function errorText(envelope) {
   return error && (error.message || error.code) ? String(error.message || error.code) : null;
 }
 function owner(id) {
-  return { route: HEALTH_ROUTES[id] || 'diagnostics', label: id === 'scanner' ? 'Открыть Scanner' : 'Открыть раздел' };
+  return { route: HEALTH_ROUTES[id] || 'diagnostics', label: id === 'scanner' ? 'Открыть Z2K Detect' : 'Открыть раздел' };
 }
 function healthCard(id, label, status, reason, source, raw, now, staleAfterSec, optional) {
   status = HEALTH_STATUSES.indexOf(status) >= 0 ? status : 'unknown';
@@ -232,39 +131,23 @@ function deriveStrategy(data, fast, now, staleAfterSec) {
 }
 function deriveFirewall(data, fast, now, staleAfterSec) {
   var system = valueOf(data, 'system');
-  var full = valueOf(data, 'full');
-  var queue = firstObject(fast.health && fast.health.queue, fast.queue, system.health && system.health.queue, full.health && full.health.queue);
+  var queue = firstObject(fast.health && fast.health.queue, fast.queue, system.health && system.health.queue);
   var fastRules = hasValue(fast.runtime, 'rulesPresent') ? fast.runtime.rulesPresent :
     hasValue(fast, 'rulesPresent') ? fast.rulesPresent : null;
-  var fullRules = null;
-  var fullFresh = false;
-  if (Object.keys(full).length) {
-    var fullStamp = evidenceTimestamp(full);
-    var fullAge = fullStamp !== null ? Math.max(0, now - fullStamp) : null;
-    fullFresh = fullStamp !== null && fullAge !== null && fullAge <= 300;
-    if (fullFresh) {
-      var rs = full.runtimeSummary && full.runtimeSummary.nfqueue ? full.runtimeSummary.nfqueue.rulesPresent : null;
-      if (rs !== null && rs !== undefined) fullRules = rs === true ? true : rs === false ? false : null;
-      if (fullRules === null && hasValue(full.runtime, 'rulesPresent')) fullRules = full.runtime.rulesPresent;
-      if (fullRules === null && hasValue(full, 'rulesPresent')) fullRules = full.rulesPresent;
-      // Also check legacy full path: full.runtime.rulesPresent already handled
-      if (fullRules === null && full.runtimeSummary && hasValue(full.runtimeSummary, 'rulesPresent')) fullRules = full.runtimeSummary.rulesPresent;
-    }
-  }
-  var rules = fastRules !== null ? fastRules : fullRules;
-  var rulesSource = fastRules !== null ? 'fast' : (fullRules !== null ? 'cached-collector' : null);
+  var rules = fastRules;
+  var rulesSource = fastRules !== null ? 'fast' : null;
   var status = 'unknown', reason = 'NFQUEUE/firewall evidence is not available.';
   if (queue.ownerConflict === true) { status = 'error'; reason = 'Обнаружен конфликт владельца NFQUEUE 300.'; }
   else if (queue.registered === false || rules === false) { status = 'error'; reason = 'NFQUEUE 300 или firewall rules не зарегистрированы.'; }
   else if (queue.registered === true && rules === true) { status = 'ok'; reason = 'NFQUEUE 300 и firewall rules подтверждены.'; }
   else if (queue.registered === true || rules === true) { status = 'unknown'; reason = queue.registered === true ? 'NFQUEUE подтверждён, firewall rules не измерены.' : 'firewall rules подтверждены, NFQUEUE не измерен.'; }
-  return healthCard('firewall', 'Firewall / NFQUEUE 300', status, reason, firstObject(fast, full, system), { queue: queue, rulesPresent: rules, rulesSource: rulesSource }, now, staleAfterSec);
+  return healthCard('firewall', 'Firewall / NFQUEUE 300', status, reason, firstObject(fast, system), { queue: queue, rulesPresent: rules, rulesSource: rulesSource }, now, staleAfterSec);
 }
 function deriveScanner(data, fast, now, staleAfterSec) {
   var generation = hasValue(fast, 'generation') ? fast.generation : null;
   var status = generation === null ? 'unknown' : 'ok';
   var reason = generation === null ? 'Не готов: snapshot generation отсутствует.' : 'Snapshot generation подтверждён.';
-  return healthCard('scanner', 'Scanner readiness', status, reason, fast, { generation: generation }, now, staleAfterSec);
+  return healthCard('scanner', 'Z2K Detect readiness', status, reason, fast, { generation: generation }, now, staleAfterSec);
 }
 function deriveDns(data, now, staleAfterSec) {
   var envelope = envelopeFor(data, 'dns');
@@ -294,12 +177,6 @@ function deriveProxy(data, now, staleAfterSec) {
   if (!Object.keys(value).length) return null;
   var err = errorText(envelope);
   if (err) return healthCard('proxy', 'Proxy runtime', 'unknown', err, value, value, now, staleAfterSec, true);
-  // Legacy payload with explicit status field (used by old tests/fixtures)
-  var legacyStatus = text(value.status);
-  if (legacyStatus === 'running') return healthCard('proxy', 'Proxy runtime', 'ok', 'Proxy runtime работает.', value, value, now, staleAfterSec, true);
-  if (legacyStatus === 'stopped') return healthCard('proxy', 'Proxy runtime', 'off', 'Proxy runtime остановлен.', value, value, now, staleAfterSec, true);
-  if (legacyStatus === 'not-installed') return healthCard('proxy', 'Proxy runtime', 'off', 'Proxy runtime не установлен.', value, value, now, staleAfterSec, true);
-  // Production proxycfg_health shape: checks array + ok + generatedAt
   var checks = array(value.checks);
   var pkgCheck = checks.find(function (c) { return c.name === 'package'; });
   if (pkgCheck && pkgCheck.ok !== true) return healthCard('proxy', 'Proxy runtime', 'off', 'Proxy runtime не установлен (пакет отсутствует).', value, value, now, staleAfterSec, true);
@@ -351,10 +228,6 @@ function normalizeHealth(data, options) {
 }
 
 return baseclass.extend({
-  normalize: normalize,
-  filter: filter,
-  polling: polling,
-  view: view,
   redact: redact,
   normalizeHealth: normalizeHealth
 });

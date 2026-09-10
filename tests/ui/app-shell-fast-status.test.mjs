@@ -20,7 +20,7 @@ const API = path.join(ROOT, 'luci-app-zapret2-manager', 'files', 'www',
 const source = readFileSync(APP, 'utf8');
 const apiSource = readFileSync(API, 'utf8');
 
-test('z2m-api declares both status and bounded status_fast transports', () => {
+test('z2m-api declares the bounded status_fast transport', () => {
   assert.match(apiSource, /z2kRead\.bind\(null, 'status_fast'\)/,
     'status_fast must use the explicit bounded request transport');
   assert.match(apiSource, /params:\s*\[rpc\.getSessionID\(\), 'zapret2-manager', method, params \|\| \{\}\]/,
@@ -51,17 +51,15 @@ test('no LuCI view may call the blocking full status transport', () => {
   assert.deepEqual(offenders, [], `views calling full status: ${offenders.join(', ')}`);
 });
 
-test('rpcd status method serves cache and refreshes in background (never inline)', () => {
+test('rpcd exposes only the bounded status_fast method', () => {
   const rpcdPlugin = fs.readFileSync(path.join(ROOT, 'zapret2-manager', 'files',
     'usr', 'share', 'rpcd', 'ucode', 'zapret2-manager.uc'), 'utf8');
-  const fnAt = rpcdPlugin.indexOf('function status_method(req)');
-  assert.notEqual(fnAt, -1);
-  const fnBody = rpcdPlugin.slice(fnAt, fnAt + 900);
-  assert.doesNotMatch(fnBody, /popen\([^)]*COLLECTOR[^)]*\)\s*;\s*(\/\/)?[^\n]*inline/,
-    'collector must not run inline');
-  assert.match(fnBody, /status_refresh_async\(\)/, 'must trigger async refresh');
-  assert.match(rpcdPlugin, /function status_refresh_async\(\)/);
-  assert.match(rpcdPlugin, /EPENDING/, 'first-ever call must report pending instead of blocking');
+  assert.match(rpcdPlugin, /status_fast_method/);
+  assert.match(rpcdPlugin, /status_fast:\s*\{\s*call:/);
+  assert.doesNotMatch(rpcdPlugin, /\n\s*status:\s*\{\s*call:/,
+    'the retired full status RPC must not be registered');
+  assert.doesNotMatch(rpcdPlugin, /function\s+status_method\s*\(|function\s+status_refresh_async\s*\(|STATUS_JSON|\bCACHE_TTL\s*=/,
+    'the retired full status transport must be deleted end-to-end');
 });
 
 test('header state mapping tolerates the status-fast payload shape', () => {
@@ -72,6 +70,6 @@ test('header state mapping tolerates the status-fast payload shape', () => {
 
 test('global header refreshes from status_fast after lifecycle actions', () => {
   assert.match(source, /function scheduleHeaderStatusRefresh\(\)/);
-  assert.match(source, /Api\.service\.statusFast\(\)\.then/);
+  assert.match(source, /statusBroker\.get\(\)\.then/);
   assert.match(source, /updateHeaderStatus\(\{ status: \{ value: data \} \}\)/);
 });

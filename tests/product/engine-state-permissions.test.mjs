@@ -10,8 +10,6 @@ const MODULE = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
   'zapret2-manager', 'engine-catalog.uc');
 const MANAGER = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
   'zapret2-manager', 'engine-manager.uc');
-const LEGACY = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
-  'zapret2-manager', 'engine-providers.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 
 if (process.getuid?.() !== 0) {
@@ -96,10 +94,7 @@ if (process.getuid?.() !== 0) {
   test('the engine commit path delegates persistence to the permission-safe leaf', () => {
     const catalog = fs.readFileSync(MODULE, 'utf8');
     const manager = fs.readFileSync(MANAGER, 'utf8');
-    const legacy = fs.readFileSync(LEGACY, 'utf8');
     assert.match(catalog, /function ensure_manager_root\(\)[\s\S]*chmod 0701/);
     assert.match(manager, /return save_engine_state\(value\)/);
-    assert.match(legacy, /function ensure_manager_root\(\)[\s\S]*chmod 0701/);
-    assert.match(legacy, /save_engine_provider_state=function\(v\)\{if\(!ensure_manager_root\(\)/);
   });
 }

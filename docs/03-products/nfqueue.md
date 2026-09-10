@@ -6,7 +6,7 @@ status: current
 authority: evidence
 updated: 2026-08-22
 publish: true
-tags: [technology, nfqueue, scanner]
+tags: [technology, nfqueue, z2k-detect]
 code: [zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc#health_block]
 ---
 
@@ -19,7 +19,7 @@ evidence для Engine health.
 ## Evidence
 
 Для внутренних profile-activation операций общий runtime adapter может иметь
-временную ownership session с bounded cleanup. Это не является Scanner
+временную ownership session с bounded cleanup. Это не является Z2K Detect
 product API и не меняет permanent Engine ownership.
 
 Если cleanup не подтверждён, состояние остаётся `uncertain`/`recovery`, а не

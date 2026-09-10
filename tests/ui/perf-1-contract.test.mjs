@@ -31,7 +31,7 @@ test('PERF-1B fast status has bounded runtime schema and avoids heavyweight disc
   const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
   const control = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-control.js');
   const strategies = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
-  const full = read('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
+  const full = read('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc');
 
   assert.match(fast, /serviceState/);
   assert.match(fast, /runtimeSummary/);
@@ -42,26 +42,27 @@ test('PERF-1B fast status has bounded runtime schema and avoids heavyweight disc
   assert.match(api, /statusFast/);
   assert.match(control, /service\.statusFast/);
   assert.match(strategies, /service\.statusFast/);
-  assert.match(full, /legacy_status_v3/);
+  assert.match(full, /schema:\s*'status\.v1'/);
+  assert.match(full, /runtime_summary\(status\)/);
 });
 
 test('PERF-1C Control resolves active Strategy with one targeted get', () => {
   const source = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-control.js');
   const resolve = source.slice(source.indexOf('function resolveStrategy'), source.indexOf('function refresh', source.indexOf('function resolveStrategy')));
   assert.match(resolve, /strategies\.get/);
-  assert.ok(resolve.indexOf('strategies.get') < resolve.indexOf('strategies.list'), 'legacy list fallback must be unreachable when targeted get exists');
-  assert.match(resolve, /if \(ctx\.api\.strategies\.get\)/);
+  assert.doesNotMatch(resolve, /strategies\.list|strategyFromList|older backend|Compatibility fallback/);
+  assert.match(resolve, /typeof ctx\.api\.strategies\.get !== 'function'/);
 });
 
 test('PERF-1 call-count contracts remove repeated initial RPCs', () => {
   const control = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-control.js');
-  const scanner = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner-hub.js');
-  const load = scanner.slice(scanner.indexOf('load: function'), scanner.indexOf('render: function'));
-  const render = scanner.slice(scanner.indexOf('render: function'), scanner.indexOf('unmount: function'));
-  assert.equal((load.match(/blockcheckw\.status\(\)/g) || []).length, 1);
-  assert.equal((load.match(/blockcheck2\.status\(\)/g) || []).length, 1);
-  assert.doesNotMatch(render, /\.status\(\)/);
-  assert.equal((control.match(/service\.statusFast \|\| ctx\.api\.service\.status/g) || []).length, 1);
+  const scanner = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js');
+  assert.match(scanner, /z2kDetectStatus\(\)/);
+  assert.match(scanner, /z2kDetectDiscoveryStatus\(\)/);
+  assert.doesNotMatch(scanner, /blockcheckw|blockcheck2|scanner-hub/i);
+  const initialFetch = control.slice(control.indexOf('function fetchData'), control.indexOf('function fetchStatus'));
+  assert.match(initialFetch, /ctx\.api\.service\.statusFast/);
+  assert.doesNotMatch(initialFetch, /ctx\.api\.service\.status\b/);
 });
 
 function loadTabCache() {
@@ -175,7 +176,7 @@ test('PERF-1.1 expired cache calls loader instead of using stale data', async ()
 
 test('PERF-1.1 Strategies fresh cache does not repeat mount-side read-only RPCs', async () => {
   const strategies = loadStrategiesModule();
-  const calls = { healthcheck: 0, learned: 0, pools: 0, debug: 0 };
+  const calls = { healthcheck: 0, learned: 0, pools: 0 };
   const pending = [];
   const rpc = (key, value) => () => {
     calls[key] += 1;
@@ -186,7 +187,7 @@ test('PERF-1.1 Strategies fresh cache does not repeat mount-side read-only RPCs'
   const ctx = {
     api: {
       healthcheck: { status: rpc('healthcheck', {}) },
-      strategies: { state: rpc('learned', {}), pools: rpc('pools', {}), debugGet: rpc('debug', {}) }
+      strategies: { learnedState: rpc('learned', {}), pools: rpc('pools', {}) }
     },
     shell: {}, root: { querySelector: () => null }
   };
@@ -198,7 +199,7 @@ test('PERF-1.1 Strategies fresh cache does not repeat mount-side read-only RPCs'
   await harness.activate('strategies');
   await Promise.all(pending);
 
-  assert.deepEqual(calls, { healthcheck: 1, learned: 1, pools: 1, debug: 1 });
+  assert.deepEqual(calls, { healthcheck: 1, learned: 1, pools: 1 });
 });
 
 test('PERF-1.1 keeps inflight dedupe and session invalidation semantics', async () => {
@@ -273,13 +274,10 @@ test('PERF-1D app refreshes the cache session key before navigation', () => {
   assert.match(app, /tabLoadPromises = \{\};/);
 });
 
-test('PERF-1E Scanner Hub uses load data for initial statuses', () => {
-  const source = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner-hub.js');
-  const render = source.slice(source.indexOf('render: function'), source.indexOf('unmount: function'));
-  assert.match(render, /bcwStatus/);
-  assert.match(render, /bc2Status/);
-  assert.doesNotMatch(render, /blockcheckw.*\.status\s*\(/);
-  assert.doesNotMatch(render, /blockcheck2.*\.status\s*\(/);
-  assert.match(source, /setTimeout\(pollJobs/);
-  assert.match(source, /clearTimeout\(state\.pollTimer/);
+test('PERF-1E Detect workflow owns status and discovery reads', () => {
+  const source = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js');
+  assert.match(source, /function detectStatus\(ctx\)/);
+  assert.match(source, /function loadDiscovery\(ctx/);
+  assert.match(source, /z2kDetect(?:Status|DiscoveryStatus)\(\)/);
+  assert.doesNotMatch(source, /blockcheckw|blockcheck2|bcwStatus|bc2Status|z2m-scanner-hub/i);
 });

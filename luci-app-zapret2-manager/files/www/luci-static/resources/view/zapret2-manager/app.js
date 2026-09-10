@@ -7,17 +7,14 @@
 'require view.zapret2-manager.z2m-navigation as Navigation';
 'require view.zapret2-manager.z2m-overview as Overview';
 'require view.zapret2-manager.z2m-avatar-control as Control';
-'require view.zapret2-manager.z2m-strategy-page as Strategy';
-'require view.zapret2-manager.z2m-scanner as Scanner';
+'require view.zapret2-manager.z2m-strategies as Strategies';
 'require view.zapret2-manager.z2m-scanner-product as ScannerProduct';
 'require view.zapret2-manager.z2m-domain-hub-page as Services';
 'require view.zapret2-manager.z2m-dns-page as Dns';
-'require view.zapret2-manager.z2m-proxy-page as Proxy';
+'require view.zapret2-manager.z2m-proxy-page-core as Proxy';
 'require view.zapret2-manager.z2m-diagnostics-page as Diagnostics';
 'require view.zapret2-manager.z2m-maintenance as Maintenance';
-'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
 'require view.zapret2-manager.z2m-assets as Assets';
-'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
 'require view.zapret2-manager.z2m-warp-page as Warp';
 'require view.zapret2-manager.z2m-tab-cache as TabCache';
 'require view.zapret2-manager.z2m-status-fast-broker as StatusFastBroker';
@@ -25,36 +22,18 @@
 var MODULES = {
   dashboard: Overview,
   control: Control,
-  strategies: Strategy,
+  strategies: Strategies,
   scan: ScannerProduct,
-  scanner: ScannerProduct,
   services: Services,
-  lists: Services,
-  hostlists: Assets,
   resources: Assets,
   'dns-routing': Dns,
-  'unified-routing': UnifiedRouting,
   'telegram-tunnel': Proxy,
   warp: Warp,
-  'warp-setup': Warp,
-  'warp-in-warp': Warp,
-  ipsets: Assets,
-  blobs: Assets,
-  lua: Assets,
-  hosts: Assets,
-  diagnostics: Diagnostics,
-  blockcheck: ScannerProduct,
   logs: Diagnostics,
   monitor: Diagnostics,
-  system: Maintenance,
-  components: Maintenance
+  components: Maintenance,
+  backups: Maintenance
 };
-// Compatibility tab routes all resolve to the single System lifecycle object.
-MODULES.updates = MODULES.components;
-MODULES.engine = MODULES.components;
-MODULES.maintenance = MODULES.components;
-MODULES.backups = MODULES.components;
-MODULES.settings = MODULES.components;
 var store = StoreModule.create();
 var activeModule = null;
 var activeContext = null;
@@ -120,7 +99,7 @@ return L.view.extend({
   load: function () {
     // App shell prerequisite must stay bounded: status_fast observes
     // process/queue state without spawning the full diagnostic collector.
-    // The full collector remains available to the Diagnostics tab only.
+    // The full collector remains an internal lifecycle primitive; UI reads are bounded.
     return Api.service.statusFast().catch(function (error) {
       return { error: Api.normalizeError(error) };
     });
@@ -280,9 +259,6 @@ return L.view.extend({
         Shell.avatar.showErrorState(content, error, { api: Api, retry: function () { return activate(tab, true); } });
       });
     }
-    function renderState() {
-      if (appRoot) appRoot.classList.toggle('adv', !!(store.get().ui && store.get().ui.advanced));
-    }
     function updateHeaderStatus(data) {
       var envelope = data && data.status;
       if (!envelope || envelope.error || !headerStatus) return;
@@ -373,8 +349,7 @@ return L.view.extend({
       E('div', { id: 'z2m-toasts', 'class': 'z2m-toasts' })
     ]);
     if (storeUnsubscribe) storeUnsubscribe();
-    storeUnsubscribe = store.subscribe(renderState);
-    renderState();
+    storeUnsubscribe = null;
     scheduleHeaderStatusRefresh();
     Promise.resolve().then(function () { activate(initialTab); });
     return appRoot;

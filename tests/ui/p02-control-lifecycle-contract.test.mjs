@@ -9,7 +9,7 @@ test('P02 lifecycle actions use the canonical Z2M service RPCs and refresh evide
   const page = `${read('z2m-avatar-control.js')}\n${read('z2m-control-model.js')}`;
   for (const marker of [
     'ctx.api.service.start()', 'ctx.api.service.stop()', 'ctx.api.service.restart()',
-    'ctx.api.service.status()', 'monitor.eventsTail', 'runtime.status = data.status',
+		'ctx.api.service.statusFast', 'maintenance.eventsTail', 'runtime.status = data.status',
     'runtime.logs = data.logs', 'control-action-result'
   ]) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
   assert.match(page, /return fetchData\(ctx\)\.then/);

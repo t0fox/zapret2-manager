@@ -6,7 +6,7 @@
 'require view.zapret2-manager.z2m-components-model as ComponentsModel';
 'require view.zapret2-manager.z2m-update-presentation as UpdatePresentation';
 
-var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
+var SCOPES = ['engineConfig', 'ourState', 'lists'];
 var LOAD_TIMEOUT_MS = 30000;
 var Z2K_COMPARE_LOAD_TIMEOUT_MS = 30000;
 var Z2K_MUTATION_TIMEOUT_MS = 180000;
@@ -16,13 +16,11 @@ var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
   lists: _('Списки'),
-  profiles: _('Профили'),
   all: _('Полная резервная копия')
 };
 var PANE_META = {
   components: { title: _('Компоненты'), subtitle: _('Обязательные компоненты системы и их состояние') },
-  backups: { title: _('Резервные копии'), subtitle: _('Сохранение и восстановление состояния менеджера') },
-  settings: { title: _('Настройки'), subtitle: _('Параметры интерфейса менеджера') }
+  backups: { title: _('Резервные копии'), subtitle: _('Сохранение и восстановление состояния менеджера') }
 };
 
 // Unified semantic mapping — single source of truth for label → visual kind
@@ -67,12 +65,6 @@ var state = {
   componentOperation: null,
   lastSuccessfulCheckAt: null,
   skipEngineOperationStatus: false,
-  get componentBusy() { return this.componentOperation != null; },
-  set componentBusy(v) {
-    // Backward compat: boolean true => generic check, false => clear
-    if (v) this.componentOperation = { kind: 'check', scope: 'all' };
-    else this.componentOperation = null;
-  },
   engineExpanded: false,
   z2kExpanded: false,
   engineOperation: null,
@@ -209,7 +201,6 @@ function checkedResult(promise, label, timeoutMs) {
 function activePane(ctx) {
   var route = ctx.route || '';
   if (route === 'backups') return 'backups';
-  if (route === 'settings') return 'components';
   return 'components';
 }
 function telegramCardState(tg) {
@@ -278,14 +269,13 @@ function load(ctx) {
   });
   }
   else if (pane === 'backups') promise = boundedLoad(ctx.api.maintenance.backupList(), 'backup list').then(function (value) { return { backups: { value: value || {} } }; });
-  else if (pane === 'settings') promise = Promise.resolve({ settings: { value: { ui: ctx.store.get().ui || {} } } });
   if (pane === 'components') promise = promise.then(function (value) {
     var operation = readZ2KActiveOperation();
     if (operation) window.setTimeout(function () { resumeZ2KOperation(ctx, operation); }, 0);
     return value;
   });
   return promise.catch(function (error) {
-    var key = pane === 'components' ? 'components' : pane === 'backups' ? 'backups' : 'settings';
+    var key = pane === 'backups' ? 'backups' : 'components';
     var result = {}; result[key] = { error: ctx.api.normalizeError(error) }; return result;
   });
 }
@@ -816,16 +806,14 @@ function updateZ2K(ctx, component) {
   var targetRelease = z2kTargetRelease(component);
   var operation = z2kOperation(component);
   var isRepair = operation === 'repair';
-  var legacyCatalogFallback = component && !component.selectedDetails && (!component.catalog || !component.catalog.length)
-    && component.canApply === true && component.updateState === 'update-available';
-  if (!targetRelease || !component || !operation || (!isRepair && !component.selectedDetails && !legacyCatalogFallback) || (!isRepair && component.selectedDetails && component.selectedDetails.installable !== true)) {
+  if (!targetRelease || !component || !operation || (!isRepair && (!component.selectedDetails || component.selectedDetails.installable !== true))) {
     showError(ctx, { code: 'EINPUT', message: _('Сначала выберите доступный release и дождитесь его деталей.') });
     return;
   }
   state.componentOperation = { kind: 'prepare', scope: 'z2k', targetVersion: targetRelease };
   rerender(ctx);
   var prepare = ctx.api.resources.prepareVersion ? checkedResult(ctx.api.resources.prepareVersion({ version: targetRelease, repair: isRepair }), _('Подготовка Z2K'), Z2K_PREPARE_TIMEOUT_MS)
-    : Promise.reject({ code: 'EINPUT', message: 'z2k_prepare_version unavailable' });
+    : Promise.reject({ code: 'EINPUT', message: 'z2k_prepare_version_start unavailable' });
   prepare.then(function (prepared) {
     var preparedTarget = prepared && prepared.target;
     if (!prepared || !prepared.planToken || !preparedTarget
@@ -935,7 +923,7 @@ function z2kOperationLabel(operation, version) {
   return _('Действие недоступно');
 }
 function z2kChangeSummary(details) {
-  var changes = details && (details.deviceChanges || details.installChanges || details.changes) || {};
+  var changes = details && (details.deviceChanges || details.installChanges) || {};
   if (changes.known === false) return _('История установленной версии не подтверждена.');
   var parts = [];
   if (changes.modified) parts.push(_('Обновится') + ' ' + changes.modified);
@@ -1220,12 +1208,10 @@ function z2kCanApply(component) {
     ? selected.targetAttentionState : component && component.attentionState;
   var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
   var targetBlockingReasons = selected && Array.isArray(selected.targetBlockingReasons) ? selected.targetBlockingReasons : [];
-  var legacyCatalogFallback = !!component && !selected && (!component.catalog || !component.catalog.length)
-    && component.canApply === true && component.updateState === 'update-available';
   var targetCanApply = selected && selected.targetCanApply !== null && selected.targetCanApply !== undefined
     ? selected.targetCanApply === true : component && component.canApply === true;
   var installGate = component && component.runtimeHealth === 'missing' && component.details && component.details.localInstalled === false && component.requiresEngine !== true;
-  return !!component && (selected && selected.installable === true || legacyCatalogFallback)
+  return !!component && selected && selected.installable === true
     && !!z2kTargetRelease(component)
     && (component.runtimeHealth === 'ready' || installGate)
     && ['review-required', 'rebase-required', 'integration-required'].indexOf(attentionState) < 0
@@ -1881,7 +1867,7 @@ function renderZ2KReleasePanel(ctx, component) {
   var transition = z2kTransition(component, selected, operation, targetRelease);
   var compare = selected.compareUrl ? E('a', { href: selected.compareUrl, target: '_blank', rel: 'noreferrer', 'class': 'z2m-z2k-release-compare' }, _('Сравнить upstream изменения ↗')) : null;
   var body = String(selected.releaseBody || '').trim();
-  var changes = selected.deviceChanges || selected.installChanges || selected.changes || {};
+  var changes = selected.deviceChanges || selected.installChanges || {};
   var changeCount = Number(changes.modified || 0) + Number(changes.added || 0) + Number(changes.removed || 0);
   var hasDeviceDetails = !unavailable && changes.known === true && (changeCount > 0 || operation === 'reinstall');
   var detailsLoading = state.z2kDetailsLoading === true && state.z2kDetailsCompared !== true;
@@ -1989,11 +1975,9 @@ function renderZ2KDetails(ctx, component) {
       renderZ2KDependencySummary(component),
       renderZ2KCompiledDependencySummary(component),
       renderInfoRows([
-        { label: _('Источник'), value: provenance.source },
-        { label: _('Trust mode'), value: componentDetails.trustMode },
-        { label: _('Выбранный release'), value: selectedVersion },
-		{ label: _('manifestSeq'), value: technical.manifestSeq },
-		{ label: _('manifestSha256'), value: technical.manifestSha256 },
+		{ label: _('Источник'), value: provenance.source },
+		{ label: _('Trust mode'), value: componentDetails.trustMode },
+		{ label: _('Выбранный release'), value: selectedVersion },
 		{ label: _('Runtime revision'), value: coherence.installedRuntimeRevision },
 		{ label: _('Available upstream revision'), value: coherence.availableUpstreamRevision },
 		{ label: _('Strategy source revision'), value: coherence.currentStrategySourceRevision },
@@ -2301,25 +2285,6 @@ function renderComponents(ctx, data) {
         })
       ])
     ]),
-    (function() {
-        var ui = object(ctx.store.get().ui || {});
-        var advanced = ui.advanced === true;
-        var toggle = ctx.shell.switchControl({
-          checked: advanced,
-          label: _('Расширенный режим интерфейса'),
-          onChange: function (enabled) {
-            ctx.store.update({ ui: Object.assign({}, ctx.store.get().ui || {}, { advanced: enabled }) });
-            ctx.rerender();
-          }
-        });
-        return E('div', { 'class': 'z2m-components-advanced-row' }, [
-          E('div', {}, [
-            E('strong', {}, _('Расширенный режим')),
-            E('p', { 'class': 'z2m-dim' }, _('Показывать технические данные и диагностические поля.'))
-          ]),
-          toggle
-        ]);
-      })()
   ]);
 }
 
@@ -2420,7 +2385,6 @@ function renderPreview(ctx) {
 function renderBackups(ctx, data) {
   var shell = ctx.shell;
   var records = MaintenanceModel.backups(data.backups && data.backups.value || {}, 100);
-  var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced);
   var scopeSelect = E('select', { id: 'z2m-backup-scope', 'aria-label': _('Область резервной копии') }, [
   ].concat(SCOPES.map(function (scope) {
     return E('option', { value: scope }, SCOPE_LABELS[scope]);
@@ -2443,7 +2407,6 @@ function renderBackups(ctx, data) {
       E('div', {}, [
         E('div', { 'class': 'nm' }, label),
         E('div', { 'class': 'co' }, formatTime(shell, record.takenAt)),
-        (advanced && record.manifestSha256) ? E('div', { 'class': 'z2m-tech' }, 'SHA-256: ' + record.manifestSha256.slice(0, 8) + '...') : null
       ]),
       E('div', { 'class': 'z2m-btnrow' }, [
         shell.button(_('Восстановить'), 'sm', previewBackup.bind(null, ctx, record), !!state.busy),
@@ -2476,39 +2439,17 @@ function renderBackups(ctx, data) {
   ]);
 }
 
-function renderSettings(ctx, data) {
-  var shell = ctx.shell;
-  var ui = object(data.settings && data.settings.value && data.settings.value.ui);
-  var advanced = ui.advanced === true;
-  var toggle = shell.switchControl({
-    checked: advanced,
-    label: _('Расширенный режим интерфейса'),
-    onChange: function (enabled) {
-      ctx.store.update({ ui: Object.assign({}, ctx.store.get().ui || {}, { advanced: enabled }) });
-      ctx.rerender();
-    }
-  });
-  return E('div', {}, [
-    shell.panel(_('Настройки менеджера'), E('div', { 'class': 'z2m-setting-row' }, [
-      E('div', {}, [E('strong', {}, _('Расширенный режим')), E('p', { 'class': 'z2m-dim' }, _('Показывает технические детали и диагностические поля в существующих экранах.'))]),
-      toggle
-    ]))
-  ]);
-}
-
 function render(ctx) {
   var data = ctx.data || {};
   var pane = activePane(ctx);
-  var meta = PANE_META[pane] || PANE_META.updates;
-  var paneBody = pane === 'backups' ? renderBackups(ctx, data)
-    : pane === 'settings' ? renderSettings(ctx, data)
-    : renderComponents(ctx, data);
+  var meta = PANE_META[pane] || PANE_META.components;
+  var paneBody = pane === 'backups' ? renderBackups(ctx, data) : renderComponents(ctx, data);
   var errors = [];
   Object.keys(data).forEach(function (key) {
     if (data[key] && data[key].error)
       errors.push(ctx.shell.statePanel({ title: _('Не удалось загрузить данные'), message: data[key].error.message, kind: 'error' }));
   });
-  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-system' }, [
+  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-' + pane }, [
     E('div', { 'class': 'z2m-phead' }, [
       E('div', {}, [E('h1', {}, [Icons.wrappedNode(pane === 'components' ? 'cpu' : pane === 'backups' ? 'archive' : 'settings', { size: 20, wrapperClass: 'z2m-system-page-icon' }), E('span', {}, meta.title)]), E('p', {}, meta.subtitle)])
     ]),
@@ -2558,9 +2499,9 @@ function unmount(ctx) {
 }
 
 return baseclass.extend({
-  id: 'system',
-  title: _('Система'),
-  subtitle: _('Версии, движок, резервные копии и настройки'),
+  id: 'components',
+  title: _('Компоненты'),
+  subtitle: _('Компоненты и резервные копии'),
   load: load,
   render: render,
   mount: mount,

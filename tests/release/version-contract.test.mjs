@@ -5,8 +5,6 @@ import test from 'node:test';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const PACKAGE_FILES = {
-  backend: 'zapret2-manager/Makefile',
-  luci: 'luci-app-zapret2-manager/Makefile',
   full: 'zapret2-manager-full/Makefile'
 };
 
@@ -24,7 +22,7 @@ const packages = Object.fromEntries(
   Object.entries(PACKAGE_FILES).map(([name, file]) => [name, parseMakefile(file)])
 );
 
-test('all canonical manager packages share version and release identity', () => {
+test('the canonical manager package has an explicit version and release identity', () => {
   assert.equal(new Set(Object.values(packages).map((item) => item.version)).size, 1);
   assert.equal(new Set(Object.values(packages).map((item) => item.release)).size, 1);
 });
@@ -34,7 +32,7 @@ test('full package carries external runtime dependencies without split package d
   assert.match(packages.full.depends, /@TARGET_mediatek_filogic/);
   for (const dependency of [
     'ucode', 'ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop',
-    'luci-base', 'kmod-nfnetlink-queue', 'kmod-nft-queue', 'ncat', 'flock',
-    'uclient-fetch', 'ca-bundle', 'unzip', 'jsonfilter', 'libjson-c'
+    'luci-base', 'kmod-nfnetlink-queue', 'kmod-nft-queue', 'flock',
+    'uclient-fetch', 'ca-bundle', 'jsonfilter', 'libjson-c'
   ]) assert.match(packages.full.depends, new RegExp(`\\+${dependency.replaceAll('-', '\\-')}\\b`), dependency);
 });

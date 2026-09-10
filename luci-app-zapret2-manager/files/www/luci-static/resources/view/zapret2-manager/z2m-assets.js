@@ -11,15 +11,12 @@ var HUMAN_STATES = { current: _('Актуально'), update: _('Доступн
 function text(value, fallback) { return value == null || value === '' ? (fallback || '') : String(value); }
 function json(value) { return JSON.stringify(value); }
 function label(type) { return ({ ipset: _('IP-набор'), blob: _('Бинарный ресурс'), lua: _('Lua-скрипт'), hostlist: _('Список доменов'), hosts: _('Hosts'), geosite: _('GeoSite'), geoip: _('GeoIP') })[type] || _('Ресурс'); }
-function group(type) { return ({ lua: _('Lua'), blob: _('Блобы'), hostlist: _('Списки доменов'), hosts: _('Hosts'), ipset: _('IP-наборы'), geosite: _('Geo data'), geoip: _('Geo data') })[type] || _('Прочее'); }
 function icon(type) { return ({ lua: 'λ', blob: '◆', hostlist: '⌁', hosts: '⌂', ipset: '#', geosite: '◎', geoip: '◎' })[type] || '◇'; }
 function semanticType(asset) { return asset && (asset.semanticKind || asset.type) || null; }
-function assetTypeForRoute(route, params) { return params && params.type || ({ ipsets: 'ipset', blobs: 'blob', lua: 'lua', hosts: 'hosts', hostlists: 'hostlist' }[route] || null); }
 function refs(asset) { return Array.isArray(asset && asset.references) ? asset.references : []; }
 function management(asset) { return asset && asset.management && typeof asset.management === 'object' ? asset.management : {}; }
 function genericEditable(asset) { return management(asset).editable === true; }
 function lifecycleManaged(asset) { var policy = management(asset); return policy.owner === 'z2k-core' && policy.mode === 'lifecycle'; }
-function mutable(asset) { return genericEditable(asset); }
 function stateBadge(row) { var state = row.state || 'unknown'; return AvatarUi.statusBadge(state, { label: text(row.status, HUMAN_STATES[state] || HUMAN_STATES.unknown), kind: state === 'current' ? 'good' : state === 'update' ? 'warn' : state === 'error' || state === 'attention' ? 'danger' : 'muted' }); }
 function updateBadge(presentation) { return AvatarUi.statusBadge(presentation.state, { label: presentation.label, kind: presentation.kind === 'g' ? 'good' : presentation.kind === 'r' ? 'danger' : presentation.kind === 'o' ? 'warn' : 'muted' }); }
 function message(ctx, value) { return ctx.api.normalizeError(value).message; }
@@ -203,8 +200,7 @@ function render(ctx) {
       ctx.shell.statePanel({ title: _('Asset Registry недоступен'), message: normalizedAssetsError.message || _('Не удалось загрузить Asset Registry.'), kind: 'error', actions: [ctx.shell.button(_('Повторить'), 'primary sm', function () { return ctx.refresh(ctx.route); })] })
     ]);
   }
-  var advanced = !!(ctx.store && ctx.store.ui && ctx.store.ui.advanced);
-  var model = ResourcesModel.buildModel(resources, { assets: assetsData }, { advanced: advanced });
+  var model = ResourcesModel.buildModel(resources, { assets: assetsData });
   var summary = model.summary;
   var canonicalZ2k = resources.z2k || resources.component || {};
   var canonicalRuntime = canonicalZ2k.runtimeSummary || resources.runtimeSummary || {};
@@ -214,23 +210,10 @@ function render(ctx) {
     ? canonicalRuntime.staticManagedCount : canonicalZ2k.staticManagedCount;
   var allVisible = model.groups.filter(function (group) { return group.kind !== 'strategy-catalog'; });
   var sourceCards = ResourcesModel.buildStrategySourceCards(strategySources);
-  var hiddenGroups = model.hiddenGroups || [];
 
   var filter = 'all';
   var searchQuery = '';
   var expanded = {};
-  var assetType = assetTypeForRoute(ctx.route, ctx.routeParams);
-  var summaryForRoute = summary;
-  if (assetType) {
-    var routeTotal = 0;
-    var routeUser = 0;
-    allVisible.forEach(function (group) {
-      var count = group.assets.filter(function (asset) { return semanticType(asset) === assetType; }).length;
-      routeTotal += count;
-      if (group.id === 'user') routeUser += count;
-    });
-    summaryForRoute = Object.assign({}, summary, { total: routeTotal, user: routeUser });
-  }
 
   var root = E('section', { 'class': 'z2m-view on z2m-assets-page z2m-resource-center', id: 'z2m-view-assets' });
   var body = E('div', { 'class': 'z2m-resource-body' });
@@ -245,12 +228,8 @@ function render(ctx) {
     return (asset.id && asset.id.toLowerCase().indexOf(s) >= 0) || (asset.name && asset.name.toLowerCase().indexOf(s) >= 0) || (semanticType(asset) && semanticType(asset).toLowerCase().indexOf(s) >= 0) || (asset.type && asset.type.toLowerCase().indexOf(s) >= 0);
   }
 
-  function matchesRoute(asset) {
-    return !assetType || semanticType(asset) === assetType;
-  }
-
   function routeAssets(group) {
-    return group.assets.filter(matchesRoute);
+    return group.assets;
   }
 
   function filteredGroups() {
@@ -263,7 +242,6 @@ function render(ctx) {
       // For user filter, even if group has 0 assets, show user group
       // Apply search: keep group if any asset matches or group label matches
       var typedAssets = routeAssets(g);
-      if (assetType && !typedAssets.length && g.id !== 'user') continue;
       if (q) {
         var labelMatch = g.label && g.label.toLowerCase().indexOf(q) >= 0;
         var anyAssetMatch = false;
@@ -434,13 +412,6 @@ function render(ctx) {
 
     var children = [headerRow];
 
-    if (advanced && group.source) {
-      var adv = [];
-      if (group.source.commit) adv.push(E('div', { 'class': 'z2m-dim mono' }, _('Commit источника') + ': ' + text(group.source.commit)));
-      if (group.commit && group.commit !== group.source.commit) adv.push(E('div', { 'class': 'z2m-dim mono' }, _('Provenance: ') + text(group.commit)));
-      if (adv.length) children.push(E('details', { 'class': 'z2m-resource-group-adv' }, [E('summary', {}, _('▸ Технические сведения')), E('div', {}, adv)]));
-    }
-
     if (isExpanded && assets.length) {
       var filteredAssets = [];
       var q2 = searchQuery.trim().toLowerCase();
@@ -459,19 +430,10 @@ function render(ctx) {
         var showBadge = ResourcesModel.shouldShowBadge(asset);
         var assetBadge = showBadge ? stateBadge(asset) : null;
         var used = refs(asset).length ? refs(asset).map(function (r) { return r.consumer; }).join(', ') : '—';
-        var advMeta = null;
-        if (advanced) {
-          var parts = [];
-          if (asset.contentSha256) parts.push(asset.contentSha256.slice(0, 12) + '…');
-          if (asset.provenance && asset.provenance.kind) parts.push(asset.provenance.kind);
-          if (asset.revision) parts.push('r' + asset.revision);
-          advMeta = E('div', { 'class': 'z2m-dim mono' }, parts.join(' · '));
-        }
         return E('div', { 'class': 'z2m-resource-table-row', 'data-resource-id': text(asset.id) }, [
           E('div', { 'class': 'z2m-resource-table-name' }, [
             E('span', { 'class': 'z2m-resource-type-icon' }, icon(semanticType(asset))),
             E('span', {}, E('strong', {}, text(asset.name || asset.id))),
-            advMeta,
             assetBadge ? E('span', { 'class': 'z2m-resource-table-badge' }, assetBadge) : null
           ]),
           E('span', { 'class': 'z2m-dim' }, label(semanticType(asset))),
@@ -510,32 +472,16 @@ function render(ctx) {
     if (!cards.length) {
       empty = AvatarUi.state('empty', { title: _('Ничего не найдено'), body: _('Попробуйте изменить фильтр или поисковый запрос.') });
     }
-    var technical = null;
-    if (advanced && hiddenGroups.length) {
-      var pkg = hiddenGroups.find(function(g){ return g.id === 'package-baseline'; });
-      if (pkg) {
-        technical = E('details', { 'class': 'z2m-resource-technical' }, [
-          E('summary', {}, _('Дополнительно')),
-          E('div', { 'class': 'z2m-resource-technical-body' }, [
-             E('div', {}, [E('strong', {}, pkg.label), E('div', { 'class': 'z2m-dim mono' }, _('Commit: ') + text(pkg.commit || (pkg.source && pkg.source.commit) || '—'))]),
-             pkg.source && pkg.source.version ? E('div', { 'class': 'z2m-dim' }, _('Версия: ') + text(pkg.source.version)) : null,
-             pkg.source && pkg.source.repository ? E('div', { 'class': 'z2m-dim mono' }, text(pkg.source.repository)) : null,
-             E('div', { 'class': 'z2m-dim' }, ResourcesModel.resourceCountText(pkg.total)),
-             pkg.source && pkg.source.kind ? E('div', { 'class': 'z2m-dim' }, _('Provenance: ') + text(pkg.source.kind)) : null
-          ].filter(Boolean))
-        ]);
-      }
-    }
-    return E('div', { 'class': 'z2m-resource-groups' }, [].concat([renderStrategySources()]).concat(cards).concat(empty ? [empty] : []).concat(technical ? [technical] : []));
+    return E('div', { 'class': 'z2m-resource-groups' }, [].concat([renderStrategySources()]).concat(cards).concat(empty ? [empty] : []));
   }
 
   var searchInput = E('input', { type: 'search', 'class': 'z2m-input z2m-resource-search', placeholder: _('Поиск ресурсов…'), 'aria-label': _('Поиск ресурсов') });
   searchInput.addEventListener('input', function () { searchQuery = searchInput.value; body.replaceChildren(renderBody()); });
 
   var filterTabs = ctx.shell.segmented([
-    { id: 'all', label: _('Все · ' + summaryForRoute.total) },
-    { id: 'system', label: _('Системные · ' + summaryForRoute.system) },
-    { id: 'user', label: _('Мои · ' + summaryForRoute.user) }
+    { id: 'all', label: _('Все · ' + summary.total) },
+    { id: 'system', label: _('Системные · ' + summary.system) },
+    { id: 'user', label: _('Мои · ' + summary.user) }
   ], filter, function (id) { filter = id; body.replaceChildren(renderBody()); }, { 'aria-label': _('Фильтр ресурсов') });
 
   var addBtn = ctx.shell.button(_('+ Добавить ресурс'), 'primary sm', openImport);
@@ -557,13 +503,6 @@ function render(ctx) {
   root.appendChild(controls);
   root.appendChild(body);
   body.replaceChildren(renderBody());
-
-  var routeId = ctx.routeParams && (ctx.routeParams.id || ctx.routeParams.asset);
-  if (routeId) {
-    var sel = null;
-    for (var i = 0; i < assetsData.length; i++) if (assetsData[i].id === routeId) { sel = assetsData[i]; break; }
-    if (sel) openAsset(sel);
-  }
 
   return root;
 }

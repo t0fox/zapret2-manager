@@ -13,8 +13,8 @@ import { read_var } from '../apply.uc';
 import { derive_runtime_observation, derive_strategy_observation, resolve_native_status } from './status-observations.uc';
 import { nft_rules_present } from './nft-rule-observation.uc';
 import { state_read, state_initialize } from './state-store.uc';
-import { legacy_status_v3, with_strategy_status } from './status-compat.uc';
 import { collect_strategy_status } from '../strategy-status.uc';
+import { runtime_summary } from '../runtime-summary.uc';
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -269,8 +269,6 @@ function service_state(runtime, rules, health, draft, engine) {
 	let present = runtime && runtime.present;
 	if (!engine || engine.installed !== true) return 'engine_missing';
 	if (stat(PATHS.paused_flag)) return present ? 'error' : 'paused';
-	if (draft && draft.passthrough && draft.passthrough.enabled)
-		return present ? 'passthrough' : 'error';
 	if (!present) {
 		if (q && q.registered) return 'error';
 		return 'stopped';
@@ -401,13 +399,43 @@ function degraded(result) {
 			message: result?.error?.message || 'Native state is unavailable.' }] };
 }
 
+function current_status_warnings(native_state, observations) {
+	let result = [], values = [];
+	for (let value in native_state?.warnings || []) push(values, value);
+	for (let value in observations?.warnings || []) push(values, value);
+	for (let value in values) {
+		if (type(value) == 'string') push(result, { code: 'runtime_warning', message: value, severity: 'warn' });
+		else if (type(value) == 'object' && value != null && type(value.code) == 'string' && type(value.message) == 'string')
+			push(result, { code: value.code, message: value.message, severity: type(value.severity) == 'string' ? value.severity : 'warn' });
+	}
+	return result;
+}
+
 export const collect = function() {
 	let observations = collect_observations(), native_result = state_read();
 	native_result = resolve_native_status(native_result, state_initialize);
 	let strategy_status = null;
 	try { strategy_status = collect_strategy_status(observations); } catch (e) { strategy_status = null; }
-	let status = legacy_status_v3(native_result.ok ? native_result.data.state : degraded(native_result), observations);
-	status = with_strategy_status(status, strategy_status);
+	let native_state = native_result.ok ? native_result.data.state : degraded(native_result);
+	let status = {
+		schema: 'status.v1',
+		generatedAt: observations.generatedAt,
+		generation: native_state.generation,
+		serviceState: observations.serviceState != null ? observations.serviceState : native_state.serviceState,
+		engine: observations.engine,
+		runtime: observations.runtime,
+		applied: observations.applied,
+		draft: observations.draft,
+		drift: observations.drift,
+		health: observations.health,
+		system: observations.system,
+		upstream: observations.upstream,
+		jobs: native_state.jobs,
+		warnings: current_status_warnings(native_state, observations),
+		runtimeSummary: null
+	};
+	status.runtimeSummary = runtime_summary(status);
+	if (strategy_status != null) status.strategyStatus = strategy_status;
 	try {
 		// Atomic publish: readers poll this file continuously; an in-place
 		// write would hand them truncated JSON.

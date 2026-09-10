@@ -39,10 +39,6 @@ function is_compatible_raw(raw) {
 
 // Shared candidate gate — authority is the staged bytes.
 // Order: 1) exists/regular 2) actual SHA 3) actual==expected 4) semantics
-export const z2k_state_persist_compat_raw = function(raw) {
-  return is_compatible_raw(raw);
-};
-
 export const z2k_candidate_gate = function(sourcePath, candidatePath, expectedSha256) {
   if (type(sourcePath) != 'string' || length(sourcePath) == 0) return { ok: false, status: 'review-required', error: { code: 'EINPUT', message: 'invalid sourcePath' }, sourcePath: sourcePath, expectedSha256: expectedSha256, actualSha256: null };
   if (type(candidatePath) != 'string' || !regular(candidatePath)) return { ok: false, status: 'review-required', error: { code: 'EINPUT', message: 'candidate not found or not regular file' }, sourcePath: sourcePath, expectedSha256: expectedSha256, actualSha256: null };

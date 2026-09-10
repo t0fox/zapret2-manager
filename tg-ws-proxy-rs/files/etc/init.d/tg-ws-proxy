@@ -31,8 +31,7 @@
 #
 # LOGGING: the provider writes to $LOG_FILE (pre-created 0600 below). Its
 # startup tg:// link EMBEDS the secret, so the log must stay root-only from
-# the first byte; the manager's proxy_logs_tail redacts secret patterns before
-# returning anything.
+# the first byte; diagnostics never return this raw log.
 #
 # NO FIREWALL RULES are installed here (v1): exposure is governed by the bind
 # address alone — LAN-only by policy, never WAN.

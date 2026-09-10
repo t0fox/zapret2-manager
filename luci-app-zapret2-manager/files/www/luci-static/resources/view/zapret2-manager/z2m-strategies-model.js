@@ -480,6 +480,7 @@ function filterDomainLearnedEntries(entries) {
  * @return {Array<Object>} Strategy options with labels, selection state, and unknown-strategy status.
  */
 function strategyOptionsForPool(poolKey, currentStrategy, pools) {
+  var SAFE_MAX = 128;
   var pool = findPool(poolKey, pools);
   var poolSize = 0;
   var stratsMap = {};
@@ -502,7 +503,7 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
 
   var curNum = Number(currentStrategy);
   if (isNaN(curNum) || curNum < 1) curNum = 1;
-  var total = Math.max(poolSize, 1);
+  var total = Math.min(Math.max(poolSize, 1), SAFE_MAX);
   var options = [];
 
   for (var i = 1; i <= total; i++) {

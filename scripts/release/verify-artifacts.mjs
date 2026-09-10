@@ -18,9 +18,8 @@ function readFullPackage() {
   const version = source.match(/^PKG_VERSION\s*:?=\s*([^\s#]+)/m)?.[1];
   const release = source.match(/^PKG_RELEASE\s*:?=\s*([^\s#]+)/m)?.[1];
   const depends = source.match(/\bDEPENDS\s*:?=\s*([^\n]+)/)?.[1] ?? '';
-  const provides = source.match(/\bPROVIDES\s*:?=\s*([^\n]+)/)?.[1] ?? '';
   if (!version || !release) fail(`${relativePath} has no package identity`);
-  return { version, release: Number(release), depends, provides };
+  return { version, release: Number(release), depends };
 }
 
 function sha256(file) {
@@ -90,8 +89,6 @@ export function verifyArtifacts(dist = path.join(ROOT, 'dist')) {
     if (!new RegExp(`\\+${dependency.replaceAll('-', '\\-')}\\b`).test(identity.depends))
       fail(`full package dependency is missing: ${dependency}`);
   }
-  const expectedProvides = releaseConfig.compatibility.provides.join(' ');
-  if (identity.provides.trim() !== expectedProvides) fail('full package compatibility provides are invalid');
 
   const openwrt = manifest.openwrt ?? {};
   for (const key of ['version', 'target', 'subtarget', 'sdkFilename', 'sdkSha256']) {
@@ -99,7 +96,6 @@ export function verifyArtifacts(dist = path.join(ROOT, 'dist')) {
   }
   equalJson(manifest.externalDependencies, [...releaseConfig.externalDependencies], 'external dependency list');
   equalJson(manifest.bundled, releaseConfig.bundled, 'bundled component contract');
-  equalJson(manifest.compatibility, releaseConfig.compatibility, 'compatibility contract');
   equalJson(manifest.excludedOptionalPackages, [...releaseConfig.excludedOptionalPackages], 'optional-package exclusion list');
   equalJson(manifest.installation, releaseConfig.installation, 'manifest installation contract');
 

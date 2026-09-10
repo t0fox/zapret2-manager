@@ -20,8 +20,8 @@ Z2M — LuCI-интерфейс и backend для управления zapret2 �
 - единый target-specific пакет `zapret2-manager-full`, содержащий backend, LuCI,
   native helpers и runtime assets для `mediatek/filogic`;
 - канонический путь Strategy → Preview → Validate → Apply;
-- временный Scanner, который передаёт удачный кандидат в Strategy;
-- системные страницы Компоненты, Резервные копии и Настройки.
+- Z2K Detect для bounded типизированных измерений без изменения Strategy;
+- системные страницы Компоненты и Резервные копии.
 
 Engine и Telegram Proxy являются отдельными optional-компонентами. Наличие Z2M
 не означает, что `nfqws2` или proxy уже установлены и запущены.

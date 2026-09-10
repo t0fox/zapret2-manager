@@ -14,60 +14,6 @@ function loadRuntimeGuards(globals = {}) {
   }, formatPrelude);
 }
 
-test('runtime guards reconcile contradictory service status evidence', async () => {
-  const guards = loadRuntimeGuards();
-  const service = {
-    status() {
-      return Promise.resolve({
-        serviceState: 'running',
-        runtime: { present: false },
-        health: { queue: { registered: false } },
-      });
-    },
-  };
-
-  guards.install({ service });
-  const stopped = await service.status();
-  assert.equal(stopped.serviceState, 'stopped');
-  assert.equal(stopped.statusReconciled, true);
-  assert.match(String(stopped.statusReconcileReason), /не запущен/);
-
-  service.status.original = () => Promise.resolve({
-    serviceState: 'running',
-    runtime: { present: true, rulesPresent: false },
-    health: { queue: { registered: true } },
-  });
-  const partialApi = {
-    service: { status: service.status.original },
-  };
-  guards.install(partialApi);
-  assert.equal((await partialApi.service.status()).serviceState, 'partial');
-
-  const conflictApi = {
-    service: {
-      status: () => Promise.resolve({
-        serviceState: 'running',
-        runtime: { present: true, rulesPresent: true },
-        health: { queue: { registered: true, ownerConflict: true } },
-      }),
-    },
-  };
-  guards.install(conflictApi);
-  assert.equal((await conflictApi.service.status()).serviceState, 'error');
-
-  const pausedApi = {
-    service: {
-      status: () => Promise.resolve({
-        serviceState: 'paused',
-        runtime: { present: false },
-        health: { queue: { registered: true } },
-      }),
-    },
-  };
-  guards.install(pausedApi);
-  assert.equal((await pausedApi.service.status()).serviceState, 'paused');
-});
-
 test('runtime guards preserve calls, rejection identity, and idempotent wrapping', async () => {
   const guards = loadRuntimeGuards();
   const expected = new Error('rpc failed');
@@ -76,12 +22,7 @@ test('runtime guards preserve calls, rejection identity, and idempotent wrapping
       marker: 7,
       diagnose(value) { return Promise.resolve(this.marker + value); },
       check() { throw expected; },
-      servicePreview: value => Promise.resolve(value),
       serviceApplyStatus: value => Promise.resolve(value),
-    },
-    orchestra: {
-      probePreflight: value => Promise.resolve(value),
-      runStatus: value => Promise.resolve(value),
     },
   };
 
@@ -90,8 +31,7 @@ test('runtime guards preserve calls, rejection identity, and idempotent wrapping
   guards.install(api);
   assert.strictEqual(api.dns.diagnose, wrapped);
   assert.equal(await api.dns.diagnose(5), 12);
-  assert.deepEqual(await api.dns.servicePreview({ id: 1 }), { id: 1 });
-  assert.deepEqual(await api.orchestra.runStatus({ state: 'done' }), { state: 'done' });
+  assert.deepEqual(await api.dns.serviceApplyStatus({ state: 'done' }), { state: 'done' });
   await assert.rejects(api.dns.check(), error => error === expected);
 });
 

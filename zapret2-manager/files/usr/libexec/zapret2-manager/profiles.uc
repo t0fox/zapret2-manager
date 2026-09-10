@@ -1,10 +1,8 @@
 'use strict';
-// profiles.uc — production lossless reader for the applied NFQWS2_OPT.
+// profiles.uc — internal lossless parser for Strategy arguments.
 //
-// Reads the APPLIED options string from /opt/zapret2/config through the
-// SANCTIONED reader (apply.uc read_var — the same single-writer module;
-// there is no second config reader), tokenizes/parses it LOSSLESSLY, and
-// returns the profiles_list wire envelope (schema 1).
+// The parser is shared by the current Strategy compiler, admission, Apply,
+// and native preflight paths. It does not expose a product or RPC envelope.
 //
 // BOUNDARY (docs/contracts/strategy-model.md):
 //   - the manager parses only shell/profile STRUCTURE and provides lossless
@@ -12,8 +10,7 @@
 //     never interpreted, method validity is never decided here;
 //   - nativeValidation vocabulary is EXACTLY not_checked | partial | rejected
 //     | unavailable. There is NO 'valid' — runtime semantics is never covered
-//     without packets. sanitize_native() clamps any out-of-vocabulary status
-//     to 'not_checked' so a forged record can never reach the wire;
+//     without packets;
 //   - malformed input is diagnosed and PRESERVED, never erased.
 //
 // Mirrors (algorithm specs, exercised by the local node self-tests):
@@ -21,17 +18,8 @@
 //   tests/strategy/lib/parse.mjs      (profile split + top-level extraction)
 //   tests/strategy/lib/validate.mjs   (MANAGER_* diagnostics)
 //   tests/strategy/lib/serialize.mjs  (preserve round-trip)
-//   tests/lib/profiles-wire.mjs       (the wire envelope)
 // ucode does not run in the build environment; runtime is confirmed on
 // target via tools/smoke.sh.
-
-import { readfile, stat, popen } from 'fs';
-import { read_var } from './apply.uc';
-import { PATHS } from './constants.uc';
-
-const OPT_VAR = 'NFQWS2_OPT';
-const WIRE_SCHEMA = 1;
-const UPSTREAM_COMMIT_PIN = 'd3b3011000f103c5af161cc4e3167e80fd6928a2';
 
 // ---------------------------------------------------------------------------
 // diagnostics helper
@@ -44,7 +32,7 @@ function diag(sev, code, msg, tokenIndex, profileIndex) {
 }
 
 // ---------------------------------------------------------------------------
-// native validation shell + sanitizer (strategy-model.md §3.4/§3.6)
+// native validation shell (strategy-model.md §3.4/§3.6)
 // ---------------------------------------------------------------------------
 const COVERAGE_KEYS = ['cliSyntax', 'luaLoad', 'luaCompatibility', 'functionExistence', 'runtimeArguments', 'executionPlan'];
 
@@ -64,35 +52,6 @@ function make_native_shell() {
 		nativeVersion: null,
 		luaCompatVer: null
 	};
-}
-
-function is_valid_native_status(s) {
-	return (s == 'not_checked' || s == 'partial' || s == 'rejected' || s == 'unavailable');
-}
-
-function is_valid_coverage_status(s) {
-	return (s == 'not_checked' || s == 'passed' || s == 'failed');
-}
-
-// Clamp a nativeValidation record to the honest vocabulary. Any field outside
-// the vocabulary (or absent) falls back to the not_checked shell. 'valid' is
-// NOT in the vocabulary — a forged record can never pass through.
-function sanitize_native(nv) {
-	let out = make_native_shell();
-	if (type(nv) != 'object' || nv == null) return out;
-	if (is_valid_native_status(nv.status)) out.status = nv.status;
-	if (nv.entryPoint == 'dry-run' || nv.entryPoint == 'intercept-zero') out.entryPoint = nv.entryPoint;
-	if (type(nv.coverage) == 'object' && nv.coverage != null) {
-		for (let i = 0; i < length(COVERAGE_KEYS); i++) {
-			let k = COVERAGE_KEYS[i];
-			if (is_valid_coverage_status(nv.coverage[k])) out.coverage[k] = nv.coverage[k];
-		}
-	}
-	if (type(nv.diagnostics) == 'array') out.diagnostics = nv.diagnostics;
-	if (type(nv.bundleId) == 'string') out.bundleId = nv.bundleId;
-	if (type(nv.nativeVersion) == 'string') out.nativeVersion = nv.nativeVersion;
-	if (type(nv.luaCompatVer) == 'int') out.luaCompatVer = nv.luaCompatVer;
-	return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -956,16 +915,11 @@ function serialize_preserve(model) {
 }
 
 // ---------------------------------------------------------------------------
-// wire envelope (mirrors tests/lib/profiles-wire.mjs — schema 1)
+// Strategy parser helpers
 // ---------------------------------------------------------------------------
 
-// profile_fragment(model, profile, optText) — the profile's raw byte-slice:
-// from the end of its --new separator (or its first token, for the implicit
-// first profile) to its sourceSpan end; surrounding whitespace trimmed. All
-// CONTENT bytes (quotes, escapes, placeholders) survive verbatim. Mirrors
-// tests/lib/profiles-draft.mjs profileFragment. DECLARED BEFORE profile_out:
-// ucode does not hoist function declarations in module mode (the undeclared-
-// variable runtime error this caused was found on the target, not locally).
+// Return the lossless raw fragment for one parsed strategy profile. This is an
+// internal Strategy Apply primitive; it is not a Profiles product envelope.
 function profile_fragment(model, p, optText) {
 	let start;
 	if (p.separator != null && p.separator.span != null) start = p.separator.span.end;
@@ -973,211 +927,14 @@ function profile_fragment(model, p, optText) {
 	else start = (p.sourceSpan.start != null) ? p.sourceSpan.start : 0;
 	let end = (p.sourceSpan.end != null) ? p.sourceSpan.end : length(optText);
 	let frag = substr(optText, start, end - start);
-	// trim surrounding whitespace only (content bytes preserved)
 	let a = 0;
 	while (a < length(frag) && is_ws(substr(frag, a, 1))) a++;
 	let b = length(frag);
 	while (b > a && is_ws(substr(frag, b - 1, 1))) b--;
 	return substr(frag, a, b - a);
 }
-function option_entry_out(e) {
-	let o = { option: e.option, value: e.value, tokenIndex: e.tokenIndex };
-	if (e.strayWord) o.strayWord = true;
-	if (e.elements != null) {
-		let els = [];
-		for (let i = 0; i < length(e.elements); i++) {
-			let el = e.elements[i];
-			push(els, { raw: el.raw, negated: el.negated, star: el.star, from: el.from, to: el.to, valid: el.valid });
-		}
-		o.elements = els;
-	}
-	if (e.range != null) {
-		o.range = {
-			raw: e.range.raw, valid: e.range.valid, bareNumeric: e.range.bareNumeric,
-			from: e.range.from, op: e.range.op, to: e.range.to,
-			fromAlways: e.range.fromAlways, toAlways: e.range.toAlways
-		};
-	}
-	if (e.blobName != null) {
-		o.blobName = e.blobName;
-		o.blobSource = e.blobSource;
-		o.blobSourceType = e.blobSourceType;
-	}
-	return o;
-}
 
-function entries_out(arr) {
-	let out = [];
-	for (let i = 0; i < length(arr); i++) push(out, option_entry_out(arr[i]));
-	return out;
-}
-
-function lua_desync_out(e) {
-	return {
-		raw: e.raw,
-		tokenIndex: e.tokenIndex,
-		catalogHints: {
-			functionName: e.catalogHints.functionName,
-			referencedBlobs: e.catalogHints.referencedBlobs,
-			fragmentCount: e.catalogHints.fragmentCount
-		},
-		nativeValidation: sanitize_native(e.nativeValidation)
-	};
-}
-
-function profile_out(p, model, optText) {
-	let nameRecords = [];
-	for (let i = 0; i < length(p.nameRecords); i++) {
-		let r = p.nameRecords[i];
-		push(nameRecords, { value: r.value, via: r.via, tokenIndex: r.tokenIndex });
-	}
-	let desync = [];
-	for (let i = 0; i < length(p.luaDesync); i++) push(desync, lua_desync_out(p.luaDesync[i]));
-	return {
-		index: p.index,
-		name: p.name,
-		nameSource: p.nameSource,
-		nameRecords: nameRecords,
-		enabled: p.enabled,
-		protocol: p.protocol,
-		fragment: profile_fragment(model, p, optText),
-		tcpPorts: entries_out(p.tcpPorts),
-		udpPorts: entries_out(p.udpPorts),
-		l7Filters: entries_out(p.l7Filters),
-		payloads: entries_out(p.payloads),
-		outboundRanges: entries_out(p.outboundRanges),
-		inboundRanges: entries_out(p.inboundRanges),
-		hostlists: entries_out(p.hostlists),
-		hostlistExcludes: entries_out(p.hostlistExcludes),
-		ipsets: entries_out(p.ipsets),
-		ipsetExcludes: entries_out(p.ipsetExcludes),
-		blobs: entries_out(p.blobs),
-		luaInit: entries_out(p.luaInit),
-		luaDesync: desync,
-		passthroughOptions: entries_out(p.passthroughOptions),
-		unknownOptions: entries_out(p.unknownOptions),
-		sourceSpan: { start: p.sourceSpan.start, end: p.sourceSpan.end }
-	};
-}
-
-function sha256_file(path) {	let p = popen("sha256sum " + path + " 2>/dev/null | awk '{print $1}'", 'r');
-	if (!p) return null;
-	let out = trim(p.read('all'));
-	p.close();
-	return (length(out) == 64) ? out : null;
-}
-
-function sha256_text(text) {
-	let p = popen('umask 077; mktemp /tmp/z2m-profiles-sha.XXXXXX 2>/dev/null', 'r');
-	if (!p) return null;
-	let path = trim(p.read('all') || '');
-	if (p.close() != 0 || index(path, '/tmp/z2m-profiles-sha.') != 0 || !stat(path)) {
-		if (index(path, '/tmp/z2m-profiles-sha.') == 0) try { unlink(path); } catch (e) { }
-		return null;
-	}
-	writefile(path, text);
-	let hash = sha256_file(path);
-	try { unlink(path); } catch (e) { }
-	return hash;
-}
-
-function provenance_block() {
-	return {
-		source: 'applied',
-		reader: 'apply.uc read_var',
-		model: 'strategy-model.md v1',
-		upstreamCommit: UPSTREAM_COMMIT_PIN,
-		configPath: PATHS.applied_conf
-	};
-}
-
-// profiles_list() → the profiles_list wire envelope (schema 1). Reads the
-// APPLIED config through the sanctioned reader only; never writes anything.
-export const profiles_list = function() {
-	let st = stat(PATHS.applied_conf);
-	if (!st) {
-		return {
-			ok: false,
-			schema: WIRE_SCHEMA,
-			error: { code: 'ETARGET', message: 'applied config is unreadable or absent' },
-			source: { configPath: PATHS.applied_conf, configPresent: false, optPresent: false, optVar: OPT_VAR },
-			parseStatus: 'unavailable',
-			profileCount: 0,
-			profiles: [],
-			diagnostics: [],
-			roundtrip: { preserve: 'skipped', diagnostics: [] },
-			nativeValidation: make_native_shell(),
-			provenance: provenance_block()
-		};
-	}
-
-	let source = {
-		configPath: PATHS.applied_conf,
-		configPresent: true,
-		configMtime: st.mtime,
-		configSize: st.size,
-		configSha256: sha256_file(PATHS.applied_conf),
-		optPresent: false,
-		optVar: OPT_VAR
-	};
-
-	let opt = read_var(OPT_VAR);
-	if (opt == null) {
-		return {
-			ok: true,
-			schema: WIRE_SCHEMA,
-			source: source,
-			parseStatus: 'unavailable',
-			profileCount: 0,
-			profiles: [],
-			diagnostics: [diag('warning', 'MANAGER_NO_NFQWS2_OPT',
-				OPT_VAR + ' is not set in the applied config — no profiles applied', null, null)],
-			roundtrip: { preserve: 'skipped', diagnostics: [] },
-			nativeValidation: make_native_shell(),
-			provenance: provenance_block()
-		};
-	}
-	source.optPresent = true;
-	source.optSha256 = sha256_text(opt);
-
-	let model = parse_opt(opt);
-	model.source = PATHS.applied_conf;
-
-	let diags = [];
-	for (let i = 0; i < length(model.diagnostics); i++) push(diags, model.diagnostics[i]);
-	let vdiags = validate_manager(model);
-	for (let i = 0; i < length(vdiags); i++) push(diags, vdiags[i]);
-
-	let preserve = serialize_preserve(model);
-	let preserveIdentical = (preserve.text == model.originalText) && (length(preserve.diagnostics) == 0);
-
-	let hasErrors = false;
-	for (let i = 0; i < length(diags); i++) {
-		if (diags[i].severity == 'error') { hasErrors = true; break; }
-	}
-
-	let profiles = [];
-	for (let i = 0; i < length(model.profiles); i++) push(profiles, profile_out(model.profiles[i], model, opt));
-
-	return {
-		ok: true,
-		schema: WIRE_SCHEMA,
-		source: source,
-		parseStatus: hasErrors ? 'partial' : 'success',
-		profileCount: length(model.profiles),
-		profiles: profiles,
-		diagnostics: diags,
-		roundtrip: {
-			preserve: preserveIdentical ? 'identical' : 'lossy',
-			diagnostics: preserve.diagnostics
-		},
-		nativeValidation: sanitize_native(model.nativeValidation),
-		provenance: provenance_block()
-	};
-};
-
-// ---- export aliases for profiles-draft.uc (the draft CRUD layer reuses the
-// SAME lossless parser — there is no second parser in the tree) -------------
+// ---- Strategy parser exports ----------------------------------------------
 export const z2m_tokenize = tokenize;
 export const z2m_parse = parse_opt;
 export const z2m_validate = validate_manager;

@@ -26,7 +26,7 @@ function seedInstalledRelease(s) {
 	const asset = {
 		schema: 1, type: 'lua', id: 'lua:z2k-alert', name: 'z2k-alert.lua', ownership: 'manager', mutable: true,
 		provenance: { kind: 'catalog/upstream', source: 'fixture', sourceCommit, sourcePath: 'files/lua/z2k-alert.lua', bundleId: 'z2k-curated-lua', version: 'r-79.7' },
-		contentSha256: sha256, byteSize: 1, revision: 1, path: '/tmp/z2m-fixture-z2k-alert.lua', legacyPath: null,
+		contentSha256: sha256, byteSize: 1, revision: 1, path: '/tmp/z2m-fixture-z2k-alert.lua',
 		references: [], validation: { status: 'passed', errors: [] },
 	};
 	fs.writeFileSync(s.registry, JSON.stringify({
@@ -213,7 +213,6 @@ function comparablePresentation(value) {
 		releaseChanges: value.releaseChanges,
 		deviceChanges: value.deviceChanges,
 		installChanges: value.installChanges,
-		changes: value.changes,
 		compareUrl: value.compareUrl,
 		targetCanApply: value.targetCanApply,
 		targetAttentionState: value.targetAttentionState,

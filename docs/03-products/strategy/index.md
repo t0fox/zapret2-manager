@@ -38,9 +38,9 @@ IDE остаётся в Raw-only mode.
 - **autocircular auto/frozen/excluded** — состояние обучения, не отдельный
   permanent Apply path.
 
-Detect Scanner возвращает typed evidence и не создаёт permanent candidate.
+Z2K Detect возвращает typed evidence и не создаёт permanent candidate.
 Постоянное изменение проходит только через обычный Preview → Validate → Save →
-Apply путь; Scanner не владеет постоянным Apply.
+Apply путь; Detect не владеет постоянным Apply.
 
 См. [полномочия применения стратегий](../../07-decisions/adr-005-strategy-apply-authority.md)
 и [происхождение каталога](./source-provenance.md).

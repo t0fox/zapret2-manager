@@ -1,25 +1,26 @@
 ---
-id: public-guide-use-scanner
-title: "Как использовать Scanner"
+id: public-guide-use-z2k-detect
+title: "Как использовать Z2K Detect"
 type: guide
 status: current
 authority: current-ui
 updated: 2026-08-22
 publish: true
-tags: [guides, scanner]
+tags: [guides, z2k-detect]
 ---
 
-# Как использовать Scanner
+# Как использовать Z2K Detect
 
-Откройте **Обход DPI → Сканирование**, задайте target и профиль, затем запустите
-проверку. Во время планирования UI должен показывать progress, а RPCD оставаться
-отзывчивым.
+Откройте **Обход DPI → Z2K Detect**, выберите операцию и заполните
+её поля. Запустите проверку и дождитесь typed результата; permanent Strategy и
+production runtime при этом не изменяются.
 
 После завершения:
 
-- `best` с валидной Strategy — кандидат для IDE;
-- `best: null` — доказанного успеха нет;
-- `state: uncertain` — safety stop, ничего не применяйте.
+- `detected`/`clear` — наблюдаемый verdict выбранной операции;
+- `observed`/`inconclusive` — доказательства недостаточно для вывода;
+- `unavailable`/ошибка — проверка завершилась fail-closed.
 
-Откройте результат в Strategy IDE, проверьте exact args, Validate и только затем
-Save/Apply. Scanner сам не становится вторым владельцем permanent Apply.
+История сохраняется только в текущей сессии браузера. Если нужна постоянная
+Strategy, настройте её отдельно в **Стратегии** и пройдите обычный
+Preview → Validate → Save → Apply journey.

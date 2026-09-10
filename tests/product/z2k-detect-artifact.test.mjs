@@ -321,7 +321,7 @@ test('resource recovery keeps a legacy FINALIZED marker pending without coherent
     writefile(target, ${JSON.stringify(newDetectBytes)}); try { unlink(backup); } catch (e) {}
     writefile(registryAssetPath, ${JSON.stringify(registryBytes)});
     let membership = [{ id: 'lua:core', type: 'lifecycle-managed', owner: 'z2k-core', role: 'lua-init', kind: 'lua', sourcePath: 'files/lua/core.lua', runtimeTarget: '/runtime-assets/lua/core.lua', runtimeOrder: 1, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, version: 'p-82.14', sourceCommit: ${JSON.stringify(commit)} }];
-    let asset = { schema: 1, type: 'lua', id: 'lua:core', name: 'core.lua', ownership: 'manager', mutable: true, provenance: { kind: 'catalog/upstream', source: 'fixture', sourceCommit: ${JSON.stringify(commit)}, sourcePath: 'files/lua/core.lua', bundleId: 'z2k-curated-lua', version: 'p-82.14' }, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, revision: 1, path: registryAssetPath, legacyPath: null, references: [], validation: { status: 'passed', errors: [] } };
+    let asset = { schema: 1, type: 'lua', id: 'lua:core', name: 'core.lua', ownership: 'manager', mutable: true, provenance: { kind: 'catalog/upstream', source: 'fixture', sourceCommit: ${JSON.stringify(commit)}, sourcePath: 'files/lua/core.lua', bundleId: 'z2k-curated-lua', version: 'p-82.14' }, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, revision: 1, path: registryAssetPath, references: [], validation: { status: 'passed', errors: [] } };
     let receipt = { schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'p-82.14', sourceCommit: ${JSON.stringify(commit)}, manifestSha256: ${JSON.stringify(digest)}, classificationSha256: ${JSON.stringify(digest)}, candidateSnapshotId: 'snapshot-${suffix}', membershipDigest: '${'m'.repeat(64)}', committedRegistryRevision: 2, installedAuthorityRevision: 3, z2kMembership: membership };
     writefile(registryPath, sprintf('%J', { schema: 1, revision: 3, assets: [asset], activationReceipts: [receipt] }));
     let pending = { schema: 1, candidateSnapshotId: 'snapshot-${suffix}', compositionSnapshotId: 'composition-${suffix}', membershipDigest: '${'m'.repeat(64)}', baseRegistryRevision: 1, committedAssetRevision: 2, targetVersion: 'p-82.14', targetCommit: ${JSON.stringify(commit)}, planToken: 'plan-${suffix}', rollbackIdentity: { registryRevision: 1, receipt: null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' }, detectPublication: prepared, sourceActivation: { currentSnapshotId: null, lastKnownGoodSnapshotId: null }, sourceRestoreRequired: false, phase: 'FINALIZED' };
@@ -335,58 +335,6 @@ test('resource recovery keeps a legacy FINALIZED marker pending without coherent
   assert.equal(result.target, newDetectBytes);
   assert.equal(result.backupPresent, false);
   assert.equal(result.pendingPresent, true);
-});
-
-test('incomplete common rollback preserves candidate Detect and durable recovery state', { skip: !ucodeAvailable }, () => {
-  for (const mode of ['runtime', 'registry', 'source']) {
-    const result = invokeResource(`({ result: result, target: files[target], backup: files[backup], calls: calls, phase: pending.phase, cleared: cleared })`, `
-      let mode = ${JSON.stringify(mode)}, target = '/tmp/z2m-z2k-detect-test-incomplete-target-${mode}', backup = '/tmp/z2m-z2k-detect-test-incomplete-backup-${mode}';
-      let files = {}; files[target] = ${JSON.stringify(newDetectBytes)}; files[backup] = ${JSON.stringify(oldDetectBytes)};
-      let calls = { runtime: false, registry: false, source: false, detect: false }, cleared = false;
-      let publication = { ok: true, prepared: true, published: true, target: target, backupPath: backup, prior: { exists: true, regular: true, sha256: ${JSON.stringify(oldDetectSha)}, byteSize: ${oldDetectBytes.length}, mode: 493 }, candidate: { sha256: ${JSON.stringify(newDetectSha)} } };
-      let pending = { phase: 'COMMITTED', detectPublication: publication, sourceActivation: { currentSnapshotId: 'new', lastKnownGoodSnapshotId: 'old' }, sourceRestoreRequired: true };
-      let seams = {
-        pendingLoad: function() { return pending; },
-        pendingWrite: function(value, phase) { value.phase = phase; return true; },
-        pendingClear: function() { cleared = true; return true; },
-        runtimeRollback: function() { calls.runtime = true; return mode == 'runtime' ? { ok: false, error: { code: 'ERUNTIME' } } : { ok: true, restored: true }; },
-        registryList: function() { return { ok: true, revision: 3, assets: [], activationReceipts: [] }; },
-        registryAlreadyRestored: function() { return false; },
-        registryRollback: function() { calls.registry = true; return mode == 'registry' ? { ok: false, error: { code: 'EREGISTRY' } } : { ok: true, restored: true }; },
-        sourceRestore: function() { calls.source = true; return mode == 'source' ? { ok: false, error: { code: 'ESOURCE' } } : { ok: true, restored: true }; },
-        detectRestore: function() { calls.detect = true; files[target] = files[backup]; files[backup] = null; return { ok: true, restored: true }; }
-      };
-      let result = resource.resource_center_test_rollback_transaction({ testOnly: true, selected: { id: 'z2k-curated-lua' }, applied: { committedAssetRevision: 2 }, diagnostics: {}, runtimeActivated: true, seams: seams });
-    `);
-    assert.equal(result.result.ok, false, JSON.stringify({ mode: mode, result: result }));
-    assert.equal(result.result.recoveryRequired, true, JSON.stringify({ mode: mode, result: result }));
-    assert.equal(result.result.detectPreserved, true, JSON.stringify({ mode: mode, result: result }));
-    assert.equal(result.calls.detect, false, JSON.stringify({ mode: mode, result: result }));
-    assert.equal(result.target, newDetectBytes, JSON.stringify({ mode: mode, result: result }));
-    assert.equal(result.backup, oldDetectBytes, JSON.stringify({ mode: mode, result: result }));
-    assert.equal(result.phase, 'ROLLING_BACK', JSON.stringify({ mode: mode, result: result }));
-    assert.equal(result.cleared, false, JSON.stringify({ mode: mode, result: result }));
-  }
-});
-
-test('runtime guard honors preserved Detect recovery and does not restore it twice', { skip: !ucodeAvailable }, () => {
-  const result = invokeResource('result', `
-    let target = '/tmp/z2m-z2k-detect-test-guard-target', files = {}, calls = { restore: false, finalize: false };
-    files[target] = ${JSON.stringify(newDetectBytes)};
-    let seams = {
-      detectRestore: function() { calls.restore = true; files[target] = ${JSON.stringify(oldDetectBytes)}; return { ok: true, restored: true }; },
-      detectFinalize: function() { calls.finalize = true; return { ok: true }; }
-    };
-    let guardInput = { testOnly: true, publication: { ok: true, prepared: true, published: true, target: target, candidate: { sha256: ${JSON.stringify(newDetectSha)} } }, result: { ok: false, error: { code: 'ERECOVERY_REQUIRED', rollback: { ok: false, recoveryRequired: true, detectHandled: true, detectPreserved: true, detect: { ok: false, skipped: true, preserved: true, recoveryRequired: true } } } }, seams: seams };
-    let result = resource.resource_center_test_guard_finish(guardInput);
-    result = { result: result, target: files[target], calls: calls };
-  `);
-  assert.equal(result.result.ok, false, JSON.stringify(result));
-  assert.equal(result.result.error.code, 'ERECOVERY_REQUIRED', JSON.stringify(result));
-  assert.equal(result.result.detectTransaction.preserved, true, JSON.stringify(result));
-  assert.equal(result.calls.restore, false, JSON.stringify(result));
-  assert.equal(result.calls.finalize, false, JSON.stringify(result));
-  assert.equal(result.target, newDetectBytes, JSON.stringify(result));
 });
 
 test('FINALIZED receipt mismatch leaves Detect and the recovery marker intact', { skip: !ucodeAvailable }, () => {
@@ -406,7 +354,7 @@ test('FINALIZED receipt mismatch leaves Detect and the recovery marker intact', 
     try { unlink(backup); } catch (e) {}
     writefile(registryAssetPath, ${JSON.stringify(registryBytes)});
     let membership = [{ id: 'lua:core', type: 'lifecycle-managed', owner: 'z2k-core', role: 'lua-init', kind: 'lua', sourcePath: 'files/lua/core.lua', runtimeTarget: '/runtime-assets/lua/core.lua', runtimeOrder: 1, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, version: 'p-82.14', sourceCommit: ${JSON.stringify(commit)} }];
-    let asset = { schema: 1, type: 'lua', id: 'lua:core', name: 'core.lua', ownership: 'manager', mutable: true, provenance: { kind: 'catalog/upstream', source: 'fixture', sourceCommit: ${JSON.stringify(commit)}, sourcePath: 'files/lua/core.lua', bundleId: 'z2k-curated-lua', version: 'p-82.14' }, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, revision: 1, path: registryAssetPath, legacyPath: null, references: [], validation: { status: 'passed', errors: [] } };
+    let asset = { schema: 1, type: 'lua', id: 'lua:core', name: 'core.lua', ownership: 'manager', mutable: true, provenance: { kind: 'catalog/upstream', source: 'fixture', sourceCommit: ${JSON.stringify(commit)}, sourcePath: 'files/lua/core.lua', bundleId: 'z2k-curated-lua', version: 'p-82.14' }, contentSha256: ${JSON.stringify(registrySha)}, byteSize: ${registryBytes.length}, revision: 1, path: registryAssetPath, references: [], validation: { status: 'passed', errors: [] } };
     let receipt = { schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'p-82.14', sourceCommit: ${JSON.stringify('b'.repeat(40))}, manifestSha256: ${JSON.stringify(digest)}, classificationSha256: ${JSON.stringify(digest)}, candidateSnapshotId: 'snapshot-${suffix}', membershipDigest: '${'m'.repeat(64)}', committedRegistryRevision: 2, installedAuthorityRevision: 3, z2kMembership: membership };
     writefile(registryPath, sprintf('%J', { schema: 1, revision: 3, assets: [asset], activationReceipts: [receipt] }));
     let pending = { schema: 1, candidateSnapshotId: 'snapshot-${suffix}', compositionSnapshotId: 'composition-${suffix}', membershipDigest: '${'m'.repeat(64)}', baseRegistryRevision: 1, committedAssetRevision: 2, targetVersion: 'p-82.14', targetCommit: ${JSON.stringify(commit)}, planToken: 'plan-${suffix}', rollbackIdentity: { registryRevision: 1, receipt: null, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' }, detectPublication: prepared, sourceActivation: { currentSnapshotId: null, lastKnownGoodSnapshotId: null }, sourceRestoreRequired: false, phase: 'FINALIZED' };
@@ -420,40 +368,6 @@ test('FINALIZED receipt mismatch leaves Detect and the recovery marker intact', 
   assert.equal(result.target, newDetectBytes);
   assert.equal(result.backupPresent, false);
   assert.equal(result.pendingPresent, true);
-});
-
-test('rollback coordinator restores Registry/runtime/source/Detect owners as one coherent result', { skip: !ucodeAvailable }, () => {
-  const candidate = invoke(`detect.z2k_detect_candidate(${JSON.stringify(manifest)}, ${JSON.stringify(commit)}, 'aarch64')`);
-  candidate.sha256 = newDetectSha;
-  const result = invokeResource(`({ result: result, target: files[target], backup: files[backup], calls: calls, phase: pending.phase, cleared: cleared })`, `
-    let candidate = ${JSON.stringify(candidate)}, target = '/tmp/z2m-z2k-detect-test-rollback-target', backup = '/tmp/z2m-z2k-detect-test-rollback-backup';
-    let files = {}; files[target] = ${JSON.stringify(newDetectBytes)}; files[backup] = ${JSON.stringify(oldDetectBytes)};
-    let publication = { ok: true, prepared: true, published: true, target: target, backupPath: backup, prior: { exists: true, regular: true, sha256: ${JSON.stringify(oldDetectSha)}, byteSize: ${oldDetectBytes.length}, mode: 493 }, candidate: candidate }, calls = { load: false, journal: false, clear: false, runtime: false, registryList: false, registry: false, source: false, catalog: false, detect: false }, cleared = false;
-    let pending = { phase: 'COMMITTED', detectPublication: publication, sourceActivation: { currentSnapshotId: 'new', lastKnownGoodSnapshotId: 'old' }, sourceRestoreRequired: true, catalogRestoreRequired: true };
-    let seams = {
-      pendingLoad: function() { calls.load = true; return pending; },
-      pendingWrite: function(value, phase) { calls.journal = true; value.phase = phase; return true; },
-      pendingClear: function() { calls.clear = true; cleared = true; return true; },
-      runtimeRollback: function() { calls.runtime = true; return { ok: true, restored: true }; },
-      registryList: function() { calls.registryList = true; return { ok: true, revision: 3, assets: [], activationReceipts: [] }; },
-      registryAlreadyRestored: function() { return false; },
-      registryRollback: function() { calls.registry = true; return { ok: true, restored: true }; },
-      sourceRestore: function() { calls.source = true; return { ok: true, restored: true }; },
-      catalogRestore: function() { calls.catalog = true; return { ok: true, rebuilt: true }; },
-      detectRestore: function(value) { calls.detect = true; files[target] = files[backup]; files[backup] = null; return { ok: true, restored: true }; }
-    };
-    let result = resource.resource_center_test_rollback_transaction({ testOnly: true, selected: { id: 'z2k-curated-lua' }, applied: { committedAssetRevision: 2 }, diagnostics: {}, runtimeActivated: true, seams: seams });
-  `);
-  assert.equal(result.result.ok, true, JSON.stringify(result));
-  assert.equal(result.target, oldDetectBytes);
-  assert.equal(result.backup, null);
-  assert.equal(result.phase, 'ROLLED_BACK');
-  assert.equal(result.cleared, true);
-  assert.equal(result.calls.runtime, true);
-  assert.equal(result.calls.registry, true);
-  assert.equal(result.calls.source, true);
-  assert.equal(result.calls.catalog, true);
-  assert.equal(result.calls.detect, true);
 });
 
 test('rollback identity captures Detect, catalog, and strategy identities for the canonical outcome', () => {

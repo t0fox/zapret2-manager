@@ -32,17 +32,18 @@ test('P03 uses a frozen donor-derived Strategies surface instead of the old cust
 test('P03 page maps supported donor actions to canonical Z2M Strategy RPCs', () => {
   const page = read('z2m-strategies.js');
   const app = read('app.js');
-  const route = read('z2m-strategy-page.js');
   for (const marker of ['strategies.list', 'strategies.get', 'strategies.create', 'strategies.update',
     'strategies.delete', 'strategies.duplicate', 'strategies.favorite', 'strategies.preview',
     'strategies.validate', 'strategies.apply']) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
-  assert.match(app, /strategies:\s*Strategy/);
-  assert.match(route, /z2m-view-strategy/);
-  assert.match(route, /primary\.render/);
-  assert.match(route, /function primaryModule[\s\S]*return Strategies/);
-  assert.doesNotMatch(route, /Scanner\.(load|render|mount|unmount)/);
+  assert.match(app, /require view\.zapret2-manager\.z2m-strategies as Strategies/);
+  assert.match(app, /strategies:\s*Strategies/);
+  assert.match(page, /z2m-view-strategy/);
+  assert.match(page, /function render\(ctx\)/);
+  assert.match(page, /function load\(ctx\)/);
+  assert.doesNotMatch(app + page, /z2m-strategy-page|Scanner\.(load|render|mount|unmount)/);
+  assert.equal(fs.existsSync(path.join(viewRoot, 'z2m-strategy-page.js')), false);
   assert.doesNotMatch(page, /Avatar Strategy|Canonical Strategy catalog|Available Strategies|Strategy Scanner/);
-  assert.doesNotMatch(route, /z2m-strategy-workflow/);
+  assert.doesNotMatch(page, /z2m-strategy-workflow/);
 });
 
 test('P03 favorite mutation uses the shared Strategy state revision', () => {

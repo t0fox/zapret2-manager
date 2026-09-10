@@ -1,9 +1,10 @@
 #!/bin/ash
 # health-run.sh <job-id> — the Service Health Matrix runner (Phase C).
 #
-# Runs bounded per-layer probes over catalog-provided targets (NEVER
-# user-supplied URLs): catalog presence (list file), local DNS, upstream DNS
-# comparison, TCP 443 connect (curl), TLS handshake (curl), HTTP code (curl).
+# Runs bounded per-layer probes over catalog-provided or validated custom
+# targets: catalog presence (list file), local DNS, upstream DNS comparison,
+# TCP 443 connect (curl), TLS handshake (curl), HTTP code (curl). Custom
+# targets are validated by jobs.uc before they reach this runner.
 # Evidence = exit codes + http codes only (no response bodies, no secrets).
 # Cancellation is real (cancel flag → kill current curl → mark cancelled).
 # Sequential by design (router-safe). Classification happens in ucode on

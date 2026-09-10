@@ -86,14 +86,12 @@ test('IDE exposes bounded diagnostics and draft request identity without a fake 
   assert.doesNotMatch(api, /strategiesTest/);
 });
 
-test('Scanner handoff targets the existing Strategies route and preserves provenance as transient draft', () => {
-  const scanner = read('z2m-scanner-hub.js');
+test('Scanner and Strategies remain separate current product journeys', () => {
+  const scanner = read('z2m-scanner.js');
   const page = read('z2m-strategies.js');
-  assert.match(scanner, /ctx\.navigate\(['"]strategy['"]\)/);
-  assert.match(scanner, /source|scan|catalog|provenance/i);
-  assert.match(scanner, /Open in Strategies|Открыть.*Стратег/);
-  assert.match(page, /scanner_handoff|scannerDraft|provenance/);
-  assert.doesNotMatch(scanner, /scanner-orchestrator/);
+  assert.match(scanner, /z2kDetect(?:Probe|Classify|Quic|Voice|Tcp16)/);
+  assert.match(page, /strategies\.(?:list|get|preview|validate|apply)/);
+  assert.doesNotMatch(scanner + page, /z2m-scanner-hub|profiles-apply|orchestra-cli/i);
 });
 
 test('Strategy IDE exposes the complete product workflow and dirty navigation guard', () => {

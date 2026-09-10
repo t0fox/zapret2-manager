@@ -46,7 +46,7 @@ test('background polling does not replace an open or loading Strategy Details ca
 
 test('P03-DR search count and filters keep canonical data semantics', () => {
   assert.match(js, /list-ui-toolbar-right/);
-  assert.match(js, /searchPlaceholder: 'Поиск по имени, автору, описанию, args\.\.\.'/);
+  assert.match(js, /searchPlaceholder: 'Поиск по имени, автору, описанию, args…'/);
   assert.match(js, /var isFiltered = !!search/);
   assert.match(js, /extension: true/);
   assert.match(css, /list-ui-search\{flex:0 1 52%/);

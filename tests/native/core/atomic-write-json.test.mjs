@@ -318,23 +318,22 @@ test('request reader validates only the raw atomic_write_json value before json-
   assert.equal(trailing.response.error.stage, 'trailing_data');
 });
 
-test('non-atomic arguments.value retains legacy duplicate classification', () => {
-  const run = invokeHelper(Buffer.from('{"protocolVersion":1,"requestId":"legacy-value",'
-    + '"operation":"rename_owned","arguments":{"root":"runtime","fromPath":"a",'
-    + '"toPath":"b","ownershipToken":"'
-    + `${'0'.repeat(64)}","replace":false,"value":{"a":1,"a":2}}}`));
+test('non-atomic arguments.value retains duplicate classification', () => {
+  const run = invokeHelper(Buffer.from('{"protocolVersion":1,"requestId":"value-duplicate",'
+    + '"operation":"stat_regular","arguments":{"root":"runtime","path":"a",'
+    + '"value":{"a":1,"a":2}}}'));
   assert.equal(run.status, 2, run.stderr);
   assert.equal(run.response.requestId, null);
   assert.equal(run.response.error.code, 'EMALFORMED');
   assert.equal(run.response.error.stage, 'json_decode');
 });
 
-test('non-atomic operation-last arguments.value retains legacy limit classification', () => {
+test('non-atomic operation-last arguments.value retains limit classification', () => {
   const value = materializeGenerator({ kind: 'object_member_count', count: 1026 });
-  const run = invokeHelper(Buffer.from('{"protocolVersion":1,"requestId":"legacy-limit",'
-    + '"arguments":{"root":"runtime","fromPath":"a","toPath":"b",'
-    + `"ownershipToken":"${'0'.repeat(64)}","replace":false,"value":${value}},`
-    + '"operation":"rename_owned"}'));
+  const run = invokeHelper(Buffer.from('{"protocolVersion":1,"requestId":"value-limit",'
+    + `"arguments":{"root":"runtime","path":"a","value":${value},"mode":"0600",`
+    + '"uid":0,"gid":0,"allowCreate":true},'
+    + '"operation":"atomic_write_json"}'));
   assert.equal(run.status, 2, run.stderr);
   assert.equal(run.response.requestId, null);
   assert.equal(run.response.error.code, 'ESCHEMA');

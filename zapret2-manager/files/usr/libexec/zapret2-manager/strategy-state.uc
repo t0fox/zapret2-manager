@@ -971,7 +971,7 @@ export const strategy_apply_end = function(input) {
 };
 
 // Apply commits only the narrow selected identity projection. Config bytes
-// remain owned by profiles-apply.uc and are never written here.
+// remain owned by strategy-apply-runtime.uc and are never written here.
 export const strategy_selection_apply = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !integer(input.expectedRevision))

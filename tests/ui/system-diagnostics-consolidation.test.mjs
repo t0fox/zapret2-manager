@@ -7,26 +7,19 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const viewRoot = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
 const read = name => fs.readFileSync(path.join(viewRoot, name), 'utf8');
 
-test('System has one canonical lifecycle and three visible pages', () => {
+test('System has one canonical lifecycle and two finished visible pages', () => {
   const navigation = read('z2m-navigation.js');
   const app = read('app.js');
   const system = read('z2m-maintenance.js');
 
-  assert.match(navigation, /id: 'system'[\s\S]*items:\s*\[[\s\S]*id: 'components'[\s\S]*id: 'backups'[\s\S]*id: 'settings'/);
-  assert.match(navigation, /zapret:\s*['"]components['"]|autostart:\s*['"]components['"]/);
-  assert.match(navigation, /maintenance:\s*['"]components['"]/);
-  assert.match(navigation, /LEGACY_PARAMS[\s\S]*autostart[\s\S]*component: 'engine'/);
-  assert.match(navigation, /LEGACY_PARAMS[\s\S]*maintenance[\s\S]*\{\}/);
-  assert.doesNotMatch(navigation, /\{ id: 'updates'|\{ id: 'engine'/);
-  assert.match(app, /system:\s*Maintenance/);
+  assert.match(navigation, /id: 'system'[\s\S]*items:\s*\[[\s\S]*id: 'components'[\s\S]*id: 'backups'/);
+  assert.doesNotMatch(navigation, /ALIASES|LEGACY_PARAMS|hidden:\s*true/);
+  assert.doesNotMatch(navigation, /\{ id: 'updates'|\{ id: 'engine'|\{ id: 'settings'/);
   assert.match(app, /components:\s*Maintenance/);
-  assert.match(app, /MODULES\.updates = MODULES\.components/);
-  assert.match(app, /MODULES\.engine = MODULES\.components/);
-  assert.match(app, /MODULES\.backups = MODULES\.components/);
-  assert.match(app, /MODULES\.settings = MODULES\.components/);
-  assert.doesNotMatch(app, /updates:\s*Maintenance|zapret:\s*Maintenance|autostart:\s*Maintenance|settings:\s*Maintenance/);
-  assert.match(system, /title:\s*_\('Система'\)/);
-  assert.match(system, /id: 'system'/);
+  assert.match(app, /backups:\s*Maintenance/);
+  assert.doesNotMatch(app, /updates:|engine:|maintenance:|settings:|system:/);
+  assert.match(system, /title:\s*_\('Компоненты'\)/);
+  assert.match(system, /id: 'components'/);
   assert.doesNotMatch(system, /id: 'z2m-maintenance-pane'[\s\S]*id: 'events'/);
   assert.doesNotMatch(system, /eventsTail|События|Diagnostics export/);
 });
@@ -37,7 +30,7 @@ test('System loads only the active tab and keeps runtime facts in diagnostics', 
   assert.match(system, /return ['"]components['"]/);
   assert.match(system, /pane === ['"]components['"]|components:\s*\{/);
   assert.match(system, /case ['"]backups['"]|pane === ['"]backups['"]|tab === ['"]backups['"]/);
-  assert.match(system, /settings/);
+  assert.doesNotMatch(system, /renderSettings|route === ['"]settings['"]/);
   assert.doesNotMatch(system, /Promise\.allSettled\(\[[\s\S]*eventsTail/);
   assert.doesNotMatch(system, /system\.uptime|system\.memoryAvailable|system\.overlay/);
 });
@@ -83,6 +76,7 @@ test('System Engine uses the current official RPC contract', () => {
 
   for (const method of ['engine_releases', 'engine_check', 'engine_install', 'engine_update', 'engine_reinstall', 'engine_uninstall'])
     assert.match(api, new RegExp(method), method);
+  assert.doesNotMatch(api, /engine_downgrade|downgrade:function/);
   assert.doesNotMatch(api, /engine_providers|engine_check_updates/);
   assert.match(panel, /engine\.releases\(\)/);
   assert.match(panel, /engine\.check\(/);
@@ -98,7 +92,7 @@ test('System Engine uses the official bol-van authority without a provider selec
   const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc'), 'utf8');
   const worker = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-operation-worker.sh'), 'utf8');
   const acl = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager-engine.json'), 'utf8');
-  const makefile = fs.readFileSync(path.join(root, 'zapret2-manager/Makefile'), 'utf8');
+  const makefile = fs.readFileSync(path.join(root, 'zapret2-manager-full/Makefile'), 'utf8');
 
   assert.match(catalog, /UPSTREAM\s*=\s*['"]bol-van\/zapret2['"]/);
   assert.match(catalog, /STATE_FILE\s*=\s*['"]\/etc\/zapret2-manager\/engine-state\.json['"]/);
@@ -106,10 +100,10 @@ test('System Engine uses the official bol-van authority without a provider selec
   assert.match(manager, /engine-catalog\.uc/);
   assert.doesNotMatch(manager, /engine-providers\.uc|engine-provider\.json/);
   assert.match(rpc, /engine_releases|engine_check/);
-  assert.doesNotMatch(rpc, /engine_providers|engine_check_updates/);
+  assert.doesNotMatch(rpc, /engine_providers|engine_check_updates|engine_downgrade/);
   assert.match(acl, /engine_releases/);
   assert.match(acl, /engine_update/);
-  assert.doesNotMatch(acl, /engine_providers|engine_check_updates|engine_remove/);
+  assert.doesNotMatch(acl, /engine_providers|engine_check_updates|engine_remove|engine_downgrade/);
   assert.match(makefile, /\/etc\/zapret2-manager\/engine-state\.json/);
   assert.doesNotMatch(makefile, /\/etc\/zapret2-manager\/engine-provider\.json/);
   assert.match(api, /engine_releases|engine_check/);
@@ -130,10 +124,11 @@ test('Diagnostics is the only canonical Monitoring and Logs viewer', () => {
   const navigation = read('z2m-navigation.js');
   const diagnostics = read('z2m-diagnostics-page.js');
   const avatarLog = read('z2m-avatar-log.js');
-  assert.match(navigation, /id: 'diagnostics'[\s\S]*id: 'monitor'[\s\S]*id: 'logs'/);
-  assert.match(app, /diagnostics:\s*Diagnostics/);
+  assert.match(navigation, /id: 'monitor'[\s\S]*id: 'logs'/);
+  assert.match(app, /monitor:\s*Diagnostics/);
+  assert.match(app, /logs:\s*Diagnostics/);
   assert.doesNotMatch(app, /logs:\s*AvatarLog|monitor:\s*Monitor/);
-  for (const label of ['Мониторинг', 'Журналы', 'NFQUEUE', 'Scanner', 'DNS', 'Telegram Proxy', 'Overlay', 'diagnosticsExport'])
+  for (const label of ['Мониторинг', 'Журналы', 'NFQUEUE', 'Z2K Detect', 'DNS', 'Telegram Proxy', 'diagnosticsExport'])
     assert.match(diagnostics, new RegExp(label, 'i'), label);
   assert.match(diagnostics, /AvatarLog\.load/);
   assert.match(avatarLog, /eventsTail/);
@@ -157,6 +152,6 @@ test('DNS keeps backend ownership and exposes task-first workflow language', () 
 });
 
 test('Frozen visual references stay out of the consolidation diff', () => {
-  for (const file of ['z2m-overview.js', 'z2m-strategy-page.js', 'z2m-proxy-page.js'])
+  for (const file of ['z2m-overview.js', 'z2m-strategies.js', 'z2m-proxy-page-core.js'])
     assert.ok(fs.existsSync(path.join(viewRoot, file)), file);
 });

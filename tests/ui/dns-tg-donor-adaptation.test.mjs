@@ -21,7 +21,7 @@ test('DNS product UI adapts current Avatar per-domain behavior on canonical RPCs
 });
 
 test('DNS UI exposes all canonical product calls through the Z2M API module', () => {
-  for (const method of ['dns_product_get', 'dns_product_providers', 'dns_product_status', 'dns_product_preview', 'dns_product_validate', 'dns_product_apply', 'dns_product_rollback'])
+  for (const method of ['dns_product_get', 'dns_product_status', 'dns_product_validate'])
     assert.match(api, new RegExp(method), method);
   assert.match(api, /product:\{get:calls\.dnsProductGet/);
 });

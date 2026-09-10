@@ -41,7 +41,7 @@
    * the reference local and deliberately limits it to completion metadata;
    * compilation and capability checks remain server-owned.  Names and value
    * groups below mirror the donor's current nfqws2/Z2K vocabulary, including
-   * circular orchestration and detector/hostkey values.
+   * circular processing and detector/hostkey values.
    */
   var specFlags = {
     '--filter-tcp': { type: 'csv-port', label: 'TCP ports', desc: 'TCP target ports' },

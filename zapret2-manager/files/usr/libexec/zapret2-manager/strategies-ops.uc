@@ -2,18 +2,16 @@
 
 // P03-FULL operational adapter. Strategy owns the page, while this module
 // owns only the learned autocircular view/reset, healthcheck configuration,
-// state.tsv per-resource overrides & freeze, and the nfqws2 debug flag.
+// state.tsv per-resource overrides & freeze.
 
-import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
+import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
-import { read_var } from './apply.uc';
 import { append_ndjson, event_id } from './events.uc';
 import { z2k_pool_semantic_digest, z2k_learned_state_reconcile, z2k_autocircular_identity_load, z2k_autocircular_identity_save, z2k_autocircular_identity_restore } from './z2k-autocircular-identity.uc';
 
 const CONFIG_PATH = getenv('Z2M_STRATEGY_HEALTHCHECK_CONFIG') || '/etc/zapret2-manager/strategy-healthcheck.json';
 const LEARNED_PATH = getenv('Z2M_STRATEGY_LEARNED_STATE') || '/etc/zapret2-manager/state/autocircular/state.tsv';
 const LEARNED_DIR = getenv('Z2M_STRATEGY_LEARNED_DIR') || '/etc/zapret2-manager/state/autocircular';
-const DAEMON_LOG_ENABLE = 'DAEMON_LOG_ENABLE';
 const DEFAULT_SERVICES = ['youtube', 'discord', 'twitch'];
 const SCHEDULER_MARKER = '/tmp/zapret2-manager/healthcheck-journal.last';
 
@@ -598,33 +596,6 @@ function state_set(input) {
 	return { ok: true, key: key, host: host, strategy: strategy, mode: mode, ts: now_ts };
 }
 
-function state_delete(input) {
-	let value = request_value(input);
-	if (value == null) return request_error();
-	let key = safe_text(value.key);
-	let host = safe_text(value.host);
-
-	if (!length(key) || !length(host))
-		return { ok: false, error: { code: 'EINPUT', message: 'key and host are required' } };
-
-	let is_discord = (key == 'discord_voice' || key == 'discord_udp') && host == 'nohost';
-
-	let rows = learned_rows();
-	let kept = [];
-	for (let row in rows) {
-		if (is_discord && (row.key == 'discord_voice' || row.key == 'discord_udp') && row.host == 'nohost')
-			continue;
-		if (row.key == key && row.host == host)
-			continue;
-		push(kept, row);
-	}
-
-	if (!state_save_rows(kept))
-		return { ok: false, error: { code: 'EIO', message: 'could not save state.tsv' } };
-
-	return { ok: true, deleted: true, key: key, host: host };
-}
-
 function learned_clear(input) {
 	let value = request_value(input);
 	if (value == null) return request_error();
@@ -643,28 +614,6 @@ function learned_clear(input) {
 		if (p) p.close();
 	}
 	return { ok: true, source: LEARNED_PATH, entries: [], summary: [], empty: true, count: 0 };
-}
-
-function cleanup_deprecated_bindings() {
-	let custom_bindings_path = '/etc/zapret2-manager/state/autocircular/custom-bindings.json';
-	try {
-		if (stat(custom_bindings_path)) unlink(custom_bindings_path);
-	} catch (e) {}
-
-	let strategy_dir = '/etc/zapret2-manager/strategies';
-	try {
-		let list = lsdir(strategy_dir);
-		for (let name in list) {
-			if (match(name, /^rc_.*\.json$/)) {
-				let file_path = strategy_dir + '/' + name;
-				let content = readfile(file_path);
-				if (content && index(content, 'resourceOwner') >= 0) {
-					unlink(file_path);
-				}
-			}
-		}
-	} catch (e) {}
-	return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -763,7 +712,7 @@ export const healthcheck_scheduler_tick = function () {
 	let config = config_load();
 	if (config.enabled !== true) return { ok: true, action: 'disabled' };
 	let matrix = health_matrix_get(), current = matrix && matrix.matrix, now = time();
-	let terminal = current && (current.status == 'succeeded' || current.status == 'failed' || current.status == 'cancelled' || current.status == 'rolled_back' || current.status == 'expired');
+	let terminal = current && (current.status == 'succeeded' || current.status == 'failed' || current.status == 'cancelled' || current.status == 'expired');
 	if (current && !terminal) return { ok: true, action: 'job-running', runId: current.id };
 	if (config.lastRunAt != null && now - config.lastRunAt < (config.interval_min * 60)) return { ok: true, action: 'waiting', nextIn: (config.interval_min * 60) - (now - config.lastRunAt) };
 	let started = healthcheck_run({ scheduler: true });
@@ -816,33 +765,10 @@ function healthcheck_update(input, mode) {
 	return healthcheck_status();
 }
 
-function debug_get() {
-	let value = read_var(DAEMON_LOG_ENABLE);
-	return { ok: true, debug: value == '1' || value == 'true', value: value || '0' };
-}
-function debug_set(input) {
-	let value = request_value(input);
-	if (value == null) return request_error();
-	let enabled = bool(value.enabled);
-	let p = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/service.uc debug ' + (enabled ? '1' : '0') + ' 2>/dev/null', 'r');
-	if (!p) return { ok: false, error: { code: 'ETARGET', message: 'service debug action unavailable' } };
-	let out = p.read('all') || ''; let rc = p.close();
-	try { let result = json(out); if (result != null) return result; } catch (e) { }
-	return { ok: rc == 0, debug: enabled, restarted: true, raw: out };
-}
-
 export const strategies_state = function () { return learned_state(); };
 export const strategies_state_clear = function (input) { return learned_clear(input); };
 export const strategies_state_set = function (input) { return state_set(input); };
-export const strategies_state_delete = function (input) { return state_delete(input); };
 export const strategies_pools = function () { return pools_read(); };
-export const strategies_debug_get = function () { return debug_get(); };
-export const strategies_debug_set = function (input) { return debug_set(input); };
-export const strategies_cleanup_deprecated = function () { return cleanup_deprecated_bindings(); };
-// Deprecated compatibility wrappers (safe no-op / redirect):
-export const strategies_custom_create = function (input) { return state_set(input); };
-export const strategies_custom_bindings = function () { return { ok: true, bindings: {} }; };
-export const strategies_custom_remove = function (input) { return state_delete(input); };
 export const healthcheck_status_rpc = function () { return healthcheck_status(); };
 export const healthcheck_run_rpc = function (input) { return healthcheck_run(input); };
 export const healthcheck_enable_rpc = function (input) { return healthcheck_update(input, 'enable'); };

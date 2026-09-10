@@ -11,7 +11,7 @@ const packagePath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-man
 const resourceManifestPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/resources/manifest.json');
 const integrationPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json');
 const luaRoot = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua');
-const makefilePath = path.join(root, 'zapret2-manager/Makefile');
+const makefilePath = path.join(root, 'zapret2-manager-full/Makefile');
 const detectorPath = path.join(luaRoot, 'z2k-detectors.lua');
 const migrationPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-migration.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -55,8 +55,8 @@ test('current official catalog closes over six current Lua modules without legac
   assert.equal(resourceManifest.bundles.flatMap(bundle => bundle.assets).some(entry => entry.sourcePath === 'files/lua/z2k-detectors.lua'), false,
     'legacy detector must not be in the production resource manifest');
   const makefile = fs.readFileSync(makefilePath, 'utf8');
-  assert.match(makefile, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//,
-    'the package install uses the files wildcard and therefore depends on the production tree being closed');
+  assert.match(makefile, /\$\(CP\)\s+\$\(PKG_BUILD_DIR\)\/backend-files\/\*\s+\$\(1\)\//,
+    'the full package install copies only the assembled backend tree');
   assert.equal(fs.existsSync(detectorPath), false,
     'the files wildcard must not ship a stale legacy detector file');
   const available = new Set();

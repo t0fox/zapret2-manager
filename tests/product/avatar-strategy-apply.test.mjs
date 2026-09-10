@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-apply-runtime.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const GENERATION = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-generation.uc');
@@ -31,7 +31,7 @@ test('Strategy Apply source contract re-resolves installed authority immediately
   assert.match(source, /strategy.*snapshot|installed.*snapshot/i);
   assert.match(source, /observedRegistryRevision|membershipDigest|compositionSnapshotId/);
   assert.match(source, /ESTALE/);
-  assert.match(source, /profiles_apply_candidate/);
+  assert.match(source, /strategy_apply_candidate/);
 });
 
 test('Strategy Apply invokes the OpenWrt init owner through rc.common', () => {
@@ -52,7 +52,7 @@ test('Strategy Apply binds and rehashes the executable candidate before mutation
   const source = fs.readFileSync(CLI, 'utf8');
   assert.match(source, /runtime_argument_token/);
   assert.match(source, /bind_executable_candidate/);
-  assert.match(source, /profiles_candidate_digest/);
+  assert.match(source, /strategy_candidate_digest/);
   const applyRegion = source.slice(source.indexOf('export const strategy_apply'), source.indexOf('function strategy_reconcile_locked'));
   assert.match(applyRegion, /bind_executable_candidate\(candidate\)/);
   assert.match(applyRegion, /candidate = executableCandidate/);
@@ -125,7 +125,7 @@ function runtimeComposition(overrides = {}) {
     membershipDigest: HASH, observedRegistryRevision: 17,
     lifecycleIdentity: { kind: 'installed', release: 'r-80.3', sourceCommit: 'c'.repeat(40) },
     receiptIdentity: { receiptId: 'receipt-r-80.3' }, runtimeAssets: [], luaInit: [],
-    dependencyIndex: {}, scannerOverlay: [], ...overrides,
+    dependencyIndex: {}, ...overrides,
   };
 }
 
@@ -209,8 +209,8 @@ function storage(callback, revision = 3) {
     Z2M_STRATEGY_APPLY_BLOCK: path.join(lastGood, 'strategy-apply-block.json'),
     Z2M_STRATEGY_APPLY_LEASE: path.join(lastGood, 'strategy-apply-lease.json'),
     Z2M_STRATEGY_CONFIG_LOCK: path.join(runtime, 'config.lock'),
-    Z2M_STRATEGY_PROFILE_MODULE: APPLY,
-    Z2M_STRATEGY_PROFILE_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply-cli.uc'),
+    Z2M_STRATEGY_APPLY_RUNTIME_MODULE: APPLY,
+    Z2M_STRATEGY_APPLY_RUNTIME_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-apply-runtime-cli.uc'),
     Z2M_STRATEGY_STATE_MODULE: STATE,
     Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
     Z2M_STRATEGY_SERVER_TEST: '1',
@@ -304,8 +304,8 @@ function generatedApplyStorage(callback) {
     Z2M_STRATEGY_APPLY_BLOCK: path.join(root, 'runtime/last-good/strategy-apply-block.json'),
     Z2M_STRATEGY_APPLY_LEASE: path.join(root, 'runtime/last-good/strategy-apply-lease.json'),
     Z2M_STRATEGY_CONFIG_LOCK: path.join(root, 'runtime/config.lock'),
-    Z2M_STRATEGY_PROFILE_MODULE: APPLY,
-    Z2M_STRATEGY_PROFILE_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply-cli.uc'),
+    Z2M_STRATEGY_APPLY_RUNTIME_MODULE: APPLY,
+    Z2M_STRATEGY_APPLY_RUNTIME_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-apply-runtime-cli.uc'),
     Z2M_STRATEGY_STATE_MODULE: STATE, Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
     Z2M_STRATEGY_SERVER_TEST: '1', Z2M_STRATEGY_LOCK: path.join(root, 'runtime/strategy.lock'),
     Z2M_STRATEGY_EXTENSION_MANIFEST: path.join(stateRoot, 'extensions.json'),
@@ -520,10 +520,10 @@ test('live pending Apply guard cannot be stolen or cleared by reconciliation', a
   });
 }));
 
-test('profiles_apply_candidate executes a verified Strategy transaction through the boundary', () => storage(({ record, env }) => {
+test('strategy_apply_candidate executes a verified Strategy transaction through the boundary', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook(),
   });
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -536,7 +536,7 @@ test('readiness returns immediately when the restarted runtime is already ready'
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
   const started = Date.now();
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       verify: null, readiness: [{ ok: true, checks: runtimeChecks(true) }]
     })
@@ -550,7 +550,7 @@ test('readiness returns immediately when the restarted runtime is already ready'
 test('readiness polls a delayed runtime until the first successful condition', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       verify: null, readiness: [{ ok: false, checks: runtimeChecks(false) }, { ok: true, checks: runtimeChecks(true) }]
     })
@@ -563,7 +563,7 @@ test('readiness polls a delayed runtime until the first successful condition', (
 test('readiness timeout remains finite and enters the existing exact-rollback verdict', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_READY_TIMEOUT_SEC: '1', Z2M_STRATEGY_READY_MAX_POLLS: '10',
     Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       verify: null, readiness: [{ ok: false, checks: runtimeChecks(false) }]
@@ -576,10 +576,10 @@ test('readiness timeout remains finite and enters the existing exact-rollback ve
   assert.equal(result.rollbackVerify.readiness.timedOut, true);
 }));
 
-test('profiles_apply_candidate executes restart failure and verified rollback through the boundary', () => storage(({ record, env }) => {
+test('strategy_apply_candidate executes restart failure and verified rollback through the boundary', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       state: { strategy_selection_get: { ok: true, revision: 1, selected: oldIdentity } },
       restart: [{ rc: 1, out: 'restart failed' }, { rc: 0, out: '' }],
@@ -593,10 +593,10 @@ test('profiles_apply_candidate executes restart failure and verified rollback th
   assert.deepEqual(invoke(STATE, 'mod.strategy_selection_get()', env).selected, oldIdentity);
 }));
 
-test('profiles_apply_candidate retries identity commit once and reports verified retry', () => storage(({ record, env }) => {
+test('strategy_apply_candidate retries identity commit once and reports verified retry', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       state: { strategy_selection_apply: [
         { ok: false, error: { code: 'ECONFLICT', message: 'injected identity race' } },
@@ -609,10 +609,10 @@ test('profiles_apply_candidate retries identity commit once and reports verified
   assert.equal(result.identityRetry.ok, true);
 }));
 
-test('profiles_apply_candidate rolls back when identity commit and retry both fail', () => storage(({ record, env }) => {
+test('strategy_apply_candidate rolls back when identity commit and retry both fail', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       state: { strategy_selection_get: { ok: true, revision: 1, selected: oldIdentity }, strategy_selection_apply: [
         { ok: false, error: { code: 'ECONFLICT', message: 'injected identity race' } },
@@ -628,10 +628,10 @@ test('profiles_apply_candidate rolls back when identity commit and retry both fa
   assert.equal(result.uncertain, false);
 }));
 
-test('profiles_apply_candidate preserves the blocker when uncertainty persistence fails', () => storage(({ record, env }) => {
+test('strategy_apply_candidate preserves the blocker when uncertainty persistence fails', () => storage(({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       state: { strategy_apply_uncertain_record: { ok: false, error: { code: 'EIO', message: 'injected persistence failure' } } },
       restart: [{ rc: 1, out: 'restart failed' }, { rc: 1, out: 'rollback restart failed' }],
@@ -697,7 +697,7 @@ test('strategy_apply emits Avatar-safe provenance while preserving Z2K compatibi
 test('locked Strategy Apply rejects a Registry/runtime composition change before the profile writer', () => storage(({ record, env }) => {
   const after = runtimeComposition({ observedRegistryRevision: 18,
     snapshotId: 'z2k-lifecycle-v2|installed-b', compositionSnapshotId: 'z2k-composition-v2|installed-b' });
-  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, null))})`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, null))})`, {
     ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
       runtimeComposition: after,
     })
@@ -787,16 +787,16 @@ test('projection boundary rejects stale or concurrent sidecars and preserves no-
   };
   fs.writeFileSync(sidecar, JSON.stringify(envelope), { mode: 0o600 });
   try {
-    assert.deepEqual(invoke(APPLY, `mod.profiles_projection_boundary('${hash}')`),
+    assert.deepEqual(invoke(APPLY, `mod.strategy_projection_boundary('${hash}')`),
       { ok: true, present: false, projection: null });
-    const valid = invoke(APPLY, `mod.profiles_projection_boundary('${hash}')`, {
+    const valid = invoke(APPLY, `mod.strategy_projection_boundary('${hash}')`, {
       Z2M_STRATEGY_PROJECTION_PATH: sidecar,
       Z2M_STRATEGY_PROJECTION_NONCE: 'nonce-one',
       Z2M_STRATEGY_PROJECTION_MARKER: 'z2m-strategy-apply-projection.v1',
       Z2M_STRATEGY_PROJECTION_CALLER: 'strategy_apply',
     });
     assert.deepEqual(valid, { ok: true, present: true, projection });
-    assert.equal(invoke(APPLY, `mod.profiles_projection_boundary('${hash}')`, {
+    assert.equal(invoke(APPLY, `mod.strategy_projection_boundary('${hash}')`, {
       Z2M_STRATEGY_PROJECTION_PATH: sidecar,
       Z2M_STRATEGY_PROJECTION_NONCE: 'nonce-two',
       Z2M_STRATEGY_PROJECTION_MARKER: 'z2m-strategy-apply-projection.v1',
@@ -805,13 +805,13 @@ test('projection boundary rejects stale or concurrent sidecars and preserves no-
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('ordinary Profile adapter calls cannot consume an externally supplied Strategy sidecar', () => storage(({ record, env }) => {
+test('ordinary Strategy runtime calls cannot consume an externally supplied Strategy sidecar', () => storage(({ record, env }) => {
   const sidecar = path.join(env.Z2M_STRATEGY_ROOT, 'ordinary-sidecar.json');
   const projection = strategyProjection(record, null);
   fs.writeFileSync(sidecar, JSON.stringify({ schema: 1, marker: 'z2m-strategy-apply-projection.v1',
     callerContext: 'strategy_apply', transactionNonce: 'external-nonce', candidateSha256: CANDIDATE_HASH, projection }));
   fs.chmodSync(sidecar, 0o600);
-  const result = invoke(APPLY, `mod.profiles_apply_candidate('${CANDIDATE}', '${CANDIDATE_HASH}')`, {
+  const result = invoke(APPLY, `mod.strategy_apply_candidate('${CANDIDATE}', '${CANDIDATE_HASH}')`, {
     ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook(),
     Z2M_STRATEGY_PROJECTION_PATH: sidecar, Z2M_STRATEGY_PROJECTION_NONCE: 'external-nonce',
     Z2M_STRATEGY_PROJECTION_MARKER: 'z2m-strategy-apply-projection.v1', Z2M_STRATEGY_PROJECTION_CALLER: 'strategy_apply',
@@ -886,7 +886,7 @@ test('reconciliation ignores request context and requires authoritative runtime 
   assert.equal(record.id, 'user-one');
 }));
 
-test('runtime uncertainty records preserve bounded verified checks and rollback-success is not uncertain', () => storage(({ env }) => {
+test('runtime uncertainty records preserve bounded verified checks', () => storage(({ env }) => {
   const outcome = {
     initial: { processPresent: true, singleInstance: true, rulesPresent: true, queueRegistered: true, ownerMatch: true },
     rollback: { processPresent: true, singleInstance: true, rulesPresent: true, queueRegistered: true, ownerMatch: true },
@@ -899,12 +899,4 @@ test('runtime uncertainty records preserve bounded verified checks and rollback-
   })})`, env);
   assert.equal(saved.ok, true);
   assert.deepEqual(invoke(STATE, 'mod.strategy_apply_uncertain_get()', env).record.runtimeOutcome, outcome);
-  const decision = invoke(APPLY, `mod.profiles_strategy_failure_decision(${JSON.stringify({
-    primaryFailed: true, rollbackVerified: true, identityRestored: true,
-  })})`);
-  assert.deepEqual(decision, { uncertain: false, rolledBack: true });
-  const uncertain = invoke(APPLY, `mod.profiles_strategy_failure_decision(${JSON.stringify({
-    primaryFailed: true, rollbackVerified: true, identityRestored: false,
-  })})`);
-  assert.deepEqual(uncertain, { uncertain: true, rolledBack: false });
 }));

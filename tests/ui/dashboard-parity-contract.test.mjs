@@ -35,31 +35,31 @@ test('P01 Dashboard follows the current accepted composition and order', () => {
   assert.match(composition, /page-description/);
 });
 
-test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
+test('P01 Dashboard keeps Z2M APIs and the bounded Detect domain checker', () => {
   const page = `${read('z2m-overview.js')}\n${read('z2m-overview-loading.js')}`;
   assert.match(page, /ctx\.api\.service\.start/);
   assert.match(page, /ctx\.api\.service\.stop/);
-  assert.match(page, /ctx\.api\.monitor\.eventsTail/);
-  assert.match(page, /ctx\.api\.orchestra\.runStart/);
-  assert.match(page, /ctx\.api\.orchestra\.runStatus/);
+	assert.match(page, /ctx\.api\.maintenance\.eventsTail/);
+  assert.match(page, /ctx\.api\.z2kDetectProbe\(domain, 6000\)/);
+  assert.match(page, /Z2K Detect/);
+  assert.doesNotMatch(page, /ctx\.api\.orchestra|runStart|runStatus|runId/);
   assert.match(page, /ctx\.api\.tg\.product\.status\(\)/);
   assert.doesNotMatch(page, /ctx\.api\.dns\.serviceStatus/);
   assert.doesNotMatch(page, /['"]\/api\//);
   assert.doesNotMatch(page, /fetch\s*\(/);
 });
 
-test('P01 Dashboard initial load does not wait for unused Orchestra reads', () => {
+test('P01 Dashboard initial load does not wait for the bounded Detect checker', () => {
   const loading = read('z2m-overview-loading.js');
   const orchestration = `${read('z2m-overview.js')}\n${loading}`;
   assert.match(loading, /hasInitial\(ctx\.initial\)/);
-  assert.match(loading, /ctx\.api\.strategy\.preview\(\)/);
-  assert.match(loading, /ctx\.api\.monitor\.eventsTail/);
+	assert.doesNotMatch(loading, /ctx\.api\.strategy\.preview/);
+	assert.match(loading, /ctx\.api\.maintenance\.eventsTail/);
   assert.match(orchestration, /ctx\.rerender/);
   assert.match(loading, /scheduleDeferred/);
   assert.match(loading, /MAX_DEFERRED_IN_FLIGHT/);
   assert.match(loading, /runtime\.deferred\[job\.key\]/);
-  assert.doesNotMatch(loading, /ctx\.api\.orchestra\.runHistory\(\)/);
-  assert.doesNotMatch(loading, /ctx\.api\.orchestra\.status\(\)/);
+  assert.doesNotMatch(`${orchestration}\n${read('z2m-overview-model.js')}`, /orchestra|runHistory|runStatus|runStart|lastRun|activeRun|corpus/);
 });
 
 test('P01 status cards consume structured status evidence without collapsing to unavailable', () => {

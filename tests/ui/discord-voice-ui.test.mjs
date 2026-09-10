@@ -397,7 +397,7 @@ test('UI: resetLearned for nohost deletes only Discord hostless state', () => {
     ctx: {
       api: {
         strategies: {
-          stateDelete: (payload) => {
+          learnedReset: (payload) => {
             deletedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
             return Promise.resolve({ ok: true, deleted: true });
           }
@@ -651,7 +651,7 @@ test('TEST UI-9: Discord reset action sends key=discord_udp, host=nohost and lab
     ctx: {
       api: {
         strategies: {
-          stateDelete: (payload) => {
+          learnedReset: (payload) => {
             deletedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
             return Promise.resolve({ ok: true, deleted: true });
           }

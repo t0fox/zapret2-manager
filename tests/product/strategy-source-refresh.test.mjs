@@ -25,7 +25,7 @@ function sandbox(label) {
 function avatarFixture(commit, corrupt = false) {
   const root = sandbox(`avatar-fixture-${commit.slice(0, 6)}`);
   fs.cpSync(AVATAR_PACKAGE_ROOT, root, { recursive: true });
-  const relative = 'advanced/http80_blockcheckw.txt';
+  const relative = 'advanced/http80_zapret2_advanced.txt';
   const file = path.join(root, relative);
   fs.appendFileSync(file, `\n# exact upstream fixture ${commit}\n`);
   const manifestPath = path.join(root, 'manifest.json');
@@ -91,7 +91,7 @@ test('Avatar fetch and verification failures fail closed before a source snapsho
   const verifyRoot = sandbox('avatar-verify-fail');
   const corrupted = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-avatar-refresh-corrupt-'));
   fs.cpSync(path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar'), corrupted, { recursive: true });
-  fs.appendFileSync(path.join(corrupted, 'advanced/http80_blockcheckw.txt'), '\n# invalid refresh evidence\n');
+  fs.appendFileSync(path.join(corrupted, 'advanced/http80_zapret2_advanced.txt'), '\n# invalid refresh evidence\n');
   const verifyFailed = invoke(verifyRoot, 'strategy_source_refresh', ['avatar'], {
     Z2M_FIXTURE_MODE: 'ok', Z2M_STRATEGY_AVATAR_PACKAGE_ROOT: corrupted,
   });

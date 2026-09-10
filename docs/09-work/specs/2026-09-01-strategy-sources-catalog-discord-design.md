@@ -169,7 +169,7 @@ Publication pointer is last. Unpublished directories do not become active after 
 
 ## 1.9 Discord
 
-Current hardcoded donor behavior is retired.
+The current hardcoded donor behavior is retired.
 
 Do NOT use:
 
@@ -226,4 +226,3 @@ Discord must not own a second production writer.
 12. No `discord_voice` resurrection as competing canonical key.
 
 ---
-

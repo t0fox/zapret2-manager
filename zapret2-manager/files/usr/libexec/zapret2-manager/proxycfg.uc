@@ -47,7 +47,6 @@ const UPSTREAM_LOG_MAX_AGE_SEC = 300;
 
 const MAX_CONFIG_BYTES = 16384;
 const MAX_NETSTAT_LINES = 512;
-const MAX_LOG_LINES = 200;
 const MAX_LOG_BYTES = 32768;
 const SECRET_LEN = 32;
 
@@ -872,62 +871,6 @@ function build_tg_https_link(config, secret) {
 	return TG_HTTPS + '?server=' + enc(server) + '&port=' + config.port + '&secret=' + enc(sec);
 }
 
-// ---- log redaction -------------------------------------------------------------
-
-function hexlike(t) {
-	if (t == '') return false;
-	let body = t;
-	if (substr(t, 0, 2) == 'dd' || substr(t, 0, 2) == 'ee') body = substr(t, 2);
-	if (length(body) < SECRET_LEN) return false;
-	return all_hex(body);
-}
-
-function redact_token(t) {
-	if (t == '') return t;
-	if (substr(t, 0, 10) == TG_SCHEME) return TG_SCHEME + '?«redacted»';
-	let https_prefix = 'https://t.me/proxy?';
-	if (length(t) >= length(https_prefix) && substr(t, 0, length(https_prefix)) == https_prefix) return 'https://t.me/proxy?«redacted»';
-	if (hexlike(t)) return '«redacted»';
-	return t;
-}
-
-function redact_line(line, secrets) {
-	let out = '' + (line != null ? line : '');
-	let secs = (type(secrets) == 'array') ? secrets : [];
-	for (let i = 0; i < length(secs); i++) {
-		let s = secs[i];
-		if (type(s) == 'string' && length(s) >= 8) {
-			let parts = split(out, s);
-			out = join('«redacted»', parts);
-		}
-	}
-	let res = '';
-	let tok = '';
-	let n = length(out);
-	for (let i = 0; i <= n; i++) {
-		let ch = (i < n) ? substr(out, i, 1) : ' ';
-		if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
-			res += redact_token(tok) + ch;
-			tok = '';
-		} else {
-			tok += ch;
-		}
-	}
-	return res;
-}
-
-function redact_lines(lines, secrets) {
-	let out = [];
-	let redacted = 0;
-	let arr = (type(lines) == 'array') ? lines : [];
-	for (let i = 0; i < length(arr); i++) {
-		let r = redact_line(arr[i], secrets);
-		if (r != arr[i]) redacted++;
-		push(out, r);
-	}
-	return { lines: out, redacted: redacted };
-}
-
 // ---- lifecycle verification ----------------------------------------------------
 
 function exact_listener(config, listeners) {
@@ -987,7 +930,7 @@ function verify_stopped(reread) {
 
 function autostart_drift(appliedAuto, rcDEnabled) {
 	if (appliedAuto != rcDEnabled)
-		return { drift: true, message: 'applied autostart=' + appliedAuto + ' but the rc.d symlink says ' + rcDEnabled + ' — reconcile via proxy_autostart_set' };
+		return { drift: true, message: 'applied autostart=' + appliedAuto + ' but the rc.d symlink says ' + rcDEnabled + ' — re-apply the proxy configuration' };
 	return { drift: false, message: '' };
 }
 
@@ -2063,27 +2006,6 @@ export const proxycfg_restart = function() {
 	return { ok: true, action: 'restart', reread: { pids: rr.pids, listeners: rr.listeners } };
 };
 
-export const proxycfg_autostart = function(input) {
-	let en = null;
-	if (type(input) == 'object' && input != null && input.enabled != null) {
-		let b = as_bool(input.enabled);
-		if (!b.ok) return rpc_err('EINPUT', 'autostart needs {"enabled": boolean}');
-		en = b.value;
-	} else return rpc_err('EINPUT', 'autostart needs {"enabled": boolean}');
-	let action = en ? 'enable' : 'disable';
-	let rc = service_do(action);
-	if (rc != 0) return rpc_err('ETARGET', 'init ' + action + ' failed (rc ' + rc + ')');
-	let init = probe_init();
-	let st = load_state();
-	if (st.ok && st.state != null && st.state.applied != null) {
-		st.state.applied.autostart = en;
-		if (st.state.draft != null) st.state.draft.autostart = en;
-		save_state(st.state);
-	}
-	event_proxy('info', 'proxy autostart ' + action + 'd', null);
-	return { ok: true, enabled: en, rcDEnabled: init.enabled, drift: (init.enabled != en) };
-};
-
 export const proxycfg_secret_rotate = function() {
 	let bin = probe_binary();
 	if (!bin.present) return rpc_err('ETARGET', 'binary missing — package not installed');
@@ -2104,32 +2026,6 @@ export const proxycfg_secret_rotate = function() {
 	if (!verification.ok) return secret_rotation_failure(snap, 'verify-listener', 'listener verification failed after secret rotation', verification.failures);
 	event_proxy('info', 'proxy secret rotation completed', { stage: 'complete', restarted: true, verified: true });
 	return { ok: true, stage: 'complete', rotated: true, restarted: true, verified: true, rolledBack: false, rollbackFailed: false, rollbackFailures: [], reread: { pids: rr.pids, listeners: rr.listeners } };
-};
-
-export const proxycfg_logs_tail = function(input) {
-	let n = 50;
-	if (type(input) == 'object' && input != null && input.n != null) {
-		let ni = as_int(input.n, 1, MAX_LOG_LINES, false);
-		if (!ni.ok) return rpc_err('EINPUT', 'n must be an integer in 1..' + MAX_LOG_LINES);
-		n = ni.value;
-	}
-	let st = stat(LOG_FILE);
-	if (st == null) return rpc_err('ETARGET', 'log file absent (the service never ran?)');
-	let r = run('tail -n ' + n + ' ' + LOG_FILE + ' | head -c ' + MAX_LOG_BYTES);
-	let raw = r.out;
-	if (raw == null) raw = '';
-	let lines = split(raw, '\n');
-	if (length(lines) > 0 && lines[length(lines) - 1] == '') lines = (function () { let o = []; for (let i = 0; i < length(lines) - 1; i++) push(o, lines[i]); return o; })();
-	let secrets = [];
-	let sec = probe_secret_read();
-	if (sec.exists && sec.secret != null) push(secrets, sec.secret);
-	let red = redact_lines(lines, secrets);
-	return {
-		ok: true, log: { path: LOG_FILE, size: st.size },
-		lines: red.lines, redacted: red.redacted,
-		bounded: { maxLines: MAX_LOG_LINES, maxBytes: MAX_LOG_BYTES },
-		note: 'secret-shaped tokens and tg:// links are redacted before anything is returned'
-	};
 };
 
 export const proxycfg_health = function(input) {
@@ -2187,71 +2083,4 @@ export const proxycfg_link_info = function(input) {
 	base.revealed = true;
 	// NEVER event-log the link
 	return base;
-};
-
-export const proxycfg_quick_install = function () {
-	let pkg = probe_pkg();
-	if (!pkg.installed) return rpc_err('ENOPKG', 'optional package ' + PKG_NAME + ' is not installed');
-	let bin = probe_binary();
-	if (!bin.present) return rpc_err('ENOBIN', 'binary ' + BINARY_PATH + ' is missing');
-	let addrs = probe_lan_addresses();
-	if (length(addrs) == 0) return rpc_err('ENET', 'no LAN IPv4 address found');
-	let host = addrs[0];
-	let sec = probe_secret_read();
-	let generated = false;
-	let secretVal = (sec.exists && sec.mode == 384 && sec.secret != null) ? sec.secret : null;
-	if (secretVal == null) {
-		let gen = gen_secret();
-		if (gen == null) return rpc_err('ETARGET', 'CSPRNG secret generation failed');
-		if (!write_secret_file(gen)) return rpc_err('ETARGET', 'secret.conf write/verify failed');
-		secretVal = gen;
-		generated = true;
-	}
-	// Full DC 1-5 coverage for ordinary chats and media.
-	// Source: Telegram published DC IPs (stable, documented).
-	// defaultDomains enables upstream Cloudflare domain fetch as fallback.
-	let config = {
-		enabled: true, autostart: true, host: host, port: 1443, linkIp: host,
-		faketlsDomain: '', dcIps: [
-			'1:149.154.175.10', '2:149.154.167.220',
-			'3:149.154.175.100', '4:149.154.167.91',
-			'5:91.108.56.181'
-		], cfDomains: [], cfWorkerDomains: [],
-		cfPriority: false, cfBalance: false, defaultDomains: true,
-		mtprotoProxies: [], outboundProxy: '', noProxy: '',
-		poolSize: 4, bufKb: 256, maxConnections: 0, quiet: true, verbose: false
-	};
-	let ev0 = build_evidence();
-	let snap = snapshot_apply(ev0.running, ev0.rcDEnabled);
-	let rf = function () { return rollback_apply(snap); };
-	if (!write_config_conf(render_config_conf(config))) {
-		let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'config.conf write failed' }, rolledBack: true, rollbackFailures: r.failures };
-	}
-	let st = load_state();
-	let state = (st.ok && st.state != null) ? st.state : empty_state();
-	let curRev = (state.applied != null && type(state.applied.revision) == 'int') ? state.applied.revision : 0;
-	state.draft = sanitize_config(config);
-	state.applied = sanitize_config(config);
-	state.applied.revision = curRev + 1;
-	state.applied.appliedAt = time();
-	if (!save_state(state)) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'state write failed' }, rolledBack: true, rollbackFailures: r.failures }; }
-	if (!ev0.rcDEnabled) {
-		let arc = service_do('enable');
-		if (arc != 0) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'init enable failed (rc ' + arc + ')' }, rolledBack: true, rollbackFailures: r.failures }; }
-	}
-	let action = ev0.running ? 'restart' : 'start';
-	let rc = service_do(action);
-	if (rc != 0) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'init ' + action + ' failed (rc ' + rc + ')' }, rolledBack: true, rollbackFailures: r.failures }; }
-	let rr = reread(9000);
-	let v = verify_started(config, rr);
-	if (!v.ok) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'post-install verification failed' }, failures: v.failures, rolledBack: true, rollbackFailures: r.failures }; }
-	let rm = popen('rm -rf ' + SNAP_DIR + ' 2>/dev/null', 'r');
-	if (rm) rm.close();
-	event_proxy('info', 'proxy quick-installed on ' + host + ':1443 (secret ' + (generated ? 'generated' : 'existing') + ')', null);
-	return {
-		ok: true, server: host, port: 1443,
-		secret: (generated ? 'generated' : 'existing'),
-		autostart: true, running: true,
-		reread: { pids: rr.pids, listeners: rr.listeners }
-	};
 };

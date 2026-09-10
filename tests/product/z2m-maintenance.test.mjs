@@ -22,11 +22,11 @@ function loadNormalizeError() {
   });
 }
 
-test('maintenance must use scoped componentOperation, not single componentBusy boolean', () => {
+test('maintenance uses only scoped componentOperation operations', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
   assert.match(src, /componentOperation\s*:\s*null/, 'must have componentOperation: null');
-  assert.match(src, /componentBusy.*componentOperation|componentOperation.*componentBusy/, 'componentBusy must be derived from componentOperation');
-  assert.doesNotMatch(src, /componentBusy\s*:\s*false\s*,\s*\n.*componentBusy.*true.*componentBusy.*false/s, 'must not use old boolean toggle pattern for busy');
+  assert.doesNotMatch(src, /componentBusy/, 'retired generic busy compatibility shim must be absent');
+  assert.match(src, /componentOperation\s*=\s*\{\s*kind:/, 'operations must carry a scoped kind');
 });
 
 test('checkUpdates must set kind check scope all and clear via finally', () => {

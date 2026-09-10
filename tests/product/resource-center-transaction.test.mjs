@@ -12,8 +12,6 @@ const strategySources = read('zapret2-manager/files/usr/libexec/zapret2-manager/
 const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const resourceCli = read('zapret2-manager/files/usr/libexec/zapret2-manager/resource-update-cli.uc');
 const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
-const z2kComponentPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-component.uc';
-const z2kComponent = fs.existsSync(z2kComponentPath) ? read(z2kComponentPath) : '';
 
 test('Asset Registry exposes a staged, hash-verified, all-or-nothing bundle transaction', () => {
   for (const fragment of ['asset_registry_apply_bundle', 'asset_registry_rollback_bundle', 'stagedPath', 'sha256_file(item.stagedPath)', 'atomic_write(path, entry.content)', 'oldStateRaw', 'EDEPENDENCY', 'EPOLICY', 'ECONFLICT'])
@@ -40,12 +38,6 @@ test('Asset Registry accepts canonical upstream IDs whose slugs begin with a dig
 	assert.match(registry, /match\(value, \/\^\[a-z0-9\]\[a-z0-9._-\]\*\$\//);
 });
 
-test('Z2K activation receipts remain authoritative for the dynamic catalog asset set', () => {
-  assert.doesNotMatch(coordinator, /!want\[item\.id\]/);
-  assert.match(coordinator, /receipt\.assets/);
-  assert.match(coordinator, /activeById/);
-});
-
 test('Resource coordinator keeps generic bundles transactional and routes Z2K through prepared targets', () => {
   for (const fragment of ['manifest-only', 'uclient-fetch', 'safeToUpdate', 'contentUrl', 'controlledTest', 'confirm !== true'])
     assert.match(coordinator, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), fragment);
@@ -64,7 +56,7 @@ test('Resource Center RPCs and ACL expose read checks separately from update', (
     assert.match(acl, new RegExp(method));
   }
   assert.match(rpc, /resources_update: \{ args: \{ edit: 'string' \}/);
-  for (const method of ['z2k_versions', 'z2k_version_details', 'z2k_prepare_version']) {
+  for (const method of ['z2k_versions', 'z2k_version_details', 'z2k_prepare_version_start']) {
     assert.match(rpc, new RegExp(method));
     assert.match(acl, new RegExp(method));
   }
@@ -104,21 +96,6 @@ test('Package-owned resource content is read-only and hash-verified from the pac
   assert.match(registry, /ownership: 'package'/);
   assert.match(registry, /actual != item\.sha256/);
   assert.match(registry, /asset_registry_get_content/);
-});
-
-test('Z2K legacy component boundary is retired while the read-only planner remains compatible', () => {
-  for (const fragment of ['z2k_component_plan', 'z2k_component_apply', 'exactManaged', 'adapted', 'ignored-platform', 'ELEGACY_LIFECYCLE'])
-    assert.match(z2kComponent, new RegExp(fragment.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')), fragment);
-  const applyBody = z2kComponent.slice(z2kComponent.indexOf('export const z2k_component_apply'));
-  assert.doesNotMatch(applyBody, /z2k_upstream_check\(\)/, 'retired apply must not perform network work');
-  assert.doesNotMatch(applyBody, /asset_registry_apply_bundle/, 'retired apply must not mutate assets');
-  assert.doesNotMatch(applyBody, /init\.d|webpanel|z2k\.sh.*write|scheduler/);
-});
-
-test('Legacy resource update requests fail closed instead of entering the old Z2K lifecycle', () => {
-  assert.match(coordinator, /request\.component == 'z2k-runtime'/);
-  assert.match(coordinator, /ELEGACY_LIFECYCLE/);
-  assert.doesNotMatch(coordinator, /z2k_component_apply\(request\)/);
 });
 
 test('Strategy catalog updates require a complete verified snapshot and retain last known good', () => {

@@ -379,7 +379,7 @@
   .z2m-tg-settings-row .z2m-tg-settings-control{width:100%}
   .z2m-tg-settings-row .z2m-tg-settings-control input,.z2m-tg-settings-row .z2m-tg-settings-control textarea{width:100%}
 }
-/* Scanner 2.0 — Bounded Smart Search: matches Strategies rhythm, chips, colors, spacing */
+/* Z2K Detect — bounded measurements using the Strategies visual rhythm. */
 .z2m-scanner-panel{overflow:hidden;border-radius:8px}
 .z2m-scanner-panel .hd{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:13px 18px;border-bottom:1px solid var(--border)}
 .z2m-scanner-panel .hd strong{font-size:14px;line-height:21px}
@@ -554,10 +554,6 @@
   .z2m-component-card{padding:14px}
 }
 
-/* Components keeps the advanced mode as one low-emphasis setting row. */
-.z2m-components-advanced-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 2px;border-top:1px solid var(--border)}
-.z2m-components-advanced-row strong{font-size:13px;font-weight:600}
-.z2m-components-advanced-row p{margin:2px 0 0;font-size:12px}
 
 /* Components details: one presentation layer, with facts and actions kept readable. */
 .z2m-components-page .z2m-component-details{display:grid;gap:20px;min-width:0;width:100%;box-sizing:border-box;padding:20px;background:var(--panel);border:1px solid var(--border);border-radius:8px}

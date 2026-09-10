@@ -10,7 +10,6 @@ const main = read('zapret2-manager/src/z2m-core-helper/main.c');
 const helper = read('zapret2-manager/src/z2m-core-helper/helper.h');
 const protocolC = read('zapret2-manager/src/z2m-core-helper/protocol.c');
 const nativeHelper = read('zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc');
-const managerMakefile = read('zapret2-manager/Makefile');
 const fullMakefile = read('zapret2-manager-full/Makefile');
 const productionRoot = path.join(root, 'zapret2-manager');
 
@@ -43,6 +42,5 @@ test('Task 11 must remove all retired scanner authority from production paths', 
   assert.doesNotMatch(protocolC, /scanner_probe/);
   assert.doesNotMatch(helper, /z2m_scanner_probe/);
   assert.doesNotMatch(nativeHelper, /operation == 'scanner_probe'/);
-  assert.doesNotMatch(managerMakefile, /scanner\.c/);
   assert.doesNotMatch(fullMakefile, /scanner\.c/);
 });

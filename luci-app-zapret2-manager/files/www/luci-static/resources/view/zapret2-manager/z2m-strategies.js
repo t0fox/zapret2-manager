@@ -34,7 +34,7 @@ var state = {
   detailLoading: {},
   listUI: null, pollTimer: null, disposed: false, loaded: false,
   healthcheck: null, healthcheckCatalog: [], healthcheckSettings: { open: false, loading: false, draft: null, error: null },
-  learned: null, debug: false, clipboardFallback: false,
+  learned: null, clipboardFallback: false,
   modalResize: null, editorMaximized: false, editorSidebarCollapsed: false,
   editorLoadFrame: null, editorLoadingSlowTimer: null,
   clickHandler: null, changeHandler: null, inputHandler: null,
@@ -768,8 +768,8 @@ function renderOperationalCards() {
         '</div>';
     }
   }
-  var debug = state.root && state.root.querySelector('#strategy-debug-info');
-  if (debug) debug.innerHTML = '<label class="toggle-label"><input type="checkbox" data-action="toggleDebug"' + (state.debug ? ' checked' : '') + '>' + svgIcon('bug', 14) + '<span>Отладка nfqws2</span></label><button class="btn btn-ghost btn-sm" data-action="openJournal">' + svgIcon('file', 14) + '<span>Журнал</span></button>';
+  var journal = state.root && state.root.querySelector('#strategy-journal-info');
+  if (journal) journal.innerHTML = '<button class="btn btn-ghost btn-sm" data-action="openJournal">' + svgIcon('file', 14) + '<span>Журнал</span></button>';
 }
 function getStrategyOptions(key, curStrat, pools) {
   if (Model && typeof Model.strategyOptionsForPool === 'function') {
@@ -1319,7 +1319,7 @@ function toggleHealthcheck(enabled) {
   call(method, {}).then(refreshHealthcheck).catch(function (error) { notify('err', errorText(state.ctx, error)); });
 }
 function refreshLearned() {
-  var stateMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.state || state.ctx.api.strategies.learnedState);
+  var stateMethod = state.ctx && state.ctx.api.strategies && state.ctx.api.strategies.learnedState;
   if (!stateMethod) return Promise.resolve();
   var poolsMethod = state.ctx && state.ctx.api.strategies && state.ctx.api.strategies.pools;
   var p1 = call(stateMethod, {}).catch(function () { return { entries: [], count: 0 }; });
@@ -1333,7 +1333,7 @@ function refreshLearned() {
   });
 }
 function stateSet(key, host, strategy, mode) {
-  var setMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateSet || state.ctx.api.strategies.customCreate);
+  var setMethod = state.ctx && state.ctx.api.strategies && state.ctx.api.strategies.stateSet;
   if (!setMethod) return;
   var isDiscord = (key === 'discord_voice' || key === 'discord_udp' || host === 'nohost');
   var liveDiscordKey = isDiscord
@@ -1437,7 +1437,7 @@ function startDiscordMerge(source, raw, donor, digest) {
   var used = {};
   array(full.profiles).forEach(function (profile) { used[profile.id] = true; });
   var donorProfiles = donor.profiles.map(function (profile, index) {
-    var id = profile.id || 'discord-profile-' + String(index + 1);
+    var id = profile.id || 'strategy-discord-' + String(index + 1);
     if (used[id]) id += '-discord';
     used[id] = true;
     return { id: id, name: profile.name || 'Discord Voice / Video', args: profile.args, enabled: profile.enabled !== false };
@@ -1505,7 +1505,7 @@ function resetLearned(host, key) {
   var isDiscord = (key === 'discord_voice' || key === 'discord_udp' || host === 'nohost');
   var targetKey = isDiscord ? (key || 'discord_udp') : key;
   var targetHost = isDiscord ? 'nohost' : host;
-  var delMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateDelete || state.ctx.api.strategies.learnedReset);
+  var delMethod = state.ctx && state.ctx.api.strategies && state.ctx.api.strategies.learnedReset;
   if (!delMethod) return;
   if (state.learned && Array.isArray(state.learned.entries)) {
     state.learned.entries = state.learned.entries.filter(function (it) {
@@ -1537,14 +1537,6 @@ function showCircular() {
     host.dispatchEvent(new Event('input'));
     host.focus();
   }
-}
-function refreshDebugToggle() {
-  if (!state.ctx || !state.ctx.api.strategies.debugGet) return Promise.resolve();
-  return call(state.ctx.api.strategies.debugGet, {}).then(function (answer) { state.debug = !!(answer && (answer.debug || answer.enabled)); renderOperationalCards(); });
-}
-function toggleDebug(enabled) {
-  if (!state.ctx || !state.ctx.api.strategies.debugSet) return;
-  call(state.ctx.api.strategies.debugSet, { enabled: !!enabled }).then(function (answer) { state.debug = !!(answer && (answer.debug || answer.enabled)); renderOperationalCards(); }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
 }
 function openJournal() { window.location.hash = '#logs'; }
 function renderAll() {
@@ -1586,10 +1578,9 @@ function refreshData(full) {
     });
   }
   var reads = [
-    boundedRead(function () { return (state.ctx.statusFast || state.ctx.api.service.statusFast || state.ctx.api.service.status)(); }, 8000, 'Не удалось получить состояние службы.'),
+    boundedRead(function () { var read = state.ctx.statusFast || state.ctx.api.service.statusFast; return typeof read === 'function' ? read() : Promise.reject(new Error('status_fast unavailable')); }, 8000, 'Не удалось получить состояние службы.'),
     refreshLearned(),
     refreshHealthcheck(),
-    refreshDebugToggle()
   ];
   return Promise.allSettled(reads).then(function (results) {
     if (!state.disposed && results[0].status === 'fulfilled' && state.data) {
@@ -1842,8 +1833,8 @@ function renderCatalogProgress() {
 }
 function refreshAppliedStatus() {
   if (state.disposed || !state.ctx) return Promise.resolve();
-  var read = state.ctx.statusFast || state.ctx.api.service.statusFast || state.ctx.api.service.status;
-  return boundedRead(function () { return read({ forceFresh: true }); }, 8000, 'Не удалось подтвердить состояние службы.').then(function (value) {
+  var read = state.ctx.statusFast || state.ctx.api.service.statusFast;
+  return boundedRead(function () { return typeof read === 'function' ? read({ forceFresh: true }) : Promise.reject(new Error('status_fast unavailable')); }, 8000, 'Не удалось подтвердить состояние службы.').then(function (value) {
     if (state.disposed) return value;
     var status = { value: value || {} };
     status = retainConfirmedApplyIdentity({ status: status }).status || status;
@@ -2574,10 +2565,6 @@ function saveEditor() {
   var request = function () { return operation === 'create' ? call(state.ctx.api.strategies.create, payload) : call(state.ctx.api.strategies.update, payload); };
   mutate(operation, request).then(function (answer) { if (state.editor !== editor) return; editor.operationPending = null; setEditorOperationBusy('save', false); if (answer) { editor.dirty = false; closeModal(); renderAll(); } });
 }
-function testEditor() {
-  if (!state.ctx || !state.ctx.api || !state.ctx.api.strategies || !state.ctx.api.strategies.test) { notify('info', 'Test unavailable: canonical temporary Strategy test RPC is not exposed.'); return; }
-  call(state.ctx.api.strategies.test, { strategy_data: editorDraft(), catalog_digest: catalogDigest(state.data) }).then(function (answer) { notify(answer && answer.ok ? 'ok' : 'err', answer && answer.ok ? 'Temporary Strategy test completed' : errorText(state.ctx, answer)); }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
-}
 function applyStrategy(id) { var strategy = strategyById(id); if (!strategy) return; openConfirm('Применить стратегию', 'Применить «' + strategy.name + '» к nfqws2?', function () { mutate('apply', function () { return call(state.ctx.api.strategies.apply, requestIdentity(strategy, state.data)); }, { scope: 'card', strategyId: strategy.id }); }); }
 function toggleFavorite(id) { var strategy = strategyById(id); if (!strategy) return; mutate('favorite', function () { return call(state.ctx.api.strategies.favorite, { id: id, favorite: !strategy.favorite, expectedRevision: stateRevision(state.data) }); }); }
 function deleteStrategy(id) { var strategy = strategyById(id); if (!strategy || strategy.isBuiltin) return; openConfirm('Удалить стратегию', 'Удалить «' + strategy.name + '»? Это действие нельзя отменить.', function () { mutate('delete', function () { return call(state.ctx.api.strategies.delete, { id: id, expectedRevision: strategy.revision }); }); }); }
@@ -2616,7 +2603,6 @@ function onClick(event) {
   else if (action === 'toggleEditorPreview') toggleEditorPreview();
   else if (action === 'saveEditor') saveEditor();
   else if (action === 'editorValidate') validateEditor();
-  else if (action === 'editorTest') testEditor();
   else if (action === 'editorPreview') previewEditor();
   else if (action === 'mergeSelected') mergeSelected();
   else if (action === 'clearSelection') clearSelection();
@@ -2643,7 +2629,6 @@ function onClick(event) {
   else if (action === 'loadMoreLearned') { if (state.learnedModal) { state.learnedModal.visibleCount = (state.learnedModal.visibleCount || 50) + 50; renderLearnedModal(); } }
   else if (action === 'showCircular') showCircular();
   else if (action === 'openJournal') openJournal();
-  else if (action === 'toggleDebug') toggleDebug(!!el.checked);
   else if (action === 'toggleHealthcheck') toggleHealthcheck(!!el.checked);
 }
 function onChange(event) {
@@ -2670,7 +2655,7 @@ function unbindEvents() { if (!state.root) return; state.root.removeEventListene
 function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
-  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div><div class="z2m-catalog-progress-timer" style="display:none"></div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><div class="modal-title-block"><span class="modal-eyebrow">Strategy IDE</span><h3 class="modal-title">Стратегия</h3><span class="editor-document-status" data-editor-document-status>Черновик</span></div><div class="modal-header-actions"><button class="modal-close" data-action="closeModal" aria-label="Закрыть редактор стратегии" title="Закрыть">×</button></div></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview" aria-label="Закрыть превью" title="Закрыть">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal" aria-label="Закрыть список выученных стратегий" title="Закрыть">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker" aria-label="Закрыть выбор стратегии" title="Закрыть">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div><div class="z2m-catalog-progress-timer" style="display:none"></div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-journal-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><div class="modal-title-block"><span class="modal-eyebrow">Strategy IDE</span><h3 class="modal-title">Стратегия</h3><span class="editor-document-status" data-editor-document-status>Черновик</span></div><div class="modal-header-actions"><button class="modal-close" data-action="closeModal" aria-label="Закрыть редактор стратегии" title="Закрыть">×</button></div></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview" aria-label="Закрыть превью" title="Закрыть">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal" aria-label="Закрыть список выученных стратегий" title="Закрыть">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker" aria-label="Закрыть выбор стратегии" title="Закрыть">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
   var sourceFilterHost = document.createElement('div');
   sourceFilterHost.id = 'strategy-source-filters';
   sourceFilterHost.className = 'strategy-source-filters';
@@ -2696,7 +2681,7 @@ function render(ctx) {
   var createButton = root.querySelector('[data-action="openCreate"]');
   if (createButton) createButton.innerHTML = svgIcon('plus', 14) + '<span>Создать стратегию</span>';
   var activeTitle = root.querySelector('.active-strategy-card .card-title');
-  if (activeTitle) activeTitle.innerHTML = svgIcon('activity', 16) + '<span>Активная стратегия</span><span class="card-title-actions" id="strategy-debug-info"></span>';
+  if (activeTitle) activeTitle.innerHTML = svgIcon('activity', 16) + '<span>Активная стратегия</span><span class="card-title-actions" id="strategy-journal-info"></span>';
   var summaryTitle = root.querySelector('.catalog-summary-card .card-title');
   if (summaryTitle) summaryTitle.innerHTML = 'Compiled Strategy Catalog <span class="catalog-summary-note">источник и готовность</span>';
   var ops = root.querySelectorAll('.strategy-ops-card');
@@ -2733,8 +2718,8 @@ function load(ctx) {
     boundedRead(ctx.api.strategies.list, readTimeout, 'Не удалось получить список стратегий.'),
     boundedRead(ctx.api.strategies.catalogStatus, readTimeout, 'Не удалось получить состояние каталога.'),
     boundedRead(function () {
-      var read = ctx.statusFast || ctx.api.service.statusFast || ctx.api.service.status;
-      return read();
+      var read = ctx.statusFast || ctx.api.service.statusFast;
+      return typeof read === 'function' ? read() : Promise.reject(new Error('status_fast unavailable'));
     }, readTimeout, 'Не удалось получить состояние службы.')
   ];
   return Promise.allSettled(reads).then(function (results) {
@@ -2746,7 +2731,7 @@ function mount(ctx) {
   state.disposed = false; state.ctx = ctx;
   // Operational cards are lazy: they never inflate the initial catalog read
   // and each call is bounded by its own RPC transport.
-  refreshHealthcheck(); refreshLearned(); refreshDebugToggle();
+  refreshHealthcheck(); refreshLearned();
   function schedule() {
     if (state.disposed) return;
     state.pollTimer = window.setTimeout(function () {

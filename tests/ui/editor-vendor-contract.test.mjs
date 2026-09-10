@@ -25,10 +25,10 @@ test('CodeMirror vendor build and package copy contract are present', () => {
     'syntaxHighlighting', 'defaultHighlightStyle', 'HighlightStyle',
     'StreamLanguage', 'luaMode', 'EditorSelection', 'Compartment',
   ]) assert.match(bundle, new RegExp('\\b' + name + '\\b'), name);
-  const makefile = read(path.join(root, 'luci-app-zapret2-manager/Makefile'));
-  assert.match(makefile, /vendor/);
-  assert.match(makefile, /INSTALL_DIR/);
-  assert.match(makefile, /wildcard[^\n]*vendor/);
+  const makefile = read(path.join(root, 'zapret2-manager-full/Makefile'));
+  assert.match(makefile, /luci-files/);
+  assert.match(makefile, /\/www\/luci-static\/resources\/view\/zapret2-manager/);
+  assert.match(makefile, /find[^\n]*luci-static\/resources\/view\/zapret2-manager/);
 });
 
 test('CodeMirror vendor is a LuCI-loadable baseclass module', () => {

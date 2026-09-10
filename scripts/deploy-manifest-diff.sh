@@ -50,7 +50,6 @@ while IFS='|' read -r h t; do
   rm_=$(printf '%s' "$row" | awk -F'|' '{print $2}')
   if [ -z "$row" ] || [ "$rh" != "$h" ]; then
     f=$(grep -F "|$t" "$MAP_OUT" | head -1 | cut -d'|' -f1)
-    case "$f" in *graphify-out*) continue ;; esac
     if [ "$rm_" = "-" ] || [ -z "$rm_" ]; then
       case "$f" in
         *.sh|*/init.d/*) mode=0755 ;;

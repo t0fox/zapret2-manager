@@ -15,8 +15,9 @@ test('TikTok toggle renders backend lifecycle states with human labels', () => {
     'Ищем рабочий CDN…',
     'Не удалось найти рабочий CDN'
   ]) assert.match(DNS, new RegExp(label.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
-  assert.match(DNS, /serviceTiktokStatus\(\)/);
-  assert.match(DNS, /tiktok:\s*settled\(results\[/);
+  assert.match(DNS, /serviceTiktokStatus/);
+  assert.match(DNS, /\['tiktok',\s*ctx\.api\.dns\.serviceTiktokStatus/);
+  assert.match(DNS, /function scheduleDeferred[\s\S]*\['tiktok',\s*ctx\.api\.dns\.serviceTiktokStatus/);
   assert.doesNotMatch(DNS, /serviceStatus\.tiktokAuto\s*\|\|\s*state\.tiktokAuto/);
 });
 

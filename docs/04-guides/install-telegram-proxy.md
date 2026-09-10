@@ -17,4 +17,5 @@ progress/status и проверьте health.
 
 Если provider уже установлен, используйте Start/Stop/Restart и Update там же.
 Не устанавливайте proxy через System → Components: это другой lifecycle.
-Секреты вводите только в штатные Settings и не включайте их в отчёты.
+Секреты вводите только в штатные настройки подключения Telegram Proxy и не
+включайте их в отчёты.

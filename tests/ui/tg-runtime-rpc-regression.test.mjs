@@ -9,19 +9,12 @@ const productPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/tg-produc
 test('TG Proxy frontend contract has a canonical product facade on the main RPC object', () => {
   assert.equal(fs.existsSync(productPath), true, 'canonical TG product facade must be packaged');
   const methods = [
-    'tg_product_get',
     'tg_product_catalog',
     'tg_product_status',
     'tg_product_versions',
     'tg_product_operation_status',
-    'tg_product_validate',
-    'tg_product_preview',
-    'tg_product_apply',
-    'tg_product_health',
     'tg_product_check_updates',
     'tg_product_switch',
-    'tg_product_install',
-    'tg_product_update',
     'tg_product_remove',
     'tg_product_purge',
     'tg_product_start',

@@ -29,7 +29,6 @@ if (process.getuid() !== 0) {
   const runtime = [
     '/tmp/zapret2-manager/runtime',
     '/tmp/zapret2-manager/jobs',
-    '/tmp/zapret2-manager/locks',
     '/tmp/zapret2-manager/staging',
   ];
   const roots = [...persistent, ...runtime];
@@ -44,7 +43,7 @@ if (process.getuid() !== 0) {
     assert.equal(compile.status, 0, compile.stderr);
   });
 
-  test('bootstrap manifest exactly matches the eight protocol roots', () => {
+  test('bootstrap manifest exactly matches the seven protocol roots', () => {
     const protocol = JSON.parse(fs.readFileSync(protocolPath, 'utf8'));
     const expected = Object.values(protocol.roots).map((root) => root.base).sort();
     const body = fs.readFileSync(source, 'utf8');

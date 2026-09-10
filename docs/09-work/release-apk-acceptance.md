@@ -25,7 +25,7 @@ the two verification files from the same build.
    apk add --allow-untrusted ./zapret2-manager-full-<version>.apk
    ```
 
-4. Confirm the full package and its compatibility provides are installed:
+4. Confirm the canonical full package is installed:
 
    ```sh
    apk info -e zapret2-manager-full
@@ -37,18 +37,17 @@ the two verification files from the same build.
 1. Reload the browser and open Z2M.
 2. Confirm the Components page loads.
 3. Confirm backend RPC calls work and no runtime dependency is missing.
-4. Confirm the Main, Strategies, DNS, Telegram Proxy, WARP, and Scanner pages that are in scope for the installed release load without package errors.
+4. Confirm the Main, Strategies, DNS, Telegram Proxy, WARP, and Z2K Detect pages that are in scope for the installed release load without package errors.
 5. Restart only `/etc/init.d/zapret2-manager` and confirm the active strategy,
    RPC object, backend service, and logs remain healthy. Do not reboot the
    router as part of this checklist.
 
-## Upgrade gate
+## Reinstall gate
 
-On a router with the previous split manager package set installed, run the same
-single-package command and verify that the compatibility provides migrate the
-legacy package names without duplicate backend/LuCI files or a second runtime
-process. Preserve the current/LKG runtime if the transaction or readiness gate
-fails.
+On a router with the current full package installed, repeat the same
+single-package command and verify that the package owns one backend, one LuCI
+tree and one runtime process. Preserve the current/LKG runtime if the
+transaction or readiness gate fails.
 
 The engine remains independently installable from System → Components. Telegram Proxy remains independently installable from Proxy and Routing → Telegram Proxy.
 

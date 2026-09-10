@@ -160,9 +160,7 @@ activation() {
 	: > "$_records"
 	_index=0
 	_lua_spec="$_tmp/lua-init"
-	_overlay_spec="$_tmp/scanner-overlay"
 	: > "$_lua_spec"
-	: > "$_overlay_spec"
 	while IFS='|' read -r _kind _id _type _entry_kind _source _target _sha _size _order; do
 		case "$_kind" in ''|'#') continue ;; esac
 		# Normalize the legacy seven-field direct spec before validation. It is
@@ -174,11 +172,6 @@ activation() {
 		fi
 		if [ "$_kind" = SNAPSHOT ]; then
 			[ -n "$_id" ] && [ -n "$_type" ] && [ -n "$_entry_kind" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			continue
-		fi
-		if [ "$_kind" = OVERLAY ]; then
-			[ "${_scanner_mode:-0}" = 1 ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			printf 'OVERLAY|%s|%s|%s|%s|%s|%s|%s|%s\n' "$_id" "$_type" "$_entry_kind" "$_source" "$_target" "$_sha" "$_size" "$_order" >> "$_overlay_spec"
 			continue
 		fi
 		if [ "$_kind" = LUA_INIT ]; then
@@ -267,25 +260,6 @@ activation() {
 		done
 		align_luaopt "$_lua_spec" || return 1
 	fi
-	if [ -s "$_overlay_spec" ]; then
-		_lua_overlay_count=0
-		while IFS='|' read -r _overlay_kind _id _type _entry_kind _source _target _sha _size _order; do
-			[ "$_overlay_kind" = OVERLAY ] || continue
-			[ "$_type" = scanner-overlay ] && [ "$_entry_kind" = lua ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			runtime_target_rel "$_target" || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			case "$_target" in /runtime-assets/lua/*) : ;; *) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
-			_overlay_path="/opt/zapret2/$RUNTIME_TARGET_REL"
-			[ -r "$_overlay_path" ] && [ ! -L "$_overlay_path" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			case "$_sha" in ''|*[!A-Fa-f0-9]*) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
-			[ "${#_sha}" -eq 64 ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			[ "$(sha256sum "$_overlay_path" | awk '{print $1}')" = "$_sha" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			case "$_size" in ''|*[!0-9]*) rm -rf "$_tmp"; rm -f "$_records"; return 1 ;; esac
-			[ "$(wc -c < "$_overlay_path" | tr -d ' ')" = "$_size" ] || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			case "$_order" in ''|*[!0-9]*) : ;; esac
-			set -- "$@" "--lua-init=@$_overlay_path"
-			_lua_overlay_count=$((_lua_overlay_count + 1))
-		done < "$_overlay_spec"
-	fi
 	mv -f "$_records" "$ACTIVATION_SNAPSHOT"
 	normalize_runtime_directories
 	trap - EXIT HUP INT TERM
@@ -302,9 +276,7 @@ activate_resolved() {
 	_cli=${Z2M_RUNTIME_COMPOSITION_CLI:-/usr/libexec/zapret2-manager/runtime-composition-cli.uc}
 	"$_ucode" "$_cli" "$_consumer" "$_input" activation-tsv > "$_spec" || { rm -rf "$_tmp"; return 1; }
 	[ -s "$_spec" ] || { rm -rf "$_tmp"; return 1; }
-	_scanner_mode=0
-	[ "$_consumer" = scanner ] && _scanner_mode=1
-	activation "$_spec" "$_scanner_mode"
+	activation "$_spec"
 	_rc=$?
 	rm -rf "$_tmp"
 	return "$_rc"

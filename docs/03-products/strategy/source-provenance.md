@@ -33,10 +33,6 @@ The installed runtime catalog is the verified, package-owned Avatar-derived
 snapshot. Upstream metadata and donor references are provenance only; they do
 not replace the Z2M runtime authority or change execution semantics.
 
-The historical Forgejo catalog fixture under `catalog/forgejo/` is retained
-only for archival comparison. It is not referenced by the resolver, Resource
-Center, tests, or current manifests.
-
 ## Трассировка donor renderer
 
 The current Avatar behavioral donor for the editor is
@@ -70,6 +66,6 @@ fingerprints remain separate even when their names match.
 The Strategies renderer derives protocol tags and port ranges from each
 canonical profile filter. The same normalized profile object feeds card tags,
 details, Preview, Validate, and Apply. Unknown syntax remains raw-only and is
-never rewritten. The persistent writer is Strategy; Scanner results are
+never rewritten. The persistent writer is Strategy; Z2K Detect results are
 transient evidence and enter the normal Strategy lifecycle through the
 Strategies IDE.

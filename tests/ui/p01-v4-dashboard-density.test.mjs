@@ -14,8 +14,9 @@ test('P01-V4 Dashboard renders only the concise canonical strategy presentation'
 
 test('P01-V4 Dashboard demotes engine version into readable System metadata', () => {
   const page = read('z2m-overview.js');
+  const loading = read('z2m-overview-loading.js');
   const css = read('z2m-ui.css');
-  assert.match(page, /ctx\.api\.maintenance\.versions/);
+  assert.match(loading, /ctx\.api\.maintenance\.versions/);
   assert.match(page, /status-card-meta/);
   assert.match(page, /card-zapret-ver/);
   assert.doesNotMatch(page, /id: 'card-zapret-ver', label: 'zapret2'/);

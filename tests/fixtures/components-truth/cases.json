@@ -47,22 +47,6 @@
     "z2k": { "updateState": "current", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
   },
   {
-    "id": "legacy-compatibility-engine",
-    "engine": {
-      "status": {
-        "installed": true,
-        "installedRelease": "r77-z2m-202608232258",
-        "artifactKind": "legacy-compatibility-build",
-        "serviceState": "running",
-        "runtimeRunning": true,
-        "compatible": true,
-        "baseCommit": "a0be7cbb40a4230e4b60fc33b7ea06102eb8ec15"
-      },
-      "check": { "checkedAt": 1787829002, "updateState": "update-available", "available": { "version": "v1.0.4" } }
-    },
-    "z2k": { "updateState": "current", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
-  },
-  {
     "id": "healthy-runtime-compatibility-attention",
     "engine": {
       "status": {

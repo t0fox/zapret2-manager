@@ -26,7 +26,7 @@ var LEVEL_CONFIG = {
 var SOURCE_LABELS = {
   ui: _('Интерфейс'), watchdog: _('Контроль процесса'), qlen: _('Контроль очереди'),
   engine: _('Движок'), service: _('Служба'), system: _('Система'),
-  strategy: _('Стратегии'), scanner: _('Сканер'), orchestra: _('Оркестратор'),
+  strategy: _('Стратегии'), scanner: _('Z2K Detect'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), healthcheck: _('Проверка'),
   lists: _('Списки')
 };
@@ -99,7 +99,7 @@ function formatEventMessage(raw) {
   if (code === 'process_unexpected_loss') return _('Процесс nfqws2 неожиданно завершился; запущен процесс восстановления');
   if (code === 'process_recovered') return _('Служба nfqws2 успешно восстановлена');
   if (code === 'rules_missing') return _('Правила межсетевого экрана не найдены: таблица zapret2 пуста или отсутствует');
-  if (code === 'config_applied' || code === 'profiles_applied') return _('Конфигурация профилей успешно сохранена и применена');
+  if (code === 'config_applied') return _('Конфигурация профилей успешно сохранена и применена');
   if (code === 'config_restored' || code === 'backup_restored') return _('Конфигурация успешно восстановлена из резервной копии');
   if (code === 'catalog_updated') return _('Каталог стратегий обновлён из официального репозитория');
   if (code === 'proxy_started') return _('Прокси Telegram успешно запущен');
@@ -131,14 +131,15 @@ function formatEventMessage(raw) {
   }
 
   if (category === 'config' || source === 'ui' || source === 'apply') {
-    var draftMatch = msg.match(/^draft profiles applied \((\d+)\s+profiles?\)\s+and verified/i);
-    if (draftMatch) {
-      var num = parseInt(draftMatch[1], 10) || 1;
-      return _('Применён черновик профилей') + ' (' + num + ' ' + pluralize(num, 'профиль', 'профиля', 'профилей') + ') ' + _('и проверен');
+    if (/^Strategy applied and verified$/i.test(msg)) {
+      var strategyProfiles = raw.profiles || 1;
+      return _('Стратегия применена и проверена') + ' (' + strategyProfiles + ' ' + pluralize(strategyProfiles, 'профиль', 'профиля', 'профилей') + ')';
     }
-    if (/draft profiles applied/i.test(msg)) {
-      var profNum = raw.profiles || 1;
-      return _('Применён черновик профилей') + ' (' + profNum + ' ' + pluralize(profNum, 'профиль', 'профиля', 'профилей') + ') ' + _('и проверен');
+    if (/^apply failed verification; exact snapshot restored and verified$/i.test(msg)) {
+      return _('Проверка применения не пройдена: точный снимок восстановлен и проверен');
+    }
+    if (/^APPLY FAILED AND EXACT ROLLBACK VERIFICATION FAILED — manual recovery required$/i.test(msg)) {
+      return _('ПРИМЕНЕНИЕ НЕ УДАЛОСЬ, а точный откат не проверен: требуется восстановление вручную');
     }
   }
 
@@ -729,9 +730,7 @@ function pollPageLogs(ctx, token) {
     var payload = typeof val === 'string' ? val : JSON.stringify(val || {});
     return fn(payload);
   }
-  var fn = ctx.api.maintenance && ctx.api.maintenance.eventsTail
-    ? ctx.api.maintenance.eventsTail
-    : ctx.api.monitor.eventsTail;
+	var fn = ctx.api.maintenance.eventsTail;
   var apiCall = editCall(fn, params);
 
   apiCall.then(function (res) {
@@ -783,9 +782,7 @@ function load(ctx) {
     var payload = typeof val === 'string' ? val : JSON.stringify(val || {});
     return fn(payload);
   }
-  var fn = ctx.api.maintenance && ctx.api.maintenance.eventsTail
-    ? ctx.api.maintenance.eventsTail
-    : ctx.api.monitor.eventsTail;
+	var fn = ctx.api.maintenance.eventsTail;
   var call = editCall(fn, { limit: 500 });
 
   return call.then(function (res) {

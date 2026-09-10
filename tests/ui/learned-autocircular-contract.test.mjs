@@ -105,7 +105,7 @@ test('LEARNED_TABLE_LAYOUT: desktop uses a compact six-column table and mobile g
   assert.match(css, /learned-row-actions/);
   assert.match(css, /learned-mode-badge/);
   assert.match(css, /learned-variant-badge/);
-  assert.match(shell, /learned-table-9/);
+  assert.match(shell, /header-branding-20260903-r1-visual-theme-20260904-r2/);
   assert.match(page, /data-sort-field="protocol"/);
   assert.match(page, /data-sort-field="strategy"/);
   assert.match(page, /data-sort-field="mode"/);
@@ -132,7 +132,7 @@ test('DISCORD_RUNTIME_STATUS: live Discord status uses the current runtime signa
   assert.match(page, /discord_\(\?:udp\|voice\)/);
   assert.match(page, /discordRuntimeActive\(state\.data\)/);
   assert.doesNotMatch(page, /--filter-udp=19294-19344,50000-50100/);
-  assert.doesNotMatch(page, /blob_stressozz_stun/);
+  assert.doesNotMatch(page, /\/opt\/zapret2\/files\/fake\/stun\.bin/);
   assert.doesNotMatch(page, /state\.discordApplied/);
 });
 
@@ -152,5 +152,5 @@ test('DISCORD_RUNTIME_STATUS: detector rejects stale config and stopped runtime 
   const deployedCmdline = '--filter-udp=50000-50099,1400 --filter-l7=discord,stun --lua-desync=circular:foo:key=discord_voice:nld=2:hostkey=z2k_nohost_key';
   assert.equal(detector({ status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline: deployedCmdline }] } } }), true);
   assert.equal(detector({ status: { serviceState: 'stopped', runtime: { present: true, instances: [{ cmdline }] } } }), false);
-  assert.equal(detector({ status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline: '--filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin' }] } } }), false);
+  assert.equal(detector({ status: { serviceState: 'running', runtime: { present: true, instances: [{ cmdline: '--filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --lua-desync=multisplit:strategy=legacy' }] } } }), false);
 });

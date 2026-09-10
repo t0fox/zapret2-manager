@@ -7,7 +7,7 @@ authority: canonical
 updated: 2026-08-22
 publish: true
 tags: [technology, assets, resources]
-code: [zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc#asset_registry_register_builtin]
+code: [zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc#asset_registry_import]
 ---
 
 # Asset Registry

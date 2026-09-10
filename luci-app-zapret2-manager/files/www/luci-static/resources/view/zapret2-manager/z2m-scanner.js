@@ -404,7 +404,7 @@ function stat(label, value, className) {
 function scannerErrorPanel(ctx, status, controls) {
   var detail = errorText(status) || errorText(state.error);
   var isInfra = detail.indexOf('Не удалось подготовить среду') >= 0;
-  var title = isInfra ? _('Не удалось подготовить среду сканирования') : _('Проверка не завершена');
+  var title = isInfra ? _('Не удалось подготовить среду измерения') : _('Проверка не завершена');
   var hint = isInfra ? _('Проверьте состояние службы и правил firewall, затем повторите.') : _('Не удалось завершить обнаружение или классификацию.');
   var retry = controls ? ctx.shell.button(_('Повторить'), 'primary sm', function () { start(ctx, controls); }) : null;
   return E('article', { 'class': 'z2m-scanner-error-card', role: 'alert' }, [
@@ -609,11 +609,11 @@ function render(ctx, data) {
     state.fieldError ? E('div', { id: 'z2m-scanner-field-error', 'class': 'z2m-scanner-field-error', role: 'alert' }, state.fieldError) : null,
     E('div', { 'class': 'z2m-scanner-budget-hint' }, _('Поля и значения заданы выбранной операцией.')),
     E('details', { 'class': 'z2m-scanner-advanced' }, [E('summary', {}, [icon('settings'), E('span', {}, _('Автоматическое обнаружение'))]), E('div', { 'class': 'z2m-scanner-advanced-grid' }, [discoveryPanel(ctx)])]),
-    E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Начать сканирование'), 'primary', function () { start(ctx, controls); })])
+    E('div', { 'class': 'z2m-scanner-primary-action' }, [ctx.shell.button(_('Запустить измерение'), 'primary', function () { start(ctx, controls); })])
   ])) : null;
   var content = running ? progressPanel : (status.error || state.error ? scannerErrorPanel(ctx, status, controls) : (terminalResult || (terminal(status) ? ctx.shell.statePanel({ title: _('Результаты пока недоступны'), message: _('Попробуйте повторить проверку.'), kind: 'info', actions: [retry] }) : null)));
   var root = E('section', { 'class': 'z2m-panel z2m-scanner-panel z2m-scanner-workflow', id: 'z2m-scanner' }, [
-    E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('search'), E('strong', {}, _('Сканирование'))]), E('span', { 'class': 'z2m-dim' }, _('Диагностика и история проверок'))]),
+    E('div', { 'class': 'hd z2m-scanner-panel-head' }, [E('div', { 'class': 'z2m-scanner-title' }, [icon('search'), E('strong', {}, _('Z2K Detect'))]), E('span', { 'class': 'z2m-dim' }, _('Типизированные измерения и история'))]),
     content,
     search
   ]);

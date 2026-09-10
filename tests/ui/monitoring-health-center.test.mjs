@@ -32,7 +32,11 @@ function healthyData() {
     engine: { value: { ok: true, status: 'running', generatedAt: 1_724_200_000 } },
     dns: { value: { ok: true, generatedAt: 1_724_200_000, service_dns: { running: true, appliedRevision: 3, lastOperation: { verified: true } } } },
     telegram: { value: { ok: true, generatedAt: 1_724_200_000, installed: true, status: 'running', readiness: { ready: true } } },
-    proxy: { value: { ok: true, generatedAt: 1_724_200_000, status: 'running' } }
+    proxy: { value: {
+      ok: true,
+      generatedAt: 1_724_200_000,
+      checks: [{ name: 'package', ok: true }, { name: 'pid', ok: true }]
+    } }
   };
 }
 

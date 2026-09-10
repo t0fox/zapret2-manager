@@ -11,9 +11,6 @@ const coordinator = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/l
 const authority = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc'), 'utf8');
 const engine = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc'), 'utf8');
 const versions = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc'), 'utf8');
-const runtimeCoordinator = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc');
-const resourceModule = runtimeCoordinator;
-const runtimeSource = fs.readFileSync(runtimeCoordinator, 'utf8');
 const authorityModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc');
 const versionsModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc');
 const compositionModule = path.resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/runtime-composition.uc');
@@ -117,15 +114,6 @@ test('legacy v1 receipt compatibility is explicit and shares the reinstall opera
   assert.match(composition, /RECONCILIATION_REQUIRED/);
 });
 
-test('legacy receipt history has a canonical, ambiguity-checked runtime identity resolver', () => {
-  const resolver = runtimeSource.slice(runtimeSource.indexOf('function z2k_classification_asset_for'), runtimeSource.indexOf('export const z2k_runtime_materialize_confirmed'));
-  const target = runtimeSource.slice(runtimeSource.indexOf('export const z2k_runtime_confirmed_target'), runtimeSource.indexOf('export const z2k_runtime_materialize_confirmed'));
-  assert.match(runtimeSource, /z2k_asset_id_from_classification/);
-  assert.match(resolver, /newest|newer|complete/i);
-  assert.match(resolver, /ambiguous|contradictory/i);
-  assert.doesNotMatch(target, /z2k_classification_for\(classification, recorded\.sourcePath\)/);
-});
-
 test('v2 installed receipt remains valid after an unrelated Registry revision', { skip: !hasUcode }, () => {
   const receipt = {
     schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'r-80.3',
@@ -160,97 +148,6 @@ test('v2 installed receipt preserves semantic hostlist and ipset kinds in the bl
   }));
   const result = invoke(authorityModule, `mod.z2k_registry_receipt_state(${JSON.stringify({ ok: true, schema: 1, revision: 3, assets, activationReceipts: [receipt] })})`);
   assert.equal(result.state, 'LEGACY_VERIFIED', JSON.stringify(result));
-});
-
-test('legacy V2 state remains eligible for rollback revision and finalized recovery', { skip: !hasUcode }, () => {
-  const membership = BASE_ASSETS.map(asset => ({ id: asset.id, type: 'lifecycle-managed', owner: 'z2k-core',
-    kind: asset.type, role: asset.type == 'lua' ? 'lua-init' : 'dependency', sourcePath: asset.sourcePath,
-    runtimeTarget: `/runtime-assets/${asset.type}/${asset.id.split(':')[1]}`, contentSha256: asset.contentSha256,
-    byteSize: asset.byteSize, ...(asset.type == 'lua' ? { runtimeOrder: 0 } : {}), version: 'r-80.3', sourceCommit: SOURCE_COMMIT }));
-  const receipt = {
-    schema: 'asset-activation-receipt.v2', bundleId: 'z2k-curated-lua', version: 'r-80.3',
-    source: 'necronicle/z2k', sourceCommit: SOURCE_COMMIT, manifestSha256: '3'.repeat(64), classificationSha256: '4'.repeat(64),
-    installedAuthorityRevision: 7, membershipDigest: '5'.repeat(64), candidateSnapshotId: 'snapshot-v2',
-    baseRegistryRevision: 6, committedRegistryRevision: 7, z2kMembership: membership,
-  };
-  const value = listed(receipt, BASE_ASSETS.map(asset => ({ ...asset, version: 'r-80.3' })));
-  value.revision = 8;
-  const pending = { testOnly: true, phase: 'ROLLING_BACK', targetVersion: 'r-80.3', targetCommit: SOURCE_COMMIT,
-    planToken: 'plan-v2', candidateSnapshotId: 'snapshot-v2', membershipDigest: '5'.repeat(64), baseRegistryRevision: 6,
-    committedAssetRevision: 7, rollbackIdentity: { registryRevision: 6, runtimeSnapshot: '/etc/zapret2-manager/runtime-assets.snapshot' } };
-  assert.equal(invoke(resourceModule, `mod.resource_center_test_rollback_expected_revision({ testOnly: true, applied: { committedAssetRevision: 7 }, listed: ${JSON.stringify(value)}, pending: ${JSON.stringify(pending)} })`), 8);
-  assert.equal(invoke(resourceModule, `mod.resource_center_test_finalized_pending_matches(${JSON.stringify({ ...pending, phase: 'FINALIZED' })}, ${JSON.stringify(value)})`), true);
-});
-
-const currentClassification = {
-  sourcePath: 'files/lua/z2k-modern-core.lua', class: 'exact-managed', type: 'lua',
-  localName: 'runtime-assets/lua/z2k-modern-core.lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua'
-};
-const historicalClassification = [currentClassification, {
-  sourcePath: 'files/fake/4pda.bin', class: 'exact-managed', type: 'bin',
-  localName: 'runtime-assets/bin/4pda.bin', runtimeTarget: '/runtime-assets/bin/4pda.bin'
-}];
-const currentRuntimeAsset = {
-  id: 'lua:z2k-modern-core', type: 'lua', contentSha256: '3'.repeat(64), byteSize: 33,
-  provenance: { kind: 'catalog/upstream', bundleId: 'z2k-curated-lua', version: 'r-80.3', sourceCommit: 'c'.repeat(40), sourcePath: 'files/lua/z2k-modern-core.lua' }
-};
-const runtimeAuthority = { value: 'r-80.3', confidence: 'confirmed', authority: 'activation-receipt' };
-const runtimeListed = (receipts, classification = historicalClassification) => ({
-  ok: true, assets: [currentRuntimeAsset], activationReceipts: receipts,
-  classification
-});
-const legacyRuntimeReceipt = (id = 'blob:4pda') => ({
-  schema: 'asset-activation-receipt.v1', bundleId: 'z2k-curated-lua', version: 'r-79.7',
-  source: 'necronicle/z2k', sourceCommit: 'a'.repeat(40), activatedAt: 100,
-  assets: [{ id, type: 'blob', sha256: '4'.repeat(64), byteSize: 44 }]
-});
-const completeRuntimeReceipt = (sourcePath = 'files/fake/4pda.bin', version = 'r-80.3', sourceCommit = 'c'.repeat(40)) => ({
-  schema: 'asset-activation-receipt.v1', bundleId: 'z2k-curated-lua', version,
-  source: 'necronicle/z2k', sourceCommit, activatedAt: 200,
-  assets: [{ id: 'blob:4pda', type: 'blob', sha256: '5'.repeat(64), byteSize: 55,
-    sourceCommit, sourcePath, bundleId: 'z2k-curated-lua', version }]
-});
-
-function invokeRuntimeTarget(listed, classification = historicalClassification) {
-  return invoke(runtimeCoordinator, `mod.z2k_runtime_confirmed_target(${JSON.stringify(listed)}, ${JSON.stringify({ files: classification })}, ${JSON.stringify(runtimeAuthority)})`);
-}
-
-test('A. legacy historical asset is mapped to a safe removal target', { skip: !hasUcode }, () => {
-  const result = invokeRuntimeTarget(runtimeListed([legacyRuntimeReceipt()]));
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.deepEqual(result.target.removeTargets, [{ id: 'blob:4pda', type: 'blob', sourcePath: 'files/fake/4pda.bin', runtimeTarget: '/runtime-assets/bin/4pda.bin' }]);
-});
-
-test('B. unmappable legacy asset fails closed', { skip: !hasUcode }, () => {
-  const result = invokeRuntimeTarget(runtimeListed([legacyRuntimeReceipt('blob:unknown')]));
-  assert.equal(result.ok, false, JSON.stringify(result));
-  assert.equal(result.error.code, 'EVERIFY');
-});
-
-test('C. complete receipt metadata remains usable for runtime rematerialization', { skip: !hasUcode }, () => {
-  const result = invokeRuntimeTarget(runtimeListed([completeRuntimeReceipt()]));
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(result.target.removeTargets[0].sourcePath, 'files/fake/4pda.bin');
-});
-
-test('D. mixed history prefers a complete descriptor consistently', { skip: !hasUcode }, () => {
-  const result = invokeRuntimeTarget(runtimeListed([legacyRuntimeReceipt(), completeRuntimeReceipt()]));
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(result.target.removeTargets[0].sourcePath, 'files/fake/4pda.bin');
-});
-
-test('E. contradictory complete descriptors fail closed', { skip: !hasUcode }, () => {
-  const classification = [
-    ...historicalClassification,
-    { sourcePath: 'files/fake/4pda-alt.bin', class: 'exact-managed', type: 'bin',
-      localName: 'runtime-assets/bin/4pda.bin', runtimeTarget: '/runtime-assets/bin/4pda-alt.bin' }
-  ];
-  const result = invokeRuntimeTarget(runtimeListed([
-    completeRuntimeReceipt('files/fake/4pda.bin', 'r-80.3', 'c'.repeat(40)),
-    completeRuntimeReceipt('files/fake/4pda-alt.bin', 'r-80.2', 'd'.repeat(40))
-  ], classification), classification);
-  assert.equal(result.ok, false, JSON.stringify(result));
-  assert.equal(result.error.code, 'EVERIFY');
 });
 
 test('old r-79.7 receipt confirms the installed release and maps to reinstall', { skip: !hasUcode }, () => {

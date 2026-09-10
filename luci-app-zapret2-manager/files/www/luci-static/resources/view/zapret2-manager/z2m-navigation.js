@@ -1,11 +1,7 @@
 'use strict';
 'require baseclass';
 
-/*
- * The navigation model is the single source for the product IA. Route
- * aliases keep existing bookmarks working while pages move to their target
- * locations.
- */
+/* The navigation model is the single source for the finished product IA. */
 var GROUPS = [
   {
     id: 'home',
@@ -23,7 +19,7 @@ var GROUPS = [
     items: [
       { id: 'control', label: _('Управление') },
       { id: 'strategies', label: _('Стратегии') },
-      { id: 'scan', label: _('Сканирование') }
+      { id: 'scan', label: _('Z2K Detect') }
     ]
   },
   {
@@ -31,7 +27,6 @@ var GROUPS = [
     label: _('Прокси и маршрутизация'),
     icon: 'route',
     items: [
-      { id: 'unified-routing', label: _('Единая маршрутизация'), hidden: true },
       { id: 'warp', label: _('WARP / MASQUE') },
       { id: 'telegram-tunnel', label: _('Telegram Proxy') }
     ]
@@ -51,7 +46,6 @@ var GROUPS = [
     label: _('Диагностика'),
     icon: 'activity',
     items: [
-      { id: 'diagnostics', label: _('Диагностика'), hidden: true },
       { id: 'monitor', label: _('Мониторинг') },
       { id: 'logs', label: _('Журналы') }
     ]
@@ -61,60 +55,11 @@ var GROUPS = [
     label: _('Система'),
     icon: 'settings',
     items: [
-      { id: 'system', label: _('Система'), hidden: true },
       { id: 'components', label: _('Компоненты') },
-      { id: 'backups', label: _('Резервные копии') },
-      { id: 'settings', label: _('Настройки') }
+      { id: 'backups', label: _('Резервные копии') }
     ]
   }
 ];
-
-var ALIASES = {
-  overview: 'dashboard',
-  strategy: 'strategies',
-  dns: 'dns-routing',
-  proxy: 'telegram-tunnel',
-  services: 'services',
-  lists: 'services',
-  assets: 'resources',
-  hostlists: 'resources',
-  ipsets: 'resources',
-  blobs: 'resources',
-  lua: 'resources',
-  hosts: 'resources',
-  diagnostics: 'diagnostics',
-  blockcheck: 'scan',
-  scanner: 'scan',
-  'warp-setup': 'warp',
-  'warp-in-warp': 'warp',
-  zapret: 'components',
-  autostart: 'components',
-  maintenance: 'components',
-  updates: 'components',
-  engine: 'components',
-  settings: 'components',
-  'unified-routing': 'unified-routing',
-  monitor: 'monitor',
-  logs: 'logs'
-};
-
-var LEGACY_PARAMS = {
-  hostlists: { type: 'hostlist' },
-  ipsets: { type: 'ipset' },
-  blobs: { type: 'blob' },
-  lua: { type: 'lua' },
-  hosts: { type: 'hosts' },
-  diagnostics: { tab: 'monitor' },
-  blockcheck: { tab: 'diagnostics' },
-  scanner: { tab: 'search' },
-  'warp-setup': { tab: 'setup' },
-  'warp-in-warp': { tab: 'warp-in-warp' },
-  zapret: { component: 'engine' },
-  autostart: { component: 'engine' },
-  engine: { component: 'engine' },
-  maintenance: {},
-  'unified-routing': { tab: 'unified-routing' }
-};
 
 function eachItem(callback) {
   GROUPS.forEach(function (group) {
@@ -136,15 +81,14 @@ function findItem(id) {
 function parse(value) {
   var rawValue = String(value || '').replace(/^#\/?/, '').replace(/^\/+|\/+$/g, '');
   var pieces = rawValue.split('?'), raw = pieces.shift() || 'dashboard';
-  var params = Object.assign({}, LEGACY_PARAMS[raw] || {});
+  var params = {};
   (pieces.join('?').split('&') || []).forEach(function (pair) {
     if (!pair) return;
     var bits = pair.split('='), key = decodeURIComponent(bits.shift() || '');
     if (!key) return;
     params[key] = decodeURIComponent(bits.join('=') || '');
   });
-  var canonical = ALIASES[raw] || raw;
-  return { route: findItem(canonical) ? canonical : 'dashboard', params: params, raw: raw };
+  return { route: findItem(raw) ? raw : 'dashboard', params: params, raw: raw };
 }
 
 function normalize(value) { return parse(value).route; }

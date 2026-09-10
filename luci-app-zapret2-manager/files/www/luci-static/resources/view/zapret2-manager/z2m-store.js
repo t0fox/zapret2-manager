@@ -2,10 +2,10 @@
 'require baseclass';
 
 function create(initial) {
-  var state = Object.assign({
-    server: {},
-    ui: { tab: 'overview', advanced: false, modal: null }
-  }, initial || {});
+	var state = Object.assign({
+		server: {},
+		ui: { tab: 'overview', modal: null }
+	}, initial || {});
   var listeners = [];
 
   function emit() { listeners.slice().forEach(function (fn) { fn(state); }); }

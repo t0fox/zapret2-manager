@@ -25,5 +25,5 @@ NFQUEUE, firewall ownership, Strategy identity и автозапуск.
 Strategy — разные состояния. При `UNKNOWN` или отсутствии verified snapshot
 страница должна fail closed и не маскировать это как OK.
 
-Для подбора кандидата используйте [Scanner](./scanner/index.md), а для
-постоянного изменения — [Strategy lifecycle](./strategy/index.md).
+Для типизированного измерения используйте [Z2K Detect](./scanner/index.md), а
+для постоянного изменения — [Strategy lifecycle](./strategy/index.md).

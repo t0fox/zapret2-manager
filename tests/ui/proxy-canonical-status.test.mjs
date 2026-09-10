@@ -16,14 +16,6 @@ test('proxy status projection consumes canonical Telegram listener and outbound 
   assert.match(render, /outbound:\s*canonical\.outbound/);
 });
 
-test('DNS view has a canonical global-scope fallback when legacy API is absent', () => {
-  const source = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns.js', 'utf8');
-  assert.match(source, /function globalRead\(api, productRead\)/);
-  assert.match(source, /api\.dns\.global && api\.dns\.global\.get/);
-  assert.match(source, /api\.dns\.product\.get\(\)/);
-  assert.match(source, /globalRead\(ctx\.api, productRead\)/);
-});
-
 test('app header derives its chip from the canonical service status projection', () => {
   const source = fs.readFileSync(APP, 'utf8');
   const load = source.slice(source.indexOf('load: function ()'), source.indexOf('render: function (initial)'));

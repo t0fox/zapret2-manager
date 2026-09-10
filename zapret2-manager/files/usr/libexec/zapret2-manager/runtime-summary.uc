@@ -27,18 +27,11 @@ export const runtime_summary = function(status) {
 	else if (found === true && appliedMatch === false) { state = 'mismatch'; reason = 'applied-mismatch'; }
 	else if (found === true || registered === true) { state = 'degraded'; reason = 'runtime-evidence-incomplete'; }
 	return {
-		schemaVersion: 1, source: 'status-v3', status: state, reasonCode: reason,
+		schemaVersion: 1, source: 'status.v1', status: state, reasonCode: reason,
 		service: { configured: status && status.system && status.system.autostart ? bool_or_null(status.system.autostart.enabled) : null, running: null },
 		process: { found: found, pid: first && type(first.pid) == 'int' ? first.pid : null, startTime: first ? text_or_null(first.startTime) : null, executable: first && text_or_null(first.binary) ? 'nfqws2' : null, identityVerified: found === true },
 		runtime: { argvAvailable: first && text_or_null(first.cmdline) ? true : false, argvHash: first && text_or_null(first.cmdline) ? argv_hash(first.cmdline) : null, argvHashAlgorithm: 'djb2-32', appliedMatch: appliedMatch, verification: appliedMatch == null ? 'unknown' : appliedMatch ? 'verified' : 'failed' },
 		nfqueue: { number: 300, registered: registered, ownerMatches: ownerMatches, rulesPresent: runtime ? bool_or_null(runtime.rulesPresent) : null },
 		watchdog: { running: null, lastSeenProcess: null }
 	};
-};
-
-export const runtime_summary_cached = function() {
-	let fs = require('fs'), raw = fs.readfile('/tmp/zapret2-manager/status.json'), status = null;
-	try { status = raw ? json(raw) : null; } catch (e) { status = null; }
-	if (status && type(status.runtimeSummary) == 'object') return status.runtimeSummary;
-	return runtime_summary(status);
 };

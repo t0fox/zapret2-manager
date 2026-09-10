@@ -13,8 +13,8 @@ test('release build installs only the feeds needed by the manager package graph'
 
   for (const packageName of [
     'ucode', 'ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop',
-    'kmod-nfnetlink-queue', 'kmod-nft-queue', 'ncat', 'flock', 'uclient-fetch',
-    'ca-bundle', 'unzip', 'jsonfilter', 'libjson-c', 'luci-base'
+    'kmod-nfnetlink-queue', 'kmod-nft-queue', 'flock', 'uclient-fetch',
+    'ca-bundle', 'jsonfilter', 'libjson-c', 'luci-base'
   ]) {
     assert.match(source, new RegExp(`\\b${packageName.replaceAll('-', '\\-')}\\b`), packageName);
   }

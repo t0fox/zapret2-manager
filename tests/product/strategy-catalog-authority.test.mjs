@@ -79,7 +79,7 @@ test('fully verified managed candidate is the sole active catalog authority', ()
 
 test('bad managed digest falls back to package and exposes a bounded reason', () => {
   const managed = copyPackage('z2m-managed-bad-');
-  const target = path.join(managed, 'advanced/http80_blockcheckw.txt');
+  const target = path.join(managed, 'advanced/http80_zapret2_advanced.txt');
   fs.appendFileSync(target, '\n# tamper\n');
   const result = resolve(PACKAGE_ROOT, managed);
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -91,7 +91,7 @@ test('bad managed digest falls back to package and exposes a bounded reason', ()
 
 test('both unverified candidates fail with EVERIFY instead of selecting by manifest presence', () => {
   const managed = copyPackage('z2m-managed-both-bad-');
-  fs.appendFileSync(path.join(managed, 'advanced/http80_blockcheckw.txt'), '\n# tamper\n');
+  fs.appendFileSync(path.join(managed, 'advanced/http80_zapret2_advanced.txt'), '\n# tamper\n');
   const result = resolve(path.join(os.tmpdir(), 'z2m-missing-package-root'), managed);
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.error.code, 'EVERIFY');
@@ -281,7 +281,7 @@ test('normal Strategy reads stay on the active generation when legacy Avatar roo
     assert.equal(detail.strategy.origin, 'user');
     assert.equal(detail.strategy.sourceId, 'user');
 
-    fs.appendFileSync(path.join(packageRoot, 'advanced/http80_blockcheckw.txt'), '\n# legacy root changed after generation publication\n');
+  fs.appendFileSync(path.join(packageRoot, 'advanced/http80_zapret2_advanced.txt'), '\n# package root changed after generation publication\n');
     fs.writeFileSync(path.join(packageRoot, 'manifest.json'), '{"corrupt":true}');
     fs.mkdirSync(managedRoot, { recursive: true });
     fs.writeFileSync(path.join(managedRoot, 'manifest.json'), '{"corrupt":true}');

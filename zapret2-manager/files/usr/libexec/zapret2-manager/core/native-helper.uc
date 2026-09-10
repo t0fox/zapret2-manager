@@ -14,16 +14,16 @@ const ROOTS = [
 	'persistent_state', 'snapshots', 'registry', 'secrets',
 	'runtime', 'jobs', 'staging'
 ];
-const MUTATIONS = ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private'];
+const MUTATIONS = ['atomic_write', 'atomic_write_json', 'mkdir_private'];
 const EXIT_CODES = {
 	EMALFORMED: 2, ESCHEMA: 2, EREQUESTTOOBIG: 2,
-	EDENIED: 3, EROOT: 3, EPATH: 3, EUNSUPPORTED: 3, ECAPABILITY: 3, EOWNERSHIP: 3,
+	EDENIED: 3, EROOT: 3, EPATH: 3, EUNSUPPORTED: 3, ECAPABILITY: 3,
 	ENOENT: 4, ENOTREG: 4, ESYMLINK: 4, EXDEV: 4, ETOOBIG: 4, EIO: 4,
-	ECONFLICT: 4, ECLEANUPUNKNOWN: 4, ELOCKED: 5, ETIMEOUT: 5,
+	ECONFLICT: 4, ECLEANUPUNKNOWN: 4, ELOCKED: 5,
 	ECOMMITUNKNOWN: 6, EINTERNAL: 70, EINCOMPLETE: 74
 };
 const ERROR_CODES = keys(EXIT_CODES);
-const RETRYABLE_ERRORS = ['ELOCKED', 'ETIMEOUT'];
+const RETRYABLE_ERRORS = ['ELOCKED'];
 const DETECT_OPERATIONS = ['z2k_detect_probe', 'z2k_detect_classify', 'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16'];
 const DETECT_BROKER_GRACE_MS = 1000;
 const ERROR_STAGES = {
@@ -36,7 +36,7 @@ const ERROR_STAGES = {
 	ETOOBIG: ['object_verify', 'read', 'canonical_size'],
 	EIO: ['root_open', 'lock_acquire', 'object_open', 'stat', 'read', 'write', 'file_fsync', 'rename'],
 	ECONFLICT: ['precondition'], ECLEANUPUNKNOWN: ['candidate_cleanup'],
-	ELOCKED: ['lock_acquire'], ETIMEOUT: ['lock_acquire'], EOWNERSHIP: ['ownership_verify'],
+	ELOCKED: ['lock_acquire'],
 	ECOMMITUNKNOWN: ['directory_fsync'],
 	EINTERNAL: ['internal', 'response_encode', 'canonical_encode'],
 	EINCOMPLETE: ['response_encode', 'response_write']
@@ -47,7 +47,7 @@ const PUBLIC_CODES = {
 	ECAPABILITY: 'EDEPENDENCY', ENOENT: 'EDEPENDENCY', ENOTREG: 'EDEPENDENCY',
 	ESYMLINK: 'EDEPENDENCY', EXDEV: 'EDEPENDENCY', ETOOBIG: 'EINPUT', EIO: 'EDEPENDENCY',
 	ECONFLICT: 'ECONFLICT', ECLEANUPUNKNOWN: 'EAPPLY', ELOCKED: 'ELOCKED',
-	ETIMEOUT: 'ELOCKED', EOWNERSHIP: 'EOWNERSHIP', ECOMMITUNKNOWN: 'EAPPLY',
+	ECOMMITUNKNOWN: 'EAPPLY',
 	EINTERNAL: 'EINTERNAL', EINCOMPLETE: 'EDEPENDENCY'
 };
 
@@ -570,8 +570,8 @@ function success_data_valid(operation, data) {
 		return exact_fields(data, ['sha256', 'byteLength']) && type(data.sha256) == 'string' &&
 			match(data.sha256, /^[a-f0-9]{64}$/) && type(data.byteLength) == 'int' &&
 			data.byteLength >= 0 && data.byteLength <= 4194304;
-	if (operation == 'atomic_write' || operation == 'atomic_write_json' || operation == 'atomic_write_json_revision') {
-		let maximum = operation == 'atomic_write' || operation == 'atomic_write_json_revision' ? 4194304 : 521028;
+	if (operation == 'atomic_write' || operation == 'atomic_write_json') {
+		let maximum = operation == 'atomic_write' ? 4194304 : 521028;
 		return exact_fields(data, ['byteLength', 'committed', 'durability']) &&
 			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= maximum &&
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
@@ -810,10 +810,4 @@ export const atomic_write_json = function(root, path, value, allowCreate, expect
 	};
 	if (expectedSha256 != null) arguments.expectedSha256 = expectedSha256;
 	return invoke_private('atomic_write_json', arguments, 30000);
-};
-
-export const atomic_write_json_revision = function(root, path, value, allowCreate, expectedRevision) {
-	if (!valid_root(root) || !valid_path(path) || !valid_json_value(value) || type(allowCreate) != 'bool' || type(expectedRevision) != 'int' || expectedRevision < -1)
-		return invalid();
-	return invoke_private('atomic_write_json_revision', { root, path, value, mode: '0600', uid: 0, gid: 0, allowCreate, expectedRevision }, 30000);
 };

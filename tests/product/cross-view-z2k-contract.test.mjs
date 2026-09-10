@@ -97,10 +97,11 @@ test('Z2K current + healthy assets: Components = current/ready, Resources no att
 
 test('Z2K update/rebase/review callouts must be distinct and navigate to components, no second product update', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
+  const presentation = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-update-presentation.js');
   assert.match(src, /Подробнее/);
-  assert.match(src, /Доступно обновление/);
-  assert.match(src, /Требуется адаптация/);
-  assert.match(src, /Требуется проверка/);
+  assert.match(presentation, /Доступно обновление/);
+  assert.match(presentation, /Требуется адаптация/);
+  assert.match(presentation, /Требуется проверка/);
   // Must navigate to components, not perform resource_center_update directly
   assert.match(src, /ctx\.navigate\('components'\)/);
   assert.doesNotMatch(src, /Обновить ресурс.*primary sm.*z2k-curated-lua/);
@@ -154,18 +155,17 @@ test('critical Z2K asset corrupted → canonical z2k health degraded, Components
   assert.equal(dynamicHealthyProj.healthState, 'ready', 'dynamic p-79.18 healthy should be ready, not broken');
 });
 
-// --- Test 8: source commit not interpreted as product version ---
+// --- Test 8: Resource Center exposes product state, not provenance details ---
 
-test('source commit must be labeled Commit источника, not version', () => {
+test('Resource Center does not expose source commit as a user surface', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  assert.match(src, /Commit источника/);
+  assert.doesNotMatch(src, /Commit источника|Provenance:/);
   assert.doesNotMatch(src, /Базовая ревизия каталога/);
 });
 
-test('Navigation settings alias must be canonical components (behavioral)', () => {
+test('Navigation rejects removed compatibility routes and keeps unknown input on Dashboard', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js');
-  assert.match(src, /settings:\s*'components'/, 'ALIASES settings must map to components');
-  assert.doesNotMatch(src, /settings:\s*'settings'/);
+  assert.doesNotMatch(src, /ALIASES|LEGACY_PARAMS|settings:\s*'components'/);
   const rawCode = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js');
   const code = rawCode.replace(/return\s+baseclass\.extend/, 'this.__nav = baseclass.extend');
   let captured = null;
@@ -184,10 +184,10 @@ test('Navigation settings alias must be canonical components (behavioral)', () =
   vm.runInContext(code, context);
   const nav = context.__nav || captured || context.baseclass && context.baseclass.extend && null;
   assert.ok(nav && typeof nav.normalize === 'function', 'nav.normalize must exist');
-  assert.equal(nav.normalize('settings'), 'components');
-  assert.equal(nav.normalize('#/settings'), 'components');
+  assert.equal(nav.normalize('settings'), 'dashboard');
+  assert.equal(nav.normalize('#/settings'), 'dashboard');
   assert.equal(nav.normalize('components'), 'components');
-  assert.equal(nav.parse('#/settings').route, 'components');
+  assert.equal(nav.parse('#/settings').route, 'dashboard');
 });
 
 test('UNKNOWN != ATTENTION behavioral: stateBadge must be muted for unknown', () => {
@@ -206,18 +206,16 @@ test('UNKNOWN != ATTENTION behavioral: stateBadge must be muted for unknown', ()
   assert.equal(kindForState(undefined), 'muted');
 });
 
-test('Resources page must not show Package baseline as top-level product card', () => {
+test('Resources page does not expose the internal Package baseline', () => {
   const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
-  // Package baseline should be in technical disclosure, not as a regular group card with same styling as Z2K
-  // The grouped view should have special handling for hiddenGroups / technical disclosure
-  assert.match(src, /hiddenGroups|Дополнительно|Package baseline/, 'must have technical disclosure for package baseline');
-  // Should not have dedicated top-level card creation for package-baseline like other groups in basic mode
+  assert.doesNotMatch(src, /hiddenGroups|package-baseline|Расширенный режим/i);
   const modelSrc = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-resources-model.js');
-  assert.match(modelSrc, /hiddenBasic|package-baseline/, 'model must hide package-baseline as technical');
+  assert.match(modelSrc, /package-baseline/, 'model must keep the internal source excluded');
+  assert.doesNotMatch(modelSrc, /hiddenGroups|hiddenBasic|opts\.advanced/);
 });
 
 test('Rebase/review require distinct labels from update-available', () => {
-  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-assets.js');
+  const src = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-update-presentation.js');
   assert.match(src, /Требуется адаптация/);
   assert.match(src, /Требуется проверка/);
   assert.match(src, /Доступно обновление/);

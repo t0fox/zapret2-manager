@@ -237,19 +237,17 @@ test('9. sources metadata must be inside group, not as separate tab entity', () 
 	assert.ok(Array.isArray(out.groups));
 });
 
-// 10. Package baseline must be technical disclosure, never main group
-test('10. Package baseline hidden always, only technical disclosure in advanced', () => {
+// 10. Package baseline is an internal registry authority, never a product group
+test('10. Package baseline is omitted from the product projection', () => {
 	const model = loadModel();
 	const sources = makeZ2kSources();
 	const pkgAsset = { id: 'blob:pkg-1', type: 'blob', provenance: { kind: 'builtin/package', source: 't0fox/zapret2-manager' } };
 	const resources = { sources, installed: [], z2k: { status: 'current' } };
 	const assets = { assets: [pkgAsset] };
-	const basic = model.buildModel(resources, assets, { advanced: false });
-	const adv = model.buildModel(resources, assets, { advanced: true });
-	assert.equal(basic.groups.find(g => g.id === 'package-baseline'), undefined, 'package-baseline hidden in basic');
-	assert.equal(adv.groups.find(g => g.id === 'package-baseline'), undefined, 'package-baseline must not be main group even in advanced');
-	assert.equal(basic.hiddenGroups.find(g => g.id === 'package-baseline')?.assets.length, 1);
-	assert.equal(adv.hiddenGroups.find(g => g.id === 'package-baseline')?.assets.length, 1);
+	const out = model.buildModel(resources, assets);
+	assert.equal(out.groups.find(g => g.id === 'package-baseline'), undefined);
+	assert.equal(out.hiddenGroups, undefined, 'product projection must not expose hidden groups');
+	assert.equal(out.groups.flatMap(group => group.assets).some(asset => asset.id === pkgAsset.id), false);
 });
 
 // 11. filter User -> only imported/user-created

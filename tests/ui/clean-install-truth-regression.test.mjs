@@ -78,8 +78,8 @@ test('clean Z2K hides package-static Lua/runtime counters without lifecycle auth
 
 test('Z2K card presentation cannot expose stale receipt facts while Engine is missing', () => {
   const maintenance = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
-  assert.match(maintenance, /component\.requiresEngine\s*!==\s*true[\s\S]{0,180}runtime\.health\s*!==\s*'missing'/);
-  assert.match(maintenance, /component\.requiresEngine\s*===\s*true[\s\S]{0,120}Не установлен/);
+  assert.match(maintenance, /component\.runtimeHealth\s*===\s*'missing'[\s\S]{0,220}component\.details\.localInstalled\s*===\s*false[\s\S]{0,120}component\.requiresEngine\s*!==\s*true/);
+  assert.match(maintenance, /function z2kReleaseLabel\(component\)[\s\S]{0,220}component\.requiresEngine\s*===\s*true[\s\S]{0,100}Не установлен/);
 });
 
 test('Z2K does not infer runtime evidence when the summary is absent', () => {

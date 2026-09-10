@@ -43,17 +43,13 @@ const settledValue = result => result.status === 'fulfilled'
 
 const immediate = fn => queueMicrotask(fn);
 
-/* Consumer contract: z2m-overview.js always passes recommendationsRpc. */
-const RECOMMENDATIONS_RPC = () => Promise.resolve({});
-
 function makeLoaderOptions(overrides) {
-  return Object.assign({
+	return Object.assign({
     runtime: makeRuntime(),
     settled: settledValue,
-    timer: immediate,
-    edit: (fn, value) => fn(JSON.stringify(value || {})),
-    recommendationsRpc: RECOMMENDATIONS_RPC
-  }, overrides);
+		timer: immediate,
+		edit: (fn, value) => fn(JSON.stringify(value || {})),
+	}, overrides);
 }
 
 function makeRuntime() {
@@ -66,12 +62,11 @@ function makeApi(overrides) {
   const api = Object.assign({
     service: { statusFast: () => gates.critical.promise },
     engine: { status: () => gates.critical.promise },
-    maintenance: {
-      status: () => gates.critical.promise,
-      versions: () => gates.critical.promise
-    },
-    strategy: { preview: () => Promise.resolve({}) },
-    monitor: { eventsTail: () => Promise.resolve({}) },
+		maintenance: {
+			status: () => gates.critical.promise,
+			versions: () => gates.critical.promise,
+			eventsTail: () => Promise.resolve({})
+		},
     strategies: {
       get: () => { calls.strategiesGet++; return gates.strategiesGet.promise; },
       recommendations: () => Promise.resolve({})
@@ -132,10 +127,9 @@ test('missing strategy id skips canonical lookup entirely', async () => {
 
 test('absent strategies.get degrades to null instead of crashing', async () => {
   const OverviewLoading = loadModule();
-  const { api, gates } = makeApi({
-    strategies: {},
-    strategy: { preview: () => Promise.resolve({}) }
-  });
+	const { api, gates } = makeApi({
+		strategies: {},
+	});
   const loader = OverviewLoading.createLoader(makeLoaderOptions());
   const done = loader.load(makeCtx(api));
   gates.critical.resolve({ strategyStatus: { id: 'orphan' } });
@@ -173,14 +167,13 @@ test('malformed critical envelopes never break phase 1', async () => {
   }
 });
 
-test('missing recommendations RPC option degrades instead of crashing phase 2', async () => {
+test('missing recommendations API degrades instead of crashing phase 2', async () => {
   const OverviewLoading = loadModule();
   const { api, gates } = makeApi({
     strategies: { get: () => Promise.resolve({}) } /* no recommendations member */
   });
-  const loaderOptions = makeLoaderOptions();
-  delete loaderOptions.recommendationsRpc;
-  const loader = OverviewLoading.createLoader(loaderOptions);
+	const loaderOptions = makeLoaderOptions();
+	const loader = OverviewLoading.createLoader(loaderOptions);
   const done = loader.load(makeCtx(api));
   gates.critical.resolve({});
   const data = await done; /* must not reject with TypeError */

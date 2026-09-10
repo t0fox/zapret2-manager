@@ -84,7 +84,7 @@ test('Components UI treats Z2K prepare as a bounded operation and waits for its 
   assert.match(api, /z2k_prepare_version_start/);
   assert.match(api, /z2k_prepare_version_status/);
   assert.match(api, /prepareVersion:z2kPrepareVersion/);
-  assert.match(api, /prepareStatus/);
+  assert.doesNotMatch(api, /resources:[\s\S]*prepareStatus/);
   assert.match(maintenance, /Z2K_PREPARE_TIMEOUT_MS/);
 });
 

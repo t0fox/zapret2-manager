@@ -1,6 +1,5 @@
 'use strict';
 'require baseclass';
-'require view.zapret2-manager.z2m-monitor as Monitor';
 'require view.zapret2-manager.z2m-monitor-model as MonitorModel';
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 'require view.zapret2-manager.z2m-icons as Icons';
@@ -40,12 +39,10 @@ function load(ctx) {
   state.deferred = { proxy: { value: { deferred: true } } };
   var fastCall = (ctx.statusFast || ctx.api.service && ctx.api.service.statusFast) ?
     (ctx.statusFast || ctx.api.service.statusFast)() : Promise.reject(new Error('status_fast unavailable'));
-  // Diagnostics-grade evidence must stay bounded: the blocking full status
-  // collector is intentionally NOT referenced here (app-shell contract).
-  var fullCall = Promise.resolve({ cached: true, note: 'full collector intentionally skipped; bounded fast status governs this view' });
+  // Diagnostics-grade evidence stays bounded: the full collector is an
+  // internal lifecycle primitive, not a UI transport.
   return Promise.allSettled([
     fastCall,
-    fullCall,
     ctx.api.maintenance.status(),
     ctx.api.engine.status(),
     ctx.api.dns.product.status(),
@@ -53,12 +50,11 @@ function load(ctx) {
   ]).then(function (results) {
     var data = {
       fast: settled(results[0], ctx.api),
-      full: settled(results[1], ctx.api),
-      system: settled(results[2], ctx.api),
-      engine: settled(results[3], ctx.api),
-      dns: settled(results[4], ctx.api),
+      system: settled(results[1], ctx.api),
+      engine: settled(results[2], ctx.api),
+      dns: settled(results[3], ctx.api),
       proxy: state.deferred.proxy,
-      telegram: settled(results[5], ctx.api)
+      telegram: settled(results[4], ctx.api)
     };
     scheduleDeferred(ctx, token);
     return data;
@@ -148,7 +144,7 @@ function renderMonitoring(ctx, data) {
   return E('div', { 'class': 'z2m-health-center' }, [
     E('p', { 'class': 'z2m-dim z2m-health-scope' }, [
       E('strong', {}, _('Область проверки')),
-      E('span', {}, _('zapret2 engine · nfqws2 · NFQUEUE / firewall · Scanner · DNS · Telegram Proxy · Overlay'))
+      E('span', {}, _('zapret2 engine · nfqws2 · NFQUEUE / firewall · Z2K Detect · DNS · Telegram Proxy'))
     ]),
     shell.panel(_('Состояние компонентов'), E('div', { 'class': 'z2m-kpis z2m-health-grid' }, cards.map(function (id) {
       return healthCard(shell, health.cards[id]);
@@ -164,7 +160,7 @@ function render(ctx) {
   var pane = activePane(ctx);
   if (pane === 'logs') return AvatarLog.render(ctx);
   var body = renderMonitoring(ctx, Object.assign({}, ctx.data || {}, state.deferred || {}));
-  return E('section', { 'class': 'z2m-view on z2m-monitoring-page', id: 'z2m-view-diagnostics' }, [
+  return E('section', { 'class': 'z2m-view on z2m-monitoring-page', id: 'z2m-view-monitor' }, [
     E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Мониторинг')), E('p', {}, _('Read-only состояние компонентов · журналы открываются через навигацию'))])]),
     body
   ]);
@@ -182,8 +178,8 @@ function unmount() {
 }
 
 return baseclass.extend({
-  id: 'diagnostics',
-  title: _('Диагностика'),
+  id: 'monitor',
+  title: _('Мониторинг'),
   subtitle: _('Мониторинг и журналы'),
   load: load,
   render: render,

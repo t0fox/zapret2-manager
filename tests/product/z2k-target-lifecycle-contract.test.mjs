@@ -54,14 +54,13 @@ test('apply consumes the prepared target, downloads complete exact-managed asset
   assert.match(coordinator, /RAW_ROOT|raw\.githubusercontent\.com/);
   assert.match(coordinator, /targetCommitSha[\s\S]*item\.sourcePath/);
   const applyBody = coordinator.slice(coordinator.indexOf('export const resource_center_update = function'));
-  assert.doesNotMatch(applyBody, /z2k_component_apply\(request\)/);
   assert.doesNotMatch(applyBody, /z2k_upstream_check\(\)/);
   assert.doesNotMatch(applyBody, /z2k-enhanced\/['\"] \+ sourcePath/);
 });
 
 test('CLI, RPC, and API expose catalog, lazy details, and prepare as read-only/prepare operations', () => {
   for (const mode of ['versions', 'details', 'prepare']) assert.match(cli, new RegExp("['\\\"]" + mode + "['\\\"]"));
-  for (const method of ['z2k_versions', 'z2k_version_details', 'z2k_prepare_version']) assert.match(rpc, new RegExp(method));
+  for (const method of ['z2k_versions', 'z2k_version_details', 'z2k_prepare_version_start']) assert.match(rpc, new RegExp(method));
   for (const method of ['z2kVersions', 'z2kVersionDetails', 'z2kPrepareVersion']) assert.match(api, new RegExp(method));
 });
 

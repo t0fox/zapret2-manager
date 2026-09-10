@@ -22,10 +22,9 @@ function sliceFunction(source, name) {
 test('Resources header does not repeat counts that already live in the filters', () => {
   assert.doesNotMatch(assets, /var summaryMeta/);
   assert.doesNotMatch(assets, /summaryMeta/);
-  assert.match(assets, /label: _\('Все · ' \+ summaryForRoute\.total\)/);
-  assert.match(assets, /label: _\('Системные · ' \+ summaryForRoute\.system\)/);
-  assert.match(assets, /label: _\('Мои · ' \+ summaryForRoute\.user\)/);
-  assert.doesNotMatch(assets, /summaryForRoute\.stateLabel/);
+  assert.match(assets, /var summary = model\.summary/);
+  assert.doesNotMatch(assets, /summaryForRoute/);
+  assert.match(assets, /ResourcesModel\.resourceCountText\(managedCount\)/);
 });
 
 test('Z2K strategy source is managed by Core while Avatar retains independent controls', () => {
@@ -91,9 +90,9 @@ test('Components does not expose a second normal-flow Z2K management dashboard',
   assert.match(maintenance, /Совместимость/);
 });
 
-test('Optional cards keep natural heights and the advanced mode remains a simple row', () => {
+test('Optional cards keep natural heights without a hidden advanced mode', () => {
   assert.match(componentsCss, /\.z2m-components-section--optional \.z2m-components-grid\{align-items:start\}/);
-  assert.match(maintenance, /z2m-components-advanced-row/);
+  assert.doesNotMatch(maintenance, /z2m-components-advanced-row|Расширенный режим/);
   assert.doesNotMatch(maintenance, /z2m-components-section--advanced/);
 });
 
