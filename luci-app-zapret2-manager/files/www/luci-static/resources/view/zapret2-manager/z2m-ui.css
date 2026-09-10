@@ -3058,7 +3058,7 @@
 .z2m-app .z2m-view#z2m-view-overview #card-zapret2 .status-card-row-value.warning{border-color:rgba(224,163,59,.28);background:rgba(224,163,59,.11);color:var(--orange)}
 .z2m-app .z2m-view#z2m-view-overview #card-zapret2 .status-card-row-value.error{border-color:rgba(226,105,90,.28);background:rgba(226,105,90,.11);color:var(--red)}
 .z2m-app .z2m-view#z2m-view-overview #card-zapret2 .status-card-row-detail{grid-column:2;justify-self:end;margin-top:-5px;color:var(--tx3);font-size:11px;text-align:right}
-.z2m-app .z2m-view#z2m-view-overview #card-zapret2 .status-card-context{margin-top:auto;padding-top:11px;border-top:1px solid var(--border);color:var(--tx2);font-size:12px;line-height:1.35}
+.z2m-app .z2m-view#z2m-view-overview #card-zapret2 .status-card-context{margin-top:12px;padding-top:0;border-top:0;color:var(--tx2);font-size:12px;line-height:1.35}
 @media (hover:hover) and (pointer:fine){.z2m-app .z2m-view#z2m-view-overview #card-zapret2:hover .status-card-header-arrow{color:var(--tx);transform:translateX(2px)}}
 @media (prefers-reduced-motion:reduce){.z2m-app .z2m-view#z2m-view-overview #card-zapret2 .status-card-header-arrow{transition-duration:.01ms}}
 

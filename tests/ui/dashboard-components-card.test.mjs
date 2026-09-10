@@ -29,4 +29,5 @@ test('Dashboard component rows keep version evidence below the status chip', () 
   assert.match(dashboard, /status-card-status[^]*item\.value/);
   assert.match(css, /#card-zapret2 \.status-card-row-detail\{grid-column:2/);
   assert.match(css, /#card-zapret2 \.status-card-row-detail\{[^}]*text-align:right/);
+  assert.match(css, /#card-zapret2 \.status-card-context\{margin-top:12px;padding-top:0;border-top:0/);
 });
