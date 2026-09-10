@@ -50,7 +50,6 @@ function validateDetectArguments(request) {
 }
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
-function array(value) { return Array.isArray(value) ? value : []; }
 function text(value) { return value === null || value === undefined ? '' : String(value); }
 function terminal(value) { return ['completed', 'cancelled', 'error'].indexOf(object(value).status) >= 0; }
 function statusValue(data) { return object(data && data.status || state.status); }
@@ -167,20 +166,6 @@ function safeRequest(value) {
     request._normalized = normalized;
   }
   return request;
-}
-function phaseLabel(value) {
-  var map = {
-    validating: _('Подготовка'), planning: _('Подготовка'), snapshotting: _('Подготовка'),
-    baselining: _('Проверка соединения'), searching: _('Поиск рабочих вариантов'),
-    executing: _('Поиск рабочих вариантов'), probing: _('Поиск рабочих вариантов'),
-    verifying: _('Проверка лучших вариантов'), ranking: _('Выбор результата'),
-    reconciling: _('Выбор результата'), cleaning: _('Завершаем проверку'),
-    cancelling: _('Останавливаем проверку'), 'waiting-record': _('Подготавливаем результаты')
-  };
-  return map[value] || _('Проверка продолжается');
-}
-function statusLabel(value) {
-  return ({ starting: _('Подготовка'), running: _('Проверяем'), completed: _('Завершена'), cancelled: _('Остановлена'), error: _('Ошибка') })[value] || _('Состояние уточняется');
 }
 function errorText(value) {
   value = object(value);

@@ -34,7 +34,6 @@ function release_version(tag) { return type(tag) == 'string' && match(tag, /^v[0
 function release_url(version, name) { return 'https://github.com/bol-van/zapret2/releases/download/v' + version + '/' + name; }
 function exact_asset(assets, name) { if (type(assets) != 'array') return null; for (let i = 0; i < length(assets); i++) { let a = assets[i]; if (type(a) == 'object' && a != null && a.name == name) return a; } return null; }
 function valid_asset(asset, name, version, min_size) { return type(asset) == 'object' && asset != null && asset.name == name && asset.state == 'uploaded' && +asset.size >= min_size && +asset.size <= MAX_ASSET_SIZE && sha256(asset.digest) != null && asset.browser_download_url == release_url(version, name); }
-function supported(version) { return match(version || '', /^1\.[0-9]+(\.[0-9]+)?$/); }
 function release_record(release, architecture_value) {
 	if (type(release) != 'object' || release == null || release.draft !== false || release.prerelease !== false || release.published_at == null) return null;
 	let version = release_version(release.tag_name); if (version == null) return null;

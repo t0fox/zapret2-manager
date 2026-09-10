@@ -10,7 +10,6 @@ import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
-function copy_array(value) { let result = []; for (let i = 0; type(value) == 'array' && i < length(value); i++) push(result, value[i]); return result; }
 function valid_commit(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
 function valid_integer(value) { return type(value) == 'int' && value >= 0; }

@@ -1393,23 +1393,6 @@ function z2k_classification_for(map, path) {
 function z2k_runtime_exact(item) {
 	return object(item) && (item.class == 'exact-managed' || item.dependencyClass == 'runtime-exact');
 }
-function z2k_classification_asset_for(map, id, typeName) {
-	let found = null;
-	for (let i = 0; map && type(map.files) == 'array' && i < length(map.files); i++) {
-		let item = map.files[i], mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
-		if (!z2k_runtime_exact(item) || mappedType != typeName || !string(item.sourcePath) || !runtime_target_path(item.runtimeTarget)
-			|| z2k_asset_id_from_classification(item, item.sourcePath) != id) continue;
-		if (found != null) return { ambiguous: true };
-		found = item;
-	}
-	return found;
-}
-function z2k_receipt_header_valid(receipt) {
-	return object(receipt) && receipt.schema == 'asset-activation-receipt.v1' && receipt.bundleId == 'z2k-curated-lua'
-		&& string(receipt.version) && z2k_compare_versions(receipt.version, receipt.version) != null
-		&& string(receipt.sourceCommit) && match(lc(receipt.sourceCommit), /^[a-f0-9]{40}$/)
-		&& type(receipt.assets) == 'array' && length(receipt.assets) > 0;
-}
 function z2k_read_classification_snapshot() {
 	try {
 		let raw = readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json'), value = raw == null ? null : json(raw);

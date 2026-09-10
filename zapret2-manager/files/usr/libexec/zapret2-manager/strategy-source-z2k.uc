@@ -64,7 +64,6 @@ function error(code, message, path) {
 function copy(value) {
 	try { return json(sprintf('%J', value)); } catch (e) { return null; }
 }
-function trim_ws(value) { return trim(value == null ? '' : '' + value); }
 function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{40}$/); }
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function valid_release(value) { return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/); }

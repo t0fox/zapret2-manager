@@ -77,12 +77,6 @@ export const tiktok_resolved_candidates = function(resolutions) {
 	return result;
 };
 
-function copy_array(values) {
-	let result = [];
-	for (let i = 0; i < length(values || []); i++) push(result, values[i]);
-	return result;
-}
-
 function legacy_candidate(ip) {
 	return { ip: ip, sourceDomains: [], modes: ['legacy'], resolvers: [], provenance: 'legacy-state' };
 }

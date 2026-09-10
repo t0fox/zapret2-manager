@@ -3,7 +3,7 @@
 // Z2K release catalog and lazy release detail resolver. The catalog is
 // intentionally metadata-only: UPDATES.json is fetched only after a user
 // selects a release or a target prepare explicitly asks for it.
-import { readfile, writefile, stat, unlink, popen } from 'fs';
+import { readfile, writefile, unlink, popen } from 'fs';
 import { z2k_registry_installed_release } from './z2k-installed-release.uc';
 import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
 import { installed_engine } from './engine-catalog.uc';
@@ -59,8 +59,6 @@ export const z2k_strategy_compiler_plan = function(selected) {
 };
 function quote(value) { let raw = text(value); if (index(raw, "'") >= 0 || index(raw, '\n') >= 0 || index(raw, '\r') >= 0) return null; return "'" + raw + "'"; }
 function command(value) { let p = popen(value + ' 2>/dev/null', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
-function regular(path) { try { let value = stat(path); return object(value) && value.type == 'file' && type(value.size) == 'int'; } catch (e) { return false; } }
-function temp_file(prefix) { let safe = prefix || 'z2m-z2k'; let p = popen('umask 077; mktemp /tmp/' + safe + '.XXXXXX 2>/dev/null', 'r'); if (!p) return null; let value = trim(p.read('all') || ''), rc = p.close(); return rc == 0 && match(value, /^\/tmp\/[A-Za-z0-9._-]+$/) ? value : null; }
 function cleanup(path) { if (path != null) try { unlink(path); } catch (e) {} }
 function source_request(sourceKey, origin, url, maxBytes, validate, normalize) {
 	let input = { sourceKey: sourceKey, origin: origin, url: url, ttlSec: 900, maxBytes: maxBytes, validate: validate };
@@ -178,11 +176,6 @@ function fetch_catalog_manifest(mode) {
 	return checked.ok === true ? { current: checked.manifest.current, stale: result.stale === true, source: result } : { current: null, stale: result.stale === true, source: result };
 }
 function utf8_codepoints(value) { let count = 0; for (let i = 0; i < length(value); i++) { let byte = ord(substr(value, i, 1)); if (byte < 128 || byte > 191) count++; } return count; }
-function bounded_text(value, limit) {
-	let out = trim(text(value));
-	if (!length(out)) return null;
-	return utf8_codepoints(out) > limit ? null : out;
-}
 function valid_summary(value) {
 	if (!string(value) || length(value) == 0 || utf8_codepoints(value) > MAX_SUMMARY) return false;
 	for (let i = 0; i < length(value); i++) { let byte = ord(substr(value, i, 1)); if (byte < 32 || byte == 127) return false; }

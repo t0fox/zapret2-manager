@@ -2,11 +2,6 @@
 import { readfile, stat, popen } from 'fs';
 import { z2k_candidate_compatibility_identity_valid } from './z2k-coherent-candidate.uc';
 
-function fail(code, message, details) {
-  let v = { ok: false, error: { code: code, message: message } };
-  if (details != null) v.error.details = details;
-  return v;
-}
 function text(v) { return v == null ? '' : '' + v; }
 function shell_quote(v) {
   let out = "'", raw = text(v);

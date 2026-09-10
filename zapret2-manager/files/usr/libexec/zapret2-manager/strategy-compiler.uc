@@ -73,13 +73,6 @@ function option_info(token) {
 	return { name: substr(body, 0, eq), value: substr(body, eq + 1), hasEquals: true };
 }
 
-function copy_array(value) {
-	let result = [];
-	if (type(value) != 'array') return result;
-	for (let i = 0; i < length(value); i++) push(result, value[i]);
-	return result;
-}
-
 function safe_path_text(value) {
 	if (type(value) != 'string') return false;
 	for (let i = 0; i < length(value); i++) {

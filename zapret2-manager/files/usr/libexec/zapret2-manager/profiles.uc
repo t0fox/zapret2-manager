@@ -806,45 +806,6 @@ function validate_manager(model) {
 // segment outside token spans is a MANAGER_LOSSY_ROUNDTRIP error — never a
 // silent change.
 // ---------------------------------------------------------------------------
-const PROFILE_LIST_KEYS = ['tcpPorts', 'udpPorts', 'l7Filters', 'payloads',
-	'outboundRanges', 'inboundRanges', 'hostlists', 'hostlistExcludes',
-	'ipsets', 'ipsetExcludes', 'blobs', 'luaInit', 'luaDesync',
-	'passthroughOptions', 'unknownOptions'];
-
-function profile_token_indexes(p, set) {
-	if (p.separator != null) set['' + p.separator.tokenIndex] = true;
-	for (let ri = 0; ri < length(p.nameRecords); ri++) {
-		set['' + p.nameRecords[ri].tokenIndex] = true;
-		if (p.nameRecords[ri].valueTokenIndex != null) set['' + p.nameRecords[ri].valueTokenIndex] = true;
-	}
-	for (let ki = 0; ki < length(PROFILE_LIST_KEYS); ki++) {
-		let entries = p[PROFILE_LIST_KEYS[ki]];
-		for (let ei = 0; ei < length(entries); ei++) {
-			let e = entries[ei];
-			set['' + e.tokenIndex] = true;
-			if (e.valueTokenIndex != null) set['' + e.valueTokenIndex] = true;
-		}
-	}
-}
-
-function sort_numeric(arr) {
-	// insertion sort (n small; avoids comparator-API uncertainty)
-	for (let i = 1; i < length(arr); i++) {
-		let v = arr[i];
-		let j = i - 1;
-		while (j >= 0 && arr[j] > v) { arr[j + 1] = arr[j]; j--; }
-		arr[j + 1] = v;
-	}
-	return arr;
-}
-
-function is_whitespace_only(s) {
-	for (let i = 0; i < length(s); i++) {
-		if (!is_ws(substr(s, i, 1))) return false;
-	}
-	return true;
-}
-
 // ---------------------------------------------------------------------------
 // Strategy parser helpers
 // ---------------------------------------------------------------------------

@@ -232,17 +232,6 @@ function render(ctx) {
     if (value === 'stopped' || value === 'disabled' || value === 'failed' || value === 'error') return 'r';
     return 'o';
   }
-  function statusText(value, fallback) {
-    if (value === true) return _('Включено');
-    if (value === false) return _('Выключено');
-    var labels = {
-      mismatch: _('Расхождение'), installed: _('Установлен'), unavailable: _('Недоступно'),
-      running: _('Работает'), stopped: _('Остановлен'), ready: _('Готово'), degraded: _('Требует проверки'),
-      unknown: _('Состояние неизвестно'), operation: _('Выполняется'), error: _('Ошибка')
-    };
-    if (labels[String(value || '').toLowerCase()]) return labels[String(value || '').toLowerCase()];
-    return format.text(value) || fallback || _('Недоступно');
-  }
   function reasonLabel(code) {
     var labels = {
       'process-confirmed-absent': _('Служба zapret2 остановлена'),

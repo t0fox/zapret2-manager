@@ -28,9 +28,29 @@ const deadHelpers = [
   ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-dependency-closure.uc', 'descriptor_reference'],
   ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc', 'human_body'],
   ['zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops.uc', 'strategies_autocircular_test_transaction'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/profiles.uc', 'profile_token_indexes'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/profiles.uc', 'sort_numeric'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/profiles.uc', 'is_whitespace_only'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc', 'supported'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc', 'catalog_root'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/strategy-source-z2k.uc', 'trim_ws'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc', 'z2k_classification_asset_for'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/resource-update.uc', 'z2k_receipt_header_valid'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-compat.uc', 'fail'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-dependency-closure.uc', 'has'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-dependency-closure.uc', 'copy'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-installed-release.uc', 'copy_array'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-migration.uc', 'text'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc', 'bounded_text'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc', 'regular'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc', 'temp_file'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/service-dns-tiktok-model.uc', 'copy_array'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc', 'safe_id'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc', 'copy_array'],
+  ['luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js', 'array'],
 ];
 
-test('proven dead backend helper declarations are removed', () => {
+test('proven dead helper declarations are removed', () => {
   for (const [relativePath, name] of deadHelpers) {
     const source = fs.readFileSync(path.join(root, relativePath), 'utf8');
     assert.doesNotMatch(
@@ -65,6 +85,21 @@ test('strategy RPC adapter has no orphan test dispatcher or runtime projection e
   );
   assert.doesNotMatch(source, /strategy_cli_dispatch_test|SERVER_TEST_MARKER/);
   assert.doesNotMatch(source, /export const strategy_runtime_environment_from_composition/);
+});
+
+test('scanner and overview ship only helpers with current callers', () => {
+  const scanner = fs.readFileSync(
+    path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js'),
+    'utf8',
+  );
+  const overview = fs.readFileSync(
+    path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js'),
+    'utf8',
+  );
+  for (const name of ['phaseLabel', 'statusLabel']) {
+    assert.doesNotMatch(scanner, new RegExp(`function ${name}\\s*\\(`));
+  }
+  assert.doesNotMatch(overview, /function statusText\s*\(/);
 });
 
 test('retired runtime Lua assets are not shipped', () => {

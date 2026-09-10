@@ -17,10 +17,8 @@ function object(value) { return type(value) == 'object' && value != null; }
 function array(value) { return type(value) == 'array'; }
 function string(value) { return type(value) == 'string'; }
 function integer(value) { return type(value) == 'int'; }
-function has(value, wanted) { return string(value) && index(value, wanted) >= 0; }
 function starts(value, prefix) { return string(value) && length(value) >= length(prefix) && substr(value, 0, length(prefix)) == prefix; }
 function valid_digest(value) { return string(value) && match(lc(value), /^[a-f0-9]{64}$/); }
-function copy(value) { try { return json(sprintf('%J', value)); } catch (e) { return value; } }
 function contains(values, wanted) { for (let value in values || []) if (value == wanted) return true; return false; }
 function option_info(token) {
 	if (!starts(token, '--')) return { name: null, value: null, hasEquals: false };

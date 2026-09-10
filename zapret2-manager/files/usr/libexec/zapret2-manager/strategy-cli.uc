@@ -158,10 +158,6 @@ function runtime_identity_digest(value) {
 	return rc == 0 && length(fields) && digest(fields[0]) ? fields[0] : null;
 }
 
-function safe_id(value) {
-	return is_string(value) && length(value) > 0 && length(value) <= 128
-		&& index(value, chr(0)) < 0 && index(value, '/') < 0 && index(value, '..') < 0;
-}
 function safe_strategy_id(value) {
 	return is_string(value) && length(value) > 0 && length(value) <= 128
 		&& index(value, chr(0)) < 0 && index(value, '/') < 0 && index(value, '..') < 0
@@ -1294,10 +1290,6 @@ function strategy_reconcile_with_config_lock() {
 export const strategy_reconcile = function(input, context) {
 	return getenv('Z2M_CONFIG_LOCKED') == '1' ? strategy_reconcile_locked() : strategy_reconcile_with_config_lock();
 };
-
-function catalog_root() {
-	return getenv('Z2M_STRATEGY_CATALOG_ROOT') || DEFAULT_CATALOG_ROOT;
-}
 
 function load_request_catalog() {
 	let loaded = null;
