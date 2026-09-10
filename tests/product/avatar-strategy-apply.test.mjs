@@ -721,26 +721,17 @@ test('strategy_apply executes restart failure and verified rollback through the 
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
 }));
 
-test('successful strategy_apply guard-release failure records evidence and reconciles the old state', () => storage(({ record, env }) => {
-  const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
-    strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
-  })})`, { ...env,
-    Z2M_STRATEGY_APPLY_END_RESULT: JSON.stringify({ ok: false, error: { code: 'EIO', message: 'release failed' } }),
-    Z2M_STRATEGY_APPLY_HOOK: transactionHook({ candidate: strategyCandidateStub() }),
-  });
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, 'EUNCERTAIN');
-  const recordValue = JSON.parse(fs.readFileSync(env.Z2M_STRATEGY_APPLY_UNCERTAIN, 'utf8'));
-  assert.equal(recordValue.oldCandidateSha256, HASH);
-  assert.equal(recordValue.newCandidateSha256, CANDIDATE_HASH);
-  assert.equal(recordValue.oldIdentity, null);
-  const reconciled = invoke(STATE, `mod.strategy_apply_reconcile(${JSON.stringify({
-    evidenceMarker: 'z2m-authoritative-reconcile.v1', currentConfigSha256: OLD_CONFIG_HASH,
-    activeCandidateSha256: HASH, runtimeChecks: runtimeChecks(true),
+test('strategy_apply_end fails closed when the Apply lease is malformed', () => storage(({ record, env }) => {
+  const begun = invoke(STATE, `mod.strategy_apply_begin(${JSON.stringify({
+    strategyId: record.id, strategyRevision: record.revision, catalogDigest: CATALOG_DIGEST,
   })})`, env);
-  assert.deepEqual(reconciled, { ok: true, reconciled: 'old', selected: null });
-  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_UNCERTAIN), false);
-  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
+  assert.equal(begun.ok, true, JSON.stringify(begun));
+  fs.rmSync(env.Z2M_STRATEGY_APPLY_LEASE, { force: true });
+  fs.mkdirSync(env.Z2M_STRATEGY_APPLY_LEASE);
+  const ended = invoke(STATE, `mod.strategy_apply_end({applyNonce:'${begun.operationNonce}'})`, env);
+  assert.equal(ended.ok, false, JSON.stringify(ended));
+  assert.equal(ended.error.code, 'ELOCKED');
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), true);
 }));
 
 test('strategy_apply reconciliation holds the config lock while collecting evidence', async () => storage(async ({ env }) => {

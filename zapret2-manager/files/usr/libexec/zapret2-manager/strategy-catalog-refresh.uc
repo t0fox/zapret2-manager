@@ -139,7 +139,8 @@ function finish_transaction_error(state, result) {
 	state.error = result && result.error ? result.error : { code: 'EUNAVAILABLE', message: 'Catalog transaction failed' };
 	state.finishedAt = now();
 	state.heartbeatAt = state.finishedAt;
-	return state_save(state);
+	state_save(state);
+	return state;
 }
 function recovery_failure(state, transaction, error) {
 	state.state = 'error';

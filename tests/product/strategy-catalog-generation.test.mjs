@@ -50,6 +50,10 @@ function entry(sourceId, upstreamId, snapshotId) {
     ...(sourceId === 'z2k' ? {
       entryKind: 'standalone', usable: true, semanticDigest: 'e'.repeat(64),
       nativeValidation: { status: 'verified' },
+      dependencyClosure: {
+        schema: 'z2m.z2k-dependency-closure.v1', items: [], missing: [], counts: {},
+        runtimeBundleDigest: 'a'.repeat(64), resolution: 'complete',
+      },
     } : {}),
     provenance: {
       repository: sourceId === 'avatar' ? 'avatarDD/zapret-gui' : 'necronicle/z2k', sourceId,
@@ -115,28 +119,6 @@ test('Avatar and Z2K are merged into one v3 index without collapsing shared upst
   assert.match(result.candidate.index.indexDigest, /^[0-9a-f]{64}$/);
 });
 
-test('test-only native preflight bypass accepts not_checked Z2K standalones only in the explicit test mode', () => {
-  const root = rootFor('test-bypass');
-  const row = source('z2k', 'z2k-test-bypass');
-  const snapshot = row.snapshot;
-  snapshot.sourcePath = 'official:generate_nfqws2_opt_from_strategies';
-  snapshot.sourceFiles = ['strats_new2.txt', 'quic_strats.ini', 'lib/utils.sh', 'lib/strategies.sh', 'lib/config_official.sh'];
-  snapshot.fileSha256 = Object.fromEntries(snapshot.sourceFiles.map(name => [name, 'f'.repeat(64)]));
-  snapshot.compilerSchema = 'z2m.z2k-official-compiler-snapshot.v1';
-  snapshot.nfqws2OptSha256 = 'e'.repeat(64);
-  snapshot.entries[0].nativeValidation = { status: 'not_checked' };
-  snapshot.entries[1].officialNfqws2Opt = '--filter-tcp=443';
-  const allowed = invoke('strategy_catalog_generation_build', [{
-    generatedAt: 1788200000, sources: { z2k: row }, userRevision: 0,
-  }], root, { Z2M_UPDATE_SOURCE_TEST: '1', Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '0' });
-  assert.equal(allowed.ok, true, JSON.stringify(allowed));
-  const rejected = invoke('strategy_catalog_generation_build', [{
-    generatedAt: 1788200001, sources: { z2k: row }, userRevision: 0,
-  }], root, { Z2M_UPDATE_SOURCE_TEST: '1', Z2M_Z2K_REFRESH_NATIVE_VALIDATE: '1' });
-  assert.equal(rejected.ok, false, JSON.stringify(rejected));
-  assert.equal(rejected.error.code, 'ESTALE');
-});
-
 test('disabled and unpublished source snapshots never enter the candidate index', () => {
   const root = rootFor('gates');
   const result = invoke('strategy_catalog_generation_build', [{
@@ -161,7 +143,7 @@ test('published generation survives a fresh process read and publication failure
   assert.equal(initial.index.generationId, first.generationId);
   const failed = invoke('strategy_catalog_generation_publish', [{
     generatedAt: 1788200003, sources: { z2k: source('z2k', 'z2k-new') }, userRevision: 2,
-  }], root, { Z2M_STRATEGY_GENERATION_FAIL_PHASE: 'pointer' });
+  }], root, { Z2M_STRATEGY_CATALOG_ACTIVE_POINTER: path.join(root, 'missing', 'active.json') });
   assert.equal(failed.ok, false, JSON.stringify(failed));
   assert.equal(failed.error.code, 'EWRITE');
   const after = invoke('strategy_catalog_generation_read', [], root);
@@ -176,9 +158,14 @@ test('generation, index, and final pointer publication failures leave the old au
       generatedAt: 1788200010, sources: { avatar: source('avatar', 'avatar-old') }, userRevision: 1,
     }], root);
     assert.equal(first.ok, true, JSON.stringify(first));
+    const failureTarget = phase === 'generation'
+      ? { Z2M_STRATEGY_CATALOG_GENERATIONS_ROOT: path.join(root, 'missing', 'generations') }
+      : phase === 'index'
+        ? { Z2M_STRATEGY_CATALOG_INDEX_PATH: path.join(root, 'missing', 'index.json') }
+        : { Z2M_STRATEGY_CATALOG_ACTIVE_POINTER: path.join(root, 'missing', 'active.json') };
     const failed = invoke('strategy_catalog_generation_publish', [{
       generatedAt: 1788200011, sources: { z2k: source('z2k', 'z2k-new') }, userRevision: 2,
-    }], root, { Z2M_STRATEGY_GENERATION_FAIL_PHASE: phase });
+    }], root, failureTarget);
     assert.equal(failed.ok, false, `${phase}: ${JSON.stringify(failed)}`);
     const afterRestart = invoke('strategy_catalog_generation_read', [], root);
     assert.equal(afterRestart.ok, true, `${phase}: ${JSON.stringify(afterRestart)}`);

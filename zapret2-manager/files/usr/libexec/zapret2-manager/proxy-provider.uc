@@ -898,8 +898,7 @@ function ensure_shared_lifecycle() {
 	let canonicalInit = canonical_init_body();
 	if (canonicalInit == null)
 		push(failures, 'canonical-init-missing');
-	let noRepair = getenv('Z2M_TGPROVIDER_NO_REPAIR') == '1';
-	if (canonicalInit != null && !noRepair) {
+	if (canonicalInit != null) {
 		if (stat(INIT_PATH) != null) {
 			let cur = readfile(INIT_PATH);
 			if (cur == null || cur != canonicalInit) {

@@ -251,9 +251,6 @@ exit 0`);
     Z2M_UPDATE_SOURCE_STATE_ROOT: path.join(tmpDir, 'update-source'),
     Z2M_UPDATE_SOURCE_LOCK_ROOT: path.join(tmpDir, 'update-locks'),
     Z2M_UPDATE_SOURCE_TEST: '1',
-    // The sandbox init stub stands in for the package-provided init; runtime
-    // repair must not clobber it inside behavioral tests.
-    Z2M_TGPROVIDER_NO_REPAIR: '1',
   };
 
   function seedRustInstalled(version = '1.9.0', pkgver = '1.9.0-r1') {

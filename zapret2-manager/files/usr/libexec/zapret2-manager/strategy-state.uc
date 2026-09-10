@@ -950,9 +950,6 @@ export const strategy_apply_begin = function(input) {
 };
 
 export const strategy_apply_end = function(input) {
-	let injected = null, raw = getenv('Z2M_STRATEGY_APPLY_END_RESULT');
-	if (raw != null && length(raw) <= 4096) try { injected = json(raw); } catch (e) { injected = null; }
-	if (is_object(injected)) return injected;
 	return locked(function() {
 		if (!is_object(input) || !bounded_string(input.applyNonce, 256)) return error('EINPUT', 'Strategy Apply operation nonce is required.');
 		let lease = apply_lease_read();

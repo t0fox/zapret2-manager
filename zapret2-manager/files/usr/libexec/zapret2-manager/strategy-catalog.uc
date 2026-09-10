@@ -1216,8 +1216,8 @@ export const strategy_catalog_materialize = function(ids, root) {
 		loaded = materialized; loadedRoot = actualRoot;
 		return { ok: true, catalog: materialized, materialized: length(ids), files: 0, generationId: resolved.catalog.generationId };
 	}
-	if (actualRoot != catalog_root() && getenv('Z2M_SCANNER_SERVER_TEST') != '1')
-		return error_result('EPATH', 'catalog root override is available only in server tests', 'root');
+	if (actualRoot != catalog_root())
+		return error_result('EPATH', 'catalog root override is not supported', 'root');
 	if (type(ids) != 'array' || length(ids) > 80)
 		return error_result('EINPUT', 'catalog materialization ids are bounded', 'ids');
 	let persisted = read_persisted_index(actualRoot), indexed = persisted || (resolved && resolved.catalog);

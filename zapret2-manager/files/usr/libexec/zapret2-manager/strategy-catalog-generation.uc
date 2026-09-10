@@ -96,9 +96,7 @@ function safe_id(value) {
 function valid_digest(value) { return string(value) && match(value, /^[0-9a-f]{64}$/); }
 function valid_commit(value) { return string(value) && match(value, /^[0-9a-f]{7,40}$/); }
 function native_verified(value) {
-	return object(value) && (value.status == 'verified'
-		|| (value.status == 'not_checked' && getenv('Z2M_UPDATE_SOURCE_TEST') == '1'
-			&& getenv('Z2M_Z2K_REFRESH_NATIVE_VALIDATE') == '0'));
+	return object(value) && value.status == 'verified';
 }
 function native_deferred(value) {
 	return object(value) && value.status == 'deferred'
@@ -313,14 +311,8 @@ function restore(path, raw) {
 	return atomic_write(path, raw);
 }
 function failure(code, message) { return error(code, message); }
-function fail_phase(phase) {
-	return getenv('Z2M_STRATEGY_GENERATION_FAIL_PHASE') == phase;
-}
 
 export const strategy_catalog_generation_build = function(input) { return build(input); };
-export const strategy_catalog_generation_z2k_snapshot_is_current = function(snapshot) {
-	return valid_z2k_snapshot(snapshot);
-};
 
 export const strategy_catalog_generation_publish = function(input) {
 	let built = build(input);
@@ -332,21 +324,11 @@ export const strategy_catalog_generation_publish = function(input) {
 	let generationPath = GENERATIONS_ROOT + '/' + candidate.generationId + '.json';
 	let serialized = sprintf('%J', candidate.index);
 	if (!atomic_write(generationPath, serialized)) return failure('EWRITE', 'Generation record could not be written');
-	if (fail_phase('generation')) return failure('EWRITE', 'Injected generation publication failure');
 	if (!atomic_write(INDEX_PATH, serialized)) {
 		restore(INDEX_PATH, oldIndex.raw);
 		return failure('EWRITE', 'Candidate index could not be published');
 	}
-	if (fail_phase('index')) {
-		restore(INDEX_PATH, oldIndex.raw);
-		return failure('EWRITE', 'Injected index publication failure');
-	}
 	let pointer = { schema: POINTER_SCHEMA, generationId: candidate.generationId, indexDigest: candidate.indexDigest };
-	if (fail_phase('pointer')) {
-		restore(INDEX_PATH, oldIndex.raw);
-		restore(ACTIVE_POINTER, oldPointer.raw);
-		return failure('EWRITE', 'Injected pointer publication failure');
-	}
 	if (!atomic_write(ACTIVE_POINTER, sprintf('%J', pointer))) {
 		restore(INDEX_PATH, oldIndex.raw);
 		restore(ACTIVE_POINTER, oldPointer.raw);
