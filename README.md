@@ -28,7 +28,7 @@
 
 ## О проекте
 
-**zapret2.manager (Z2M)** — единый слой управления [`zapret2`](https://github.com/bol-van/zapret2) для OpenWrt. Он объединяет backend, LuCI-интерфейс и безопасные сценарии применения конфигурации, чтобы пользователю не приходилось вручную связывать движок, стратегии, списки, DNS и диагностику.
+**zapret2.manager (Z2M)** — единый слой управления [`zapret2-z2k`](https://github.com/necronicle/zapret2-z2k) для OpenWrt. Он объединяет backend, LuCI-интерфейс и безопасные сценарии применения конфигурации, чтобы пользователю не приходилось вручную связывать движок, стратегии, списки, DNS и диагностику.
 
 Проект строится вокруг трёх принципов:
 
@@ -41,7 +41,7 @@
 | Раздел | Что доступно |
 |---|---|
 | **Главная** | Сводное состояние движка, стратегии, автозапуска, системы и дополнительных компонентов |
-| **Обход DPI** | Управление `nfqws2`, стратегии и Scanner с передачей найденных кандидатов в общий workflow |
+| **Обход DPI** | Управление `nfqws2`, стратегии и Z2K Detect с передачей evidence в общий workflow |
 | **Прокси и маршрутизация** | Отдельные сценарии для Telegram Proxy и WARP / MASQUE |
 | **Списки и данные** | Сервисы и домены, ресурсы стратегий и интеграция с DNS |
 | **Диагностика** | Мониторинг runtime-состояния, события и журнал |
@@ -54,7 +54,7 @@
 | Верхний раздел | Вложенные страницы |
 |---|---|
 | **Главная** | Обзор состояния системы |
-| **Обход DPI** | Управление · Стратегии · Scanner |
+| **Обход DPI** | Управление · Стратегии · Z2K Detect |
 | **Прокси и маршрутизация** | WARP / MASQUE · Telegram Proxy |
 | **Списки и данные** | Сервисы и домены · Ресурсы · DNS |
 | **Диагностика** | Мониторинг · Журнал |
@@ -66,13 +66,13 @@
 
 ```mermaid
 flowchart LR
-    S["Scanner"] -->|"кандидаты и evidence"| P["Preview"]
+    S["Z2K Detect"] -->|"evidence"| P["Preview"]
     P --> V["Validate"]
     V --> A["Apply"]
     A --> R["Runtime"]
 ```
 
-Scanner не создаёт второй путь изменения production-конфигурации. Его результат возвращается в общий lifecycle стратегии и применяется только после предварительного просмотра и проверки.
+Z2K Detect не создаёт второй путь изменения production-конфигурации. Его evidence возвращается в общий lifecycle стратегии и применяется только после предварительного просмотра и проверки.
 
 ## Быстрый старт
 
@@ -240,7 +240,7 @@ Z2M развивается в экосистеме `zapret2` и использу
 
 | Проект | Связь с zapret2.manager |
 |---|---|
-| [`bol-van/zapret2`](https://github.com/bol-van/zapret2) | Базовый anti-DPI engine, вокруг которого строится runtime Z2M |
+| [`necronicle/zapret2-z2k`](https://github.com/necronicle/zapret2-z2k) | Единственный источник Zapret2 Engine и `nfqws2` для runtime Z2M |
 | [`necronicle/z2k`](https://github.com/necronicle/z2k) | Важный reference для router runtime, стратегий, persistent state и интеграционных подходов |
 | [`avatarDD/zapret-gui`](https://github.com/avatarDD/zapret-gui) | UX и strategy/resource reference для Keenetic и OpenWrt; отдельные проверенные идеи используются как donor |
 | [`valnesfjord/tg-ws-proxy-rs`](https://github.com/valnesfjord/tg-ws-proxy-rs) | Rust-реализация Telegram MTProto WebSocket Bridge Proxy и один из optional providers |

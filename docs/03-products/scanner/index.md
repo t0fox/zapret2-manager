@@ -1,6 +1,6 @@
 ---
 id: product-z2k-detect-index
-title: "Z2K Detect"
+title: "Обнаружение Z2K Detect"
 type: product
 status: current
 authority: index
