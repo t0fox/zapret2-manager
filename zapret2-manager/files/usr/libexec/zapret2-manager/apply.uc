@@ -319,7 +319,7 @@ function set_locked(name, value) {
 	return atomic_replace_locked(CONFIG, out);
 }
 
-export const set_vars_locked = function(vars_map) {
+const set_vars_locked = function(vars_map) {
 	if (!locked()) return null;
 	let raw = read_config_bytes();
 	let current = raw;

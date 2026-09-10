@@ -1,5 +1,5 @@
 'use strict';
-import { readfile, writefile, stat, unlink, mkdir, popen, readlink } from 'fs';
+import { readfile, writefile, mkdir, popen } from 'fs';
 import { strategy_catalog_read_index } from './strategy-catalog.uc';
 import { strategy_catalog_generation_publish, strategy_catalog_generation_read } from './strategy-catalog-generation.uc';
 import * as source_refresh from './strategy-source-refresh.uc';

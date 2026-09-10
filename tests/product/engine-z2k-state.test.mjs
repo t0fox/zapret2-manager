@@ -66,6 +66,8 @@ test('Engine production chain contains no retired source or provider surface', (
     const text = fs.readFileSync(source, 'utf8');
     assert.doesNotMatch(text, /bol-van\/zapret2|vanilla-bol-van-release|engine-providers/);
   }
+  assert.doesNotMatch(fs.readFileSync(MANAGER, 'utf8'), /export const engine_downgrade\s*=/,
+    'Engine downgrade has no current RPC or UI caller; Z2K Resource Center owns target downgrades');
   assert.equal(fs.existsSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-providers.uc')), false);
   assert.equal(fs.existsSync(path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine.js')), false);
   assert.match(fs.readFileSync(CATALOG, 'utf8'), /ENGINE_UPSTREAM = UPSTREAM/);

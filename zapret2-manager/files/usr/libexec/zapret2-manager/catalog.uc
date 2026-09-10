@@ -11,7 +11,7 @@
 // as unsupported, never applied. proxyRoute/unsupportedGeo are never
 // pretended to be supported.
 
-import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
+import { readfile, writefile, unlink, popen, mkdir } from 'fs';
 import { read_list_file, write_list_file } from './apply.uc';
 import { load_state, save_state } from './manager-state.uc';
 import { PATHS } from './constants.uc';

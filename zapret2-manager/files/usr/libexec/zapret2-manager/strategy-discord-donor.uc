@@ -4,7 +4,7 @@
 // This module contains only the proven Discord autocircular donor primitive;
 // legacy Discord/Profile preview, apply, and rollback operations are retired.
 
-import { readfile, writefile, stat, popen } from 'fs';
+import { writefile, stat, popen } from 'fs';
 import { z2m_tokenize } from './profiles.uc';
 import { strategy_catalog_read_index } from './strategy-catalog.uc';
 import { catalog_entry_to_strategy } from './strategy-model.uc';

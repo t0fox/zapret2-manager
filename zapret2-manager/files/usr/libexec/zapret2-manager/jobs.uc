@@ -10,7 +10,7 @@
 // no-op). The health runner owns bounded network probes. No fabricated
 // progress percentage — elapsed seconds only.
 
-import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
+import { readfile, writefile, stat, unlink, popen, lsdir } from 'fs';
 import { cat_load, cat_ledger, cat_domain_include_path } from './catalog.uc';
 
 const JDIR = '/tmp/zapret2-manager/jobs';

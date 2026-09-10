@@ -8,7 +8,7 @@
 // different answer is NOT automatically poisoning (CDN anycast produces the
 // same picture legitimately).
 
-import { readfile, writefile, stat, popen, lsdir } from 'fs';
+import { readfile, writefile, stat, popen } from 'fs';
 import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
 let uci = require('uci');
 

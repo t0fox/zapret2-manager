@@ -3,9 +3,9 @@
 // zapret2 engine is reported independently so its absence is not mislabeled
 // as a cleanly stopped runtime.
 
-import { readfile, writefile, stat, readlink, mkdir, lsdir, popen } from 'fs';
+import { readfile, writefile, stat, readlink, lsdir, popen } from 'fs';
 import {
-	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, CACHE_TTL_SEC,
+	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, PATHS
 } from '../constants.uc';
 import { parse_queue } from '../qlen.uc';

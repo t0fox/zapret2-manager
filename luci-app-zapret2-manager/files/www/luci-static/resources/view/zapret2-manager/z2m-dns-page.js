@@ -1,6 +1,5 @@
 'use strict';
 'require baseclass';
-'require view.zapret2-manager.z2m-engine-gate as EngineGate';
 'require view.zapret2-manager.z2m-api as Api';
 'require view.zapret2-manager.z2m-runtime-guards as Guards';
 'require view.zapret2-manager.z2m-dns as Dns';
@@ -8,7 +7,7 @@
 
 Guards.install(Api);
 
-return EngineGate.wrap(baseclass.extend({
+return baseclass.extend({
   id: 'dns',
   title: _('DNS'),
   subtitle: _('Основной DNS, проверки провайдеров и DNS сервисов'),
@@ -20,4 +19,4 @@ return EngineGate.wrap(baseclass.extend({
   },
   mount: function (ctx) { if (Dns.mount) Dns.mount(ctx); },
   unmount: function (ctx) { if (Dns.unmount) Dns.unmount(ctx || {}); }
-}));
+});

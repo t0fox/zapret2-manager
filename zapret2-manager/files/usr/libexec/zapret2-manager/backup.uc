@@ -36,7 +36,7 @@ import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 // segfaulted the whole interpreter at load. ord() takes a STRING (ucode
 // strings are not indexable — s[i] is invalid), and XOR is `^`, never `~`
 // (a bare `a ~ b` SEGFAULTS the compiler — proven on target).
-import { read_var, write_list_file, restore_whole_file } from './apply.uc';
+import { write_list_file, restore_whole_file } from './apply.uc';
 import { restore_state_raw } from './manager-state.uc';
 
 // local aliases so the rest of the file reads naturally

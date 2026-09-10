@@ -104,14 +104,15 @@ test('closure test catches case-only path drift', () => {
   }
 });
 
-test('engine-gated views preserve LuCI constructor contract', () => {
+test('engine-gated and independent views preserve LuCI constructor contract', () => {
   const gate = fs.readFileSync(path.join(ROOT, 'z2m-engine-gate.js'), 'utf8');
   assert.match(gate, /return\s+baseclass\.extend\(wrapped\)/);
   assert.match(gate, /Object\.getOwnPropertyNames\(module\.prototype\)/);
-  for (const entrypoint of ['z2m-domain-hub-page.js', 'z2m-dns-page.js']) {
-    const body = fs.readFileSync(path.join(ROOT, entrypoint), 'utf8');
-    assert.match(body, /return\s+EngineGate\.wrap\(/, entrypoint);
-  }
+  const services = fs.readFileSync(path.join(ROOT, 'z2m-domain-hub-page.js'), 'utf8');
+  assert.match(services, /return\s+EngineGate\.wrap\(/, 'z2m-domain-hub-page.js');
+  const dns = fs.readFileSync(path.join(ROOT, 'z2m-dns-page.js'), 'utf8');
+  assert.match(dns, /return\s+baseclass\.extend\(/, 'z2m-dns-page.js');
+  assert.doesNotMatch(dns, /EngineGate/, 'DNS must not inherit the Engine gate');
 });
 
 test('shipped CSS asset references resolve without missing local files', () => {

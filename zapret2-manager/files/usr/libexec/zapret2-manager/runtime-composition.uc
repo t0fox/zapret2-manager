@@ -9,7 +9,7 @@ import { readfile } from 'fs';
 import { z2k_candidate_identity_gate } from './z2k-compat.uc';
 import { z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { z2k_candidate_build } from './z2k-coherent-candidate.uc';
-import { z2k_release_parse, z2k_release_valid } from './z2k-release.uc';
+import { z2k_release_valid } from './z2k-release.uc';
 import { z2k_lua_function_closure } from './z2k-migration.uc';
 import { z2k_registry_repair_release } from './z2k-installed-release.uc';
 

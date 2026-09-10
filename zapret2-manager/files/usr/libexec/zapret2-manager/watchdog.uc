@@ -24,7 +24,7 @@
 //   ucode watchdog.uc          — daemon loop (60s sleep)
 //   ucode watchdog.uc check    — one cycle and exit (smoke.sh)
 
-import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
+import { readfile, writefile, stat, popen } from 'fs';
 import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';

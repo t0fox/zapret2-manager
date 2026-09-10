@@ -7,7 +7,7 @@
 // Apply writes dnsmasq UCI server entries and optional firewall rules.
 // All mutations keep a last-good snapshot for rollback.
 
-import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
+import { readfile, writefile, stat, popen, mkdir } from 'fs';
 import { load_state, save_state } from './manager-state.uc';
 import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
 

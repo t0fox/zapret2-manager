@@ -7,7 +7,7 @@
 // Apply decide whether an otherwise structural candidate may execute.
 
 import { avatar_tokenize, strategy_normalize, strategy_enabled_profiles } from './strategy-model.uc';
-import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
+import { z2m_parse, z2m_validate } from './profiles.uc';
 import { strategy_render_candidate, strategy_candidate_round_trip } from './strategy-apply-runtime.uc';
 import { native_preflight } from './native-preflight.uc';
 import { runtime_argument_token } from './runtime-asset-paths.uc';

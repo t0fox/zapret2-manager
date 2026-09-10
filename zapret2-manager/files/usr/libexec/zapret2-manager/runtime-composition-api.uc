@@ -4,7 +4,7 @@
 // dispatch in a module lets UCode consumers import it without making the
 // direct `ucode runtime-composition-cli.uc ...` entry point a module script.
 import { asset_registry_list } from './asset-registry.uc';
-import { resolveInstalled, resolveCandidate, verifyMaterialized, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
+import { resolveInstalled, resolveCandidate, verifyActivationProcess, verifyInstalledProcess } from './runtime-composition.uc';
 
 // A prepared Z2K target carries the complete verified candidate input and can
 // legitimately exceed the small RPC payload limit. Keep the boundary finite,

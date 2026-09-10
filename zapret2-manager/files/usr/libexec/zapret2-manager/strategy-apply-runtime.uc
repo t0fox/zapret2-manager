@@ -26,7 +26,7 @@
 import { readfile, writefile, stat, readlink, unlink, popen, mkdir } from 'fs';
 import { read_var, set_var_cas, set_vars_cas, restore_whole_file, read_config_bytes, config_sha256, commit_applied_identity } from './apply.uc';
 import { PATHS } from './constants.uc';
-import { z2m_parse, z2m_validate, z2m_fragment, z2m_tokenize, derive_capture_ports } from './profiles.uc';
+import { z2m_parse, z2m_validate, z2m_fragment, derive_capture_ports } from './profiles.uc';
 import { parse_queue } from './qlen.uc';
 import { native_preflight } from './native-preflight.uc';
 import { resolveInstalled } from './runtime-composition.uc';

@@ -4,7 +4,7 @@
 // owns only the learned autocircular view/reset, healthcheck configuration,
 // state.tsv per-resource overrides & freeze.
 
-import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
+import { readfile, writefile, popen, mkdir } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
 import { append_ndjson, event_id } from './events.uc';
 import { z2k_pool_semantic_digest, z2k_learned_state_reconcile, z2k_autocircular_identity_load, z2k_autocircular_identity_save, z2k_autocircular_identity_restore } from './z2k-autocircular-identity.uc';

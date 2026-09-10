@@ -2,7 +2,7 @@
 'use strict';
 // dns-global-cli.uc — current DNS global configuration CLI wrapper.
 
-import { readfile, popen } from 'fs';
+import { readfile } from 'fs';
 import { dns_global_get, dns_global_set, dns_global_apply } from './dns-global.uc';
 
 function read_args(file) {

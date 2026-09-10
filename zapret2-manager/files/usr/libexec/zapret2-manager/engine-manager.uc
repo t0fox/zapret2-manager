@@ -59,7 +59,6 @@ function canonical_engine_check(input) {
 export const engine_check_release = function (input) { return canonical_engine_check(input); };
 export const engine_install = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('install', candidate, true); };
 export const engine_update = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('update', candidate, true); };
-export const engine_downgrade = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('downgrade', candidate, true); };
 export const engine_reinstall = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('reinstall', candidate, true); };
 export const engine_uninstall = function (input) { if (type(input) != 'object' || input == null || input.confirm != 'REMOVE') return fail('EINPUT', 'Удаление требует подтверждение REMOVE.'); let old = installed_engine(); return old.installed ? start('uninstall', null, input.preserveConfig !== false) : { ok: true, changed: false, state: 'engine_missing' }; };
 export const engine_operation_status = function (input) { let job = input != null && input.id != null ? read_job(input.id) : active_job(); return { ok: true, operation: public_job(job) }; };
