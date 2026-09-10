@@ -1,11 +1,11 @@
 [
   {
-    "id": "stock-current",
+    "id": "z2k-engine-current",
     "engine": {
       "status": {
         "installed": true,
-        "installedRelease": "v1.0.4",
-        "artifactKind": "vanilla-bol-van-release",
+        "installedRelease": "v1.0.5.1-z2k-r1",
+        "artifactKind": "z2k-engine-release",
         "serviceState": "running",
         "runtimeRunning": true,
         "compatible": true
@@ -13,7 +13,7 @@
       "check": {
         "checkedAt": 1787829000,
         "updateState": "current",
-        "available": { "version": "v1.0.4" }
+        "available": { "version": "v1.0.5.1-z2k-r1" }
       }
     },
     "z2k": {
@@ -28,12 +28,12 @@
     }
   },
   {
-    "id": "stock-update-available",
+    "id": "z2k-engine-update-available",
     "engine": {
       "status": {
         "installed": true,
-        "installedRelease": "v1.0.4",
-        "artifactKind": "vanilla-bol-van-release",
+        "installedRelease": "v1.0.5.1-z2k-r1",
+        "artifactKind": "z2k-engine-release",
         "serviceState": "running",
         "runtimeRunning": true,
         "compatible": true
@@ -41,7 +41,7 @@
       "check": {
         "checkedAt": 1787829001,
         "updateState": "update-available",
-        "available": { "version": "v1.0.5" }
+        "available": { "version": "v1.0.5.1-z2k-r2" }
       }
     },
     "z2k": { "updateState": "current", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
@@ -51,8 +51,8 @@
     "engine": {
       "status": {
         "installed": true,
-        "installedRelease": "v1.0.4",
-        "artifactKind": "vanilla-bol-van-release",
+        "installedRelease": "v1.0.5.1-z2k-r1",
+        "artifactKind": "z2k-engine-release",
         "serviceState": "running",
         "runtimeRunning": true,
         "compatible": true
@@ -60,7 +60,7 @@
       "check": {
         "checkedAt": 1787829003,
         "updateState": "review-required",
-        "available": { "version": "v1.0.5" },
+        "available": { "version": "v1.0.5.1-z2k-r2" },
         "compatibility": { "state": "review-required", "reason": "candidate metadata needs review" }
       }
     },
@@ -121,7 +121,7 @@
   },
   {
     "id": "mixed-provenance",
-    "engine": { "status": { "installed": true, "installedRelease": "v1.0.4", "artifactKind": "vanilla-bol-van-release", "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "engine": { "status": { "installed": true, "installedRelease": "v1.0.5.1-z2k-r1", "artifactKind": "z2k-engine-release", "serviceState": "running", "runtimeRunning": true, "compatible": true } },
     "z2k": {
       "updateState": "current",
       "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" }, "provenance": { "sourceCommit": "p-79.18", "kind": "catalog/upstream" } },
@@ -130,7 +130,7 @@
   },
   {
     "id": "no-check-yet",
-    "engine": { "status": { "installed": true, "installedRelease": "v1.0.4", "artifactKind": "vanilla-bol-van-release", "serviceState": "running", "runtimeRunning": true, "compatible": true } },
+    "engine": { "status": { "installed": true, "installedRelease": "v1.0.5.1-z2k-r1", "artifactKind": "z2k-engine-release", "serviceState": "running", "runtimeRunning": true, "compatible": true } },
     "z2k": { "updateState": "unknown", "local": { "installed": true, "integrityOk": true, "lua": { "ready": 7, "total": 7 }, "installedRelease": { "value": "r-77.5", "confidence": "confirmed" } } }
   }
 ]

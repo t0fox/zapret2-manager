@@ -1,6 +1,6 @@
 'use strict';
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
-import { engine_releases_for_request as engine_releases, installed_engine, engine_check, load_checked_candidate, save_engine_state, clear_engine_state, normalize_state_record } from './engine-catalog.uc';
+import { engine_releases_for_request as engine_releases, installed_engine, engine_check, load_checked_candidate, save_engine_state, clear_engine_state, normalize_state_record, ENGINE_UPSTREAM, ENGINE_ARTIFACT_KIND } from './engine-catalog.uc';
 
 const ROOT = '/tmp/zapret2-manager/engine-operations', ACTIVE = ROOT + '/active', WORKER = '/usr/libexec/zapret2-manager/engine-operation-worker.sh';
 const TERMINAL = ['completed', 'failed', 'rolled_back'];
@@ -20,7 +20,7 @@ function active_id() { try { return trim(readfile(ACTIVE) || ''); } catch (e) { 
 function log(job, message) { if (type(job.log) != 'array') job.log = []; push(job.log, { at: time(), phase: job.phase, message: '' + message }); while (length(job.log) > 120) shift(job.log); }
 function public_job(job) { return job == null ? null : { id: job.id, action: job.action, phase: job.phase, progress: job.progress, createdAt: job.createdAt, updatedAt: job.updatedAt, startedAt: job.startedAt, finishedAt: job.finishedAt, cancellable: job.cancellable === true, cancelRequested: job.cancelRequested === true, result: job.result, error: job.error, rollback: job.rollback, log: job.log || [] }; }
 function active_job() { let id = active_id(); if (safe_id(id) == null) return null; let job = read_job(id); if (job == null || terminal(job.phase)) { try { unlink(ACTIVE); } catch (e) {} return null; } return job; }
-function conflict() { if (active_job() != null) return 'engine-operation'; if (stat('/tmp/zapret2-manager/pending-rollback') != null || stat('/tmp/zapret2-manager/apply.lock') != null) return 'strategy'; if (stat('/tmp/zapret2-manager/backup-restore.lock') != null) return 'backup-restore'; return null; }
+function conflict() { if (active_job() != null) return 'engine-operation'; if (stat('/tmp/zapret2-manager/pending-rollback') != null || stat('/tmp/zapret2-manager/apply.lock') != null) return 'strategy'; if (stat('/tmp/zapret2-manager/backup-restore.lock') != null) return 'backup-restore'; let b = trim(run("grep -l '\"status\":\"\\(pending\\|running\\)\"' /tmp/zapret2-manager/jobs/*.json 2>/dev/null | head -n 1").out); return length(b) ? 'runtime-job' : null; }
 function start(action, candidate, preserve) { setup(); let busy = conflict(); if (busy != null) return fail('EBUSY', 'Конфликтующая операция уже выполняется.', { conflict: busy }); let id = new_id(); if (id == null) return fail('EINTERNAL', 'Не удалось создать operation id.'); let old = installed_engine(), job = { schema: 'engine-operation.v2', id: id, action: action, phase: 'queued', progress: 0, createdAt: time(), updatedAt: time(), startedAt: null, finishedAt: null, cancellable: true, cancelRequested: false, preserveConfig: preserve !== false, candidate: candidate, previous: old, result: null, error: null, rollback: null, log: [{ at: time(), phase: 'queued', message: 'Операция поставлена в очередь.' }] }; if (!atomic(job_path(id), job) || !writefile(ACTIVE, id + '\n')) return fail('ESTATE', 'Не удалось сохранить engine job.'); run("chmod 600 '" + ACTIVE + "' '" + job_path(id) + "'"); if (run("setsid '" + WORKER + "' '" + id + "' >/dev/null 2>&1 &").rc != 0) return fail('EWORKER', 'Не удалось запустить worker.'); return { ok: true, operation: public_job(job) }; }
 function checked(input) { if (type(input) != 'object' || input == null || type(input.checkToken) != 'string') return fail('EINPUT', 'Передайте version и checkToken.'); let record = load_checked_candidate(input.checkToken); return record.ok ? record.record.candidate : record; }
 
@@ -37,8 +37,7 @@ function canonical_engine_releases(input) {
 		return answer;
 	}
 	let latest = null;
-	for (let i = 0; i < length(answer.releases || []); i++) if (answer.releases[i].artifactKind == 'vanilla-bol-van-release') { latest = answer.releases[i]; break; }
-	if (latest == null && length(answer.releases || [])) latest = answer.releases[0];
+	if (length(answer.releases || [])) latest = answer.releases[0];
 	let needsUpdate = latest != null && (installed.installedRelease == null || installed.installedRelease != latest.installedRelease);
 	answer.installed = { version: installed.installedRelease || null, artifactKind: truth && truth.artifactKind || null };
 	answer.available = { version: latest && latest.installedRelease || null, artifactKind: latest && latest.artifactKind || null };
@@ -46,7 +45,7 @@ function canonical_engine_releases(input) {
 	return answer;
 }
 export const engine_releases_read = function (input) { return canonical_engine_releases(input || {}); };
-export const engine_status = function () { let installed = installed_engine(), operation = active_job(), running = installed.installed && length(trim(run('pidof nfqws2').out)) > 0, state = installed.savedState || {}; let truth = normalize_state_record(state); return { ok: true, state: operation != null ? 'operation' : (installed.installed ? 'installed' : 'engine_missing'), installed: installed.installed, installedOrigin: installed.installedOrigin, originConfidence: installed.originConfidence, originEvidence: installed.originEvidence, artifactKind: truth != null ? truth.artifactKind : null, truth: truth, packageName: installed.packageName, packageVersion: null, packageDescription: installed.packageDescription, installedRelease: installed.installedRelease || null, runtimeBuild: installed.runtimeBuild || null, upstream: 'bol-van/zapret2', architecture: installed.architecture, serviceState: installed.installed ? (running ? 'running' : 'stopped') : 'engine_missing', runtimeRunning: running, compatible: installed.installed && installed.runtimeContract === true, installedCompatibility: { state: installed.installed ? (installed.runtimeContract === true ? 'compatible' : 'incompatible') : 'not-applicable', reason: installed.installed ? (installed.runtimeContract === true ? 'Runtime-контракт движка доступен.' : 'Установленный payload не соответствует runtime-контракту manager.') : 'Движок не установлен.' }, compatibilityMessage: !installed.installed ? 'Установите совместимый официальный release.' : (installed.runtimeContract ? 'Runtime-контракт движка доступен.' : 'Установленный payload не соответствует runtime-контракту manager.'), operation: public_job(operation), stateRecord: state }; };
+export const engine_status = function () { let installed = installed_engine(), operation = active_job(), running = installed.installed && length(trim(run('pidof nfqws2').out)) > 0, state = installed.savedState || {}; let truth = normalize_state_record(state); let compatible = installed.installed && installed.runtimeContract === true && installed.z2kCapable === true; return { ok: true, state: operation != null ? 'operation' : (installed.installed ? 'installed' : 'engine_missing'), installed: installed.installed, installedOrigin: installed.installedOrigin, originConfidence: installed.originConfidence, originEvidence: installed.originEvidence, artifactKind: truth != null ? truth.artifactKind : null, truth: truth, packageName: installed.packageName, packageVersion: null, packageDescription: installed.packageDescription, installedRelease: installed.installedRelease || null, runtimeBuild: installed.runtimeBuild || null, upstream: ENGINE_UPSTREAM, architecture: installed.architecture, serviceState: installed.installed ? (running ? 'running' : 'stopped') : 'engine_missing', runtimeRunning: running, compatible: compatible, z2kCapable: installed.z2kCapable === true, runtimeProof: installed.runtimeProof || null, installedCompatibility: { state: installed.installed ? (compatible ? 'compatible' : 'incompatible') : 'not-applicable', reason: installed.installed ? (compatible ? 'Z2K runtime version and checksum are verified.' : 'Установленный payload не подтверждён как Z2K runtime.') : 'Движок не установлен.' }, compatibilityMessage: !installed.installed ? 'Установите Z2K Engine release.' : (compatible ? 'Z2K runtime version and checksum are verified.' : 'Установленный payload не подтверждён как Z2K runtime.'), operation: public_job(operation), stateRecord: state }; };
 function canonical_engine_check(input) {
 	let answer = engine_check(input || {});
 	if (!answer || answer.ok !== true) return answer;
@@ -60,6 +59,7 @@ function canonical_engine_check(input) {
 export const engine_check_release = function (input) { return canonical_engine_check(input); };
 export const engine_install = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('install', candidate, true); };
 export const engine_update = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('update', candidate, true); };
+export const engine_downgrade = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('downgrade', candidate, true); };
 export const engine_reinstall = function (input) { let candidate = checked(input); return candidate.ok === false ? candidate : start('reinstall', candidate, true); };
 export const engine_uninstall = function (input) { if (type(input) != 'object' || input == null || input.confirm != 'REMOVE') return fail('EINPUT', 'Удаление требует подтверждение REMOVE.'); let old = installed_engine(); return old.installed ? start('uninstall', null, input.preserveConfig !== false) : { ok: true, changed: false, state: 'engine_missing' }; };
 export const engine_operation_status = function (input) { let job = input != null && input.id != null ? read_job(input.id) : active_job(); return { ok: true, operation: public_job(job) }; };
@@ -70,27 +70,27 @@ export const mark_completed = function (id, result) { let job = read_job(id); if
 export const commit_state = function (id) {
 	let job = read_job(id);
 	if (job == null || type(job.candidate) != 'object' || job.candidate == null) return fail('ENOENT', 'Candidate job не найден.');
-	// Runtime contract proven directly from the installed tree: the installed
-	// payload's own version string may differ from upstream's heuristic, so we
-	// verify the actual files instead of trusting the version line.
+	let candidate = job.candidate;
+	if (candidate.upstream != ENGINE_UPSTREAM || candidate.artifactKind != ENGINE_ARTIFACT_KIND)
+		return fail('EENGINE_INTEGRATION_REQUIRED', 'Candidate не является каноническим Z2K Engine release.');
 	let job2 = read_job(id);
 	if (job2 == null || type(job2.candidate) != 'object')
-		return fail('EVERIFY', 'Установленный official payload не подтверждён.');
-	let candidate = job2.candidate;
+		return fail('EVERIFY', 'Установленный Z2K payload не подтверждён.');
 	let run0 = function(c) { let p0 = popen(c + ' 2>/dev/null', 'r'); if (!p0) return { rc: -1, out: '' }; let o0 = p0.read('all'), r0 = p0.close(); return { rc: r0, out: o0 ? o0 : '' }; };
 	let binOk = stat('/opt/zapret2/nfq2/nfqws2') != null;
 	let cfgOk = stat('/opt/zapret2/config') != null;
 	let initOk = stat('/etc/init.d/zapret2') != null;
 	let verOut = run0('/opt/zapret2/nfq2/nfqws2 --version');
 	if (!binOk || !cfgOk || !initOk || verOut.rc != 0 || length(trim(verOut.out)) == 0)
-		return fail('EVERIFY', 'Установленный official payload не подтверждён.');
-	// Capability gate (requirement-based): only capabilities declared by the
-	// checked candidate are load-bearing — canonical stock releases carry an
-	// empty list and pass purely on verified runtime health evidence in
-	// $ROOT/$ID.work/capabilities.json.
+		return fail('EVERIFY', 'Установленный Z2K payload не подтверждён.');
+	let release = match(trim(verOut.out), /github version (v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?-z2k-r[0-9]+)/i);
+	if (!release || release[1] != candidate.installedRelease)
+		return fail('EVERIFY', 'nfqws2 не подтверждает точный Z2K release candidate.');
 	let caps = read_json(ROOT + '/' + id + '.work/capabilities.json', null);
 	if (caps == null || type(caps) != 'object') return fail('ECAPABILITY', 'Capability preflight не выполнялся; установка не может быть зафиксирована.');
 	if (caps.ok !== true) return fail('ECAPABILITY', 'Capability preflight не пройден.');
+	if (caps.z2kCapable !== true || caps.runtimeRelease != candidate.installedRelease)
+		return fail('ECAPABILITY', 'Установленный nfqws2 не подтверждён как Z2K-capable.');
 	let required = type(candidate.requiredCapabilities) == 'array' ? candidate.requiredCapabilities : [];
 	for (let i = 0; i < length(required); i++) {
 		let name = required[i];
@@ -99,7 +99,9 @@ export const commit_state = function (id) {
 	let nfq2sha = caps.nfqws2Sha256;
 	if (nfq2sha == null && candidate.nfqws2Sha256 != null) nfq2sha = candidate.nfqws2Sha256;
 	if (nfq2sha == null) nfq2sha = '';
-	let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', artifactKind: candidate.artifactKind, installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: null, upstreamRepository: 'bol-van/zapret2', assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, capabilities: {}, nfqws2Sha256: nfq2sha, installedAt: time() };
+	if (type(nfq2sha) != 'string' || !match(nfq2sha, /^[a-f0-9]{64}$/))
+		return fail('ECAPABILITY', 'sha256 установленного nfqws2 не подтверждён.');
+	let value = { schema: 'engine-state.v2', installedOrigin: 'OFFICIAL', artifactKind: candidate.artifactKind, installedRelease: candidate.installedRelease || ('v' + candidate.version), packageVersion: null, upstreamRepository: ENGINE_UPSTREAM, assetName: candidate.assetName, assetSha256: candidate.sha256, releaseId: candidate.releaseId, architecture: candidate.architecture, container: candidate.container, capabilities: {}, nfqws2Sha256: nfq2sha, runtimeProof: { z2kCapable: true, runtimeRelease: release[1], nfqws2Sha256: nfq2sha, checksumVerified: true }, installedAt: time() };
 	for (let i = 0; i < length(required); i++) value.capabilities[required[i]] = true;
 	return save_engine_state(value) ? { ok: true, state: value } : fail('ESTATE', 'Engine state не записан.');
 };

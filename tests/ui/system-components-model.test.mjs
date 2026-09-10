@@ -22,7 +22,7 @@ const engine = (overrides = {}) => ({
   installed: true,
   installedRelease: 'v1.0.4',
   packageVersion: '1.0.4',
-  upstream: 'bol-van/zapret2',
+  upstream: 'necronicle/zapret2-z2k',
   serviceState: 'running',
   runtimeRunning: true,
   compatible: true,

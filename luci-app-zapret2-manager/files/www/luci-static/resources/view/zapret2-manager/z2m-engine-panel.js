@@ -299,13 +299,13 @@ function build(ctx, state) {
       { label: _('Статус'), value: Model.stateLabel(status.state) },
       { label: _('Установленный release'), value: truth.installed.version },
       { label: _('Доступная версия'), value: truth.available.version },
-      { label: _('Тип артефакта'), value: truth.artifactKind },
-      { label: _('Источник'), value: 'bol-van/zapret2 · ' + _('Официальный release') },
+      { label: _('Тип артефакта'), value: truth.artifactKind || 'z2k-engine-release' },
+      { label: _('Источник'), value: 'necronicle/zapret2-z2k · ' + _('Z2K release') },
       { label: _('Служба'), value: Model.serviceLabel(status.serviceState) },
       { label: _('Совместимость'), value: truth.compatibility.state === 'compatible' ? _('Подтверждена') : truth.compatibility.state === 'incompatible' ? _('Несовместим') : _('Не подтверждена') }
     ]),
     technical
-  ], status.installed ? _('Официальный release bol-van/zapret2 установлен.') : _('Официальный release bol-van/zapret2 не установлен.'));
+  ], status.installed ? _('Z2K Engine release установлен.') : _('Z2K Engine release не установлен.'));
 
   var checkPanel;
   if (state.check && state.check.ok === false) {
@@ -334,7 +334,7 @@ function build(ctx, state) {
     ctx.shell.panel(_('Официальный движок zapret2'), [
       E('div', { 'class': 'z2m-btnrow z2m-engine-actions' }, buttons),
       checkPanel
-    ], _('Источник: bol-van/zapret2 · официальный GitHub Releases.')),
+    ], _('Источник: necronicle/zapret2-z2k · GitHub Releases.')),
     operationPanel(ctx, state)
   ]);
 }

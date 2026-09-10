@@ -806,12 +806,10 @@ function validate_manager(model) {
 // segment outside token spans is a MANAGER_LOSSY_ROUNDTRIP error — never a
 // silent change.
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Strategy parser helpers
-// ---------------------------------------------------------------------------
-
-// Return the lossless raw fragment for one parsed strategy profile. This is an
-// internal Strategy Apply primitive; it is not a Profiles product envelope.
+// profile_fragment(model, profile, optText) — the profile's raw byte-slice:
+// from the end of its --new separator (or its first token, for the implicit
+// first profile) to its sourceSpan end; surrounding whitespace trimmed. All
+// CONTENT bytes (quotes, escapes, placeholders) survive verbatim.
 function profile_fragment(model, p, optText) {
 	let start;
 	if (p.separator != null && p.separator.span != null) start = p.separator.span.end;
@@ -819,13 +817,13 @@ function profile_fragment(model, p, optText) {
 	else start = (p.sourceSpan.start != null) ? p.sourceSpan.start : 0;
 	let end = (p.sourceSpan.end != null) ? p.sourceSpan.end : length(optText);
 	let frag = substr(optText, start, end - start);
+	// trim surrounding whitespace only (content bytes preserved)
 	let a = 0;
 	while (a < length(frag) && is_ws(substr(frag, a, 1))) a++;
 	let b = length(frag);
 	while (b > a && is_ws(substr(frag, b - 1, 1))) b--;
 	return substr(frag, a, b - a);
 }
-
 // ---- Strategy parser exports ----------------------------------------------
 export const z2m_tokenize = tokenize;
 export const z2m_parse = parse_opt;

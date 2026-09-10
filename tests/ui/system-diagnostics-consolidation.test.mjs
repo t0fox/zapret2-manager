@@ -84,7 +84,7 @@ test('System Engine uses the current official RPC contract', () => {
   assert.doesNotMatch(panel, /engine\.providers|engine\.checkUpdates/);
 });
 
-test('System Engine uses the official bol-van authority without a provider selector', () => {
+test('System Engine uses the sole Z2K authority without a provider selector', () => {
   const api = read('z2m-api.js');
   const panel = read('z2m-engine-panel.js');
   const rpc = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-engine.uc'), 'utf8');
@@ -94,7 +94,7 @@ test('System Engine uses the official bol-van authority without a provider selec
   const acl = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager-engine.json'), 'utf8');
   const makefile = fs.readFileSync(path.join(root, 'zapret2-manager-full/Makefile'), 'utf8');
 
-  assert.match(catalog, /UPSTREAM\s*=\s*['"]bol-van\/zapret2['"]/);
+  assert.match(catalog, /UPSTREAM\s*=\s*['"]necronicle\/zapret2-z2k['"]/);
   assert.match(catalog, /STATE_FILE\s*=\s*['"]\/etc\/zapret2-manager\/engine-state\.json['"]/);
   assert.doesNotMatch(catalog, /engine-provider\.json/);
   assert.match(manager, /engine-catalog\.uc/);
@@ -108,13 +108,13 @@ test('System Engine uses the official bol-van authority without a provider selec
   assert.doesNotMatch(makefile, /\/etc\/zapret2-manager\/engine-provider\.json/);
   assert.match(api, /engine_releases|engine_check/);
   assert.doesNotMatch(api, /engine_providers|engine_check_updates/);
-  assert.match(panel, /bol-van\/zapret2/);
+  assert.match(panel, /necronicle\/zapret2-z2k/);
   assert.match(panel, /engine\.releases\(\)|engine\.check\(/);
   assert.match(panel, /function checkRelease\(ctx, state\)/);
   assert.match(panel, /checkRelease\(ctx, state\)/);
   assert.doesNotMatch(panel, /function check\(ctx, state\)/);
   assert.doesNotMatch(panel, /Remittor|1andrevich|engine\.providers|engine\.checkUpdates|type:\s*['"]radio/);
-  assert.match(worker, /bol-van\/zapret2/);
+  assert.match(worker, /necronicle\/zapret2-z2k/);
   assert.match(worker, /CONTAINER.*tar\.gz|tar\.gz.*CONTAINER/);
   assert.doesNotMatch(worker, /PROVIDER|remittor|andrevich/);
 });

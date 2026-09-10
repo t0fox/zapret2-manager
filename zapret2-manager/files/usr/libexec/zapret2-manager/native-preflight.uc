@@ -193,8 +193,8 @@ function diagnostics(reason, code) {
 }
 
 // Only the z2k_* TLS modifier family requires the retired/native Z2K TLS
-// capability. Stock nfqws2 modifiers such as rnd, rndsni, sni, and dupsid
-// are supported by the vanilla engine and must not be gated by this check.
+// capability. Built-in nfqws2 modifiers such as rnd, rndsni, sni, and dupsid
+// are part of the Z2K Engine runtime and must not be gated by this check.
 function requires_z2k_tls_mod(candidate) {
 	let tokenized = z2m_tokenize(candidate), tokens = tokenized && tokenized.tokens || [];
 	for (let i = 0; i < length(tokens); i++) {
@@ -339,14 +339,15 @@ export const native_preflight = function(candidate, runtimeComposition, strategy
 // interpreter path. Output is a machine-readable verdict consumed by the
 // worker and by commit-state; any missing required capability fails closed.
 //
-// Requirement-based contract: the required capability list is supplied by
-// the checked candidate (env Z2M_REQUIRED_CAPABILITIES, space-separated).
-// Canonical stock bol-van releases carry an EMPTY requirement list — a
-// stock runtime is healthy without any Z2K native delta. Capability booleans
-// are still reported for evidence, but only *required* ones gate ok.
+// The install proof is source-bound: the binary must report the exact Z2K
+// release family and its bytes must be captured for the engine state record.
+// Candidate-specific capabilities remain additive checks for strategy use.
 export const install_proof = function(runtimeComposition) {
 	let caps = {
 		ok: false,
+		z2kCapable: false,
+		runtimeRelease: null,
+		runtimeVersion: null,
 		Z2K_TLS_MOD: false,
 		ANTIDPI_REPEATS_LOOP: false,
 		AUTO_FAMILY_SPLIT: false,
@@ -364,6 +365,16 @@ export const install_proof = function(runtimeComposition) {
 	if (length(requiredArg) > 0) {
 		caps.requiredCapabilities = split(requiredArg, /[\s]+/);
 	}
+	if (!stat(NFQWS2_BIN)) return caps;
+	let versionResult = run(shell_escape(NFQWS2_BIN) + ' --version');
+	let versionLines = split(trim(versionResult.out), /\r?\n/);
+	caps.runtimeVersion = length(versionLines) ? trim(versionLines[0]) : null;
+	let release = match(caps.runtimeVersion || '', /github version (v[0-9]+\.[0-9]+\.[0-9]+-z2k-r[0-9]+)/i);
+	caps.runtimeRelease = release && release[1] ? release[1] : null;
+	caps.z2kCapable = versionResult.rc == 0 && caps.runtimeRelease != null;
+	let digest = sha256_file(NFQWS2_BIN);
+	if (digest == null) return caps;
+	caps.nfqws2Sha256 = digest;
 	let composition = runtime_composition_snapshot(runtimeComposition);
 	if (!composition.ok) {
 		caps.compositionStatus = 'unavailable';
@@ -374,10 +385,6 @@ export const install_proof = function(runtimeComposition) {
 	caps.snapshotId = composition.value.snapshotId;
 	caps.compositionSnapshotId = composition.value.compositionSnapshotId;
 	caps.membershipDigest = composition.value.membershipDigest;
-	if (!stat(NFQWS2_BIN)) return caps;
-	let digest = sha256_file(NFQWS2_BIN);
-	if (digest == null) return caps;
-	caps.nfqws2Sha256 = digest;
 	let luaDir = run('ls -la ' + shell_escape(RUNTIME_LUA_ROOT) + ' 2>&1');
 	caps.luaDirListing = trim(luaDir.out);
 	caps.libFile = 'missing';
@@ -413,10 +420,9 @@ export const install_proof = function(runtimeComposition) {
 	caps.luaSmoke = smoke.rc == 0;
 	if (!caps.luaSmoke) caps.smokeStderr = substr(trim(smoke.out), 0, 400);
 
-	// Runtime health gate: Lua smoke must pass, plus EVERY candidate-required
-	// capability must be proven true. A stock release with zero requirements
-	// passes here purely on luaSmoke + binary/runtime presence above.
-	caps.ok = caps.luaSmoke;
+	// Runtime health gate: the exact Z2K release proof and Lua smoke are both
+	// mandatory, plus every candidate-declared capability.
+	caps.ok = caps.z2kCapable && caps.luaSmoke;
 	if (caps.ok && type(caps.requiredCapabilities) == 'array')
 		for (let i = 0; i < length(caps.requiredCapabilities); i++) {
 			let name = caps.requiredCapabilities[i];

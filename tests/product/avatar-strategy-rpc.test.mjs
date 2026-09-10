@@ -32,16 +32,23 @@ const SOURCES_PATH = path.join(ROOT,
 const RPC_PRODUCT_STUB_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-products-'));
 const DNS_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'dns-product.uc');
 const TG_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'tg-product.uc');
+const DETECT_PRODUCT_PATH = path.join(RPC_PRODUCT_STUB_ROOT, 'z2k-detect.uc');
 const stubProductModule = names => names
   .map(name => `export const ${name} = function () { return { ok: true }; };`)
   .join('\n') + '\n';
 fs.writeFileSync(DNS_PRODUCT_PATH, stubProductModule([
   'dns_product_get', 'dns_product_status', 'dns_product_validate',
+  'dns_product_provider_save', 'dns_product_provider_reset', 'dns_product_provider_delete',
 ]));
 fs.writeFileSync(TG_PRODUCT_PATH, stubProductModule([
   'tg_product_catalog', 'tg_product_status', 'tg_product_versions',
   'tg_product_operation_status', 'tg_product_check_updates', 'tg_product_switch', 'tg_product_remove',
   'tg_product_purge', 'tg_product_start', 'tg_product_stop', 'tg_product_restart',
+]));
+fs.writeFileSync(DETECT_PRODUCT_PATH, stubProductModule([
+  'z2k_detect_status', 'z2k_detect_probe', 'z2k_detect_classify',
+  'z2k_detect_quic', 'z2k_detect_voice', 'z2k_detect_tcp16',
+  'z2k_detect_discovery_status', 'z2k_detect_discovery_control',
 ]));
 test.after(() => fs.rmSync(RPC_PRODUCT_STUB_ROOT, { recursive: true, force: true }));
 const CLI = readFileSync(CLI_PATH, 'utf8');
@@ -117,6 +124,8 @@ function rpcSignatureSource(method, request) {
       `from ${JSON.stringify(DNS_PRODUCT_PATH)};`)
     .replace("from '/usr/libexec/zapret2-manager/tg-product.uc';",
       `from ${JSON.stringify(TG_PRODUCT_PATH)};`)
+    .replace("from '/usr/libexec/zapret2-manager/z2k-detect.uc';",
+      `from ${JSON.stringify(DETECT_PRODUCT_PATH)};`)
     .replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'");
   return opened.replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
 }

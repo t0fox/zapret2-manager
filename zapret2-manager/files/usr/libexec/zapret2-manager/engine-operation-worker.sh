@@ -1,5 +1,5 @@
 #!/bin/sh
-# Transactional worker for the one official zapret2 embedded release source.
+# Transactional worker for the one Z2K embedded Engine release source.
 set -u
 umask 077
 ID="${1:-}"; CLI=/usr/libexec/zapret2-manager/engine-cli.uc
@@ -20,6 +20,7 @@ postflight(){
  [ -x "$BINARY" ] && [ -x /opt/zapret2/ip2net/ip2net ] && [ -x /opt/zapret2/mdig/mdig ] && [ -d /opt/zapret2/common ] && [ -d /opt/zapret2/ipset ] && [ -d /opt/zapret2/lua ] && [ -r "$CONFIG" ] && [ -x "$INIT" ] || return 1
  NFQWS2_ENABLE=1; . "$CONFIG" 2>/dev/null || return 1
  "$BINARY" --version >"$WORK/version" 2>&1 && [ -s "$WORK/version" ] || return 1
+ grep -Eq "github version v${EXPECTED_VERSION}([[:space:]]|$)" "$WORK/version" || return 1
  for command in start stop restart start_fw reload_ifsets list_table; do grep -R -Eq "(^|[[:space:]])${command}[[:space:]]*\(\)|extra_command[[:space:]]+['\"]?${command}" "$INIT" /opt/zapret2/init.d/openwrt 2>/dev/null || return 1; done
  "$INIT" start >/dev/null 2>&1 || return 1
  if [ "$NFQWS2_ENABLE" = "1" ]; then
@@ -100,7 +101,8 @@ ACTION="$(value '@.action')"; PRESERVE="$(value '@.preserveConfig')"; ARTIFACT_K
 case "$ACTION" in install|update|reinstall|uninstall) ;; *) exit 2 ;; esac
 phase preflight 5 'Проверяется устройство и отсутствие конфликтов.'
 command -v apk >/dev/null 2>&1 || fail EPKGMGR 'Поддерживается только APK package manager.'
-if [ "$ACTION" != uninstall ]; then [ "$ARTIFACT_SCHEMA" = 'zapret2-manager.engine-artifact.v1' ] && [ "$ARTIFACT_KIND" = 'vanilla-bol-van-release' ] || fail EENGINE_INTEGRATION_REQUIRED 'Доступен только official bol-van release; совместимые менеджерские сборки выведены из эксплуатации.'; fi
+if [ "$ACTION" != uninstall ]; then [ "$ARTIFACT_SCHEMA" = 'zapret2-manager.engine-artifact.v1' ] && [ "$ARTIFACT_KIND" = 'z2k-engine-release' ] || fail EENGINE_INTEGRATION_REQUIRED 'Доступен только Z2K Engine release.'; fi
+if [ "$ACTION" != uninstall ]; then printf '%s\n' "$EXPECTED_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?-z2k-r[0-9]+$' || fail EENGINE_INTEGRATION_REQUIRED 'Версия Engine не соответствует Z2K release contract.'; fi
 TARGET_ARCH="$(. /etc/openwrt_release 2>/dev/null; printf '%s' "${DISTRIB_ARCH:-}")"
 if [ "$ACTION" != uninstall ]; then [ "$CONTAINER" = tar.gz ] && [ -n "$ARCH" ] && [ "$TARGET_ARCH" = "$ARCH" ] || fail EARCH 'Архитектура target не совпадает с official embedded release.'; fi
 [ "$(df -Pk /overlay 2>/dev/null|awk 'NR==2{print $4}')" -ge 8192 ] 2>/dev/null \
@@ -118,8 +120,9 @@ if [ "$ACTION" = uninstall ]; then
  ROLLBACK_REQUIRED="$OLD_INSTALLED"; phase stopping 55 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || true; phase installing 65 'Удаляется только engine package.'; remove_legacy_package || fail EREMOVE 'Не удалось удалить legacy engine package.'; if [ "$PRESERVE" = true ]; then :; else remove_engine_runtime || fail EREMOVE 'Не удалось удалить runtime integration engine.'; rm -rf /opt/zapret2 /etc/config/zapret2; fi; /usr/bin/ucode "$CLI" clear-state >/dev/null 2>&1 || fail ESTATE 'Engine state не очищен.'; ROLLBACK_REQUIRED=0; printf '{"ok":true,"state":"engine_missing"}\n' >"$WORK/result.json"; /usr/bin/ucode "$CLI" complete "$ID" "$WORK/result.json" >/dev/null 2>&1 || true; exit 0
 fi
 case "$URL" in
-https://github.com/bol-van/zapret2/releases/download/v*/zapret2-v*-openwrt-embedded.tar.gz)
-	[ "$ARTIFACT_KIND" = vanilla-bol-van-release ] || fail ESECURITY 'Канонический URL совместим только с artifactKind=vanilla-bol-van-release.'
+https://github.com/necronicle/zapret2-z2k/releases/download/v*/zapret2-v*-z2k-r*-openwrt-embedded.tar.gz)
+	[ "$ARTIFACT_KIND" = z2k-engine-release ] || fail ESECURITY 'Канонический URL совместим только с artifactKind=z2k-engine-release.'
+	[ "${URL##*/}" = "zapret2-v${EXPECTED_VERSION}-openwrt-embedded.tar.gz" ] || fail ESECURITY 'Имя release asset не совпадает с checked Z2K version.'
 	;;
 *) fail ESECURITY 'Download URL не входит в allowlist канонических источников.';;
 esac
@@ -135,7 +138,7 @@ ROOTDIR="$WORK/unpack/zapret2-v$EXPECTED_VERSION"
 [ -d "$ROOTDIR" ] || ROOTDIR="$(find "$WORK/unpack" -maxdepth 1 -mindepth 1 -type d -name 'zapret2-*' | head -n 1)"
 [ -d "$ROOTDIR" ] || fail EPACKAGE 'Archive root не найден.'
 ENGINE_STAGE="$WORK/engine-stage"; mkdir "$ENGINE_STAGE" || fail EPACKAGE 'Не удалось создать staging directory.'; mkdir -p "$ENGINE_STAGE/nfq2" "$ENGINE_STAGE/ip2net" "$ENGINE_STAGE/mdig" "$ENGINE_STAGE/lua" "$ENGINE_STAGE/init.d/openwrt" || fail EPACKAGE 'Не удалось подготовить staging directories.'
-case "$CHECKSUM_URL:$CHECKSUM_NAME" in https://github.com/bol-van/zapret2/releases/download/v*/sha256sum.txt:sha256sum.txt) ;; *) fail ESECURITY 'Checksum URL не входит в official allowlist.';; esac
+case "$CHECKSUM_URL:$CHECKSUM_NAME" in https://github.com/necronicle/zapret2-z2k/releases/download/v*/sha256sum.txt:sha256sum.txt) ;; *) fail ESECURITY 'Checksum URL не входит в Z2K allowlist.';; esac
 printf '%s\n' "$CHECKSUM_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail EMETADATA 'Checksum asset digest отсутствует.'
 CHECKSUM="$WORK/sha256sum.txt"; uclient-fetch -q -T 30 -O "$CHECKSUM" "$CHECKSUM_URL" || fail ENETWORK 'Не удалось скачать checksum manifest.'; [ "$(sha "$CHECKSUM")" = "$CHECKSUM_SHA" ] || fail ESHA256 'Checksum manifest digest не совпадает.'
 RUNTIME_SHA="$(awk '$2 ~ /\/binaries\/linux-arm64\/nfqws2$/ {print $1; exit}' "$CHECKSUM")"
@@ -194,4 +197,4 @@ phase starting 85 'Запускается новый official runtime.'; phase p
 mkdir -p "$CACHE"; chmod 700 "$CACHE"; cp -a "$ASSET" "$CACHE/current.tar.gz"; sha "$CACHE/current.tar.gz" >"$CACHE/current.sha256"
 /usr/bin/ucode "$CLI" commit-state "$ID" >"$WORK/commit-state.log" 2>&1 || fail ESTATE "Engine state не подтверждён: $(tail -c 200 "$WORK/commit-state.log")" 'Engine state не подтверждён.'
 [ "$WAS_RUNNING" -eq 1 ] || [ "$OLD_INSTALLED" -eq 0 ] || "$INIT" stop >/dev/null 2>&1 || true
-ROLLBACK_REQUIRED=0; printf '{"ok":true,"upstream":"bol-van/zapret2","installedRelease":"v%s"}\n' "$EXPECTED_VERSION" >"$WORK/result.json"; /usr/bin/ucode "$CLI" complete "$ID" "$WORK/result.json" >/dev/null 2>&1 || true
+ROLLBACK_REQUIRED=0; printf '{"ok":true,"upstream":"necronicle/zapret2-z2k","installedRelease":"v%s"}\n' "$EXPECTED_VERSION" >"$WORK/result.json"; /usr/bin/ucode "$CLI" complete "$ID" "$WORK/result.json" >/dev/null 2>&1 || true

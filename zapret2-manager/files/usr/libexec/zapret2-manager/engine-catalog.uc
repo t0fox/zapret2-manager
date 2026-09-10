@@ -5,13 +5,11 @@ import * as update_source from './update-source.uc';
 const CHECK_DIR = '/tmp/zapret2-manager/engine-checks';
 const STATE_FILE = '/etc/zapret2-manager/engine-state.json';
 const CACHE = '/etc/zapret2-manager/engine-cache';
-// The root override is only used by the host regression harness. Production
-// state remains fixed at STATE_FILE below.
-const MANAGER_ROOT = getenv('Z2M_ENGINE_TEST_ROOT') || '/etc/zapret2-manager';
-const API_URL = 'https://api.github.com/repos/bol-van/zapret2/releases?per_page=20';
-const UPSTREAM = 'bol-van/zapret2';
+const MANAGER_ROOT = '/etc/zapret2-manager';
+const API_URL = 'https://api.github.com/repos/necronicle/zapret2-z2k/releases?per_page=20';
+const UPSTREAM = 'necronicle/zapret2-z2k';
 const ENGINE_ARTIFACT_SCHEMA = 'zapret2-manager.engine-artifact.v1';
-const VANILLA_ARTIFACT = 'vanilla-bol-van-release';
+const Z2K_ARTIFACT = 'z2k-engine-release';
 const CHECK_TTL = 600;
 const MAX_ASSET_SIZE = 33554432;
 const ARCHES = ['aarch64_cortex-a53','aarch64_cortex-a72','aarch64_cortex-a76','aarch64_generic','arm_arm1176jzf-s_vfp','arm_arm926ej-s','arm_cortex-a15_neon-vfpv4','arm_cortex-a5','arm_cortex-a5_vfpv4','arm_cortex-a7','arm_cortex-a7_neon-vfpv4','arm_cortex-a7_vfpv4','arm_cortex-a8','arm_cortex-a8_vfpv3','arm_cortex-a9','arm_cortex-a9_neon','arm_cortex-a9_vfpv3-d16','arm_fa526','arm_mpcore','arm_xscale','i386_pentium-mmx','i386_pentium4','mips64_octeonplus','mips_24kc','mips_4kec','mips_mips32','mipsel_24kc','mipsel_24kc_24kf','mipsel_74kc','mipsel_mips32','powerpc_464fp','powerpc_8540','riscv64_riscv64','riscv64_generic','x86_64','x86_geode'];
@@ -22,7 +20,7 @@ function fail(code, message, details) { let r = { ok: false, error: { code: code
 function literal(value) { return type(value) == 'string' && index(value, "'") < 0 && index(value, '\n') < 0 && index(value, '\r') < 0 ? "'" + value + "'" : null; }
 function read_json(path, fallback) { try { let raw = readfile(path); return raw ? json(raw) : fallback; } catch (e) { return fallback; } }
 function ensure_dir(path) { try { mkdir(path); } catch (e) {} let q = literal(path); if (q != null) run('chmod 700 ' + q); }
-function state_path() { return MANAGER_ROOT == '/etc/zapret2-manager' ? STATE_FILE : MANAGER_ROOT + '/engine-state.json'; }
+function state_path() { return STATE_FILE; }
 function ensure_manager_root() { try { mkdir(MANAGER_ROOT); } catch (e) {} let q = literal(MANAGER_ROOT); return q != null && run('chmod 0701 ' + q).rc == 0; }
 function atomic_json(path, value) { let tmp = path + '.tmp.' + time() + '-' + length(sprintf('%J', value)); if (!writefile(tmp, sprintf('%J', value) + '\n')) return false; let a = literal(tmp), b = literal(path); if (a == null || b == null) return false; let r = run('chmod 600 ' + a + ' && mv -f ' + a + ' ' + b); if (r.rc != 0) { try { unlink(tmp); } catch (e) {} return false; } return stat(path) != null; }
 function safe_arch(value) { for (let i = 0; i < length(ARCHES); i++) if (ARCHES[i] == value) return value; return null; }
@@ -30,8 +28,8 @@ function safe_token(value) { return type(value) == 'string' && match(value, /^[a
 function safe_version(value) { return type(value) == 'string' && match(value, /^[0-9][0-9A-Za-z._+~-]{0,95}$/) ? value : null; }
 function architecture() { let a = trim(run('apk --print-arch').out); if (safe_arch(a) != null) return a; a = trim(run(". /etc/openwrt_release 2>/dev/null; printf '%s' \"$DISTRIB_ARCH\"").out); return safe_arch(a); }
 function sha256(value) { let m = type(value) == 'string' ? match(value, /^sha256:([a-fA-F0-9]{64})$/) : null; return m ? lc(m[1]) : null; }
-function release_version(tag) { return type(tag) == 'string' && match(tag, /^v[0-9][0-9A-Za-z._-]*$/) ? substr(tag, 1) : null; }
-function release_url(version, name) { return 'https://github.com/bol-van/zapret2/releases/download/v' + version + '/' + name; }
+function release_version(tag) { return type(tag) == 'string' && match(tag, /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?-z2k-r[0-9]+$/) ? substr(tag, 1) : null; }
+function release_url(version, name) { return 'https://github.com/necronicle/zapret2-z2k/releases/download/v' + version + '/' + name; }
 function exact_asset(assets, name) { if (type(assets) != 'array') return null; for (let i = 0; i < length(assets); i++) { let a = assets[i]; if (type(a) == 'object' && a != null && a.name == name) return a; } return null; }
 function valid_asset(asset, name, version, min_size) { return type(asset) == 'object' && asset != null && asset.name == name && asset.state == 'uploaded' && +asset.size >= min_size && +asset.size <= MAX_ASSET_SIZE && sha256(asset.digest) != null && asset.browser_download_url == release_url(version, name); }
 function release_record(release, architecture_value) {
@@ -40,7 +38,7 @@ function release_record(release, architecture_value) {
 	let name = 'zapret2-v' + version + '-openwrt-embedded.tar.gz';
 	let asset = exact_asset(release.assets, name), checksum = exact_asset(release.assets, 'sha256sum.txt');
 	if (!valid_asset(asset, name, version, 1024) || !valid_asset(checksum, 'sha256sum.txt', version, 64)) return null;
-	return { schema: ENGINE_ARTIFACT_SCHEMA, artifactKind: VANILLA_ARTIFACT, version: version, releaseTag: 'v' + version, installedRelease: 'v' + version, upstream: UPSTREAM, architecture: architecture_value, assetName: name, downloadUrl: asset.browser_download_url, sha256: sha256(asset.digest), size: +asset.size, releaseId: '' + release.id, publishedAt: release.published_at, releaseUrl: type(release.html_url) == 'string' ? release.html_url : 'https://github.com/' + UPSTREAM + '/releases/tag/v' + version, releaseNotes: type(release.body) == 'string' ? release.body : '', prerelease: false, container: 'tar.gz', checksumName: 'sha256sum.txt', checksumUrl: checksum.browser_download_url, checksumSha256: sha256(checksum.digest), compatible: true, compatibilityState: 'compatible', compatibilityCode: null, compatibilityMessage: '', requiredCapabilities: [], baseRepository: UPSTREAM };
+	return { schema: ENGINE_ARTIFACT_SCHEMA, artifactKind: Z2K_ARTIFACT, version: version, releaseTag: 'v' + version, installedRelease: 'v' + version, upstream: UPSTREAM, architecture: architecture_value, assetName: name, downloadUrl: asset.browser_download_url, sha256: sha256(asset.digest), size: +asset.size, releaseId: '' + release.id, publishedAt: release.published_at, releaseUrl: type(release.html_url) == 'string' ? release.html_url : 'https://github.com/' + UPSTREAM + '/releases/tag/v' + version, releaseNotes: type(release.body) == 'string' ? release.body : '', prerelease: false, container: 'tar.gz', checksumName: 'sha256sum.txt', checksumUrl: checksum.browser_download_url, checksumSha256: sha256(checksum.digest), compatible: true, compatibilityState: 'compatible', compatibilityCode: null, compatibilityMessage: '', requiredCapabilities: [] };
 }
 function metadata_request(architecture_value) {
 	return {
@@ -79,15 +77,30 @@ function fetch_releases(architecture_value, mode) {
 }
 function random_token() { return trim(run("cat /proc/sys/kernel/random/uuid /proc/sys/kernel/random/uuid | tr -d '\\n-' | cut -c1-48").out); }
 function runtime_version() { return stat('/opt/zapret2/nfq2/nfqws2') != null ? trim(run('/opt/zapret2/nfq2/nfqws2 --version | head -n 1').out) : ''; }
-function runtime_release(value) { let m = match(type(value) == 'string' ? value : '', /github version (v[0-9][0-9A-Za-z._-]*)/i); return m && m[1] ? m[1] : null; }
+function runtime_release(value) { let m = match(type(value) == 'string' ? value : '', /github version (v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?-z2k-r[0-9]+)/i); return m && m[1] ? m[1] : null; }
 function package_version() { let s = trim(run('apk info -e -v zapret2 | head -n 1').out); return substr(s, 0, 8) == 'zapret2-' ? substr(s, 8) : s; }
 function description(raw) { let lines = split(raw, '\n'); for (let i = 0; i < length(lines); i++) { let l = lc(trim(lines[i])); if ((l == 'description:' || l == 'description') && i + 1 < length(lines)) return trim(lines[i + 1]); if (substr(l, 0, 12) == 'description:') return trim(substr(lines[i], 12)); let marker = ' description:'; let at = index(l, marker); if (at >= 0) return trim(substr(lines[i], at + length(marker))); } return ''; }
 function file_sha(path) { let q = literal(path); if (q == null || stat(path) == null) return null; let h = trim(run("sha256sum " + q + " | awk '{print $1}'").out); return match(h, /^[a-f0-9]{64}$/) ? h : null; }
 function saved_digest(saved) { if (type(saved) != 'object' || saved == null) return null; let path = saved.container == 'tar.gz' ? CACHE + '/current.tar.gz' : CACHE + '/current.apk'; let digest = file_sha(path); return digest == saved.assetSha256 ? digest : null; }
-function package_meta(saved) { let packageInstalled = run('apk info -e zapret2').rc == 0, runtimeContract = stat('/opt/zapret2/config') != null && stat('/opt/zapret2/nfq2/nfqws2') != null && stat('/etc/init.d/zapret2') != null, runtime = runtime_version(), officialRuntime = runtimeContract && index(lc(runtime), 'github version v') >= 0; if (!packageInstalled && !officialRuntime && !(runtimeContract && type(saved) == 'object' && saved != null && saved.installedOrigin == 'OFFICIAL')) return null; let raw = packageInstalled ? run('apk info -a zapret2').out : '', d = packageInstalled ? description(raw) : ''; if (packageInstalled && !length(d)) d = trim(run("apk info -a zapret2 | sed -n '2p'").out); return { name: packageInstalled ? 'zapret2' : null, version: packageInstalled ? package_version() : null, description: d, runtimeVersion: runtime, managedAssetSha256: saved_digest(saved), runtimeContract: runtimeContract, officialRuntime: officialRuntime }; }
+function runtime_proof(saved, runtime) {
+	let binary = '/opt/zapret2/nfq2/nfqws2', release = runtime_release(runtime), digest = file_sha(binary);
+	let checksumVerified = type(saved) == 'object' && saved != null && type(saved.nfqws2Sha256) == 'string'
+		&& digest != null && digest == saved.nfqws2Sha256;
+	let releaseVerified = type(saved) == 'object' && saved != null
+		&& type(saved.installedRelease) == 'string' && release == saved.installedRelease;
+	return { z2kCapable: release != null, runtimeRelease: release, runtimeVersion: runtime,
+		nfqws2Sha256: digest, checksumVerified: checksumVerified,
+		releaseVerified: releaseVerified, proven: release != null && checksumVerified && releaseVerified };
+}
+function package_meta(saved) { let packageInstalled = run('apk info -e zapret2').rc == 0, runtimeContract = stat('/opt/zapret2/config') != null && stat('/opt/zapret2/nfq2/nfqws2') != null && stat('/etc/init.d/zapret2') != null, runtime = runtime_version(), proof = runtime_proof(saved, runtime), officialRuntime = runtimeContract && proof.proven === true; if (!packageInstalled && !officialRuntime) return null; let raw = packageInstalled ? run('apk info -a zapret2').out : '', d = packageInstalled ? description(raw) : ''; if (packageInstalled && !length(d)) d = trim(run("apk info -a zapret2 | sed -n '2p'").out); return { name: packageInstalled ? 'zapret2' : null, version: packageInstalled ? package_version() : null, description: d, runtimeVersion: runtime, managedAssetSha256: saved_digest(saved), runtimeContract: runtimeContract, officialRuntime: officialRuntime, runtimeProof: proof, z2kCapable: proof.z2kCapable === true }; }
 function valid_state(value) { return type(value) == 'object' && value != null && value.schema == 'engine-state.v2' && value.installedOrigin == 'OFFICIAL'; }
 function saved_state() { let current = read_json(state_path(), null); return valid_state(current) ? current : null; }
 function public_candidate(c) { return { schema: c.schema, artifactKind: c.artifactKind, version: c.version, releaseTag: c.releaseTag, installedRelease: c.installedRelease, upstream: c.upstream, architecture: c.architecture, assetName: c.assetName, sha256: c.sha256, size: c.size, releaseId: c.releaseId, publishedAt: c.publishedAt, releaseUrl: c.releaseUrl, releaseNotes: c.releaseNotes, prerelease: c.prerelease, container: c.container, checksumName: c.checksumName, checksumUrl: c.checksumUrl, checksumSha256: c.checksumSha256, compatible: c.compatible, compatibilityState: c.compatibilityState, compatibilityCode: c.compatibilityCode, compatibilityMessage: c.compatibilityMessage, requiredCapabilities: c.requiredCapabilities || [] }; }
+
+// Validate the sole Z2K release feed. A release is installable only when the
+// embedded archive and sibling sha256sum.txt are both present and pinned to
+// the exact GitHub release URLs.
+
 
 function catalog(architecture_value, options) {
 	options = options || {};
@@ -122,16 +135,16 @@ export const engine_releases_for_request = function (input) {
 	return { ok: true, upstream: UPSTREAM, architecture: a, releases: releases, remoteAvailable: true, remoteState: catalog_remote_state(result, releases), cacheHit: result.cacheHit === true, stale: result.stale === true, fetchedAt: result.fetchedAt || null, networkError: result.networkError || null, source: result.source || null };
 };
 
-export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'official-runtime-contract' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'official-runtime-not-proven' }, release = saved != null && saved.installedRelease ? saved.installedRelease : runtime_release(meta.runtimeVersion); return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract }; };
+export const installed_engine = function () { let saved = saved_state(), meta = package_meta(saved); if (meta == null) return { installed: false, packageName: null, packageVersion: null, installedOrigin: null, originConfidence: null, originEvidence: null, savedState: saved, architecture: architecture(), runtimeBuild: null, installedRelease: null, runtimeContract: false, z2kCapable: false, runtimeProof: null }; let evidence = meta.officialRuntime ? { origin: 'OFFICIAL', confidence: 'high', evidence: 'z2k-runtime-checksum-and-release' } : { origin: 'UNKNOWN', confidence: 'none', evidence: 'z2k-runtime-not-proven' }, release = saved != null && saved.installedRelease ? saved.installedRelease : runtime_release(meta.runtimeVersion); return { installed: true, packageName: meta.name, packageVersion: meta.version, packageDescription: meta.description, installedOrigin: evidence.origin, originConfidence: evidence.confidence, originEvidence: evidence.evidence, savedState: saved, architecture: architecture(), runtimeBuild: meta.runtimeVersion, installedRelease: release, runtimeContract: meta.runtimeContract, z2kCapable: meta.z2kCapable, runtimeProof: meta.runtimeProof }; };
 export const normalize_state_record = function (state) {
 	if (!is_object(state) || state == null || state.schema != 'engine-state.v2') return null;
 	let upstream = null;
-	if (type(state.artifactKind) == 'string' && state.artifactKind == VANILLA_ARTIFACT
-		&& type(state.installedRelease) == 'string' && match(state.installedRelease, /^v[0-9]/))
+	if (type(state.artifactKind) == 'string' && state.artifactKind == Z2K_ARTIFACT
+		&& type(state.installedRelease) == 'string' && match(state.installedRelease, /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?-z2k-r[0-9]+$/))
 		upstream = state.installedRelease;
 	return {
 		schema: 'engine-truth.v1',
-		artifactKind: upstream != null ? VANILLA_ARTIFACT : null,
+		artifactKind: upstream != null ? Z2K_ARTIFACT : null,
 		producer: null,
 		artifactVersion: type(state.installedRelease) == 'string' ? state.installedRelease : null,
 		upstreamRepository: UPSTREAM,
@@ -147,13 +160,15 @@ export const update_required = function (installedRelease, availableVersion) {
 };
 export const engine_check = function (input) { let version = type(input) == 'object' && input != null && input.version != null ? input.version : null; let forceRefresh = type(input) == 'object' && input != null && input.forceRefresh === true; if (version != null && safe_version(version) == null && !match(version, /^[a-zA-Z0-9._-]+$/)) return fail('EINPUT', 'Некорректная версия release.'); if (type(version) == 'string' && substr(version, 0, 1) == 'v') version = substr(version, 1); let arch = architecture(); if (arch == null) return fail('EARCH', 'Архитектура устройства не поддерживается.'); let result = catalog(arch, { cache: forceRefresh !== true, allowStale: false, forceRefresh: forceRefresh }); if (!result.ok) return result; let combined = result.releases || [], candidate = null, public_releases = [];
 if (version == null) {
-	// Default target is the newest verified official release.
+	// Default target is the newest verified Z2K release.
 	candidate = length(combined) ? combined[0] : null;
 } else {
 	for (let i = 0; i < length(combined); i++)
 		if (combined[i].version == version) { candidate = combined[i]; break; }
 }
-for (let i = 0; i < length(combined); i++) push(public_releases, public_candidate(combined[i])); if (candidate == null) return fail('ENOASSET', 'Устанавливаемый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latestUpstream = combined[0] || null; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latestUpstream ? latestUpstream.installedRelease : null, availableArtifactKind: latestUpstream ? latestUpstream.artifactKind : null, updateAvailable: update_required(installed.installedRelease, latestUpstream ? latestUpstream.version : null), candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage, source: result.source || null }; };
-export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if ((record.candidate.artifactKind != VANILLA_ARTIFACT) || record.candidate.schema != ENGINE_ARTIFACT_SCHEMA || record.candidate.compatible !== true) return fail('EENGINE_INTEGRATION_REQUIRED', 'Проверенный candidate не является каноническим источником Engine.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
+for (let i = 0; i < length(combined); i++) push(public_releases, public_candidate(combined[i])); if (candidate == null) return fail('ENOASSET', 'Устанавливаемый release для этой версии не найден.'); if (!candidate.compatible) return fail(candidate.compatibilityCode || 'EENGINE_INTEGRATION_REQUIRED', candidate.compatibilityMessage, { candidate: public_candidate(candidate) }); let token = random_token(); if (safe_token(token) == null) return fail('EINTERNAL', 'Не удалось создать check token.'); ensure_dir(CHECK_DIR); let now = time(), record = { schema: 'engine-check.v2', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate }; if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return fail('EINTERNAL', 'Не удалось сохранить checked candidate.'); let installed = installed_engine(), latest = combined[0] || null; return { ok: true, checkToken: token, checkedAt: now, expiresAt: now + CHECK_TTL, installedRelease: installed.installedRelease, latestRelease: latest ? latest.installedRelease : null, availableArtifactKind: latest ? latest.artifactKind : null, updateAvailable: update_required(installed.installedRelease, latest ? latest.version : null), candidate: public_candidate(candidate), releases: public_releases, compatible: true, compatibilityMessage: candidate.compatibilityMessage, source: result.source || null }; };
+export const load_checked_candidate = function (token) { if (safe_token(token) == null) return fail('EINPUT', 'Некорректный check token.'); let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null); if (record == null || record.token != token) return fail('ECHECKTOKEN', 'Проверенный candidate не найден.'); if (+record.expiresAt < time()) { try { unlink(path); } catch (e) {} return fail('ECHECKEXPIRED', 'Результат проверки устарел.'); } if (type(record.candidate) != 'object' || record.candidate == null || record.candidate.upstream != UPSTREAM || record.candidate.container != 'tar.gz') return fail('EMETADATA', 'Проверенный candidate повреждён.'); if ((record.candidate.artifactKind != Z2K_ARTIFACT) || record.candidate.schema != ENGINE_ARTIFACT_SCHEMA || record.candidate.compatible !== true) return fail('EENGINE_INTEGRATION_REQUIRED', 'Проверенный candidate не является каноническим источником Z2K Engine.'); try { unlink(path); } catch (e) {} return { ok: true, record: record }; };
 export const save_engine_state = function (value) { if (!ensure_manager_root()) return false; return atomic_json(state_path(), value); };
 export const clear_engine_state = function () { let path = state_path(); try { unlink(path); } catch (e) {} return stat(path) == null; };
+export const ENGINE_UPSTREAM = UPSTREAM;
+export const ENGINE_ARTIFACT_KIND = Z2K_ARTIFACT;

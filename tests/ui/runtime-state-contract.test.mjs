@@ -45,7 +45,7 @@ test('engine UI uses the official catalog and keeps package metadata out of the 
   assert.match(source, /engine\.releases\(\)/);
   assert.match(source, /status\.installedRelease/);
   assert.match(source, /value:\s*status\.installedRelease/);
-  assert.match(source, /bol-van\/zapret2/);
+  assert.match(source, /necronicle\/zapret2-z2k/);
   assert.doesNotMatch(source, /Remittor|1andrevich|providerPicker/);
   assert.doesNotMatch(source, / · package /);
   assert.match(source, /Технические детали/);
@@ -86,7 +86,7 @@ test('runtime mismatch is presented consistently instead of contradictory runnin
 test('Dashboard zapret2 card links to engine management', () => {
   const overview = fs.readFileSync(overviewPath, 'utf8');
   assert.match(overview, /card-zapret-ver/);
-  assert.match(overview, /Официальный release bol-van\/zapret2/);
+  assert.match(overview, /Z2K Engine release/);
   assert.doesNotMatch(overview, /id: 'card-zapret-ver', label: 'zapret2'/,
     'engine version remains restrained System metadata rather than a peer overview card');
 });

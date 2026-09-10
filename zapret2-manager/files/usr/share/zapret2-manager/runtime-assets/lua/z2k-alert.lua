@@ -1742,7 +1742,7 @@ function z2k_silent_drop_detector(desync, crec)
   if try(z2k_http_mid_stream_stall) then return true end
   -- z2k_http_partial_response is NOT chained. The task-#11 rewrite fixed its
   -- byte-counting (per-flow cumulative reverse pbcounter), but adversarial
-  -- verification (workflow w02bvboy1, traced against bol-van source) proved
+  -- verification is traced against the current Z2K runtime path
   -- the detector cannot be safely wired in this architecture:
   --   1. FALSE-POSITIVE: it settles "completeness" at the next outgoing
   --      http_req, before the prior response has finished streaming. On

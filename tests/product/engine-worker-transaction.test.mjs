@@ -63,7 +63,7 @@ case "\$key" in
   '@.candidate.size') printf '%s\\n' "\$JOB_SIZE" ;;
   '@.candidate.version') printf '%s\\n' "\$JOB_VERSION" ;;
   '@.candidate.container') printf 'tar.gz\\n' ;;
-  '@.candidate.checksumUrl') printf 'https://github.com/bol-van/zapret2/releases/download/v1.5.9/sha256sum.txt\\n' ;;
+  '@.candidate.checksumUrl') printf 'https://github.com/necronicle/zapret2-z2k/releases/download/v1.0.5-z2k-r1/sha256sum.txt\\n' ;;
   '@.candidate.checksumSha256') printf '%s\\n' "\$JOB_CKSUM_SHA" ;;
   '@.candidate.checksumName') printf 'sha256sum.txt\\n' ;;
   '@.candidate.nfqws2Sha256') printf '%s\\n' "\$JOB_NFQWS2_SHA" ;;
@@ -82,14 +82,14 @@ test('worker script declares the staged transaction with z2k gates', () => {
   const order = [
     ['preflight artifactKind gate', 'EENGINE_INTEGRATION_REQUIRED'],
     ['architecture gate', "TARGET_ARCH\" = \"$ARCH"],
-    ['official upstream allowlist', 'bol-van/zapret2/releases/download/v*'],
+    ['Z2K upstream allowlist', 'necronicle/zapret2-z2k/releases/download/v*'],
     ['artifact sha gate', 'ESHA256'],
     ['materialize phase', 'strategy-runtime-assets-sync.sh'],
     ['verify mode gate', '--verify'],
     ['capability proof phase', 'preflight-cli.uc'],
     // Requirement-based proving (Task 6): the required set comes from the
-    // checked candidate — zero for canonical stock releases, candidate-declared
-    // for legacy-compatible artifacts.
+    // The checked Z2K release currently declares no extra capability names;
+    // the worker still enforces any future candidate-declared requirements.
     ['candidate-required capabilities enforced', 'for capability in $REQUIRED_CAPS']
   ];
   let cursor = -1;

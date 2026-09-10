@@ -18,6 +18,7 @@ let proof = install_proof();
 if (proof && proof.ok !== true
     && getenv('Z2M_CLEAN_ENGINE_BOOTSTRAP') == '1'
     && proof.compositionStatus == 'unavailable'
+    && proof.z2kCapable === true
     && length(proof.requiredCapabilities || []) == 0) {
   proof.ok = true;
   proof.cleanBootstrap = true;

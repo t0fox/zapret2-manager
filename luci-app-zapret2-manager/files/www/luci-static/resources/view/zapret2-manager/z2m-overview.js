@@ -337,7 +337,7 @@ function render(ctx) {
       var installedRelease = format.text(truth.installed.version);
       return {
         value: installedRelease || _('Установлен'), kind: '',
-        detail: _('Официальный release bol-van/zapret2')
+        detail: _('Официальный Z2K Engine release')
       };
     }
     if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: null };

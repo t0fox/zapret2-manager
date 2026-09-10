@@ -13,19 +13,19 @@ code: [zapret2-manager/files/usr/libexec/zapret2-manager/engine-gate.uc#engine_g
 # Zapret2 Engine
 
 Zapret2 Engine — системный runtime для `nfqws2`. В Z2M он проверяется через
-**Система → Компоненты**; это не второй Strategy API и не самостоятельный
-обход, который можно незаметно заменить UI-логикой.
+**Система → Компоненты**; единственный источник Engine —
+`necronicle/zapret2-z2k`, а UI не выбирает поставщика.
 
 ## Что проверяется
 
-Страница компонентов показывает наличие binary, версию, capability и
-совместимость с текущими Strategy/assets. `UNKNOWN` и отсутствие evidence не
-равны `OK`. Если capability не подтверждена, Apply останавливается до
-восстановления verified состояния.
+Страница компонентов показывает наличие binary, Z2K release, capability и
+совместимость с текущими Strategy/assets. Установка дополнительно проверяет
+`nfqws2 --version` и SHA-256 `nfqws2` по `sha256sum.txt`; без этого runtime не
+считается подтверждённым.
 
 ## Обновление
 
-Обновление Engine проходит через owner компонента и его preflight. После него
-нужно проверить runtime process, NFQUEUE owner, активную Strategy и сохранность
-manager state. Документация не объявляет обновление успешным только по факту
-скачивания файла.
+Обновление Engine проходит через owner компонента и сохраняет транзакцию
+`fetch → verify → stage → install → runtime verify → rollback`. После него
+проверяются runtime process, NFQUEUE owner, активная Strategy, SHA-256 и
+сохранность manager state. Одного факта скачивания файла недостаточно.

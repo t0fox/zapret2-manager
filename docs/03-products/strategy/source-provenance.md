@@ -23,15 +23,15 @@ source records -> lossless importer -> canonical Strategy
 
 | Роль | Источник | Revision |
 |---|---|---|
-| Engine base authority | `bol-van/zapret2` | `a0be7cbb40a4230e4b60fc33b7ea06102eb8ec15` |
+| Engine release authority | `necronicle/zapret2-z2k` | `v1.0.5.1-z2k-r1` / `ac1c7e76af38197a90fc216a9fffe8c6a70614ad` |
 | Strategy catalog authority | `avatarDD/zapret-gui` | `f9dd3ea47a2239514f396a843b475c92c33f0b4c` |
 | Strategy UI donor | `avatarDD/zapret-gui` | `8c44df2bed98872d1348db053623ee6bf2902408` |
 | Z2K engine delta reference | `necronicle/zapret2-z2k:z2k-master` | `8193742d8fde42fc646fbd10c0d2866572a54d3b` |
 | Z2K signed runtime/data reference | `necronicle/z2k:z2k-enhanced` | `54b6765f2ab3e0f7f13030c90c809f1dcacfcce2` |
 
-The installed runtime catalog is the verified, package-owned Avatar-derived
-snapshot. Upstream metadata and donor references are provenance only; they do
-not replace the Z2M runtime authority or change execution semantics.
+The installed Engine runtime is the verified Z2K embedded release. Upstream
+metadata and donor references are provenance only; they do not replace the Z2M
+runtime authority or change execution semantics.
 
 ## Трассировка donor renderer
 

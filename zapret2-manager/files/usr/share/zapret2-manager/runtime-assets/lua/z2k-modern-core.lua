@@ -33,7 +33,7 @@ if type(DLOG) ~= "function" then DLOG = function() end end
 if type(DLOG_ERR) ~= "function" then DLOG_ERR = function() end end
 
 -- Native hostkey generator for hostname-less flows (Discord/STUN UDP have no
--- SNI). Plug into bol-van's circular() via arg `hostkey=z2k_nohost_key`
+-- SNI). Plug into nfqws2's circular() via arg `hostkey=z2k_nohost_key`
 -- (automate_host_record extension point, см. zapret-auto.lua). Replaces the
 -- archived z2k-autocircular allow_nohost behavior natively: instead of the
 -- stock standard_hostkey host_ip fallback (which buckets state PER dest-IP →
@@ -820,4 +820,3 @@ function z2k_game_udp(ctx, desync)
     -- emit N copies per real packet.
     rawsend_dissect_ipfrag(dis, desync_opts(desync))
 end
-

@@ -34,8 +34,8 @@ test('Engine keeps runtime health, artifact identity, availability, update state
   const engine = page.components.find(item => item.id === 'engine');
 
   assert.equal(engine.runtimeHealth, 'ready');
-  assert.deepEqual(JSON.parse(JSON.stringify(engine.installed)), { version: 'v1.0.4', artifactKind: 'vanilla-bol-van-release' });
-  assert.deepEqual(JSON.parse(JSON.stringify(engine.available)), { version: 'v1.0.5' });
+  assert.deepEqual(JSON.parse(JSON.stringify(engine.installed)), { version: 'v1.0.5.1-z2k-r1', artifactKind: 'z2k-engine-release' });
+  assert.deepEqual(JSON.parse(JSON.stringify(engine.available)), { version: 'v1.0.5.1-z2k-r2' });
   assert.equal(engine.updateState, 'review-required');
   assert.deepEqual(JSON.parse(JSON.stringify(engine.compatibility)), { state: 'review-required', reason: 'candidate metadata needs review' });
   assert.equal(engine.runtimeHealth, 'ready', 'compatibility attention must not poison runtime health');

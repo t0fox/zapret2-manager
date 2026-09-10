@@ -133,7 +133,7 @@ function normalizeEngine(input) {
 	if (availableVersion === null && !remoteBlocked) availableVersion = versionFrom(status.available) || versionFrom(catalog.available) || versionFrom(candidate) || versionFrom(catalogCandidate);
 	var installedIdentity = { version: installedVersion, artifactKind: artifactKind };
 	var updateState = engineUpdate(input, status);
-	var upstreamRelease = first(status.upstreamRelease || (artifactKind === 'vanilla-bol-van-release' ? installedVersion : null), null);
+	var upstreamRelease = first(status.upstreamRelease, null);
 	var capabilities = object(status.capabilities);
   var capabilityReady = capabilities.ready !== undefined ? capabilities.ready : capabilities.available;
   var capabilityTotal = capabilities.total !== undefined ? capabilities.total : capabilities.required;
@@ -165,7 +165,7 @@ function normalizeEngine(input) {
       capabilities: capabilityReady !== undefined && capabilityTotal !== undefined ? String(capabilityReady) + ' / ' + String(capabilityTotal) : null
     },
     details: {
-      source: first(status.upstream, 'bol-van/zapret2'),
+      source: first(status.upstream, 'necronicle/zapret2-z2k'),
       serviceState: first(status.serviceState, null),
 			autostart: typeof status.autostart === 'boolean' ? status.autostart : null,
       runtimeRunning: status.runtimeRunning === true,
@@ -321,9 +321,13 @@ function normalizeZ2kDetails(value) {
       unknown: array(input.unknown)
     };
   }
-  var releaseChanges = normalizeChanges(value.releaseChanges);
-  var installChanges = normalizeChanges(value.installChanges);
-  var deviceChanges = normalizeChanges(value.deviceChanges);
+  var legacyChanges = value.changes || {};
+  var releaseChanges = normalizeChanges(value.releaseChanges || legacyChanges);
+  var installChanges = normalizeChanges(value.installChanges || value.changes || value.releaseChanges || {});
+  // deviceChanges is the canonical target-plan projection. Keep the older
+  // installChanges/changes fields as compatibility fallbacks for older RPC
+  // payloads, but never use release history as the preferred device source.
+  var deviceChanges = normalizeChanges(value.deviceChanges || value.installChanges || value.changes || {});
   var compareDiagnostics = value.compareDiagnostics && typeof value.compareDiagnostics === 'object' && !Array.isArray(value.compareDiagnostics)
     ? value.compareDiagnostics : null;
   return {
@@ -345,6 +349,7 @@ function normalizeZ2kDetails(value) {
     releaseChanges: releaseChanges,
     deviceChanges: deviceChanges,
     installChanges: installChanges,
+    changes: deviceChanges,
     compareUrl: first(value.compareUrl, null),
     compareDiagnostics: compareDiagnostics ? {
       requested: compareDiagnostics.requested === true,
@@ -416,8 +421,8 @@ function normalizeZ2k(input, engineReady) {
       ? 'Autocircular, detectors и расширения Zapret2.'
       : 'Z2K Core требует проверки целостности ресурсов.';
   } else {
-    if (remoteStatus === 'broken' || remoteStatus === 'missing') healthState = remoteStatus;
-		else healthState = 'degraded';
+    // Without local runtime evidence, Lua counts cannot establish readiness.
+    healthState = remoteStatus === 'broken' || remoteStatus === 'missing' ? remoteStatus : 'degraded';
     if (explicitHealth) {
       var claimed = health(explicitHealth, 'degraded');
       var severity = { ready: 0, degraded: 1, broken: 2, missing: 3 };

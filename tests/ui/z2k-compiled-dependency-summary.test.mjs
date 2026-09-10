@@ -148,7 +148,7 @@ function makeContext(z2k) {
     serviceState: 'running',
     runtimeRunning: true,
     compatible: true,
-    upstream: 'bol-van/zapret2',
+    upstream: 'necronicle/zapret2-z2k',
     available: { version: 'v1.0.4' },
   };
   return {

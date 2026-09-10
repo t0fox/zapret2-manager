@@ -467,7 +467,7 @@ end
 -- ---------------------------------------------------------------------------
 -- External-edit reconcile — make state.tsv authoritative for OUTSIDE writes.
 --
--- The rotator is native bol-van circular(); it keeps nstrategy in RAM
+-- The rotator is the native nfqws2 circular(); it keeps nstrategy in RAM
 -- (autostate) and we only SEED it from disk on a host's first packet. So an
 -- external change to an ALREADY-ACTIVE host (the webpanel × delete, or a manual
 -- edit) used to be ignored until a full service restart. This re-reads the disk

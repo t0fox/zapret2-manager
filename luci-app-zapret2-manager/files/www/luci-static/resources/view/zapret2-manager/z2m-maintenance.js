@@ -1643,7 +1643,7 @@ function renderEngineDetails(ctx, component, engineStatus, engineCatalog) {
   var installed = component.installed && component.installed.version || (isReady || component.runtimeHealth === 'degraded' ? _('Версия не определена') : _('Не установлен'));
   var available = component.available && component.available.version || _('Не определена');
   var updateLabel = component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
-  var source = details.source || status.upstream || 'bol-van/zapret2';
+  var source = details.source || status.upstream || 'necronicle/zapret2-z2k';
   return E('section', { 'class': 'z2m-component-details z2m-component-details--engine', 'data-component-details': 'engine' }, [
     E('div', { 'class': 'z2m-component-details-head' }, [
       E('div', { 'class': 'z2m-component-details-heading' }, [

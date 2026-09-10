@@ -39,7 +39,7 @@ test('engine normal rows use Russian product labels and official source mapping'
   assert.match(engineModel, /serviceLabel/);
   assert.match(enginePanel, /Официальный движок zapret2/);
   assert.match(enginePanel, /Проверить/);
-  assert.match(enginePanel, /bol-van\/zapret2/);
+  assert.match(enginePanel, /necronicle\/zapret2-z2k/);
   assert.doesNotMatch(enginePanel, /Remittor|1andrevich|providerPicker|type:\s*['"]radio/);
   assert.doesNotMatch(enginePanel, /value:status\.state/);
   assert.doesNotMatch(enginePanel, /value:status\.serviceState/);
