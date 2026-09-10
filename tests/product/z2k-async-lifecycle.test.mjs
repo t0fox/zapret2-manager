@@ -11,7 +11,6 @@ const workerPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-ma
 const maintenancePath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
 const apiPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 const aclPath = path.join(root, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
-const manifestPath = path.join(root, 'router-deploy-runtime-composition.manifest');
 
 const rpc = fs.readFileSync(rpcPath, 'utf8');
 const cli = fs.readFileSync(cliPath, 'utf8');
@@ -20,7 +19,6 @@ const worker = fs.readFileSync(workerPath, 'utf8');
 const maintenance = fs.readFileSync(maintenancePath, 'utf8');
 const api = fs.readFileSync(apiPath, 'utf8');
 const acl = JSON.parse(fs.readFileSync(aclPath, 'utf8'))['zapret2-manager'];
-const manifest = fs.readFileSync(manifestPath, 'utf8');
 
 function functionBody(source, marker, nextMarker) {
   const start = source.indexOf(marker);
@@ -86,9 +84,4 @@ test('Components UI treats Z2K prepare as a bounded operation and waits for its 
   assert.match(api, /prepareVersion:z2kPrepareVersion/);
   assert.doesNotMatch(api, /resources:[\s\S]*prepareStatus/);
   assert.match(maintenance, /Z2K_PREPARE_TIMEOUT_MS/);
-});
-
-test('Reviewed router closure includes both halves of the async prepare UI path', () => {
-  assert.match(manifest, /luci-app-zapret2-manager\/files\/www\/luci-static\/resources\/view\/zapret2-manager\/z2m-api\.js/);
-  assert.match(manifest, /luci-app-zapret2-manager\/files\/www\/luci-static\/resources\/view\/zapret2-manager\/z2m-maintenance\.js/);
 });

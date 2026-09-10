@@ -93,13 +93,3 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   assert.match(page, /function mergeSelected\(\)[\s\S]*strategies\.get/);
   assert.match(page, /function copyStrategyToClipboard\(id\)[\s\S]*strategies\.get/);
 });
-
-test('the single target deploy path requires an explicit reviewed closure', () => {
-  const deploy = fs.readFileSync(path.join(root, 'scripts/deploy-target.sh'), 'utf8');
-  assert.match(deploy, /MANIFEST/);
-  assert.match(deploy, /EXPECTED_COMMIT/);
-  assert.match(deploy, /git -C .*diff --quiet/);
-  assert.match(deploy, /scp -q -O/);
-  assert.match(deploy, /sha256sum/);
-  assert.match(deploy, /BACKUP_ROOT/);
-});

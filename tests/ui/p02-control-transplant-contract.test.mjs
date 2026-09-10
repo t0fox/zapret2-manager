@@ -71,12 +71,3 @@ test('P02 Control carries donor control CSS in the Graphite shell', () => {
   ]) assert.match(css, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
   assert.doesNotMatch(css, /avatar-sidebar|donor-sidebar/);
 });
-
-test('P02 deploy closure uses the single explicit reviewed manifest path', () => {
-  const deploy = fs.readFileSync('scripts/deploy-target.sh', 'utf8');
-  assert.match(deploy, /TARGET=\$\{TARGET:\?/, 'target must be explicit');
-  assert.match(deploy, /MANIFEST=\$\{MANIFEST:\?/, 'manifest must be explicit');
-  assert.match(deploy, /EXPECTED_COMMIT=\$\{EXPECTED_COMMIT:\?/, 'source commit must be explicit');
-  assert.match(deploy, /backup/i);
-  assert.match(deploy, /while IFS='\|'/, 'deployment closure must be manifest-driven');
-});

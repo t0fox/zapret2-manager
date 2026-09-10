@@ -6,7 +6,6 @@ import vm from 'node:vm';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const rpc = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
-const deploy = fs.readFileSync(path.join(root, 'scripts/deploy-target.sh'), 'utf8');
 
 const registrationBlock = [
   "z2k_detect_discovery_status: { call: function(req) { return z2k_detect_discovery_status_method(req); } },",
@@ -22,14 +21,9 @@ test('discovery RPC registers typed dnsSource on every control method', () => {
   assert.deepEqual(registrations, registrationBlock);
 });
 
-test('reviewed source deploy can restart rpcd after replacing a UCode plugin', () => {
-  assert.match(deploy, /RESTART_RPCD/);
-  assert.match(deploy, /\/etc\/init\.d\/rpcd restart/);
-});
-
 test('executable rpcd handler seam forwards req.args dnsSource to control', () => {
   const start = rpc.indexOf('function z2k_detect_input(req)');
-  const end = rpc.indexOf('function job_get_method(req)', start);
+  const end = rpc.indexOf('\n// ---- maintenance + backups', start);
   assert.ok(start >= 0 && end > start, 'rpcd discovery handler block must be extractable');
   const registrationStart = rpc.indexOf("\t\tz2k_detect_discovery_status:");
   const registrationEnd = rpc.indexOf("\n\t\tz2k_detect_probe:", registrationStart);

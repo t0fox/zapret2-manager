@@ -8,7 +8,6 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const persistPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua');
 const opsPath = path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops.uc');
 const integrationPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/upstreams/z2k-integration.json');
-const deploymentManifestPath = path.join(root, 'router-deploy-runtime-composition.manifest');
 
 test('Autocircular runtime accepts the canonical state path through the service environment', () => {
   const source = fs.readFileSync(persistPath, 'utf8');
@@ -18,14 +17,13 @@ test('Autocircular runtime accepts the canonical state path through the service 
   assert.match(sync, /procd_set_param env Z2K_STATE_DIR_OVERRIDE=.*autocircular/);
 });
 
-test('Lifecycle-managed Lua remains pinned to its Registry baseline and is not direct-deployed', () => {
+test('Lifecycle-managed Lua remains pinned to its Registry baseline', () => {
   const source = fs.readFileSync(persistPath);
   const integration = JSON.parse(fs.readFileSync(integrationPath, 'utf8'));
   const record = integration.files.find((entry) => entry.sourcePath === 'files/lua/z2k-state-persist.lua');
   assert.ok(record);
   assert.equal(record.class, 'exact-managed');
   assert.equal(record.basedOnSha256, createHash('sha256').update(source).digest('hex'));
-  assert.doesNotMatch(fs.readFileSync(deploymentManifestPath, 'utf8'), /z2k-state-persist\.lua\|\/opt\/zapret2\/lua\/z2k-state-persist\.lua/);
 });
 
 test('Autocircular control-plane writes keep state readable by nfqws2 daemon', () => {

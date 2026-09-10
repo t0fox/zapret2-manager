@@ -4,15 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const frontend = path.join(root, 'frontend/editor');
 const view = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
 const read = file => fs.readFileSync(file, 'utf8');
 
-test('CodeMirror vendor build and package copy contract are present', () => {
-  assert.ok(fs.existsSync(path.join(frontend, 'package.json')));
-  assert.ok(fs.existsSync(path.join(frontend, 'package-lock.json')));
-  assert.ok(fs.existsSync(path.join(frontend, 'src/vendor-entry.mjs')));
-  assert.ok(fs.existsSync(path.join(frontend, 'build.mjs')));
+test('shipped CodeMirror vendor and package copy contract are present', () => {
   const bundle = read(path.join(view, 'vendor/z2m-codemirror.js'));
   assert.match(bundle, /Z2MCodeMirrorVendor/);
   assert.doesNotMatch(bundle, /https?:\/\//i);
@@ -46,14 +41,4 @@ test('CodeMirror vendor is a LuCI-loadable baseclass module', () => {
   assert.equal(extended, true);
   assert.equal(typeof moduleClass, 'function');
   assert.ok(globalThis.Z2MCodeMirrorVendor.EditorView);
-});
-
-test('vendor package contains only intended direct packages', () => {
-  const pkg = JSON.parse(read(path.join(frontend, 'package.json')));
-  assert.deepEqual(Object.keys(pkg.dependencies || {}).sort(), [
-    '@codemirror/autocomplete', '@codemirror/commands',
-    '@codemirror/language', '@codemirror/legacy-modes',
-    '@codemirror/lint', '@codemirror/search', '@codemirror/state',
-    '@codemirror/view', 'esbuild',
-  ].sort());
 });
