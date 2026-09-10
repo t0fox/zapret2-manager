@@ -284,7 +284,7 @@ test('Z2K model and details expose runtime/Strategy revision coherence', () => {
   assert.match(textOf(technical), /aligned/);
 });
 
-test('Z2K details are subordinate to the single product card and keep raw identity out of the primary surface', () => {
+test('Z2K details use the same full-width presentation level as Engine and keep raw identity out of the card', () => {
   const { internals } = loadMaintenance();
   const ctx = makeContext(engineStatus(), z2kRaw({
     runtimeSummary: {
@@ -298,12 +298,17 @@ test('Z2K details are subordinate to the single product card and keep raw identi
   internals.state.z2kExpanded = true;
   const rendered = internals.renderComponents(ctx, ctx.data);
   const card = findAll(rendered, node => classHas(node, 'z2m-component-card--z2k'))[0];
+  const mandatorySection = findAll(rendered, node => classHas(node, 'z2m-components-section'))[0];
+  const detailsPanel = findAll(rendered, node => classHas(node, 'z2m-component-details--z2k'))[0];
   const details = findAll(rendered, node => classHas(node, 'z2m-component-technical'))[0];
 
   assert.equal(findAll(rendered, node => classHas(node, 'z2m-component-card--z2k')).length, 1);
   assert.ok(card);
+  assert.ok(detailsPanel, 'expanded Z2K must render a full-width details panel');
+  assert.ok((mandatorySection.children || []).includes(detailsPanel), 'Z2K details must be a sibling of the card grid');
+  assert.equal(findAll(card, node => classHas(node, 'z2m-component-details')).length, 0, 'Z2K details must not be nested in the card');
   assert.ok(details, 'technical details must remain subordinate to the product surface');
-  const primaryText = textOf((card.children || []).filter(node => !classHas(node, 'z2m-component-details')));
+  const primaryText = textOf(card);
   assert.doesNotMatch(primaryText, /runtimeBundleDigest|compatibilityIdentity|compilerInputs|catalogDigest/);
   assert.match(textOf(details), /compatibilityIdentity/);
 });

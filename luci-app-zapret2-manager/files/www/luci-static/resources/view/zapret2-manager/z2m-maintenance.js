@@ -2135,7 +2135,6 @@ function renderZ2KCard(ctx, component) {
       E('div', { 'class': 'z2m-btnrow' }, [detailsBtn])
     ]),
     !state.z2kExpanded && isBusyFor(component.id) ? renderInlineOperation(ctx, component, operationRenderOptions()) : null,
-    state.z2kExpanded ? renderZ2KDetails(ctx, component) : null,
   ]);
 }
 function renderZ2KPostMutationRefreshError(ctx) {
@@ -2253,7 +2252,8 @@ function renderComponents(ctx, data) {
         renderEngineCard(ctx, engineComp, engineStatus, engineValue),
         renderZ2KCard(ctx, z2kComp)
       ]),
-      state.engineExpanded ? renderEngineDetails(ctx, engineComp, engineStatus, engineCatalog) : null
+      state.engineExpanded ? renderEngineDetails(ctx, engineComp, engineStatus, engineCatalog) : null,
+      state.z2kExpanded ? renderZ2KDetails(ctx, z2kComp) : null
     ]),
     E('section', { 'class': 'z2m-components-section z2m-components-section--optional' }, [
       E('div', { 'class': 'z2m-components-section-head' }, [
