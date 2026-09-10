@@ -27,6 +27,7 @@ const deadHelpers = [
   ['zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc', 'hash_file'],
   ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-dependency-closure.uc', 'descriptor_reference'],
   ['zapret2-manager/files/usr/libexec/zapret2-manager/z2k-versions.uc', 'human_body'],
+  ['zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops.uc', 'strategies_autocircular_test_transaction'],
 ];
 
 test('proven dead backend helper declarations are removed', () => {
@@ -38,4 +39,21 @@ test('proven dead backend helper declarations are removed', () => {
       `${relativePath}: ${name} has no current production caller`,
     );
   }
+});
+
+test('autocircular commit has no test-only writer injection surface', () => {
+  const source = fs.readFileSync(
+    path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops.uc'),
+    'utf8',
+  );
+  assert.match(source, /strategies_autocircular_commit\s*=\s*function\(prepared\)/);
+  assert.doesNotMatch(source, /testWriters|testOnly production-shaped failure injection/);
+});
+
+test('runtime materialization has no test-only fault injection hook', () => {
+  const source = fs.readFileSync(
+    path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'),
+    'utf8',
+  );
+  assert.doesNotMatch(source, /Z2M_TEST_FAIL_AFTER/);
 });

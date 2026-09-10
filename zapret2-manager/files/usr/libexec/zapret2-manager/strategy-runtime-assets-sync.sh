@@ -230,14 +230,11 @@ activation() {
 		fi
 	done < "$_tmp/plan"
 
-	# Publish each prepared file with rename semantics.  Fault injection is a
-	# test-only hook; the EXIT trap restores the snapshot on any failed commit.
+	# Publish each prepared file with rename semantics; the EXIT trap restores
+	# the snapshot on any failed commit.
 	committed=0
 	trap 'rc=$?; if [ "$rc" -ne 0 ]; then activation_restore "${ACTIVATION_SNAPSHOT}.new" "${ACTIVATION_SNAPSHOT}.files" || true; fi; rm -rf "$_tmp"; rm -f "${ACTIVATION_SNAPSHOT}.new"; exit "$rc"' EXIT HUP INT TERM
 	while IFS='|' read -r _op _dest _payload _n; do
-		if [ "${Z2M_TEST_FAIL_AFTER:--1}" -ge 0 ] && [ "$_n" -ge "${Z2M_TEST_FAIL_AFTER:--1}" ]; then
-			return 1
-		fi
 		if [ "$_op" = REMOVE ]; then
 			rm -f "$_dest"
 		else

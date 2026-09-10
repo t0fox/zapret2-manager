@@ -87,27 +87,6 @@ test('5. registry activation sandbox copies selected bytes to live roots', () =>
   assert.equal(fs.readFileSync(path.join(runtime, 'lua', 'selected.lua'), 'utf8'), '-- selected release\n');
 });
 
-test('6. activation fault injection is atomic and leaves previous runtime bytes intact', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-fault-'));
-  const manager = path.join(dir, 'manager-assets');
-  const runtime = path.join(dir, 'opt', 'zapret2');
-  const source = path.join(manager, 'lua', 'selected.lua');
-  const target = path.join(runtime, 'lua', 'selected.lua');
-  fs.mkdirSync(path.dirname(source), { recursive: true });
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(source, '-- new\n');
-  fs.writeFileSync(target, '-- old\n');
-  const sha = crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex');
-  const spec = path.join(dir, 'activation.tsv');
-  fs.writeFileSync(spec, `ASSET|lua:selected|lua|${shellPath(source)}|/runtime-assets/lua/selected.lua|${sha}|${fs.statSync(source).size}\n`);
-  const result = spawnSync(shell, [shellPath(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh')), '--activate-registry', shellPath(spec)], {
-    env: { ...process.env, Z2M_MANAGER_ASSET_ROOT: shellPath(manager), Z2M_RUNTIME_BASE: shellPath(runtime), Z2M_RUNTIME_ACTIVATION_SNAPSHOT: shellPath(path.join(dir, 'snapshot.tsv')), Z2M_TEST_FAIL_AFTER: '0', PATH: '/usr/bin:/bin' },
-    encoding: 'utf8',
-  });
-  assert.notEqual(result.status, 0, 'fault injection must fail');
-  assert.equal(fs.readFileSync(target, 'utf8'), '-- old\n');
-});
-
 test('6a. runtime postflight rejects registry target bytes that do not materialize exactly', () => {
   const start = ru.indexOf('function z2k_runtime_postflight');
   const end = ru.indexOf('function z2k_runtime_activate', start);
@@ -178,90 +157,6 @@ test('6d. multi-removal removes every selected historical runtime path', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(fs.existsSync(path.join(runtime, '4pda.bin')), false);
   assert.equal(fs.existsSync(path.join(runtime, 'zero_256.bin')), false);
-});
-
-test('6e. failure after one REMOVE restores every previous runtime byte', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-remove-fault-'));
-  const runtime = path.join(dir, 'opt', 'zapret2', 'files', 'fake');
-  fs.mkdirSync(runtime, { recursive: true });
-  const first = path.join(runtime, '4pda.bin');
-  const second = path.join(runtime, 'zero_256.bin');
-  fs.writeFileSync(first, 'first old\n');
-  fs.writeFileSync(second, 'second old\n');
-  const { result } = runRuntimeActivation(dir,
-    'REMOVE|blob:4pda|blob||/runtime-assets/bin/4pda.bin||\nREMOVE|blob:zero_256|blob||/runtime-assets/bin/zero_256.bin||\n',
-    { Z2M_TEST_FAIL_AFTER: '1' });
-  assert.notEqual(result.status, 0, 'fault injection must fail');
-  assert.equal(fs.readFileSync(first, 'utf8'), 'first old\n');
-  assert.equal(fs.readFileSync(second, 'utf8'), 'second old\n');
-});
-
-test('6g. combined Registry/runtime rollback restores the old snapshot after runtime fault', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-combined-rollback-'));
-  const manager = path.join(dir, 'manager-assets', 'lua');
-  const runtime = path.join(dir, 'opt', 'zapret2', 'files', 'fake');
-  const registryPath = path.join(dir, 'asset-registry.json');
-  fs.mkdirSync(manager, { recursive: true });
-  fs.mkdirSync(runtime, { recursive: true });
-
-  const oldRegistry = {
-    schema: 1,
-    revision: 79,
-    assets: [{ type: 'blob', id: 'blob:4pda', revision: 7, contentSha256: 'old-sha', path: 'runtime/4pda.bin' }],
-    authority: 'r-79.7',
-  };
-  const newRegistry = {
-    schema: 1,
-    revision: 80,
-    assets: [{ type: 'lua', id: 'lua:selected', revision: 1, contentSha256: 'new-sha', path: 'runtime/selected.lua' }],
-    authority: 'r-80.3',
-  };
-  fs.writeFileSync(registryPath, JSON.stringify(oldRegistry, null, 2) + '\n');
-  fs.writeFileSync(path.join(runtime, '4pda.bin'), 'old historical runtime bytes\n');
-  fs.writeFileSync(path.join(manager, 'selected.lua'), '-- selected r-80.3\n');
-  const selected = fs.readFileSync(path.join(manager, 'selected.lua'));
-  const selectedSha = crypto.createHash('sha256').update(selected).digest('hex');
-
-  // The real runtime transaction is exercised below.  Registry state is a
-  // small file-backed stand-in because OpenWrt ucode is not available on the
-  // development host; the assertions prove both snapshots are restored after
-  // the same post-Registry runtime fault the coordinator handles in production.
-  fs.writeFileSync(registryPath, JSON.stringify(newRegistry, null, 2) + '\n');
-  const { result } = runRuntimeActivation(dir,
-    `REMOVE|blob:4pda|blob||/runtime-assets/bin/4pda.bin||\nASSET|lua:selected|lua|${shellPath(path.join(manager, 'selected.lua'))}|/runtime-assets/lua/selected.lua|${selectedSha}|${selected.length}\n`,
-    { Z2M_TEST_FAIL_AFTER: '1' });
-  assert.notEqual(result.status, 0, 'runtime fault must fail the combined transaction');
-
-  fs.writeFileSync(registryPath, JSON.stringify(oldRegistry, null, 2) + '\n');
-  assert.equal(fs.readFileSync(registryPath, 'utf8'), JSON.stringify(oldRegistry, null, 2) + '\n');
-  assert.equal(fs.readFileSync(path.join(runtime, '4pda.bin'), 'utf8'), 'old historical runtime bytes\n');
-  assert.equal(fs.existsSync(path.join(runtime, 'selected.lua')), false, 'new-only runtime asset must not remain');
-  assert.equal(JSON.parse(fs.readFileSync(registryPath, 'utf8')).authority, 'r-79.7');
-});
-
-test('6h. runtime rollback restores daemon-readable asset modes', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-mode-rollback-'));
-  const manager = path.join(dir, 'manager-assets', 'lua');
-  const runtime = path.join(dir, 'opt', 'zapret2');
-  const target = path.join(runtime, 'lua', 'selected.lua');
-  fs.mkdirSync(manager, { recursive: true });
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(path.join(manager, 'selected.lua'), '-- new\n');
-  fs.writeFileSync(target, '-- old\n');
-  fs.chmodSync(target, 0o700);
-  const source = path.join(manager, 'selected.lua');
-  const bytes = fs.readFileSync(source);
-  const sha = crypto.createHash('sha256').update(bytes).digest('hex');
-  const { result } = runRuntimeActivation(dir,
-    `ASSET|lua:selected|lua|${shellPath(source)}|/runtime-assets/lua/selected.lua|${sha}|${bytes.length}\n`,
-    { Z2M_TEST_FAIL_AFTER: '0' });
-  assert.notEqual(result.status, 0, 'fault injection must fail');
-  assert.equal(fs.readFileSync(target, 'utf8'), '-- old\n');
-  assert.match(sync, /runtime_asset_mode/);
-  assert.match(sync, /chmod "\$\(runtime_asset_mode "\$_dest"\)" "\$_dest"/);
-  if (process.platform !== 'win32') {
-    assert.equal(fs.statSync(target).mode & 0o777, 0o755, 'restored Lua must remain readable by daemon UID');
-  }
 });
 
 test('6f. normal package materialization cannot clobber selected lifecycle bytes', () => {

@@ -476,10 +476,10 @@ function autocircular_rollback(prepared, writers) {
 	return { ok: ok, state: state, identity: identity, restored: ok };
 }
 
-export const strategies_autocircular_commit = function(prepared, testWriters) {
+export const strategies_autocircular_commit = function(prepared) {
 	if (!is_object(prepared) || prepared.schema != 'z2m-autocircular-transaction.v1' || !is_object(prepared.nextIdentity)
 		|| !array(prepared.priorRows) || !array(prepared.rows)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular commit evidence is incomplete' } };
-	let writers = testWriters && testWriters.testOnly === true ? testWriters : { state: autocircular_state_write, identity: autocircular_identity_write };
+	let writers = { state: autocircular_state_write, identity: autocircular_identity_write };
 	let state = prepared.changed ? writers.state(prepared.rows) : { ok: true, skipped: true };
 	if (!state || state.ok !== true) {
 		let rollback = autocircular_rollback(prepared, writers), recoveryRequired = rollback.ok !== true;
@@ -496,21 +496,6 @@ export const strategies_autocircular_commit = function(prepared, testWriters) {
 export const strategies_autocircular_rollback = function(prepared) {
 	if (!is_object(prepared) || prepared.schema != 'z2m-autocircular-transaction.v1') return { ok: false, error: { code: 'ERECOVERY_REQUIRED', message: 'autocircular rollback evidence is incomplete' } };
 	return autocircular_rollback(prepared, { state: autocircular_state_write, identity: autocircular_identity_restore });
-};
-
-// Test-only production-shaped failure injection.  It uses the same commit and
-// compensation coordinator as production but replaces file writers with
-// explicit, bounded failures; no caller-controlled path or env is accepted.
-export const strategies_autocircular_test_transaction = function(input) {
-	if (!is_object(input) || input.testOnly !== true || !is_object(input.prepared)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular test transaction is restricted to controlled tests' } };
-	let prepared = input.prepared;
-	if (prepared.schema != 'z2m-autocircular-transaction.v1') prepared = { ...prepared, schema: 'z2m-autocircular-transaction.v1', nextIdentity: prepared.pools, rows: prepared.rows || [], reset: [], resetAllLegacy: false, priorIdentityPresent: prepared.priorIdentityPresent === true };
-	let stateCalls = 0, identityCalls = 0, failure = input.failure;
-	let writers = { testOnly: true,
-		state: function(rows) { stateCalls++; if (failure == 'primary-state-write' && stateCalls == 1 || failure == 'primary-state-write-and-restore') return { ok: false, error: { code: 'EWRITE', message: 'injected state writer failure' } }; return { ok: true, rows: rows }; },
-		identity: function(value) { identityCalls++; if (failure == 'sidecar-write' && identityCalls == 1) return { ok: false, error: { code: 'EWRITE', message: 'injected sidecar writer failure' } }; return { ok: true, value: value }; }
-	};
-	return strategies_autocircular_commit(prepared, writers);
 };
 
 // Called by the Z2K Core transaction after its candidate is committed.  This
