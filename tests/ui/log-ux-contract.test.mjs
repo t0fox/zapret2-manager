@@ -54,7 +54,6 @@ test('full event history keeps the same Russian semantic columns', () => {
   assert.match(maintenanceModel, /source: text\(event\.source \|\| event\.component\)/);
   assert.match(maintenanceModel, /Date\.parse/);
   assert.match(maintenanceModel, /slice\(-Math\.floor\(limit\)\)/);
-  assert.match(avatarLog, /function messageLabel/);
   assert.match(avatarLog, /Параметр NFQWS2_ENABLE=/);
   assert.match(avatarLog, /function timestamp/);
   assert.match(avatarLog, /function normalizeRows/);

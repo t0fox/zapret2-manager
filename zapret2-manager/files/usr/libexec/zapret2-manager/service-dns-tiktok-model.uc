@@ -107,11 +107,6 @@ export const tiktok_state_migrate = function(auto) {
 	return result;
 };
 
-function candidate_for_ip(candidates, ip) {
-	for (let i = 0; i < length(candidates || []); i++) if (candidates[i] && candidates[i].ip == ip) return candidates[i];
-	return null;
-}
-
 function probe_ok(probes, ip) {
 	return type(probes) == 'object' && type(probes[ip]) == 'object' && probes[ip].ok === true;
 }

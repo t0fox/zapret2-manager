@@ -62,10 +62,6 @@ function descriptor_class(value, fallback) {
 	if (string(value.kind) && value.kind == 'lua') return 'lua';
 	return fallback;
 }
-function descriptor_reference(value, fallback) {
-	if (!object(value)) return fallback;
-	return value.reference || value.runtimeTarget || value.path || value.id || fallback;
-}
 function descriptor_from_map(map, key) {
 	if (!object(map) || !string(key)) return null;
 	if (map[key] != null) return map[key];

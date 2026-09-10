@@ -474,15 +474,6 @@ function verify_after_apply(desired, fileEntriesAfter, preview) {
 	return { ok: (length(mismatches) == 0), mismatches: mismatches };
 }
 
-// ---------------------------------------------------------------------------
-// public API
-// ---------------------------------------------------------------------------
-function support_status(lc) {
-	// catalog validity gates everything (fail-closed)
-	if (!lc.ok) return { valid: false, errors: lc.errors };
-	return { valid: true, errors: [] };
-}
-
 // ---- export aliases for the health-matrix slice (same catalog reader and
 // ledger — there is no second catalog implementation in the tree) ---------
 export const cat_load = load_catalog;

@@ -76,15 +76,6 @@ function discardServiceSelections() {
   state.serviceBaseline = null;
   state.serviceBaselineRevision = null;
 }
-function discardManualRules() {
-  state.manual = null;
-  state.manualBaseline = null;
-  state.manualBaselineRevision = null;
-}
-function discardGlobalForm() {
-  state.globalDraft = null;
-  state.globalBaseline = null;
-}
 function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
 
 function providerRows(value) {

@@ -68,7 +68,7 @@ test('update_required semantics cover missing, current, and newer official relea
 test('release_record emits compatible vanilla candidates with requirement-based caps', () => {
 	const src = fs.readFileSync(MODULE, 'utf8');
 	const tail = src.slice(src.indexOf('return { schema: ENGINE_ARTIFACT_SCHEMA, artifactKind: VANILLA_ARTIFACT'),
-		src.indexOf('function metadata_allowed'));
+		src.indexOf('function metadata_request'));
 	assert.match(tail, /compatible: true/, 'vanilla must be installable now');
 	assert.match(tail, /compatibilityState: 'compatible'/);
 	assert.match(tail, /requiredCapabilities: \[\]/, 'zero mandatory native capabilities');

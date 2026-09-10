@@ -87,17 +87,17 @@ test('prepared Z2K snapshots ignore unrelated user edits but detect managed stat
   assert.match(registry, /is_z2k_lifecycle_asset\(asset\).*EPOLICY/);
 });
 
-test('prepared removals bind immutable runtime mapping and classification identity', () => {
+test('prepared removals bind immutable classification identity', () => {
   assert.match(coordinator, /classificationSha256/);
   assert.match(coordinator, /expectedRevision/);
   assert.match(coordinator, /expectedContentSha256/);
   assert.match(coordinator, /expectedByteSize/);
   assert.match(coordinator, /same_removal_descriptors/);
-  const runtimeSpec = coordinator.slice(coordinator.indexOf('function z2k_runtime_spec'), coordinator.indexOf('function z2k_runtime_restart'));
-  assert.doesNotMatch(runtimeSpec, /found = registry_asset\(listed\.assets, id\)/,
-    'removed runtime paths must come from the prepared descriptor, not post-apply Registry');
-  assert.match(runtimeSpec, /removal\.type/);
-  assert.match(runtimeSpec, /removal\.runtimeTarget/);
+  const applyStart = coordinator.indexOf('function z2k_apply_prepared');
+  const applyEnd = coordinator.indexOf('export const resource_center_update', applyStart);
+  const apply = coordinator.slice(applyStart, applyEnd);
+  assert.match(apply, /z2k_target_removals\(listed, target\.assets, classification/);
+  assert.match(apply, /removeTargets/);
 });
 
 test('Z2K Registry removals are structured, bundle-bound, and byte-bound', () => {

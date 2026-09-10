@@ -38,8 +38,6 @@ function valid_kind(value) { return contains(KINDS, value); }
 function valid_entry_type(value) { return contains(ENTRY_TYPES, value); }
 function safe_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function safe_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
-function entry_field(entry, name, fallback) { return object(entry) && entry[name] != null ? entry[name] : fallback; }
-
 function normalized_entry(raw, expectedType) {
 	if (!object(raw) || !string(raw.id) || !length(raw.id) || length(raw.id) > 128 || !string(raw.kind) || !valid_kind(raw.kind)) return fail('EINPUT', 'runtime entry kind or id is invalid');
 	let entry = copy(raw);

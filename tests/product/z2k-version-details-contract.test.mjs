@@ -12,7 +12,6 @@ const source = fs.readFileSync(
 test('release details use the upstream human release body and deterministic fallback counts', () => {
   assert.match(source, /function manifest_body\s*\(/);
   assert.match(source, /manifest && manifest\.history/);
-  assert.match(source, /function human_body\s*\(/);
   assert.match(source, /function fallback_body\s*\(/);
   assert.match(source, /Изменено/);
   assert.match(source, /Добавлено/);

@@ -320,7 +320,6 @@ function standalone_projection(model, profile, index, sourceCommit, compiler, re
 	}
 	return { ok: true, entry: one };
 }
-function composition_digest(value) { return digest(sprintf('%J', value)); }
 function profile_field_values(profiles, field) {
 	let result = [];
 	for (let profile in profiles) push(result, profile[field]);

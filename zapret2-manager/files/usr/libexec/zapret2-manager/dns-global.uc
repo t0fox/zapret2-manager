@@ -24,8 +24,6 @@ function err(code, message, stage) {
 	return { ok: false, stage: (stage != null) ? stage : null, error: { code: code, message: message } };
 }
 
-function now_iso() { return trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out); }
-
 function effective_providers() {
 	let result = dns_provider_catalog_get();
 	return result.ok === true && type(result.providers) == 'array' ? result.providers : [];
@@ -122,12 +120,6 @@ function provider_by_id(id) {
 	for (let i = 0; i < length(providers); i++)
 		if (providers[i].id == id) return providers[i];
 	return null;
-}
-
-function provider_resolver_ips(id) {
-	let p = provider_by_id(id);
-	if (!p || type(p.ipv4) != 'array' || !length(p.ipv4)) return [];
-	return p.ipv4;
 }
 
 function resolve_mode_ip(mode, providerId) {

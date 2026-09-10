@@ -490,7 +490,6 @@ export const z2k_versions = function(options) {
 };
 
 function manifest_body(manifest, version) { let history = manifest && manifest.history; for (let i = 0; type(history) == 'array' && i < length(history); i++) if (object(history[i]) && history[i].v == version && string(history[i].desc)) { let body = trim(history[i].desc); if (length(body)) return body; } return null; }
-function human_body(message) { let value = trim(text(message)), marker = index(value, '—'); if (marker >= 0) { let body = trim(substr(value, marker + 1)); return length(body) ? body : null; } let lines = split(value, '\n'), body = length(lines) > 1 ? trim(join(slice(lines, 1), '\n')) : ''; return length(body) ? body : (length(value) && !match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/) ? value : null); }
 function fallback_body(changeSet) {
 	let modified = changeSet && type(changeSet.modified) == 'int' ? changeSet.modified : 0;
 	let added = changeSet && type(changeSet.added) == 'int' ? changeSet.added : 0;

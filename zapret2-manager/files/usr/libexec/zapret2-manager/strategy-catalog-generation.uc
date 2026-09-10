@@ -226,12 +226,6 @@ function valid_source_snapshot(id, snapshot) {
 		&& snapshot.published != false && type(snapshot.entries) == 'array'
 		&& (id != 'z2k' || valid_z2k_snapshot(snapshot));
 }
-function valid_entry(entry, sourceId, snapshotId) {
-	return object(entry) && string(entry.canonicalId) && length(entry.canonicalId) > 0
-		&& entry.sourceId == sourceId && string(entry.upstreamId) && entry.sourceSnapshotId == snapshotId
-		&& valid_commit(entry.sourceCommit) && type(entry.profiles) == 'array'
-		&& object(entry.provenance) && entry.provenance.sourceId == sourceId;
-}
 function entry_problem(entry, sourceId, snapshotId) {
 	if (!object(entry)) return 'entry is not an object';
 	if (!string(entry.canonicalId) || length(entry.canonicalId) == 0) return 'canonicalId';

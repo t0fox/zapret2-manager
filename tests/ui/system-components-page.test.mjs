@@ -14,7 +14,7 @@ test('System maintenance owns the canonical Components page and keeps engine man
   assert.match(source, /Обязательные компоненты/);
   assert.match(source, /Дополнительные компоненты/);
   assert.match(source, /Управление/);
-  assert.match(source, /EnginePanel\.render/);
+  assert.match(source, /renderEngineCard/);
   assert.doesNotMatch(source, /function engineRouteIsOpen\s*\(/);
   assert.doesNotMatch(source, /engineManagementAttrs\.open\s*=\s*true/);
   assert.match(source, /z2m-system-page-icon/);
@@ -23,7 +23,7 @@ test('System maintenance owns the canonical Components page and keeps engine man
 });
 
 test('Components page does not become a second resource catalog or product owner', () => {
-  const render = source.match(/function renderComponents[\s\S]*?\n}\n\nfunction renderEngine/);
+  const render = source.match(/function renderComponents[\s\S]*?\n}\n\nfunction previewBackup/);
   assert.ok(render, 'renderComponents block should exist');
   assert.doesNotMatch(render[0], /Ресурсы|Удалить Z2K/);
   assert.match(render[0], /Telegram Proxy/);
@@ -32,4 +32,5 @@ test('Components page does not become a second resource catalog or product owner
   assert.match(render[0], /mandatorySummary|renderHero|page\.health/);
   assert.match(source, /Проверить/);
   assert.doesNotMatch(render[0], /ctx\.routeParams\s*&&\s*ctx\.routeParams\.component/);
+  assert.doesNotMatch(source, /function renderEngine\s*\(/);
 });

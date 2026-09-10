@@ -161,10 +161,6 @@ function formatEventMessage(raw) {
   return msg;
 }
 
-function messageLabel(raw) {
-  return formatEventMessage(typeof raw === 'object' && raw !== null ? raw : { message: raw });
-}
-
 function normalizeOne(value, index) {
   if (typeof value === 'string') value = { message: value };
   var raw = object(value);

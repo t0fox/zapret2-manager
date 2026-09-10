@@ -247,13 +247,6 @@ function registry_asset(assets, id) { for (let i = 0; i < length(assets); i++) i
 function known_release(value) {
 	return string(value) && match(value, /^[rp]-[0-9]+(\.[0-9]+)?$/) ? value : null;
 }
-function z2k_manifest_installed_release(manifest, listed, want, installedCount, hasMissing, hasAttention) {
-	let authority = z2k_registry_installed_release(listed);
-	if (authority && authority.value != null) return authority;
-	if (authority && authority.confidence == 'unknown' && authority.authority == null && !hasAttention && !(installedCount > 0 && hasMissing)) return authority;
-	if (hasAttention || (installedCount > 0 && hasMissing)) return { value: null, confidence: 'inconsistent', authority: 'known-manifest' };
-	return { value: null, confidence: 'unknown', authority: null };
-}
 function z2k_target_gate(manifest) {
 	let plan = z2k_upstream_plan(manifest);
 	if (!plan.ok) return plan;
@@ -393,22 +386,6 @@ function z2k_target_dependency_inventory(runtimeCandidate) {
 		available: true,
 		runtimeAssets: runtimeCandidate.runtimeAssets || []
 	};
-}
-function z2k_target_dependency_closure(runtimeCandidate) {
-	let snapshot = strategy_source_snapshot(), entry = null, inventory = z2k_target_dependency_inventory(runtimeCandidate);
-	for (let item in snapshot && snapshot.entries || [])
-		if (object(item) && item.entryKind == 'all-in-one') { entry = item; break; }
-	if (!object(entry) || !string(entry.officialNfqws2Opt) || !object(inventory)) return null;
-	let closure = null;
-	try { closure = z2k_dependency_closure({ args: entry.officialNfqws2Opt,
-		assets: inventory.assets, dynamic: inventory.dynamic,
-		blobs: inventory.blobs, lists: inventory.lists, lua: inventory.lua,
-		builtins: inventory.builtins,
-		functions: inventory.functions, luaFunctions: inventory.luaFunctions,
-		sourceCommit: snapshot.sourceCommit || null, compilerSnapshotDigest: entry.provenance && entry.provenance.compilerSnapshotDigest || null,
-		nfqws2OptSha256: entry.provenance && entry.provenance.nfqws2OptSha256 || null }); }
-	catch (e) { closure = null; }
-	return closure;
 }
 function z2k_core_snapshot_for_target(resolved, runtimeCandidate) {
 	if (!object(resolved) || !string(resolved.version) || !valid_digest(resolved.manifestSha256)
@@ -1433,40 +1410,6 @@ function z2k_receipt_header_valid(receipt) {
 		&& string(receipt.sourceCommit) && match(lc(receipt.sourceCommit), /^[a-f0-9]{40}$/)
 		&& type(receipt.assets) == 'array' && length(receipt.assets) > 0;
 }
-function z2k_receipt_runtime_descriptor(id, typeName, receipts, classification) {
-	let complete = null, legacy = false;
-	for (let i = length(receipts || []) - 1; i >= 0; i--) {
-		let receipt = receipts[i];
-		if (!z2k_receipt_header_valid(receipt)) continue;
-		for (let j = 0; j < length(receipt.assets); j++) {
-			let recorded = receipt.assets[j];
-			if (!object(recorded) || recorded.id != id) continue;
-			let hasMetadata = recorded.sourceCommit != null || recorded.sourcePath != null || recorded.bundleId != null || recorded.version != null;
-			if (hasMetadata) {
-				if (!(string(recorded.sourceCommit) && string(recorded.sourcePath) && string(recorded.bundleId) && string(recorded.version))
-					|| recorded.sourceCommit != receipt.sourceCommit || recorded.sourcePath == '' || recorded.bundleId != receipt.bundleId || recorded.version != receipt.version
-					|| recorded.type != typeName || !valid_digest(recorded.sha256) || type(recorded.byteSize) != 'int' || recorded.byteSize < 1)
-					return fail('EVERIFY', 'Complete historical Z2K receipt metadata is inconsistent.', { id: id });
-				let item = z2k_classification_for(classification, recorded.sourcePath), mappedType = item && item.type == 'lua' ? 'lua' : item && (item.type == 'bin' || item.type == 'txt') ? 'blob' : null;
-				if (!z2k_runtime_exact(item) || mappedType != typeName || !runtime_target_path(item.runtimeTarget)
-					|| z2k_asset_id_from_classification(item, recorded.sourcePath) != id)
-					return fail('EVERIFY', 'Complete historical Z2K receipt asset has no canonical runtime identity.', { id: id, sourcePath: recorded.sourcePath });
-				if (complete != null && (complete.sourcePath != recorded.sourcePath || complete.type != recorded.type || complete.runtimeTarget != item.runtimeTarget))
-					return fail('EVERIFY', 'Complete historical Z2K receipt metadata is contradictory.', { id: id });
-				if (complete == null) complete = { id: id, type: typeName, sourcePath: recorded.sourcePath, runtimeTarget: item.runtimeTarget };
-			} else {
-				if (recorded.type != typeName || !valid_digest(recorded.sha256) || type(recorded.byteSize) != 'int' || recorded.byteSize < 1)
-					return fail('EVERIFY', 'Legacy historical Z2K receipt asset is invalid.', { id: id });
-				legacy = true;
-			}
-		}
-	}
-	if (complete != null) return { ok: true, descriptor: complete };
-	if (!legacy) return fail('EVERIFY', 'Historical Z2K asset has no trustworthy receipt metadata.', { id: id });
-	let item = z2k_classification_asset_for(classification, id, typeName);
-	if (item == null || item.ambiguous === true) return fail('EVERIFY', 'Legacy historical Z2K asset has no unique canonical runtime mapping.', { id: id });
-	return { ok: true, descriptor: { id: id, type: typeName, sourcePath: item.sourcePath, runtimeTarget: item.runtimeTarget } };
-}
 function z2k_read_classification_snapshot() {
 	try {
 		let raw = readfile('/usr/share/zapret2-manager/upstreams/z2k-integration.json'), value = raw == null ? null : json(raw);
@@ -1476,10 +1419,6 @@ function z2k_read_classification_snapshot() {
 		for (let i = 0; type(value.historicalFiles) == 'array' && i < length(value.historicalFiles); i++) push(value.files, value.historicalFiles[i]);
 		return { value: value, sha256: digest };
 	} catch (e) { return null; }
-}
-function z2k_read_classification() {
-	let snapshot = z2k_read_classification_snapshot();
-	return snapshot == null ? null : snapshot.value;
 }
 function z2k_target_membership_compatible(listed, targetAssets, classification) {
 	let targetById = {};
@@ -1564,26 +1503,6 @@ function same_id_set(left, right) {
 	for (let i = 0; i < length(left || []); i++) seen[left[i]] = true;
 	for (let i = 0; i < length(right || []); i++) if (!seen[right[i]]) return false;
 	return true;
-}
-function z2k_runtime_spec(target, listed, classification, root) {
-	let lines = [], targetById = {};
-	for (let i = 0; i < length(target.assets || []); i++) {
-		let item = target.assets[i], found = registry_asset(listed.assets, item.id), runtimePath = runtime_target_path(item.runtimeTarget);
-		if (found == null || !runtime_source_safe(found.path) || runtimePath == null || found.contentSha256 != item.sha256 || found.byteSize < 1) return fail('EVERIFY', 'Registry target cannot be materialized into the runtime.', { id: item.id, runtimeTarget: item.runtimeTarget || null });
-		targetById[item.id] = true;
-		let registryType = z2k_registry_asset_type(item);
-		if (registryType == null) return fail('EVERIFY', 'Z2K target has no Registry asset type.', { id: item.id });
-		push(lines, 'ASSET|' + item.id + '|' + registryType + '|' + found.path + '|' + item.runtimeTarget + '|' + (item.sha256 || item.contentSha256) + '|' + found.byteSize);
-	}
-	for (let i = 0; i < length(target.removeTargets || []); i++) {
-		let removal = target.removeTargets[i], id = removal.id, runtimeTarget = removal.runtimeTarget;
-		if (!object(removal) || !string(id) || (removal.type != 'lua' && removal.type != 'blob') || runtime_target_path(runtimeTarget) == null) return fail('EVERIFY', 'Registry removal target has no safe runtime mapping.', { id: id });
-		push(lines, 'REMOVE|' + id + '|' + removal.type + '||' + runtimeTarget + '||');
-	}
-	if (!length(lines)) return fail('EINPUT', 'Z2K target has no runtime assets to activate.');
-	let spec = root + '/runtime-activation.tsv';
-	try { writefile(spec, join('\n', lines) + '\n'); } catch (e) { return fail('EWRITE', 'Runtime activation spec could not be written.'); }
-	return { ok: true, path: spec, assets: length(target.assets || []), removed: length(target.removeIds || []) };
 }
 function z2k_runtime_restart(stage) {
 	let operationStage = string(stage) && length(stage) ? stage : 'activation';

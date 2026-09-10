@@ -11,7 +11,6 @@ var SCANNER_LOAD_WAIT_MS = 5000;
 var state = { activeTab: 'search', child: null, childContext: null, host: null, nav: null, root: null, ctx: null, history: [], detail: null, historyError: null };
 var DETECT_HISTORY_SCHEMA = 'z2m-detect-history.v1';
 var DETECT_OPERATIONS = ['probe', 'classify', 'quic', 'voice', 'tcp16'];
-function operationNeedsTarget(operation) { return ['probe', 'classify', 'quic'].indexOf(operation) >= 0; }
 var DETECT_NUMERIC_BOUNDS = { port: { min: 1, max: 65535 }, repeats: { min: 1, max: 32 }, timeoutMs: { min: 1, max: 120000 } };
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }

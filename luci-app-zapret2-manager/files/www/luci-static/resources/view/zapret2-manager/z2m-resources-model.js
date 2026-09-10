@@ -114,13 +114,6 @@ function z2kUpdateState(value) {
 	return UpdatePresentation.normalize(value.updateState || value.status || value.state || runtime && runtime.updateState);
 }
 
-function releaseValue(value) {
-	if (value && typeof value === 'object' && !Array.isArray(value)) {
-		return text(value.value || value.version || value.release);
-	}
-	return text(value);
-}
-
 function canonicalZ2kGroupState(summary) {
 	if (!summary) return null;
 	var healthState = text(summary.health);

@@ -459,12 +459,6 @@ function read_document_readonly(path) {
 	return { ok: true, raw: raw, value: value };
 }
 
-function hash_file(path) {
-	let result = command('sha256sum ' + shell_quote(path) + " 2>/dev/null | awk '{print $1}'");
-	let digest = trim(result.output);
-	return sha256(digest) ? digest : null;
-}
-
 function temporary_path(target) {
 	let slash = rindex(target, '/'), directory = substr(target, 0, slash);
 	let result = command('umask 077; mktemp ' + shell_quote(directory + '/.strategy-state.XXXXXX') + ' 2>/dev/null');

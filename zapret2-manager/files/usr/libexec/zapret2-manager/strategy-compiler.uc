@@ -219,11 +219,6 @@ function autowrap(tokens) {
 	return result;
 }
 
-function list_descriptor(environment, key) {
-	if (!is_object(environment.lists)) return null;
-	return environment.lists[key];
-}
-
 function descriptor_path(descriptor, fallback) {
 	if (type(descriptor) == 'string') return descriptor;
 	if (is_object(descriptor) && descriptor.path != null) return descriptor.path;

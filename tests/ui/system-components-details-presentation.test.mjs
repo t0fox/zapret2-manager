@@ -58,7 +58,7 @@ function loadMaintenance() {
   assert.ok(returnIndex >= 0, 'maintenance module return marker must exist');
   const prefix = maintenanceSource.slice(0, returnIndex);
   const enginePanelCalls = [];
-  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K, checkUpdates, updateZ2K, z2kNeedsIntegration, checkEngineRelease, engineActionWithCheck };\n})()`, {
+  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K, checkUpdates, updateZ2K, checkEngineRelease, engineActionWithCheck };\n})()`, {
     baseclass: { extend: value => value },
     _: value => value,
     E: vnode,
@@ -643,16 +643,6 @@ test('hero reports an available update instead of saying no updates are required
 
   assert.match(textOf(hero), /Доступно 1 обновление/);
   assert.doesNotMatch(textOf(hero), /Обновления не требуются/);
-});
-
-test('Z2K collapsed integration attention follows canonical attention, blocking and rebase fields', () => {
-  const { internals } = loadMaintenance();
-
-  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'integration-required' }), true);
-  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', blockingReviews: ['files/etc/z2k-roots.pem'] }), true);
-  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', rebases: ['files/lua/z2k-state-persist.lua'] }), true);
-  assert.equal(internals.z2kNeedsIntegration({ updateState: 'current', attentionState: 'review-advisory', advisoryReviews: ['files/z2k-config-validator.sh'] }), false);
-  assert.equal(internals.z2kNeedsIntegration({ updateState: 'review-required', attentionState: 'review-required' }), false);
 });
 
 test('Z2K rebase attention suppresses update and explains adapted files', () => {

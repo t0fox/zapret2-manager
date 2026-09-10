@@ -43,7 +43,6 @@ function release_record(release, architecture_value) {
 	if (!valid_asset(asset, name, version, 1024) || !valid_asset(checksum, 'sha256sum.txt', version, 64)) return null;
 	return { schema: ENGINE_ARTIFACT_SCHEMA, artifactKind: VANILLA_ARTIFACT, version: version, releaseTag: 'v' + version, installedRelease: 'v' + version, upstream: UPSTREAM, architecture: architecture_value, assetName: name, downloadUrl: asset.browser_download_url, sha256: sha256(asset.digest), size: +asset.size, releaseId: '' + release.id, publishedAt: release.published_at, releaseUrl: type(release.html_url) == 'string' ? release.html_url : 'https://github.com/' + UPSTREAM + '/releases/tag/v' + version, releaseNotes: type(release.body) == 'string' ? release.body : '', prerelease: false, container: 'tar.gz', checksumName: 'sha256sum.txt', checksumUrl: checksum.browser_download_url, checksumSha256: sha256(checksum.digest), compatible: true, compatibilityState: 'compatible', compatibilityCode: null, compatibilityMessage: '', requiredCapabilities: [], baseRepository: UPSTREAM };
 }
-function metadata_allowed(url) { return url == API_URL; }
 function metadata_request(architecture_value) {
 	return {
 		sourceKey: 'engine:' + UPSTREAM + ':arch=' + architecture_value + ':endpoint=releases',

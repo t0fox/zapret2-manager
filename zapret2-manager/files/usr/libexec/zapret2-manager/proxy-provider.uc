@@ -404,24 +404,6 @@ function list_candidates(providerId, arch, mode) {
 		remoteState: fetched.source && fetched.source.stale === true ? 'stale' : 'fresh', source: fetched.source, error: null };
 }
 
-// Latest STABLE compatible candidate for the provider on this router.
-// Lives above proxy_provider_versions: ucode resolves called functions
-// positionally — a forward reference compiles to an undeclared global.
-function latest_candidate(providerId, arch, mode) {
-	let resolved = list_candidates(providerId, arch, mode || 'browse');
-	if (!resolved.ok) return resolved;
-	let latest = null;
-	for (let i = 0; i < length(resolved.candidates); i++) {
-		let candidate = resolved.candidates[i];
-		if (candidate.prerelease === true) continue;
-		if (latest == null || compare_versions(candidate.version, latest.version) > 0)
-			latest = candidate;
-	}
-	if (latest == null)
-		return error('EMETADATA', 'Для архитектуры устройства нет подходящих официальных артефактов.');
-	return { ok: true, candidate: latest };
-}
-
 function candidate_package_version(providerId, version) {
 	if (!safe_package_version(version)) return null;
 	if (providerId == 'rust') return version + '-r1';

@@ -56,7 +56,6 @@ function firstObject() {
   return {};
 }
 function hasValue(value, key) { return value && value[key] !== null && value[key] !== undefined; }
-function booleanValue(value, key) { return hasValue(value, key) ? value[key] === true : null; }
 function evidenceTimestamp(value) {
   value = object(value);
   var raw = value.generatedAt !== undefined ? value.generatedAt :

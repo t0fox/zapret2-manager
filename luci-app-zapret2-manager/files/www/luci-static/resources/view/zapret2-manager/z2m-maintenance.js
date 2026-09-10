@@ -617,10 +617,6 @@ function heroStatusKind(page) {
   if (page.health.state === 'broken' || page.health.state === 'missing') return 'r';
   return 'o';
 }
-function heroStatusMessage(page) {
-  return page.health.state === 'ready' && z2kIdentityUnknown(page)
-    ? _('Версия Z2K требует уточнения') : page.health.message;
-}
 function refreshState(ctx) {
   if (state.componentOperation) return;
   state.componentOperation = { kind: 'refresh', scope: 'all' };
@@ -1218,21 +1214,6 @@ function z2kCanApply(component) {
     && blockingReviews.length === 0
     && targetBlockingReasons.length === 0
     && targetCanApply;
-}
-function z2kUpdateLabel(component) {
-  if (component.attentionState === 'rebase-required' || (component.rebases && component.rebases.length)) return _('Требуется адаптация');
-  if (component.blockingReviews && component.blockingReviews.length) return _('Есть блокирующие зависимости');
-  if (component.attentionState === 'integration-required') return _('Требуется интеграция');
-  return component.updatePresentation && component.updatePresentation.label || UpdatePresentation.describe(component.updateState).label;
-}
-function z2kNeedsIntegration(component) {
-  var attentionState = component && component.attentionState;
-  var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
-  var rebases = component && Array.isArray(component.rebases) ? component.rebases : [];
-  return ['integration-required', 'rebase-required'].indexOf(attentionState) >= 0
-    || ['integration-required', 'rebase-required'].indexOf(component && component.updateState) >= 0
-    || blockingReviews.length > 0
-    || rebases.length > 0;
 }
 function z2kReviewReason(component) {
   var blockingReviews = component && Array.isArray(component.blockingReviews) ? component.blockingReviews : [];
@@ -2286,16 +2267,6 @@ function renderComponents(ctx, data) {
       ])
     ]),
   ]);
-}
-
-function renderEngine(ctx, data) {
-  var envelope = data.engine || {};
-  if (envelope.error) return ctx.shell.statePanel({
-    title: _('Установщик движка недоступен'),
-    message: envelope.error.message,
-    kind: 'error'
-  });
-  return EnginePanel.render(ctx, envelope.value || {});
 }
 
 function previewBackup(ctx, record) {

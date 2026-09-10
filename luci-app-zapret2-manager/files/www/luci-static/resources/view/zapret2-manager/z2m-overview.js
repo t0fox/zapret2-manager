@@ -223,7 +223,6 @@ function render(ctx) {
     ]);
   }
 
-  function envelopeValue(key) { return object(data[key] && data[key].value); }
   function envelopeError(key) { return data[key] && data[key].error; }
   function statusKind(value) {
     if (value === true) return 'g';
@@ -253,17 +252,6 @@ function render(ctx) {
       'process-missing': _('Процесс nfqws2 не найден')
     };
     return labels[String(code || '').toLowerCase()] || _('Сервер не предоставил подробности');
-  }
-  function durationLabel(seconds) {
-    var value = Number(seconds);
-    if (!isFinite(value) || value < 0) return _('неизвестно');
-    value = Math.floor(value);
-    var days = Math.floor(value / 86400);
-    var hours = Math.floor((value % 86400) / 3600);
-    var minutes = Math.floor((value % 3600) / 60);
-    if (days) return days + _(' д ') + hours + _(' ч');
-    if (hours) return hours + _(' ч ') + minutes + _(' мин');
-    return minutes + _(' мин');
   }
   function memoryLabel(kb) {
     var value = Number(kb);

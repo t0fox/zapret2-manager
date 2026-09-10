@@ -601,16 +601,6 @@ function saveSettings(ctx, data) {
     return ctx.refresh('proxy');
   }).catch(function (e) { showError(ctx, e); });
 }
-function truthLabel(truth) {
-  var labels = {
-    stopped: _('Остановлен'), starting: _('Запускается'), healthy: _('Работает'),
-    degraded: _('Деградация'), unsupported: _('Не установлен'), error: _('Ошибка')
-  };
-  return labels[truth] || truth;
-}
-function truthKind(truth) {
-  return truth === 'healthy' ? 'g' : truth === 'stopped' || truth === 'starting' ? 'o' : 'r';
-}
 function confirm(ctx, title, message, label, action, danger) {
   return ctx.shell.avatar.confirm({
     title: title,
@@ -1705,10 +1695,6 @@ function settingsPane(ctx, data) {
       if (bounds[field.id]) { result.min = bounds[field.id][0]; result.max = bounds[field.id][1]; }
       return result;
     });
-  }
-  function toggleAdvanced() {
-    state.tgSettingsAdvanced = !state.tgSettingsAdvanced;
-    ctx.root.replaceChildren(render(ctx));
   }
   function setLanAccess(enabled) {
     var next = clone(settings);
