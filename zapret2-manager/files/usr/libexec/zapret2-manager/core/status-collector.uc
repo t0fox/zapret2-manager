@@ -15,6 +15,7 @@ import { nft_rules_present } from './nft-rule-observation.uc';
 import { state_read, state_initialize } from './state-store.uc';
 import { collect_strategy_status } from '../strategy-status.uc';
 import { runtime_summary } from '../runtime-summary.uc';
+import { engine_gate_status } from '../engine-gate.uc';
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -48,6 +49,7 @@ function read_json(path, fallback) {
 }
 
 function engine_level() {
+	let gate = engine_gate_status();
 	let packagePresent = false;
 	try { packagePresent = length(trim(sh('apk info -e zapret2'))) > 0; }
 	catch (e) { packagePresent = false; }
@@ -55,7 +57,9 @@ function engine_level() {
 	let servicePresent = !!stat(PATHS.upstream_init);
 	let configPresent = !!stat(PATHS.applied_conf);
 	return {
-		installed: configPresent && binaryPresent && servicePresent,
+		ok: gate.ok === true,
+		state: gate.state || 'unavailable',
+		installed: gate.installed === true,
 		packagePresent: packagePresent,
 		binaryPresent: binaryPresent,
 		servicePresent: servicePresent,
@@ -267,7 +271,8 @@ function service_state(runtime, rules, health, draft, engine) {
 	let qh = (health && health.qlenHealth) ? health.qlenHealth : null;
 	let q = (health && health.queue) ? health.queue : null;
 	let present = runtime && runtime.present;
-	if (!engine || engine.installed !== true) return 'engine_missing';
+	if (!engine || engine.ok !== true) return 'error';
+	if (engine.state == 'engine_missing' || engine.installed !== true) return 'engine_missing';
 	if (stat(PATHS.paused_flag)) return present ? 'error' : 'paused';
 	if (!present) {
 		if (q && q.registered) return 'error';
@@ -373,7 +378,10 @@ export const collect_observations = function() {
 	};
 	let warnings = [];
 	if (ownerWarn) push(warnings, ownerWarn);
-	if (!engine.installed) push(warnings, {
+	if (engine.ok !== true) push(warnings, {
+		code: 'engine_unavailable', message: 'Engine runtime contract could not be read.', severity: 'error'
+	});
+	else if (engine.state == 'engine_missing' || !engine.installed) push(warnings, {
 		code: 'engine_missing', message: 'Optional zapret2 engine is not installed or its runtime contract is incomplete.', severity: 'warn'
 	});
 	return {

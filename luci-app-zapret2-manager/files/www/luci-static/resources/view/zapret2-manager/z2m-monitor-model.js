@@ -111,6 +111,7 @@ function deriveEngine(data, fast, now, staleAfterSec) {
   var reason = errorText(envelope);
   var status = reason ? 'unknown' : 'unknown';
   if (reason) { status = 'unknown'; }
+  else if (engine.ok === false || state === 'unavailable') { status = 'unknown'; reason = 'Состояние движка не подтверждено.'; }
   else if (engine.installed === false || state === 'engine_missing') { status = 'off'; reason = 'Движок zapret2 не установлен.'; }
   else if (state === 'error' || full.status === 'error') { status = 'error'; reason = reason || 'Движок сообщил об ошибке.'; }
   else if (state === 'paused' || state === 'partial') { status = 'degraded'; reason = 'Движок работает не полностью.'; }
@@ -131,6 +132,12 @@ function deriveStrategy(data, fast, now, staleAfterSec) {
 }
 function deriveFirewall(data, fast, now, staleAfterSec) {
   var system = valueOf(data, 'system');
+  var engine = firstObject(fast.engine, valueOf(data, 'engine'));
+  var engineState = text(fast.serviceState || engine.state || engine.serviceState);
+  if (engineState === 'engine_missing' || (engine.installed === false && engine.ok !== false && engineState !== 'running'))
+    return healthCard('firewall', 'Firewall / NFQUEUE 300', 'off', 'Движок zapret2 не установлен.', firstObject(fast, system), { engine: engine }, now, staleAfterSec);
+  if (engineState === 'unavailable' || engine.ok === false)
+    return healthCard('firewall', 'Firewall / NFQUEUE 300', 'unknown', 'Состояние движка не подтверждено.', firstObject(fast, system), { engine: engine }, now, staleAfterSec);
   var queue = firstObject(fast.health && fast.health.queue, fast.queue, system.health && system.health.queue);
   var fastRules = hasValue(fast.runtime, 'rulesPresent') ? fast.runtime.rulesPresent :
     hasValue(fast, 'rulesPresent') ? fast.rulesPresent : null;

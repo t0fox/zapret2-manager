@@ -9,6 +9,7 @@ import { NFQUEUE, DAEMON, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';
 import { strategy_selection_get_readonly, strategy_user_get_readonly } from './strategy-state.uc';
 import { nft_rules_present } from './core/nft-rule-observation.uc';
+import { engine_gate_status } from './engine-gate.uc';
 
 function process_rows() {
 	let rows = [], entries = lsdir('/proc') || [];
@@ -40,10 +41,9 @@ function active_strategy() {
 }
 
 function engine_contract() {
-	let config = stat(PATHS.applied_conf) != null;
-	let binary = stat(PATHS.nfqws_bin) != null;
-	let init = stat(PATHS.upstream_init) != null;
-	return { installed: config && binary && init, runtimeContract: config && binary && init };
+	let gate = engine_gate_status();
+	return { ok: gate.ok === true, installed: gate.installed === true,
+		runtimeContract: gate.runtimeContract === true, state: gate.state || 'unavailable' };
 }
 
 // Keep this observation cheap enough for the fast status path.  The full
@@ -76,7 +76,8 @@ function queue_observation(rows) {
 }
 
 function service_state(contract, rows, queue) {
-	if (!contract.installed) return 'engine_missing';
+	if (contract.state == 'engine_missing' || (contract.ok === true && !contract.installed)) return 'engine_missing';
+	if (contract.ok !== true) return 'unavailable';
 	let present = length(rows) > 0, registered = queue.registered === true;
 	if (stat(PATHS.paused_flag) != null) return present ? 'error' : 'paused';
 	if (!present && !registered) return 'stopped';

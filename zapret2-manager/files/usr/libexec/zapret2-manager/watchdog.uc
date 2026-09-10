@@ -29,6 +29,7 @@ import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';
 import { append_ndjson, event_id } from './events.uc';
+import { engine_gate_status } from './engine-gate.uc';
 
 const CYCLE_SEC    = 60;
 const CPU_WARN_PCT = 70;
@@ -160,6 +161,42 @@ function write_qlen_state(st) {
 	catch (e) { }
 }
 
+// Engine observations are transient. When the canonical engine contract is
+// absent, discard only engine-owned history so a later install gets a fresh
+// process/CPU/queue baseline without erasing manager health alert cooldowns.
+function reset_engine_transient(st) {
+	let retained = {};
+	let engine_conditions = [
+		'process_gone', 'rules_gone', 'queue_not_registered',
+		'qlen_critical', 'queue_dropped_delta', 'queue_user_dropped_delta',
+		'cpu_crit', 'cpu_warn'
+	];
+	for (let cond in st.last_alert || {}) {
+		let engine_condition = false;
+		for (let i = 0; i < length(engine_conditions); i++)
+			if (cond == engine_conditions[i]) { engine_condition = true; break; }
+		if (!engine_condition) retained[cond] = st.last_alert[cond];
+	}
+	st.last_alert = retained;
+	st.last_seen_process = null;
+	st.cpu_prev = null;
+	st.cpu_samples = [];
+	write_qlen_state({
+		consecutive: 0,
+		prev_dropped: null, prev_user_dropped: null,
+		dropped_delta: null, user_dropped_delta: null,
+		last_state: 'unknown', last_qlen: null, updated_at: now()
+	});
+}
+
+function engine_skip_reason(engine) {
+	if (engine && engine.ok === true &&
+		(engine.state == 'engine_missing' || engine.installed === false))
+		return 'engine_missing';
+	if (!engine || engine.ok !== true) return 'engine_unavailable';
+	return null;
+}
+
 function qlen_cycle(st) {
 	let q = parse_queue();
 	let prev = read_qlen_prev();
@@ -270,72 +307,88 @@ function overlay_usage_pct() {
 
 function check_cycle() {
 	let st = read_state();
+	let engine;
+	try { engine = engine_gate_status(); }
+	catch (e) { engine = { ok: false, state: 'unavailable', installed: false }; }
+	let skip_reason = engine_skip_reason(engine);
 
-	// Paused → skip the WHOLE cycle. No recovery, no events.
-	if (stat(PATHS.paused_flag)) {
+	// A confirmed missing engine takes precedence over a stale pause marker: the
+	// product is absent, so its old engine state must not suppress the explicit
+	// missing result. A deliberately paused installed engine still skips its
+	// whole engine cycle and retains its no-recovery semantics.
+	if (skip_reason == 'engine_missing') {
+		reset_engine_transient(st);
+	} else if (stat(PATHS.paused_flag)) {
 		write_state(st);
-		return { skipped: true };
+		return { skipped: true, reason: 'paused' };
+	} else if (skip_reason != null) {
+		// Unreadable engine evidence is not proof of a missing or failed engine.
+		// Keep general manager health checks alive, but never emit engine alerts
+		// from an unverified contract.
+		reset_engine_transient(st);
 	}
 
+	let pids = [], qlen = null, cpu_pct = null;
+	if (skip_reason == null) {
+		// 1) process — crash recovery only (not thresholds)
+		pids = find_pids();
+		if (!length(pids)) {
+			// unexpected crash (we are not paused): recover via upstream start
+			let r = run('/etc/init.d/zapret2 start');   // [VERIFY] upstream init
+			alert_if('process_gone', 'restart', 'watchdog',
+				'nfqws2 process gone; recovery start rc=' + r.rc, 'crit', st,
+				{ reason: 'process_crash', rc: r.rc });
+		} else {
+			st.last_seen_process = now();
+		}
 
-	// 1) process — crash recovery only (not thresholds)
-	let pids = find_pids();
-	if (!length(pids)) {
-		// unexpected crash (we are not paused): recover via upstream start
-		let r = run('/etc/init.d/zapret2 start');   // [VERIFY] upstream init
-		alert_if('process_gone', 'restart', 'watchdog',
-			'nfqws2 process gone; recovery start rc=' + r.rc, 'crit', st,
-			{ reason: 'process_crash', rc: r.rc });
-	} else {
-		st.last_seen_process = now();
-	}
+		// 2) rules — alert only, never rebuild (upstream owns the table)
+		try {
+			let raw = sh('nft list table inet ' + NFT_TABLE);
+			if (!length(raw) || index(raw, 'chain ') < 0)
+				alert_if('rules_gone', 'health', 'watchdog',
+					'nft table ' + NFT_TABLE + ' missing or empty', 'crit', st,
+					{ table: NFT_TABLE });
+		} catch (e) { }
 
-	// 2) rules — alert only, never rebuild (upstream owns the table)
-	try {
-		let raw = sh('nft list table inet ' + NFT_TABLE);
-		if (!length(raw) || index(raw, 'chain ') < 0)
-			alert_if('rules_gone', 'health', 'watchdog',
-				'nft table ' + NFT_TABLE + ' missing or empty', 'crit', st,
-				{ table: NFT_TABLE });
-	} catch (e) { }
+		// 3) queue signals — queue_total three-consecutive critical, dropped delta
+		// warn, queue-not-registered. Computed here (60s cycle) and persisted to
+		// qlen.state.json; the collector reads it for display.
+		let qres = qlen_cycle(st);
+		qlen = qres.queue_total;
 
-	// 3) queue signals — queue_total three-consecutive critical, dropped delta
-	// warn, queue-not-registered. Computed here (60s cycle) and persisted to
-	// qlen.state.json; the collector reads it for display.
-	let qres = qlen_cycle(st);
-	let qlen = qres.queue_total;
-
-	// 4) cpu — sustained over a rolling window
-	let ticks = cpu_ticks(pids);
-	let t = now();
-	let prev = st.cpu_prev || { ticks: ticks, time: t };
-	let elapsed = t - prev.time;
-	let cpu_pct = (elapsed > 0) ? ((ticks - prev.ticks) / (clk_tck() * elapsed)) * 100 : 0;
-	st.cpu_prev = { ticks: ticks, time: t };
-	st.cpu_samples = st.cpu_samples || [];
-	push(st.cpu_samples, cpu_pct);
-	// Keep only the last CPU_WARN_WIN samples (avoid slice syntax — rebuild).
-	if (length(st.cpu_samples) > CPU_WARN_WIN) {
-		let tail = [];
-		let start = length(st.cpu_samples) - CPU_WARN_WIN;
-		for (let i = start; i < length(st.cpu_samples); i++) push(tail, st.cpu_samples[i]);
-		st.cpu_samples = tail;
-	}
-	if (length(st.cpu_samples) >= 1) {
-		let last1 = st.cpu_samples[length(st.cpu_samples) - 1];
-		if (last1 >= CPU_CRIT_PCT)
-			alert_if('cpu_crit', 'health', 'watchdog',
-				'nfqws2 CPU ' + last1 + '% (>= ' + CPU_CRIT_PCT + '% over 60s)', 'crit', st,
-				{ cpu_pct: last1, threshold: CPU_CRIT_PCT, window_s: 60 });
-	}
-	if (length(st.cpu_samples) >= CPU_WARN_WIN) {
-		let sum = 0;
-		for (let i = 0; i < length(st.cpu_samples); i++) sum += st.cpu_samples[i];
-		let avg = sum / length(st.cpu_samples);
-		if (avg >= CPU_WARN_PCT)
-			alert_if('cpu_warn', 'health', 'watchdog',
-				'nfqws2 CPU ' + avg + '% avg over ' + (CPU_WARN_WIN * CYCLE_SEC) + 's', 'warn', st,
-				{ cpu_pct: avg, threshold: CPU_WARN_PCT, window_s: CPU_WARN_WIN * CYCLE_SEC });
+		// 4) cpu — sustained over a rolling window
+		let ticks = cpu_ticks(pids);
+		let t = now();
+		let prev = st.cpu_prev || { ticks: ticks, time: t };
+		let elapsed = t - prev.time;
+		cpu_pct = (elapsed > 0) ? ((ticks - prev.ticks) / (clk_tck() * elapsed)) * 100 : 0;
+		st.cpu_prev = { ticks: ticks, time: t };
+		st.cpu_samples = st.cpu_samples || [];
+		push(st.cpu_samples, cpu_pct);
+		// Keep only the last CPU_WARN_WIN samples (avoid slice syntax — rebuild).
+		if (length(st.cpu_samples) > CPU_WARN_WIN) {
+			let tail = [];
+			let start = length(st.cpu_samples) - CPU_WARN_WIN;
+			for (let i = start; i < length(st.cpu_samples); i++) push(tail, st.cpu_samples[i]);
+			st.cpu_samples = tail;
+		}
+		if (length(st.cpu_samples) >= 1) {
+			let last1 = st.cpu_samples[length(st.cpu_samples) - 1];
+			if (last1 >= CPU_CRIT_PCT)
+				alert_if('cpu_crit', 'health', 'watchdog',
+					'nfqws2 CPU ' + last1 + '% (>= ' + CPU_CRIT_PCT + '% over 60s)', 'crit', st,
+					{ cpu_pct: last1, threshold: CPU_CRIT_PCT, window_s: 60 });
+		}
+		if (length(st.cpu_samples) >= CPU_WARN_WIN) {
+			let sum = 0;
+			for (let i = 0; i < length(st.cpu_samples); i++) sum += st.cpu_samples[i];
+			let avg = sum / length(st.cpu_samples);
+			if (avg >= CPU_WARN_PCT)
+				alert_if('cpu_warn', 'health', 'watchdog',
+					'nfqws2 CPU ' + avg + '% avg over ' + (CPU_WARN_WIN * CYCLE_SEC) + 's', 'warn', st,
+					{ cpu_pct: avg, threshold: CPU_WARN_PCT, window_s: CPU_WARN_WIN * CYCLE_SEC });
+		}
 	}
 
 	// 5) ram
@@ -358,7 +411,8 @@ function check_cycle() {
 	} catch (e) { }
 
 	write_state(st);
-	return { skipped: false, pids: length(pids), cpu: cpu_pct, ram: ram, overlay: ov, qlen: qlen };
+	return { skipped: skip_reason != null, reason: skip_reason,
+		pids: length(pids), cpu: cpu_pct, ram: ram, overlay: ov, qlen: qlen };
 }
 
 // ---- entry ------------------------------------------------------------------

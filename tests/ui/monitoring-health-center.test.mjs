@@ -92,6 +92,23 @@ test('failed component is ERROR, absent backend is UNKNOWN, and disabled proxy i
   assert.equal(result.cards.dns.status, 'error');
 });
 
+test('missing engine does not turn dependent firewall absence into an outage', () => {
+  const model = loadModel();
+  const data = healthyData();
+  data.fast.value.serviceState = 'engine_missing';
+  data.fast.value.engine = { installed: false, runtimeContract: false };
+  data.fast.value.runtime = { present: false, rulesPresent: null };
+  data.fast.value.health.queue = { number: 300, registered: false, ownerConflict: false };
+  data.engine.value = { ok: true, state: 'engine_missing', serviceState: 'engine_missing', generatedAt: 1_724_200_000 };
+
+  const result = model.normalizeHealth(data, { now: 1_724_200_010 });
+
+  assert.equal(result.cards.engine.status, 'off');
+  assert.equal(result.cards.nfqws2.status, 'off');
+  assert.equal(result.cards.firewall.status, 'off');
+  assert.match(result.cards.firewall.reason, /не установлен/i);
+});
+
 test('technical projection is redacted and keeps report behind explicit action', () => {
   const model = loadModel();
   const data = healthyData();
