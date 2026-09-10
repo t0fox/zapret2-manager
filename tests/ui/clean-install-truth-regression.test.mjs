@@ -125,6 +125,21 @@ test('clean Engine first render exposes an enabled catalog recovery action befor
   assert.match(maintenance, /remoteState === 'not-loaded'/);
 });
 
+test('clean Engine card never presents an update action for an absent release', () => {
+  const maintenance = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js');
+  const manager = read('zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc');
+
+  assert.match(maintenance,
+    /var hasUpdate = !!component\.installed && !!component\.installed\.version\s*&& component\.updateState === 'update-available'/,
+    'update action must require an installed Engine release');
+  assert.match(maintenance,
+    /engineActionForRelease\(component, selectedRelease \|\| \(selectedVersion \? \{ version: selectedVersion \} : null\)\)/,
+    'clean Engine must derive its contextual install action from the selected release');
+  assert.match(manager,
+    /answer\.updateState = latest == null \? 'unknown' : installed\.installedRelease == null \? 'unknown' : needsUpdate \? 'update-available' : 'current'/,
+    'the canonical backend must not label a missing Engine as an update');
+});
+
 test('Engine request adapter resolves the browse export before invoking it', () => {
   const catalog = read('zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc');
   const browse = catalog.indexOf('export const engine_releases =');
@@ -153,7 +168,7 @@ test('legacy V1 Z2K membership remains explicit reconciliation state', () => {
 
 test('missing Engine is not globally compatible in the canonical backend status', () => {
   const manager = read('zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc');
-  assert.match(manager, /compatible:\s*installed\.installed\s*&&\s*installed\.runtimeContract\s*===\s*true/);
+  assert.match(manager, /compatible\s*=\s*installed\.installed\s*&&\s*installed\.runtimeContract\s*===\s*true/);
   assert.match(manager, /installedCompatibility/);
 });
 

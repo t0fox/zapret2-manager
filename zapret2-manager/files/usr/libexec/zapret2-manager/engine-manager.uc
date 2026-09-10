@@ -41,7 +41,7 @@ function canonical_engine_releases(input) {
 	let needsUpdate = latest != null && (installed.installedRelease == null || installed.installedRelease != latest.installedRelease);
 	answer.installed = { version: installed.installedRelease || null, artifactKind: truth && truth.artifactKind || null };
 	answer.available = { version: latest && latest.installedRelease || null, artifactKind: latest && latest.artifactKind || null };
-	answer.updateState = latest == null ? 'unknown' : needsUpdate ? 'update-available' : 'current';
+	answer.updateState = latest == null ? 'unknown' : installed.installedRelease == null ? 'unknown' : needsUpdate ? 'update-available' : 'current';
 	return answer;
 }
 export const engine_releases_read = function (input) { return canonical_engine_releases(input || {}); };

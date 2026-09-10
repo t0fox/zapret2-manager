@@ -2040,14 +2040,23 @@ function renderEngineCard(ctx, component, engineStatus, engineValue) {
   // componentOperation scope z2k via isBusyFor
   var shell = ctx.shell;
   var isReady = (component.runtimeHealth || component.health) === 'ready';
-  var hasUpdate = component.updateState === 'update-available' && component.canApply !== false;
+  var catalog = state.engineCatalog || engineValue && engineValue[0] || {};
+  var selectedRelease = engineSelectedRelease(component, catalog);
+  var selectedVersion = selectedRelease && (selectedRelease.version || selectedRelease.releaseTag)
+    || component.available && component.available.version;
+  var releaseAction = engineActionForRelease(component, selectedRelease || (selectedVersion ? { version: selectedVersion } : null));
+  var hasUpdate = !!component.installed && !!component.installed.version
+    && component.updateState === 'update-available' && component.canApply !== false;
+  var primaryAction = component.canApply !== false && (releaseAction === 'install' || (releaseAction === 'update' && hasUpdate))
+    ? releaseAction : null;
   var chipKind = componentStateKind(component);
   var chipLabel = componentStateLabel(component);
   var metaRows = engineMetaRows(component, engineStatus);
   // Contextual actions
   var primaryActions = [];
-  if (hasUpdate) {
-    primaryActions.push(shell.button(engineUpdateActionLabel(component), 'primary sm', engineActionWithCheck.bind(null, ctx, component, 'update', engineUpdateActionLabel(component)), !!state.componentOperation));
+  if (primaryAction) {
+    var primaryLabel = engineActionLabel(primaryAction, selectedVersion);
+    primaryActions.push(shell.button(primaryLabel, 'primary sm', engineActionWithCheck.bind(null, ctx, component, primaryAction, primaryLabel), !!state.componentOperation));
   } else if (isReady) {
     primaryActions.push(shell.button(_('Проверить обновления'), 'sm', checkUpdates.bind(null, ctx, 'engine'), isBusyFor('engine')));
   } else {
