@@ -18,7 +18,6 @@ owner boundaries:
 - [Архитектура](../02-architecture/index.md)
 - [Контракты](../04-contracts/index.md)
 - [Архитектурные решения](../07-decisions/index.md)
-- [Процесс работы со знаниями](./knowledge-workflow.md)
 
 Runtime ownership: Strategy владеет permanent Apply, Z2K Detect возвращает typed
 возвращает evidence без второго lifecycle, DNS сохраняет existing writer, а

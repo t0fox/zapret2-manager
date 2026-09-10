@@ -1041,13 +1041,11 @@ At minimum run:
 - affected Autocircular tests;
 - JS syntax;
 - UCode imports;
-- docs/knowledge validator;
 - `git diff --check`.
 
 Run:
 
 ```bash
-node scripts/validate-knowledge.mjs
 git diff --check
 ```
 

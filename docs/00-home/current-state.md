@@ -4,7 +4,7 @@ title: "Current State"
 type: home
 status: live
 authority: evidence
-updated: 2026-09-04
+updated: 2026-09-10
 publish: false
 tags: [state, baseline, vault]
 ---
@@ -53,8 +53,7 @@ No stable release or RC is implied by source/workflow presence alone.
 
 ## Active workstreams
 
-- Documentation inventory, canonical routing, validator, and local Quartz
-  tooling.
+- Plain-Markdown product, architecture, and operations documentation.
 - Release Engineering: real OpenWrt SDK build and artifact
   manifest/checksum verification.
 - Product/runtime acceptance: router and browser evidence remains separate from
@@ -62,7 +61,7 @@ No stable release or RC is implied by source/workflow presence alone.
 
 ## Known blockers and evidence boundaries
 
-Fresh validator/build output and APK workflow logs outrank this note. A local
+Fresh source/build output and APK workflow logs outrank this note. A local
 source test is not proof of OpenWrt SDK packaging or router E2E behavior. A
 router update is not proof of a public release artifact. Any missing evidence
 must remain explicitly marked NOT_RUN or NOT_YET_RUN in the relevant report.
@@ -77,12 +76,11 @@ For exact dynamic state, inspect `git status --short --branch`,
 `git worktree list`. Actual Git state and fresh runtime evidence outrank this
 durable snapshot.
 
-## Internal vault routing
+## Agent operating notes
 
-The private operating contracts remain reachable from the internal state root:
+The plain-Markdown operating contracts remain available for agent work:
 
 - [Agent operating contract](../12-ai/agent-operating-contract.md)
-- [Knowledge maintenance contract](../12-ai/knowledge-maintenance-contract.md)
 - [Verification contract](../12-ai/verification-contract.md)
 - [Waiting for user contract](../12-ai/waiting-for-user-contract.md)
 - [Handoff template](../12-ai/handoff-template.md)

@@ -1,12 +1,14 @@
 ﻿# zapret2-manager Agent Instructions
 
-This repository follows the Project Knowledge Vault + Quartz structure.
+Product, architecture, and operations documentation is kept as plain Markdown
+in `README.md` and `docs/`. There is no generated documentation site or editor
+workspace in the repository.
 
 ## Deterministic Bootstrap
 
 Start here:
-→ docs/12-ai/ai-entry-point.md
+→ README.md
 → docs/00-home/current-state.md
 → relevant product/contract/ADR/spec/plan
 
-See docs/12-ai/ for all AI operating contracts.
+See `docs/12-ai/` for the plain-Markdown operating contracts used by agents.

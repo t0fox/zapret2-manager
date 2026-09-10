@@ -225,12 +225,7 @@ Host/source tests не заменяют реальную сборку OpenWrt SD
 
 ### Проверка документации
 
-```sh
-node scripts/docs.mjs verify
-node scripts/docs.mjs build public
-node scripts/docs.mjs build internal
-node scripts/validate-knowledge.mjs
-```
+Документация хранится как обычные Markdown-файлы в `docs/` и `README.md`.
 
 </details>
 

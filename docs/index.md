@@ -6,7 +6,7 @@ status: current
 authority: index
 updated: 2026-08-13
 publish: true
-tags: [home, knowledge]
+tags: [home, documentation]
 ---
 
 # zapret2-manager

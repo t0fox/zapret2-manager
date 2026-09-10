@@ -11,19 +11,18 @@ tags: [ai, entrypoint]
 
 # AI Entry Point
 
-This is the deterministic starting point for all AI agents working in this repository.
+This is the deterministic starting point for agents working in this repository.
+All repository documentation is kept as plain Markdown in the repository.
 
 ## Required Reading Order
 
-1. docs/12-ai/ai-entry-point.md (this file)
-2. docs/12-ai/agent-operating-contract.md
-3. docs/12-ai/waiting-for-user-contract.md
-4. docs/12-ai/verification-contract.md
-5. docs/12-ai/knowledge-maintenance-contract.md
+1. README.md
+2. docs/00-home/current-state.md
+3. docs/12-ai/agent-operating-contract.md
+4. docs/12-ai/waiting-for-user-contract.md
+5. docs/12-ai/verification-contract.md
 6. docs/12-ai/handoff-template.md
-7. docs/00-home/current-state.md
-8. docs/00-home/knowledge-inventory.md
-9. docs/07-decisions/index.md
+7. docs/07-decisions/index.md
 
 ## Navigation
 
@@ -32,9 +31,4 @@ This is the deterministic starting point for all AI agents working in this repos
 - Contracts: docs/04-contracts/
 - Decisions: docs/07-decisions/
 - Work: docs/09-work/
-- Context routing: docs/12-ai/context-map.yaml
-
-Two targets from an older bootstrap contract were deleted from the current
-vault. The current home index, decisions index, and context map are the
-canonical replacements; no compatibility stubs are maintained for removed
-paths.
+Product and technical areas are routed through the indexes under `docs/`.

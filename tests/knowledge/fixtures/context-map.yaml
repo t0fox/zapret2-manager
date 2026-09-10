@@ -1,7 +1,0 @@
-product: scanner
-requiredDocs:
-  - docs/00-home/current-state.md
-codeGlobs:
-  - src/scanner/**
-testGlobs:
-  - tests/scanner/**
