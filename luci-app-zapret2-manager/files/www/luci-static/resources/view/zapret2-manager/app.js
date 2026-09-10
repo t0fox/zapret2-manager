@@ -5,6 +5,7 @@
 'require view.zapret2-manager.z2m-store as StoreModule';
 'require view.zapret2-manager.z2m-shell as Shell';
 'require view.zapret2-manager.z2m-navigation as Navigation';
+'require view.zapret2-manager.z2m-icons as Icons';
 'require view.zapret2-manager.z2m-overview as Overview';
 'require view.zapret2-manager.z2m-avatar-control as Control';
 'require view.zapret2-manager.z2m-strategies as Strategies';
@@ -327,6 +328,7 @@ return L.view.extend({
 
     var service = statusState(initial);
     var version = detectedVersion(initial);
+    var deviceIcon = Icons.node('system', { size: 15, className: 'z2m-header-device-icon' });
     var brand = [E('img', {
       'class': 'mark',
       src: L.resource('view/zapret2-manager/icons/zapret2-manager-mark.svg'),
@@ -340,7 +342,11 @@ return L.view.extend({
       E('header', { 'class': 'z2m-apptop' }, E('div', { 'class': 'in' }, [
         E('div', { 'class': 'z2m-brand' }, brand),
         E('div', { 'class': 'z2m-apptop-right' }, [
-          E('span', { 'class': 'host' }, window.location.hostname || 'OpenWrt'),
+          E('div', { 'class': 'z2m-device' }, [
+            deviceIcon,
+            E('span', { 'class': 'host' }, window.location.hostname || 'OpenWrt')
+          ]),
+          E('span', { 'class': 'z2m-header-divider', 'aria-hidden': 'true' }),
           headerStatus = Shell.chip(service.label, service.kind, true)
         ])
       ])),
