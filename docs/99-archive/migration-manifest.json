@@ -126,9 +126,9 @@
     "AUTHORITY": "spec",
     "STATUS": "done",
     "TARGET_PATH": "docs/09-work/specs/2026-08-08-native-state-storage-foundation-design.md",
-    "ACTION": "rename",
+    "ACTION": "delete",
     "REFERENCED_BY": ["docs/09-work/index.md"],
-    "NOTES": "Git rename recorded by 6cd640b.",
+    "NOTES": "Retired storage foundation specification deleted with the removed product surface.",
     "OLD_BLOB_SHA": "f882e122dc48d2bc20a9e249309d5a042b5e4810"
   },
   {
