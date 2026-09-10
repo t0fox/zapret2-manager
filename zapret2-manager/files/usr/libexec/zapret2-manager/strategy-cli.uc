@@ -669,10 +669,6 @@ function live_runtime_inputs() {
 		runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
 
-export const strategy_runtime_environment_from_composition = function(environment, composition) {
-	return runtime_environment_with_composition(environment, composition);
-};
-
 // Scanner production planning uses the same server-owned live composition
 // evidence as Strategy preview/validate. Keep this as an internal module
 // boundary so Scanner never invents a second runtime inventory.
@@ -1563,7 +1559,7 @@ function request(path) {
 	return value;
 }
 
-function dispatch_result(mode, input, context, testContext) {
+function dispatch_result(mode, input, context) {
 	if (mode == 'reconcile') return strategy_reconcile(input, context);
 	if (mode == 'list') return strategy_list();
 	if (mode == 'recommendations') return strategy_recommendations();
@@ -1587,12 +1583,6 @@ function dispatch_result(mode, input, context, testContext) {
 }
 
 export const strategy_cli_dispatch = function(mode, input, context) {
-	return dispatch_result(mode, input, context);
-};
-
-export const strategy_cli_dispatch_test = function(mode, input, context) {
-	if (getenv(SERVER_TEST_MARKER) != '1')
-		return error_result('EINPUT', 'server-test dispatcher is unavailable');
 	return dispatch_result(mode, input, context);
 };
 

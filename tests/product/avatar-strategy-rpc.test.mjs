@@ -484,30 +484,6 @@ test('RPC Preview uses authoritative server runtime composition and ignores clie
   assert.equal(forged.error.code, 'EINPUT');
 });
 
-test('runtime composition projects canonical assets into compiler descriptors', () => {
-  const projected = invokeValues('strategy_runtime_environment_from_composition', [
-    {
-      listMode: 'none',
-      paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
-      functions: {}, blobs: {}, lua: {}, lists: {},
-    },
-    {
-      ok: true,
-      runtimeAssets: [
-        { id: 'blob:canonical-list', kind: 'hostlist', runtimeTarget: '/runtime-assets/lists/extra_strats/TCP/RKN/List.txt' },
-        { id: 'lua:canonical', kind: 'lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua' },
-      ],
-    },
-  ]);
-
-  const list = projected.lists['/runtime-assets/lists/extra_strats/TCP/RKN/List.txt'];
-  assert.ok(list);
-  assert.equal(list.path, 'extra_strats/TCP/RKN/List.txt');
-  assert.equal(list.root, '/opt/zapret2/lists');
-  assert.equal(list.safe, true);
-  assert.equal(projected.lua['/runtime-assets/lua/z2k-modern-core.lua'].root, '/opt/zapret2/lua');
-});
-
 test('Apply candidate binding uses the canonical runtime asset path mapping', () => {
   const bound = invokeValues('strategy_runtime_bind_candidate', [{
     ok: true,

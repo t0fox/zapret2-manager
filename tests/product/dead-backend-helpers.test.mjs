@@ -58,6 +58,15 @@ test('runtime materialization has no test-only fault injection hook', () => {
   assert.doesNotMatch(source, /Z2M_TEST_FAIL_AFTER/);
 });
 
+test('strategy RPC adapter has no orphan test dispatcher or runtime projection export', () => {
+  const source = fs.readFileSync(
+    path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc'),
+    'utf8',
+  );
+  assert.doesNotMatch(source, /strategy_cli_dispatch_test|SERVER_TEST_MARKER/);
+  assert.doesNotMatch(source, /export const strategy_runtime_environment_from_composition/);
+});
+
 test('retired runtime Lua assets are not shipped', () => {
   for (const relativePath of [
     'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/domain-grouping.lua',
