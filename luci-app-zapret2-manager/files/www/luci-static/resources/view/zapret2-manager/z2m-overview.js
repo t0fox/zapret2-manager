@@ -290,6 +290,12 @@ function render(ctx) {
     if (snapshot.state === 'mismatch') return { value: _('Расхождение'), kind: 'warning', detail: _('Процесс и NFQUEUE работают, но применённая конфигурация изменилась') };
     return { value: _('Недоступно'), kind: 'warning', detail: _('Сервер не подтвердил состояние процесса') };
   }
+  function componentVersion(value) {
+    value = object(value);
+    var installed = object(value.installed);
+    var release = object(value.installedRelease);
+    return format.text(value.version || installed.version || release.value);
+  }
   function unavailableCard(detail) {
     return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Сервер не сообщил состояние') };
   }
@@ -357,7 +363,7 @@ function render(ctx) {
         detail: _('Официальный release bol-van/zapret2')
       };
     }
-    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Сервер подтвердил отсутствие пакета') };
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: null };
     return unavailableCard(_('Сервер не сообщил состояние zapret2'));
   }
   function unknownComponentValue(detail) {
@@ -369,43 +375,52 @@ function render(ctx) {
   function engineComponentValue() {
     if (envelopeError('status') || envelopeError('engineStatus')) return unavailableCard(_('Состояние Engine недоступно'));
     var engine = componentEngineStatus();
-    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: _('Сервер подтвердил отсутствие пакета') };
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: null };
     if (engine.installed !== true) return unknownComponentValue(_('Сервер не сообщил, установлен ли Zapret2 Engine'));
     var page = ComponentsModel.normalizePage({ engine: engine, z2k: object(resourcesStatus.z2k) });
     var truth = page.components[0];
-    if (truth.runtimeHealth === 'broken') return { value: _('Ошибка'), kind: 'error', detail: _('Zapret2 Engine требует восстановления') };
+    var version = componentVersion(truth);
+    if (truth.runtimeHealth === 'broken') return { value: _('Ошибка'), kind: 'error', detail: version };
     var process = processValue();
     if (process.value === _('Недоступно')) return unknownComponentValue(_('Сервер не подтвердил состояние Engine'));
     return {
       value: process.value === _('Работает') ? _('Работает') : _('Установлен'),
       kind: process.kind,
-      detail: process.detail
+      detail: version
     };
   }
   function z2kComponentValue() {
     if (envelopeError('resourcesStatus')) return unavailableCard(_('Состояние Z2K Core недоступно'));
     var engine = componentEngineStatus();
     var z2k = object(resourcesStatus.z2k);
-    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: _('Требуется совместимый Zapret2 Engine') };
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'stopped', detail: null };
     if (!Object.keys(z2k).length) return unknownComponentValue(_('Сервер не сообщил состояние Z2K Core'));
     var page = ComponentsModel.normalizePage({ engine: engine, z2k: z2k });
     var truth = page.components[1];
-    if (truth.runtimeHealth === 'missing') return { value: _('Не установлен'), kind: 'stopped', detail: truth.summary || _('Требуется совместимый Zapret2 Engine') };
-    if (truth.runtimeHealth === 'broken') return { value: _('Требует внимания'), kind: 'warning', detail: truth.summary || _('Z2K Core требует восстановления') };
-    if (truth.updateState === 'update-available') return { value: truth.updatePresentation.label, kind: 'warning', detail: _('Откройте Компоненты для проверки обновления') };
-    if (truth.runtimeHealth === 'ready') return { value: _('Готово'), kind: 'running', detail: _('Z2K Core готов к работе') };
-    if (truth.runtimeHealth === 'degraded') return { value: _('Требует проверки'), kind: 'warning', detail: truth.summary || _('Проверьте состояние ресурсов') };
+    var version = componentVersion(truth);
+    if (truth.runtimeHealth === 'missing') return { value: _('Не установлен'), kind: 'stopped', detail: null };
+    if (truth.runtimeHealth === 'broken') return { value: _('Требует внимания'), kind: 'warning', detail: version };
+    if (truth.updateState === 'update-available') return { value: truth.updatePresentation.label, kind: 'warning', detail: version };
+    if (truth.runtimeHealth === 'ready') return { value: _('Готово'), kind: 'running', detail: version };
+    if (truth.runtimeHealth === 'degraded') return { value: _('Требует проверки'), kind: 'warning', detail: version };
     return unknownComponentValue(_('Сервер не подтвердил состояние Z2K Core'));
+  }
+  function componentContext(engine, z2k) {
+    if (engine.value === _('Не установлен')) return _('Сначала установите Zapret2 Engine');
+    if (engine.kind === 'error' || z2k.kind === 'error') return _('Откройте Компоненты для восстановления.');
+    if (engine.kind === 'warning' || z2k.kind === 'warning') return _('Откройте Компоненты для проверки состояния.');
+    return null;
   }
   function componentSummaryCard(loading) {
     var engine = loading ? { value: _('Загрузка…'), kind: '', detail: null } : engineComponentValue();
     var z2k = loading ? { value: _('Загрузка…'), kind: '', detail: null } : z2kComponentValue();
     return {
-      id: 'card-zapret2', label: _('Zapret2 / Z2K'), icon: 'cpu', href: '#/components',
+      id: 'card-zapret2', label: _('Компоненты'), icon: 'cpu', href: '#/components', headerArrow: true,
       rows: [
         { label: _('Zapret2 Engine'), value: engine.value, kind: engine.kind, detail: engine.detail },
         { label: _('Z2K Core'), value: z2k.value, kind: z2k.kind, detail: z2k.detail }
-      ]
+      ],
+      context: componentContext(engine, z2k)
     };
   }
   function componentUpdateSummary() {

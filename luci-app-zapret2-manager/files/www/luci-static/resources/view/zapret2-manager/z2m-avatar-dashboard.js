@@ -31,11 +31,16 @@ function statusCard(card) {
   function row(item) {
     return E('div', { 'class': 'status-card-row' }, [
       E('span', { 'class': 'status-card-row-label' }, item.label),
-      E('span', { 'class': 'status-card-row-value ' + (item.kind || '') }, item.value),
+      E('span', { 'class': 'status-card-status status-card-row-value ' + (item.kind || '') }, item.value),
       item.detail ? E('span', { 'class': 'status-card-row-detail' }, item.detail) : null
     ]);
   }
   var tag = card.href ? 'a' : 'div';
+  var header = [
+    icon(card.icon),
+    E('span', { 'class': 'status-card-label' }, card.label)
+  ];
+  if (card.headerArrow) header.push(E('span', { 'class': 'status-card-header-arrow', 'aria-hidden': 'true' }, '→'));
   var body = Array.isArray(card.rows)
     ? E('div', { 'class': 'status-card-rows' }, card.rows.map(row))
     : E('div', { id: valueIds[card.id] || null, 'class': 'status-card-value ' + (card.kind || '') }, card.value);
@@ -44,12 +49,10 @@ function statusCard(card) {
     href: card.href || null,
     'class': 'status-card' + (card.href ? ' status-card-action' : '')
   }, [
-    E('div', { 'class': 'status-card-header' }, [
-      icon(card.icon),
-      E('span', { 'class': 'status-card-label' }, card.label)
-    ]),
+    E('div', { 'class': 'status-card-header' }, header),
     body,
-    !Array.isArray(card.rows) && card.detail ? E('div', { id: detailIds[card.id] || null, 'class': 'status-card-detail' }, card.detail) : null
+    !Array.isArray(card.rows) && card.detail ? E('div', { id: detailIds[card.id] || null, 'class': 'status-card-detail' }, card.detail) : null,
+    card.context ? E('div', { 'class': 'status-card-context' }, card.context) : null
   ]);
 }
 

@@ -11,7 +11,7 @@ test('P01 Dashboard follows the current accepted composition and order', () => {
   const composition = `${page}\n${dashboard}`;
   const required = [
     'page-header', 'Главная', 'Обзор состояния системы', 'status-grid',
-    'card-zapret2', 'Zapret2 / Z2K', 'Zapret2 Engine', 'Z2K Core', '#/components',
+    'card-zapret2', 'Компоненты', 'Zapret2 Engine', 'Z2K Core', '#/components',
     'card-strategy', 'Стратегия',
     'card-telegram', 'Telegram Proxy',
     'card-autostart', 'Автозапуск', 'card-system', 'Система',
@@ -43,13 +43,20 @@ test('P01 Dashboard exposes one clickable component summary with independent eng
   const componentSection = page.slice(page.indexOf('function componentSummaryCard'), page.indexOf('function componentUpdateSummary'));
   const composition = `${componentSection}\n${cardSection}\n${dashboard}`;
   assert.match(componentSection, /id: 'card-zapret2'/);
-  assert.match(componentSection, /label: _\('Zapret2 \/ Z2K'\)/);
+  assert.match(componentSection, /label: _\('Компоненты'\)/);
   assert.match(componentSection, /href: '#\/components'/);
+  assert.match(componentSection, /headerArrow: true/);
+  assert.match(componentSection, /context:/);
   assert.match(composition, /engineComponentValue\(\)/);
   assert.match(composition, /z2kComponentValue\(\)/);
   assert.match(componentSection, /label: _\('Zapret2 Engine'\)/);
   assert.match(componentSection, /label: _\('Z2K Core'\)/);
   assert.match(composition, /status-card-rows/);
+  assert.match(dashboard, /status-card-status/);
+  assert.match(dashboard, /status-card-header-arrow/);
+  assert.match(dashboard, /status-card-context/);
+  assert.doesNotMatch(componentSection, /Сервер подтвердил отсутствие пакета/);
+  assert.doesNotMatch(componentSection, /detail: _\('Требуется совместимый Zapret2 Engine'\)/);
   assert.doesNotMatch(cardSection, /card-nfqws|label: 'nfqws2'/);
   assert.doesNotMatch(dashboard, /nfqws-status|nfqws-detail/);
 });
