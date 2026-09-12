@@ -14,6 +14,7 @@ const MANAGED_PREVIOUS_ROOT = MANAGED_ROOT + '.previous';
 const MANAGED_PREVIOUS_NEW_ROOT = MANAGED_ROOT + '.previous.new';
 const READ_INDEX_PATH = getenv('Z2M_STRATEGY_CATALOG_INDEX_PATH') || '/etc/zapret2-manager/strategy-catalog-index.json';
 const ACTIVE_POINTER_PATH = getenv('Z2M_STRATEGY_CATALOG_ACTIVE_POINTER') || '/etc/zapret2-manager/catalog/active.json';
+const GENERATION_ACTIVE_POINTER_PATH = getenv('Z2M_STRATEGY_CATALOG_GENERATION_ACTIVE_POINTER') || getenv('Z2M_STRATEGY_CATALOG_ACTIVE_POINTER') || '/etc/zapret2-manager/catalog/generation-active.json';
 const GENERATION_ROOT = getenv('Z2M_STRATEGY_CATALOG_GENERATION_ROOT') || '/etc/zapret2-manager/catalog';
 const DERIVED_CACHE_PREFIX = '/tmp/zapret2-manager/strategy-catalog.';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -66,9 +67,9 @@ function read_active_pointer() {
 
 function generation_pointer_present() {
 	let metadata = null, pointer = null;
-	try { metadata = stat(ACTIVE_POINTER_PATH); } catch (e) { return false; }
-	if (!metadata || metadata.type != 'file' || symlink_target(ACTIVE_POINTER_PATH) != null) return false;
-	try { pointer = json(readfile(ACTIVE_POINTER_PATH)); } catch (e) { return false; }
+	try { metadata = stat(GENERATION_ACTIVE_POINTER_PATH); } catch (e) { return false; }
+	if (!metadata || metadata.type != 'file' || symlink_target(GENERATION_ACTIVE_POINTER_PATH) != null) return false;
+	try { pointer = json(readfile(GENERATION_ACTIVE_POINTER_PATH)); } catch (e) { return false; }
 	return is_object(pointer) && pointer.schema == 'z2m.strategy-active-generation.v1';
 }
 
@@ -659,6 +660,68 @@ function sha256_text(text) {
 	return rc == 0 && length(fields) > 0 ? fields[0] : null;
 }
 
+// Avatar's upstream repository publishes the four catalogs directories as
+// raw INI files and deliberately does not publish our generated manifest.
+// Keep that adaptation bounded to this reader: the generated package and
+// managed catalog remain manifest-authoritative, while an exact upstream
+// archive is scanned and fully re-verified before it can become a snapshot.
+function raw_catalog_manifest(root, source) {
+	if (!is_safe_root(root) || !is_object(source)
+		|| source.repository != PINNED_REPOSITORY
+		|| type(source.commit) != 'string' || !match(source.commit, /^[0-9a-f]{7,40}$/))
+		return error_result('EPROVENANCE', 'raw Avatar catalog provenance is invalid', 'source');
+	if (!directory(root) || has_symlink_component(root))
+		return error_result('EPATH', 'raw Avatar catalog root must be a real directory', 'root');
+	let relativePaths = [];
+	for (let level in LEVELS) {
+		let levelPath = root + '/' + level;
+		if (!directory(levelPath) || symlink_target(levelPath) != null)
+			return error_result('EPATH', 'raw Avatar catalog level must be a real directory', levelPath);
+		let process = null;
+		try { process = popen('find ' + shell_quote(levelPath) + ' -type f -name ' + shell_quote('*.txt') + ' -print 2>/dev/null', 'r'); }
+		catch (e) { process = null; }
+		if (!process) return error_result('EIO', 'raw Avatar catalog file inventory is unavailable', levelPath);
+		let output = process.read('all') || '', rc = process.close();
+		if (rc != 0) return error_result('EIO', 'raw Avatar catalog file inventory failed', levelPath);
+		let prefix = root + '/';
+		for (let absolute in split(output, '\n')) {
+			absolute = trim(absolute);
+			if (absolute == '') continue;
+			if (index(absolute, prefix) != 0) return error_result('EPATH', 'raw Avatar catalog path escaped its root', absolute);
+			let relative = substr(absolute, length(prefix));
+			if (!safe_relative_path(relative))
+				return error_result('EPATH', 'raw Avatar catalog file path is invalid', relative);
+			push(relativePaths, relative);
+		}
+	}
+	if (length(relativePaths) == 0) return error_result('EMANIFEST', 'raw Avatar catalogs are empty', root);
+	sort_strings(relativePaths);
+	let files = [], physicalEntryCount = 0, aggregate = '';
+	for (let relative in relativePaths) {
+		let path = safe_file_path(root, relative);
+		if (path == null || !regular_file(path))
+			return error_result('EFILE', 'raw Avatar catalog file is missing or invalid', relative);
+		let metadata = null;
+		try { metadata = stat(path); } catch (e) { metadata = null; }
+		let raw = readfile(path), digest = sha256_file(path);
+		if (raw == null || digest == null || metadata == null)
+			return error_result('EFILE', 'raw Avatar catalog file could not be read', relative);
+		let level = split(relative, '/')[0], protocol = protocol_for(split(relative, '/')[1]);
+		let parsed = parse_file(raw, relative, level, protocol), sourceOrder = [];
+		for (let entry in parsed) push(sourceOrder, entry.id);
+		push(files, { path: relative, byteSize: metadata.size, sha256: digest, level: level,
+			protocol: protocol, physicalEntryCount: length(parsed), sourceOrder: sourceOrder });
+		physicalEntryCount += length(parsed);
+		aggregate += digest + '  catalogs/' + relative + '\n';
+	}
+	let aggregateDigest = sha256_text(aggregate);
+	if (!match(aggregateDigest || '', /^[0-9a-f]{64}$/))
+		return error_result('EDIGEST', 'raw Avatar catalog aggregate digest could not be computed', root);
+	return { ok: true, manifest: { schema: 1, generatedFromRaw: true, source: source,
+		aggregateDigest: aggregateDigest, aggregateDigestAlgorithm: AGGREGATE_ALGORITHM,
+		physicalFileCount: length(files), physicalEntryCount: physicalEntryCount, files: files } };
+}
+
 function unique_entries(entries) {
 	let result = [], seen = {};
 	for (let i = 0; i < length(entries); i++) {
@@ -819,10 +882,12 @@ function build_catalog(root, manifest, manifestPath) {
 	}
 	if (sha256_text(aggregate) != manifest.aggregateDigest)
 		return error_result('EDIGEST', 'catalog aggregate digest mismatch', manifestPath);
-	if (length(physicalEntries) != manifest.physicalEntryCount)
+	if (manifest.generatedFromRaw != true && length(physicalEntries) != manifest.physicalEntryCount)
 		return error_result('EORDINAL', 'manifest physical entry count mismatch', manifestPath);
-	let inventoryError = verify_manifest_entries(manifest, physicalEntries);
-	if (inventoryError != null) return error_result('EORDINAL', inventoryError, manifestPath);
+	if (manifest.generatedFromRaw != true) {
+		let inventoryError = verify_manifest_entries(manifest, physicalEntries);
+		if (inventoryError != null) return error_result('EORDINAL', inventoryError, manifestPath);
+	}
 	let occurrences = {}, duplicateGroupById = {}, duplicateIds = [], duplicateGroups = [], duplicateGroup = 0;
 	for (let i = 0; i < length(physicalEntries); i++) {
 		let id = physicalEntries[i].id;
@@ -873,8 +938,9 @@ function build_catalog(root, manifest, manifestPath) {
 		levelEntryCounts[physicalEntries[i].level]++;
 		protocolEntryCounts[physicalEntries[i].protocol]++;
 	}
-	let declaration = validate_declarations(manifest, files, physicalEntries, duplicateGroups,
-		winnerOrder, sets, winners, levelEntryCounts, protocolEntryCounts, featuredIds);
+	let declaration = manifest.generatedFromRaw == true ? null
+		: validate_declarations(manifest, files, physicalEntries, duplicateGroups,
+			winnerOrder, sets, winners, levelEntryCounts, protocolEntryCounts, featuredIds);
 	if (declaration != null) return declaration;
 	return { ok: true, catalog: {
 		schema: manifest.schema, source: manifest.source, aggregateDigest: manifest.aggregateDigest,
@@ -1078,6 +1144,14 @@ function load_catalog(root, bypassCache) {
 	persist_derived_catalog(actualRoot, loaded);
 	return result;
 }
+
+export const strategy_catalog_load_raw = function(root, source) {
+	let generated = raw_catalog_manifest(root, source);
+	if (!generated.ok) return generated;
+	let result = build_catalog(root, generated.manifest, 'raw:' + root);
+	if (!result.ok) return result;
+	return result;
+};
 
 function ensure_loaded(root) {
 	if (loaded != null && (root == null || root == loadedRoot)) return loaded;

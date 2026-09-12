@@ -107,7 +107,7 @@ test('REGRESSION: checkComponents inspects Promise.allSettled results before ref
   assert.match(source, /function checkUpdates/, 'must have checkUpdates (upstream) function');
   assert.match(source, /function refreshState/, 'must have refreshState (local) function');
   assert.match(source, /Promise\.allSettled[\s\S]*?check\(\)/, 'checkUpdates must call resources.check');
-  assert.match(source, /results\.some|results\.find/, 'must inspect settled results');
+  assert.match(source, /settledResults\.some|settledResults\.find/, 'must inspect settled results');
 });
 
 // ---------------------------------------------------------------------------

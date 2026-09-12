@@ -20,6 +20,7 @@ import { asset_registry_environment } from './asset-registry.uc';
 const AVATAR_REPOSITORY = 'avatarDD/zapret-gui';
 const Z2K_REPOSITORY = 'necronicle/z2k';
 const AVATAR_METADATA_URL = 'https://api.github.com/repos/avatarDD/zapret-gui/commits?path=catalogs&per_page=1';
+const AVATAR_LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
 const MAX_CONTENT = 4 * 1024 * 1024;
 const MAX_ARCHIVE = 16 * 1024 * 1024;
 
@@ -244,15 +245,25 @@ function extract_avatar_archive(archive) {
 	let extracted = run('tar -xzf ' + quote(archive.path) + ' -C ' + quote(root));
 	try { unlink(archive.path); } catch (e) { }
 	if (extracted.rc != 0) { cleanup_staging(root); return error('EVERIFY', 'Avatar source archive extraction failed'); }
-	let found = run('find ' + quote(root) + ' -type f -path ' + quote('*/catalogs/manifest.json') + ' -print -quit');
-	let manifest = trim(found.output || '');
+	let found = run('find ' + quote(root) + ' -type d -name catalogs -print');
+	let catalogCandidates = [], catalogRoot = null;
 	let expectedPrefix = root + '/';
-	if (found.rc != 0 || !string(manifest) || index(manifest, expectedPrefix) != 0) {
+	for (let candidate in split(found.output || '', '\n')) {
+		candidate = trim(candidate);
+		if (candidate == '' || index(candidate, expectedPrefix) != 0) continue;
+		let complete = true;
+		for (let level in AVATAR_LEVELS)
+			if (run('test -d ' + quote(candidate + '/' + level)).rc != 0) complete = false;
+		if (!complete) continue;
+		push(catalogCandidates, candidate);
+		if (catalogRoot == null || length(candidate) < length(catalogRoot)) catalogRoot = candidate;
+	}
+	if (found.rc != 0 || length(catalogCandidates) == 0 || catalogRoot == null) {
 		cleanup_staging(root);
 		return error('EVERIFY', 'Avatar source archive does not contain a complete catalogs tree');
 	}
-	let catalogRoot = substr(manifest, 0, rindex(manifest, '/'));
-	return { ok: true, root: catalogRoot, staging: root };
+	let manifest = run('find ' + quote(catalogRoot) + ' -maxdepth 1 -type f -name manifest.json -print');
+	return { ok: true, root: catalogRoot, raw: trim(manifest.output || '') == '', staging: root };
 }
 function prepare_refresh(id) {
 	if (id == 'z2k') return managed_z2k();
@@ -265,10 +276,15 @@ function prepare_refresh(id) {
 		if (!archive.ok) return archive;
 		let extracted = extract_avatar_archive(archive);
 		if (!extracted.ok) return extracted;
-		try { prepared = avatar_source.strategy_source_avatar_snapshot({ root: extracted.root }); }
+		try { prepared = avatar_source.strategy_source_avatar_snapshot({ root: extracted.root,
+			raw: extracted.raw, sourceCommit: sourceCommit }); }
 		catch (e) { prepared = error('EVERIFY', 'Avatar source snapshot verification failed'); }
 		cleanup_staging(extracted.staging);
-		if (!prepared.ok) return error(prepared.error && prepared.error.code || 'EVERIFY', 'Avatar source snapshot verification failed');
+		if (!prepared.ok) return { ok: false, error: {
+			code: prepared.error && prepared.error.code || 'EVERIFY',
+			message: 'Avatar source snapshot verification failed',
+			details: { verification: prepared.error || null, raw: extracted.raw == true,
+			root: extracted.root } } };
 		snapshot = prepared.snapshot;
 		if (snapshot.sourceCommit != sourceCommit)
 			return error('ESTALE', 'Avatar metadata revision does not match its verified complete snapshot');

@@ -134,10 +134,10 @@ test('Discord enable uses the donor and normal Strategy lifecycle', () => {
   assert.match(enable, /api\.get/);
   assert.match(enable, /api\.preview/);
   assert.match(enable, /api\.validate/);
-  assert.match(enable, /api\.create/);
   assert.match(enable, /api\.apply/);
-  assert.match(enable, /api\.delete/);
-  assert.match(enable, /state\.selectedId\s*=\s*created\.id/);
+  assert.match(enable, /strategy_data:\s*transient/);
+  assert.match(enable, /state\.selectedId\s*=\s*source\.id/);
+  assert.doesNotMatch(enable, /api\.create|api\.delete|created\.id/);
   assert.doesNotMatch(enable, /changeHash/);
   assert.doesNotMatch(enable, /idempotencyToken/);
   assert.doesNotMatch(donor, /z2k_all_in_one/);
@@ -145,4 +145,23 @@ test('Discord enable uses the donor and normal Strategy lifecycle', () => {
   assert.match(donor, /canonicalStrategyId/);
   assert.match(donor, /sourceSnapshotId/);
   assert.match(donor, /donorProfileDigest/);
+});
+
+test('Discord composition rejects an incomplete saved profile and replaces it with the canonical donor', () => {
+  const view = fs.readFileSync(viewPath, 'utf8');
+  const gate = view.slice(view.indexOf('function isDiscordProfile'), view.indexOf('function discordDonorSourceFilter'));
+  assert.match(gate, /discord_ip_discovery/, 'Discord compatibility must include discovery payload');
+  assert.match(gate, /stun/, 'Discord compatibility must include STUN payload');
+  const helpers = vm.runInNewContext(`(function () { ${gate}\n return { isDiscordProfile, hasDiscordPayload, hasDiscordProfile }; })()`, {
+    array: value => Array.isArray(value) ? value : [],
+    text: value => String(value == null ? '' : value)
+  });
+  const stale = { profiles: [{ args: '--filter-udp=50000-50099 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=circular:key=discord_udp:hostkey=z2k_nohost_key' }] };
+  const complete = { profiles: [{ args: '--filter-udp=50000-50100 --filter-l7=discord,stun --payload=discord_ip_discovery,stun --lua-desync=circular:key=discord_udp:hostkey=z2k_nohost_key' }] };
+  assert.equal(helpers.hasDiscordProfile(stale), false, 'Old Discord profile without STUN must not short-circuit donor merge');
+  assert.equal(helpers.hasDiscordProfile(complete), true, 'Canonical Discord profile must be accepted as complete');
+
+  const merge = view.slice(view.indexOf('function startDiscordMerge'), view.indexOf('function excludeLearned'));
+  assert.match(merge, /isDiscordProfile/, 'Merge must identify stale Discord profiles semantically');
+  assert.match(merge, /filter\(/, 'Merge must remove stale Discord profiles before adding the donor');
 });

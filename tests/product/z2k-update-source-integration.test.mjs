@@ -60,6 +60,28 @@ function invoke(s, expression, extra = {}) {
 	return JSON.parse(result.stdout);
 }
 
+function invokeProgram(s, program, extra = {}) {
+	const result = spawnSync(ucodeBin, ['-L', ucodeLib, '-e', program], {
+		cwd: root,
+		env: {
+			...process.env,
+			Z2M_UPDATE_SOURCE_CACHE_ROOT: s.cache,
+			Z2M_UPDATE_SOURCE_STATE_ROOT: s.state,
+			Z2M_UPDATE_SOURCE_LOCK_ROOT: s.locks,
+			Z2M_UPDATE_SOURCE_TRANSPORT: transport,
+			Z2M_FIXTURE_COUNT_FILE: s.count,
+			Z2M_UPDATE_SOURCE_TEST: '1',
+			Z2M_ASSET_REGISTRY_STATE: s.registry,
+			LD_LIBRARY_PATH: ucodeLib,
+			...extra,
+		},
+		encoding: 'utf8',
+		timeout: 30_000,
+	});
+	assert.equal(result.status, 0, `${result.stderr || result.stdout}\nucode program failed`);
+	return JSON.parse(result.stdout);
+}
+
 function requestUrls(s) {
 	return fs.existsSync(s.count) ? fs.readFileSync(s.count, 'utf8').trim().split('\n').filter(Boolean) : [];
 }
@@ -85,7 +107,97 @@ test('Z2K catalog browse is cold-once, warm-zero, and stale LKG remains displaya
 	assert.equal(requestUrls(s).length, 2);
 });
 
-test('Z2K cross-family catalog ordering resolves direct and annotated tag publication evidence', { skip: !hasUcode }, () => {
+test('Z2K catalog resolves manifest current from the full catalog before applying limit=10', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const catalog = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog_limit', Z2M_UPDATE_SOURCE_NOW: '1000' });
+	assert.equal(catalog.ok, true, JSON.stringify(catalog));
+	assert.equal(catalog.current.id, 'p-84.7', JSON.stringify(catalog));
+	assert.equal(catalog.current.inCatalog, true, JSON.stringify(catalog));
+	assert.equal(catalog.current.authoritative, true, JSON.stringify(catalog));
+	assert.equal(catalog.releases.length, 14, JSON.stringify(catalog));
+	assert.ok(catalog.releases.some(row => row.version === 'p-84.7'), JSON.stringify(catalog));
+	assert.ok(catalog.versions.some(row => row.version === 'p-84.7'), JSON.stringify(catalog));
+	assert.equal(catalog.remoteState, 'fresh', JSON.stringify(catalog));
+	assert.ok(catalog.versions.length <= 11, JSON.stringify(catalog));
+});
+
+test('Z2K presentation appends a current release outside the visible top ten', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const catalog = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog_limit_tail', Z2M_UPDATE_SOURCE_NOW: '1000' });
+	assert.equal(catalog.ok, true, JSON.stringify(catalog));
+	assert.equal(catalog.current.id, 'r-83.1', JSON.stringify(catalog));
+	assert.equal(catalog.releases.length, 14, JSON.stringify(catalog));
+	assert.equal(catalog.versions.length, 11, JSON.stringify(catalog));
+	assert.ok(catalog.versions.some(row => row.version === 'r-83.1'), JSON.stringify(catalog));
+});
+
+test('Z2K canonical release comparator is numeric, total, transitive, and permutation-independent', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	const result = invokeProgram(s, `
+		let ids = ['p-82.1', 'p-82.10', 'r-83.1', 'p-84.6', 'p-84.7', 'r-84.1', 'r-84.7'];
+		let pairs = [], self = [];
+		for (let i = 0; i < length(ids); i++) {
+			push(self, mod.z2k_compare_release_records({ version: ids[i] }, { version: ids[i] }));
+			for (let j = i + 1; j < length(ids); j++) {
+				let ab = mod.z2k_compare_release_records({ version: ids[i] }, { version: ids[j] });
+				let ba = mod.z2k_compare_release_records({ version: ids[j] }, { version: ids[i] });
+				push(pairs, { i: i, j: j, ab: ab, ba: ba });
+			}
+		}
+		let first = ['r-84.1', 'p-82.1', 'p-84.7', 'r-83.1', 'p-82.10', 'p-84.6', 'r-84.7'];
+		let second = ['p-84.6', 'r-83.1', 'r-84.7', 'p-82.10', 'p-84.7', 'p-82.1', 'r-84.1'];
+		sort(first, function(a, b) { return mod.z2k_compare_release_records({ version: a }, { version: b }); });
+		sort(second, function(a, b) { return mod.z2k_compare_release_records({ version: a }, { version: b }); });
+		print(sprintf('%J', { self: self, pairs: pairs, first: first, second: second }));
+	`, { Z2M_FIXTURE_MODE: 'error', Z2M_UPDATE_SOURCE_NOW: '1000' });
+	assert.ok(result.self.every(value => value === 0), JSON.stringify(result));
+	for (const pair of result.pairs) {
+		assert.equal(typeof pair.ab, 'number', JSON.stringify(pair));
+		assert.equal(typeof pair.ba, 'number', JSON.stringify(pair));
+		assert.equal(Math.sign(pair.ab), -Math.sign(pair.ba), JSON.stringify(pair));
+	}
+	assert.deepEqual(result.first, result.second, JSON.stringify(result));
+	for (let i = 0; i < result.first.length; i++) {
+		for (let j = i + 1; j < result.first.length; j++) {
+			for (let k = j + 1; k < result.first.length; k++) {
+				const ab = invoke(s, `mod.z2k_compare_release_records({version: '${result.first[i]}'}, {version: '${result.first[j]}'})`, { Z2M_FIXTURE_MODE: 'error' });
+				const bc = invoke(s, `mod.z2k_compare_release_records({version: '${result.first[j]}'}, {version: '${result.first[k]}'})`, { Z2M_FIXTURE_MODE: 'error' });
+				const ac = invoke(s, `mod.z2k_compare_release_records({version: '${result.first[i]}'}, {version: '${result.first[k]}'})`, { Z2M_FIXTURE_MODE: 'error' });
+				assert.ok(!(ab <= 0 && bc <= 0) || ac <= 0, `${result.first[i]} <= ${result.first[j]} <= ${result.first[k]} but ${ac}`);
+			}
+		}
+	}
+});
+
+test('Z2K current release stays resolvable at the top-ten boundaries and at the end of a long catalog', { skip: !hasUcode }, () => {
+	for (const position of [1, 10, 11, 20, 100]) {
+		const s = sandbox();
+		const catalog = invoke(s, 'mod.z2k_versions()', {
+			Z2M_FIXTURE_MODE: 'z2k_catalog_boundary',
+			Z2M_FIXTURE_BOUNDARY_POSITION: String(position),
+			Z2M_UPDATE_SOURCE_NOW: '1000',
+		});
+		assert.equal(catalog.ok, true, `${position}: ${JSON.stringify(catalog)}`);
+		assert.equal(catalog.releases.length, 100, `${position}: ${JSON.stringify(catalog)}`);
+		assert.equal(catalog.current.inCatalog, true, `${position}: ${JSON.stringify(catalog)}`);
+		assert.ok(catalog.versions.some(row => row.version === catalog.current.id), `${position}: ${JSON.stringify(catalog)}`);
+		assert.equal(catalog.versions.length, position <= 10 ? 10 : 11, `${position}: ${JSON.stringify(catalog)}`);
+	}
+});
+
+test('Z2K rejects unknown release formats before either catalog or operation ordering', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	assert.equal(invoke(s, `mod.z2k_compare_release_records({version: 'x-84.7'}, {version: 'p-84.7'})`, { Z2M_FIXTURE_MODE: 'error' }), null);
+	assert.equal(invoke(s, `mod.z2k_target_operation('x-84.7', 'p-84.7')`, { Z2M_FIXTURE_MODE: 'error' }), null);
+});
+
+test('Z2K operation ordering remains fail-closed for mixed families without evidence', { skip: !hasUcode }, () => {
+	const s = sandbox();
+	assert.equal(invoke(s, `mod.z2k_compare_operation_records({version: 'p-84.7'}, {version: 'r-84.1'})`, { Z2M_FIXTURE_MODE: 'error' }), null);
+	assert.equal(invoke(s, `mod.z2k_target_operation('r-84.1', 'p-84.7')`, { Z2M_FIXTURE_MODE: 'error' }), null);
+});
+
+test('Z2K cross-family catalog ordering uses the explicit family policy', { skip: !hasUcode }, () => {
 	const s = sandbox();
 	const catalog = invoke(s, 'mod.z2k_versions()', { Z2M_FIXTURE_MODE: 'z2k_catalog_evidence', Z2M_UPDATE_SOURCE_NOW: '1000' });
 	assert.equal(catalog.ok, true, JSON.stringify(catalog));
@@ -96,10 +208,12 @@ test('Z2K cross-family catalog ordering resolves direct and annotated tag public
 	assert.ok(urls.some(url => url.endsWith('/commits/' + 'c'.repeat(40))), urls.join('\n'));
 });
 
-test('Z2K cross-family ordering fails closed without publication evidence', { skip: !hasUcode }, () => {
+test('Z2K catalog ordering is total while operation ordering fails closed without publication evidence', { skip: !hasUcode }, () => {
 	const s = sandbox();
 	const result = invoke(s, `mod.z2k_compare_release_records({version: 'p-80.3'}, {version: 'r-90.1'})`, { Z2M_FIXTURE_MODE: 'error' });
-	assert.equal(result, null);
+	assert.equal(typeof result, 'number');
+	assert.ok(result < 0);
+	assert.equal(invoke(s, `mod.z2k_compare_operation_records({version: 'p-80.3'}, {version: 'r-90.1'})`, { Z2M_FIXTURE_MODE: 'error' }), null);
 	assert.equal(invoke(s, `mod.z2k_target_operation('r-90.1', 'p-80.3')`, { Z2M_FIXTURE_MODE: 'error' }), null);
 });
 

@@ -1,0 +1,74 @@
+{
+  "schema": "z2m.mega-autocircular-gap-analysis.v1",
+  "auditId": "2026-09-12-mega-autocircular",
+  "status": "OPEN",
+  "authority": {
+    "strategy": "current persisted user Strategy only",
+    "sources": "source-ledger.json pinned commits",
+    "runtime": "router snapshot 2026-09-12, read-only before mutation"
+  },
+  "gaps": [
+    {
+      "id": "runtime-behind-persisted",
+      "severity": "blocking",
+      "evidence": "persisted discord-stressozz-autocircular revision 7; runtime strategy-state selected revision 6",
+      "required": "apply the current Strategy through Manager UI and verify selected revision/digest"
+    },
+    {
+      "id": "discord-media-duplicate-arm",
+      "severity": "high",
+      "evidence": "discord-media-autocircular contains exact duplicate strategy=1 and strategy=2 arms",
+      "required": "semantic dedupe after Z2K adaptation and deterministic renumbering"
+    },
+    {
+      "id": "discord-source-coverage",
+      "severity": "high",
+      "evidence": "Dv5, Dv8 and Dv14 are absent from the current media pool; source ledger maps them to missing canonical arms",
+      "required": "adapt valid Z2K arms, add one circular pool, and prove preview/apply"
+    },
+    {
+      "id": "youtube-number-gap",
+      "severity": "high",
+      "evidence": "youtube_tcp profile has 22 arms with strategy numbers 1..11 and 13..22; strategy 12 is absent",
+      "required": "rebuild the pool from the adapted source ledger with contiguous deterministic numbering"
+    },
+    {
+      "id": "games-scope-loss",
+      "severity": "high",
+      "evidence": "current games TCP scope omits StressOzz TCP ranges 6000-8000 and 35500-35600; current games UDP scope is narrower than source",
+      "required": "add bounded source-scoped games profiles without widening unrelated traffic"
+    },
+    {
+      "id": "missing-udp-specializations",
+      "severity": "high",
+      "evidence": "current Strategy has no separate STUN-all, QUIC-all, Discord media packet-signature, or Discord destination-subnet pools",
+      "required": "add only source-ledger scopes with one circular per profile and valid Manager assets"
+    },
+    {
+      "id": "flowseal-not-live",
+      "severity": "high",
+      "evidence": "22 Flowseal files are ledgered, but their adapted arms are not yet represented in the live persisted Strategy",
+      "required": "import or explicitly mark unsupported every block; no silent source omission"
+    },
+    {
+      "id": "asset-closure",
+      "severity": "blocking",
+      "evidence": "Flowseal source uses unique stun2/quic and TLS blobs not present in the current Manager resource snapshot",
+      "required": "provide immutable Manager-owned assets or mark the exact dependent source items unsupported; never use current /opt as target evidence"
+    },
+    {
+      "id": "learned-runtime-proof",
+      "severity": "blocking",
+      "status": "RESOLVED",
+      "evidence": "router-origin HTTPS probes appended discord.gg|4 and discord.media|4 through nfqws2 autocircular while preserving existing discord.com|4; post-restart state.tsv and strategies-ops state both contained all 3 rows; browser hard reload rendered Выучено: 3 with all 3 resources",
+      "required": "none; keep covered by learned-refresh and autocircular runtime persistence regressions"
+    }
+  ],
+  "invariants": [
+    "one current user Strategy, no replacement Strategy",
+    "source circular wrappers are not copied; Manager owns circular policy and persistence",
+    "candidate dependency truth never comes from installed runtime state",
+    "every accepted arm resolves from the same candidate composition or an immutable builtin",
+    "learned rows are runtime-produced and state.tsv is the sole learned-state store"
+  ]
+}

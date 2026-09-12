@@ -65,6 +65,45 @@ case "$mode" in
 		esac
 		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
 		;;
+	z2k_catalog_limit|z2k_catalog_limit_tail)
+		case "$url" in
+			*/z2k-enhanced/UPDATES.json)
+				current='p-84.7'
+				[ "$mode" = 'z2k_catalog_limit_tail' ] && current='r-83.1'
+				printf '%s' "{\"schema\":1,\"branch\":\"z2k-enhanced\",\"seq\":90,\"current\":\"$current\",\"files_sha256\":{\"files/lua/example.lua\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}}" > "$output"
+				;;
+			*)
+				printf '%s' '[{"ref":"refs/tags/p-82.1","object":{"sha":"0101010101010101010101010101010101010101","type":"commit"}},{"ref":"refs/tags/p-82.2","object":{"sha":"0202020202020202020202020202020202020202","type":"commit"}},{"ref":"refs/tags/p-82.3","object":{"sha":"0303030303030303030303030303030303030303","type":"commit"}},{"ref":"refs/tags/p-82.4","object":{"sha":"0404040404040404040404040404040404040404","type":"commit"}},{"ref":"refs/tags/p-82.5","object":{"sha":"0505050505050505050505050505050505050505","type":"commit"}},{"ref":"refs/tags/p-82.6","object":{"sha":"0606060606060606060606060606060606060606","type":"commit"}},{"ref":"refs/tags/p-82.7","object":{"sha":"0707070707070707070707070707070707070707","type":"commit"}},{"ref":"refs/tags/p-82.8","object":{"sha":"0808080808080808080808080808080808080808","type":"commit"}},{"ref":"refs/tags/p-82.9","object":{"sha":"0909090909090909090909090909090909090909","type":"commit"}},{"ref":"refs/tags/p-82.10","object":{"sha":"1010101010101010101010101010101010101010","type":"commit"}},{"ref":"refs/tags/r-83.1","object":{"sha":"1111111111111111111111111111111111111111","type":"commit"}},{"ref":"refs/tags/r-83.2","object":{"sha":"1212121212121212121212121212121212121212","type":"commit"}},{"ref":"refs/tags/p-84.6","object":{"sha":"1313131313131313131313131313131313131313","type":"commit"}},{"ref":"refs/tags/p-84.7","object":{"sha":"1414141414141414141414141414141414141414","type":"commit"}}]' > "$output"
+				;;
+		esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
+	z2k_catalog_boundary)
+		case "$url" in
+			*/z2k-enhanced/UPDATES.json)
+				case "${Z2M_FIXTURE_BOUNDARY_POSITION:-1}" in
+					1) current='p-90.100' ;;
+					10) current='p-90.91' ;;
+					11) current='p-90.90' ;;
+					20) current='p-90.81' ;;
+					100) current='p-90.1' ;;
+					*) current='p-90.100' ;;
+				 esac
+				printf '%s' "{\"schema\":1,\"branch\":\"z2k-enhanced\",\"seq\":100,\"current\":\"$current\",\"files_sha256\":{\"files/lua/example.lua\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}}" > "$output"
+				;;
+			*)
+				tags='['
+				i=100
+				while [ "$i" -ge 1 ]; do
+					tags="$tags{\"ref\":\"refs/tags/p-90.$i\",\"object\":{\"sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"type\":\"commit\"}},"
+					i=$((i - 1))
+				done
+				tags="${tags%,}]"
+				printf '%s' "$tags" > "$output"
+				;;
+		 esac
+		printf '%s' '{"status":200,"headers":{"x-ratelimit-limit":"60","x-ratelimit-remaining":"59"}}' > "$meta"
+		;;
 	z2k_catalog_evidence)
 		case "$url" in
 			*/git/refs/tags\?per_page=100)

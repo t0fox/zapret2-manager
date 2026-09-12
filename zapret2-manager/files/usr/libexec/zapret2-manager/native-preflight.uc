@@ -369,7 +369,7 @@ export const install_proof = function(runtimeComposition) {
 	let versionResult = run(shell_escape(NFQWS2_BIN) + ' --version');
 	let versionLines = split(trim(versionResult.out), /\r?\n/);
 	caps.runtimeVersion = length(versionLines) ? trim(versionLines[0]) : null;
-	let release = match(caps.runtimeVersion || '', /github version (v[0-9]+\.[0-9]+\.[0-9]+-z2k-r[0-9]+)/i);
+	let release = match(caps.runtimeVersion || '', /github version (v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?-z2k-r[0-9]+)/i);
 	caps.runtimeRelease = release && release[1] ? release[1] : null;
 	caps.z2kCapable = versionResult.rc == 0 && caps.runtimeRelease != null;
 	let digest = sha256_file(NFQWS2_BIN);

@@ -66,6 +66,17 @@ export const runtime_composition_cli_activation_output = function(result) {
 	// including newlines. Encode them before handing the values to the line-
 	// oriented shell protocol; otherwise identity rows are parsed as commands.
 	let lines = ['SNAPSHOT|' + transport_field(result.snapshotId) + '|' + transport_field(result.compositionSnapshotId) + '|' + transport_field(result.membershipDigest)];
+	for (let i = 0; i < length(result.removeTargets || []); i++) {
+		let removal = result.removeTargets[i];
+		if (!object(removal) || !string(removal.id) || !string(removal.runtimeTarget)
+			|| substr(removal.runtimeTarget, 0, length('/runtime-assets/')) != '/runtime-assets/'
+			|| (removal.type != 'lua' && removal.type != 'blob'))
+			return fail('EVERIFY', 'candidate removal descriptor has no verified runtime mapping', { id: removal && removal.id || null });
+		// Removal descriptors are carried from the same prepared target as the
+		// candidate assets. The shell bridge validates the path again and applies
+		// the removal before restart postflight.
+		push(lines, 'REMOVE|' + removal.id + '|lifecycle-managed|' + removal.type + '||' + removal.runtimeTarget + '||');
+	}
 	for (let i = 0; i < length(result.runtimeAssets || []); i++) {
 		let entry = result.runtimeAssets[i], source = materialize_source(entry, listed);
 		if (source == null || !string(entry.runtimeTarget) || !string(entry.contentSha256) || type(entry.byteSize) != 'int') return fail('EVERIFY', 'runtime composition entry has no verified materialization source', { id: entry.id });

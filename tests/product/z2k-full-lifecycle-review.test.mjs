@@ -212,6 +212,75 @@ test('6i. package synchronization cannot resurrect lifecycle Z2K without authori
   assert.equal(verdict.blockedLifecycleAssets, 1, JSON.stringify(verdict));
 });
 
+test('6j. package synchronization cannot resurrect an explicitly removed lifecycle runtime asset', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-retired-asset-'));
+  const source = path.join(dir, 'package-assets', 'bin', 'active_discord_udp.bin');
+  const runtime = path.join(dir, 'opt', 'zapret2');
+  const snapshot = path.join(dir, 'etc', 'runtime-assets.snapshot');
+  fs.mkdirSync(path.dirname(source), { recursive: true });
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.mkdirSync(path.dirname(snapshot), { recursive: true });
+  fs.writeFileSync(source, 'historical package baseline\n');
+  const env = {
+    ...process.env,
+    Z2M_RUNTIME_ASSETS_SRC: shellPath(path.join(dir, 'package-assets')),
+    Z2M_RUNTIME_BASE: shellPath(runtime),
+    Z2M_MANAGER_STATE_ROOT: shellPath(path.join(dir, 'state')),
+    Z2M_MANAGER_ETC_ROOT: shellPath(path.join(dir, 'etc')),
+    Z2M_RUNTIME_ACTIVATION_SNAPSHOT: shellPath(snapshot),
+    PATH: '/usr/bin:/bin',
+  };
+  const syncPath = shellPath(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'));
+  const initial = spawnSync(shell, [syncPath], { env, encoding: 'utf8' });
+  assert.equal(initial.status, 0, initial.stderr || initial.stdout);
+  const removed = path.join(runtime, 'files', 'fake', 'active_discord_udp.bin');
+  assert.equal(fs.existsSync(removed), true);
+
+  const specPath = path.join(dir, 'remove.tsv');
+  fs.writeFileSync(specPath, 'REMOVE|blob:active_discord_udp|blob||/runtime-assets/bin/active_discord_udp.bin||\n');
+  const activated = spawnSync(shell, [syncPath, '--activate-registry', shellPath(specPath)], { env, encoding: 'utf8' });
+  assert.equal(activated.status, 0, activated.stderr || activated.stdout);
+  assert.equal(fs.existsSync(removed), false);
+
+  const afterRestartSync = spawnSync(shell, [syncPath], { env, encoding: 'utf8' });
+  assert.equal(afterRestartSync.status, 0, afterRestartSync.stderr || afterRestartSync.stdout);
+  assert.equal(fs.existsSync(removed), false,
+    'package sync must respect the retired path in the canonical active runtime snapshot');
+});
+
+test('6k. runtime rollback restores the previous selected/retired path set', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-lifecycle-snapshot-rollback-'));
+  const manager = path.join(dir, 'manager-assets');
+  const runtime = path.join(dir, 'opt', 'zapret2');
+  const snapshot = path.join(dir, 'etc', 'runtime-assets.snapshot');
+  const selected = path.join(manager, 'selected.lua');
+  fs.mkdirSync(manager, { recursive: true });
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.mkdirSync(path.dirname(snapshot), { recursive: true });
+  fs.writeFileSync(selected, '-- selected release\n');
+  const sha = crypto.createHash('sha256').update(fs.readFileSync(selected)).digest('hex');
+  const env = {
+    ...process.env,
+    Z2M_MANAGER_ASSET_ROOT: shellPath(manager),
+    Z2M_RUNTIME_BASE: shellPath(runtime),
+    Z2M_RUNTIME_ACTIVATION_SNAPSHOT: shellPath(snapshot),
+    PATH: '/usr/bin:/bin',
+  };
+  const syncPath = shellPath(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh'));
+  const first = path.join(dir, 'first.tsv');
+  fs.writeFileSync(first, `ASSET|lua:selected|lua|${shellPath(selected)}|/runtime-assets/lua/selected.lua|${sha}|${fs.statSync(selected).size}\n`);
+  assert.equal(spawnSync(shell, [syncPath, '--activate-registry', shellPath(first)], { env, encoding: 'utf8' }).status, 0);
+  const second = path.join(dir, 'second.tsv');
+  fs.writeFileSync(second, 'REMOVE|lua:selected|lua||/runtime-assets/lua/selected.lua||\n');
+  assert.equal(spawnSync(shell, [syncPath, '--activate-registry', shellPath(second)], { env, encoding: 'utf8' }).status, 0);
+  assert.equal(fs.existsSync(path.join(runtime, 'lua', 'selected.lua')), false);
+
+  const rolledBack = spawnSync(shell, [syncPath, '--rollback-registry'], { env, encoding: 'utf8' });
+  assert.equal(rolledBack.status, 0, rolledBack.stderr || rolledBack.stdout);
+  assert.equal(fs.readFileSync(path.join(runtime, 'lua', 'selected.lua'), 'utf8'), '-- selected release\n');
+  assert.match(fs.readFileSync(snapshot, 'utf8'), /\|ASSET\n/, 'rollback must restore the previous active path set');
+});
+
 test('7. receipt records and validates sourceCommit and sourcePath identity', () => {
   assert.match(registry, /sourceCommit/);
   assert.match(registry, /sourcePath/);

@@ -11,7 +11,12 @@ const ucodeAvailable = ucode && fs.existsSync(ucode);
 
 function invoke(input) {
   const source = `import { z2k_dependency_closure } from ${JSON.stringify(modulePath)}; print(sprintf('%J', z2k_dependency_closure(${JSON.stringify(input)})));`;
-  const result = spawnSync(ucode, ['-e', source], { cwd: root, encoding: 'utf8', timeout: 15_000 });
+  const result = spawnSync(ucode, ['-e', source], {
+    cwd: root,
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout);
 }
@@ -61,4 +66,41 @@ test('typed closure resolves static, dynamic, runtime, builtin and Lua ownership
   assert.equal(result.items.find(item => item.reference === 'active_discord_udp').class, 'blob-runtime');
   assert.equal(result.items.find(item => item.reference === 'fake_default_tls').class, 'blob-engine-builtin');
   assert.equal(result.items.find(item => item.reference === 'inline').class, 'blob-inline');
+});
+
+test('inline hostlist-domains are not resolved as file-backed target dependencies', { skip: !ucodeAvailable }, () => {
+  const result = invoke({
+    sourceCommit: '1'.repeat(40), compilerSnapshotDigest: '2'.repeat(64), nfqws2OptSha256: '3'.repeat(64),
+    args: '--filter-tcp=2053,2083,2087,2096,8443 --filter-l7=tls --hostlist-domains=discord.com,discord.gg,discord.media,discordapp.com,discordapp.net --payload=tls_client_hello',
+  });
+
+  assert.equal(result.available, true, JSON.stringify(result));
+  assert.deepEqual(result.missing, []);
+  assert.equal(result.items.some(item => item.reference === 'discord.com,discord.gg,discord.media,discordapp.com,discordapp.net'), false,
+    JSON.stringify(result.items));
+});
+
+test('tls_client_hello_clone owns generated z2k_real blobs without a package file', { skip: !ucodeAvailable }, () => {
+  const result = invoke({
+    sourceCommit: '1'.repeat(40), compilerSnapshotDigest: '2'.repeat(64), nfqws2OptSha256: '3'.repeat(64),
+    args: '--lua-desync=tls_client_hello_clone:blob=z2k_real_www_google_com',
+    functions: { tls_client_hello_clone: { present: true } },
+  });
+
+  assert.equal(result.available, true);
+  assert.deepEqual(result.missing, []);
+  assert.equal(result.items.find(item => item.reference === 'z2k_real_www_google_com').class, 'blob-runtime');
+});
+
+test('generated z2k_real blob remains owned when reused by a later desync stage', { skip: !ucodeAvailable }, () => {
+  const result = invoke({
+    sourceCommit: '1'.repeat(40), compilerSnapshotDigest: '2'.repeat(64), nfqws2OptSha256: '3'.repeat(64),
+    args: '--lua-desync=tls_client_hello_clone:blob=z2k_real_www_google_com --lua-desync=fake:blob=z2k_real_www_google_com',
+    functions: { tls_client_hello_clone: { present: true }, fake: { present: true } },
+  });
+
+  assert.equal(result.available, true);
+  assert.deepEqual(result.missing, []);
+  assert.equal(result.items.filter(item => item.reference === 'z2k_real_www_google_com').length, 1);
+  assert.equal(result.items.find(item => item.reference === 'z2k_real_www_google_com').class, 'blob-runtime');
 });

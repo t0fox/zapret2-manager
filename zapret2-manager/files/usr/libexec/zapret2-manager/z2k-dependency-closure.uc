@@ -100,6 +100,7 @@ function asset_item(asset, fallbackClass, reference) {
 		runtimeTarget: asset.runtimeTarget || canonical_path(reference), sourcePath: asset.sourcePath || null,
 		contentSha256: valid_digest(asset.contentSha256) ? lc(asset.contentSha256) : null,
 		byteSize: integer(asset.byteSize) ? asset.byteSize : null, available: available,
+		providerId: asset.providerId || asset.id || null, provider: object(asset.provider) ? asset.provider : null,
 		reason: available ? null : 'dependency asset is unavailable'
 	};
 }
@@ -133,6 +134,7 @@ function resolve_list(input, reference, fallbackClass) {
 		id: dynamic && dynamic.id || null, owner: dynamic && (dynamic.owner || dynamic.ownership) || null,
 		role: dynamic && dynamic.role || null, runtimeTarget: dynamic && dynamic.runtimeTarget || canonical_path(reference),
 		sourcePath: null, contentSha256: null, byteSize: null, available: false,
+		providerId: null, provider: null,
 		reason: 'unknown consumed dependency'
 	};
 }
@@ -142,7 +144,7 @@ function resolve_lua(input, reference) {
 	if (item != null) { item.class = 'lua'; return item; }
 	return { class: 'lua', kind: 'lua', type: null, reference: reference, id: null, owner: null, role: 'lua-init',
 		runtimeTarget: canonical_path(reference), sourcePath: null, contentSha256: null, byteSize: null,
-		available: false, reason: 'unknown consumed dependency' };
+		available: false, providerId: null, provider: null, reason: 'unknown consumed dependency' };
 }
 function resolve_blob(input, name, source) {
 	if ((source != null && match(source, /^0x[0-9A-Fa-f]+$/)) || (source == null && match(name, /^0x[0-9A-Fa-f]+$/))) return {
@@ -166,17 +168,43 @@ function resolve_blob(input, name, source) {
 	}
 	return { class: 'unknown-consumed', kind: 'blob', type: null, reference: name, id: null, owner: null, role: 'dependency',
 		runtimeTarget: canonical_path(reference), sourcePath: null, contentSha256: null, byteSize: null,
-		available: false, reason: 'unknown consumed dependency' };
+		available: false, providerId: null, provider: null, reason: 'unknown consumed dependency' };
+}
+function generated_clone_blob(name) {
+	// Z2K's official strategy source uses z2k_real_* as the output name of
+	// tls_client_hello_clone. The engine derives that ClientHello at runtime;
+	// it is not a package file and must not be treated as a missing blob.
+	if (!starts(name, 'z2k_real_')) return null;
+	return { class: 'blob-runtime', kind: 'blob', type: null, reference: name, id: name,
+		owner: 'engine', role: 'runtime-generated', runtimeTarget: null, sourcePath: null,
+		contentSha256: null, byteSize: null, available: true, reason: null };
+}
+function mark_generated_clone_blobs(state, textValue) {
+	let tokenized = avatar_tokenize(textValue);
+	if (!tokenized.ok) return;
+	for (let token in tokenized.tokens) {
+		let info = option_info(token.value);
+		if (!info.hasEquals || info.name != 'lua-desync') continue;
+		let fields = split(info.value, ':'), functionName = length(fields) ? fields[0] : '';
+		if (functionName != 'tls_client_hello_clone') continue;
+		for (let field in fields) if (starts(field, 'blob=')) {
+			let raw = substr(field, 5), colon = index(raw, ':'), name = colon < 0 ? raw : substr(raw, 0, colon);
+			if (generated_clone_blob(name) != null) state.generatedCloneBlobs[name] = true;
+		}
+	}
 }
 function resolve_function(input, name) {
 	let descriptor = map_descriptor(input, 'functions', name, name);
 	if (descriptor == null) descriptor = map_descriptor(input, 'luaFunctions', name, name);
+	let provider = object(descriptor) && object(descriptor.provider) ? descriptor.provider : null;
 	return { class: 'lua-function', kind: 'lua-function', type: null, reference: name, id: name,
 		owner: object(descriptor) && (descriptor.owner || descriptor.ownership) || null,
 		role: 'function', runtimeTarget: object(descriptor) && descriptor.runtimeTarget || null,
 		sourcePath: object(descriptor) && descriptor.sourcePath || null,
 		contentSha256: object(descriptor) && valid_digest(descriptor.contentSha256) ? lc(descriptor.contentSha256) : null,
 		byteSize: object(descriptor) && integer(descriptor.byteSize) ? descriptor.byteSize : null,
+		providerId: object(descriptor) && (descriptor.providerId || provider && provider.id) || null,
+		provider: provider,
 		available: descriptor_available(descriptor), reason: descriptor == null ? 'unknown consumed dependency' : descriptor_available(descriptor) ? null : 'Lua function is unavailable'
 	};
 }
@@ -213,7 +241,7 @@ function digest_text(text) {
 function bundle_digest(items) {
 	let rows = [];
 	for (let item in items) if (item.available === true && item.class != 'blob-inline')
-		push(rows, item.class + '|' + (item.id || '') + '|' + (item.reference || '') + '|' + (item.runtimeTarget || '') + '|' + (item.contentSha256 || '') + '|' + (item.byteSize == null ? '' : item.byteSize) + '|' + (item.owner || '') + '|' + (item.role || ''));
+		push(rows, item.class + '|' + (item.id || '') + '|' + (item.reference || '') + '|' + (item.runtimeTarget || '') + '|' + (item.contentSha256 || '') + '|' + (item.byteSize == null ? '' : item.byteSize) + '|' + (item.owner || '') + '|' + (item.role || '') + '|' + (item.providerId || '') + '|' + (object(item.provider) && item.provider.contentSha256 || ''));
 	sort(rows);
 	return digest_text(join('\n', rows));
 }
@@ -221,16 +249,22 @@ function bundle_digest(items) {
 export const z2k_dependency_closure = function(input) {
 	input = object(input) ? input : {};
 	let state = { items: [], missing: [], seen: {}, counts: { lua: 0, blobs: 0, hostlists: 0, ipsets: 0, dynamic: 0, runtime: 0, builtins: 0, missing: 0 } };
+	state.generatedCloneBlobs = {};
 	let args = [];
 	if (string(input.args)) push(args, input.args);
 	if (string(input.nfqws2Opt)) push(args, input.nfqws2Opt);
 	for (let profile in input.profiles || []) if (object(profile) && string(profile.args)) push(args, profile.args);
+	for (let textValue in args) mark_generated_clone_blobs(state, textValue);
 	for (let textValue in args) {
 		let tokenized = avatar_tokenize(textValue);
 		if (!tokenized.ok) continue;
 		for (let token in tokenized.tokens) {
 			let info = option_info(token.value);
 			if (!info.hasEquals) continue;
+			// MCP/native hostlist-domains options are inline domain sets, not
+			// file-backed dependencies. Only --hostlist* file options enter
+			// the typed closure below.
+			if (info.name == 'hostlist-domains' || info.name == 'hostlist-exclude-domains') continue;
 			if (contains(LIST_OPTIONS, info.name)) add_item(state, resolve_list(input, info.value, 'hostlist-static'));
 			else if (contains(IPSET_OPTIONS, info.name)) add_item(state, resolve_list(input, info.value, 'ipset-static'));
 			else if (info.name == 'lua-init' && (starts(info.value, '@/') || starts(info.value, '/'))) add_item(state, resolve_lua(input, info.value));
@@ -243,7 +277,8 @@ export const z2k_dependency_closure = function(input) {
 				if (functionName != '') add_item(state, resolve_function(input, functionName));
 				for (let field in fields) if (starts(field, 'blob=')) {
 					let raw = substr(field, 5), colon = index(raw, ':'), name = colon < 0 ? raw : substr(raw, 0, colon), source = colon < 0 ? null : substr(raw, colon + 1);
-					add_item(state, resolve_blob(input, name, source));
+					let generated = state.generatedCloneBlobs[name] ? generated_clone_blob(name) : null;
+					add_item(state, generated || resolve_blob(input, name, source));
 				}
 			}
 		}

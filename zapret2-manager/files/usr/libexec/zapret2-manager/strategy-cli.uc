@@ -14,7 +14,7 @@ import { read_var } from './apply.uc';
 import { z2m_tokenize } from './profiles.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { native_preflight } from './native-preflight.uc';
-import { strategy_apply_candidate, strategy_config_hash, strategy_candidate_hash, strategy_candidate_digest, strategy_reconcile_evidence } from './strategy-apply-runtime.uc';
+import { strategy_apply_candidate as strategy_apply_candidate_runtime, strategy_config_hash, strategy_candidate_hash, strategy_candidate_digest, strategy_reconcile_evidence } from './strategy-apply-runtime.uc';
 import { resolveInstalled } from './runtime-composition.uc';
 import { z2k_compatibility_equal, z2k_compatibility_identity_valid } from './z2k-compatibility.uc';
 import { runtime_target_path, runtime_argument_token } from './runtime-asset-paths.uc';
@@ -508,6 +508,15 @@ function runtime_context_from_environment() {
 		runtimeComposition: composition };
 }
 
+function add_live_blob_descriptor(blobs, filename) {
+	if (!is_object(blobs) || !is_string(filename) || !length(filename)) return;
+	blobs[filename] = { path: filename, present: true };
+	if (length(filename) > 4 && substr(filename, length(filename) - 4) == '.bin') {
+		let stem = substr(filename, 0, length(filename) - 4);
+		if (blobs[stem] == null) blobs[stem] = { path: filename, present: true };
+	}
+}
+
 function synthetic_environment_with_inputs(runtimeInputs) {
 	let liveBlobs = {}, liveLua = {}, liveFunctions = {
 		circular: { present: true }, fake: { present: true }, multidisorder: { present: true },
@@ -544,21 +553,42 @@ function synthetic_environment_with_inputs(runtimeInputs) {
 	}, runtimeInputs: runtimeInputs };
 }
 
-function synthetic_runtime_inputs() {
-	// Cold-start Preview/Apply must be possible before any nfqws2 instance
-	// exists. Synthesize a minimal environment from filesystem inventory
-	// (blobs/lua/functions) with empty baseArgs so candidate compilation
-	// can proceed without authoritative live composition.
-	return synthetic_environment_with_inputs({ source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: [] });
+function add_lua_function_descriptors(functions, luaInit) {
+	if (!is_object(functions) || type(luaInit) != 'array') return;
+	for (let init in luaInit) {
+		if (!is_string(init) || !length(init)) continue;
+		let path = starts_with(init, '@') ? substr(init, 1) : init;
+		if (!starts_with(path, '/opt/zapret2/lua/') || !match(path, /\.lua$/)) continue;
+		let rawLua = null;
+		try { rawLua = readfile(path); } catch (e) { rawLua = null; }
+		if (!is_string(rawLua)) continue;
+		let source = substr(path, length('/opt/zapret2/lua/'));
+		for (let line in split(rawLua, '\n')) {
+			let declaration = trim(line), prefix = 'function ';
+			if (starts_with(declaration, 'local function ')) prefix = 'local function ';
+			else if (!starts_with(declaration, prefix)) continue;
+			let name = substr(declaration, length(prefix)), opening = index(name, '(');
+			if (opening >= 1) name = substr(name, 0, opening);
+			if (match(name, /^[A-Za-z0-9_]+$/) && functions[name] == null)
+				functions[name] = { present: true, source: source };
+		}
+	}
 }
 
-function add_live_blob_descriptor(blobs, filename) {
-	if (!is_object(blobs) || !is_string(filename) || !length(filename)) return;
-	blobs[filename] = { path: filename, present: true };
-	if (length(filename) > 4 && substr(filename, length(filename) - 4) == '.bin') {
-		let stem = substr(filename, 0, length(filename) - 4);
-		if (blobs[stem] == null) blobs[stem] = { path: filename, present: true };
-	}
+function synthetic_runtime_inputs() {
+	// Cold-start Preview/Apply must be possible before any nfqws2 instance
+	// exists. Start with filesystem inventory, then project the canonical
+	// installed composition so stopped runtime checks see the same Z2K-owned
+	// lists, blobs, and Lua init set as a running instance.
+	let result = synthetic_environment_with_inputs({ source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: [] });
+	let composition = runtime_composition_for_apply();
+	if (!runtime_snapshot_valid(composition)) return runtime_snapshot_error(composition);
+	let luaInit = composition_lua_inputs(composition);
+	if (luaInit == null) return error_result('ESTALE', 'installed runtime composition Lua closure is invalid');
+	add_lua_function_descriptors(result.environment.functions, luaInit);
+	result.environment = runtime_environment_with_composition(result.environment, composition);
+	result.runtimeComposition = composition;
+	return result;
 }
 
 function live_runtime_inputs() {
@@ -846,7 +876,7 @@ function final_projection(value, fallback) {
 	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? value : fallback;
 }
 
-function candidate_projection_base(resolved, candidate, effective, validation, includeValidation) {
+function candidate_projection_base(resolved, candidate, effective, validation, includeValidation, includeRawArgs) {
 	let empty = candidate.profilesCount == 0;
 	let args = empty ? [] : candidate.strategyArgs;
 	let effectiveValue = effective_projection(effective);
@@ -855,12 +885,12 @@ function candidate_projection_base(resolved, candidate, effective, validation, i
 	if (dependencies == null || dependencyText == null || length(dependencyText) > MAX_DEPENDENCY_BYTES) return null;
 	let result = {
 		strategyId: bounded_identity(resolved.id, 128), origin: bounded_identity(resolved.origin, 32),
-		strategyArgs: args,
 		effectiveCommand: effectiveValue.effectiveCommand, effectiveArgv: effectiveValue.effectiveArgv,
 		profiles_count: candidate.profilesCount, profilesCount: candidate.profilesCount,
 		dependencies: dependencies, digest: candidate.digest,
 		applicable: candidate.applicable == true
 	};
+	if (includeRawArgs == true) result.strategyArgs = args;
 	if (includeValidation == true) result.validation = validation;
 	return result;
 }
@@ -868,26 +898,31 @@ function candidate_projection_base(resolved, candidate, effective, validation, i
 function candidate_projection(resolved, candidate, effective, validation, includeValidation) {
 	let empty = candidate.profilesCount == 0;
 	let args = empty ? [] : candidate.strategyArgs;
+	let includeRawArgs = empty || (is_string(args) && length(args) <= MAX_OUTPUT_TEXT);
 	if (!is_string(resolved.id) || length(resolved.id) > 128
 		|| !is_string(resolved.origin) || length(resolved.origin) > 32) return null;
-	if (!empty && (!is_string(args) || length(args) > MAX_OUTPUT_TEXT)) return null;
-	let result = candidate_projection_base(resolved, candidate, effective, validation, includeValidation);
+	if (!empty && !is_string(args)) return null;
+	let result = candidate_projection_base(resolved, candidate, effective, validation, includeValidation, includeRawArgs);
 	if (result == null) return null;
-	result.args = args;
-	result.fullCommand = result.effectiveCommand;
-	result.fullArgv = copy_array(result.effectiveArgv, MAX_OUTPUT_ARRAY_ITEMS);
+	if (includeRawArgs == true) {
+		result.args = args;
+		result.fullCommand = result.effectiveCommand;
+		result.fullArgv = copy_array(result.effectiveArgv, MAX_OUTPUT_ARRAY_ITEMS);
+	}
 	let encoded = serialize(result);
 	if (encoded != null && length(encoded) <= MAX_OUTPUT_BYTES) return result;
 
 	// Preserve every canonical executable field and dependencies, but omit only
 	// legacy aliases that duplicate those fields. This is a presentation shape,
 	// not a truncated candidate: Validate and Apply still use the full candidate.
-	let compact = candidate_projection_base(resolved, candidate, effective, validation, includeValidation);
+	let compact = candidate_projection_base(resolved, candidate, effective, validation, includeValidation,
+		includeRawArgs);
 	if (compact == null) return null;
-	compact.presentation = {
-		mode: 'compact', canonicalComplete: true,
-		omittedAliases: ['args', 'fullCommand', 'fullArgv']
-	};
+	compact.presentation = includeRawArgs
+		? { mode: 'compact', canonicalComplete: true,
+			omittedAliases: ['args', 'fullCommand', 'fullArgv'] }
+		: { mode: 'compact', canonicalComplete: true,
+			omittedFields: ['strategyArgs', 'args', 'fullCommand', 'fullArgv'] };
 	encoded = serialize(compact);
 	if (encoded != null && length(encoded) <= MAX_OUTPUT_BYTES) return compact;
 
@@ -980,8 +1015,7 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 	let validation = validation_record(candidate.nativeValidation);
 	if (type(candidate.profilesCount) != 'int' || candidate.profilesCount < 0
 		|| candidate.profilesCount > MAX_OUTPUT_ARRAY_ITEMS ||
-		(candidate.profilesCount > 0 && (!is_string(candidate.strategyArgs)
-			|| length(candidate.strategyArgs) > MAX_OUTPUT_TEXT)))
+		(candidate.profilesCount > 0 && !is_string(candidate.strategyArgs)))
 		return bounded_error_projection(resolved, candidate, validation, 'EINPUT',
 			'Strategy Preview output exceeds the safe bound');
 	let effective = null;
@@ -1068,7 +1102,7 @@ function z2k_apply_compatibility_gate(resolved, runtimeSnapshot) {
 	return null;
 }
 
-function strategy_apply_candidate(resolved, environment, input, currentCatalog) {
+function strategy_compile_candidate(resolved, environment, input, currentCatalog) {
 	let injected = apply_hook_value('candidate', null);
 	if (is_object(injected)) return injected;
 	let cacheKey = strategy_preview_cache_key(input, currentCatalog, resolved, environment);
@@ -1206,7 +1240,7 @@ export const strategy_apply = function(input, context) {
 	trusted.environment.runtimeComposition = installedSnapshot;
 	let candidate = null;
 	stageStarted = monotonic_ms();
-	try { candidate = strategy_apply_candidate(resolved, trusted.environment, input, currentCatalog); }
+	try { candidate = strategy_compile_candidate(resolved, trusted.environment, input, currentCatalog); }
 	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy compilation failed'), begun.operationNonce); }
 	timing_set(timing, 'compileDependenciesMs', stageStarted);
 	if (!is_object(candidate) || candidate.ok != true)
@@ -1236,7 +1270,7 @@ export const strategy_apply = function(input, context) {
 	let projection = strategy_apply_projection(resolved, input, candidate, selection, begun.oldConfigSha256, installedSnapshot);
 	let applied = null;
 	stageStarted = monotonic_ms();
-	try { applied = strategy_apply_candidate(candidate.candidate, candidate.digest, projection); }
+	try { applied = strategy_apply_candidate_runtime(candidate.candidate, candidate.digest, projection); }
 	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction failed before returning a bounded result'), begun.operationNonce, projection); }
 	timing_set(timing, 'lockedTransactionMs', stageStarted);
 	if (!is_object(applied)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction returned no result'), begun.operationNonce);

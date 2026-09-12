@@ -58,7 +58,8 @@ function loadMaintenance() {
   assert.ok(returnIndex >= 0, 'maintenance module return marker must exist');
   const prefix = maintenanceSource.slice(0, returnIndex);
   const enginePanelCalls = [];
-  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K, checkUpdates, updateZ2K, checkEngineRelease, engineActionWithCheck };\n})()`, {
+  let engineOperationPoll = null;
+  const internals = vm.runInNewContext(`(function () {\n${prefix}\nreturn { renderComponents, state, toggleEngine, toggleZ2K, checkUpdates, updateZ2K, checkEngineRelease, engineActionWithCheck, mount };\n})()`, {
     baseclass: { extend: value => value },
     _: value => value,
     E: vnode,
@@ -72,7 +73,12 @@ function loadMaintenance() {
     },
     ComponentsModel: loadComponentsModel(),
     UpdatePresentation: { describe: value => ({ label: String(value), kind: '' }) },
-    window: { setTimeout, clearTimeout },
+    window: {
+      setTimeout,
+      clearTimeout,
+      setInterval: callback => { engineOperationPoll = callback; return 1; },
+      clearInterval: () => {},
+    },
     Promise,
     setTimeout,
     clearTimeout,
@@ -85,7 +91,7 @@ function loadMaintenance() {
     JSON,
     Date,
   }, { filename: maintenancePath });
-  return { internals, enginePanelCalls };
+  return { internals, enginePanelCalls, runEngineOperationPoll: () => engineOperationPoll && engineOperationPoll() };
 }
 
 function engineStatus(overrides = {}) {
@@ -232,11 +238,11 @@ test('Z2K model and details expose dependency classes without turning advisory f
   const summary = findAll(rendered, node => classHas(node, 'z2m-z2k-dependency-summary'))[0];
 
   assert.ok(summary, 'dependency summary must be visible in expanded Z2K details');
-  assert.match(textOf(summary), /Runtime exact/);
-  assert.match(textOf(summary), /Compiler inputs/);
-  assert.match(textOf(summary), /Новые upstream-файлы/);
+  assert.match(textOf(summary), /Точные зависимости среды/);
+  assert.match(textOf(summary), /Входы сборки/);
+  assert.match(textOf(summary), /Новые файлы источника/);
   assert.match(textOf(summary), /files\/z2k-config-validator\.sh/);
-  assert.match(textOf(summary), /Требуется validation/);
+  assert.match(textOf(summary), /Требуется проверка сборки/);
   assert.equal(findAll(summary, node => classHas(node, 'z2m-component-review-callout--advisory')).length, 1);
   assert.equal(findAll(summary, node => classHas(node, 'z2m-component-review-callout--blocking')).length, 0);
 });
@@ -278,9 +284,9 @@ test('Z2K model and details expose runtime/Strategy revision coherence', () => {
   const technical = findAll(details, node => classHas(node, 'z2m-component-technical'))[0];
 
   assert.ok(technical, 'technical disclosure must remain available');
-  assert.match(textOf(technical), /Runtime revision/);
-  assert.match(textOf(technical), /Strategy source revision/);
-  assert.match(textOf(technical), /Coherence/);
+  assert.match(textOf(technical), /Ревизия среды выполнения/);
+  assert.match(textOf(technical), /Ревизия источника стратегий/);
+  assert.match(textOf(technical), /Согласованность/);
   assert.match(textOf(technical), /aligned/);
 });
 
@@ -310,7 +316,7 @@ test('Z2K details use the same full-width presentation level as Engine and keep 
   assert.ok(details, 'technical details must remain subordinate to the product surface');
   const primaryText = textOf(card);
   assert.doesNotMatch(primaryText, /runtimeBundleDigest|compatibilityIdentity|compilerInputs|catalogDigest/);
-  assert.match(textOf(details), /compatibilityIdentity/);
+  assert.match(textOf(details), /compatibility-identity/);
 });
 
 function makeContext(engine, z2k) {
@@ -331,7 +337,7 @@ function makeContext(engine, z2k) {
     api: {
       normalizeError: error => error && error.message ? error : { message: String(error || 'unknown') },
       service: { restart: () => Promise.resolve({ ok: true }) },
-      engine: { uninstall: () => Promise.resolve({ ok: true }) },
+      engine: { uninstall: () => Promise.resolve({ ok: true }), operationStatus: () => Promise.resolve({ operation: null }) },
       resources: { status: () => Promise.resolve({ ok: true }), check: () => Promise.resolve({ ok: true }), update: () => Promise.resolve({ ok: true }) },
       tg: { product: { status: () => Promise.resolve({ ok: true, status: 'not-installed', readiness: { installed: false } }) } },
     },
@@ -380,6 +386,156 @@ test('Engine current state keeps re-check visible and does not duplicate managem
   assert.equal((text.match(/Источник/g) || []).length, 1, 'source belongs to the single primary header/facts presentation');
 });
 
+test('Engine operation binds the accepted job to the visible Components card', async () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus({ updateState: 'update-available', available: { version: 'v1.0.5' } }), z2kRaw());
+  const catalog = {
+    remoteState: 'fresh',
+    remoteAvailable: true,
+    releases: [{ version: '1.0.5', releaseTag: 'v1.0.5', compatible: true, compatibilityState: 'compatible', latest: true }],
+  };
+  ctx.data.components.engine.value[0] = catalog;
+  ctx.api.engine.check = () => Promise.resolve({
+    ok: true,
+    checkToken: 'engine-check-token',
+    compatible: true,
+    candidate: { version: '1.0.5', compatible: true },
+  });
+  ctx.api.engine.update = () => Promise.resolve({
+    ok: true,
+    operation: { id: 'engine-op', action: 'update', phase: 'queued', progress: 0 },
+  });
+  let modal = null;
+  ctx.shell.openModal = (title, body, actions) => { modal = { title, body, actions }; };
+  internals.state.engineExpanded = true;
+  internals.state.engineOperation = null;
+  internals.state.componentOperation = null;
+  internals.state.busy = null;
+
+  internals.renderComponents(ctx, ctx.data);
+  internals.engineActionWithCheck(ctx, 'update');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(modal, 'Engine mutation must require explicit confirmation');
+  modal.actions[1].attrs.click();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(internals.state.engineOperation.id, 'engine-op');
+  assert.equal(internals.state.componentOperation.scope, 'engine');
+  assert.equal(internals.state.componentOperation.phase, 'queued');
+});
+
+test('Engine operation presentation keeps backend phases and messages in Russian', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw());
+  internals.state.engineExpanded = true;
+  internals.state.engineOperationOverride = true;
+  internals.state.engineOperation = {
+    id: 'engine-op',
+    action: 'install',
+    phase: 'downloading',
+    progress: 28,
+    log: [{ phase: 'downloading', message: 'Загружается проверенный official release asset.' }],
+  };
+  internals.state.componentOperation = {
+    scope: 'engine',
+    kind: 'engine-install',
+    phase: 'downloading',
+    progress: 28,
+  };
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(rendered);
+
+  assert.match(text, /Загружаем движок/);
+  assert.doesNotMatch(text, /\bdownloading\b/);
+  assert.doesNotMatch(text, /official release asset/);
+});
+
+test('Engine release check uses a readable Russian status in the compact card', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw());
+  internals.state.componentOperation = { kind: 'engine-check', scope: 'engine', version: 'v1.0.5.1-z2k-r2' };
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const text = textOf(rendered);
+
+  assert.match(text, /Проверяем доступные версии…/);
+  assert.doesNotMatch(text, /Выполняется операция с Engine/);
+});
+
+test('Visible component facts use Russian labels and never leak raw service states', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus({ serviceState: 'stopped' }), z2kRaw({
+    local: { installed: true, lua: { ready: 2, total: 2 } },
+    runtimeSummary: { health: 'ready', detect: { status: 'unknown' } },
+  }));
+  ctx.data.components.telegram = { value: {
+    ok: true,
+    status: 'running',
+    readiness: { installed: true },
+    activeProvider: 'rust',
+    activeVersion: '2.3.3',
+  } };
+
+  const text = textOf(internals.renderComponents(ctx, ctx.data));
+
+  assert.match(text, /СлужбаОстановлен/);
+  assert.match(text, /Провайдер/);
+  assert.doesNotMatch(text, /\bProvider\b|\bRuntime\b|\bstopped\b|\bunknown\b/);
+});
+
+test('Engine operation has one owner inside expanded Подробнее details', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw());
+  internals.state.engineOperation = {
+    id: 'engine-op',
+    action: 'install',
+    phase: 'downloading',
+    progress: 28,
+  };
+  internals.state.componentOperation = {
+    scope: 'engine',
+    kind: 'engine-install',
+    phase: 'downloading',
+    progress: 28,
+  };
+  internals.state.engineOperationOverride = true;
+  internals.state.engineExpanded = false;
+
+  const collapsed = internals.renderComponents(ctx, ctx.data);
+  const card = findAll(collapsed, node => classHas(node, 'z2m-component-card--engine'))[0];
+  assert.equal(findAll(card, node => classHas(node, 'z2m-component-operation')).length, 1, 'collapsed Engine card must show one compact operation status');
+
+  const manageButton = findAll(card, node => node.tag === 'button' && textOf(node).includes('Подробнее'))[0];
+  assert.ok(manageButton, 'Engine card must keep Подробнее available during its operation');
+  manageButton.attrs.click();
+
+  const expanded = internals.renderComponents(ctx, ctx.data);
+  const expandedCard = findAll(expanded, node => classHas(node, 'z2m-component-card--engine'))[0];
+  const details = findAll(expanded, node => classHas(node, 'z2m-component-details--engine'))[0];
+  assert.equal(findAll(expandedCard, node => classHas(node, 'z2m-component-operation')).length, 0, 'expanded Engine card must hand the compact status to details');
+  assert.equal(findAll(details, node => classHas(node, 'z2m-component-engine-operation')).length, 1, 'expanded Engine details must own one operation section');
+  assert.equal(findAll(expanded, node => classHas(node, 'z2m-component-engine-operation')).length, 1, 'operation must not be duplicated elsewhere');
+});
+
+test('Engine operation polling keeps the local operation owner between rerenders', async () => {
+  const { internals, runEngineOperationPoll } = loadMaintenance();
+  const ctx = makeContext(engineStatus(), z2kRaw());
+  ctx.api.engine.operationStatus = () => Promise.resolve({
+    operation: { id: 'engine-op', action: 'install', phase: 'installing', progress: 42 },
+  });
+  internals.state.engineOperation = { id: 'engine-op', action: 'install', phase: 'downloading', progress: 28 };
+  internals.state.componentOperation = { scope: 'engine', kind: 'engine-install', phase: 'downloading', progress: 28 };
+  internals.state.engineOperationOverride = true;
+
+  internals.mount(ctx);
+  runEngineOperationPoll();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(internals.state.engineOperation.phase, 'installing');
+  assert.equal(internals.state.engineOperationOverride, true, 'polling must keep the operation authoritative for the next UI interaction');
+});
+
 test('Engine details provide the Z2K Core release lifecycle without a second backend owner', async () => {
   const { internals } = loadMaintenance();
   const catalog = {
@@ -420,8 +576,8 @@ test('Engine details provide the Z2K Core release lifecycle without a second bac
 
   assert.ok(select, 'Engine must expose an explicit release selector');
   assert.deepEqual(select.children.map(option => option.attrs.value), ['1.0.5', '1.0.4']);
-  assert.ok(textOf(details).includes('Предпросмотр выбранного release'));
-  assert.ok(buttonsOf(details).includes('Проверить release'));
+  assert.ok(textOf(details).includes('Предпросмотр выбранной версии'));
+  assert.ok(buttonsOf(details).includes('Проверить версию'));
 
   select.attrs.change({ target: { value: '1.0.5' } });
   assert.equal(internals.state.engineSelectedVersion, '1.0.5');
@@ -460,9 +616,9 @@ test('Installed engine without a release identity never renders as Не уста
   const details = findAll(rendered, node => classHas(node, 'z2m-component-details'))[0];
   const text = textOf(details);
 
-  assert.match(text, /Установленный releaseВерсия не определена/);
   assert.match(text, /Установленная версияВерсия не определена/);
-  assert.doesNotMatch(text, /Установленный releaseНе установлен/);
+  assert.match(text, /Установленная версияВерсия не определена/);
+  assert.doesNotMatch(text, /Установленная версияНе установлен/);
 });
 
 test('Z2K details use a standalone review callout and never invent an update action', () => {
@@ -510,6 +666,24 @@ test('Z2K available release gets an update action only when the model says it is
   assert.match(textOf(details), /r-80\.4/);
   assert.ok(buttonsOf(card).includes('Проверить снова'));
   assert.ok(buttonsOf(details).includes('Обновить до r-80.4'));
+});
+
+test('Z2K update remains available while the Engine is intentionally stopped', () => {
+  const { internals } = loadMaintenance();
+  const ctx = makeContext(engineStatus({ serviceState: 'stopped', runtimeRunning: false }), canonicalZ2kRaw({
+    updateState: 'update-available',
+    canApply: true,
+    availableRelease: 'r-80.4',
+    selectedDetails: { version: 'r-80.4', installable: true, operation: 'upgrade', targetCanApply: true, installedVersion: 'r-80.3' },
+  }));
+  internals.state.z2kExpanded = true;
+
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const details = findAll(rendered, node => classHas(node, 'z2m-component-details--z2k'))[0];
+  const action = findAll(details, node => node.tag === 'button' && textOf(node) === 'Обновить до r-80.4')[0];
+
+  assert.ok(action, 'stopping nfqws2 must not remove the Z2K update action');
+  assert.notEqual(action.attrs.disabled, true, 'Z2K resource update does not require a running Engine');
 });
 
 test('Z2K blocking review suppresses update even when a remote update is present', () => {

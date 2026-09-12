@@ -24,10 +24,17 @@ function identity(status) {
   var appliedId = text(applied.id || applied.strategyId || strategyStatus.appliedId);
   var currentId = text(runtime.strategyId || runtime.strategy_id || status.currentStrategyId);
   var statusId = text(strategyStatus.id || strategyStatus.strategyId);
+  var runtimeRevision = strategyStatus.revision;
+  if (runtimeRevision === undefined || runtimeRevision === null || runtimeRevision === '') runtimeRevision = null;
+  else {
+    runtimeRevision = Number(runtimeRevision);
+    if (!isFinite(runtimeRevision) || Math.floor(runtimeRevision) !== runtimeRevision) runtimeRevision = null;
+  }
   return {
     selectedId: selectedId || statusId,
     appliedId: appliedId || statusId,
     currentId: currentId || statusId,
+    runtimeRevision: runtimeRevision,
     status: strategyStatus
   };
 }
@@ -276,9 +283,15 @@ function normalize(value, status, selectedId) {
     availability: value.availability,
     profiles: profiles(value)
   };
+  var savedRevision = value.revision;
+  if (savedRevision !== undefined && savedRevision !== null && savedRevision !== '') savedRevision = Number(savedRevision);
+  else savedRevision = null;
+  result.runtimeRevision = ids.runtimeRevision;
+  result.runtimeStale = (result.id === ids.currentId || result.id === ids.appliedId) &&
+    ids.runtimeRevision !== null && savedRevision !== null && savedRevision !== ids.runtimeRevision;
   result.selected = text(selectedId) ? result.id === text(selectedId) : result.id === ids.selectedId;
-  result.applied = result.id === ids.appliedId;
-  result.current = result.id === ids.currentId;
+  result.applied = result.id === ids.appliedId && !result.runtimeStale;
+  result.current = result.id === ids.currentId && !result.runtimeStale;
   result.runtimeKnown = !!ids.currentId;
   return result;
 }

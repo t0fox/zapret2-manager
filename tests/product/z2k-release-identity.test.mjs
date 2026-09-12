@@ -14,6 +14,7 @@ const runtime = fs.readFileSync(path.join(backend, 'runtime-composition.uc'), 'u
 const versions = fs.readFileSync(path.join(backend, 'z2k-versions.uc'), 'utf8');
 const ucode = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const transport = path.join(root, 'tests/fixtures/update-source-transport.sh');
+const hasUcode = fs.existsSync(ucode);
 
 function invoke(expression, extraEnv = {}, module = releaseModule) {
   const source = `import * as release from ${JSON.stringify(module)}; print(sprintf('%J', ${expression}));`;
@@ -26,7 +27,7 @@ function invoke(expression, extraEnv = {}, module = releaseModule) {
   return JSON.parse(result.stdout);
 }
 
-test('shared release parser accepts both supported families and rejects malformed identities', () => {
+test('shared release parser accepts both supported families and rejects malformed identities', { skip: !hasUcode }, () => {
   assert.deepEqual(invoke("release.z2k_release_parse('r-82.7')"), {
     version: 'r-82.7', family: 'r', major: 82, minor: 7,
   });
@@ -38,7 +39,7 @@ test('shared release parser accepts both supported families and rejects malforme
 });
 test('installed and runtime authorities consume the shared release validator', () => {
   assert.match(installed, /import \{ z2k_release_parse, z2k_release_valid \} from '\.\/z2k-release\.uc';/);
-  assert.match(runtime, /import \{ z2k_release_parse, z2k_release_valid \} from '\.\/z2k-release\.uc';/);
+  assert.match(runtime, /import \{ z2k_release_valid \} from '\.\/z2k-release\.uc';/);
   assert.match(installed, /z2k_release_valid\(receipt\.version\)/);
   assert.match(runtime, /z2k_release_valid\(entry\.version\)/);
   assert.doesNotMatch(installed, /\/\^\[rp\]-\[0-9\]/);
@@ -51,7 +52,7 @@ test('catalog uses the shared parser and keeps manifest current as latest identi
   assert.doesNotMatch(versions, /function parse_release\(/);
 });
 
-test('catalog marks latest only from the authoritative manifest current release', () => {
+test('catalog marks latest only from the authoritative manifest current release', { skip: !hasUcode }, () => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-task1-authority-'));
   const result = invoke("release.z2k_versions()", {
     Z2M_UPDATE_SOURCE_TEST: '1',
@@ -67,10 +68,11 @@ test('catalog marks latest only from the authoritative manifest current release'
   assert.equal(result.versions.find(row => row.version === 'r-90.1')?.latest, false);
 });
 
-test('cross-family catalog ordering follows resolved publication evidence, not family precedence', () => {
+test('catalog ordering uses explicit family policy and operations fail closed without evidence', { skip: !hasUcode }, () => {
   const compare = (left, right) => invoke(`release.z2k_compare_release_records(${JSON.stringify(left)}, ${JSON.stringify(right)})`, {}, versionsModule);
   assert.ok(compare({ version: 'r-90.1', publishedAt: '2026-09-01T00:00:00Z', commitSha: 'a'.repeat(40) },
     { version: 'p-80.3', publishedAt: '2026-09-02T00:00:00Z', commitSha: 'b'.repeat(40) }) > 0);
   assert.ok(compare({ version: 'p-80.3', publishedAt: '2026-09-02T00:00:00Z', commitSha: 'b'.repeat(40) },
     { version: 'r-90.1', publishedAt: '2026-09-01T00:00:00Z', commitSha: 'a'.repeat(40) }) < 0);
+  assert.equal(invoke(`release.z2k_compare_operation_records(${JSON.stringify({ version: 'r-90.1' })}, ${JSON.stringify({ version: 'p-80.3' })})`, {}, versionsModule), null);
 });

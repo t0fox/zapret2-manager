@@ -101,11 +101,13 @@ test('E: compatibility gate - sidecar depends on z2k_state_persist API, missing 
   assert.equal(entry.class, 'exact-managed', 'exact-managed should not trigger rebase-required');
 });
 
-test('F: Discord/nohost - sidecar must not contain sticky/rotation, only excluded policy for nohost', () => {
+test('F: Discord/nohost - sidecar persists only Discord initial rotation through upstream state API', () => {
   const sidecar = read('zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2m-autocircular-policy.lua');
   assert.doesNotMatch(sidecar, /STICKY_WINDOW_SEC|sticky|rotation|failure.*counter|is_sticky_eligible/, 'sidecar must not have sticky/rotation logic');
-  assert.doesNotMatch(sidecar, /if discord/i, 'sidecar must not have special-case if discord');
-  // But it should handle nohost excluded correctly via per-host check
+  assert.match(sidecar, /is_discord_initial/, 'Discord initial payload contract must be explicit');
+  assert.match(sidecar, /persist_if_changed/, 'Discord state must use the upstream persistence API');
+  assert.doesNotMatch(sidecar, /state\.tsv|os\.rename|io\.open/, 'sidecar must not become a second state writer');
+  // Exclusion still uses the exact per-resource key and host check.
   assert.match(sidecar, /nohost|hostn/, 'should handle host key for excluded check');
 });
 

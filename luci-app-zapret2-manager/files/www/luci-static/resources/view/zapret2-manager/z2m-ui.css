@@ -14,7 +14,7 @@
   --z2m-focus:#8fd3ff;
 }
 .z2m-app,.z2m-app *{box-sizing:border-box}
-.z2m-app{background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;min-height:calc(100vh - 48px);overflow-x:hidden;overflow-x:clip}
+.z2m-app{background:var(--bg);color:var(--tx);color-scheme:dark;font:14px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;min-height:calc(100vh - 48px);overflow-x:hidden;overflow-x:clip}
 .z2m-app.compact{font-size:13px}
 .z2m-app a{color:var(--blue);text-decoration:none}
 .z2m-app a:hover{text-decoration:underline}
@@ -125,7 +125,7 @@
 .z2m-navigation-shell .z2m-primary-nav button{background:transparent;border-radius:0;font-size:13px;font-weight:500}
 .z2m-primary-nav button.on{color:var(--blue);border-bottom-color:var(--blue)}
 .z2m-navigation-shell .z2m-primary-nav button{min-height:46px;gap:8px}
-.z2m-navigation-shell .z2m-primary-nav button.on{background:linear-gradient(180deg,rgba(50,181,244,.03),rgba(50,181,244,.12));color:#55c3ff;border-bottom-color:#41bdff;box-shadow:none}
+.z2m-navigation-shell .z2m-primary-nav button.on{background:transparent;color:var(--blue);border-bottom-color:var(--blue);box-shadow:none}
 .z2m-navigation-shell .z2m-primary-nav button:not(.on):hover{background:transparent;color:var(--tx)}
 @media(max-width:900px){.z2m-primary-nav{justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto}}
 @media(prefers-reduced-motion:reduce){.z2m-navigation-shell .z2m-primary-nav button{transition:none}}
@@ -379,7 +379,7 @@
 .z2m-dot.g{background:var(--green);box-shadow:0 0 0 3px rgba(92,185,139,.15)}
 .z2m-dot.r{background:var(--red)}
 .z2m-dot.o{background:var(--orange)}
-.z2m-apptop .z2m-chip.g{color:#22c55e;border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.11);min-width:170px;min-height:30px;border-radius:15px;gap:8px;font-size:12px;font-weight:600}
+.z2m-apptop .z2m-chip.g{color:#22c55e;border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.11);min-width:0;width:max-content;max-width:100%;min-height:30px;border-radius:15px;gap:8px;padding-inline:10px;font-size:12px;font-weight:600}
 .z2m-apptop .z2m-chip.r{color:#fecaca;border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.1)}
 .z2m-apptop .z2m-chip.o{color:#fde68a;border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.1)}
 .z2m-apptop .z2m-dot.g{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.16)}
@@ -1264,6 +1264,21 @@
 .z2m-view#z2m-view-strategy .strategy-status-badge.enabled { color:var(--green); border-color:#3f6f57; background:rgba(92,185,139,.1); }
 .z2m-view#z2m-view-strategy .strategy-status-badge.disabled { color:var(--tx2); background:var(--panel2); }
 .z2m-view#z2m-view-strategy .strategy-status-copy { color:var(--tx3); font-size:12px; }
+.z2m-view#z2m-view-strategy .learned-refresh-warning {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+  padding:8px 10px;
+  border:1px solid rgba(221,171,66,.45);
+  border-radius:6px;
+  background:rgba(221,171,66,.08);
+  color:var(--tx2);
+  font-size:12px;
+  line-height:1.4;
+}
+.z2m-view#z2m-view-strategy .learned-refresh-warning .btn { flex:0 0 auto; min-height:28px; }
 .z2m-view#z2m-view-strategy .strategy-ops-explainer {
   margin-top:14px;
   padding:10px 12px;
@@ -1281,6 +1296,7 @@
 }
 .z2m-view#z2m-view-strategy .strategy-ops-meta span + span::before { content:'·'; margin-right:8px; color:var(--border2); }
 .z2m-view#z2m-view-strategy .learned-empty-copy { color:var(--tx2); font-size:13px; line-height:1.55; }
+.z2m-view#z2m-view-strategy .learned-loading-copy { display:flex; align-items:center; gap:9px; min-height:32px; color:var(--tx2); font-size:13px; line-height:1.4; }
 .z2m-view#z2m-view-strategy .learned-empty-copy p { margin:0 0 10px; }
 .z2m-view#z2m-view-strategy .learned-empty-copy ol { margin:6px 0 12px 20px; padding:0; }
 .z2m-view#z2m-view-strategy .learned-empty-copy li { margin:5px 0; }
@@ -4797,4 +4813,1042 @@
 @media(max-width:620px){
   .z2m-wrap{width:calc(100% - 24px);max-width:none;padding:0 0 170px}
   .z2m-navigation-shell{width:100%;max-width:none;margin-inline:0}
+}
+
+/* Strategy list overlay polish: open secondary actions in the card flow so
+ * they never cover the active strategy or the card below it. */
+.z2m-app #z2m-view-strategy .active-strategy-card #active-strategy-info {
+  min-width:0;
+  flex-wrap:wrap;
+  align-items:flex-start;
+}
+.z2m-app #z2m-view-strategy .active-strategy-copy {
+  min-width:0;
+  flex:1 1 320px;
+  overflow-wrap:anywhere;
+}
+.z2m-app #z2m-view-strategy .active-strategy-preview {
+  max-width:100%;
+  margin-left:auto;
+  white-space:nowrap;
+}
+.z2m-app #z2m-view-strategy .strategy-card-actions,
+.z2m-app #z2m-view-strategy .strategy-card-secondary-actions {
+  min-width:0;
+}
+.z2m-app #z2m-view-strategy .strategy-card-menu[open] {
+  flex:1 1 100%;
+  min-width:0;
+}
+.z2m-app #z2m-view-strategy .strategy-card-menu[open] > .strategy-card-menu-panel {
+  position:static;
+  width:100%;
+  min-width:0;
+  max-width:260px;
+  margin-top:8px;
+  box-shadow:0 8px 20px rgba(0,0,0,.24);
+}
+.z2m-app #z2m-view-strategy .strategy-card-menu-panel .btn {
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* Strategy IDE visual polish: keep every rail and control bounded at narrow
+ * desktop widths without changing the editor workflow or its data contract. */
+#z2m-view-strategy #strategy-modal .modal-header,
+#z2m-view-strategy #strategy-modal .modal-header-actions,
+#z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions {
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .modal-header {
+  align-items:flex-start;
+}
+#z2m-view-strategy #strategy-modal .modal-header-actions {
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  row-gap:6px;
+}
+#z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions {
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:6px;
+}
+#z2m-view-strategy #strategy-modal .modal-header-actions > .editor-actions .btn,
+#z2m-view-strategy #strategy-modal .modal-header-actions > .strategy-editor-inspector-toggle {
+  flex:0 0 auto;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+#z2m-view-strategy #strategy-modal .strat-editor-layout > *,
+#z2m-view-strategy #strategy-modal .strategy-editor-section-heading > div,
+#z2m-view-strategy #strategy-modal .strategy-editor-code-header > div,
+#z2m-view-strategy #strategy-modal .strategy-editor-preview-header > div {
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .strat-editor-layout {
+  grid-template-columns:minmax(228px,248px) minmax(0,1fr) minmax(300px,328px);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar,
+#z2m-view-strategy #strategy-modal .strat-editor-inspector {
+  overflow-x:hidden;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-button {
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-label {
+  min-width:0;
+  flex:1 1 auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs {
+  min-width:0;
+  flex-wrap:wrap;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs .btn {
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-controls {
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled {
+  line-height:1.3;
+}
+#z2m-view-strategy #strategy-modal .profile-toggle {
+  box-sizing:border-box;
+  width:40px;
+  flex-basis:40px;
+  vertical-align:middle;
+}
+#z2m-view-strategy #strategy-modal .profile-toggle::after {
+  box-sizing:border-box;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-code-header {
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-code-header > div {
+  flex:1 1 auto;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-code-hint {
+  flex:0 1 220px;
+  max-width:42%;
+  overflow-wrap:anywhere;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-preview-actions {
+  min-width:0;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-preview-actions > *,
+#z2m-view-strategy #strategy-modal .strategy-editor-preview-actions [data-editor-preview-actions-host] {
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .nfq-diagnostics,
+#z2m-view-strategy #strategy-modal .nfq-diagnostics > *,
+#z2m-view-strategy #strategy-modal .strategy-editor-problems-card {
+  min-width:0;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-problem {
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:4px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-problem b,
+#z2m-view-strategy #strategy-modal .strategy-editor-problem-meta {
+  min-width:0;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-problem-meta {
+  font-size:10px;
+  line-height:1.3;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-problem-message {
+  min-width:0;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+@media (max-width:1100px) {
+  #z2m-view-strategy #strategy-modal .strat-editor-layout {
+    grid-template-columns:minmax(210px,228px) minmax(0,1fr) minmax(280px,300px);
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-code-hint {
+    max-width:38%;
+  }
+}
+
+@media (max-width:900px) {
+  #z2m-view-strategy #strategy-modal .strat-editor-layout,
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed {
+    grid-template-columns:minmax(0,1fr);
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-code-header {
+    align-items:flex-start;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-code-hint {
+    max-width:45%;
+  }
+}
+
+/* IDE overflow closure: rails scroll vertically, while long arguments wrap
+ * inside the editor instead of creating a horizontal scrollbar in every pane. */
+#z2m-view-strategy #strategy-modal .strategy-editor-sidebar,
+#z2m-view-strategy #strategy-modal .strat-editor-main,
+#z2m-view-strategy #strategy-modal .strat-editor-inspector,
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output {
+  overflow-x:hidden;
+  overflow-y:auto;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-status {
+  align-content:center;
+  overflow:hidden;
+  white-space:normal;
+  flex-wrap:wrap;
+  row-gap:4px;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output > *,
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .strategy-editor-preview-panel,
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .strategy-editor-preview-header,
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .strategy-editor-output-heading {
+  min-width:0;
+  max-width:100%;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .log-viewer {
+  overflow-x:hidden;
+  overflow-y:auto;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+#z2m-view-strategy #strategy-modal .z2m-code-editor,
+#z2m-view-strategy #strategy-modal .z2m-code-editor .cm-editor {
+  min-width:0;
+  max-width:100%;
+}
+#z2m-view-strategy #strategy-modal .z2m-code-editor .cm-scroller {
+  overflow-x:hidden;
+  overflow-y:auto;
+}
+#z2m-view-strategy #strategy-modal .z2m-code-editor .cm-content,
+#z2m-view-strategy #strategy-modal .z2m-code-editor-fallback {
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+/* The enabled control is a compact switch with one optical centerline. */
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled {
+  min-height:32px;
+  align-items:center;
+  gap:8px;
+  line-height:1.35;
+}
+#z2m-view-strategy #strategy-modal .profile-toggle {
+  width:36px;
+  height:20px;
+  flex:0 0 36px;
+  border-width:1px;
+}
+#z2m-view-strategy #strategy-modal .profile-toggle::after {
+  top:2px;
+  left:2px;
+  width:14px;
+  height:14px;
+}
+#z2m-view-strategy #strategy-modal .profile-toggle:checked::after {
+  transform:translateX(16px);
+}
+
+/* Keep the active strategy summary calm and bounded like the supplied
+ * reference: status, identity, metadata, and the one primary action. */
+#z2m-view-strategy .active-strategy-card #active-strategy-info {
+  min-width:0;
+  align-items:flex-start;
+  flex-wrap:wrap;
+}
+#z2m-view-strategy .active-strategy-card #active-strategy-info > .status-dot {
+  margin-top:6px;
+}
+#z2m-view-strategy .active-strategy-card .active-strategy-copy {
+  min-width:0;
+  flex:1 1 280px;
+}
+#z2m-view-strategy .active-strategy-card .active-strategy-preview {
+  margin-left:auto;
+  flex:0 0 auto;
+}
+#z2m-view-strategy .active-strategy-card .card-title-actions {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-left:auto;
+  min-width:0;
+}
+#z2m-view-strategy .active-strategy-card .card-title-actions .btn {
+  min-height:28px;
+  padding:4px 9px;
+}
+
+/* At medium widths, two readable columns beat three compressed rails. */
+@media (min-width:901px) and (max-width:1100px) {
+  #z2m-view-strategy #strategy-modal .strat-editor-layout {
+    grid-template-columns:minmax(204px,220px) minmax(0,1fr);
+    grid-template-rows:minmax(0,1fr) auto auto;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar {
+    grid-column:1;
+    grid-row:1;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace {
+    grid-column:2;
+    grid-row:1;
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-inspector {
+    grid-column:1 / -1;
+    grid-row:2;
+    max-height:220px;
+    border-top:1px solid var(--border2);
+    border-left:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-status {
+    grid-column:1 / -1;
+    grid-row:3;
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed {
+    grid-template-columns:minmax(0,1fr);
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-workspace,
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed .strategy-editor-status {
+    grid-column:1;
+  }
+}
+
+/* Keyboard and pointer affordances for strategy cards and picker rows. */
+#z2m-view-strategy .strategy-card-info {
+  display:block;
+  flex:1 1 auto;
+  min-width:0;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:5px;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  line-height:inherit;
+  text-align:left;
+  cursor:pointer;
+}
+#z2m-view-strategy .strategy-card-info:hover {
+  background:transparent;
+}
+#z2m-view-strategy .strategy-card-info:focus-visible {
+  outline:2px solid var(--blue);
+  outline-offset:4px;
+}
+#z2m-view-strategy .strat-picker-item {
+  color:inherit;
+  text-decoration:none;
+}
+#z2m-view-strategy .strat-picker-item:focus-within {
+  outline:2px solid var(--blue);
+  outline-offset:2px;
+}
+#z2m-view-strategy .strategy-editor-mode-tabs {
+  align-items:center;
+}
+#z2m-view-strategy .strategy-editor-mode-tabs .btn:focus-visible,
+#z2m-view-strategy .strategy-editor-profile-tabs .btn:focus-visible {
+  outline-offset:2px;
+}
+#z2m-view-strategy .learned-domain-copyable {
+  display:block;
+  width:100%;
+  margin:0;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  line-height:inherit;
+  text-align:left;
+}
+#z2m-view-strategy .learned-domain-copyable:focus-visible {
+  outline:2px solid var(--blue);
+  outline-offset:2px;
+  border-radius:3px;
+}
+
+/* Selection is a state marker, not a second card outline. */
+.z2m-view#z2m-view-strategy .strategy-card.selected {
+  border-color:var(--border);
+  box-shadow:inset 2px 0 0 var(--blue);
+}
+.z2m-view#z2m-view-strategy .strategy-card.active.selected {
+  border-left-color:var(--green);
+  box-shadow:none;
+}
+
+/* Keep the overflow menu anchored to its trigger instead of stretching the
+ * whole action row and leaving an empty slab inside the strategy card. */
+@supports selector(.strategy-card:has(.strategy-card-menu[open])) {
+  .z2m-app #z2m-view-strategy .strategy-card:has(.strategy-card-menu[open]) {
+    overflow:visible;
+  }
+}
+.z2m-app #z2m-view-strategy .strategy-card-menu[open] {
+  position:relative;
+  flex:0 0 auto;
+  min-width:0;
+}
+.z2m-app #z2m-view-strategy .strategy-card-menu[open] > .strategy-card-menu-panel {
+  position:absolute;
+  top:calc(100% + 6px);
+  right:0;
+  width:240px;
+  max-width:min(240px, calc(100vw - 32px));
+  min-width:0;
+  margin-top:0;
+  z-index:30;
+  box-shadow:0 12px 28px rgba(0,0,0,.34);
+}
+
+/* Medium-width IDE rail policy: preserve the desktop three-zone workspace
+ * until the modal can no longer give the editor a useful reading width. */
+@media (min-width:901px) and (max-width:1199px) {
+  #z2m-view-strategy #strategy-modal .strat-editor-layout {
+    grid-template-columns:minmax(210px,220px) minmax(0,1fr);
+    grid-template-rows:minmax(0,1fr) auto auto;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar {
+    grid-column:1;
+    grid-row:1;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace {
+    grid-column:2;
+    grid-row:1;
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-inspector {
+    grid-column:1 / -1;
+    grid-row:2;
+    max-height:220px;
+    border-top:1px solid var(--border2);
+    border-left:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-status {
+    grid-column:1 / -1;
+    grid-row:3;
+  }
+}
+
+@media (max-width:900px) {
+  #z2m-view-strategy #strategy-modal .strat-editor-layout,
+  #z2m-view-strategy #strategy-modal .strat-editor-layout.sidebar-collapsed {
+    display:flex;
+    flex-direction:column;
+    overflow:auto;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar {
+    order:1;
+    flex:0 0 auto;
+    max-height:136px;
+    overflow-x:hidden;
+    overflow-y:auto;
+    border-right:0;
+    border-bottom:1px solid var(--border2);
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace {
+    order:2;
+    flex:1 0 auto;
+    min-height:420px;
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-inspector {
+    order:3;
+    flex:0 0 auto;
+    max-height:180px;
+    overflow-x:hidden;
+    overflow-y:auto;
+    border-top:1px solid var(--border2);
+    border-left:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-status {
+    order:4;
+    flex:0 0 auto;
+    min-height:42px;
+  }
+}
+
+@media (max-width:720px) {
+  #z2m-view-strategy #strategy-modal .modal-header {
+    min-height:58px;
+    padding:10px 12px;
+  }
+  #z2m-view-strategy #strategy-modal .modal-title {
+    font-size:15px;
+  }
+  #z2m-view-strategy #strategy-modal .modal-body {
+    padding:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar {
+    max-height:112px;
+    padding:12px 14px 14px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace {
+    min-height:360px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-code-pane.z2m-code-editor {
+    min-height:250px;
+    flex-basis:250px;
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-inspector {
+    max-height:150px;
+  }
+}
+
+/* Strategy IDE profile switch: make the setting read as a deliberate control
+ * instead of a tiny green pill floating beside the profile field. */
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled {
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  min-height:36px;
+  max-width:100%;
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--panel2);
+  color:var(--tx2);
+  font-size:12px;
+  font-weight:500;
+  line-height:1.3;
+  white-space:nowrap;
+  cursor:pointer;
+  user-select:none;
+  transition:background-color .14s ease-out,border-color .14s ease-out,color .14s ease-out;
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled:hover {
+  border-color:var(--border2);
+  background:var(--raised);
+  color:var(--tx);
+}
+#z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled > span:last-child {
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+#z2m-view-strategy #strategy-modal .profile-toggle {
+  box-sizing:border-box;
+  width:44px;
+  height:24px;
+  flex:0 0 44px;
+  margin:0;
+  border:1px solid var(--border2);
+  border-radius:999px;
+  background:#151719;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.24);
+}
+#z2m-view-strategy #strategy-modal .profile-toggle::after {
+  top:2px;
+  left:2px;
+  width:18px;
+  height:18px;
+  box-sizing:border-box;
+  background:#89919a;
+  box-shadow:0 1px 2px rgba(0,0,0,.3);
+}
+#z2m-view-strategy #strategy-modal .profile-toggle:checked {
+  border-color:rgba(92,185,139,.65);
+  background:rgba(92,185,139,.16);
+}
+#z2m-view-strategy #strategy-modal .profile-toggle:checked::after {
+  background:#dff8ea;
+  transform:translateX(20px);
+}
+#z2m-view-strategy #strategy-modal .profile-toggle:focus-visible {
+  outline:2px solid var(--blue);
+  outline-offset:3px;
+}
+
+@media (max-width:720px) {
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled {
+    align-self:flex-start;
+    max-width:100%;
+  }
+}
+
+/* Final Strategy IDE composition: keep the three desktop zones, spend the
+ * saved vertical space on CodeMirror, and make output a real compact drawer. */
+@media (min-width:901px) {
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar {
+    padding:14px 12px 16px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar-title {
+    margin-bottom:12px;
+    padding-bottom:10px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-provenance {
+    margin-bottom:12px;
+    padding-bottom:10px;
+    font-size:10px;
+    line-height:1.35;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-fields {
+    margin-bottom:12px;
+    padding-bottom:12px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-metadata {
+    gap:8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-field {
+    gap:4px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-sidebar .strategy-editor-field .form-input {
+    min-height:32px;
+    height:32px;
+    padding-top:5px;
+    padding-bottom:5px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profiles-heading {
+    margin-bottom:6px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profiles-heading > .btn {
+    min-height:30px;
+    padding:4px 8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-list {
+    gap:2px;
+    margin-top:8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-button {
+    min-height:32px;
+    padding:5px 7px;
+    gap:6px;
+    font-size:11px;
+    line-height:1.25;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-item > .btn-icon-only {
+    min-width:28px;
+    width:28px;
+    min-height:28px;
+    height:28px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace-header {
+    grid-template-columns:minmax(0,1fr) auto auto;
+    gap:10px;
+    min-height:52px;
+    padding:8px 12px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-active-profile-header {
+    grid-column:1;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs {
+    grid-column:2;
+    margin:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-mode-tabs .btn {
+    min-height:28px;
+    padding:3px 8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-controls {
+    grid-column:3;
+    align-self:center;
+    gap:0;
+    margin:0;
+    padding:0;
+    border-top:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-profile-enabled {
+    min-height:32px;
+    padding:4px 8px;
+    gap:8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-code-header {
+    padding:10px 12px 8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace-output {
+    max-height:40%;
+    padding:7px 12px 8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-output-heading {
+    flex-direction:row;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    margin:0 0 6px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-output-heading strong {
+    margin:0;
+    font-size:12px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .nfq-diagnostics:empty {
+    display:none;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-workspace-output .nfq-diagnostics {
+    min-height:0;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-preview-panel {
+    margin-top:6px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-preview-panel.is-collapsed {
+    margin-top:0;
+    padding:0;
+    border:0;
+    background:transparent;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-preview-panel.is-collapsed .strategy-editor-preview-header {
+    min-height:30px;
+    gap:8px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-preview-panel.is-collapsed .strategy-editor-preview-header > div:first-child {
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-preview-panel.is-collapsed .strategy-editor-preview-header strong {
+    margin:0;
+    font-size:12px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-preview-panel.is-collapsed .strategy-editor-preview-actions {
+    min-height:30px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-preview-panel.is-collapsed .log-viewer[hidden] {
+    display:none;
+  }
+  #z2m-view-strategy #strategy-modal .strat-editor-inspector {
+    padding:14px 14px 16px;
+  }
+  #z2m-view-strategy #strategy-modal [data-editor-inspector] .strategy-editor-problems-card {
+    margin-top:14px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-problems-ok {
+    margin-top:4px;
+    font-size:11px;
+  }
+  #z2m-view-strategy #strategy-modal .strategy-editor-status {
+    min-height:34px;
+    padding:6px 12px;
+    gap:10px;
+  }
+}
+
+/* Reference-style product navigation. The IA and route ownership stay in
+ * z2m-navigation.js; this layer only gives the shell a clear visual rhythm. */
+.z2m-app .z2m-apptop {
+  position:relative;
+  width:calc(100% - 48px);
+  max-width:1132px;
+  margin-top:24px;
+  background:var(--z2m-header);
+  border-color:var(--z2m-header-border);
+  border-bottom:0;
+  border-radius:var(--z2m-radius-shell) var(--z2m-radius-shell) 0 0;
+}
+.z2m-app .z2m-apptop .in {
+  min-height:64px;
+  padding:10px 18px;
+  align-items:center;
+  gap:18px;
+}
+.z2m-app .z2m-brand {
+  align-items:center;
+  gap:14px;
+  flex:1 1 auto;
+}
+.z2m-app .z2m-apptop .z2m-brand .mark {
+  width:44px;
+  height:44px;
+  flex-basis:44px;
+  border-radius:12px;
+}
+.z2m-app .z2m-brand .nm {
+  min-width:max-content;
+  flex:0 0 auto;
+  overflow:visible;
+  text-overflow:clip;
+  white-space:nowrap;
+  font-size:clamp(24px,2.4vw,30px);
+  font-weight:700;
+  letter-spacing:-.7px;
+  line-height:1;
+}
+.z2m-app .z2m-brand .ver {
+  align-self:center;
+  margin-bottom:0;
+}
+.z2m-app .z2m-apptop-right {
+  gap:14px;
+  padding-top:5px;
+}
+.z2m-app .z2m-navigation-shell {
+  width:calc(100% + 32px);
+  max-width:1132px;
+  margin-inline:auto;
+  margin-bottom:32px;
+  background:var(--z2m-header-surface);
+  border-color:var(--z2m-header-border);
+  border-top:0;
+  border-radius:0 0 var(--z2m-radius-shell) var(--z2m-radius-shell);
+  overflow:hidden;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav,
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav {
+  justify-content:flex-start;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav::-webkit-scrollbar,
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav::-webkit-scrollbar {
+  display:none;
+  width:0;
+  height:0;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav {
+  gap:0;
+  min-height:44px;
+  padding:0 14px;
+  border-bottom:1px solid var(--border);
+  scroll-padding-inline:18px;
+  justify-content:flex-start;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button:first-child { margin-left:auto; }
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button:last-child { margin-right:auto; }
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button {
+  position:relative;
+  min-width:0;
+  min-height:42px;
+  padding:7px 14px 8px;
+  gap:8px;
+  flex-direction:row;
+  justify-content:center;
+  border:1px solid transparent;
+  border-bottom:1px solid transparent;
+  border-radius:12px;
+  background:transparent;
+  box-shadow:none;
+  color:var(--tx2);
+  font-size:14px;
+  font-weight:600;
+  line-height:1.2;
+  transition:color 160ms ease-out,background-color 160ms ease-out,border-color 160ms ease-out,box-shadow 160ms ease-out;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button:hover {
+  background:rgba(255,255,255,.035);
+  color:var(--tx);
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button.on {
+  color:var(--tx);
+  border-color:rgba(75,159,213,.38);
+  background:linear-gradient(180deg,rgba(75,159,213,.13),rgba(75,159,213,.045));
+  box-shadow:none;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button.on::after {
+  content:"";
+  position:absolute;
+  left:10px;
+  right:10px;
+  bottom:-1px;
+  height:3px;
+  border-radius:3px 3px 0 0;
+  background:var(--blue);
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button + button::before {
+  content:"";
+  position:absolute;
+  left:-1px;
+  top:10px;
+  bottom:10px;
+  width:1px;
+  background:var(--border);
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button.on::before,
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button.on + button::before {
+  display:none;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav .z2m-primary-nav-icon {
+  width:22px;
+  height:22px;
+  flex-basis:22px;
+  color:var(--tx2);
+  stroke-width:1.7;
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav button.on .z2m-primary-nav-icon {
+  color:var(--blue);
+}
+.z2m-app .z2m-navigation-shell .z2m-primary-nav .z2m-nav-label {
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav {
+  min-height:38px;
+  margin:0;
+  gap:2px;
+  padding:0 22px;
+  border-bottom:0;
+  scroll-padding-inline:22px;
+}
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav button {
+  position:relative;
+  min-width:0;
+  min-height:36px;
+  padding:8px 16px 7px;
+  border:0;
+  border-bottom:2px solid transparent;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+  color:var(--tx2);
+  font-size:14px;
+  font-weight:500;
+  line-height:1.15;
+  text-align:left;
+  transition:color 160ms ease-out,border-color 160ms ease-out,background-color 160ms ease-out,transform 120ms ease-out;
+}
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav button:focus-visible {
+  outline:2px solid var(--blue);
+  outline-offset:-2px;
+}
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav button:hover {
+  color:var(--tx);
+  background:rgba(255,255,255,.025);
+}
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav button.on {
+  color:var(--blue);
+  border:0;
+  border-bottom:2px solid var(--blue);
+  background:transparent;
+}
+.z2m-app .z2m-navigation-shell .z2m-secondary-nav .z2m-nav-parent {
+  min-width:auto;
+  padding-inline:10px;
+  color:#6f7b89;
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.z2m-app .z2m-apptop .z2m-chip.g {
+  width:fit-content;
+  min-width:0;
+  max-width:max-content;
+  min-height:28px;
+  padding:0 10px;
+  gap:6px;
+  font-size:12px;
+}
+.z2m-app .z2m-apptop .z2m-chip.g .z2m-dot {
+  width:6px;
+  height:6px;
+  box-shadow:none;
+}
+@media (max-width:900px) {
+  .z2m-app .z2m-apptop .in {
+    min-height:60px;
+    padding:8px 16px;
+  }
+  .z2m-app .z2m-apptop .z2m-brand .mark {
+    width:44px;
+    height:44px;
+    flex-basis:44px;
+    border-radius:12px;
+  }
+  .z2m-app .z2m-brand {
+    gap:14px;
+  }
+  .z2m-app .z2m-brand .nm {
+    font-size:clamp(24px,2.8vw,30px);
+    letter-spacing:-.6px;
+  }
+  .z2m-app .z2m-apptop-right .z2m-device,
+  .z2m-app .z2m-apptop-right .z2m-header-divider {
+    display:none;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav {
+    min-height:46px;
+    padding:0 10px;
+    justify-content:flex-start;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav button:first-child { margin-left:0; }
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav button:last-child { margin-right:0; }
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav button {
+    min-height:44px;
+    padding:8px 16px 9px;
+    border-radius:11px;
+    font-size:14px;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav .z2m-primary-nav-icon {
+    width:22px;
+    height:22px;
+    flex-basis:22px;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-secondary-nav {
+    min-height:42px;
+    padding-inline:10px;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-secondary-nav button {
+    min-height:40px;
+    padding:9px 14px 8px;
+    font-size:14px;
+  }
+}
+@media (max-width:620px) {
+  .z2m-app .z2m-apptop {
+    width:calc(100% - 24px);
+    margin-top:12px;
+  }
+  .z2m-app .z2m-apptop .in {
+    min-height:84px;
+    padding:10px 12px;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .z2m-app .z2m-apptop .z2m-brand .mark {
+    width:42px;
+    height:42px;
+    flex-basis:42px;
+    border-radius:11px;
+  }
+  .z2m-app .z2m-brand .nm {
+    font-size:22px;
+    letter-spacing:-.4px;
+  }
+  .z2m-app .z2m-brand { flex:1 0 100%; }
+  .z2m-app .z2m-apptop-right { margin-left:54px; padding-top:0; }
+  .z2m-app .z2m-navigation-shell {
+    width:calc(100% - 24px);
+  }
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav button {
+    min-height:42px;
+    padding:8px 14px 9px;
+    border-radius:10px;
+    font-size:14px;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav .z2m-primary-nav-icon {
+    width:20px;
+    height:20px;
+    flex-basis:20px;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-secondary-nav {
+    min-height:40px;
+    padding-inline:6px;
+  }
+  .z2m-app .z2m-navigation-shell .z2m-secondary-nav button {
+    min-height:38px;
+    padding:9px 12px 8px;
+    font-size:13px;
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  .z2m-app .z2m-navigation-shell .z2m-primary-nav button,
+  .z2m-app .z2m-navigation-shell .z2m-secondary-nav button {
+    transition:none;
+  }
 }

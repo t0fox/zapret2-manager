@@ -55,6 +55,19 @@ function copy_object(value) {
 	for (let key in value) result[key] = value[key];
 	return result;
 }
+
+function has_payload_token(args, token) {
+	let m = match(args, /(?:^|[ \t])--payload=([^ \t\r\n]+)/);
+	if (!m) return false;
+	let payloads = split(m[1], ',');
+	for (let payload in payloads) if (payloads[payload] == token) return true;
+	return false;
+}
+
+function complete_discord_payload(args) {
+	return has_payload_token(args, 'discord_ip_discovery') && has_payload_token(args, 'stun');
+}
+
 function donor_record(entry, strategy, profile, profileIndex, catalog) {
 	let sourceId = entry.sourceId || strategy.sourceId;
 	let source = source_snapshot(catalog, sourceId);
@@ -64,7 +77,8 @@ function donor_record(entry, strategy, profile, profileIndex, catalog) {
 		|| index(args, '--lua-desync=circular') < 0
 		|| index(args, DISCORD_HOSTKEY) < 0
 		|| index(args, '--filter-udp=') < 0
-		|| index(args, '--filter-l7=discord') < 0) return null;
+		|| index(args, '--filter-l7=discord') < 0
+		|| !complete_discord_payload(args)) return null;
 	let blobPath = '/opt/zapret2/files/fake/quic_initial_dbankcloud_ru.bin';
 	let files = [{ path: blobPath, present: !!stat(blobPath), blobName: 'quic_dbankcloud' }];
 	let donorArgs = '--blob=quic_dbankcloud:@bin/quic_initial_dbankcloud_ru.bin ' + args;

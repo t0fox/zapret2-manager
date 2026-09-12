@@ -57,10 +57,17 @@ test('available release and activation receipt version come from the selected ca
   assert.match(resourceUpdate, /version:\s*target\.targetVersion/);
 });
 
-test('compiler-input changes remain non-applicable through target preparation and release details', () => {
-  assert.match(resourceUpdate, /length\(plan\.compilerInputs \|\| \[\]\)/);
-  assert.match(resourceUpdate, /compiler-inputs|compilerInputs/);
-  assert.match(versions, /length\(targetPlan\.compilerInputs \|\| \[\]\) == 0/);
+test('compiler-input changes are compiled and validated by the target snapshot instead of blocking an existing Core update', () => {
+  assert.match(resourceUpdate, /z2k_core_snapshot_for_target[\s\S]{0,900}strategy_source_z2k_compile_exact/,
+    'prepare must own compile-and-validate for the immutable target');
+  assert.doesNotMatch(resourceUpdate, /\(hasCompilerInputs && cleanInstall !== true\)/,
+    'compiler inputs must not become a review gate when prepare already compiles them');
+  assert.doesNotMatch(versions, /\(cleanInstall \|\| length\(targetPlan\.compilerInputs \|\| \[\]\) == 0\)/,
+    'release details must not report a compilable target as unavailable');
+  assert.doesNotMatch(resourceUpdate, /engineReady === true[\s\S]{0,180}!length\(remote\.compilerInputs \|\| \[\]\)/,
+    'runtime summary must not turn compiler inputs into a permanent apply block');
+  assert.match(versions, /length\(targetPlan\.rebases \|\| \[\]\) == 0 && length\(targetPlan\.blockingReviews \|\| \[\]\) == 0/,
+    'real rebase and blocking-review gates must remain authoritative');
 });
 
 test('native preflight consumes the installed resolver closure instead of a static Lua list', () => {

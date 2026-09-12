@@ -35,7 +35,7 @@ postflight(){
  ! grep -q -- '--lua-desync=old' "$CONFIG" 2>/dev/null || return 1
  ! apk info -e zapret2 >/dev/null 2>&1 || return 1
  /usr/bin/ucode /usr/libexec/zapret2-manager/status.uc --no-print >/dev/null 2>&1 && [ -s /tmp/zapret2-manager/status.json ] || return 1
- apk info -e zapret2-manager >/dev/null 2>&1 && apk info -e luci-app-zapret2-manager >/dev/null 2>&1
+ apk info -e zapret2-manager-full >/dev/null 2>&1
 }
 restore_config(){
  [ -f "$BACKUP/opt-config/config" ] && { mkdir -p /opt/zapret2; cp -a "$BACKUP/opt-config/config" "$CONFIG" || { RESTORE_ERROR=config; return 1; }; }

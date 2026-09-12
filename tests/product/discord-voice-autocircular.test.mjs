@@ -14,6 +14,7 @@ const statePersistPath = path.join(root, 'zapret2-manager/files/usr/share/zapret
 const policyPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2m-autocircular-policy.lua');
 const dbankAssetPath = path.join(root, 'zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_dbankcloud_ru.bin');
 
+
 function loadModel() {
   assert.ok(fs.existsSync(modelPath), 'Strategies model must exist');
   const source = fs.readFileSync(modelPath, 'utf8');
@@ -41,6 +42,9 @@ function createOpsSandbox(virtualFs = {}) {
       return null;
     },
     readfile: (p) => {
+      if (virtualFs.__throwLearnedRead && p === '/etc/zapret2-manager/state/autocircular/state.tsv') {
+        throw new Error('simulated EIO');
+      }
       if (p in vfs) return vfs[p];
       return null;
     },
@@ -116,6 +120,10 @@ function createOpsSandbox(virtualFs = {}) {
     health_matrix_start: () => ({ ok: true }),
     health_matrix_get: () => ({ matrix: null }),
     read_var: () => null,
+    // The production adapter no longer exposes the retired state_delete
+    // helper. Keep the legacy harness symbol defined so current exports can
+    // still be evaluated; mutation coverage uses learned_clear below.
+    state_delete: () => ({ ok: true }),
     vfs
   };
 
@@ -124,6 +132,25 @@ function createOpsSandbox(virtualFs = {}) {
   return { ...exportsObj, vfs, sandbox };
 }
 
+test('TEST 0A: learned_state reports state read failure instead of returning a false empty success', () => {
+  const ops = createOpsSandbox({
+    '/opt/zapret2/config': fs.readFileSync(z2kAllInOnePath, 'utf8'),
+    '/etc/zapret2-manager/state/autocircular/state.tsv': '# state\n',
+    __throwLearnedRead: true
+  });
+
+  const state = ops.learned_state();
+  assert.equal(state.ok, false, 'an unreadable learned-state file must not be reported as a valid empty list');
+  assert.equal(state.error?.code, 'EIO');
+
+  const before = ops.vfs['/etc/zapret2-manager/state/autocircular/state.tsv'];
+  const mutation = ops.state_set({ key: 'rkn_tcp', host: 'discord.example', strategy: 1, mode: 'auto' });
+  assert.equal(mutation.ok, false, 'mutations must fail closed when the current learned state cannot be read');
+  assert.equal(mutation.error?.code, 'EIO');
+  assert.equal(ops.vfs['/etc/zapret2-manager/state/autocircular/state.tsv'], before,
+    'a failed state read must never overwrite the existing learned state');
+});
+
 // =========================================================================
 // TEST 1 — exact B profile in z2k_all_in_one
 // =========================================================================
@@ -131,7 +158,7 @@ test('TEST 1: z2k_all_in_one catalog source contains exact upstream Discord B pr
   const z2kConfig = fs.readFileSync(z2kAllInOnePath, 'utf8');
   const cleanLines = z2kConfig.split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
   const segments = cleanLines.split('--new');
-  const discordProfile = segments[2] || '';
+  const discordProfile = segments.find(segment => segment.includes('--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344')) || '';
   assert.match(discordProfile, /--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344/, 'Must match exact Discord UDP ports with 50100');
   assert.match(discordProfile, /--filter-l7=discord,stun/, 'Must filter l7 discord,stun');
   assert.match(discordProfile, /--out-range=-d4/, 'Must have out-range=-d4');
@@ -430,12 +457,23 @@ test('TEST 14: Freeze, auto, and reset operations target discord_udp/nohost', ()
 });
 
 // =========================================================================
-// TEST 15 — persist compatibility in z2k-state-persist.lua
+// TEST 15 — persist compatibility in the exact upstream file + manager sidecar
 // =========================================================================
-test('TEST 15: z2k-state-persist keeps generic askey storage and the policy owns Discord exclusion', () => {
+test('TEST 15: exact z2k-state-persist keeps generic storage and the policy owns Discord integration', () => {
   const persistContent = fs.readFileSync(statePersistPath, 'utf8');
   const policyContent = fs.readFileSync(policyPath, 'utf8');
   assert.match(persistContent, /desync\.arg\.key/);
   assert.match(persistContent, /desync\.func_instance/);
   assert.match(policyContent, /askey|hostn/);
+  assert.match(policyContent, /persist_if_changed/);
+});
+
+// =========================================================================
+// TEST 16 — Discord payloads must participate in persisted autocircular
+// =========================================================================
+test('TEST 16: state persistence treats Discord discovery and STUN as initial autocircular payloads', () => {
+  const policyContent = fs.readFileSync(policyPath, 'utf8');
+  assert.match(policyContent, /discord_ip_discovery/, 'Discord IP discovery must be eligible for state persistence');
+  assert.match(policyContent, /stun/, 'STUN must be eligible for state persistence');
+  assert.match(policyContent, /key == ["']discord_udp["']/);
 });

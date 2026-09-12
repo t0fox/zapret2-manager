@@ -207,6 +207,11 @@ function normalizeZ2kCatalog(value) {
   }).filter(function (item) { return item.version !== null; });
 }
 
+function installableCatalogRelease(catalog, version) {
+  if (!version) return null;
+  return array(catalog).find(function (item) { return item.version === version; }) || null;
+}
+
 function validDigest(value) {
 	return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
 }
@@ -359,12 +364,13 @@ function normalizeZ2kDetails(value) {
   };
 }
 
-function normalizeZ2k(input, engineReady) {
+function normalizeZ2k(input, engineAvailable) {
   input = object(input);
 	var value = object(input.z2k || input.component || input);
 	var plan = object(value.plan);
 	var catalogSource = value.catalog !== undefined ? value.catalog : input.catalog;
 	var catalogMeta = object(catalogSource);
+	var catalogKnown = value.catalogKnown !== undefined ? value.catalogKnown === true : Array.isArray(catalogSource);
 	var catalog = normalizeZ2kCatalog(catalogSource);
 	var remoteState = first(value.remoteState || catalogMeta.remoteState || input.remoteState, null);
 	var selectedDetails = normalizeZ2kDetails(value.selectedDetails || input.selectedDetails);
@@ -374,10 +380,6 @@ function normalizeZ2k(input, engineReady) {
 	var updateState = z2kUpdateState(remoteStatus);
 	var local = object(value.local);
 	var detect = normalizeDetect(runtimeSummary && runtimeSummary.detect || value.detect || local.detect, runtimeSummary || value, value);
-	if (engineReady !== true) {
-		detect.status = detect.status === 'ready' ? 'unknown' : detect.status;
-		detect.compatible = false;
-	}
 	var compatibilityIdentity = first(runtimeSummary && runtimeSummary.compatibilityIdentity || value.compatibilityIdentity || local.compatibilityIdentity, null);
 	var hasLocal = local && (local.installed !== undefined || local.lua !== undefined || local.integrity !== undefined || local.integrityOk !== undefined || local.commit !== undefined || local.installedRelease !== undefined) || runtimeSummary !== null;
 	var canonicalHealth = runtimeSummary && runtimeSummary.health ? health(runtimeSummary.health, 'degraded') : null;
@@ -393,13 +395,12 @@ function normalizeZ2k(input, engineReady) {
 			&& releaseEvidence.confidence === 'confirmed'
 			&& ['activation-receipt-v3', 'activation-receipt-v2', 'activation-receipt-v1', 'activation-receipt'].indexOf(releaseEvidence.authority) >= 0)
 		: false;
-  // TRUTH MODEL: Z2K Core is ready only on top of a READY compatible Engine
-  // plus materialized/integrity-checked assets. Without a proven engine the
-  // component is a requires-engine install gate — regardless of bundled
-  // package assets. Unknown state is bounded-degraded, never silently ready.
+	// TRUTH MODEL: Z2K Core readiness is based on its own receipt, materialized
+	// assets, dependency closure, and Detect identity. Engine compatibility is
+	// still the install gate; the Engine process itself may remain stopped.
   var healthState;
   var summary;
-  if (engineReady !== true) {
+  if (engineAvailable !== true) {
     healthState = 'missing';
     summary = 'Требуется совместимый Zapret2 Engine.';
   } else if (hasLocal) {
@@ -511,7 +512,7 @@ var strategyCount = countValue(value.strategyCount);
 	var manifest = object(value.manifest || plan.manifest || local.manifest);
 	var planToken = first(value.planToken || plan.planToken, null);
 	var actions = {
-    primary: engineReady !== true ? 'details'
+    primary: engineAvailable !== true ? 'details'
       : healthState === 'missing' || healthState === 'broken' ? 'repair'
 		: updateState === 'update-available' && canApply === true ? 'update'
 		: ['integration-required', 'review-required', 'rebase-required'].indexOf(attentionState) >= 0
@@ -551,6 +552,18 @@ var strategyCount = countValue(value.strategyCount);
 	var availableRelease = availableReleaseRaw && typeof availableReleaseRaw === 'object'
 		? versionFrom(availableReleaseRaw) : first(availableReleaseRaw, null);
 	var latestRelease = availableRelease || catalogLatest && catalogLatest.version || (catalog[0] && catalog[0].version) || null;
+	var availableCatalogItem = installableCatalogRelease(catalog, availableRelease);
+	var availableReleaseInCatalog = updateState === 'update-available'
+		? remoteState === 'not-loaded' || !catalogKnown ? null : !!availableCatalogItem : null;
+	var availableReleaseInstallable = updateState === 'update-available'
+		? catalogKnown ? !!(availableCatalogItem && availableCatalogItem.installable === true) : null : null;
+	// A remote manifest can announce a release before the immutable device
+	// catalog contains its verified install target. Keep the announcement
+	// visible, but never expose it as an actionable update.
+	if (updateState === 'update-available' && availableReleaseInstallable === false) canApply = false;
+	var updatePresentation = UpdatePresentation.describe(updateState);
+	if (updateState === 'update-available' && availableReleaseInCatalog === false)
+		updatePresentation = { state: 'review-required', label: 'Требуется проверка', kind: 'warning' };
 	if (selectedVersion === null) selectedVersion = installedRelease.value || latestRelease || null;
 	var preparedTarget = object(value.preparedTarget);
 	var lifecycleOperation = value.operation && typeof value.operation === 'object' ? value.operation
@@ -600,14 +613,16 @@ var strategyCount = countValue(value.strategyCount);
 		runtimeHealth: healthState,
 		health: healthState,
 		updateState: updateState,
-		updatePresentation: UpdatePresentation.describe(updateState),
+		updatePresentation: updatePresentation,
 		attentionState: attentionState,
 		canApply: canApply,
-		requiresEngine: engineReady !== true,
+		requiresEngine: engineAvailable !== true,
 		updates: updates,
 		compatibility: compatibilityStateValue,
 		installedRelease: installedRelease,
 		availableRelease: availableRelease,
+		availableReleaseInCatalog: availableReleaseInCatalog,
+		availableReleaseInstallable: availableReleaseInstallable,
 		latestRelease: latestRelease,
 		remoteState: remoteState,
 		remoteAvailable: value.remoteAvailable !== undefined ? value.remoteAvailable === true : null,
@@ -657,7 +672,7 @@ var strategyCount = countValue(value.strategyCount);
 		details: {
 		engineDelta: first(value.engineDelta || local.engineDelta, null),
 		localInstalled: hasLocal && (local.installed === true || local.installed === false) ? local.installed : null,
-		requiresEngine: engineReady !== true,
+		requiresEngine: engineAvailable !== true,
 		provenance: provenanceSrc,
 		rebases: rebases,
 		reviews: reviews,
@@ -695,7 +710,7 @@ function aggregateHealth(components) {
 function normalizePage(input) {
   input = object(input);
   var engine = normalizeEngine(input.engine || {});
-	var z2k = normalizeZ2k(input.z2k || input.resources || {}, engine.runtimeHealth === 'ready');
+	var z2k = normalizeZ2k(input.z2k || input.resources || {}, engine.compatibility.state === 'compatible');
   var components = [engine, z2k];
   return {
     manager: managerMeta(input.versions || input.manager || {}),

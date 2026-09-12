@@ -4,7 +4,7 @@
 // verifier for Avatar's manifest/layout; this adapter adds the source-owned
 // namespace and immutable snapshot identity without creating a second reader.
 
-import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
+import { strategy_catalog_load, strategy_catalog_load_raw, catalog_entry_to_strategy } from './strategy-catalog.uc';
 
 const SOURCE_ID = 'avatar';
 const REPOSITORY = 'avatarDD/zapret-gui';
@@ -74,7 +74,11 @@ function verified_catalog(input) {
 	let options = object(input) ? input : {};
 	let root = options.root || null;
 	let result;
-	try { result = strategy_catalog_load(root); } catch (e) {
+	try {
+		result = options.raw == true
+			? strategy_catalog_load_raw(root, { repository: REPOSITORY, commit: options.sourceCommit })
+			: strategy_catalog_load(root);
+	} catch (e) {
 		return error('EVERIFY', 'Avatar catalog verification raised an exception');
 	}
 	if (!object(result) || result.ok != true || !object(result.catalog))
@@ -96,7 +100,8 @@ function catalog_entries(catalog) {
 }
 
 export const strategy_source_avatar_snapshot = function(input) {
-	let catalog = verified_catalog(input);
+	let options = object(input) ? input : {};
+	let catalog = verified_catalog(options);
 	if (!object(catalog) || !object(catalog.source)) return catalog;
 	let listed = catalog_entries(catalog);
 	if (!object(listed) || listed.ok != true) return listed;

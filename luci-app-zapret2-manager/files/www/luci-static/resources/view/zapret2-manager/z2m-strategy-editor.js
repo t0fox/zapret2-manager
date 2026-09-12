@@ -184,13 +184,14 @@ return baseclass.extend({
       array(strategy.profiles).forEach(function (profile, index) {
         var id = profileId(profile, index);
         var tab = element(document, 'div', 'strategy-editor-profile-item');
-        var button = element(document, 'button', 'btn btn-ghost btn-sm strategy-editor-profile-button' + (id === activeId ? ' is-active' : ''), profileDisplayLabel(profile, index));
+        var button = element(document, 'button', 'btn btn-ghost btn-sm strategy-editor-profile-button' + (id === activeId ? ' is-active' : ''));
         button.type = 'button';
         button.setAttribute('role', 'tab');
         button.setAttribute('aria-selected', id === activeId ? 'true' : 'false');
         button.dataset.profileId = id;
         button.setAttribute('data-profile-id', id);
         button.addEventListener('click', function () { switchProfile(id); });
+        button.appendChild(element(document, 'span', 'strategy-editor-profile-label', profileDisplayLabel(profile, index)));
         tab.appendChild(button);
         var localDiagnostics = localProblemsForProfile(profile, index);
         var diagnosticTotal = localDiagnostics.length + backendProblemsForProfile(index).length;
@@ -229,6 +230,8 @@ return baseclass.extend({
       } else activeHeader.appendChild(element(document, 'strong', '', 'Профиль не выбран'));
       workspaceHost.appendChild(activeHeader);
       var modes = element(document, 'div', 'strategy-editor-mode-tabs');
+      modes.setAttribute('role', 'tablist');
+      modes.setAttribute('aria-label', 'Режим редактирования');
       ['visual', 'code'].forEach(function (mode) {
         var button = element(document, 'button', 'btn btn-ghost btn-sm' + (current && viewFor(current, activeIndex()) === mode ? ' is-active' : ''), mode === 'visual' ? 'Визуально' : 'Код');
         button.type = 'button';
@@ -453,6 +456,7 @@ return baseclass.extend({
       if (!handle) {
         handle = CodeEditor.mount(hosts.editorHost, {
           value: text(profile.args),
+          lineWrapping: true,
           extensions: nfqws2.extensions,
           onChange: function (value) {
             if (syncSource) return;

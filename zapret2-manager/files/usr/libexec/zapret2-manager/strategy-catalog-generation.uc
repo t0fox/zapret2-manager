@@ -9,7 +9,7 @@ import { mkdir, popen, readfile, readlink, stat, unlink, writefile } from 'fs';
 
 const CATALOG_ROOT = getenv('Z2M_STRATEGY_CATALOG_GENERATION_ROOT') || '/etc/zapret2-manager/catalog';
 const GENERATIONS_ROOT = getenv('Z2M_STRATEGY_CATALOG_GENERATIONS_ROOT') || CATALOG_ROOT + '/generations';
-const ACTIVE_POINTER = getenv('Z2M_STRATEGY_CATALOG_ACTIVE_POINTER') || CATALOG_ROOT + '/active.json';
+const ACTIVE_POINTER = getenv('Z2M_STRATEGY_CATALOG_GENERATION_ACTIVE_POINTER') || getenv('Z2M_STRATEGY_CATALOG_ACTIVE_POINTER') || CATALOG_ROOT + '/generation-active.json';
 const INDEX_PATH = getenv('Z2M_STRATEGY_CATALOG_INDEX_PATH') || CATALOG_ROOT + '/strategy-catalog-index.json';
 const INDEX_SCHEMA = 'z2m.strategy-read-index.v3';
 const POINTER_SCHEMA = 'z2m.strategy-active-generation.v1';
@@ -320,7 +320,7 @@ export const strategy_catalog_generation_publish = function(input) {
 	let candidate = built.candidate;
 	if (!ensure_layout()) return failure('EWRITE', 'Generation storage is unavailable');
 	let oldIndex = read_raw(INDEX_PATH), oldPointer = read_raw(ACTIVE_POINTER);
-	if (!oldIndex.ok || !oldPointer.ok) return failure('ESTALE', 'Existing generation authority is unreadable');
+	if (!oldIndex.ok || !oldPointer.ok || oldIndex.missing != oldPointer.missing) return failure('ESTALE', 'Existing generation authority is unreadable');
 	let generationPath = GENERATIONS_ROOT + '/' + candidate.generationId + '.json';
 	let serialized = sprintf('%J', candidate.index);
 	if (!atomic_write(generationPath, serialized)) return failure('EWRITE', 'Generation record could not be written');
@@ -335,6 +335,19 @@ export const strategy_catalog_generation_publish = function(input) {
 		return failure('EWRITE', 'Active generation pointer could not be published');
 	}
 	return { ok: true, generationId: candidate.generationId, indexDigest: candidate.indexDigest, index: candidate.index };
+};
+
+export const strategy_catalog_generation_clear = function() {
+	let oldIndex = read_raw(INDEX_PATH), oldPointer = read_raw(ACTIVE_POINTER);
+	if (!oldIndex.ok || !oldPointer.ok) return failure('ESTALE', 'Existing generation authority is unreadable');
+	if (oldIndex.missing && oldPointer.missing) return { ok: true, alreadyAbsent: true };
+	if (oldIndex.missing != oldPointer.missing) return failure('ESTALE', 'Generation authority is only partially present');
+	let pointer = null;
+	try { pointer = json(oldPointer.raw); } catch (e) { pointer = null; }
+	if (!object(pointer) || !safe_id(pointer.generationId)) return failure('ESTALE', 'Active generation pointer is invalid');
+	try { unlink(INDEX_PATH); unlink(ACTIVE_POINTER); unlink(GENERATIONS_ROOT + '/' + pointer.generationId + '.json'); }
+	catch (e) { return failure('EWRITE', 'Generation authority could not be cleared'); }
+	return stat(INDEX_PATH) == null && stat(ACTIVE_POINTER) == null ? { ok: true, absent: true } : failure('EWRITE', 'Generation authority clear could not be verified');
 };
 
 export const strategy_catalog_generation_read = function() {

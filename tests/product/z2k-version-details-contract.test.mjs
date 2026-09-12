@@ -27,7 +27,7 @@ test('lazy install diff is derived from exact-managed membership only', () => {
 });
 
 test('release and install diffs are explicit and compare against different baselines', () => {
-  assert.match(source, /let installedRow = target_release\(installedVersion, catalog\.versions\)/);
+  assert.match(source, /let catalogRows = catalog\.releases \|\| catalog\.versions[\s\S]*let installedRow = target_release\(installedVersion, catalogRows\)/);
   assert.match(source, /let installedManifest = null/);
   assert.match(source, /let releaseChangeSet = release_changes_between\(checked\.manifest, previousManifest\)/);
   assert.match(source, /installChangeSet = changes_between\(checked\.manifest, installedManifest, map\)/);
@@ -46,7 +46,7 @@ test('release details expose immutable compare identity without leaking raw inte
 
 test('release details expose the operation relative to the confirmed installed release', () => {
   assert.match(source, /function target_operation\s*\(/);
-  assert.match(source, /release_compare\(\{ version: version \}, \{ version: installed \}\)/);
+  assert.match(source, /release_operation_compare\(\{ version: version \}, \{ version: installed \}\)/);
   assert.match(source, /comparison < 0 \? 'upgrade' : \(comparison > 0 \? 'downgrade' : 'reinstall'\)/);
   assert.match(source, /operation:\s*operation/);
   assert.match(source, /installedVersion:\s*installedVersion/);

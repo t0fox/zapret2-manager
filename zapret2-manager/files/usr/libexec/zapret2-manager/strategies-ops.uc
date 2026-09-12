@@ -4,7 +4,7 @@
 // owns only the learned autocircular view/reset, healthcheck configuration,
 // state.tsv per-resource overrides & freeze.
 
-import { readfile, writefile, popen, mkdir } from 'fs';
+import { readfile, writefile, stat, popen, mkdir } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
 import { append_ndjson, event_id } from './events.uc';
 import { z2k_pool_semantic_digest, z2k_learned_state_reconcile, z2k_autocircular_identity_load, z2k_autocircular_identity_save, z2k_autocircular_identity_restore } from './z2k-autocircular-identity.uc';
@@ -26,8 +26,11 @@ function shell_escape(value) {
 	return out + "'";
 }
 function ensure_dir() {
-	let p = popen('mkdir ' + shell_escape(LEARNED_DIR) + ' 2>/dev/null', 'r');
-	if (p) { p.read('all'); p.close(); }
+	let p = popen('mkdir -p ' + shell_escape(LEARNED_DIR) + ' 2>/dev/null', 'r');
+	if (!p) return false;
+	p.read('all');
+	let rc = p.close();
+	return rc == 0;
 }
 function load_json(path, fallback) {
 	let raw = null; try { raw = readfile(path); } catch (e) { raw = null; }
@@ -142,10 +145,25 @@ function state_mode(value) {
 	return mode == '' || mode == 'auto' ? 'auto' : null;
 }
 
-function learned_rows() {
-	let raw = null; try { raw = readfile(LEARNED_PATH); } catch (e) { raw = null; }
+function autocircular_state_file_load() {
+	let metadata = null;
+	try { metadata = stat(LEARNED_PATH); } catch (e) {
+		return { ok: false, error: { code: 'EIO', message: 'autocircular state.tsv metadata could not be read', path: LEARNED_PATH } };
+	}
+	if (metadata == null) {
+		return { ok: false, error: { code: 'ENOENT', message: 'autocircular state.tsv is not initialized', path: LEARNED_PATH } };
+	}
+
+	let raw = null;
+	try { raw = readfile(LEARNED_PATH); } catch (e) {
+		return { ok: false, error: { code: 'EIO', message: 'autocircular state.tsv could not be read', path: LEARNED_PATH } };
+	}
+	if (raw == null) {
+		return { ok: false, error: { code: 'EIO', message: 'autocircular state.tsv read returned no data', path: LEARNED_PATH } };
+	}
+
 	let rows = [];
-	for (let line in split(raw || '', '\n')) {
+	for (let line in split(raw, '\n')) {
 		line = trim(line); if (!length(line) || substr(line, 0, 1) == '#') continue;
 		let fields = split(line, '\t');
 		if (length(fields) < 3) continue;
@@ -159,7 +177,12 @@ function learned_rows() {
 			mode: mode
 		});
 	}
-	return rows;
+	return { ok: true, rows: rows };
+}
+
+function learned_rows() {
+	let loaded = autocircular_state_file_load();
+	return loaded.ok ? loaded.rows : [];
 }
 
 function learned_summary(rows) {
@@ -389,7 +412,9 @@ function state_save_rows(rows) {
 }
 
 function learned_state() {
-	let rows = learned_rows();
+	let loaded = autocircular_state_file_load();
+	if (!loaded.ok) return loaded;
+	let rows = loaded.rows;
 	let pools_info = pools_read();
 	let live_discord = resolve_live_discord_key(pools_info.pools);
 	let pool_size = live_discord && pools_info.pools[live_discord] ? pools_info.pools[live_discord].size : 6;
@@ -453,12 +478,23 @@ function autocircular_pool_identity(pools) {
 
 // Prepare is read-only.  The returned evidence is carried by the Core
 // transaction so rollback can restore both Manager-owned files exactly.
-export const strategies_autocircular_prepare = function(pools) {
-	let identities = autocircular_pool_identity(pools);
-	if (!identities.ok) return identities;
+export const strategies_autocircular_prepare = function(pools, options) {
 	let stored = z2k_autocircular_identity_load();
 	if (!stored.ok) return stored;
-	let rows = learned_rows(), reconciliation = z2k_learned_state_reconcile(stored.identity, identities.identity, rows);
+	let loaded = autocircular_state_file_load();
+	if (!loaded.ok) return loaded;
+	let rows = loaded.rows, allowEmptyBaseline = is_object(options) && options.allowEmptyBaseline === true;
+	let identities = autocircular_pool_identity(pools);
+	let emptyBaseline = allowEmptyBaseline && is_object(pools) && length(keys(pools)) === 0
+		&& identities && identities.error && identities.error.code == 'ESTATE'
+		&& identities.error.message == 'active autocircular pools are unavailable; refusing reconciliation';
+	if (!identities.ok && !emptyBaseline) return identities;
+	if (emptyBaseline) {
+		return { ok: true, schema: 'z2m-autocircular-transaction.v1', noActivePools: true,
+			priorIdentity: stored.identity, priorIdentityPresent: stored.present === true, priorRows: rows,
+			rows: rows, reset: [], resetAllLegacy: false, changed: false };
+	}
+	let reconciliation = z2k_learned_state_reconcile(stored.identity, identities.identity, rows);
 	if (!reconciliation.ok) return reconciliation;
 	return { ok: true, schema: 'z2m-autocircular-transaction.v1', nextIdentity: identities.identity,
 		priorIdentity: stored.identity, priorIdentityPresent: stored.present === true, priorRows: rows,
@@ -471,14 +507,18 @@ function autocircular_identity_write(identity) { return z2k_autocircular_identit
 function autocircular_identity_restore(snapshot) { return z2k_autocircular_identity_restore(snapshot); }
 
 function autocircular_rollback(prepared, writers) {
+	if (prepared && prepared.noActivePools === true) return { ok: true, skipped: true, noActivePools: true, restored: true };
 	let state = writers.state(prepared.priorRows), identity = writers.identity({ present: prepared.priorIdentityPresent, identity: prepared.priorIdentity });
 	let ok = state && state.ok === true && identity && identity.ok === true;
 	return { ok: ok, state: state, identity: identity, restored: ok };
 }
 
 export const strategies_autocircular_commit = function(prepared) {
-	if (!is_object(prepared) || prepared.schema != 'z2m-autocircular-transaction.v1' || !is_object(prepared.nextIdentity)
-		|| !array(prepared.priorRows) || !array(prepared.rows)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular commit evidence is incomplete' } };
+	if (!is_object(prepared) || prepared.schema != 'z2m-autocircular-transaction.v1' || !array(prepared.priorRows) || !array(prepared.rows))
+		return { ok: false, error: { code: 'EINPUT', message: 'autocircular commit evidence is incomplete' } };
+	if (prepared.noActivePools === true)
+		return { ok: true, committed: true, skipped: true, noActivePools: true, entries: prepared.priorRows, reset: [], resetAllLegacy: false };
+	if (!is_object(prepared.nextIdentity)) return { ok: false, error: { code: 'EINPUT', message: 'autocircular commit evidence is incomplete' } };
 	let writers = { state: autocircular_state_write, identity: autocircular_identity_write };
 	let state = prepared.changed ? writers.state(prepared.rows) : { ok: true, skipped: true };
 	if (!state || state.ok !== true) {
@@ -537,7 +577,9 @@ function state_set(input) {
 	if (!length(strategy) || !match(strategy, /^[0-9]+$/) || +strategy < 1)
 		return { ok: false, error: { code: 'EINPUT', message: 'strategy must be a positive integer' } };
 
-	let rows = learned_rows();
+	let loaded = autocircular_state_file_load();
+	if (!loaded.ok) return loaded;
+	let rows = loaded.rows;
 	let existing = null;
 	for (let row in rows) {
 		if (row.key == key && row.host == host) { existing = row; break; }
@@ -584,7 +626,9 @@ function state_set(input) {
 function learned_clear(input) {
 	let value = request_value(input);
 	if (value == null) return request_error();
-	let host = safe_text(value.host), key = safe_text(value.key), rows = learned_rows(), kept = [];
+	let loaded = autocircular_state_file_load();
+	if (!loaded.ok) return loaded;
+	let host = safe_text(value.host), key = safe_text(value.key), rows = loaded.rows, kept = [];
 	let is_discord = (key == 'discord_voice' || key == 'discord_udp') && (host == 'nohost' || !host);
 	for (let row in rows) {
 		if (is_discord && (row.key == 'discord_voice' || row.key == 'discord_udp') && (row.host == 'nohost' || (host && row.host == host)))

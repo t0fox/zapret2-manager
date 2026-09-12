@@ -60,6 +60,15 @@ function installedShaFor(path, assets) {
 	let listed = assets || registry_assets(), asset = registry_asset_for(path, listed);
 	return asset && asset.contentSha256 || null;
 }
+function installedEvidenceShaFor(path, item, installedEvidence) {
+	let evidence = object(installedEvidence) ? installedEvidence : {};
+	if (dependency_class(item) == 'compiler-input' && object(evidence.compilerFiles)
+		&& string(evidence.compilerFiles[path])) return evidence.compilerFiles[path];
+	if (dependency_class(item) == 'detect-arch' && object(evidence.detect)
+		&& string(evidence.detect.arch) && path == 'z2k-detect/builds/z2k-detect-linux-' + evidence.detect.arch)
+		return string(evidence.detect.digest) ? evidence.detect.digest : null;
+	return null;
+}
 function sha256_file(path) {
 	// Local helper for check-time candidate verification (mirrors z2k-compat).
 	let p = popen('sha256sum ' + quote(path) + " 2>/dev/null | awk '{print $1}'", 'r');
@@ -101,8 +110,10 @@ function plan_result(manifest, updates, rebases, reviews, advisoryReviews, block
 		manifest: manifest
 	};
 }
-function plan(value) {
-	// PURE: deterministic from manifest + classification + registry. No network.
+function plan(value, installedEvidence) {
+	// Target planning remains pure when no installedEvidence is supplied. The
+	// optional evidence is only for status/check projection and is restricted to
+	// canonical lifecycle authorities (Detect receipt and strategy snapshot).
 	let checked = validate_manifest(value, length(sprintf('%J', value))); if (!checked.ok) return checked;
 	let map = classification(); if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
 	let updates = [], updateItems = [], removedItems = [], targetPaths = {}, rebases = [], reviews = [], advisoryReviews = [], blockingReviews = [], reviewDetails = [], blockingReasons = [], unknownUnconsumed = [], compilerInputs = [], assets = registry_assets();
@@ -129,12 +140,12 @@ function plan(value) {
 			continue;
 		}
 		let klass = dependency_class(item);
-		if (klass == 'compiler-input' && item.basedOnSha256 != digest) {
-			push(compilerInputs, { sourcePath: path, currentSha256: item.basedOnSha256 || null, targetSha256: digest, consumer: item.consumer || 'official Z2K compiler', action: 'compile-and-validate' });
+		if (klass == 'compiler-input' && (installedEvidenceShaFor(path, item, installedEvidence) || item.basedOnSha256) != digest) {
+			push(compilerInputs, { sourcePath: path, currentSha256: installedEvidenceShaFor(path, item, installedEvidence) || item.basedOnSha256 || null, targetSha256: digest, consumer: item.consumer || 'official Z2K compiler', action: 'compile-and-validate' });
 		}
 		else if (klass == 'runtime-exact' || klass == 'detect-arch') {
 			targetPaths[path] = true;
-			let installedAsset = registry_asset_for(path, assets), installed = installedAsset && installedAsset.contentSha256 || installedShaFor(path, assets);
+			let installedAsset = registry_asset_for(path, assets), installed = installedEvidenceShaFor(path, item, installedEvidence) || installedAsset && installedAsset.contentSha256 || installedShaFor(path, assets);
 			let needsUpdate = (installed == null) || (installed != digest);
 			if (needsUpdate) {
 				push(updates, path);
@@ -181,13 +192,13 @@ function fetch_untrusted_manifest_once() {
 	if (result.ok !== true || result.payload == null) return fail(result.error && result.error.code || 'EUNAVAILABLE', 'Не удалось получить UPDATES.json.', { source: result.origin || 'raw-content' });
 	return { ok: true, manifest: result.payload, sourceCommit: sourceCommit, trustMode: 'allow-untrusted', contentSha256: result.contentSha256 || null };
 }
-export const z2k_upstream_plan = function(remoteManifest) { return plan(remoteManifest); };
-export const z2k_upstream_check = function() {
+export const z2k_upstream_plan = function(remoteManifest, installedEvidence) { return plan(remoteManifest, installedEvidence); };
+export const z2k_upstream_check = function(installedEvidence) {
 	if (!ALLOW_UNTRUSTED) return fail('EUNSUPPORTED', 'Signed Z2K verification is disabled in this build.');
 	let lastErr = null;
 	for (let attempt = 0; attempt < 2; attempt++) {
 		let remote = fetch_untrusted_manifest_once(); if (!remote.ok) { lastErr = remote; continue; }
-		let checked = plan(remote.manifest); if (!checked.ok) return checked;
+		let checked = plan(remote.manifest, installedEvidence); if (!checked.ok) return checked;
 		// Content-bound preflight for state-persist if it is in updates
 		let needGate = false; for (let i = 0; i < length(checked.updates); i++) if (checked.updates[i] == 'files/lua/z2k-state-persist.lua') needGate = true;
 		if (needGate) {

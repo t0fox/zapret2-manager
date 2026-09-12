@@ -236,7 +236,7 @@ test('catalog fetch alone leaves the explicit last-check timestamp unknown', () 
   });
   const text = textOf(internals.renderComponents(ctx, ctx.data));
 
-  assert.match(text, /Последняя проверка: ещё не проверялось/);
+  assert.match(text, /Последняя проверка: пока не выполнялась/);
   assert.doesNotMatch(text, /ts:999/);
 });
 

@@ -55,6 +55,42 @@ test('Healthcheck backend keeps validation and custom targets on the canonical p
   assert.match(jobs, /'custom'\s*\+/);
 });
 
+test('Healthcheck persistence creates the state directory and reports success deterministically', () => {
+  const ops = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops.uc'), 'utf8');
+  const ensureDir = ops.match(/function ensure_dir\(\)[\s\S]*?\n}\n/);
+  assert.ok(ensureDir, 'ensure_dir helper exists');
+  assert.match(ensureDir[0], /mkdir -p/, 'existing state directories must be accepted');
+  assert.match(ensureDir[0], /return\s+rc\s*==\s*0/, 'save_json must receive the mkdir result');
+});
+
+test('Healthcheck job builder has its own bounded shell escaping primitive', () => {
+  const jobs = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/jobs.uc'), 'utf8');
+  assert.match(jobs, /function shell_escape\(value\)[\s\S]*?return out \+ "'";/,
+    'healthcheck job construction must not call an undeclared shell helper');
+});
+
+test('Healthcheck job responses compute elapsed time through a local helper', () => {
+  const jobs = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/jobs.uc'), 'utf8');
+  assert.match(jobs, /function elapsed_sec\(job\)[\s\S]*?\n}/,
+    'public job responses must not call an undeclared elapsed-time helper');
+});
+
+test('Healthcheck job lifecycle exposes bounded log helpers', () => {
+  const jobs = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/jobs.uc'), 'utf8');
+  assert.match(jobs, /function log_tail\(id, maxBytes\)[\s\S]*?readfile\(JDIR \+ '\/' \+ id \+ '\.log'\)/,
+    'healthcheck status must read a bounded job log tail');
+  assert.match(jobs, /function truncate_log_text\(raw, maxBytes\)[\s\S]*?substr\(/,
+    'healthcheck completion must cap persisted job logs');
+});
+
+test('Healthcheck settings never report success for a structured RPC failure', () => {
+  const page = read('z2m-strategies.js');
+  const handler = page.match(/function saveHealthcheckSettings\(\)[\s\S]*?\n}\n/);
+  assert.ok(handler, 'saveHealthcheckSettings handler exists');
+  assert.match(handler[0], /answer\s*&&\s*answer\.ok\s*===\s*false/);
+  assert.match(handler[0], /throw\s+answer/);
+});
+
 test('selected Healthcheck services are never skipped because catalog presence is false', () => {
   const jobs = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/jobs.uc'), 'utf8');
   const classifier = jobs.match(/function classify_service\(probes\) \{[\s\S]*?\n\}/);

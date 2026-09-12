@@ -75,8 +75,8 @@
       "sourcePath": "files/lua/z2m-autocircular-policy.lua",
       "runtimeTarget": "/runtime-assets/lua/z2m-autocircular-policy.lua",
       "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2m-autocircular-policy.lua",
-      "contentSha256": "5d14c6f5a52c2ce20325b0d36f64d8f9d9c7f7be8a6ae1a6438a02dd5febe206",
-      "byteSize": 2769,
+      "contentSha256": "65077f4e8ff692955eee314aa7e80fc9e012d4c56cb75ffa5a118023a575e56b",
+      "byteSize": 4016,
       "runtimeOrder": 5
     }
   ]

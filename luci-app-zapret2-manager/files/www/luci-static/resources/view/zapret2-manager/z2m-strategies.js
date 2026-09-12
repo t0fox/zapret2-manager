@@ -34,7 +34,7 @@ var state = {
   detailLoading: {},
   listUI: null, pollTimer: null, disposed: false, loaded: false,
   healthcheck: null, healthcheckCatalog: [], healthcheckSettings: { open: false, loading: false, draft: null, error: null },
-  learned: null, clipboardFallback: false,
+  learned: null, learnedError: null, learnedPoolsError: null, clipboardFallback: false,
   modalResize: null, editorMaximized: false, editorSidebarCollapsed: false,
   editorLoadFrame: null, editorLoadingSlowTimer: null,
   clickHandler: null, changeHandler: null, inputHandler: null,
@@ -219,7 +219,15 @@ function errorText(ctx, error) {
 function previewOutput(ctx, answer) {
   if (answer && answer.ok === false) {
     var normalized = ctx && ctx.api && ctx.api.normalizeError ? ctx.api.normalizeError(answer) : null;
-    if (normalized) return normalized.message + (normalized.code ? ' [' + normalized.code + ']' : '') + (normalized.technical ? ': ' + normalized.technical : '');
+    if (normalized) {
+      var messages = {
+        ECHILD: 'Серверная проверка не завершилась',
+        EOUTPUT: 'Сервер вернул неполный результат проверки',
+        EUNAVAILABLE: 'Проверка сейчас недоступна',
+        EPREFLIGHT: 'Проверка зависимостей не пройдена'
+      };
+      return (messages[normalized.code] || normalized.message) + (normalized.code ? ' [' + normalized.code + ']' : '');
+    }
     return errorText(ctx, answer);
   }
   var command = answer && (answer.effectiveCommand || answer.fullCommand || answer.command || answer.output);
@@ -315,7 +323,7 @@ var ListUI = {
     var searchTimer = null, observer = null, listeners = [];
     root.classList.add('list-ui');
     root.innerHTML = '<div class="list-ui-toolbar"><div class="list-ui-search"><span class="list-ui-search-icon">' + svgIcon('search', 14) + '</span>' +
-      '<input class="form-input list-ui-search-input" type="search" aria-label="Поиск стратегий" placeholder="' + escapeAttr(cfg.searchPlaceholder || 'Поиск…') + '" value="' + escapeAttr(search) + '">' +
+      '<input class="form-input list-ui-search-input" type="search" name="strategy-search" autocomplete="off" aria-label="Поиск стратегий" placeholder="' + escapeAttr(cfg.searchPlaceholder || 'Поиск…') + '" value="' + escapeAttr(search) + '">' +
       '<button class="list-ui-search-clear" type="button" title="Очистить" aria-label="Очистить поиск">' + svgIcon('x', 12) + '</button></div><div class="list-ui-toolbar-right"><span class="list-ui-count"></span></div></div>' +
       '<div class="list-ui-filters"></div><div class="list-ui-body"></div><div class="list-ui-loadmore" style="display:none"><button class="btn btn-ghost btn-sm" type="button">Показать ещё</button></div>';
     var input = root.querySelector('.list-ui-search-input');
@@ -562,7 +570,7 @@ function renderStrategyCard(strategy) {
       ? '<button class="btn btn-primary btn-sm" type="button" disabled aria-busy="true"><span class="btn-spinner" aria-hidden="true"></span><span>Применяем…</span></button>'
       : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Применить эту стратегию">' + svgIcon('play', 14) + '<span>Применить</span></button>';
   return '<div class="strategy-card compact' + (strategy.pinned && strategy.sourceId === 'z2k' ? ' z2k-all-in-one' : '') + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
-    '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" aria-label="Выбрать стратегию для объединения" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
+    '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" aria-label="Выбрать стратегию для объединения" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><button type="button" class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><span class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '') + activeLabels(strategy) + '</span><span class="strategy-card-meta">' + meta + '</span>' + (strategy.description ? '<span class="strategy-card-desc">' + escapeHtml(strategy.description) + '</span>' : '') + '</button><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
     '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap" id="strategy-details-' + escapeAttr(strategy.id) + '" data-details-loaded="' + (args ? 'true' : 'false') + '">' + args + '</div><div class="strategy-card-actions"><div class="strategy-card-primary-actions">' + actions + '</div><div class="strategy-card-secondary-actions">' +
     '<button class="strategy-card-toggle" data-action="toggleDetails" data-strategy-id="' + escapeAttr(strategy.id) + '" data-list-ui-toggle type="button" aria-expanded="false" aria-controls="strategy-details-' + escapeAttr(strategy.id) + '" title="Показать настройки стратегии">' + svgIcon('chevronDown', 12) + '<span class="strategy-card-toggle-label">Подробнее</span></button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Показать эффективную команду nfqws2">' + svgIcon('terminal', 14) + '<span>Превью</span></button>' +
     '<details class="strategy-card-menu"><summary class="strategy-card-menu-trigger btn btn-ghost btn-sm">' + svgIcon('chevronUp', 12, 'strategy-card-menu-chevron') + '<span>Ещё</span></summary><div class="strategy-card-menu-panel"><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Скопировать команду nfqws2">' + svgIcon('clipboard', 14) + '<span>Скопировать команду</span></button>' + (cardPending === 'duplicate' ? '<button class="btn btn-ghost btn-sm" type="button" disabled aria-busy="true"><span class="btn-spinner" aria-hidden="true"></span><span>Создаём копию…</span></button>' : '<button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Создать пользовательскую копию">' + svgIcon('copy', 14) + '<span>Создать копию</span></button>') +
@@ -596,7 +604,10 @@ function renderActiveCard() {
   if (!host) return;
   var active = activeStrategyProjection(), sourceId = explicitStrategySource(active), sourceLine = sourceId
     ? '<div class="active-strategy-projection"><span>Источник: ' + escapeHtml(sourceFilterLabel(sourceId)) + '</span><span>Стратегия: ' + escapeHtml(active.name) + '</span></div>' : '';
-  host.innerHTML = active ? '<span class="status-dot running"></span><div class="active-strategy-copy"><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-helper">Используется сейчас в nfqws2</div><div class="active-strategy-meta">' + activeLabels(active) + '</div>' + sourceLine + '</div><button class="btn btn-ghost btn-sm active-strategy-preview" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">' + svgIcon('terminal', 14) + '<span>Превью команды</span></button>' : '<span class="status-dot stopped"></span><div class="active-strategy-copy"><div class="active-strategy-name">Стратегия не выбрана</div><div class="active-strategy-helper">Выберите стратегию из списка ниже</div></div>';
+  var stale = !!(active && active.runtimeStale);
+  var helper = stale ? 'Запущена ревизия ' + escapeHtml(String(active.runtimeRevision)) + '; сохранена более новая — примените её ниже' : 'Используется сейчас в nfqws2';
+  var meta = stale ? '<span class="badge badge-warning">Требует применения</span>' : activeLabels(active);
+  host.innerHTML = active ? '<span class="status-dot ' + (stale ? 'warning' : 'running') + '"></span><div class="active-strategy-copy"><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-helper">' + helper + '</div><div class="active-strategy-meta">' + meta + '</div>' + sourceLine + '</div><button class="btn btn-ghost btn-sm active-strategy-preview" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">' + svgIcon('terminal', 14) + '<span>Превью команды</span></button>' : '<span class="status-dot stopped"></span><div class="active-strategy-copy"><div class="active-strategy-name">Стратегия не выбрана</div><div class="active-strategy-helper">Выберите стратегию из списка ниже</div></div>';
 }
 function compiledCatalogStats() {
   var stats = {
@@ -629,13 +640,13 @@ function renderCatalogSummary() {
   var value = catalogValue(state.data), counts = object(value.counts), resolution = object(value.resolution), stats = compiledCatalogStats();
   var verification = resolution.verified === true ? 'Проверен' : 'Не проверен';
   var z2kDescription = stats.z2k.count
-    ? 'All-in-One + ' + stats.z2k.standalone + ' standalone top-level profiles'
-    : 'Официальный compiled-пул недоступен';
-  host.innerHTML = '<div class="compiled-catalog-lede"><span>Источники разделены по владению и готовности. Legacy numeric strategy IDs не публикуются.</span><span class="compiled-catalog-health">' + escapeHtml(value.ok === true ? verification : 'Проверка') + ' · ' + text(counts.files || 0) + ' upstream files</span></div>' +
+    ? 'Основная стратегия и ' + stats.z2k.standalone + ' отдельных профилей'
+    : 'Официальный набор недоступен';
+  host.innerHTML = '<div class="compiled-catalog-lede"><span>Источники разделены по владельцам и готовности. Старые числовые идентификаторы стратегий не показываются.</span><span class="compiled-catalog-health">' + escapeHtml(value.ok === true ? verification : 'Проверка') + ' · ' + text(counts.files || 0) + ' файлов источника</span></div>' +
     '<div class="compiled-catalog-grid">' +
       '<div class="compiled-catalog-source" data-catalog-source="avatar"><div class="compiled-catalog-source-head"><b>Avatar</b><span class="compiled-catalog-state ready">Готовые</span></div><strong>' + text(stats.avatar.count) + '</strong><span>готовых стратегий</span></div>' +
-      '<div class="compiled-catalog-source" data-catalog-source="z2k"><div class="compiled-catalog-source-head"><b>Z2K</b><span class="compiled-catalog-state ready">Official compiled</span></div><strong>' + text(stats.z2k.count) + '</strong><span>' + escapeHtml(z2kDescription) + '</span></div>' +
-      '<div class="compiled-catalog-source" data-catalog-source="user"><div class="compiled-catalog-source-head"><b>User</b><span class="compiled-catalog-state">Отдельно</span></div><strong>' + text(stats.user.count) + '</strong><span>пользовательских стратегий</span></div>' +
+      '<div class="compiled-catalog-source" data-catalog-source="z2k"><div class="compiled-catalog-source-head"><b>Z2K</b><span class="compiled-catalog-state ready">Официальный набор</span></div><strong>' + text(stats.z2k.count) + '</strong><span>' + escapeHtml(z2kDescription) + '</span></div>' +
+      '<div class="compiled-catalog-source" data-catalog-source="user"><div class="compiled-catalog-source-head"><b>Пользовательские</b><span class="compiled-catalog-state">Отдельно</span></div><strong>' + text(stats.user.count) + '</strong><span>пользовательских стратегий</span></div>' +
     '</div>';
 }
 function renderBulkBar() {
@@ -681,7 +692,7 @@ function renderHealthcheckSettings() {
   var invalid = settings.error ? '<div class="healthcheck-settings-error" role="alert">' + escapeHtml(settings.error) + '</div>' : '';
   var loading = settings.loading ? '<div class="healthcheck-settings-loading">Загружаю каталог сервисов…</div>' : '';
   return '<div id="healthcheck-settings-panel" class="healthcheck-settings-panel">' +
-    '<div class="healthcheck-settings-heading"><div><strong>Настройки авто-починки</strong><span>Параметры сохраняются одной операцией.</span></div></div>' + invalid + loading +
+    '<div class="healthcheck-settings-heading"><div><strong>Настройки автоматической проверки</strong><span>Параметры сохраняются одной операцией.</span></div></div>' + invalid + loading +
     '<div class="healthcheck-settings-section"><div class="healthcheck-settings-label">Сервисы для проверки</div><div id="healthcheck-settings-services" class="healthcheck-service-grid">' + (rows || '<span class="text-muted">Каталог сервисов недоступен.</span>') + '</div></div>' +
     '<label class="healthcheck-settings-section"><span class="healthcheck-settings-label">Свои сайты <small>по одному домену или URL в строке</small></span><textarea id="healthcheck-settings-custom" rows="3" placeholder="rutracker.org&#10;https://example.com">' + escapeHtml(customValue) + '</textarea></label>' +
     '<div class="healthcheck-settings-grid"><label><span>Интервал, мин</span><input id="healthcheck-settings-interval" type="number" min="1" max="1440" value="' + escapeAttr(draft.interval_min) + '"></label><label><span>Сброс после N провалов</span><input id="healthcheck-settings-threshold" type="number" min="1" max="20" value="' + escapeAttr(draft.consecutive_failures) + '"></label></div>' +
@@ -729,19 +740,28 @@ function renderOperationalCards() {
     var reset = (cfg.auto_reset !== false && cfg.autoReset !== false) ? 'Авто-сброс включён' : 'Авто-сброс выключен';
     var guard = (cfg.outage_guard !== false && cfg.outageGuard !== false) ? 'Защита от общего сбоя включена' : 'Защита от общего сбоя выключена';
     var settings = state.healthcheckSettings || {};
-    var healthContent = '<div class="strategy-ops-controls"><label class="strategy-toggle-control"><input type="checkbox" data-action="toggleHealthcheck"' + (hc.enabled ? ' checked' : '') + '><span>' + svgIcon('activity', 14) + '<span>Автоматическая проверка</span></span></label><div class="strategy-ops-actions"><button class="btn btn-ghost btn-sm" data-action="runHealthcheck">' + svgIcon('play', 14) + '<span>Проверить сейчас</span></button><button class="btn btn-ghost btn-sm" data-action="configureHealthcheck">' + svgIcon('settings', 14) + '<span>' + (settings.open ? 'Свернуть' : 'Настроить') + '</span></button></div></div><div class="strategy-status-row"><span class="strategy-status-badge ' + (hc.enabled ? 'enabled' : 'disabled') + '"><span class="status-dot ' + (hc.enabled ? 'running' : 'stopped') + '"></span>' + escapeHtml(status) + '</span><span class="strategy-status-copy">' + (hc.enabled ? 'Проверка выполняется по расписанию.' : 'Разовая проверка доступна в любое время.') + '</span></div><div class="strategy-ops-explainer">Healthcheck проверяет доступность выбранных сервисов и помогает circular заново подобрать рабочую стратегию после серии сбоев.</div><div class="strategy-ops-meta"><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(reset) + '</span><span>' + escapeHtml(guard) + '</span></div>' + (settings.open ? renderHealthcheckSettings() : '') + renderHealthcheckResults();
+    var healthContent = '<div class="strategy-ops-controls"><label class="strategy-toggle-control"><input type="checkbox" data-action="toggleHealthcheck"' + (hc.enabled ? ' checked' : '') + '><span>' + svgIcon('activity', 14) + '<span>Автоматическая проверка</span></span></label><div class="strategy-ops-actions"><button class="btn btn-ghost btn-sm" data-action="runHealthcheck">' + svgIcon('play', 14) + '<span>Проверить сейчас</span></button><button class="btn btn-ghost btn-sm" data-action="configureHealthcheck">' + svgIcon('settings', 14) + '<span>' + (settings.open ? 'Свернуть' : 'Настроить') + '</span></button></div></div><div class="strategy-status-row"><span class="strategy-status-badge ' + (hc.enabled ? 'enabled' : 'disabled') + '"><span class="status-dot ' + (hc.enabled ? 'running' : 'stopped') + '"></span>' + escapeHtml(status) + '</span><span class="strategy-status-copy">' + (hc.enabled ? 'Проверка выполняется по расписанию.' : 'Разовая проверка доступна в любое время.') + '</span></div><div class="strategy-ops-explainer">Автоматическая проверка проверяет доступность выбранных сервисов и помогает автоматически подобрать рабочую стратегию после серии сбоев.</div><div class="strategy-ops-meta"><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(reset) + '</span><span>' + escapeHtml(guard) + '</span></div>' + (settings.open ? renderHealthcheckSettings() : '') + renderHealthcheckResults();
     health.innerHTML = healthContent;
   }
   var learned = state.root && state.root.querySelector('#strategy-learned-info');
   if (learned) {
     var value = object(state.learned);
     var allEntries = array(value.entries).map(function (entry) { return Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry; });
-    var count = Number(value.count || allEntries.length);
-    if (!count) {
-      learned.innerHTML = '<div class="learned-empty-copy">' +
+    var count = allEntries.length;
+    var learnedError = state.learnedError;
+    var learnedPoolsError = state.learnedPoolsError;
+    var learnedNotice = learnedError
+      ? '<div class="learned-refresh-warning" role="status"><span>Не удалось обновить список. Показаны последние подтверждённые данные.</span><button class="btn btn-ghost btn-sm" data-action="refreshLearned">Повторить</button></div>'
+      : learnedPoolsError
+        ? '<div class="learned-refresh-warning" role="status"><span>Список обновлён. Названия вариантов временно недоступны.</span><button class="btn btn-ghost btn-sm" data-action="refreshLearned">Повторить</button></div>'
+        : '';
+    if (state.learned === null && !learnedError) {
+      learned.innerHTML = '<div class="learned-loading-copy" role="status" aria-live="polite"><span class="status-dot running"></span><span>Загрузка списка выученных стратегий…</span></div>';
+    } else if (!count) {
+      learned.innerHTML = learnedNotice + (learnedError ? '<div class="learned-empty-copy"><p>Список обучения временно недоступен. Он не был очищен.</p></div>' : '<div class="learned-empty-copy">' +
         '<p>Пока ничего не выучено. <b>Автоматический подбор</b> (circular) — режим, в котором nfqws2 самостоятельно перебирает варианты обхода для каждого ресурса и закрепляет рабочий результат.</p>' +
         '<div class="strategy-ops-secondary">Как начать: выберите авто-стратегию circular, примените её и откройте нужный ресурс.</div>' +
-        '</div>' +
+        '</div>') +
         '<div class="strategy-ops-actions" style="margin-top:12px">' +
         '<button class="btn btn-primary btn-sm" data-action="showCircular">' + svgIcon('refresh', 14) + '<span>Показать авто-стратегии</span></button>' +
         '</div>';
@@ -756,7 +776,7 @@ function renderOperationalCards() {
           '</div>';
       }).join('');
 
-      learned.innerHTML = '<div class="strategy-status-row">' +
+      learned.innerHTML = learnedNotice + '<div class="strategy-status-row">' +
         '<span class="strategy-status-badge enabled"><span class="status-dot running"></span>Выучено: <b>' + count + '</b></span>' +
         '<span class="strategy-status-copy">Circular автоматически закрепляет рабочие варианты для ресурсов.</span>' +
         '</div>' +
@@ -932,13 +952,13 @@ function renderStratPickerModal() {
 
   var itemsHtml = options.map(function (opt) {
     var isSelected = opt.selected || (Number(opt.value) === curStrat);
-    return '<div class="strat-picker-item' + (isSelected ? ' active' : '') + '" data-action="selectStratPickerOption" data-value="' + escapeAttr(opt.value) + '">' +
+    return '<label class="strat-picker-item' + (isSelected ? ' active' : '') + '" data-action="selectStratPickerOption" data-value="' + escapeAttr(opt.value) + '">' +
       '<div class="strat-picker-radio"><input type="radio" name="strat-picker-choice" value="' + escapeAttr(opt.value) + '"' + (isSelected ? ' checked' : '') + '></div>' +
       '<div class="strat-picker-info">' +
         '<div class="strat-picker-name">' + escapeHtml(opt.name || opt.label) + '</div>' +
         '<div class="strat-picker-meta"><span class="strat-picker-idx">#' + escapeHtml(opt.value) + '</span> ' + (opt.isUnknown ? '<span class="strat-picker-warn">Вне пула</span>' : '<span class="text-muted">вариант runtime</span>') + '</div>' +
       '</div>' +
-      '</div>';
+      '</label>';
   }).join('');
 
   var hostTitle = host;
@@ -1168,7 +1188,7 @@ function renderLearnedModal() {
     actions += '<button type="button" class="learned-action-btn learned-action-reset" data-action="resetLearned" data-host="' + escapeAttr(item.host || '') + '" data-key="' + escapeAttr(item.key || '') + '" title="Сбросить выученный вариант для этого ресурса" aria-label="Сбросить выученный вариант">' + svgIcon('trash', 14) + '</button>';
 
     return '<tr class="learned-row' + rowClass + '" data-runtime-key="' + escapeAttr(item.key || '') + '" data-learned-ts="' + escapeAttr(item.ts || '') + '">' +
-      '<td class="learned-col-domain" data-label="Ресурс"><span class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать: ' + escapeAttr(item.host) + '"><strong>' + escapeHtml(item.host) + '</strong></span></td>' +
+      '<td class="learned-col-domain" data-label="Ресурс"><button type="button" class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать: ' + escapeAttr(item.host) + '"><strong>' + escapeHtml(item.host) + '</strong></button></td>' +
       '<td class="learned-col-proto" data-label="Протокол"><span class="learned-proto-badge ' + escapeAttr(item.protoClass || 'tls') + '">' + escapeHtml(item.protocol || 'TLS') + '</span></td>' +
       '<td class="learned-col-strategy" data-label="Стратегия">' + strategyHtml + '</td>' +
       '<td class="learned-col-variant" data-label="Вариант">' + variantHtml + '</td>' +
@@ -1191,7 +1211,7 @@ function renderLearnedModal() {
     '<div class="learned-modal-toolbar-left">' +
     '<div class="list-ui-search learned-search-wrap">' +
     '<span class="list-ui-search-icon learned-search-icon">' + svgIcon('search', 14) + '</span>' +
-    '<input type="search" class="form-input list-ui-search-input learned-modal-search" placeholder="Поиск по ресурсам..." aria-label="Поиск по ресурсам" value="' + escapeAttr(modalState.search || '') + '">' +
+    '<input type="search" name="learned-strategy-search" autocomplete="off" class="form-input list-ui-search-input learned-modal-search" placeholder="Поиск по ресурсам..." aria-label="Поиск по ресурсам" value="' + escapeAttr(modalState.search || '') + '">' +
     '<button type="button" class="list-ui-search-clear learned-search-clear" data-action="clearLearnedSearch" title="Очистить поиск" aria-label="Очистить поиск" style="display:' + (modalState.search ? 'flex' : 'none') + '">' + svgIcon('x', 12) + '</button>' +
     '</div>' +
     '<div class="learned-proto-filters">' +
@@ -1259,7 +1279,7 @@ function refreshStrategyStyles() {
   var link = document && document.getElementById ? document.getElementById('z2m-ui-css') : null;
   if (!link || !link.getAttribute || !link.setAttribute) return;
   var href = link.getAttribute('href') || '';
-  if (href.indexOf('v=compiled-catalog-20260903-r2') < 0) link.setAttribute('href', href.split('?')[0] + '?v=compiled-catalog-20260903-r2');
+  if (href.indexOf('v=compiled-catalog-20260912-strategy-ui-r13') < 0) link.setAttribute('href', href.split('?')[0] + '?v=compiled-catalog-20260912-strategy-ui-r13');
 }
 function refreshHealthcheck() {
   if (!state.ctx || !state.ctx.api.healthcheck || !state.ctx.api.healthcheck.status) return Promise.resolve();
@@ -1308,6 +1328,7 @@ function saveHealthcheckSettings() {
     consecutive_failures: value.consecutive_failures, outage_guard: value.outage_guard,
     control_domain: value.control_domain, auto_reset: current.auto_reset };
   call(state.ctx.api.healthcheck.config, payload).then(function (answer) {
+    if (answer && answer.ok === false) throw answer;
     state.healthcheck = answer || state.healthcheck; state.pending = null; cancelHealthcheckSettings(); notify('ok', 'Настройки сохранены');
   }).catch(function (error) {
     state.pending = null; state.healthcheckSettings.error = errorText(state.ctx, error); renderOperationalCards();
@@ -1322,11 +1343,43 @@ function refreshLearned() {
   var stateMethod = state.ctx && state.ctx.api.strategies && state.ctx.api.strategies.learnedState;
   if (!stateMethod) return Promise.resolve();
   var poolsMethod = state.ctx && state.ctx.api.strategies && state.ctx.api.strategies.pools;
-  var p1 = call(stateMethod, {}).catch(function () { return { entries: [], count: 0 }; });
-  var p2 = poolsMethod ? call(poolsMethod, {}).catch(function () { return { pools: {} }; }) : Promise.resolve({ pools: {} });
+  function read(method, validate) {
+    return Promise.resolve().then(function () { return call(method, {}); }).then(function (value) {
+      if (value && value.ok === false) return { ok: false, error: value.error || value };
+      if (validate && !validate(value)) return { ok: false, error: { code: 'EINVALID', message: 'Неполный снимок списка обучения' } };
+      return { ok: true, value: value || {} };
+    }, function (error) {
+      return { ok: false, error: error || { code: 'ERPC', message: 'RPC unavailable' } };
+    });
+  }
+  var p1 = read(stateMethod, function (value) {
+    if (!value || !Array.isArray(value.entries)) return false;
+    if (value.count == null) return true;
+    var count = Number(value.count);
+    return isFinite(count) && count >= 0 && Math.floor(count) === count && count === value.entries.length;
+  });
+  var p2 = poolsMethod ? read(poolsMethod) : Promise.resolve({ ok: true, value: { pools: {} } });
   return Promise.all([p1, p2]).then(function (res) {
-    state.learned = res[0] || { entries: [], count: 0 };
-    state.pools = (res[1] && res[1].pools) || (res[0] && res[0].pools) || {};
+    var learnedResult = res[0], poolsResult = res[1];
+    if (!learnedResult.ok) {
+      // A transient RPC failure is not proof that learning is empty. Retain the
+      // last confirmed snapshot and make the transport problem explicit.
+      if (!state.learned) state.learned = { entries: [], count: 0 };
+      state.learnedError = learnedResult.error || { code: 'ERPC', message: 'RPC unavailable' };
+      renderOperationalCards();
+      if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
+      return state.learned;
+    }
+      state.learned = learnedResult.value || { entries: [], count: 0 };
+      if (poolsResult.ok) {
+        state.pools = poolsResult.value.pools || learnedResult.value.pools || state.pools || {};
+        state.learnedError = null;
+        state.learnedPoolsError = null;
+      } else {
+        // Keep fresh learned rows even when optional pool enrichment is down.
+        state.learnedError = null;
+        state.learnedPoolsError = poolsResult.error || { code: 'ERPC', message: 'RPC unavailable' };
+      }
     renderOperationalCards();
     if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
     return state.learned;
@@ -1335,6 +1388,7 @@ function refreshLearned() {
 function stateSet(key, host, strategy, mode) {
   var setMethod = state.ctx && state.ctx.api.strategies && state.ctx.api.strategies.stateSet;
   if (!setMethod) return;
+  var learnedBeforeMutation = state.learned ? JSON.parse(JSON.stringify(state.learned)) : null;
   var isDiscord = (key === 'discord_voice' || key === 'discord_udp' || host === 'nohost');
   var liveDiscordKey = isDiscord
     ? ((Model && Model.extractDiscordVoiceState && Model.extractDiscordVoiceState(state.learned && state.learned.entries, state.pools).runtimeKey) || key || 'discord_udp')
@@ -1394,15 +1448,29 @@ function stateSet(key, host, strategy, mode) {
     }
     return refreshLearned();
   }).catch(function (error) {
+    if (learnedBeforeMutation) state.learned = learnedBeforeMutation;
     notify('err', errorText(state.ctx, error));
     refreshLearned();
   });
 }
+function isDiscordProfile(profile) {
+  var args = text(profile && profile.args);
+  var noHostKey = args.indexOf('hostkey=z2k_nohost_key') >= 0;
+  var discordKey = args.indexOf('key=discord_udp') >= 0 || args.indexOf('key=discord_voice') >= 0;
+  var discordFilter = args.indexOf('--filter-l7=discord') >= 0 || args.indexOf('--filter-l7=stun') >= 0;
+  return discordKey && args.indexOf('--lua-desync=circular') >= 0 && noHostKey &&
+    args.indexOf('--filter-udp=') >= 0 && discordFilter;
+}
+function hasDiscordPayload(args) {
+  var match = text(args).match(/(?:^|\s)--payload=([^\s]+)/);
+  if (!match) return false;
+  var payloads = match[1].split(',');
+  return payloads.indexOf('discord_ip_discovery') >= 0 && payloads.indexOf('stun') >= 0;
+}
 function hasDiscordProfile(strategy) {
   return array(strategy && strategy.profiles).some(function (profile) {
     var args = text(profile && profile.args);
-    return args.indexOf('key=discord_udp') >= 0 && args.indexOf('--lua-desync=circular') >= 0 &&
-      args.indexOf('hostkey=z2k_nohost_key') >= 0 && args.indexOf('--filter-udp=') >= 0 && args.indexOf('--filter-l7=discord') >= 0;
+    return isDiscordProfile(profile) && hasDiscordPayload(args);
   });
 }
 function discordDonorSourceFilter(strategy) {
@@ -1434,8 +1502,13 @@ function startDiscordMerge(source, raw, donor, digest) {
   if (hasDiscordProfile(full)) {
     state.pending = null; renderAll(); notify('warn', 'Текущая Strategy уже содержит совместимый Discord-профиль.'); return;
   }
+  // A saved Strategy may contain the retired/incomplete Discord profile from
+  // before the canonical donor carried the discovery + STUN payload contract.
+  // Remove that semantic profile before composing the donor, otherwise both
+  // profiles capture the same UDP flows and circular state becomes ambiguous.
+  var retainedProfiles = array(full.profiles).filter(function (profile) { return !isDiscordProfile(profile); });
   var used = {};
-  array(full.profiles).forEach(function (profile) { used[profile.id] = true; });
+  retainedProfiles.forEach(function (profile) { used[profile.id] = true; });
   var donorProfiles = donor.profiles.map(function (profile, index) {
     var id = profile.id || 'strategy-discord-' + String(index + 1);
     if (used[id]) id += '-discord';
@@ -1451,7 +1524,7 @@ function startDiscordMerge(source, raw, donor, digest) {
   draft.name = source.name + ' + Discord';
   draft.origin = 'derived'; draft.isBuiltin = false; draft.is_builtin = false;
   draft.revision = 0;
-  draft.profiles = array(full.profiles).concat(donorProfiles);
+  draft.profiles = retainedProfiles.concat(donorProfiles);
   draft.metadata = Object.assign({}, object(full.metadata), { provenance: Object.assign({}, strategyProvenance(full), { composition: 'discord',
     donor: { canonicalStrategyId: donor.canonicalStrategyId, sourceId: donor.sourceId,
       sourceSnapshotId: donor.sourceSnapshotId, sourceCommit: donor.sourceCommit,
@@ -2187,7 +2260,7 @@ function renderEditorForm() {
     headerActions.insertBefore(maximize, headerActions.querySelector('[data-action="closeModal"]'));
   }
   try {
-    body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><section class="strategy-editor-section strategy-editor-details" aria-labelledby="strategy-editor-details-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-details-title">Основные данные</h4><p>Идентификатор и описание, которые видны в каталоге.</p></div><span class="strategy-editor-section-step">01</span></div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-visual-host" data-editor-visual-host></div></section><section class="strategy-editor-section strategy-editor-profile-section" aria-labelledby="strategy-editor-profiles-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-profiles-title">Профили</h4><p>Выберите профиль и настройте его параметры.</p></div><span class="strategy-editor-section-step">02</span></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-header"><div><span class="strategy-editor-code-kicker">Рабочая область</span><h4>Аргументы nfqws2</h4></div><span class="strategy-editor-code-hint">Аргументы активного профиля</span></div><div class="strategy-editor-code-pane" data-editor-editor-host></div></section><section class="strategy-editor-section strategy-editor-results-section" aria-labelledby="strategy-editor-results-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-results-title">Проверка и превью</h4><p>Локальные проблемы видны сразу; перед сохранением можно запустить серверную проверку.</p></div><span class="strategy-editor-section-step">03</span></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host aria-live="polite"></div><div class="strategy-editor-preview-panel" data-editor-preview-panel><div class="strategy-editor-preview-header"><div><span class="strategy-editor-code-kicker">Команда</span><strong>Превью выполнения</strong></div><div class="strategy-editor-preview-actions"><div data-editor-preview-actions-host></div><button class="btn btn-ghost btn-sm" type="button" data-action="toggleEditorPreview" aria-expanded="true">Свернуть</button></div></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host aria-live="polite" style="display:none"></div></div></section><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><div><span class="strategy-editor-side-kicker">Контекст</span><strong>Инспектор</strong></div><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть инспектор</button></div><section class="nfq-side-card token-help" aria-labelledby="strategy-editor-inspector-title"><h4 class="editor-side-title" id="strategy-editor-inspector-title">Подсказка по синтаксису</h4><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></section><section class="nfq-side-card strategy-editor-problems-card" data-editor-problems-host aria-live="polite"></section></aside></div>';
+    body.innerHTML = '<div class="strat-editor-layout" data-workflow="VIEW CLONE CREATE EDIT VALIDATE PREVIEW TEST SAVE APPLY"><div class="strat-editor-main"><div class="strategy-editor-provenance">' + editorProvenanceHtml(strategy) + '</div><section class="strategy-editor-section strategy-editor-details" aria-labelledby="strategy-editor-details-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-details-title">Основные данные</h4><p>Идентификатор и описание, которые видны в каталоге.</p></div><span class="strategy-editor-section-step">01</span></div><div class="strategy-editor-fields" data-editor-fields-host></div><div class="strategy-editor-visual-host" data-editor-visual-host></div></section><section class="strategy-editor-section strategy-editor-profile-section" aria-labelledby="strategy-editor-profiles-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-profiles-title">Профили</h4><p>Выберите профиль и настройте его параметры.</p></div><span class="strategy-editor-section-step">02</span></div><div class="strategy-editor-profiles" data-editor-profiles-host></div><div class="strategy-editor-code-header"><div><span class="strategy-editor-code-kicker">Рабочая область</span><h4>Аргументы nfqws2</h4></div><span class="strategy-editor-code-hint">Аргументы активного профиля</span></div><div class="strategy-editor-code-pane" data-editor-editor-host></div></section><section class="strategy-editor-section strategy-editor-results-section" aria-labelledby="strategy-editor-results-title"><div class="strategy-editor-section-heading"><div><h4 id="strategy-editor-results-title">Проверка и превью</h4><p>Локальные проблемы видны сразу; перед сохранением можно запустить серверную проверку.</p></div><span class="strategy-editor-section-step">03</span></div><div id="editor-validation-output" class="nfq-diagnostics" data-editor-validation-host aria-live="polite"></div><div class="strategy-editor-preview-panel is-collapsed" data-editor-preview-panel><div class="strategy-editor-preview-header"><div><span class="strategy-editor-code-kicker">Команда</span><strong>Превью выполнения</strong></div><div class="strategy-editor-preview-actions"><div data-editor-preview-actions-host></div><button class="btn btn-ghost btn-sm" type="button" data-action="toggleEditorPreview" aria-expanded="false">Развернуть</button></div></div><div id="editor-preview-output" class="log-viewer nfq-resizable" data-editor-preview-host aria-live="polite" hidden></div></div></section><div class="editor-actions" data-editor-actions-host></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="editor-side-toolbar"><div><span class="strategy-editor-side-kicker">Контекст</span><strong>Инспектор</strong></div><button class="btn btn-ghost btn-sm" data-action="toggleEditorSidebar" aria-expanded="true">Скрыть инспектор</button></div><section class="nfq-side-card token-help" aria-labelledby="strategy-editor-inspector-title"><h4 class="editor-side-title" id="strategy-editor-inspector-title">Подсказка по синтаксису</h4><div class="nfq-side-note" data-editor-inspector-host>Поставьте курсор на флаг, значение или asset.</div></section><section class="nfq-side-card strategy-editor-problems-card" data-editor-problems-host aria-live="polite"></section></aside></div>';
     var actionsHost = body.querySelector('[data-editor-actions-host]');
     composeStrategyIdeLayout(body, headerActions);
     state.editor.onSave = saveEditor;
@@ -2279,7 +2352,7 @@ function editorValidationText(answer) {
   if (answer.ok === false) return errorText(state.ctx, answer);
   var validation = answer.validation || answer;
   var coverage = validation.coverage || {};
-  return answer.ok === true ? 'Validate: OK · ' + Object.keys(coverage).filter(function (key) { return coverage[key] === 'passed'; }).join(', ') : 'Validate: ' + text(validation.status || 'unknown');
+  return answer.ok === true ? 'Проверка пройдена · ' + Object.keys(coverage).filter(function (key) { return coverage[key] === 'passed'; }).join(', ') : 'Проверка: ' + text(validation.status || 'неизвестно');
 }
 function validateEditor() {
   if (!state.editor || state.editor.validationPending || state.editor.operationPending) return;
@@ -2290,7 +2363,7 @@ function validateEditor() {
     Nfqws2Ide.diagnostics(profile.args).forEach(function (item) { local.push(Object.assign({}, item, { path: 'profiles[' + index + '].' + (item.path || 'raw') })); });
   });
   var output = state.root.querySelector('#editor-validation-output');
-  if (output) output.innerHTML = local.length ? local.map(function (item) { return '<div class="nfq-diag-' + (item.severity === 'error' ? 'error' : 'warning') + '">' + escapeHtml(item.path + ': ' + item.message) + '</div>'; }).join('') : '<span class="nfq-diag-ok">local diagnostics: ok</span>';
+  if (output) output.innerHTML = local.length ? local.map(function (item) { return '<div class="nfq-diag-' + (item.severity === 'error' ? 'error' : 'warning') + '">' + escapeHtml(item.path + ': ' + item.message) + '</div>'; }).join('') : '<span class="nfq-diag-ok">Локальная проверка: ошибок нет</span>';
   validation.status = 'validating';
   state.editor.validationPending = true; state.editor.operationPending = 'validate'; setEditorOperationBusy('validate', true); renderEditorStatus();
   call(state.ctx.api.strategies.validate, { strategy_data: draft, catalog_digest: catalogDigest(state.data), validate: true }).then(function (answer) {
@@ -2304,7 +2377,7 @@ function validateEditor() {
     }
     setEditorOperationBusy('validate', false); renderEditorStatus();
     if (output) output.innerHTML += '<div class="strategy-validation-result">' + escapeHtml(editorValidationText(answer)) + '</div>';
-  }).catch(function (error) { if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = false; validation.validatedDraftFingerprint = null; validation.status = 'failed'; setEditorOperationBusy('validate', false); renderEditorStatus(); if (output) output.innerHTML += '<div class="nfq-diag-error">server: ' + escapeHtml(errorText(state.ctx, error)) + '</div>'; });
+  }).catch(function (error) { if (state.editor !== editor) return; state.editor.validationPending = false; state.editor.operationPending = null; state.editor.serverValidated = false; validation.validatedDraftFingerprint = null; validation.status = 'failed'; setEditorOperationBusy('validate', false); renderEditorStatus(); if (output) output.innerHTML += '<div class="nfq-diag-error">Серверная проверка: ' + escapeHtml(errorText(state.ctx, error)) + '</div>'; });
 }
 function strategyDiffHtml(strategy) {
   var active = state.rows.find(function (item) { return item.current || item.applied; });
@@ -2406,7 +2479,7 @@ function previewCommandSection(answer, output, pending, commandId) {
   var commandMetaHtml = '<div class="strategy-preview-command-meta"><span>' + commandMeta.map(function (item) { return escapeHtml(item); }).join(' · ') + '</span></div>';
   var pendingMarkup = '<div class="strategy-preview-command-loading" role="status" aria-live="polite" aria-busy="true"><span class="strategy-preview-inline-spinner" aria-hidden="true"></span><div><strong>Собираем команду</strong><small>Сервер строит эффективную проекцию выбранной стратегии…</small></div></div>';
   var errorDetail = text(output) || (answer && answer.error && text(answer.error.message)) || 'Сервис не вернул команду';
-  var errorMarkup = '<div class="strategy-preview-command-error" role="alert"><strong>Не удалось построить Preview</strong><small>' + escapeHtml(errorDetail) + '</small></div>';
+  var errorMarkup = '<div class="strategy-preview-command-error" role="alert"><strong>Не удалось построить превью</strong><small>' + escapeHtml(errorDetail) + '</small></div>';
   var readyMarkup = previewCommandOverview(answer) + '<details class="strategy-preview-raw" open><summary>Полная команда nfqws2</summary><pre' + id + ' class="log-viewer nfq-resizable strategy-preview-command" aria-label="Полная команда nfqws2">' + escapeHtml(command) + '</pre></details>';
   return '<section class="strategy-preview-primary-command" aria-labelledby="strategy-preview-command-title"><div class="strategy-preview-command-heading"><div><span class="strategy-preview-kicker">NFQWS2 · ТОЛЬКО ЧТЕНИЕ</span><h4 id="strategy-preview-command-title">Эффективная команда</h4><p>Фактическая проекция, которую сформировал сервер.</p></div><span class="strategy-preview-state ' + stateClass + '"' + (pending ? ' aria-live="polite"' : '') + '>' + stateIndicator + stateLabel + '</span></div>' + notice + commandMetaHtml + (pending ? pendingMarkup : failed ? errorMarkup : readyMarkup) + '</section>';
 }
@@ -2432,7 +2505,7 @@ function previewDetails(answer, strategy, validationPending) {
     var targets = [].concat(array(visual.hostlists), array(visual.ipsets)).join(', ') || 'не заданы';
     var enabled = profile.enabled !== false ? 'Включён' : 'Выключен';
     var args = text(profile.args);
-    return '<details class="strategy-preview-profile"><summary><span><b>' + escapeHtml(profile.name || 'Профиль ' + (index + 1)) + '</b><small>' + escapeHtml(enabled + ' · ' + protocols + ' · targets: ' + targets) + '</small></span><span class="strategy-preview-summary-action">Исходные аргументы</span></summary><pre>' + escapeHtml(args) + '</pre></details>';
+    return '<details class="strategy-preview-profile"><summary><span><b>' + escapeHtml(profile.name || 'Профиль ' + (index + 1)) + '</b><small>' + escapeHtml(enabled + ' · ' + protocols + ' · цели: ' + targets) + '</small></span><span class="strategy-preview-summary-action">Исходные аргументы</span></summary><pre>' + escapeHtml(args) + '</pre></details>';
   }).join('');
   var dependencies = object(answer && answer.dependencies);
   var dependencyItems = array(dependencies.items).map(function (item) { return previewDependencyRow(item, false); }).join('');
@@ -2540,8 +2613,14 @@ function renderPreviewModal() {
 }
 function previewEditor() {
   if (!state.editor || state.editor.operationPending) return;
-  var editor = state.editor, output = state.root.querySelector('#editor-preview-output');
+  var editor = state.editor, output = state.root.querySelector('#editor-preview-output'), panel = state.root.querySelector('[data-editor-preview-panel]'), toggle = panel && panel.querySelector('[data-action="toggleEditorPreview"]');
   collectEditor(); if (!output) return;
+  if (panel) panel.classList.remove('is-collapsed');
+  output.hidden = false;
+  if (toggle) {
+    toggle.textContent = 'Свернуть';
+    toggle.setAttribute('aria-expanded', 'true');
+  }
   var snapshot = freezeStrategySnapshot(cloneStrategy(editor.strategy));
   editor.operationPending = 'preview'; setEditorOperationBusy('preview', true); output.style.display = 'block'; output.textContent = 'Готовим превью…';
   call(state.ctx.api.strategies.preview, editorPreviewRequest(snapshot, state.data)).then(function (answer) {
@@ -2610,6 +2689,7 @@ function onClick(event) {
   else if (action === 'configureHealthcheck') configureHealthcheck();
   else if (action === 'saveHealthcheckSettings') saveHealthcheckSettings();
   else if (action === 'cancelHealthcheckSettings') cancelHealthcheckSettings();
+  else if (action === 'refreshLearned') refreshLearned();
   else if (action === 'resetLearned') resetLearned(el.dataset.host, el.dataset.key);
   else if (action === 'toggleStateFreeze') toggleStateFreeze(el.dataset.key, el.dataset.host, el.dataset.strategy, el.dataset.mode);
   else if (action === 'excludeLearned') excludeLearned(el.dataset.key, el.dataset.host, el.dataset.strategy);
@@ -2648,14 +2728,31 @@ function onKey(event) { if (event.key !== 'Escape') return; if (state.editor) cl
 function bindEvents() {
   state.clickHandler = onClick; state.changeHandler = onChange; state.inputHandler = onInput; state.keyHandler = onKey;
   state.root.addEventListener('click', state.clickHandler); state.root.addEventListener('change', state.changeHandler); state.root.addEventListener('input', state.inputHandler); document.addEventListener('keydown', state.keyHandler);
-  state.beforeUnloadHandler = function (event) { if (!editorHasDirtyState()) return; event.preventDefault(); event.returnValue = 'Unsaved Strategy IDE changes'; return event.returnValue; };
+  state.beforeUnloadHandler = function (event) { if (!editorHasDirtyState()) return; event.preventDefault(); event.returnValue = 'Есть несохранённые изменения стратегии'; return event.returnValue; };
   window.addEventListener('beforeunload', state.beforeUnloadHandler);
 }
 function unbindEvents() { if (!state.root) return; state.root.removeEventListener('click', state.clickHandler); state.root.removeEventListener('change', state.changeHandler); state.root.removeEventListener('input', state.inputHandler); document.removeEventListener('keydown', state.keyHandler); if (state.beforeUnloadHandler) window.removeEventListener('beforeunload', state.beforeUnloadHandler); state.clickHandler = state.changeHandler = state.inputHandler = state.keyHandler = state.beforeUnloadHandler = null; }
 function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
-  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div><div class="z2m-catalog-progress-timer" style="display:none"></div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-journal-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><div class="modal-title-block"><span class="modal-eyebrow">Strategy IDE</span><h3 class="modal-title">Стратегия</h3><span class="editor-document-status" data-editor-document-status>Черновик</span></div><div class="modal-header-actions"><button class="modal-close" data-action="closeModal" aria-label="Закрыть редактор стратегии" title="Закрыть">×</button></div></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview" aria-label="Закрыть превью" title="Закрыть">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal" aria-label="Закрыть список выученных стратегий" title="Закрыть">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker" aria-label="Закрыть выбор стратегии" title="Закрыть">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div id="catalog-progress" class="z2m-catalog-progress" style="display:none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="z2m-catalog-progress-track"><div class="z2m-catalog-progress-bar" style="width:0%"></div></div><div class="z2m-catalog-progress-status">Инициализация...</div><div class="z2m-catalog-progress-timer" style="display:none"></div></div><div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-journal-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Автоматическая проверка</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><div class="modal-title-block"><span class="modal-eyebrow">Редактор стратегии</span><h3 class="modal-title">Стратегия</h3><span class="editor-document-status" data-editor-document-status>Черновик</span></div><div class="modal-header-actions"><button class="modal-close" data-action="closeModal" aria-label="Закрыть редактор стратегии" title="Закрыть">×</button></div></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview" aria-label="Закрыть превью" title="Закрыть"><span>×</span></button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии</h3><button class="modal-close" data-action="closeLearnedModal" aria-label="Закрыть список выученных стратегий" title="Закрыть">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker" aria-label="Закрыть выбор стратегии" title="Закрыть">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  [
+    ['strategy-modal', 'strategy-modal-title'],
+    ['preview-modal', 'preview-modal-title'],
+    ['learned-modal', 'learned-modal-title'],
+    ['strat-picker-modal', 'strat-picker-modal-title'],
+    ['strategy-confirm-modal', 'strategy-confirm-modal-title']
+  ].forEach(function (item) {
+    var modal = root.querySelector('#' + item[0]);
+    if (!modal) return;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    var title = modal.querySelector('.modal-title') || modal.querySelector('[data-confirm-title]');
+    if (title) {
+      title.id = item[1];
+      modal.setAttribute('aria-labelledby', item[1]);
+    }
+  });
   var sourceFilterHost = document.createElement('div');
   sourceFilterHost.id = 'strategy-source-filters';
   sourceFilterHost.className = 'strategy-source-filters';
@@ -2683,10 +2780,10 @@ function render(ctx) {
   var activeTitle = root.querySelector('.active-strategy-card .card-title');
   if (activeTitle) activeTitle.innerHTML = svgIcon('activity', 16) + '<span>Активная стратегия</span><span class="card-title-actions" id="strategy-journal-info"></span>';
   var summaryTitle = root.querySelector('.catalog-summary-card .card-title');
-  if (summaryTitle) summaryTitle.innerHTML = 'Compiled Strategy Catalog <span class="catalog-summary-note">источник и готовность</span>';
+  if (summaryTitle) summaryTitle.innerHTML = svgIcon('database', 16) + '<span>Собранный каталог стратегий</span><span class="catalog-summary-note">источник и готовность</span>';
   var ops = root.querySelectorAll('.strategy-ops-card');
-  if (ops[0]) ops[0].querySelector('.card-title').innerHTML = svgIcon('activity', 16) + '<span>Авто-починка (healthcheck)</span><span class="strategy-ops-subtitle">проверяет связь и обновляет circular при провалах</span>';
-  if (ops[1]) ops[1].querySelector('.card-title').innerHTML = svgIcon('refresh', 16) + '<span>Выученные стратегии (autocircular)</span><span class="strategy-ops-subtitle">circular подобрал и закрепил</span>';
+  if (ops[0]) ops[0].querySelector('.card-title').innerHTML = svgIcon('activity', 16) + '<span>Автоматическая проверка</span><span class="strategy-ops-subtitle">проверяет связь и обновляет подбор при сбоях</span>';
+  if (ops[1]) ops[1].querySelector('.card-title').innerHTML = svgIcon('refresh', 16) + '<span>Выученные стратегии</span><span class="strategy-ops-subtitle">автоматический подбор закрепил рабочие варианты</span>';
   state.root = root; state.rows = buildRows(state.data); bindEvents(); renderAll(); return root;
 }
 function boundedRead(method, timeout, message) {
@@ -2738,7 +2835,14 @@ function mount(ctx) {
       state.pollTimer = null;
       // Never replace an in-progress editor/preview with a background poll.
       // The next cycle resumes after the transient modal is closed.
-      if (state.editor || state.preview || hasOpenStrategyDetails()) { schedule(); return; }
+      if (state.editor || state.preview) { schedule(); return; }
+      if (hasOpenStrategyDetails()) {
+        // Expanded details are read-only and must not pause the operational
+        // cards: learned rows can be appended by nfqws2 while the card stays
+        // open. Refresh only the cards here so the details view remains stable.
+        Promise.allSettled([refreshLearned(), refreshHealthcheck()]).then(schedule, schedule);
+        return;
+      }
       refreshData(false).then(schedule, schedule);
     }, 5000);
   }

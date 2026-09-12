@@ -33,6 +33,20 @@ test('Strategies model preserves canonical identity distinctions and ordered pro
   assert.equal(view.profiles[0].args, '--filter-tcp=443 --new --filter-udp=443');
 });
 
+test('Strategies model does not call a newer saved revision current at runtime', () => {
+  const model = loadModel();
+  const view = model.normalize({
+    id: 'split', name: 'Split', origin: 'user', revision: 7,
+    profiles: [{ id: 'p1', name: 'TLS', args: '--filter-tcp=443', enabled: true }]
+  }, {
+    strategyStatus: { id: 'split', revision: 6 },
+    runtimeSummary: { strategyId: 'split' }
+  });
+  assert.equal(view.runtimeStale, true);
+  assert.equal(view.applied, false);
+  assert.equal(view.current, false);
+});
+
 test('Strategies model maps safe Russian states and hides raw backend fields', () => {
   const model = loadModel();
   assert.equal(model.stateLabel('loading'), 'Загрузка…');

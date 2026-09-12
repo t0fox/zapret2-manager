@@ -186,6 +186,7 @@ function resource_include_compare_arg(req) {
 	return false;
 }
 function z2k_versions_method(req) { let refresh = false; try { refresh = req && req.args && req.args.refresh === true; } catch (e) { } try { if (req && req.refresh === true) refresh = true; } catch (e) { } return resource_cli_action(refresh ? 'versions-refresh' : 'versions'); }
+function z2k_versions_refresh_method(req) { return resource_cli_action('versions-refresh'); }
 function z2k_version_details_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('details', version, resource_include_compare_arg(req) ? 'compare' : null); }
 function z2k_prepare_version_start_method(req) { let version = resource_version_arg(req); return version == null ? { ok: false, error: { code: 'EINPUT', message: 'Z2K release version is required' } } : resource_cli_action('prepare-async', version, resource_repair_arg(req) ? 'repair' : null); }
 function resource_operation_arg(req) {
@@ -732,6 +733,7 @@ return {
 		resources_update_status: { args: { operationId: 'string' }, call: function (req) { return resources_update_status_method(req); } },
 		resources_update: { args: { edit: 'string' }, call: function (req) { return resources_update_method(req); } },
 		z2k_versions: { call: function (req) { return z2k_versions_method(req); } },
+		z2k_versions_refresh: { call: function (req) { return z2k_versions_refresh_method(req); } },
 		z2k_version_details: { args: { version: 'string', includeCompare: 'string' }, call: function (req) { return z2k_version_details_method(req); } },
 		z2k_prepare_version_start: { args: { version: 'string', repair: 'bool' }, call: function (req) { return z2k_prepare_version_start_method(req); } },
 		z2k_prepare_version_status: { args: { operationId: 'string' }, call: function (req) { return z2k_prepare_version_status_method(req); } },

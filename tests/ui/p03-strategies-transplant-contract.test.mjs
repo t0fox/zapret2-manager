@@ -93,3 +93,17 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   assert.match(page, /function mergeSelected\(\)[\s\S]*strategies\.get/);
   assert.match(page, /function copyStrategyToClipboard\(id\)[\s\S]*strategies\.get/);
 });
+
+test('strategy product surface keeps visible copy in readable Russian', () => {
+  const page = read('z2m-strategies.js');
+  assert.match(page, /Собранный каталог стратегий/);
+  assert.match(page, /Редактор стратегии/);
+  assert.doesNotMatch(page, /Compiled Strategy Catalog/);
+  assert.doesNotMatch(page, /Official compiled/);
+  assert.doesNotMatch(page, /standalone top-level profiles/);
+  assert.doesNotMatch(page, /upstream files/);
+  assert.doesNotMatch(page, /<div class="card strategy-ops-card"><div class="card-title">Healthcheck/);
+  assert.doesNotMatch(page, /Validate: OK|local diagnostics: ok/);
+  assert.doesNotMatch(page, /Не удалось построить Preview/);
+  assert.doesNotMatch(page, /targets:\s*не заданы/);
+});

@@ -83,21 +83,38 @@ function source_error(result, message, resolution) {
 }
 function valid_sha(value) { return string(value) && match(lc(value), /^[a-f0-9]{40}$/); }
 function reserve_catalog_evidence(budget) { if (!object(budget) || budget.remaining < 1) return false; budget.remaining--; return true; }
+function release_version(value) { return object(value) ? value.version : value; }
+function release_identity(value) { return z2k_release_parse(release_version(value)); }
+function release_publication(value) {
+	if (!object(value)) return '';
+	let published = value.publishedAt || value.commitPublishedAt || value.commitDate;
+	return string(published) ? published : '';
+}
 function release_compare(a, b) {
-	let left = z2k_release_parse(a.version || a), right = z2k_release_parse(b.version || b);
+	let left = release_identity(a), right = release_identity(b);
 	if (left == null || right == null) return null;
-	if (left.family != right.family) {
-		let leftPublished = text(a.publishedAt || a.commitPublishedAt || a.commitDate);
-		let rightPublished = text(b.publishedAt || b.commitPublishedAt || b.commitDate);
-		if (length(leftPublished) && length(rightPublished) && leftPublished != rightPublished)
-			return text_compare(leftPublished, rightPublished) < 0 ? 1 : -1;
-		// Unknown publication order must not become equality: target_operation
-		// would otherwise misclassify it as reinstall.
-		return null;
-	}
+	// Catalog policy is explicit and intrinsic: p-family releases sort before
+	// r-family releases, then each family sorts by numeric release identity.
+	// Publication evidence is deliberately not part of this comparator: using
+	// pairwise evidence would make the order depend on which records happened
+	// to be fetched and could violate transitivity.
+	let family = text_compare(left.family, right.family);
+	if (family != 0) return family;
 	if (left.major != right.major) return right.major - left.major;
 	if (left.minor != right.minor) return right.minor - left.minor;
-	return text(left.version) == text(right.version) ? 0 : (text(left.version) < text(right.version) ? -1 : 1);
+	return text_compare(text(left.version), text(right.version));
+}
+function release_operation_compare(a, b) {
+	let left = release_identity(a), right = release_identity(b);
+	if (left == null || right == null) return null;
+	if (left.family != right.family) {
+		let leftPublished = release_publication(a), rightPublished = release_publication(b);
+		// Cross-family mutation ordering is safe only when immutable publication
+		// evidence establishes a strict order. Equal/missing evidence fails closed.
+		if (!length(leftPublished) || !length(rightPublished) || leftPublished == rightPublished) return null;
+		return text_compare(leftPublished, rightPublished) < 0 ? 1 : -1;
+	}
+	return release_compare(a, b);
 }
 function tag_name(ref) { if (!object(ref) || !string(ref.ref)) return null; let prefix = 'refs/tags/'; if (substr(ref.ref, 0, length(prefix)) != prefix) return null; let value = substr(ref.ref, length(prefix)); return z2k_release_valid(value) ? value : null; }
 function resolve_tag_commit(version, tagSha, objectType, mode, budget) {
@@ -402,7 +419,7 @@ function fetch_manifest(version, commitSha, mode) {
 function managed_membership(manifest, map) {
 	if (map == null) return fail('EZ2K_UNCLASSIFIED_UPSTREAM_FILE', 'Z2K integration classification is unavailable.');
 	let assets = [], unknown = [], names = keys(manifest.files_sha256);
-	for (let i = 0; i < length(names); i++) { let path = names[i], item = class_for(map, path); if (item == null) { if (relevant_path(path)) push(unknown, path); continue; } if (item.class == 'exact-managed' || item.dependencyClass == 'runtime-exact') { let id = asset_id(item, path); if (id == null) { push(unknown, path); continue; } push(assets, { sourcePath: path, sha256: manifest.files_sha256[path], id: id, type: substr(id, 0, index(id, ':')), name: item.localName || id, packagePath: item.packageBaselinePath || null, runtimeTarget: item.runtimeTarget || null, dependencies: item.dependencies || [] }); } }
+	for (let i = 0; i < length(names); i++) { let path = names[i], item = class_for(map, path); if (item == null) { if (relevant_path(path)) push(unknown, path); continue; } if (item.class == 'exact-managed' || item.dependencyClass == 'runtime-exact') { let id = asset_id(item, path); if (id == null) { push(unknown, path); continue; } push(assets, { sourcePath: path, sha256: manifest.files_sha256[path], id: id, type: substr(id, 0, index(id, ':')), name: item.localName || id, packagePath: item.packageBaselinePath || null, runtimeTarget: item.runtimeTarget || null, dependencies: item.dependencies || [], aliases: item.aliases || [] }); } }
 	sort(assets, function(a, b) { return a.sourcePath == b.sourcePath ? 0 : (a.sourcePath < b.sourcePath ? -1 : 1); }); sort(unknown); return { assets: assets, unknown: unknown };
 }
 function installed_release() {
@@ -413,7 +430,7 @@ function installed_release() {
 }
 function target_operation(version, installed) {
 	if (!installed) return 'install';
-	let comparison = release_compare({ version: version }, { version: installed });
+	let comparison = release_operation_compare({ version: version }, { version: installed });
 	return comparison == null ? null : (comparison < 0 ? 'upgrade' : (comparison > 0 ? 'downgrade' : 'reinstall'));
 }
 export const z2k_target_operation = function(version, installed) { return target_operation(version, installed); };
@@ -454,31 +471,51 @@ function installed_only_row(version) {
 		unavailableReason: 'installed-not-in-remote', tagSha: null, objectType: null,
 		localOnly: true, authoritative: { tagVersion: version, tagSha: null, commitSha: null } };
 }
+function catalog_rows(refs, installed, currentVersion) {
+	let rows = [];
+	for (let i = 0; i < length(refs || []); i++) push(rows, catalog_row(refs[i], installed));
+	if (installed != null) {
+		let present = false;
+		for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) { present = true; break; }
+		if (!present && z2k_release_valid(installed)) push(rows, installed_only_row(installed));
+	}
+	let latestVersion = z2k_release_valid(currentVersion) ? currentVersion : null;
+	for (let i = 0; i < length(rows); i++) if (rows[i].version == latestVersion) rows[i].latest = true;
+	return rows;
+}
+function catalog_current(rows, currentVersion) {
+	if (!z2k_release_valid(currentVersion)) return null;
+	let row = null;
+	for (let i = 0; i < length(rows || []); i++) if (rows[i].version == currentVersion) { row = rows[i]; break; }
+	return { id: currentVersion, version: currentVersion, authoritative: true,
+		inCatalog: row != null, installable: row != null && row.installable === true,
+		latest: row != null && row.latest === true, tagSha: row && row.tagSha || null,
+		commitSha: row && row.commitSha || null };
+}
+function catalog_presentation(fullRows, current) {
+	let visibleRows = [], limit = MAX_VERSIONS;
+	for (let i = 0; i < length(fullRows || []) && i < limit; i++) push(visibleRows, fullRows[i]);
+	if (current != null && current.inCatalog === true) {
+		let present = false;
+		for (let i = 0; i < length(visibleRows); i++) if (visibleRows[i].version == current.id) { present = true; break; }
+		if (!present) for (let i = 0; i < length(fullRows); i++) if (fullRows[i].version == current.id) { push(visibleRows, fullRows[i]); break; }
+	}
+	return visibleRows;
+}
 export const z2k_versions = function(options) {
 	let fresh = object(options) && options.fresh === true;
 	REQUEST_COUNT = 0; REST_REQUEST_COUNT = 0; COMPARE_REQUEST_COUNT = 0; COMPARE_CACHE_STATE = 'none';
 	let mode = fresh ? 'fresh' : (object(options) && options.refresh === true ? 'refresh' : 'browse'), installed = installed_release(), refs = fetch_refs(mode);
 	if (!refs.ok) return { ok: false, repository: REPOSITORY, versions: [], installedRelease: installed,
+		releases: [], current: null,
 		localFallback: installed == null ? null : { version: installed, installed: true, sourceId: 'installed-runtime' },
 		remoteAvailable: false, remoteState: 'unavailable', stale: false, remoteUnavailable: true,
 		error: refs.error, diagnostics: { requestCount: REQUEST_COUNT, restRequestCount: REST_REQUEST_COUNT, cache: 'miss', source: 'update-source' } };
-	let rows = [], limit = MAX_VERSIONS;
-	for (let i = 0; i < length(refs.refs) && i < limit; i++) push(rows, catalog_row(refs.refs[i], installed));
-	if (installed != null) {
-		let present = false;
-		for (let i = 0; i < length(rows); i++) if (rows[i].version == installed) present = true;
-		if (!present) {
-			for (let i = limit; i < length(refs.refs); i++) if (refs.refs[i].version == installed) { push(rows, catalog_row(refs.refs[i], installed)); present = true; break; }
-			if (!present && z2k_release_valid(installed)) push(rows, installed_only_row(installed));
-		}
-	}
-	let latestVersion = null;
-	if (z2k_release_valid(refs.manifestCurrent)) latestVersion = refs.manifestCurrent;
-	for (let i = 0; i < length(rows); i++) if (rows[i].version == latestVersion) rows[i].latest = true;
+	let fullRows = catalog_rows(refs.refs, installed, refs.manifestCurrent), current = catalog_current(fullRows, refs.manifestCurrent), visibleRows = catalog_presentation(fullRows, current);
 	if (fresh && refs.stale) return fail('ESTALE', 'Каталог release устарел; повторите подготовку после свежей проверки.', { diagnostics: network_diagnostics('catalog') });
-	return { ok: true, repository: REPOSITORY, versions: rows, installedRelease: installed,
+	return { ok: true, repository: REPOSITORY, versions: visibleRows, releases: fullRows, current: current, installedRelease: installed,
 		localFallback: installed == null ? null : { version: installed, installed: true, sourceId: 'installed-runtime' },
-		remoteAvailable: true, remoteState: refs.stale ? 'stale' : rows.length ? 'fresh' : 'empty',
+		remoteAvailable: true, remoteState: refs.stale ? 'stale' : length(fullRows) ? 'fresh' : 'empty',
 		generatedAt: time(), stale: refs.stale, diagnostics: { requestCount: REQUEST_COUNT, cache: refs.source && refs.source.cacheState || 'miss', stale: refs.stale, lastErrorClass: refs.source && refs.source.lastErrorClass || null, restRequestCount: REST_REQUEST_COUNT } };
 };
 
@@ -666,7 +703,7 @@ function z2k_resolve_version_browse(version, catalog) {
 	if (z2k_release_valid(version) == false) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.', { diagnostics: network_diagnostics('selected-tag') });
 	let available = catalog || z2k_versions();
 	if (!available.ok) return available;
-	let row = target_release(version, available.versions);
+	let row = target_release(version, available.releases || available.versions);
 	if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.', { diagnostics: network_diagnostics('selected-tag') });
 	let resolved = { ok: true, version: version, tagSha: row.tagSha, commitSha: row.commitSha, publishedAt: row.publishedAt };
 	if (row.objectType == 'tag') {
@@ -693,18 +730,19 @@ export const z2k_resolve_version = function(version, mode, catalog) {
 export const z2k_version_details = function(version, options) {
 	let includeCompare = object(options) && options.includeCompare === true;
 	if (z2k_release_valid(version) == false) return fail('EINPUT', 'Версия Z2K имеет недопустимый формат.');
-	let catalog = z2k_versions(); if (!catalog.ok) return catalog; let row = target_release(version, catalog.versions); if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.');
+	let catalog = z2k_versions(); if (!catalog.ok) return catalog; let row = target_release(version, catalog.releases || catalog.versions); if (row == null) return fail('ENOENT', 'Выбранный release не найден в каталоге.');
 	let emptyChanges = { known: false, modified: null, added: null, removed: null, changedPaths: [], upstreamChangedPaths: [], modifiedPaths: [], addedPaths: [], removedPaths: [], modifiedItems: [], addedItems: [], removedItems: [], managedPaths: [], unknown: [] };
 	let resolved = z2k_resolve_version(version, 'browse', catalog); if (!resolved.ok) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: resolved.error && resolved.error.code || 'invalid-manifest', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, targetCanApply: false, targetAttentionState: 'unknown', targetBlockingReasons: [], diagnostics: resolved.diagnostics || network_diagnostics('selected-tag') };
 	row.commitSha = resolved.commitSha; row.tagSha = resolved.tagSha; row.publishedAt = resolved.publishedAt || row.publishedAt;
 	let checked = { ok: true, manifest: resolved.manifest, manifestSha256: resolved.manifestSha256 }, map = read_classification(), membership = managed_membership(checked.manifest, map);
 	if (!object(membership) || membership.ok === false) return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, latest: row.latest, installed: row.installed, installable: false, unavailableReason: membership && membership.error && membership.error.code || 'incompatible-manager', releaseName: 'Z2K ' + version, releaseBody: null, releaseChanges: emptyChanges, deviceChanges: emptyChanges, installChanges: emptyChanges, targetCanApply: false, targetAttentionState: 'integration-required', targetBlockingReasons: [], technical: { unknownRelevantPaths: membership && membership.error && membership.error.details && membership.error.details.unknownRelevantPaths || [] } };
-	let previous = null, previousVersion = null, installedVersion = installed_release(), operation = target_operation(version, installedVersion); for (let i = 0; i < length(catalog.versions); i++) if (catalog.versions[i].version == version && i + 1 < length(catalog.versions)) { previous = catalog.versions[i + 1]; previousVersion = previous.version; break; }
+	let catalogRows = catalog.releases || catalog.versions, previous = null, previousVersion = null, installedVersion = installed_release(), operation = target_operation(version, installedVersion); for (let i = 0; i < length(catalogRows); i++) if (catalogRows[i].version == version && i + 1 < length(catalogRows)) { previous = catalogRows[i + 1]; previousVersion = previous.version; break; }
 	let previousManifest = null; if (previous != null && previous.installable === true) { let old = release_manifest(previous, 'browse'); if (old.ok) previousManifest = old.manifest; }
-	let installedRow = target_release(installedVersion, catalog.versions);
+	let installedRow = target_release(installedVersion, catalogRows);
 	let installedManifest = null;
 	if (installedRow != null && installedRow.installable === true) { let installedChecked = release_manifest(installedRow, 'browse'); if (installedChecked.ok) installedManifest = installedChecked.manifest; }
-	let targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0 && length(targetPlan.compilerInputs || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [], targetUnavailableReason = targetPlan.ok !== true ? targetPlan.error && targetPlan.error.code || 'invalid-manifest' : length(targetPlan.rebases || []) ? 'rebase-required' : length(targetPlan.blockingReviews || []) ? 'review-required' : length(targetPlan.compilerInputs || []) ? 'validation-required' : null;
+	let cleanInstall = installedVersion == null, targetPlan = z2k_upstream_plan(checked.manifest), targetCanApply = targetPlan.ok === true && length(targetPlan.rebases || []) == 0 && length(targetPlan.blockingReviews || []) == 0, targetAttentionState = targetPlan.ok === true ? targetPlan.attentionState || 'none' : 'unknown', targetBlockingReasons = targetPlan.ok === true ? targetPlan.blockingReasons || [] : [], targetUnavailableReason = targetPlan.ok !== true ? targetPlan.error && targetPlan.error.code || 'invalid-manifest' : length(targetPlan.rebases || []) ? 'rebase-required' : length(targetPlan.blockingReviews || []) ? 'review-required' : null;
+	if (cleanInstall && targetPlan.ok === true && targetAttentionState == 'validation-required') targetAttentionState = 'none';
 	let releaseChangeSet = release_changes_between(checked.manifest, previousManifest), installChangeSet = changes_between(checked.manifest, installedManifest, map), compareEvidence = null, installedCommit = installedRow && installedRow.commitSha;
 	// Catalog rows for annotated tags intentionally keep tagSha and defer commit
 	// resolution. Compare is independent from historical manifest availability,
@@ -722,12 +760,7 @@ export const z2k_version_details = function(version, options) {
 	return { ok: true, version: version, commitSha: row.commitSha, publishedAt: row.publishedAt, releaseName: 'Z2K ' + version, releaseBody: body, latest: row.latest, installed: row.installed, operation: operation, installedVersion: installedVersion, installable: targetCanApply, unavailableReason: targetUnavailableReason, previousVersion: previousVersion, releaseChanges: releaseChanges, deviceChanges: deviceChanges, installChanges: installChanges, compareUrl: compareBase ? 'https://github.com/' + REPOSITORY + '/compare/' + compareBase + '...' + version : null, compareDiagnostics: { requested: includeCompare, requestCount: COMPARE_REQUEST_COUNT, cache: includeCompare ? COMPARE_CACHE_STATE : 'not-requested' }, targetCanApply: targetCanApply, targetAttentionState: targetAttentionState, targetBlockingReasons: targetBlockingReasons, targetReviewDetails: targetPlan.ok === true ? targetPlan.reviewDetails || [] : [], manifest: checked.manifest, manifestSha256: checked.manifestSha256, assets: membership.assets, diagnostics: network_diagnostics('selected-tag') };
 };
 
-export const z2k_compare_versions = function(left, right) {
-	let a = z2k_release_parse(left), b = z2k_release_parse(right); if (a == null || b == null) return null;
-	if (a.family != b.family) return null;
-	if (a.major != b.major) return a.major < b.major ? -1 : 1;
-	if (a.minor != b.minor) return a.minor < b.minor ? -1 : 1;
-	return 0;
-};
+export const z2k_compare_versions = function(left, right) { return release_compare(left, right); };
 export const z2k_compare_release_records = function(left, right) { return release_compare(left, right); };
+export const z2k_compare_operation_records = function(left, right) { return release_operation_compare(left, right); };
 export const z2k_installed_release = function() { return installed_release(); };

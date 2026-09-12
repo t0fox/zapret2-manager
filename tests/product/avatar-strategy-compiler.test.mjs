@@ -174,6 +174,22 @@ test('list and ipset dependencies resolve relative descriptors and absolute list
   assert.doesNotMatch(unsafe.strategyArgs, /--hostlist=\/etc\/passwd/);
 });
 
+test('inline hostlist-domains remain inline and do not require a file descriptor', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'discord-media', args: '--filter-tcp=2053,2083,2087,2096,8443 --filter-l7=tls --hostlist-domains=discord.com,discord.gg,discord.media,discordapp.com,discordapp.net --payload=tls_client_hello --lua-desync=multisplit:pos=2' },
+  ]), {
+    ...environment,
+    functions: { ...environment.functions, multisplit: { present: true } },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.applicable, true, JSON.stringify(result.dependencies));
+  assert.match(result.fragments[0], /--hostlist-domains=discord\.com,discord\.gg,discord\.media,discordapp\.com,discordapp\.net/);
+  assert.doesNotMatch(result.fragments[0], /--hostlist-domains=\/lists\//);
+  assert.equal(result.dependencies.missing.some(item => item.kind === 'hostlist'), false,
+    JSON.stringify(result.dependencies));
+});
+
 test('canonical runtime list references resolve through descriptor-specific bounded roots', () => {
   const result = invoke('strategy_compile', strategy([
     { id: 'p1', args: '--filter-tcp=443 --hostlist=/runtime-assets/lists/extra_strats/TCP/RKN/List.txt --hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt' },

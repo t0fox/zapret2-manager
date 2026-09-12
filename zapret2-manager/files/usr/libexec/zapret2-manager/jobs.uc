@@ -30,6 +30,12 @@ function run(cmd) {
 	return { out: out, rc: rc };
 }
 
+function shell_escape(value) {
+	let text = '' + (value == null ? '' : value), out = "'";
+	for (let i = 0; i < length(text); i++) out += substr(text, i, 1) == "'" ? "'\\''" : substr(text, i, 1);
+	return out + "'";
+}
+
 function err(code, message) {
 	return { ok: false, error: { code: code, message: message } };
 }
@@ -191,6 +197,14 @@ function sweep() {
 // ---------------------------------------------------------------------------
 // bounded service-health job records
 // ---------------------------------------------------------------------------
+function elapsed_sec(job) {
+	if (!job || job.createdAt == null) return 0;
+	let start = job.startedAt != null ? +job.startedAt : +job.createdAt;
+	let end = job.finishedAt != null ? +job.finishedAt : +time();
+	if (start != start || end != end || end < start) return 0;
+	return end - start;
+}
+
 function public_job(job) {
 	return {
 		id: job.id, kind: job.kind, mode: job.mode, services: job.services,
@@ -303,6 +317,19 @@ function parse_result_line(line) {
 		else if (k == 'httpcode') { if (r.http != null) r.http.httpCode = +v; }
 	}
 	return r;
+}
+
+function truncate_log_text(raw, maxBytes) {
+	if (!raw) return '';
+	let limit = +maxBytes;
+	if (limit != limit || limit < 1) return '';
+	return length(raw) > limit ? substr(raw, length(raw) - limit) : raw;
+}
+
+function log_tail(id, maxBytes) {
+	let raw = null;
+	try { raw = readfile(JDIR + '/' + id + '.log'); } catch (e) { raw = null; }
+	return truncate_log_text(raw, maxBytes || LOG_TAIL_BYTES);
 }
 
 function read_matrix_results(id) {

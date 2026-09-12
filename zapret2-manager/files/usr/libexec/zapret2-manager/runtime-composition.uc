@@ -38,6 +38,7 @@ function valid_kind(value) { return contains(KINDS, value); }
 function valid_entry_type(value) { return contains(ENTRY_TYPES, value); }
 function safe_source_path(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) != '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
 function safe_runtime_target(value) { return string(value) && length(value) > 0 && length(value) <= 512 && substr(value, 0, 1) == '/' && index(value, '..') < 0 && index(value, sprintf('%c', 0)) < 0 && !match(value, /[\r\n]/); }
+function valid_alias(value) { return string(value) && length(value) > 0 && length(value) <= 128 && match(value, /^[A-Za-z0-9._-]+$/); }
 function normalized_entry(raw, expectedType) {
 	if (!object(raw) || !string(raw.id) || !length(raw.id) || length(raw.id) > 128 || !string(raw.kind) || !valid_kind(raw.kind)) return fail('EINPUT', 'runtime entry kind or id is invalid');
 	let entry = copy(raw);
@@ -62,6 +63,15 @@ function normalized_entry(raw, expectedType) {
 	if (entry.role == 'lua-init' && entry.kind != 'lua') return fail('EINPUT', 'only Lua entries may have the lua-init role', { id: raw.id });
 	if (entry.role == 'lua-init' && (!integer(entry.runtimeOrder) || entry.runtimeOrder < 0)) return fail('EINPUT', 'ordered Lua entry has no runtimeOrder', { id: raw.id });
 	if (entry.runtimeOrder != null && (!integer(entry.runtimeOrder) || entry.runtimeOrder < 0)) return fail('EINPUT', 'runtimeOrder is invalid', { id: raw.id });
+	if (entry.aliases != null) {
+		if (!array(entry.aliases) || length(entry.aliases) > MAX_ENTRIES) return fail('EINPUT', 'runtime entry aliases are invalid', { id: raw.id });
+		let aliases = {}, normalizedAliases = [];
+		for (let alias in entry.aliases) {
+			if (!valid_alias(alias) || aliases[alias]) return fail('EINPUT', 'runtime entry aliases are invalid', { id: raw.id, alias: alias });
+			aliases[alias] = true; push(normalizedAliases, alias);
+		}
+		entry.aliases = normalizedAliases;
+	}
 	if (array(entry.references) && length(entry.references) > MAX_ENTRIES) return fail('EINPUT', 'runtime entry references are too large', { id: raw.id });
 	return { ok: true, entry: entry };
 }
@@ -104,6 +114,97 @@ function sort_by_order(left, right) {
 }
 function sorted_copy(entries, comparator) { let out = copy_array(entries); sort(out, comparator || sort_by_id); return out; }
 
+const PROVIDER_INDEX_SCHEMA = 'z2m.runtime-provider-index.v1';
+const PROVIDER_IDENTITY_FIELDS = ['id', 'sourcePath', 'runtimeTarget', 'contentSha256', 'owner', 'role', 'byteSize'];
+function provider_identity_matches(entry, provider) {
+	if (!object(entry) || !object(provider) || entry.kind != 'lua' || provider.id != entry.id) return false;
+	for (let field in PROVIDER_IDENTITY_FIELDS) if (provider[field] != entry[field]) return false;
+	return true;
+}
+function provider_read_path(entry) {
+	if (!object(entry)) return null;
+	if (string(entry.packagePath) && length(entry.packagePath) > 0) return entry.packagePath;
+	let prefix = '/runtime-assets/lua/';
+	return string(entry.runtimeTarget) && substr(entry.runtimeTarget, 0, length(prefix)) == prefix
+		? '/opt/zapret2/lua/' + substr(entry.runtimeTarget, length(prefix)) : null;
+}
+function lua_function_names(raw) {
+	let names = [], seen = {};
+	for (let line in split(raw || '', '\n')) {
+		line = trim(line);
+		if (substr(line, 0, 9) != 'function ') continue;
+		let name = trim(substr(line, 9)), end = index(name, '(');
+		if (end <= 0) continue;
+		name = trim(substr(name, 0, end));
+		if (!match(name, /^[A-Za-z_][A-Za-z0-9_]*$/) || seen[name]) continue;
+		seen[name] = true; push(names, name);
+	}
+	return names;
+}
+function provider_identity(provider) {
+	let identity = {};
+	for (let field in PROVIDER_IDENTITY_FIELDS) identity[field] = provider[field];
+	return identity;
+}
+function provider_function_descriptor(provider, name) {
+	return { available: true, present: true, providerId: provider.id,
+		// Keep the function bound to the exact candidate asset identity without
+		// duplicating the provider's complete function list for every symbol.
+		provider: provider_identity(provider), id: name, owner: provider.owner, role: 'lua-function' };
+}
+function provider_index_from_composition(input) {
+	let composition = object(input) && object(input.composition) ? input.composition : input, entries = composition && composition.runtimeAssets;
+	if (!object(composition) || !array(entries)) return fail('EDEPENDENCY', 'canonical runtime composition is unavailable');
+	let supplied = object(input) && input.providerIndex, index = { schema: PROVIDER_INDEX_SCHEMA, complete: false, providers: [], luaProviders: [], functions: {} }, byId = {};
+	for (let entry in entries) if (object(entry) && entry.kind == 'lua') byId[entry.id] = entry;
+	if (supplied != null) {
+		if (!object(supplied) || supplied.schema != PROVIDER_INDEX_SCHEMA || !array(supplied.providers || supplied.luaProviders))
+			return fail('EDEPENDENCY', 'target Lua provider index is missing or invalid');
+		let providers = supplied.providers || supplied.luaProviders;
+		for (let provider in providers) {
+			let entry = byId[provider && provider.id];
+			if (!provider_identity_matches(entry, provider) || !array(provider.functions))
+				return fail('EDEPENDENCY', 'target Lua provider identity is not contained in the candidate composition.', { provider: provider && provider.id || null, reason: 'provider identity mismatch' });
+			let normalized = copy(provider); normalized.functions = [];
+			for (let name in provider.functions) {
+				if (!string(name) || !match(name, /^[A-Za-z_][A-Za-z0-9_]*$/)) return fail('EDEPENDENCY', 'target Lua provider function name is invalid.', { provider: provider.id, reference: name, reason: 'invalid provider function name' });
+				push(normalized.functions, name); index.functions[name] = provider_function_descriptor(normalized, name);
+			}
+			push(index.providers, normalized); push(index.luaProviders, normalized);
+		}
+		for (let id in byId) {
+			let found = false;
+			for (let provider in index.providers) if (provider.id == id) { found = true; break; }
+			if (!found) return fail('EDEPENDENCY', 'canonical Lua provider is absent from the target provider index.', { provider: id, reason: 'provider index is incomplete' });
+		}
+		index.complete = true;
+		return { ok: true, providerIndex: index };
+	}
+	// Installed composition derives providers from files bound to its own
+	// canonical runtime entries. Candidate/target composition must supply the
+	// immutable provider index explicitly; it may never read /opt as fallback.
+	if (composition.lifecycleState != 'installed' && composition.lifecycleState != 'empty') return { ok: true, providerIndex: index };
+	for (let id in byId) {
+		let entry = byId[id], path = provider_read_path(entry), raw = path == null ? null : readfile(path);
+		if (raw == null) continue;
+		let provider = {};
+		for (let field in PROVIDER_IDENTITY_FIELDS) provider[field] = entry[field];
+		provider.functions = lua_function_names(raw);
+		for (let name in provider.functions) index.functions[name] = provider_function_descriptor(provider, name);
+		push(index.providers, provider); push(index.luaProviders, provider);
+	}
+	index.complete = length(index.providers) == length(keys(byId));
+	return { ok: true, providerIndex: index };
+}
+
+// Candidate dependency truth must never be derived from installed runtime state.
+// Every dependency accepted for a candidate must resolve to evidence contained
+// in that same candidate composition or an explicitly declared immutable
+// external dependency such as an engine builtin.
+export const runtime_composition_provider_index = function(input) {
+	return provider_index_from_composition(input || {});
+};
+
 // Prepare-only runtime input for the official compiler/dependency snapshot.
 // This deliberately does not create a candidate identity or expose mutation
 // authority; resolveCandidate remains the only boundary that can claim a
@@ -123,7 +224,13 @@ export const resolveTargetRuntimeInput = function(preparedTarget) {
 	for (let entry in staticResult.entries) push(all, entry);
 	for (let entry in lifecycle.entries) push(all, entry);
 	runtimeAssets = sorted_copy(all);
-	return { ok: true, runtimeAssets: runtimeAssets, lifecycleAssets: lifecycle.entries, packageAssets: staticResult.entries };
+	let providerResult = runtime_composition_provider_index({
+		composition: { runtimeAssets: runtimeAssets, lifecycleState: 'target' },
+		providerIndex: preparedTarget.providerIndex || null
+	});
+	if (!providerResult.ok) return providerResult;
+	return { ok: true, runtimeAssets: runtimeAssets, lifecycleAssets: lifecycle.entries,
+		packageAssets: staticResult.entries, providerIndex: providerResult.providerIndex };
 };
 
 // Repair target resolution is pure and authority-bound.  The caller still
@@ -173,7 +280,8 @@ function identity_authority(authority) {
 function identity_entry(entry) {
 	return entry.id + '|' + entry.owner + '|' + entry.role + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256
 		+ '|' + entry.byteSize + '|' + (entry.runtimeOrder == null ? '' : entry.runtimeOrder) + '|' + entry.kind + '|' + entry.type
-		+ '|' + (entry.version || '') + '|' + (entry.sourceCommit || '') + '|' + (entry.manifestSha256 || '') + '|' + (entry.classificationSha256 || '');
+		+ '|' + (entry.version || '') + '|' + (entry.sourceCommit || '') + '|' + (entry.manifestSha256 || '') + '|' + (entry.classificationSha256 || '')
+		+ '|' + (array(entry.aliases) ? join(',', sorted_copy(entry.aliases, function(a, b) { return a == b ? 0 : (a < b ? -1 : 1); })) : '');
 }
 function identity_text(prefix, authority, entries, lua, removals) {
 	let rows = [], sortedEntries = sorted_copy(entries), sortedLua = sorted_copy(lua, sort_by_order), sortedRemovals = sorted_copy(removals || [], function(a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
@@ -209,15 +317,24 @@ function remove_ids(value) {
 	return { ok: true, ids: ids };
 }
 
-function compose(state, authority, lifecycleEntries, staticEntries, removals) {
+function compose(state, authority, lifecycleEntries, staticEntries, removals, suppliedProviderIndex) {
 	let all = [], staticResult = package_static_input(staticEntries);
 	if (!staticResult.ok) return staticResult;
 	for (let i = 0; i < length(staticResult.entries); i++) push(all, staticResult.entries[i]);
 	for (let i = 0; i < length(lifecycleEntries || []); i++) push(all, lifecycleEntries[i]);
 	let runtimeAssets = sorted_copy(all), luaInit = lua_subset(all);
+	let providerResult = runtime_composition_provider_index({
+		composition: { runtimeAssets: runtimeAssets, lifecycleState: state },
+		providerIndex: suppliedProviderIndex || null
+	});
+	if (!providerResult.ok) return providerResult;
 	let lifecycleIdentity = identity_text('z2k-lifecycle-v2', sprintf('%J', identity_authority(authority)), lifecycleEntries || [], luaInit, removals || []);
 	let compositionIdentity = identity_text('z2k-composition-v2', lifecycleIdentity, runtimeAssets, luaInit, removals || []);
-	let membershipIdentity = identity_text('z2k-membership-v2', '', lifecycleEntries || [], luaInit, removals || []);
+	// Membership identity describes the resulting canonical composition. A
+	// candidate's removal request is transient transaction intent and is not a
+	// member of the installed runtime identity; including it makes a successful
+	// removal impossible to verify after the Registry/runtime commit.
+	let membershipIdentity = identity_text('z2k-membership-v2', '', lifecycleEntries || [], luaInit, []);
 	if (lifecycleIdentity == null || compositionIdentity == null || membershipIdentity == null) return fail('EINPUT', 'runtime composition identity is too large');
 	let result = {
 		ok: true, schemaVersion: 2, snapshotId: lifecycleIdentity, compositionSnapshotId: compositionIdentity,
@@ -227,7 +344,8 @@ function compose(state, authority, lifecycleEntries, staticEntries, removals) {
 		z2kCompatibilityIdentity: authority.z2kCompatibilityIdentity || null,
 		compatibilityIdentity: authority.compatibilityIdentity || null,
 		observedRegistryRevision: authority.observedRegistryRevision == null ? null : authority.observedRegistryRevision,
-		runtimeAssets: runtimeAssets, luaInit: luaInit, dependencyIndex: dependency_index(runtimeAssets),
+		runtimeAssets: runtimeAssets, luaInit: luaInit, removeTargets: state == 'candidate' ? copy_array(authority.removeTargets || []) : [], dependencyIndex: dependency_index(runtimeAssets),
+		providerIndex: providerResult.providerIndex,
 		membershipDigest: membershipIdentity,
 		authority: authority,
 	};
@@ -344,6 +462,12 @@ export const resolveInstalled = function(input) {
 			blockingReasons: ['RECONCILIATION_REQUIRED'], reconciliation: { required: true, mode: 'same-release FRESH', operation: 'reinstall' },
 			authority: { kind: 'installed', release: receipt.version, sourceCommit: receipt.sourceCommit, receiptId: receipt.receiptId || null, observedRegistryRevision: listed.revision } };
 	}
+	// A clean package install has no Z2K lifecycle receipt or Registry members
+	// yet. Treat that exact state as an empty, canonical baseline so the first
+	// Core transaction can capture rollback evidence without inventing an
+	// installed release.
+	if (receipt == null && length(registry_z2k_assets(listed)) === 0)
+		return compose('empty', { kind: 'empty', observedRegistryRevision: listed.revision, coherenceStatus: 'empty' }, [], staticBase, []);
 	let coherent = v3_authority(receipt, listed);
 	if (coherent.ok) {
 		let installedAuthority = { kind: 'installed', release: receipt.release, sourceCommit: receipt.sourceCommit,
@@ -417,11 +541,12 @@ export const resolveCandidate = function(preparedTarget, context) {
 		manifestSha256: preparedTarget.manifestSha256, classificationSha256: preparedTarget.classificationSha256,
 		planToken: preparedTarget.planToken, baseRegistryRevision: preparedTarget.baseRegistryRevision,
 		observedRegistryRevision: current, committedAssetRevision: committed == null ? null : committed,
+		removeTargets: copy_array(preparedTarget.removeTargets || []),
 		removeIds: removals.ids, contentIdentity: preparedTarget.contentIdentity || null, receiptIdentity: null,
 		z2kCompatibilityIdentity: preparedTarget.z2kCompatibilityIdentity || null,
 		compatibilityIdentity: coherent ? coherent.compatibilityIdentity : null,
 		coherentCandidate: coherent, coherenceStatus: coherent ? 'coherent' : 'unverified' };
-	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase, removals.ids);
+	return compose('candidate', authority, normalized.entries, preparedTarget.staticBase, removals.ids, preparedTarget.providerIndex || null);
 };
 
 function evidence_file(evidence, entry) {

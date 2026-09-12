@@ -243,6 +243,7 @@ function current_generation_sources(config) {
 	for (let id in ['avatar', 'z2k']) {
 		if (!config.sources[id] || config.sources[id].enabled != true) continue;
 		let current = current_source_row(id, true);
+		if (!current.ok && id == 'avatar' && current.error && current.error.code == 'EUNAVAILABLE') continue;
 		if (!current.ok) return current;
 		generationSources[id] = current.row;
 		push(sourceIds, id);
@@ -469,10 +470,23 @@ export const catalog_refresh_worker_run = function() {
 	s.transaction = { kind: 'catalog-refresh', phase: 'staged', previousActivations: previousActivations, desiredSources: {} };
 	if (!state_save(s)) return failure(s, { ok: false, error: { code: 'EIO', message: 'Could not persist catalog transaction journal' } });
 	let generationSources = {}, sourceSnapshots = {}, enabledCount = 0, freshCount = 0;
-  for (let id in ['avatar', 'z2k']) {
+	for (let id in ['avatar', 'z2k']) {
     let enabled = config.sources[id] && config.sources[id].enabled == true;
     if (!enabled) continue;
-	if (id == 'z2k') continue; // Z2K source snapshots advance only with the Core lifecycle.
+	if (id == 'z2k') {
+		// Z2K snapshots advance only with the Core lifecycle, but a full catalog
+		// refresh must carry the current Core-owned snapshot forward. Otherwise
+		// refreshing Avatar silently publishes an Avatar-only generation.
+		let current = current_source_row(id, true);
+		if (current.ok) {
+			generationSources[id] = current.row;
+			sourceSnapshots[id] = { mode: 'preserved', snapshotId: current.row.currentSnapshotId,
+				sourceCommit: current.row.snapshot.sourceCommit, error: null, transport: null };
+		} else if (!current.error || current.error.code != 'EUNAVAILABLE') {
+			return failure_with_rollback(s, current, previousActivations);
+		}
+		continue;
+	}
     enabledCount++;
     let refreshed = refresh_source(s, id, enabled, id == 'avatar' ? 15 : 35, id == 'avatar' ? 25 : 45);
 		if (!refreshed.ok) return failure_with_rollback(s, refreshed, previousActivations);

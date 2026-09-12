@@ -109,6 +109,7 @@
       "localName": "runtime-assets/bin/quic_1.bin",
       "runtimeTarget": "/runtime-assets/bin/quic_1.bin",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_1.bin",
+      "aliases": ["quic1"],
       "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },
@@ -121,6 +122,7 @@
       "localName": "runtime-assets/bin/quic_4.bin",
       "runtimeTarget": "/runtime-assets/bin/quic_4.bin",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_4.bin",
+      "aliases": ["quic4"],
       "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },
@@ -133,6 +135,7 @@
       "localName": "runtime-assets/bin/quic_5.bin",
       "runtimeTarget": "/runtime-assets/bin/quic_5.bin",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_5.bin",
+      "aliases": ["quic5"],
       "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },
@@ -145,6 +148,7 @@
       "localName": "runtime-assets/bin/quic_6.bin",
       "runtimeTarget": "/runtime-assets/bin/quic_6.bin",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_6.bin",
+      "aliases": ["quic6"],
       "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },
@@ -157,6 +161,7 @@
       "localName": "runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
       "runtimeTarget": "/runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
+      "aliases": ["quic_dbankcloud"],
       "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },
@@ -181,6 +186,7 @@
       "localName": "runtime-assets/bin/quic_initial_www_google_com.bin",
       "runtimeTarget": "/runtime-assets/bin/quic_initial_www_google_com.bin",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_www_google_com.bin",
+      "aliases": ["quic_google"],
       "consumer": "Z2M managed runtime asset resolver",
       "requiredCapabilities": []
     },
@@ -649,7 +655,7 @@
       "class": "exact-managed",
       "dependencyClass": "runtime-exact",
       "type": "lua",
-      "basedOnSha256": "51c01887fc5ca3ac53b9db105d08d03eb156d75914705f316b7751fe4c79f3d9",
+      "basedOnSha256": "14699aecf90e5c4fe2fc0fb8b2b4b37ba3c83db0948a6f9ebb72fd9bd5d346af",
       "localName": "runtime-assets/lua/z2k-state-persist.lua",
       "runtimeTarget": "/runtime-assets/lua/z2k-state-persist.lua",
       "packageBaselinePath": "zapret2-manager/files/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua",

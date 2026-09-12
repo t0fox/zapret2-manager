@@ -30,7 +30,7 @@ function invoke(module, expression, env) {
 
 function entry(sourceId, snapshotId, commit, name, discord) {
   const args = discord
-    ? '--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --lua-desync=circular:key=discord_udp:hostkey=z2k_nohost_key'
+    ? '--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=discord_ip_discovery,stun --lua-desync=circular:key=discord_udp:hostkey=z2k_nohost_key'
     : '--filter-tcp=443 --filter-l7=tls --lua-desync=circular:key=rkn_tcp';
   return {
     canonicalId: `${sourceId}:${name}`, sourceId, upstreamId: name,

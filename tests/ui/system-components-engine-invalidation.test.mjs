@@ -27,6 +27,10 @@ test('maintenance aggregate recomputes Z2K on top of ready engine (E2E-004)', ()
   assert.match(maintenanceSource, /normalizePage|aggregateHealth|renderComponents/,
     'maintenance must render aggregate from fresh model');
   const modelSource = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components-model.js'), 'utf8');
-  assert.match(modelSource, /engineReady !== true\)\s*\{\s*healthState = 'missing'/,
-    'Z2K missing gate on unproven engine is fail-closed');
+  assert.match(modelSource, /engineAvailable !== true\)\s*\{\s*healthState = 'missing'/,
+    'Z2K install remains blocked until the installed Engine is compatible');
+  assert.doesNotMatch(modelSource, /engineRuntimeReady/,
+    'Z2K Detect readiness must not be gated by a deliberately stopped Engine');
+  assert.match(modelSource, /Z2K Core readiness is based on its own receipt/,
+    'Z2K readiness must be based on its canonical installed composition');
 });

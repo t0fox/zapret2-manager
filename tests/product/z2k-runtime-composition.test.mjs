@@ -295,6 +295,13 @@ test('candidate resolution works before an installed receipt and binds all prepa
   assert.deepEqual(result.luaInit.map(entry => entry.id), ['lua:alpha']);
 });
 
+test('candidate membership identity excludes transient removals so installed verification can match', () => {
+  const source = read(compositionPath);
+  assert.match(source,
+    /let membershipIdentity\s*=\s*identity_text\('z2k-membership-v2',\s*'',\s*lifecycleEntries\s*\|\|\s*\[\],\s*luaInit,\s*\[\]\)/,
+    'membership digest must describe the resulting member set, not the candidate removal request');
+});
+
 test('candidate and installed closures include verified package-static Lua before lifecycle Lua', { skip: !HAS_UCODE }, () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-composition-'));
   const descriptor = path.join(temp, 'runtime-composition-package.json');
@@ -477,6 +484,7 @@ test('runtime CLI activation output resolves a lifecycle asset on the router UCo
   try {
     const result = invokeCli(`cli.runtime_composition_cli_activation_output(${JSON.stringify({
       snapshotId: HASH('s') + '|rows\nasset|newline', compositionSnapshotId: HASH('p') + '|composition\nrow', membershipDigest: HASH('x'),
+      removeTargets: [{ id: 'blob:retired', type: 'blob', runtimeTarget: '/runtime-assets/bin/retired.bin' }],
       runtimeAssets: [entry], luaInit: [entry],
     })})`, {
       Z2M_UPDATE_SOURCE_TEST: '1',
@@ -485,11 +493,19 @@ test('runtime CLI activation output resolves a lifecycle asset on the router UCo
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.match(result.output, /SNAPSHOT\|[^\n]*%0A/);
     assert.equal(result.output.split('\n').some(line => line.startsWith('asset|')), false);
+    assert.match(result.output, /REMOVE\|blob:retired\|lifecycle-managed\|blob\|\|\/runtime-assets\/bin\/retired\.bin\|\|/);
     assert.match(result.output, /ASSET\|lua:alpha\|lifecycle-managed\|lua\|/);
     assert.match(result.output, /LUA_INIT\|lua:alpha\|lifecycle-managed\|lua\|/);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
+});
+
+test('runtime CLI activation output carries candidate removal descriptors', () => {
+  const api = read(cliApiPath);
+  assert.match(api, /removeTargets/);
+  assert.match(api, /REMOVE\|/);
+  assert.match(api, /runtimeTarget/);
 });
 
 test('runtime CLI accepts semantic hostlist entries backed by Registry blob assets', { skip: !HAS_UCODE }, () => {

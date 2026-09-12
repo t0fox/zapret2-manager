@@ -187,6 +187,58 @@ test('Preview normalizes server-side and returns command, argv, aliases, digest,
   assert.match(result.digest, /^[a-f0-9]{64}$/);
 });
 
+test('Preview keeps a valid large Z2K-shaped candidate executable while compacting its wire projection', () => {
+  const profiles = Array.from({ length: 90 }, (_, index) => ({
+    id: `p${index + 1}`,
+    args: `--filter-tcp=443 --lua-desync=fake --comment=${'x'.repeat(300)}`,
+  }));
+  const result = invoke('strategy_preview', {
+    strategy_data: inlineStrategy({ id: 'z2k-large-inline', profiles }),
+  }, context());
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.profiles_count, profiles.length);
+  assert.equal(result.profilesCount, profiles.length);
+  assert.equal(result.presentation.mode, 'compact');
+  assert.equal(result.presentation.canonicalComplete, true);
+  assert.equal(result.strategyArgs, undefined);
+  assert.equal(result.args, undefined);
+  assert.equal(result.fullCommand, undefined);
+  assert.equal(result.fullArgv, undefined);
+  assert.equal(typeof result.effectiveCommand, 'string');
+  assert.ok(result.effectiveCommand.length > 32768);
+  assert.ok(Array.isArray(result.effectiveArgv));
+  assert.equal(result.dependencies.available, true);
+  assert.match(result.digest, /^[a-f0-9]{64}$/);
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= MAX_OUTPUT_BYTES);
+});
+
+test('Z2K dependency status follows its canonical runtime closure for engine-generated blobs', () => {
+  const result = invoke('strategy_preview', {
+    strategy_data: {
+      id: 'z2k-generated-blob',
+      name: 'Z2K generated blob',
+      sourceId: 'z2k',
+      profiles: [{
+        id: 'p1',
+        args: '--filter-tcp=443 --lua-desync=tls_client_hello_clone:blob=z2k_real_www_google_com',
+      }],
+    },
+  }, context({
+    environment: {
+      runtimeComposition: { runtimeAssets: [] },
+      functions: { tls_client_hello_clone: { present: true } },
+    },
+  }));
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.dependencies.available, true, JSON.stringify(result.dependencies));
+  assert.deepEqual(result.dependencies.missing, []);
+  assert.ok(result.dependencies.items.some(item => item.kind === 'blob'
+    && item.reference === 'z2k_real_www_google_com' && item.available === true));
+  assert.equal(result.dependencies.dependencyClosure.available, true);
+});
+
 test('real large catalog Strategies keep full semantics while Preview stays bounded', () => {
   for (const source of [
     { id: 'z2k_autocircular_rkn', name: 'z2k RKN авто (50 стратегий)' },

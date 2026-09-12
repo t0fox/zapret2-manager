@@ -66,7 +66,17 @@ test('completed prepare jobs are reused only while their prepared target is stil
   assert.match(coordinator, /function z2k_prepare_job_result_reusable\(version, result\)/);
   assert.match(coordinator, /z2k_prepare_job_result_reusable\(version, job\.result\)/);
   assert.match(coordinator, /if \(!z2k_prepare_job_result_reusable\(version, job\.result\)\) continue;/);
-  assert.match(coordinator, /persisted\.planToken == result\.planToken/);
+  assert.match(coordinator, /pointer\.preparedTargetPlanToken == result\.planToken/);
+});
+
+test('prepare reuse reads compact target metadata before the full target snapshot', () => {
+  assert.match(coordinator, /preparedTargetVersion/);
+  assert.match(coordinator, /preparedTargetPlanToken/);
+  assert.match(coordinator, /regular\(PREPARED_TARGET_STATE\)/);
+  assert.doesNotMatch(
+    coordinator.slice(coordinator.indexOf('function z2k_prepare_job_result_reusable'), coordinator.indexOf('function z2k_prepare_job_existing')),
+    /load_check_state\(\)/,
+    'the rpc start path must not parse the multi-megabyte target snapshot just to reuse a completed prepare');
 });
 
 test('Components UI polls the backend-owned Z2K operation before reporting success', () => {

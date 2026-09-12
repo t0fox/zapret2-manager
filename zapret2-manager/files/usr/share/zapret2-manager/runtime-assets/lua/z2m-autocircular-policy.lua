@@ -17,6 +17,27 @@ if type(upstream_circular) ~= "function" then
   return
 end
 
+local function is_discord_initial(desync)
+  if not desync or not desync.outgoing then return false end
+  if desync.l7payload ~= "discord_ip_discovery" and desync.l7payload ~= "stun" then return false end
+  local arg = desync.arg or {}
+  return arg.key == "discord_udp" or arg.key == "discord_voice"
+end
+
+local function persist_discord_initial(desync)
+  -- The upstream state file remains exact-managed. Discord persistence uses
+  -- only its published record API, so no sidecar filesystem writer or second
+  -- state authority is introduced.
+  if not is_discord_initial(desync) then return end
+  if type(z2k_state_persist) ~= "table"
+    or type(z2k_state_persist.get_record) ~= "function"
+    or type(z2k_state_persist.persist_if_changed) ~= "function" then return end
+  local askey, hostn, hrec = z2k_state_persist.get_record(desync, false)
+  if askey and hostn and hrec then
+    z2k_state_persist.persist_if_changed(askey, hostn, hrec)
+  end
+end
+
 circular = function(ctx, desync)
   -- Dynamic lookup of upstream state at PACKET time, not load time.
   -- z2k_state_persist may not exist at sidecar load (it loads after us),
@@ -62,5 +83,10 @@ circular = function(ctx, desync)
   end
   -- Not excluded, or could not determine state → delegate to native.
   -- Upstream wrapper (which called us) will handle its own post-processing.
-  return upstream_circular(ctx, desync)
+  local verdict = upstream_circular(ctx, desync)
+  -- Circular has already selected/rotated the current arm. Persist the same
+  -- decision for Discord's discovery/STUN payload classes through the exact
+  -- upstream state API; a failure here must never break packet processing.
+  pcall(persist_discord_initial, desync)
+  return verdict
 end

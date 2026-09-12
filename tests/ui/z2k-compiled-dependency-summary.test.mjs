@@ -222,13 +222,13 @@ test('Components renders Compiled Strategy Catalog with fail-closed identity and
   const compiled = findAll(rendered, node => classHas(node, 'z2m-z2k-compiled-dependencies'))[0];
 
   assert.ok(compiled, 'compiled dependency summary must be rendered');
-  assert.match(textOf(compiled), /Compiled Strategy Catalog/);
-  assert.match(textOf(compiled), /Strategies8/);
+  assert.match(textOf(compiled), /Собранный каталог стратегий/);
+  assert.match(textOf(compiled), /Стратегии8/);
   assert.match(textOf(compiled), /Lua2/);
-  assert.match(textOf(compiled), /Blobs4/);
-  assert.match(textOf(compiled), /Hostlists3/);
-  assert.match(textOf(compiled), /IP sets1/);
-  assert.match(textOf(compiled), /runtimeBundleDigest/);
+  assert.match(textOf(compiled), /Блоки данных4/);
+  assert.match(textOf(compiled), /Списки узлов3/);
+  assert.match(textOf(compiled), /Наборы IP-адресов1/);
+  assert.match(textOf(compiled), /Идентификатор набора среды/);
   assert.match(componentsCss, /z2m-z2k-compiled-dependencies .*repeat\(5/);
   assert.match(componentsCss, /compiled-dependencies-details .*overflow-wrap:break-word/);
 });
@@ -259,7 +259,7 @@ test('Components never labels an unavailable compiled closure as ready', () => {
 
   assert.ok(compiled);
   assert.match(textOf(compiled), /Недоступно/);
-  assert.match(textOf(compiled), /Runtime dependency closure неполон/);
+  assert.match(textOf(compiled), /Набор зависимостей среды выполнения неполон/);
   assert.doesNotMatch(textOf(compiled), /Готово/);
 });
 
@@ -311,7 +311,7 @@ test('Z2K primary card exposes canonical runtime summary counts', () => {
   assert.ok(card, 'primary Z2K card must render');
   assert.match(textOf(card), /Работает/);
   assert.match(textOf(card), /Стратегии8/);
-  assert.match(textOf(card), /Runtime13\/13 Lua/);
+  assert.match(textOf(card), /Среда выполнения13\/13 Lua/);
   assert.match(textOf(card), /Последняяr-82\.2/);
   assert.doesNotMatch(textOf(card), /runtimeBundleDigest|Runtime bundle/);
 });

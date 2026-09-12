@@ -26,6 +26,8 @@ STATE_DIR="$STATE_ROOT/autocircular"
 ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
 ASSET_ROOT=${Z2M_MANAGER_ASSET_ROOT:-/etc/zapret2-manager/assets}
 ACTIVATION_SNAPSHOT=${Z2M_RUNTIME_ACTIVATION_SNAPSHOT:-/etc/zapret2-manager/runtime-assets.snapshot}
+ACTIVATION_PREVIOUS_SNAPSHOT="${ACTIVATION_SNAPSHOT}.previous"
+ACTIVATION_PREVIOUS_STATE="${ACTIVATION_SNAPSHOT}.previous-state"
 BLOCKED_LIFECYCLE_ASSETS=0
 
 runtime_asset_mode() {
@@ -67,7 +69,7 @@ activation_restore() {
 	_records="$1"
 	_backup_dir="$2"
 	[ -f "$_records" ] || return 1
-	while IFS='|' read -r _dest _backup _had; do
+	while IFS='|' read -r _dest _backup _had _op; do
 		[ -n "$_dest" ] || continue
 		if [ "$_had" = 1 ]; then
 			mkdir -p "$(dirname "$_dest")"
@@ -77,6 +79,26 @@ activation_restore() {
 			rm -f "$_dest"
 		fi
 	done < "$_records"
+	return 0
+}
+
+# A package restart may invoke the package materializer after a Registry
+# activation. Keep the previous active snapshot as the rollback authority so a
+# failed activation restores both bytes and the selected/retired path set.
+restore_previous_snapshot() {
+	[ -f "$ACTIVATION_PREVIOUS_STATE" ] || return 0
+	_previous_state=$(cat "$ACTIVATION_PREVIOUS_STATE")
+	case "$_previous_state" in
+		1)
+			[ -f "$ACTIVATION_PREVIOUS_SNAPSHOT" ] || return 1
+			cp "$ACTIVATION_PREVIOUS_SNAPSHOT" "$ACTIVATION_SNAPSHOT" || return 1
+			;;
+		0)
+			rm -f "$ACTIVATION_SNAPSHOT"
+			;;
+		*) return 1 ;;
+	esac
+	rm -f "$ACTIVATION_PREVIOUS_SNAPSHOT" "$ACTIVATION_PREVIOUS_STATE"
 	return 0
 }
 
@@ -142,6 +164,10 @@ activation_rollback() {
 	_records="$ACTIVATION_SNAPSHOT"
 	_backup_dir="${ACTIVATION_SNAPSHOT}.files"
 	if activation_restore "$_records" "$_backup_dir"; then
+		restore_previous_snapshot || {
+			printf '{"ok":false,"rolledBack":false,"reason":"snapshot restore failed"}\n'
+			return 1
+		}
 		printf '{"ok":true,"rolledBack":true}\n'
 		return 0
 	fi
@@ -224,16 +250,25 @@ activation() {
 		if [ -f "$_dest" ]; then
 			_backup="$_backup_dir/$_n"
 			cp "$_dest" "$_backup" || { rm -rf "$_tmp"; rm -f "$_records"; return 1; }
-			printf '%s|%s|1\n' "$_dest" "$_backup" >> "$_records"
+			printf '%s|%s|1|%s\n' "$_dest" "$_backup" "$_op" >> "$_records"
 		else
-			printf '%s||0\n' "$_dest" >> "$_records"
+			printf '%s||0|%s\n' "$_dest" "$_op" >> "$_records"
 		fi
 	done < "$_tmp/plan"
 
 	# Publish each prepared file with rename semantics; the EXIT trap restores
 	# the snapshot on any failed commit.
 	committed=0
-	trap 'rc=$?; if [ "$rc" -ne 0 ]; then activation_restore "${ACTIVATION_SNAPSHOT}.new" "${ACTIVATION_SNAPSHOT}.files" || true; fi; rm -rf "$_tmp"; rm -f "${ACTIVATION_SNAPSHOT}.new"; exit "$rc"' EXIT HUP INT TERM
+	trap 'rc=$?; if [ "$rc" -ne 0 ]; then activation_restore "${ACTIVATION_SNAPSHOT}.new" "${ACTIVATION_SNAPSHOT}.files" || true; restore_previous_snapshot || true; fi; rm -rf "$_tmp"; rm -f "${ACTIVATION_SNAPSHOT}.new"; exit "$rc"' EXIT HUP INT TERM
+	# Preserve the prior selected/retired path set before publishing this
+	# candidate. The same snapshot is used if restart postflight fails.
+	rm -f "$ACTIVATION_PREVIOUS_SNAPSHOT" "$ACTIVATION_PREVIOUS_STATE"
+	if [ -f "$ACTIVATION_SNAPSHOT" ]; then
+		cp "$ACTIVATION_SNAPSHOT" "$ACTIVATION_PREVIOUS_SNAPSHOT"
+		printf '1\n' > "$ACTIVATION_PREVIOUS_STATE"
+	else
+		printf '0\n' > "$ACTIVATION_PREVIOUS_STATE"
+	fi
 	while IFS='|' read -r _op _dest _payload _n; do
 		if [ "$_op" = REMOVE ]; then
 			rm -f "$_dest"
@@ -252,7 +287,7 @@ activation() {
 			grep -q '^LUAOPT=' "$INIT" || continue
 			_init_backup="$_backup_dir/init-$committed"
 			cp "$INIT" "$_init_backup" || return 1
-			printf '%s|%s|1\n' "$INIT" "$_init_backup" >> "$_records"
+			printf '%s|%s|1|INIT\n' "$INIT" "$_init_backup" >> "$_records"
 			committed=$((committed + 1))
 		done
 		align_luaopt "$_lua_spec" || return 1
@@ -372,8 +407,16 @@ is_z2k_lifecycle_lua() {
 # bytes safe for package sync without duplicating the Registry classification.
 is_registry_selected_target() {
 	[ -f "$ACTIVATION_SNAPSHOT" ] || return 1
-	while IFS='|' read -r _dest _backup _had; do
-		[ "$_dest" = "$1" ] && return 0
+	while IFS='|' read -r _dest _backup _had _op; do
+		[ "$_dest" = "$1" ] && [ "$_op" != REMOVE ] && return 0
+	done < "$ACTIVATION_SNAPSHOT"
+	return 1
+}
+
+is_registry_retired_target() {
+	[ -f "$ACTIVATION_SNAPSHOT" ] || return 1
+	while IFS='|' read -r _dest _backup _had _op; do
+		[ "$_dest" = "$1" ] && [ "$_op" = REMOVE ] && return 0
 	done < "$ACTIVATION_SNAPSHOT"
 	return 1
 }
@@ -394,6 +437,13 @@ preserve_existing_runtime() {
 copy_if_missing_or_custom() {
 	_src="$1"
 	_dst="$2"
+	# A target removal is authoritative even when the package still contains a
+	# historical baseline copy. Do not resurrect that path during service
+	# restart; only a later canonical target activation may reintroduce it.
+	if [ ! -e "$_dst" ] && is_registry_retired_target "$_dst"; then
+		sync_log "skip retired package runtime path $_dst"
+		return 0
+	fi
 	# Engine core and selected Z2K bytes are protected. Manager-owned package
 	# sidecars are refreshable and therefore receive the new package byte.
 	if [ -e "$_dst" ] && preserve_existing_runtime "$_dst"; then

@@ -50,6 +50,7 @@ function fallbackEditor(host, options) {
   var textarea = document.createElement('textarea');
   textarea.className = 'z2m-code-editor-fallback';
   textarea.value = String(options.value == null ? '' : options.value);
+  textarea.wrap = options.lineWrapping ? 'soft' : 'off';
   textarea.readOnly = Boolean(options.readOnly);
   textarea.spellcheck = false;
   textarea.setAttribute('aria-label', options.ariaLabel || 'Code editor');
@@ -163,6 +164,9 @@ var CodeEditor = baseclass.extend({
     addExtensions(extensions, this.theme);
     addExtensions(extensions, options.language);
     addExtensions(extensions, options.extensions);
+    if (options.lineWrapping && vendor.EditorView && vendor.EditorView.lineWrapping) {
+      addExtensions(extensions, vendor.EditorView.lineWrapping);
+    }
     extensions.push(readOnlyCompartment.of([
       vendor.EditorState.readOnly.of(Boolean(options.readOnly)),
       vendor.EditorView.editable.of(!options.readOnly),

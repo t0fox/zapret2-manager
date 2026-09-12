@@ -100,7 +100,7 @@ function createLoader(options) {
 				{ key: 'versionStatus', lane: 'remote', label: _('версий'), run: function () {
 					return ctx.api.maintenance && typeof ctx.api.maintenance.versions === 'function' ? ctx.api.maintenance.versions() : {};
 				} },
-				{ key: 'resourcesStatus', lane: 'remote', label: _('состояния ресурсов'), run: function () {
+				{ key: 'resourcesStatus', lane: 'fast-local', label: _('состояния ресурсов'), run: function () {
 					return ctx.api.resources && typeof ctx.api.resources.status === 'function' ? ctx.api.resources.status() : {};
 				} }
 			];

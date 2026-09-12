@@ -22,6 +22,17 @@ test('Strategy IDE switch suppresses the LuCI native checkbox pseudo-element', (
   assert.match(css, /#z2m-view-strategy[^{}]*\.profile-toggle::before\s*\{[^}]*content\s*:\s*none/s);
 });
 
+test('Strategy IDE opens the existing preview host collapsed and expands it through the existing action', () => {
+  const strategies = read('z2m-strategies.js');
+  const css = read('z2m-ui.css');
+  assert.match(strategies, /strategy-editor-preview-panel is-collapsed/);
+  assert.match(strategies, /data-action="toggleEditorPreview" aria-expanded="false">Развернуть/);
+  const preview = strategies.match(/function previewEditor\(\)[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(preview, /panel\.classList\.remove\('is-collapsed'\)/);
+  assert.match(preview, /output\.hidden = false/);
+  assert.match(css, /\.strategy-editor-workspace-output \.nfq-diagnostics:empty\s*\{\s*display:none;/);
+});
+
 test('Strategy IDE uses a compact preview region and removes editor jargon', () => {
   const strategies = read('z2m-strategies.js');
   const editor = read('z2m-strategy-editor.js');

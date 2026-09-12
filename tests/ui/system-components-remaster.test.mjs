@@ -49,7 +49,7 @@ test('Engine management is a full-width Components details sibling, not a nested
   assert.match(SRC, /z2m-component-details/, 'details must have a scoped presentation root');
   assert.doesNotMatch(SRC, /EnginePanel\.render\(engineCtx/, 'Components must not embed the standalone EnginePanel');
   assert.match(SRC, /engineExpanded|engineOpen/, 'must have local disclosure state');
-  assert.match(SRC, /Управление[\s\S]*▾|Управление[\s\S]*chevronDown/, 'must have Управление disclosure button');
+  assert.match(SRC, /Подробнее[\s\S]*chevronDown/, 'must have Подробнее disclosure button');
   assert.match(SRC, /state\.engineExpanded\s*\?\s*renderEngineDetails/, 'details must render below the mandatory grid');
 });
 

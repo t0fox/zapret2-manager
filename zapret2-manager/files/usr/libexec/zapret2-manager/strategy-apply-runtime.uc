@@ -18,9 +18,9 @@
 //      assignment; no second writer exists
 //   8. restart only through the upstream /etc/init.d/zapret2 owner
 //   9. invalidate the status cache, re-collect
-//  10. verify FIVE checks (process present, exactly one nfqws2, rules
-//      present, queue 300 registered, queue owner == daemon PID). Failure →
-//      exact-byte rollback through apply.uc; config and runtime restoration
+//  10. verify the enabled runtime (process, rules, queue, and owner) or the
+//      intentionally disabled runtime (no process, rules, or queue). Failure
+//      → exact-byte rollback through apply.uc; config and runtime restoration
 //      must both verify or the result is a critical manual-recovery failure.
 
 import { readfile, writefile, stat, readlink, unlink, popen, mkdir } from 'fs';
@@ -360,6 +360,26 @@ function verify_status(sj, q, allow_external_nfqws) {
 	return { ok: ok, checks: checks, daemonPid: pid, queueOwner: q.peer_portid };
 }
 
+function verify_disabled_status(sj, q) {
+	let has_status = type(sj) == 'object' && sj != null && type(sj.runtime) == 'object';
+	let rt = has_status ? sj.runtime : {};
+	let count = has_status && type(rt.count) == 'int' ? rt.count
+		: (has_status && type(rt.instances) == 'array' ? length(rt.instances) : -1);
+	let service_state = has_status ? (sj.serviceState || sj.state || '') : '';
+	let checks = {
+		configDisabled: read_var('NFQWS2_ENABLE') != '1',
+		statusAvailable: has_status,
+		serviceStopped: has_status && service_state != 'running',
+		processAbsent: count == 0,
+		rulesAbsent: has_status && rt.rulesPresent !== true,
+		queueUnregistered: q != null && q.registered !== true
+	};
+	let ok = checks.configDisabled && checks.statusAvailable && checks.serviceStopped &&
+		checks.processAbsent && checks.rulesAbsent && checks.queueUnregistered;
+	return { ok: ok, mode: 'disabled', checks: checks, daemonPid: null,
+		queueOwner: q != null ? q.peer_portid : null };
+}
+
 function recollect_status() {
 	try { unlink(PATHS.status_json); } catch (e) { }
 	// In-process collection: spawning the collector as a CLI script fails to
@@ -409,7 +429,9 @@ function transaction_verify(attempt, allow_external_nfqws, injected) {
 		if (supplied != null) result = supplied;
 		else {
 			let sj = recollect_status(), q = parse_queue();
-			result = verify_status(sj, q, allow_external_nfqws);
+			result = read_var('NFQWS2_ENABLE') == '1'
+				? verify_status(sj, q, allow_external_nfqws)
+				: verify_disabled_status(sj, q);
 		}
 		attempts++;
 		if (result != null && result.ok) {

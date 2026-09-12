@@ -144,6 +144,9 @@ function resolve_token(token, environment) {
 		return '--lua-init=' + (resolvedLua != null ? resolvedLua : info.value);
 	}
 	if (info.name == 'blob') return '--blob=' + resolve_blob_value(info.value, paths);
+	// These options carry comma-separated domain names, not a filesystem
+	// reference. Keep the MCP/native inline-domain contract byte-for-byte.
+	if (info.name == 'hostlist-domains' || info.name == 'hostlist-exclude-domains') return token;
 	if (info.name == 'hostlist' || info.name == 'hostlist-domains'
 		|| info.name == 'hostlist-exclude' || info.name == 'hostlist-exclude-domains'
 		|| info.name == 'hostlist-auto') {
@@ -375,6 +378,7 @@ function collect_list_option_dependencies(dependencies, tokens, environment) {
 	for (let ti = 0; ti < length(tokens); ti++) {
 		let info = option_info(tokens[ti].value);
 		if (!info.hasEquals) continue;
+		if (info.name == 'hostlist-domains' || info.name == 'hostlist-exclude-domains') continue;
 		let kind = null;
 		if (info.name == 'hostlist' || info.name == 'hostlist-domains' || info.name == 'hostlist-auto'
 			|| info.name == 'hostlist-exclude' || info.name == 'hostlist-exclude-domains') kind = 'hostlist';
@@ -449,6 +453,32 @@ function collect_raw_lua_dependencies(dependencies, rawFragments, environment) {
 	}
 }
 
+function z2k_flat_dependency_kind(item) {
+	if (!is_object(item)) return null;
+	if (type(item.kind) == 'string' && length(item.kind) > 0 && item.kind != 'lua-function') return item.kind;
+	if (item.class == 'lua-function') return 'function';
+	if (item.class == 'lua') return 'lua';
+	if (starts_with(item.class || '', 'blob-')) return 'blob';
+	if (starts_with(item.class || '', 'hostlist-')) return 'hostlist';
+	if (starts_with(item.class || '', 'ipset-')) return 'ipset';
+	return item.kind || item.class || 'dependency';
+}
+
+function z2k_flat_dependency_projection(closure) {
+	let result = { items: [], missing: [] };
+	if (!is_object(closure)) return result;
+	for (let item in closure.items || []) {
+		if (!is_object(item) || type(item.reference || item.id) != 'string') continue;
+		let reference = item.reference || item.id, kind = z2k_flat_dependency_kind(item);
+		let projected = { key: kind + ':' + reference, kind: kind, id: item.id || reference,
+			reference: reference, available: item.available === true };
+		if (!projected.available) projected.reason = item.reason || 'dependency is unavailable';
+		push(result.items, projected);
+		if (!projected.available) push(result.missing, projected);
+	}
+	return result;
+}
+
 function collect_dependencies(strategy, fragments, environment, rawFragments) {
 	let dependencies = { available: true, items: [], missing: [], structurallyCompilable: true };
 	let scanFragments = rawFragments != null ? rawFragments : fragments;
@@ -517,7 +547,15 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 		if (is_object(closure)) {
 			dependencies.dependencyClosure = closure;
 			dependencies.runtimeBundleDigest = closure.runtimeBundleDigest || null;
-			if (closure.available != true) dependencies.available = false;
+			// Canonical Z2K candidates have one dependency authority: the typed
+			// closure resolved from their runtime composition. Do not let the
+			// legacy flat inspection of the installed environment override it.
+			if (strategy.sourceId == 'z2k') {
+				let projected = z2k_flat_dependency_projection(closure);
+				dependencies.items = projected.items;
+				dependencies.missing = projected.missing;
+				dependencies.available = closure.available === true && length(projected.missing) == 0;
+			} else if (closure.available != true) dependencies.available = false;
 		}
 	}
 	return dependencies;

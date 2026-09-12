@@ -207,6 +207,42 @@ test('opening Z2K details loads the selected release before showing the operatio
   assert.equal(internals.state.z2kDetails.version, 'r-80.3');
 });
 
+test('Z2K Подробнее remains openable during an operation and moves the sole status panel', () => {
+  const internals = loadMaintenance();
+  const ctx = makeContext(z2kRaw({
+    selectedDetails: {
+      version: 'r-80.3',
+      installable: true,
+      operation: 'upgrade',
+      deviceChanges: { known: false },
+    },
+  }));
+  internals.state.componentOperation = {
+    kind: 'update',
+    scope: 'z2k',
+    targetVersion: 'r-80.3',
+    phase: 'running',
+  };
+  internals.state.z2kExpanded = false;
+
+  const collapsed = internals.renderComponents(ctx, ctx.data);
+  const collapsedCard = z2kCard(collapsed);
+  const detailsButton = findAll(collapsedCard, node => node.tag === 'button' && textOf(node).includes('Подробнее'))[0];
+
+  assert.ok(detailsButton, 'Z2K card must keep Подробнее available while the operation runs');
+  assert.notEqual(detailsButton.attrs.disabled, 'disabled');
+  assert.equal(findAll(collapsedCard, node => classHas(node, 'z2m-component-operation')).length, 1);
+
+  detailsButton.attrs.click();
+  const expanded = internals.renderComponents(ctx, ctx.data);
+  const expandedCard = z2kCard(expanded);
+  const panel = findAll(expanded, node => node.attrs && node.attrs.id === 'z2m-z2k-release-panel')[0];
+
+  assert.equal(internals.state.z2kExpanded, true);
+  assert.equal(findAll(expandedCard, node => classHas(node, 'z2m-component-operation')).length, 0);
+  assert.equal(findAll(panel, node => classHas(node, 'z2m-component-operation')).length, 1);
+});
+
 test('cached Z2K details reopen locally after compare enrichment', async () => {
   const internals = loadMaintenance();
   let resolveCompare;
@@ -429,7 +465,7 @@ test('incompatible selected release does not change current component health', (
 
   assert.match(cardText, /Доступно обновление|Работает/);
   assert.doesNotMatch(cardText, /Несовместим/);
-  assert.match(detailsText, /Release несовместим/);
+  assert.match(detailsText, /Версия несовместима/);
   assert.ok(buttonsOf(z2kDetails(rendered)).includes('Установка недоступна'));
 });
 
@@ -564,6 +600,30 @@ test('rapid release selection cannot let a stale A response overwrite the latest
   assert.equal(internals.state.z2kDetails.releaseBody, 'B');
 });
 
+test('failed initial release details leave loading state and expose a readable retry', async () => {
+  const internals = loadMaintenance();
+  const ctx = makeContext(z2kRaw({ selectedDetails: null }));
+  let refreshes = 0;
+  ctx.api.resources = {
+    versionDetails: () => Promise.reject({ code: 'ETIMEDOUT', message: 'backend timeout' }),
+  };
+  internals.state.z2kExpanded = true;
+  internals.state.z2kReleaseRefresh = () => { refreshes += 1; };
+
+  internals.selectZ2KVersion(ctx, 'r-80.3');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(internals.state.z2kDetailsLoading, false);
+  assert.ok(internals.state.z2kDetailsLoadError);
+  assert.ok(refreshes > 0, 'failed load must repaint the bounded release panel');
+  const rendered = internals.renderComponents(ctx, ctx.data);
+  const panel = findAll(rendered, node => node.attrs && node.attrs.id === 'z2m-z2k-release-panel')[0];
+  assert.match(textOf(panel), /Не удалось загрузить сведения о версии/);
+  assert.ok(findAll(panel, node => node.tag === 'button' && textOf(node) === 'Повторить').length > 0);
+  assert.doesNotMatch(textOf(panel), /Загружаем выбранную версию…/);
+});
+
 test('stale compare response cannot change the selected release lifecycle', async () => {
   const internals = loadMaintenance();
   const pending = [];
@@ -584,7 +644,7 @@ test('stale compare response cannot change the selected release lifecycle', asyn
   assert.equal(pending[0].request.includeCompare, 'compare');
 
   internals.selectZ2KVersion(ctx, 'r-80.2');
-  assert.equal(internals.state.z2kDetailsLoading, false);
+  assert.equal(internals.state.z2kDetailsLoading, true);
   assert.equal(internals.state.z2kDetailsLoadError, null);
   assert.equal(pending[1].request.version, 'r-80.2');
   assert.equal(pending[1].request.includeCompare, 'fallback');
@@ -678,7 +738,7 @@ test('expanded Z2K details show the managed device delta, not the upstream path 
   assert.doesNotMatch(text, /Причина upstream:|Удалён в upstream:/);
   assert.doesNotMatch(text, /S51z2k-warp|mtproxy-client|webpanel/);
   assert.doesNotMatch(text, /\[object HTMLDivElement\]/);
-  assert.match(text, /Сравнить upstream изменения ↗/);
+  assert.match(text, /Сравнить изменения источника ↗/);
 });
 
 test('repository Compare is requested only after the managed-resource details expand', () => {
@@ -998,7 +1058,11 @@ test('Z2K operation status keeps backend progress projection visible while updat
   assert.match(text, /42%/);
   const z2kButtons = findAll(z2kCard(rendered), node => node.tag === 'button');
   assert.ok(z2kButtons.length > 0);
-  assert.ok(z2kButtons.every(button => button.attrs.disabled), 'Z2K actions must be disabled while update is running');
+  const detailsButton = z2kButtons.find(button => textOf(button).includes('Подробнее'));
+  assert.ok(detailsButton, 'Подробнее must remain available while update is running');
+  assert.notEqual(detailsButton.attrs.disabled, 'disabled');
+  assert.ok(z2kButtons.filter(button => !textOf(button).includes('Подробнее')).every(button => button.attrs.disabled),
+    'Z2K mutation and refresh actions must be disabled while update is running');
 
   await new Promise(resolve => setTimeout(resolve, 1100));
   resolveTerminal({ phase: 'completed', result: { ok: true } });
@@ -1042,7 +1106,9 @@ test('Z2K update feedback stays beside the release action and uses an honest loa
     assert.ok(findAll(operationPanel, node => classHas(node, 'z2m-op-progress--indeterminate')).length > 0);
     assert.ok(action, 'mutation action must communicate that the update is running');
     assert.equal(action.attrs.disabled, true);
-    assert.equal(findAll(z2kCard(rendered), node => classHas(node, 'z2m-component-operation')).length, 1,
+    assert.equal(findAll(z2kCard(rendered), node => classHas(node, 'z2m-component-operation')).length, 0,
+      'expanded Z2K must not duplicate operation feedback in the compact card');
+    assert.equal(findAll(panel, node => classHas(node, 'z2m-component-operation')).length, 1,
       'expanded release view must keep one operation panel beside the release action');
 
     assert.ok(boundedRefreshes > 0, 'status polling should refresh the bounded release panel');
