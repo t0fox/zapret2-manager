@@ -443,6 +443,23 @@
 /* Page-local unsaved-change actions: owned by the section they belong to. */
 .z2m-local-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .z2m-local-dirty{color:var(--orange);font-size:12px;white-space:nowrap}
+.z2m-service-apply-status{flex:1 1 100%;display:grid;gap:7px;min-width:260px;padding:9px 11px;border:1px solid var(--border);border-radius:7px;background:var(--panel2);color:var(--tx2);opacity:1;transform:translateY(0);transition: opacity .18s cubic-bezier(0.23,1,0.32,1),transform .18s cubic-bezier(0.23,1,0.32,1)}
+.z2m-service-apply-status-line{display:flex;align-items:center;gap:8px;min-width:0;font-size:12px}
+.z2m-service-apply-status-line strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.z2m-service-apply-status-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:var(--blue);opacity:.9;transform:scale(1);transition:opacity .18s cubic-bezier(0.23,1,0.32,1),transform .18s cubic-bezier(0.23,1,0.32,1)}
+.z2m-service-apply-status.checking .z2m-service-apply-status-dot,.z2m-service-apply-status.validating .z2m-service-apply-status-dot,.z2m-service-apply-status.saving .z2m-service-apply-status-dot,.z2m-service-apply-status.applying .z2m-service-apply-status-dot,.z2m-service-apply-status.verifying .z2m-service-apply-status-dot{animation:z2m-service-apply-pulse 1.2s cubic-bezier(0.23,1,0.32,1) infinite}
+@keyframes z2m-service-apply-pulse{0%,100%{opacity:.65;transform:scale(1)}50%{opacity:1;transform:scale(1.35)}}
+.z2m-service-apply-status.success .z2m-service-apply-status-dot{background:var(--green)}
+.z2m-service-apply-status.error .z2m-service-apply-status-dot{background:var(--red)}
+.z2m-service-apply-steps{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.z2m-service-apply-step{display:inline-flex;align-items:center;gap:4px;color:var(--tx3);font-size:10px;line-height:1.2;opacity:.52;transform:translateY(0);transition:opacity .18s cubic-bezier(0.23,1,0.32,1),transform .18s cubic-bezier(0.23,1,0.32,1)}
+.z2m-service-apply-step::before{content:'';width:4px;height:4px;flex:0 0 4px;border-radius:50%;background:currentColor;opacity:.65}
+.z2m-service-apply-step.done{color:var(--green);opacity:.8}
+.z2m-service-apply-step.active{color:var(--blue);opacity:1;transform:translateY(-1px)}
+.z2m-service-apply-step.active::before{opacity:1;transform:scale(1.35)}
+.z2m-service-apply-status.error .z2m-service-apply-step.active{color:var(--red)}
+@starting-style{.z2m-app .z2m-service-apply-status{opacity:0;transform:translateY(4px)}}
+@media(prefers-reduced-motion:reduce){.z2m-app .z2m-service-apply-status{transition:none;transform:none}.z2m-app .z2m-service-apply-status-dot,.z2m-app .z2m-service-apply-step{animation:none;transition:none;transform:none}.z2m-app .z2m-service-apply-step.active::before{transform:none}}
 @media(max-width:480px){
   .z2m-local-actions{flex-direction:row;align-items:center;justify-content:flex-start}
   .z2m-local-dirty{width:100%;order:-1;white-space:normal}

@@ -89,17 +89,19 @@ test('DNS apply flow validates, applies revision-checked, rereads canonical stat
   }
   // Success resets the page-local dirty state against the reread baseline,
   // only after canonical verification; failure paths keep local edits.
-  assert.match(flow[0], /state\.selections = Object\.assign\(\{\}, state\.serviceBaseline\)/);
+  assert.match(flow[0], /state\.selections = Object\.assign\(\{\}, committed\.state\.selections\)/);
   // Revision safety: conflict is detected before mutation and reported locally.
   assert.match(DNS, /E_REVISION_CONFLICT/);
   assert.match(DNS, /изменились в другой сессии/);
   // Failure keeps the local selection for retry (dirty stays true).
   assert.match(DNS, /Не удалось применить настройки DNS\./);
   const flowText = flow[0];
-  const resetIdx = flowText.indexOf('state.selections = Object.assign({}, state.serviceBaseline)');
+  const commitIdx = flowText.indexOf('var committed = ServiceModel.commitServiceDnsApply');
+  const resetIdx = flowText.indexOf('state.selections = Object.assign({}, committed.state.selections)');
   const verifyIdx = flowText.indexOf('E_VERIFY');
   const catchIdx = flowText.lastIndexOf('.catch(');
-  assert.ok(resetIdx > -1 && resetIdx > verifyIdx, 'dirty cleared only after canonical verification');
+  assert.ok(commitIdx > -1 && resetIdx > commitIdx, 'dirty cleared only after canonical verification');
+  assert.ok(resetIdx > -1 && resetIdx > verifyIdx, 'dirty cleared only after the verify gate');
   assert.ok(resetIdx < catchIdx, 'reset belongs to the success path');
   const catchBody = flowText.slice(catchIdx);
   assert.doesNotMatch(catchBody, /state\.selections = Object\.assign/, 'failure must not clear dirty state');

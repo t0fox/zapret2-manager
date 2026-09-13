@@ -2,6 +2,7 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-icons as Icons';
 'require view.zapret2-manager.z2m-product-ux-model as ProductUX';
+'require view.zapret2-manager.z2m-dns-service-model as ServiceModel';
 
 var PANES = [
   ['setup', _('Настройка')],
@@ -15,11 +16,18 @@ var SERVICE_TERMINAL = ['completed','applied','failed','rolled-back','cancelled'
 var DNS_MODES = { system: _('Системный DNS — без изменений'), doh: _('DoH через https-dns-proxy'), dot: _('DoT через stubby'), udp: _('Свой DNS по UDP/53') };
 var PROVIDER_CATEGORIES = ['Популярные', 'Безопасные', 'Для ИИ', 'Пользовательские'];
 var GLOBAL_FIELDS = ['mode','primary','secondary','hijack','cache','cacheSize','edns','minTtl','strictOrder','blockAaaa','customRules'];
+var SERVICE_APPLY_STEP_LABELS = {
+  checking: _('Проверяем текущие назначения…'),
+  validating: _('Проверяем новые назначения…'),
+  saving: _('Сохраняем назначения…'),
+  applying: _('Применяем настройки…'),
+  verifying: _('Проверяем применённый результат…')
+};
 var state = {
   pane: 'setup',
   manual: null, manualBaseline: null, manualBaselineRevision: null,
   selections: null, serviceBaseline: null, serviceBaselineRevision: null, serviceLabels: {},
-  serviceApplyBusy: false, manualApplyBusy: false, globalApplyBusy: false,
+  serviceApplyBusy: false, serviceApplyProgress: null, manualApplyBusy: false, globalApplyBusy: false,
   globalDraft: null, globalBaseline: null, globalProviders: [],
   providerBusy: {}, providerResults: {}, providerErrors: {},
   providerEditor: null, providerEditorBusy: false, providerEditorDirty: false, providerEditorError: null, providerEditorFieldErrors: {},
@@ -70,9 +78,6 @@ function cloneEntries(dns) {
   return asArray(source).map(function (entry) {
     return { domain: entry.domain || '', ip: entry.ip || entry.address || '', enabled: entry.enabled !== false };
   });
-}
-function sameSelections(left, right) {
-  return JSON.stringify(object(left)) === JSON.stringify(object(right));
 }
 function changesLabel(count) {
   var mod10 = count % 10, mod100 = count % 100;
@@ -226,7 +231,7 @@ function selectionMap(status) {
     var item = source[id];
     result[id] = typeof item === 'string' ? item : item && (item.providerId || item.provider || item.dns) || '';
   });
-  return result;
+  return ServiceModel.normalizeServiceSelectionMap(result);
 }
 function serviceLabelMap(status) {
   var source = status && (status.services || status.mappings || status.availableServices) || {};
@@ -247,8 +252,8 @@ function serviceDnsChanges() {
   Object.keys(state.serviceBaseline || {}).concat(Object.keys(state.selections || {})).forEach(function (id) {
     if (seen[id]) return;
     seen[id] = true;
-    var before = state.serviceBaseline && state.serviceBaseline[id] || '';
-    var after = state.selections && state.selections[id] || '';
+    var before = ServiceModel.normalizeServiceSelectionValue(state.serviceBaseline && state.serviceBaseline[id]);
+    var after = ServiceModel.normalizeServiceSelectionValue(state.selections && state.selections[id]);
     if (before !== after) changes[id] = {
       label: state.serviceLabels[id] || id, before: before, after: after
     };
@@ -405,12 +410,13 @@ function render(ctx) {
   var serviceCatalogData = serviceCatalogRows(serviceCatalog, serviceProfileCatalog);
   if (!serviceCatalogData.items.length) serviceCatalogData = serviceCatalogRows(serviceProfileCatalog, serviceProfileCatalog);
   var currentProviderId = selectedProviderId(dns, providers);
-  var loadedSelections = selectionMap(serviceStatus);
+  var loadedSelections = ServiceModel.normalizeServiceSelectionMap(selectionMap(serviceStatus));
   var global = data.global && data.global.value || {};
   var globalApplied = global || {};
   var productOverrides = product.applied && product.applied.overrides;
   state.tiktokAuto = state.tiktokAutoLocal || (data.tiktok && data.tiktok.value ? data.tiktok.value : { enabled: false, state: 'error', unavailable: true });
   if (!state.operation && serviceStatus.pending && serviceStatus.pending.operationId) state.operation = serviceStatus.pending;
+  if (!state.serviceApplyProgress && state.operation) state.serviceApplyProgress = { phase: 'applying', detail: null };
   scheduleTiktokAutoCheck(ctx);
 
   if (state.manual == null) {
@@ -430,8 +436,8 @@ function render(ctx) {
   Object.keys(serviceCatalogData.labels).forEach(function (id) {
     if (!state.serviceLabels[id]) state.serviceLabels[id] = serviceCatalogData.labels[id];
   });
-  state.serviceBaseline = normalizeServiceSelections(state.serviceBaseline, serviceCatalogData.items);
-  state.selections = normalizeServiceSelections(state.selections, serviceCatalogData.items);
+  state.serviceBaseline = ServiceModel.normalizeServiceSelectionMap(normalizeServiceSelections(state.serviceBaseline, serviceCatalogData.items));
+  state.selections = ServiceModel.normalizeServiceSelectionMap(normalizeServiceSelections(state.selections, serviceCatalogData.items));
   // dns-global state init
   if (state.globalBaseline == null) {
     var draft = global.draft || global;
@@ -497,13 +503,51 @@ function render(ctx) {
   function conflictMessage() {
     return _('Настройки DNS изменились в другой сессии. Обновите страницу и повторите изменение.');
   }
+  function setServiceApplyPhase(phase, detail) {
+    var next = { phase: phase, detail: detail || null };
+    var current = state.serviceApplyProgress;
+    if (current && current.phase === next.phase && current.detail === next.detail) return;
+    state.serviceApplyProgress = next;
+    renderPane();
+  }
+  function serviceApplyStatusNode() {
+    var rawPhase = state.serviceApplyProgress && state.serviceApplyProgress.phase ||
+      state.operation && 'applying';
+    var progress = ServiceModel.serviceApplyProgress(rawPhase);
+    if (progress.phase === 'idle') return null;
+    var detail = state.serviceApplyProgress && state.serviceApplyProgress.detail;
+    var label = progress.phase === 'success' ? _('Настройки DNS применены') :
+      progress.phase === 'error' ? (detail || _('Backend не подтвердил применённые назначения.')) :
+      SERVICE_APPLY_STEP_LABELS[progress.phase];
+    var steps = Object.keys(SERVICE_APPLY_STEP_LABELS).map(function (phase, index) {
+      var stepState = progress.phase === 'success' || index < progress.index ? 'done' :
+        progress.phase === phase ? 'active' : 'pending';
+      return E('span', {
+        'class': 'z2m-service-apply-step ' + stepState,
+        role: 'listitem',
+        'aria-current': stepState === 'active' ? 'step' : null
+      }, SERVICE_APPLY_STEP_LABELS[phase]);
+    });
+    return E('div', {
+      'class': 'z2m-service-apply-status ' + progress.phase,
+      role: progress.phase === 'error' ? 'alert' : 'status',
+      'aria-live': 'polite',
+      'aria-atomic': 'true'
+    }, [
+      E('div', { 'class': 'z2m-service-apply-status-line' }, [
+        E('span', { 'class': 'z2m-service-apply-status-dot', 'aria-hidden': 'true' }),
+        E('strong', {}, label)
+      ]),
+      E('div', { 'class': 'z2m-service-apply-steps', role: 'list' }, steps)
+    ]);
+  }
   function applyError(error) {
     var normalized = ctx.api.normalizeError(error);
     var mapped = ProductUX.errorMessage(normalized, _('Не удалось применить настройки DNS.'));
     if (window.console && window.console.warn) window.console.warn('[z2m-dns] apply failed:', normalized.code || '', mapped.technical || normalized.message);
     shell.showToast(_('Не удалось применить настройки DNS.') + ' ' + mapped.message, 'err');
   }
-  function localActions(dirtyCount, busy, onCancel, onApply) {
+  function localActions(dirtyCount, busy, onCancel, onApply, statusNode) {
     var cancel = shell.button(_('Отменить'), 'sm', onCancel, !dirtyCount || busy);
     var apply = shell.button(_('Применить'), 'primary sm', function () {
       apply.disabled = true;
@@ -511,6 +555,7 @@ function render(ctx) {
     }, !dirtyCount || busy);
     apply.setAttribute('data-testid', 'z2m-local-apply');
     return E('div', { 'class': 'z2m-local-actions', 'data-testid': 'z2m-local-actions' }, [
+      statusNode,
       dirtyCount ? E('span', { 'class': 'z2m-local-dirty', 'data-testid': 'z2m-local-dirty' }, changesLabel(dirtyCount)) : E('span'),
       cancel,
       apply
@@ -519,14 +564,16 @@ function render(ctx) {
 
   function cancelServiceDns() {
     state.selections = Object.assign({}, state.serviceBaseline);
+    state.serviceApplyProgress = null;
     renderPane();
   }
   function applyServiceDns(button) {
     if (state.serviceApplyBusy) return;
-    var desired = Object.assign({}, state.selections);
+    var desired = ServiceModel.normalizeServiceSelectionMap(state.selections);
     if (!Object.keys(serviceDnsChanges()).length) return;
     state.serviceApplyBusy = true;
     if (button) button.disabled = true;
+    setServiceApplyPhase('checking');
     var finish = function () {
       state.serviceApplyBusy = false;
       if (button) button.disabled = false;
@@ -535,6 +582,7 @@ function render(ctx) {
     ctx.api.dns.serviceStatus().then(function (status) {
       if (revisionMismatch(state.serviceBaselineRevision, status && status.draftRevision))
         throw { code: 'E_REVISION_CONFLICT', message: conflictMessage() };
+      setServiceApplyPhase('validating');
       return edit(ctx.api.dns.product.validate, {
         scope: 'service_dns',
         value: { selections: desired },
@@ -543,6 +591,7 @@ function render(ctx) {
     }).then(function (answer) {
       if (!answer || answer.ok === false || answer.error)
         throw answer && answer.error || answer || new Error('service_dns validation failed');
+      setServiceApplyPhase('saving');
       return edit(ctx.api.dns.serviceSet, { selections: desired });
     }).then(function (saved) {
       if (!saved || saved.ok !== true)
@@ -551,11 +600,17 @@ function render(ctx) {
       // Track the accepted write so a retry after a failed apply is not
       // mistaken for an external revision conflict.
       if (saved.draftRevision != null) state.serviceBaselineRevision = String(saved.draftRevision);
+      setServiceApplyPhase('applying');
       return edit(ctx.api.dns.serviceApply, { revision: saved.draftRevision }).then(undefined, function (error) {
         var normalized = ctx.api.normalizeError(error);
         if (normalized.code === 'EAPPLYTIMEOUT') {
           // Long-running apply: hand over to the existing async operation poller.
-          state.operation = { operationId: stagedSet.operationId || normalized.operationId };
+          var operationId = error && error.operationId || error && error.error && error.error.operationId;
+          state.operation = {
+            operationId: stagedSet.operationId || operationId,
+            desiredSelections: desired,
+            draftRevision: stagedSet.draftRevision
+          };
           scheduleServiceOperationPoll();
           throw { handled: true };
         }
@@ -564,12 +619,14 @@ function render(ctx) {
     }).then(function () {
       return ctx.api.dns.serviceStatus();
     }).then(function (status) {
-      var appliedSelections = selectionMap(status);
-      if (!sameSelections(appliedSelections, desired))
+      setServiceApplyPhase('verifying');
+      var committed = ServiceModel.commitServiceDnsApply(state, desired, status, stagedSet && stagedSet.draftRevision);
+      if (!committed.ok)
         throw { code: 'E_VERIFY', message: _('Backend не подтвердил применённые назначения.') };
-      state.serviceBaseline = appliedSelections;
-      state.serviceBaselineRevision = status && status.draftRevision != null ? String(status.draftRevision) : null;
-      state.selections = Object.assign({}, state.serviceBaseline);
+      state.serviceBaseline = committed.state.serviceBaseline;
+      state.serviceBaselineRevision = committed.state.serviceBaselineRevision;
+      state.selections = Object.assign({}, committed.state.selections);
+      state.serviceApplyProgress = { phase: 'success', detail: null };
       finish();
       shell.showToast(_('Настройки DNS применены.'), 'ok');
       renderPane();
@@ -578,9 +635,13 @@ function render(ctx) {
       if (error && error.handled) { renderPane(); return; }
       if (error && error.code === 'E_REVISION_CONFLICT') {
         // Local edits stay in place; user re-bases by updating the page.
+        setServiceApplyPhase('error', conflictMessage());
         shell.showToast(conflictMessage(), 'err');
         return;
       }
+      var normalized = ctx.api.normalizeError(error);
+      setServiceApplyPhase('error', normalized.code === 'E_VERIFY' ?
+        _('Backend не подтвердил применённые назначения.') : normalized.message);
       applyError(error);
     });
   }
@@ -1492,16 +1553,37 @@ function render(ctx) {
       if (terminalServiceOperation(state.operation)) {
         state.lastOperation = state.operation;
         var success = serviceOperationSucceeded(state.operation);
-        clearServiceOperation();
-        if (success) {
-          discardServiceSelections();
+        var operationState = state.operation;
+        if (!success) {
+          setServiceApplyPhase('error', _('Применение DNS для сервисов завершилось с ошибкой.'));
+          clearServiceOperation();
+          shell.showToast(_('Применение DNS для сервисов завершилось с ошибкой.'), 'err');
+          return ctx.refresh('dns');
+        }
+        setServiceApplyPhase('verifying');
+        return ctx.api.dns.serviceStatus().then(function (status) {
+          var desired = operationState.desiredSelections || state.selections;
+          var committed = ServiceModel.commitServiceDnsApply(state, desired, status, operationState.draftRevision);
+          if (!committed.ok)
+            throw { code: 'E_VERIFY', message: _('Backend не подтвердил применённые назначения.') };
+          state.serviceBaseline = committed.state.serviceBaseline;
+          state.serviceBaselineRevision = committed.state.serviceBaselineRevision;
+          state.selections = Object.assign({}, committed.state.selections);
+          state.serviceApplyProgress = { phase: 'success', detail: null };
+          clearServiceOperation();
           shell.showToast(_('DNS для сервисов применён.'), 'ok');
-        } else shell.showToast(_('Применение DNS для сервисов завершилось с ошибкой.'), 'err');
-        return ctx.refresh('dns');
+          return ctx.refresh('dns');
+        });
       }
+      var operationPhase = String(state.operation.phase || state.operation.status || state.operation.state || '').toLowerCase();
+      if (operationPhase === 'queued' || operationPhase === 'running' || operationPhase === 'applying') setServiceApplyPhase('applying');
+      else if (operationPhase === 'verifying') setServiceApplyPhase('verifying');
       return ctx.refresh('dns');
     }).catch(function (error) {
       clearServiceOperation();
+      var normalized = ctx.api.normalizeError(error);
+      setServiceApplyPhase('error', normalized.code === 'E_VERIFY' ?
+        _('Backend не подтвердил применённые назначения.') : normalized.message);
       showError(error);
       ctx.refresh('dns');
     }).then(function () {
@@ -1535,7 +1617,7 @@ function render(ctx) {
     var categoryOrder = ['AI', 'social', 'messaging', 'video', 'music', 'games', 'developer', 'media', 'other'];
     var groups = {}, records = [], groupNodes = {};
     items.forEach(function (item) { var category = item.category || 'other'; (groups[category] || (groups[category] = [])).push(item); });
-    var configured = Object.keys(state.selections || {}).filter(function (id) { return state.selections[id]; }).length;
+    var configured = ServiceModel.configuredServiceSelectionCount(state.selections);
     var changes = serviceDnsChanges(), changeIds = Object.keys(changes);
     var search = E('input', { type: 'search', 'class': 'z2m-input z2m-service-dns-search', placeholder: _('Поиск сервисов или доменов…'), 'aria-label': _('Поиск сервисов') });
     var searchControl = E('label', { 'class': 'z2m-service-dns-search-control' }, [
@@ -1552,7 +1634,7 @@ function render(ctx) {
       var groupNode = E('section', { 'class': 'z2m-service-dns-section', 'data-category': category }, [E('div', { 'class': 'z2m-service-dns-section-head' }, [E('h3', { 'class': 'z2m-service-dns-section-title' }, serviceCategoryLabel(category)), E('span', { 'class': 'z2m-service-dns-count' }, String(groups[category].length))]), groupBody]);
       groupNodes[category] = groupNode;
       groups[category].sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }).forEach(function (item) {
-        var id = item.id, before = state.serviceBaseline[id] || '', after = state.selections[id] || '', iconData = serviceIconData(item), changed = before !== after;
+        var id = item.id, before = ServiceModel.normalizeServiceSelectionValue(state.serviceBaseline[id]), after = ServiceModel.normalizeServiceSelectionValue(state.selections[id]), iconData = serviceIconData(item), changed = before !== after;
         var select = E('select', { 'class': 'z2m-select z2m-service-dns-select', 'aria-label': _('DNS-провайдер для ') + item.name });
         select.appendChild(E('option', { value: '' }, _('По умолчанию')));
         var optionProviders = [], optionIds = {};
@@ -1566,6 +1648,7 @@ function render(ctx) {
         });
         optionProviders.forEach(function (provider) { select.appendChild(E('option', { value: providerId(provider) }, providerLabel(providerId(provider)))); });
         select.value = after;
+        select.disabled = state.serviceApplyBusy || !!state.operation;
         var domains = asArray(item.domains).slice(0, 3).join(' · ') || _('Домены сервиса');
         var currentName = profileName(item, before);
         var icon = E('span', { 'class': 'z2m-service-dns-icon', style: 'color:' + iconData.color + ';background:' + iconData.color + '22' }, [Icons.wrappedNode(iconData.name, { size: 20, fallback: 'network' })]);
@@ -1660,9 +1743,9 @@ function render(ctx) {
         var action = E('div', { 'class': 'z2m-service-dns-action z2m-service-dns-control' }, [select]);
         var rowChildren = [info, action];
         var row = E('div', { 'class': 'z2m-service-dns-row' + (changed ? ' changed' : '') + (id === 'tiktok' ? ' tiktok-row' : ''), 'data-service-dns-id': id, 'data-service-name': (item.name + ' ' + domains).toLowerCase() }, rowChildren);
-        select.addEventListener('change', function () { state.selections[id] = select.value; renderPane(); });
+        select.addEventListener('change', function () { state.selections[id] = select.value; state.serviceApplyProgress = null; renderPane(); });
         groupBody.appendChild(row);
-        records.push({ row: row, category: category, name: (item.name + ' ' + domains).toLowerCase(), configured: !!after, changed: changed });
+        records.push({ row: row, category: category, name: (item.name + ' ' + domains).toLowerCase(), configured: after !== '', changed: changed });
       });
       groupsRoot.appendChild(groupNode);
     });
@@ -1687,7 +1770,7 @@ function render(ctx) {
       ]),
       E('code', {}, '/etc/config/dhcp · address=/v77.tiktokcdn.com/<IP>')
     ]);
-    return shell.panel(_('DNS для сервисов'), E('div', { 'class': 'z2m-service-dns-access' }, [accessSummary, toolbar, groupsRoot, technical]), _('Назначьте DNS отдельным сервисам.'), localActions(changeIds.length, state.serviceApplyBusy, cancelServiceDns, applyServiceDns));
+    return shell.panel(_('DNS для сервисов'), E('div', { 'class': 'z2m-service-dns-access' }, [accessSummary, toolbar, groupsRoot, technical]), _('Назначьте DNS отдельным сервисам.'), localActions(changeIds.length, state.serviceApplyBusy || !!state.operation, cancelServiceDns, applyServiceDns, serviceApplyStatusNode()));
   }
 
   /* ---- donor-adapted per-domain routing pane ---- */
@@ -1991,6 +2074,7 @@ function unmount() {
   state.tiktokAutoBusy = false;
   state.tiktokOperationTarget = null;
   state.tiktokOperationGeneration++;
+  state.serviceApplyProgress = null;
 }
 
 return baseclass.extend({
