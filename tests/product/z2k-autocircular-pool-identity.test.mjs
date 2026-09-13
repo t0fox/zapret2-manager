@@ -29,6 +29,9 @@ function pool(overrides = {}) {
     runtimeKey: 'discord_udp',
     protocol: 'STUN',
     size: 2,
+    scope: { filter: '--filter-udp=443', payload: 'quic_initial', hostlist: 'none' },
+    arms: ['fake:blob=quic_google:repeats=2', 'fake:blob=quic5:repeats=3'],
+    blobIdentities: { quic_google: 'sha256:google', quic5: 'sha256:quic5' },
     strategies: [
       { index: 1, name: 'Fake QUIC (x10)' },
       { index: 2, name: 'Fake QUIC (x3)' }
@@ -52,7 +55,10 @@ test('same semantic pool identity preserves learned and frozen rows', { skip: !h
 
 test('changed semantic arm resets only the affected pool key', { skip: !hasUcode }, () => {
   const oldIdentity = { discord_udp: invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(pool())})`), youtube: 'a'.repeat(64) };
-  const newIdentity = { discord_udp: invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(pool({ strategies: [{ index: 1, name: 'Changed arm' }, { index: 2, name: 'Fake QUIC (x3)' }] }))})`), youtube: 'a'.repeat(64) };
+  const newIdentity = { discord_udp: invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(pool({
+    arms: ['fake:blob=quic_changed:repeats=2', 'fake:blob=quic5:repeats=3'],
+    strategies: [{ index: 1, name: 'Changed display label' }, { index: 2, name: 'Another label' }]
+  }))})`), youtube: 'a'.repeat(64) };
   assert.match(oldIdentity.discord_udp, /^[a-f0-9]{64}$/);
   assert.match(newIdentity.discord_udp, /^[a-f0-9]{64}$/);
   assert.notEqual(oldIdentity.discord_udp, newIdentity.discord_udp);
@@ -100,6 +106,27 @@ test('semantic digest is stable for a clone and excludes no unproven fields', { 
   assert.equal(invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(pool())})`), invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(clone)})`));
 });
 
+test('semantic digest binds exact arm and traffic-scope semantics, not display labels', { skip: !hasUcode }, () => {
+  const baseline = pool({
+    scope: { filter: '--filter-tcp=443', payload: 'tls_client_hello', hostlist: 'lists/youtube.txt' },
+    arms: ['multisplit:pos=1:seqovl=681:blob=tls_google']
+  });
+  const changedArm = pool({
+    scope: { filter: '--filter-tcp=443', payload: 'tls_client_hello', hostlist: 'lists/youtube.txt' },
+    arms: ['multisplit:pos=1:seqovl=682:blob=tls_google']
+  });
+  const changedScope = pool({
+    scope: { filter: '--filter-tcp=2053', payload: 'tls_client_hello', hostlist: 'lists/youtube.txt' },
+    arms: ['multisplit:pos=1:seqovl=681:blob=tls_google']
+  });
+  const digest = value => invoke(`identity.z2k_pool_semantic_digest(${JSON.stringify(value)})`);
+  assert.notEqual(digest(baseline), digest(changedArm));
+  assert.notEqual(digest(baseline), digest(changedScope));
+  assert.equal(digest(baseline), digest({ ...baseline, strategies: [
+    { index: 1, name: 'renamed display arm' }, { index: 2, name: 'another label' }
+  ] }));
+});
+
 test('production wiring uses the Manager sidecar and existing lifecycle authority', () => {
   assert.ok(fs.existsSync(identityPath), 'identity module must exist');
   const identity = fs.readFileSync(identityPath, 'utf8');
@@ -108,6 +135,8 @@ test('production wiring uses the Manager sidecar and existing lifecycle authorit
   assert.match(identity, /pool-identity\.json/);
   assert.doesNotMatch(identity, /Z2M_AUTOCIRCULAR_IDENTITY_PATH/);
   assert.match(identity, /schema: 1/);
+  assert.match(identity, /scope/);
+  assert.match(identity, /arms/);
   assert.match(identity, /mv -f/);
   assert.match(strategies, /z2k_learned_state_reconcile/);
   assert.match(strategies, /z2k_pool_semantic_digest/);

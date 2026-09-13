@@ -18,6 +18,7 @@ function starts_with(value, prefix) {
 export const runtime_target_path = function(target) {
 	if (type(target) != 'string') return null;
 	if (starts_with(target, ZAPRET2_ROOT)) return target;
+	if (starts_with(target, '/etc/zapret2-manager/assets/')) return target;
 	if (starts_with(target, '/runtime-assets/lua/'))
 		return RUNTIME_LUA_ROOT + substr(target, length('/runtime-assets/lua/'));
 	if (starts_with(target, '/runtime-assets/bin/'))

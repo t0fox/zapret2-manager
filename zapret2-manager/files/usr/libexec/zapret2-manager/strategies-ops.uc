@@ -272,6 +272,49 @@ export const resolve_live_discord_key = function(pools) {
 	return null;
 };
 
+function strip_strategy_param(value) {
+	let kept = [];
+	for (let part in split(value, ':'))
+		if (!match(part, /^strategy=[0-9]+$/)) push(kept, part);
+	return join(':', kept);
+}
+
+function blob_content_identity(value) {
+	let source = '' + (value == null ? '' : value);
+	if (match(source, /^0x[0-9a-fA-F]+$/)) return 'inline:' + lc(source);
+	let process = popen('sha256sum ' + shell_escape(source) + " 2>/dev/null | awk '{print $1}'", 'r');
+	let digest = process ? trim(process.read('all') || '') : '';
+	if (process) process.close();
+	if (match(digest, /^[a-f0-9]{64}$/)) return 'sha256:' + digest;
+	return 'source:' + source;
+}
+
+function blob_identities(tokens) {
+	let result = {};
+	for (let token in tokens) {
+		let declaration = match(token, /^--blob=([^:]+):(.+)$/);
+		if (declaration) result[declaration[1]] = blob_content_identity(declaration[2]);
+	}
+	return result;
+}
+
+function canonical_desync_token(token, identities) {
+	let normalized = strip_strategy_param(token), parts = split(normalized, ':');
+	for (let i = 0; i < length(parts); i++) {
+		let blob = match(parts[i], /^blob=([^:]+)$/);
+		if (blob && identities[blob[1]] != null) parts[i] = 'blobsha=' + identities[blob[1]];
+		else if (blob && match(blob[1], /^0x[0-9a-fA-F]+$/)) parts[i] = 'blobinline=' + lc(blob[1]);
+	}
+	return join(':', parts);
+}
+
+function canonical_scope_token(token, identities) {
+	let declaration = match(token, /^--blob=([^:]+):(.+)$/);
+	if (declaration && identities[declaration[1]] != null)
+		return '--blob=' + declaration[1] + ':content=' + identities[declaration[1]];
+	return token;
+}
+
 function pools_read() {
 	let pools = {};
 
@@ -285,6 +328,15 @@ function pools_read() {
 			if (length(t) && substr(t, 0, 1) != '#') push(clean_lines, t);
 		}
 		let clean_raw = join(' ', clean_lines);
+		// NFQWS2_OPT is stored as a quoted shell variable in the live config.
+		// Pool scopes start after that opening quote; the config preamble must not
+		// become traffic-scope identity material.
+		let option_marker = 'NFQWS2_OPT="', option_start = index(clean_raw, option_marker);
+		if (option_start >= 0) {
+			clean_raw = substr(clean_raw, option_start + length(option_marker));
+			let option_end = index(clean_raw, '"');
+			if (option_end >= 0) clean_raw = substr(clean_raw, 0, option_end);
+		}
 		let segments = split(clean_raw, '--new');
 		for (let i = 0; i < length(segments); i++) {
 			let seg = segments[i];
@@ -305,10 +357,14 @@ function pools_read() {
 			else if (match(seg, /--filter-l7=[^:\s]*http\b/)) proto = 'HTTP';
 
 			let strats_by_num = {};
+			let arms_by_num = {};
 			let max_strat = 1;
 
 			let tokens = split(seg, /[ \t\r\n]+/);
+			let blobIdentities = blob_identities(tokens);
+			let scope_tokens = [];
 			for (let tok in tokens) {
+				if (!length(tok)) continue;
 				let desync_m = match(tok, /^--lua-desync=([a-zA-Z0-9_]+):(.*)$/);
 				if (desync_m) {
 					let action = desync_m[1], params = desync_m[2];
@@ -316,6 +372,8 @@ function pools_read() {
 					if (strat_m) {
 						let n = +strat_m[1];
 						if (n > max_strat) max_strat = n;
+						if (!arms_by_num[n]) arms_by_num[n] = [];
+						push(arms_by_num[n], canonical_desync_token(tok, blobIdentities));
 						let lbl = parse_desync_label(action, params, proto);
 						if (lbl && length(lbl) > 0) {
 							if (!strats_by_num[n]) strats_by_num[n] = [];
@@ -326,10 +384,15 @@ function pools_read() {
 							if (!already) push(strats_by_num[n], lbl);
 						}
 					}
+					else push(scope_tokens, canonical_desync_token(tok, blobIdentities));
+				} else {
+					let scope_token = canonical_scope_token(tok, blobIdentities);
+					if (scope_token != null) push(scope_tokens, scope_token);
 				}
 			}
 
 			let strategies = [];
+			let arms = [];
 			for (let sIdx = 1; sIdx <= max_strat; sIdx++) {
 				let name = null;
 				if (strats_by_num[sIdx] && length(strats_by_num[sIdx]) > 0) {
@@ -339,6 +402,7 @@ function pools_read() {
 					name = 'Стратегия #' + sIdx;
 				}
 				push(strategies, { index: sIdx, name: name });
+				push(arms, arms_by_num[sIdx] || []);
 			}
 
 			let pool_obj = {
@@ -346,7 +410,10 @@ function pools_read() {
 				runtimeKey: key,
 				protocol: proto,
 				size: max_strat,
-				strategies: strategies
+				strategies: strategies,
+				scope: { protocol: proto, tokens: scope_tokens },
+				arms: arms,
+				blobIdentities: blobIdentities
 			};
 			pools[key] = pool_obj;
 			if (key == 'circular_1_1') {
@@ -360,7 +427,10 @@ function pools_read() {
 					aliasOf: 'discord_voice',
 					protocol: proto,
 					size: max_strat,
-					strategies: strategies
+					strategies: strategies,
+					scope: pool_obj.scope,
+					arms: pool_obj.arms,
+					blobIdentities: pool_obj.blobIdentities
 				};
 			}
 			if (key == 'discord_udp') {
@@ -370,7 +440,10 @@ function pools_read() {
 					aliasOf: 'discord_udp',
 					protocol: proto,
 					size: max_strat,
-					strategies: strategies
+					strategies: strategies,
+					scope: pool_obj.scope,
+					arms: pool_obj.arms,
+					blobIdentities: pool_obj.blobIdentities
 				};
 			}
 		}

@@ -23,6 +23,14 @@ test('Mega AutoCircular source ledger is complete and machine-readable', () => {
     bolvan50: '4/4',
     stressozzDiscordMediaScript: '1/1'
   });
+  assert.deepEqual(ledger.liveEvidence.poolIdentityReconcile, {
+    changed: false,
+    reset: [],
+    resetAllLegacy: false
+  });
+  assert.equal(ledger.liveEvidence.runtime.canonicalPoolCount, 26);
+  assert.equal(ledger.liveEvidence.runtime.circularProfiles, 26);
+  assert.equal(ledger.liveEvidence.realTrafficLearning.afterStrategy, 3);
 
   const ids = itemIds(ledger);
   for (const name of [
@@ -52,9 +60,11 @@ test('Mega AutoCircular source ledger is complete and machine-readable', () => {
     flowseal.flatMap((file) => file.blocks.map((block) => block.status))
   );
   for (const status of statuses) {
-    assert.match(status, /^(IMPORTED|DEDUP -> |EXCLUDED_LEGACY|NOT_STRATEGY|UNSUPPORTED_WITH_REASON)/,
+    assert.match(status, /^(present|DEDUP -> |EXCLUDED_LEGACY|NOT_STRATEGY|UNSUPPORTED_WITH_REASON)/,
       `unknown source disposition: ${status}`);
   }
+  assert.equal(statuses.some((status) => status === 'IMPORTED'), false,
+    'source ledger must use final dispositions, not transient import status');
   assert.ok((ledger.items || []).some((item) => item.id === 'bolvan-master:50-stun4all'));
   assert.ok((ledger.items || []).some((item) => item.id === 'bolvan-master:50-quic4all'));
   assert.ok((ledger.items || []).some((item) => item.id === 'bolvan-master:50-discord-media'));

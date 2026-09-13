@@ -26,6 +26,12 @@ test('hostlist normalization trims, canonicalizes domains, removes duplicates, a
   });
 });
 
+test('hostlist normalization preserves strict-match caret semantics', () => {
+  const result = normalizeEntries('hostlist', '^dns.google\ndns.google\n');
+  assert.deepEqual(result.content, '^dns.google\ndns.google\n');
+  assert.deepEqual(result.entries, ['^dns.google', 'dns.google']);
+});
+
 test('ipset normalization accepts IPv4/IPv6 CIDR and reports line-specific errors', () => {
   const result = normalizeEntries('ipset', '10.0.0.0/8\n2001:0DB8::/32\n10.0.0.0/8\nnot-an-ip');
   assert.equal(result.ok, false);
@@ -95,6 +101,10 @@ test('Asset Registry exposes lazy binary-safe content and preview-only validatio
   assert.match(registrySource, /--max-redirs 0/);
   assert.match(registrySource, /https:\/\/stat\.ripe\.net\/data\/announced-prefixes\/data\.json/);
   assert.match(registrySource, /MAX_IMPORT_BYTES/);
+  assert.match(registrySource, /function runtime_asset_permissions/);
+  assert.match(registrySource, /chmod 0755/);
+  assert.match(registrySource, /chmod 0644/);
+  assert.match(registrySource, /runtime_asset_permissions\(item\.type, path\)/);
   const importUrlBody = registrySource.match(/export const asset_registry_import_url = function\(request\) \{([\s\S]*?)\n\};/);
   assert.ok(importUrlBody, 'URL import handler must remain discoverable');
   assert.doesNotMatch(importUrlBody[1], /asset_registry_import\s*\(/, 'URL import must not mutate before explicit Save');

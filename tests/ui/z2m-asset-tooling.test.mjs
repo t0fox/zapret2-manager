@@ -43,6 +43,14 @@ test('asset tooling normalizes hostlists and IP sets deterministically', () => {
   assert.deepEqual(Array.from(ipset.entries), ['10.0.0.1/8', '2001:db8::1/64']);
 });
 
+test('asset tooling preserves strict-match caret semantics', () => {
+  const result = tooling.normalizeEntries('hostlist', '^dns.google\ndns.google');
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    content: '^dns.google\ndns.google\n',
+    entries: ['^dns.google', 'dns.google'],
+  });
+});
+
 test('asset tooling generates bounded HTTP and TLS protocol fixtures', () => {
   const request = tooling.bytesToText(tooling.generateHttpRequest('Example.com', '/health?q=1', 'post'));
   assert.match(request, /^POST \/health\?q=1 HTTP\/1\.1\r\nHost: example\.com\r\n/);

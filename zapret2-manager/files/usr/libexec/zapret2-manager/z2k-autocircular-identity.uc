@@ -20,14 +20,20 @@ function shell_quote(value) {
 function copy(value) { try { return json(sprintf('%J', value)); } catch (e) { return value; } }
 function fail(code, message, extra) { return { ok: false, error: { code: code, message: message, ...(extra || {}) } }; }
 
-// Pool parsing currently exposes exactly these fields as the semantic pool
-// contract.  Deliberately do not hash aliases, display metadata, timestamps,
-// or object-key order; strategy array order is semantic because index selects
-// the arm persisted in state.tsv.
+// Pool parsing exposes the traffic scope and canonical ordered arm tokens as
+// the semantic pool contract.  Deliberately do not hash aliases, display
+// metadata, timestamps, or object-key order; arm order is semantic because
+// the index selects the arm persisted in state.tsv.  A new digest version is
+// intentional: identities written by the old label-only parser must not keep
+// learned rows after the stronger binding is deployed.
 function semantic_pool(pool) {
 	if (!object(pool) || !string(pool.key) || !string(pool.runtimeKey) || !string(pool.protocol)
-		|| type(pool.size) != 'int' || !array(pool.strategies)) return null;
-	return { key: pool.key, runtimeKey: pool.runtimeKey, protocol: pool.protocol, size: pool.size, strategies: pool.strategies };
+		|| type(pool.size) != 'int' || !array(pool.strategies) || !object(pool.scope)
+		|| !array(pool.arms) || !object(pool.blobIdentities)) return null;
+	return {
+		key: pool.key, runtimeKey: pool.runtimeKey, protocol: pool.protocol, size: pool.size,
+		scope: pool.scope, arms: pool.arms, blobIdentities: pool.blobIdentities
+	};
 }
 function canonical(value) {
 	if (value == null || string(value) || type(value) == 'int' || type(value) == 'double' || type(value) == 'bool') return sprintf('%J', value);
@@ -57,7 +63,7 @@ function sha256_text(value) {
 export const z2k_pool_semantic_digest = function(pool) {
 	let semantic = semantic_pool(pool);
 	if (semantic == null) return null;
-	return sha256_text('z2k-autocircular-pool-v1\n' + canonical(semantic) + '\n');
+	return sha256_text('z2k-autocircular-pool-v2\n' + canonical(semantic) + '\n');
 };
 
 function digest(value) { return string(value) && match(value, /^[a-f0-9]{64}$/); }

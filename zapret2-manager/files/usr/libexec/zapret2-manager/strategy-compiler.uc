@@ -248,13 +248,16 @@ function list_reference(environment, reference, kind, allowAbsolute) {
 	let paths = is_object(environment.paths) ? environment.paths : {};
 	let descriptor = list_descriptor_for(environment, reference), raw = descriptor_path(descriptor, reference),
 		resolvedKind = kind == 'ipset' ? 'ipset' : 'list', resolvedPaths = paths;
+	let descriptorRoot = is_object(descriptor) && safe_absolute_path(descriptor.root) ? descriptor.root : null;
 	if (is_object(descriptor) && safe_absolute_path(descriptor.root)) {
 		resolvedPaths = {};
 		for (let key in paths) resolvedPaths[key] = paths[key];
 		if (resolvedKind == 'ipset') resolvedPaths.ipsetRoot = descriptor_root(descriptor, paths.ipsetRoot);
 		else resolvedPaths.listRoot = descriptor_root(descriptor, paths.listRoot);
 	}
-	let resolved = resolve_path(raw, resolvedPaths, resolvedKind, allowAbsolute == true);
+	let resolved = resolve_path(raw, resolvedPaths, resolvedKind,
+		allowAbsolute == true || (descriptorRoot != null && safe_absolute_path(raw)
+			&& starts_with(raw, descriptorRoot + '/')));
 	let available = descriptor != null && descriptor_safe(descriptor)
 		&& descriptor_present(descriptor, false) && resolved != null;
 	return {
@@ -363,6 +366,8 @@ function blob_dependency(environment, reference, sourceOverride) {
 	let descriptor = is_object(environment.blobs) ? environment.blobs[reference] : null;
 	let source = sourceOverride != null ? sourceOverride : descriptor_path(descriptor, null), resolved = source == null ? null
 		: resolve_path(source, is_object(environment.paths) ? environment.paths : {}, 'blob');
+	if (resolved == null && is_object(descriptor) && safe_absolute_path(source)
+		&& safe_absolute_path(descriptor.root) && starts_with(source, descriptor.root + '/')) resolved = source;
 	let inline = (sourceOverride != null && !!inline_blob_source(sourceOverride)) || !!inline_blob_source(reference);
 	return {
 		available: inline || (descriptor != null && descriptor_safe(descriptor)
@@ -531,10 +536,13 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 	// legacy flat inspection contract and does not invent a second inventory.
 	if (is_object(environment.runtimeComposition)) {
 		let closure = null;
+		let compositionAssets = [];
+		for (let asset in environment.runtimeAssets || environment.runtimeComposition.runtimeAssets || []) push(compositionAssets, asset);
+		for (let asset in environment.externalAssets || environment.runtimeComposition.externalAssets || []) push(compositionAssets, asset);
 		try {
 			closure = z2k_dependency_closure({
 				args: join(' --new ', scanFragments),
-				assets: environment.runtimeAssets || environment.runtimeComposition.runtimeAssets || [],
+				assets: compositionAssets,
 				dynamic: environment.dynamicDependencies || [], lists: environment.lists || {},
 				hostlists: environment.hostlists || {}, ipsets: environment.ipsets || {},
 				blobs: environment.blobs || {}, runtime: environment.runtimeBlobs || {},

@@ -317,7 +317,24 @@ function remove_ids(value) {
 	return { ok: true, ids: ids };
 }
 
-function compose(state, authority, lifecycleEntries, staticEntries, removals, suppliedProviderIndex) {
+function registry_external_assets(listed) {
+	let result = [];
+	for (let asset in object(listed) && array(listed.assets) ? listed.assets : []) {
+		if (!object(asset) || !string(asset.id) || !string(asset.type) || !string(asset.path)
+			|| !contains(['blob', 'hostlist', 'ipset'], asset.type)
+			|| asset.ownership == 'package') continue;
+		let provenance = object(asset.provenance) ? asset.provenance : {};
+		push(result, {
+			id: asset.id, kind: asset.type, type: asset.type, owner: asset.ownership || 'manager', role: 'dependency',
+			sourcePath: provenance.sourcePath || asset.path, runtimeTarget: asset.path,
+			contentSha256: asset.contentSha256, byteSize: asset.byteSize,
+			available: true, present: true
+		});
+	}
+	return result;
+}
+
+function compose(state, authority, lifecycleEntries, staticEntries, removals, suppliedProviderIndex, externalAssets) {
 	let all = [], staticResult = package_static_input(staticEntries);
 	if (!staticResult.ok) return staticResult;
 	for (let i = 0; i < length(staticResult.entries); i++) push(all, staticResult.entries[i]);
@@ -345,6 +362,7 @@ function compose(state, authority, lifecycleEntries, staticEntries, removals, su
 		compatibilityIdentity: authority.compatibilityIdentity || null,
 		observedRegistryRevision: authority.observedRegistryRevision == null ? null : authority.observedRegistryRevision,
 		runtimeAssets: runtimeAssets, luaInit: luaInit, removeTargets: state == 'candidate' ? copy_array(authority.removeTargets || []) : [], dependencyIndex: dependency_index(runtimeAssets),
+		externalAssets: copy_array(externalAssets || []),
 		providerIndex: providerResult.providerIndex,
 		membershipDigest: membershipIdentity,
 		authority: authority,
@@ -467,7 +485,7 @@ export const resolveInstalled = function(input) {
 	// Core transaction can capture rollback evidence without inventing an
 	// installed release.
 	if (receipt == null && length(registry_z2k_assets(listed)) === 0)
-		return compose('empty', { kind: 'empty', observedRegistryRevision: listed.revision, coherenceStatus: 'empty' }, [], staticBase, []);
+		return compose('empty', { kind: 'empty', observedRegistryRevision: listed.revision, coherenceStatus: 'empty' }, [], staticBase, [], null, registry_external_assets(listed));
 	let coherent = v3_authority(receipt, listed);
 	if (coherent.ok) {
 		let installedAuthority = { kind: 'installed', release: receipt.release, sourceCommit: receipt.sourceCommit,
@@ -478,7 +496,7 @@ export const resolveInstalled = function(input) {
 			observedRegistryRevision: listed.revision, z2kMembership: coherent.entries,
 			z2kCompatibilityIdentity: receipt.z2kCompatibilityIdentity || null,
 			compatibilityIdentity: receipt.compatibilityIdentity || null, coherenceStatus: 'coherent' };
-		return compose('installed', installedAuthority, coherent.entries, staticBase, []);
+		return compose('installed', installedAuthority, coherent.entries, staticBase, [], null, registry_external_assets(listed));
 	}
 	let authority = v2_authority(receipt, listed);
 	if (!authority.ok) return authority;
@@ -488,7 +506,7 @@ export const resolveInstalled = function(input) {
 		observedRegistryRevision: listed.revision, z2kMembership: authority.entries,
 		z2kCompatibilityIdentity: receipt.z2kCompatibilityIdentity || null,
 		compatibilityIdentity: receipt.compatibilityIdentity || null };
-	return compose('installed', installedAuthority, authority.entries, staticBase, []);
+	return compose('installed', installedAuthority, authority.entries, staticBase, [], null, registry_external_assets(listed));
 };
 
 function resource_center_target(value) {

@@ -35,13 +35,19 @@ const MAX_INLINE_BYTES = 262144;
 const MAX_TEXT = 512;
 const MAX_DIAGNOSTICS = 32;
 const MAX_DEPENDENCIES = 256;
-const MAX_OUTPUT_BYTES = 65536;
+// Full Mega AutoCircular Preview retains the complete server-owned command
+// and argv projection. Keep that response bounded while allowing the complete
+// supported source closure to be inspected without truncation.
+const MAX_OUTPUT_BYTES = 131072;
 const MAX_OUTPUT_TEXT = 32768;
 // Generated Z2K All-in-One commands can exceed a normal profile's raw args
 // limit while still fitting inside the bounded RPC response.
 const MAX_EFFECTIVE_COMMAND_TEXT = MAX_OUTPUT_BYTES;
 const MAX_OUTPUT_ARG_BYTES = 4096;
-const MAX_OUTPUT_ARRAY_ITEMS = 512;
+// A complete Mega AutoCircular candidate legitimately contains one argv item
+// per semantic desync arm plus declarations/scopes. Keep the projection
+// bounded, but large enough for the supported full-source Strategy.
+const MAX_OUTPUT_ARRAY_ITEMS = 1024;
 const MAX_DEPENDENCY_TEXT = 256;
 const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
@@ -310,6 +316,8 @@ function runtime_path_root(target, kind) {
 	if (kind == 'blob' && starts_with(target, '/opt/zapret2/files/fake/')) return '/opt/zapret2/files/fake';
 	if (kind == 'ipset' && starts_with(target, '/opt/zapret2/ipset/')) return '/opt/zapret2/ipset';
 	if ((kind == 'hostlist' || kind == 'list') && starts_with(target, '/opt/zapret2/lists/')) return '/opt/zapret2/lists';
+	if ((kind == 'blob' || kind == 'hostlist' || kind == 'ipset')
+		&& starts_with(target, '/etc/zapret2-manager/assets/' + kind + '/')) return '/etc/zapret2-manager/assets/' + kind;
 	return null;
 }
 
@@ -345,14 +353,20 @@ function runtime_blob_aliases(blobs, target, entry, descriptor) {
 	runtime_descriptor_set(blobs, stem, descriptor);
 	if (is_object(entry) && is_string(entry.id) && starts_with(entry.id, 'blob:'))
 		runtime_descriptor_set(blobs, substr(entry.id, 5), descriptor);
+	// Registry slugs may contain hyphens, while nfqws2 blob identifiers may
+	// not. Keep the Registry ID/path canonical and expose a deterministic
+	// native-safe alias for manager-owned external blobs.
+	let nativeStem = replace(stem, /-/g, '_');
+	if (match(nativeStem, /^[A-Za-z_][A-Za-z0-9_]*$/))
+		runtime_descriptor_set(blobs, nativeStem, descriptor);
 }
 
 function runtime_list_aliases(lists, entry, target, descriptor) {
 	let keys = [entry.runtimeTarget, target], root = descriptor.root, relative = descriptor.path;
-	if (root == '/opt/zapret2/lists') {
+	if (root == '/opt/zapret2/lists' || root == '/etc/zapret2-manager/assets/hostlist') {
 		push(keys, 'lists/' + relative);
 		push(keys, relative);
-	} else if (root == '/opt/zapret2/ipset') {
+	} else if (root == '/opt/zapret2/ipset' || root == '/etc/zapret2-manager/assets/ipset') {
 		push(keys, 'ipset/' + relative);
 		push(keys, relative);
 	}
@@ -407,9 +421,19 @@ function runtime_environment_with_composition(environment, composition) {
 		else if (entry.kind == 'lua') runtime_lua_aliases(lua, entry, target, descriptor);
 		else if (entry.kind == 'blob') runtime_blob_aliases(blobs, target, entry, descriptor);
 	}
+	for (let entry in composition.externalAssets || []) {
+		if (!is_object(entry) || !is_string(entry.runtimeTarget) || !is_string(entry.kind)) continue;
+		let target = runtime_target_path(entry.runtimeTarget), root = runtime_path_root(target, entry.kind);
+		if (target == null || root == null) continue;
+		let descriptor = runtime_asset_descriptor(target, root, entry);
+		if (descriptor == null) continue;
+		if (entry.kind == 'hostlist' || entry.kind == 'ipset') runtime_list_aliases(lists, entry, target, descriptor);
+		else if (entry.kind == 'blob') runtime_blob_aliases(blobs, target, entry, descriptor);
+	}
 	result.paths = paths; result.lists = lists; result.blobs = blobs; result.lua = lua;
 	result.runtimeComposition = composition;
 	result.runtimeAssets = composition.runtimeAssets;
+	result.externalAssets = composition.externalAssets || [];
 	return result;
 }
 

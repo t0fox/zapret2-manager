@@ -16,9 +16,9 @@ const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.spl
 const UCODE_MODULE_PATTERN = ucodeModulePattern(
   process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
-const MAX_OUTPUT_BYTES = 65536;
+const MAX_OUTPUT_BYTES = 131072;
 const MAX_OUTPUT_ARG_BYTES = 4096;
-const MAX_OUTPUT_ARRAY_ITEMS = 512;
+const MAX_OUTPUT_ARRAY_ITEMS = 1024;
 
 const environment = {
   listMode: 'none',

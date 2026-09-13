@@ -56,7 +56,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Discord_circular",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "rkn_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -66,7 +66,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "discord_media",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -76,7 +76,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "discord_udp",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_voice",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -86,7 +86,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Youtube_UDP",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_quic",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -96,7 +96,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv08",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -106,7 +106,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "V_circular",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "flowseal-general-tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -116,7 +116,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "games_tcp",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "games_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -126,7 +126,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "games_udp",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "games_udp_stressozz",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -136,7 +136,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Youtube_circular",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -146,7 +146,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv_circular",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -156,7 +156,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Routerich_circular",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "flowseal-general-tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -186,7 +186,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "alt11",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "flowseal-general-tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -196,7 +196,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv01",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -206,7 +206,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv02",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -216,7 +216,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv03",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -226,7 +226,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv04",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -236,7 +236,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv05",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -246,7 +246,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv06",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -256,7 +256,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv07",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -266,7 +266,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv09",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -276,7 +276,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv10",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -286,7 +286,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/zapret2",
       "item": "Yv11",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "section accounted; source circular wrapper is removed and its arms are assigned to the one current pool circular."
     },
@@ -408,7 +408,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv3",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:4",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -430,7 +430,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv5",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:17",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -441,7 +441,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv6",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:5",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -452,7 +452,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv7",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:6",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -463,7 +463,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv8",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:18",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -474,7 +474,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv9",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:8",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -485,7 +485,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv10",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:9",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -507,7 +507,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv12",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:11",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -518,7 +518,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv13",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:13",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -529,7 +529,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv14",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:19",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -540,7 +540,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv15",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:14",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -551,7 +551,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv16",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:15",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -562,7 +562,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "Zapret-Manager.sh:516-532",
       "item": "Dv17",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord_media",
       "canonicalArm": "discord_media:16",
       "reason": "legacy selector adapted to Z2K Lua arm; source id remains provenance only."
@@ -573,7 +573,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv01",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -583,7 +583,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv02",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -593,7 +593,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv03",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -603,7 +603,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv04",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -613,7 +613,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv05",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -623,7 +623,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv06",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -633,7 +633,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv07",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -643,7 +643,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv08",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -653,7 +653,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv09",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -663,7 +663,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv10",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -673,7 +673,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv11",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -683,7 +683,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv12",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -693,7 +693,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv13",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -703,7 +703,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv14",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -713,7 +713,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv15",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -723,7 +723,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv16",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -733,7 +733,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv17",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -743,7 +743,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv18",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -753,7 +753,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv19",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -763,7 +763,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv20",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -773,7 +773,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv21",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -783,7 +783,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv22",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -793,7 +793,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv23",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -803,7 +803,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv24",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -813,7 +813,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv25",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -823,7 +823,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv26",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -833,7 +833,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/StrYoutube",
       "item": "Yv27",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "youtube_tcp",
       "reason": "all 27 source entries retained as distinct ledger items; dedupe is only after Z2K semantic normalization."
     },
@@ -843,7 +843,7 @@
       "sourceCommit": "87e058624c72863db53bdaf7fb6f16576dddb6ab",
       "sourcePath": "init.d/custom.d.examples.linux/50-stun4all",
       "item": "50-stun4all",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "stun-all",
       "reason": "STUN packet signature retained; not reduced to Discord filter."
     },
@@ -853,7 +853,7 @@
       "sourceCommit": "87e058624c72863db53bdaf7fb6f16576dddb6ab",
       "sourcePath": "init.d/custom.d.examples.linux/50-quic4all",
       "item": "50-quic4all",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "quic-all",
       "reason": "IETF QUIC Initial signature retained; separate from YouTube QUIC."
     },
@@ -863,7 +863,7 @@
       "sourceCommit": "87e058624c72863db53bdaf7fb6f16576dddb6ab",
       "sourcePath": "init.d/custom.d.examples.linux/50-discord-media",
       "item": "50-discord-media",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord-media-udp",
       "reason": "packet signature and ports 19294-19344,50000-50099 retained."
     },
@@ -873,7 +873,7 @@
       "sourceCommit": "a2ffa3455df32babf13decdc666f3a140a2ca058",
       "sourcePath": "init.d/custom.d.examples.linux/50-discord",
       "item": "50-discord",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord-subnet-udp",
       "reason": "destination subnet set and first 1-3 packets retained; never simplified to global Discord L7."
     },
@@ -883,7 +883,7 @@
       "sourceCommit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d",
       "sourcePath": "files/Zapret2/50-discord_media.sh",
       "item": "50-discord_media.sh",
-      "status": "IMPORTED",
+      "status": "present",
       "canonicalPool": "discord-media-udp",
       "reason": "discord_ip_discovery and dbank/quic fake x6 retained in Manager-owned pool."
     }
@@ -902,7 +902,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -911,7 +911,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -920,7 +920,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -929,7 +929,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -938,7 +938,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -947,7 +947,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -956,7 +956,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -965,7 +965,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -983,7 +983,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -992,7 +992,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1001,7 +1001,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1010,7 +1010,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1019,7 +1019,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1028,7 +1028,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1037,7 +1037,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1046,7 +1046,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1064,7 +1064,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1073,7 +1073,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1082,7 +1082,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1091,7 +1091,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1100,7 +1100,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1109,7 +1109,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1118,7 +1118,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1127,7 +1127,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1145,7 +1145,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1154,7 +1154,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1163,7 +1163,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1172,7 +1172,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1181,7 +1181,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1190,7 +1190,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1199,7 +1199,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1208,7 +1208,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1226,7 +1226,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1235,7 +1235,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1244,7 +1244,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1253,7 +1253,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1262,7 +1262,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1271,7 +1271,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1280,7 +1280,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1289,7 +1289,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1307,7 +1307,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user + list-exclude/ipset-exclude",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1316,7 +1316,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun + ACTIVE_DISCORD_UDP",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1325,7 +1325,7 @@
           "block": 3,
           "class": "general_tcp",
           "sourceScope": "--filter-l3=ipv4 --filter-tcp=80,443,2053,2083,2087,2096,8443 + syndata,multidisorder",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1334,7 +1334,7 @@
           "block": 4,
           "class": "games_tcp",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol + cutoff=n4",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1343,7 +1343,7 @@
           "block": 5,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all + hostlist/ipset excludes",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1352,7 +1352,7 @@
           "block": 6,
           "class": "games_udp",
           "sourceScope": "--filter-udp=%GameFilterUDP% + ipset-all + any-protocol + cutoff=n3",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1370,7 +1370,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1379,7 +1379,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1388,7 +1388,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1397,7 +1397,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1406,7 +1406,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1415,7 +1415,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1424,7 +1424,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1433,7 +1433,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1451,7 +1451,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1460,7 +1460,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1469,7 +1469,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1478,7 +1478,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1487,7 +1487,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1496,7 +1496,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1505,7 +1505,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1514,7 +1514,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1532,7 +1532,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1541,7 +1541,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1550,7 +1550,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1559,7 +1559,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1568,7 +1568,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1577,7 +1577,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1586,7 +1586,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1595,7 +1595,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1613,7 +1613,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1622,7 +1622,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1631,7 +1631,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1640,7 +1640,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1649,7 +1649,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1658,7 +1658,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1667,7 +1667,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1676,7 +1676,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1694,7 +1694,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1703,7 +1703,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1712,7 +1712,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1721,7 +1721,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1730,7 +1730,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1739,7 +1739,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1748,7 +1748,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1757,7 +1757,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1775,7 +1775,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1784,7 +1784,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1793,7 +1793,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1802,7 +1802,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1811,7 +1811,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1820,7 +1820,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1829,7 +1829,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1838,7 +1838,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1856,7 +1856,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1865,7 +1865,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1874,7 +1874,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1883,7 +1883,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1892,7 +1892,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1901,7 +1901,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1910,7 +1910,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1919,7 +1919,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -1937,7 +1937,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1946,7 +1946,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1955,7 +1955,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1964,7 +1964,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1973,7 +1973,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1982,7 +1982,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -1991,7 +1991,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2000,7 +2000,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2018,7 +2018,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2027,7 +2027,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2036,7 +2036,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2045,7 +2045,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2054,7 +2054,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2063,7 +2063,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2072,7 +2072,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2081,7 +2081,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2099,7 +2099,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2108,7 +2108,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2117,7 +2117,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2126,7 +2126,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2135,7 +2135,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2144,7 +2144,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2153,7 +2153,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2162,7 +2162,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2180,7 +2180,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2189,7 +2189,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2198,7 +2198,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2207,7 +2207,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2216,7 +2216,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2225,7 +2225,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2234,7 +2234,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2243,7 +2243,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2261,7 +2261,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2270,7 +2270,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2279,7 +2279,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2288,7 +2288,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2297,7 +2297,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2306,7 +2306,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2315,7 +2315,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2324,7 +2324,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2342,7 +2342,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2351,7 +2351,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2360,7 +2360,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2369,7 +2369,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2378,7 +2378,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2387,7 +2387,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2396,7 +2396,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2405,7 +2405,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2423,7 +2423,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2432,7 +2432,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2441,7 +2441,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2450,7 +2450,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2459,7 +2459,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2468,7 +2468,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2477,7 +2477,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2486,7 +2486,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2504,7 +2504,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2513,7 +2513,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2522,7 +2522,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2531,7 +2531,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2540,7 +2540,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2549,7 +2549,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2558,7 +2558,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2567,7 +2567,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2585,7 +2585,7 @@
           "block": 1,
           "class": "general_quic_hostlist",
           "sourceScope": "--filter-udp=443 + list-general/list-general-user",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-hostlist",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2594,7 +2594,7 @@
           "block": 2,
           "class": "discord_udp_stun",
           "sourceScope": "--filter-udp=19294-19344,50000-50100 + filter-l7=discord,stun",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord-media-udp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2603,7 +2603,7 @@
           "block": 3,
           "class": "discord_media_tcp",
           "sourceScope": "--filter-tcp=2053,2083,2087,2096,8443 + discord.media",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "discord_media",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2612,7 +2612,7 @@
           "block": 4,
           "class": "youtube_tcp",
           "sourceScope": "--filter-tcp=443 + list-google",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "youtube_tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2621,7 +2621,7 @@
           "block": 5,
           "class": "general_tcp",
           "sourceScope": "--filter-tcp=80,443 + general hostlists",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-general-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2630,7 +2630,7 @@
           "block": 6,
           "class": "ipset_quic",
           "sourceScope": "--filter-udp=443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-quic-ipset",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2639,7 +2639,7 @@
           "block": 7,
           "class": "ipset_tcp",
           "sourceScope": "--filter-tcp=80,443,8443 + ipset-all",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "flowseal-ipset-tcp",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         },
@@ -2648,7 +2648,7 @@
           "block": 8,
           "class": "games_scope",
           "sourceScope": "--filter-tcp=%GameFilterTCP% + ipset-all + any-protocol",
-          "status": "IMPORTED",
+          "status": "present",
           "canonicalPool": "games-flowseal",
           "reason": "parsed as an independent --new block; hostlist/ipset scope is part of the candidate signature."
         }
@@ -2699,6 +2699,46 @@
       "tls_clienthello_sochi_park.bin"
     ],
     "rule": "add missing content only through the existing Asset Registry/dependency lifecycle; no /opt/zapret or filesystem fallback."
+  },
+  "liveEvidence": {
+    "strategyId": "discord-stressozz-autocircular",
+    "revision": 11,
+    "candidateDigest": "6d64587a591c487863082419bcccb4e4cbdaff9dda8284d273808d7e7e8fcdbb",
+    "appliedCandidateSha256": "167e0288f15319f443bd2cec0016f4e3510ce738e7973bfbfe28bc64f7050c1a",
+    "catalogDigest": "837f07ee38088219f5376b137bacd722ae191af0fec73b00871121312a95ea2a",
+    "assetRegistryRevision": 25,
+    "assetCount": 58,
+    "flowsealRawBlocks": 174,
+    "flowsealUniqueBlocks": 107,
+    "runtime": {
+      "canonicalPoolCount": 26,
+      "runtimePoolKeys": 27,
+      "qnum": 300,
+      "profiles": 26,
+      "circularProfiles": 26,
+      "configSha256": "32bcb69e6d075862c4caf43a10aede11972f714a6bc4fe9cf4424b161404b844",
+      "poolIdentitySha256": "1c3d405b0ced3553263c7213c1af5fda25d577e0d9dc14cd70b7984d131c2fd2"
+    },
+    "restart": {
+      "beforePid": 9697,
+      "afterPid": 11336,
+      "configUnchanged": true,
+      "stateUnchanged": true,
+      "poolIdentityUnchanged": true
+    },
+    "realTrafficLearning": {
+      "pool": "yt_tcp_stress",
+      "host": "youtube.com|4",
+      "beforeStrategy": 1,
+      "afterStrategy": 3,
+      "probes": 6,
+      "result": "curl timeout rc=28"
+    },
+    "poolIdentityReconcile": {
+      "changed": false,
+      "reset": [],
+      "resetAllLegacy": false
+    }
   },
   "coverage": {
     "stressozzZapret2NonLegacy": "24/24",
