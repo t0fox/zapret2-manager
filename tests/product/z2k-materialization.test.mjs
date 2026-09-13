@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +14,8 @@ import { spawnSync } from 'node:child_process';
 // against the package baseline digests:
 //   - bin blobs  -> <base>/files/fake (+ <base>/bin compatibility link)
 //   - package-static lua -> <base>/lua (upstream core Lua never downgraded)
-//   - lifecycle Z2K lua -> blocked until Registry-backed activation
+//   - exact Mega Z2K lua seed closure -> package materialized on clean install
+//   - other lifecycle Z2K lua -> blocked until Registry-backed activation
 //   - lists      -> <base>/lists and <base>/ipset
 //
 // The script must accept root overrides for sandboxed testing while defaulting
@@ -24,6 +26,12 @@ const SYNC = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec',
   'zapret2-manager', 'strategy-runtime-assets-sync.sh');
 const SRC = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share',
   'zapret2-manager', 'runtime-assets');
+const PACKAGE_COMPOSITION = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'share',
+  'zapret2-manager', 'runtime-composition-package.json');
+const MEGA_LUA_CLOSURE = ['z2k-modern-core.lua', 'z2k-state-persist.lua'];
+const NON_MEGA_Z2K_LUA = [
+  'z2k-alert.lua', 'z2k-fooling-ext.lua', 'z2k-quic-silence.lua', 'z2k-range-rand.lua',
+];
 const SHELL = process.platform === 'win32'
   ? (process.env.Z2M_TEST_BASH || 'C:\\Program Files\\Git\\bin\\bash.exe')
   : '/bin/sh';
@@ -50,12 +58,12 @@ function sandbox() {
   };
 }
 
-function runSync(sb, args = []) {
+function runSync(sb, args = [], source = SRC) {
   const result = spawnSync(SHELL, [bashPath(SYNC), ...args], {
     cwd: ROOT,
     env: {
       ...process.env,
-      Z2M_RUNTIME_ASSETS_SRC: bashPath(SRC),
+      Z2M_RUNTIME_ASSETS_SRC: bashPath(source),
       Z2M_RUNTIME_BASE: bashPath(sb.base),
       Z2M_MANAGER_STATE_ROOT: bashPath(sb.stateRoot),
       Z2M_MANAGER_ETC_ROOT: bashPath(sb.etcRoot),
@@ -83,15 +91,62 @@ test('materializes blobs, lua, lists into the live engine roots', () => {
   }
   for (const name of ['zapret-lib.lua', 'custom_diag.lua'])
     assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), true, `${name} missing`);
-  for (const name of ['z2k-modern-core.lua'])
-    assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), false, `${name} must wait for Registry-backed activation`);
+  for (const name of MEGA_LUA_CLOSURE)
+    assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), true, `${name} missing from clean-install Mega closure`);
+  for (const name of NON_MEGA_Z2K_LUA)
+    assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), false, `${name} must remain Registry-backed`);
   const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
   assert.equal(verdict.lifecycleState, 'blocked-unknown-authority');
-  assert.equal(verdict.blockedLifecycleAssets, 6);
+  assert.equal(verdict.blockedLifecycleAssets, NON_MEGA_Z2K_LUA.length);
+  assert.equal(MEGA_LUA_CLOSURE.filter(name => !fs.existsSync(path.join(sb.base, 'lua', name))).length, 0,
+    'MEGA_STATIC_RUNTIME_MISSING must be zero');
   assert.equal(fs.existsSync(path.join(sb.base, 'lists', 'discord.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.base, 'ipset', 'discord.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.base, 'lists', 'discovered-domains.txt')), true);
   assert.equal(fs.existsSync(path.join(sb.stateDir, 'state.tsv')), true);
+});
+
+test('package composition declares the exact Mega Lua closure and no extra Z2K seeds', () => {
+  const composition = JSON.parse(fs.readFileSync(PACKAGE_COMPOSITION, 'utf8'));
+  const strategy = composition.strategies.find(item => item.id === 'discord-stressozz-autocircular');
+  assert.ok(strategy, 'Mega Strategy package entry missing');
+  for (const name of MEGA_LUA_CLOSURE)
+    assert.ok(strategy.dependencies.includes(`/runtime-assets/lua/${name}`), `${name} missing from Mega dependencies`);
+
+  const seeds = composition.entries.filter(item => item.seedForLifecycle === 'z2k-core');
+  assert.deepEqual(seeds.map(item => item.id), [
+    'package:z2k-modern-core', 'package:z2k-state-persist',
+  ]);
+  assert.deepEqual(seeds.map(item => item.sourcePath), MEGA_LUA_CLOSURE.map(name => `files/lua/${name}`));
+  for (const item of seeds) {
+    assert.equal(item.owner, 'package');
+    assert.equal(item.type, 'package-static');
+    assert.equal(item.role, 'lua-init');
+    assert.equal(item.kind, 'lua');
+    assert.equal(item.runtimeTarget, `/runtime-assets/lua/${item.sourcePath.split('/').pop()}`);
+    const bytes = fs.readFileSync(path.join(SRC, 'lua', item.sourcePath.split('/').pop()));
+    assert.equal(item.byteSize, bytes.length);
+    assert.equal(item.contentSha256, crypto.createHash('sha256').update(bytes).digest('hex'));
+    assert.equal(item.provenance.sourceCommit, '54b6765f2ab3e0f7f13030c90c809f1dcacfcce2');
+  }
+});
+
+test('materialization copies only the exact Mega Z2K closure, not every z2k Lua', () => {
+  const sb = sandbox();
+  const source = path.join(sb.dir, 'package-assets');
+  fs.mkdirSync(path.join(source, 'lua'), { recursive: true });
+  for (const name of [...MEGA_LUA_CLOSURE, ...NON_MEGA_Z2K_LUA])
+    fs.copyFileSync(path.join(SRC, 'lua', name), path.join(source, 'lua', name));
+  fs.writeFileSync(path.join(source, 'lua', 'z2k-unrelated.lua'), 'function z2k_unrelated() end\n');
+
+  const result = runSync(sb, [], source);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  for (const name of MEGA_LUA_CLOSURE)
+    assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), true, `${name} missing`);
+  for (const name of [...NON_MEGA_Z2K_LUA, 'z2k-unrelated.lua'])
+    assert.equal(fs.existsSync(path.join(sb.base, 'lua', name)), false, `${name} was copied blindly`);
+  const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
+  assert.equal(verdict.blockedLifecycleAssets, NON_MEGA_Z2K_LUA.length + 1);
 });
 
 test('is idempotent and never downgrades existing upstream core Lua', () => {

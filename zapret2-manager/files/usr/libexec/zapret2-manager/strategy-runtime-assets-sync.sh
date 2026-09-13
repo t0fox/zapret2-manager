@@ -430,6 +430,16 @@ is_z2k_lifecycle_lua() {
 	esac
 }
 
+# Mega's package-owned Lua seed is the exact closure needed by the bundled
+# Strategy.  Keep this allowlist narrow: the remaining z2k-*.lua files stay
+# lifecycle-managed and are materialized only by Registry-backed activation.
+is_mega_lua_dependency() {
+	case "$1" in
+		z2k-modern-core.lua|z2k-state-persist.lua) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
 # A successful Registry activation records every selected target in this
 # rollback snapshot.  Reusing that evidence keeps already-selected runtime
 # bytes safe for package sync without duplicating the Registry classification.
@@ -514,7 +524,7 @@ materialize() {
 	done
 	for _src in "$SRC"/lua/*; do
 		[ -f "$_src" ] || continue
-		if is_z2k_lifecycle_lua "${_src##*/}"; then
+		if is_z2k_lifecycle_lua "${_src##*/}" && ! is_mega_lua_dependency "${_src##*/}"; then
 			BLOCKED_LIFECYCLE_ASSETS=$((BLOCKED_LIFECYCLE_ASSETS + 1))
 			continue
 		fi
@@ -556,14 +566,14 @@ verify() {
 	done
 	for _src in "$SRC"/lua/*; do
 		[ -f "$_src" ] || continue
-		if is_z2k_lifecycle_lua "${_src##*/}"; then
+		if is_z2k_lifecycle_lua "${_src##*/}" && ! is_mega_lua_dependency "${_src##*/}"; then
 			BLOCKED_LIFECYCLE_ASSETS=$((BLOCKED_LIFECYCLE_ASSETS + 1))
 			continue
 		fi
 		# Core upstream Lua files are engine-owned after a compatible install
 		# (their integrity is proven by the engine payload digest + capability
 		# proof, not by the manager baseline).
-		if [ -f "$BASE/lua/${_src##*/}" ] && { is_core_lua "${_src##*/}" || { is_z2k_lifecycle_lua "${_src##*/}" && is_registry_selected_target "$BASE/lua/${_src##*/}"; }; }; then
+		if [ -f "$BASE/lua/${_src##*/}" ] && { is_core_lua "${_src##*/}" || { is_mega_lua_dependency "${_src##*/}" && { is_registry_selected_target "$BASE/lua/${_src##*/}" || is_registry_retired_target "$BASE/lua/${_src##*/}"; }; }; then
 			continue
 		fi
 		add_verdict "$_src" "$BASE/lua/${_src##*/}"
@@ -615,8 +625,9 @@ case "${1:-}" in
 '')
 	materialize
 	# Package synchronization has no lifecycle authority and must not copy or
-	# report lifecycle Z2K bytes as ready. A later Registry-backed activation is
-	# the only dynamic-ready path and owns its own exact closure.
+	# report non-Mega lifecycle Z2K bytes as ready. The two exact Mega seed files
+	# are package-static; a later Registry-backed activation still owns and
+	# replaces them through the canonical lifecycle target.
 	printf '{"ok":true,"scope":"package-static","staticReady":true,"lifecycleState":"blocked-unknown-authority","blockedLifecycleAssets":%s}\n' "$BLOCKED_LIFECYCLE_ASSETS"
 	exit 0
 	;;

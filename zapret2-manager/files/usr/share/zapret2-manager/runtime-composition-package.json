@@ -34,7 +34,9 @@
         "/runtime-assets/lists/extra_strats/TCP/YT/List.txt",
         "/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt",
         "/etc/zapret2-manager/assets/blob/quic_initial_dbankcloud_ru.bin",
-        "/etc/zapret2-manager/lists/whitelist.txt"
+        "/etc/zapret2-manager/lists/whitelist.txt",
+        "/runtime-assets/lua/z2k-modern-core.lua",
+        "/runtime-assets/lua/z2k-state-persist.lua"
       ]
     }
   ],
@@ -129,6 +131,36 @@
       "contentSha256": "65077f4e8ff692955eee314aa7e80fc9e012d4c56cb75ffa5a118023a575e56b",
       "byteSize": 4016,
       "runtimeOrder": 5
+    },
+    {
+      "id": "package:z2k-modern-core",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/z2k-modern-core.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-modern-core.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua",
+      "contentSha256": "f2d59781ab2c5820f4ff3ffa9db8304ceeef03c7737fb4835a3bd9b2df884d86",
+      "byteSize": 29433,
+      "runtimeOrder": 6,
+      "seedForLifecycle": "z2k-core",
+      "provenance": { "kind": "reused-z2k-package", "repository": "necronicle/z2k", "sourceCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2", "sourcePath": "files/lua/z2k-modern-core.lua", "capturedRuntimePath": "/opt/zapret2/lua/z2k-modern-core.lua" }
+    },
+    {
+      "id": "package:z2k-state-persist",
+      "owner": "package",
+      "role": "lua-init",
+      "kind": "lua",
+      "type": "package-static",
+      "sourcePath": "files/lua/z2k-state-persist.lua",
+      "runtimeTarget": "/runtime-assets/lua/z2k-state-persist.lua",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua",
+      "contentSha256": "14699aecf90e5c4fe2fc0fb8b2b4b37ba3c83db0948a6f9ebb72fd9bd5d346af",
+      "byteSize": 42150,
+      "runtimeOrder": 7,
+      "seedForLifecycle": "z2k-core",
+      "provenance": { "kind": "reused-z2k-package", "repository": "necronicle/z2k", "sourceCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2", "sourcePath": "files/lua/z2k-state-persist.lua", "capturedRuntimePath": "/opt/zapret2/lua/z2k-state-persist.lua" }
     },
     {
       "id": "package:mega-flowseal-active-discord-udp",

@@ -330,6 +330,32 @@ test('candidate and installed closures include verified package-static Lua befor
   }
 });
 
+test('lifecycle-managed Z2K Lua replaces its package seed without duplicate providers', { skip: !HAS_UCODE }, () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-z2k-seed-'));
+  const descriptor = path.join(temp, 'runtime-composition-package.json');
+  const packageSeed = {
+    id: 'package:z2k-modern-core', owner: 'package', role: 'lua-init', kind: 'lua', type: 'package-static',
+    sourcePath: 'files/lua/z2k-modern-core.lua', runtimeTarget: '/runtime-assets/lua/z2k-modern-core.lua',
+    packagePath: '/usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua',
+    contentSha256: HASH('p'), byteSize: 10, runtimeOrder: 6, seedForLifecycle: 'z2k-core',
+  };
+  fs.writeFileSync(descriptor, JSON.stringify({ schema: 1, entries: [packageSeed] }));
+  const candidate = candidateFixture();
+  candidate.assets[0] = { ...candidate.assets[0], runtimeTarget: packageSeed.runtimeTarget };
+  delete candidate.staticBase;
+  try {
+    const result = invoke(`composition.resolveCandidate(${JSON.stringify(candidate)})`, {
+      Z2M_UPDATE_SOURCE_TEST: '1',
+      Z2M_RUNTIME_PACKAGE_COMPOSITION: descriptor,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.runtimeAssets.filter(entry => entry.runtimeTarget === packageSeed.runtimeTarget).map(entry => entry.id), ['lua:alpha']);
+    assert.deepEqual(result.luaInit.filter(entry => entry.runtimeTarget === packageSeed.runtimeTarget).map(entry => entry.id), ['lua:alpha']);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test('canonical target keeps lifecycle Lua after the verified package-static prefix', () => {
   const coordinator = read(coordinatorPath);
   const start = coordinator.indexOf('function z2k_canonical_target_assets');
@@ -429,6 +455,14 @@ test('activation and steady-state process proofs are separate lifecycle contract
   assert.match(source, /membershipDigest/);
   assert.match(source, /runtimeHashes/);
   assert.match(source, /luaInit/);
+});
+
+test('package Z2K Lua seeds yield to lifecycle-managed providers at the same runtime target', () => {
+  const source = read(compositionPath);
+  assert.match(source, /seedForLifecycle/);
+  assert.match(source, /lifecycleTargets/);
+  assert.match(source, /merge_runtime_entries/);
+  assert.match(source, /resolveTargetRuntimeInput/);
 });
 
 test('legacy v1 is explicitly incomplete and cannot be reconstructed from mutable package classification', () => {

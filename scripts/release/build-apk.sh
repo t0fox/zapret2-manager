@@ -196,6 +196,7 @@ for relative in \
 	usr/share/zapret2-manager/strategies/discord-stressozz-autocircular.json \
 	usr/share/zapret2-manager/strategies/extensions.json \
 	usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua \
+	usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua \
 	usr/share/zapret2-manager/runtime-assets/mega/blob/flowseal-active-discord-udp.bin \
 	usr/share/zapret2-manager/runtime-assets/mega/blob/quic_initial_4pda_to.bin \
 	usr/share/zapret2-manager/runtime-assets/mega/blob/stun2.bin \

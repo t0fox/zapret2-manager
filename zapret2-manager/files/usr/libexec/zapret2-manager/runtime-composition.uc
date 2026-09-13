@@ -114,6 +114,22 @@ function sort_by_order(left, right) {
 }
 function sorted_copy(entries, comparator) { let out = copy_array(entries); sort(out, comparator || sort_by_id); return out; }
 
+// Package Z2K Lua seeds make the Mega Strategy self-contained on a clean
+// install. Once Registry-backed lifecycle entries exist for the same target,
+// those entries replace the seed so z2k-core remains the sole lifecycle owner.
+function merge_runtime_entries(staticEntries, lifecycleEntries) {
+	let lifecycleTargets = {}, all = [];
+	for (let entry in lifecycleEntries || []) {
+		if (object(entry) && string(entry.runtimeTarget)) lifecycleTargets[entry.runtimeTarget] = true;
+	}
+	for (let entry in staticEntries || []) {
+		if (object(entry) && entry.seedForLifecycle == 'z2k-core' && lifecycleTargets[entry.runtimeTarget]) continue;
+		push(all, entry);
+	}
+	for (let entry in lifecycleEntries || []) push(all, entry);
+	return all;
+}
+
 const PROVIDER_INDEX_SCHEMA = 'z2m.runtime-provider-index.v1';
 const PROVIDER_IDENTITY_FIELDS = ['id', 'sourcePath', 'runtimeTarget', 'contentSha256', 'owner', 'role', 'byteSize'];
 function provider_identity_matches(entry, provider) {
@@ -220,10 +236,7 @@ export const resolveTargetRuntimeInput = function(preparedTarget) {
 	if (!lifecycle.ok) return lifecycle;
 	let staticResult = package_static_input(preparedTarget.staticBase);
 	if (!staticResult.ok) return staticResult;
-	let all = [], runtimeAssets;
-	for (let entry in staticResult.entries) push(all, entry);
-	for (let entry in lifecycle.entries) push(all, entry);
-	runtimeAssets = sorted_copy(all);
+	let runtimeAssets = sorted_copy(merge_runtime_entries(staticResult.entries, lifecycle.entries));
 	let providerResult = runtime_composition_provider_index({
 		composition: { runtimeAssets: runtimeAssets, lifecycleState: 'target' },
 		providerIndex: preparedTarget.providerIndex || null
@@ -281,7 +294,8 @@ function identity_entry(entry) {
 	return entry.id + '|' + entry.owner + '|' + entry.role + '|' + entry.sourcePath + '|' + entry.runtimeTarget + '|' + entry.contentSha256
 		+ '|' + entry.byteSize + '|' + (entry.runtimeOrder == null ? '' : entry.runtimeOrder) + '|' + entry.kind + '|' + entry.type
 		+ '|' + (entry.version || '') + '|' + (entry.sourceCommit || '') + '|' + (entry.manifestSha256 || '') + '|' + (entry.classificationSha256 || '')
-		+ '|' + (array(entry.aliases) ? join(',', sorted_copy(entry.aliases, function(a, b) { return a == b ? 0 : (a < b ? -1 : 1); })) : '');
+		+ '|' + (array(entry.aliases) ? join(',', sorted_copy(entry.aliases, function(a, b) { return a == b ? 0 : (a < b ? -1 : 1); })) : '')
+		+ '|' + (entry.seedForLifecycle || '');
 }
 function identity_text(prefix, authority, entries, lua, removals) {
 	let rows = [], sortedEntries = sorted_copy(entries), sortedLua = sorted_copy(lua, sort_by_order), sortedRemovals = sorted_copy(removals || [], function(a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
@@ -335,10 +349,9 @@ function registry_external_assets(listed) {
 }
 
 function compose(state, authority, lifecycleEntries, staticEntries, removals, suppliedProviderIndex, externalAssets) {
-	let all = [], staticResult = package_static_input(staticEntries);
+	let staticResult = package_static_input(staticEntries);
 	if (!staticResult.ok) return staticResult;
-	for (let i = 0; i < length(staticResult.entries); i++) push(all, staticResult.entries[i]);
-	for (let i = 0; i < length(lifecycleEntries || []); i++) push(all, lifecycleEntries[i]);
+	let all = merge_runtime_entries(staticResult.entries, lifecycleEntries || []);
 	let runtimeAssets = sorted_copy(all), luaInit = lua_subset(all);
 	let providerResult = runtime_composition_provider_index({
 		composition: { runtimeAssets: runtimeAssets, lifecycleState: state },
