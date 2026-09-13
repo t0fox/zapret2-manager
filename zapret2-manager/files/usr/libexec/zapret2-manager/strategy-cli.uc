@@ -52,6 +52,12 @@ const MAX_DEPENDENCY_TEXT = 256;
 const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
 const MAX_TIMING_MS = 600000;
+const MANAGER_TELEGRAM_IPSET = '/opt/zapret2/lists/telegram_ips.txt';
+const MANAGER_TELEGRAM_DOMAINS = [
+	'telegram.org', 't.me', 'telegram.me', 'telegram.dog', 'telegram.tips',
+	'telegramusercontent.com', 'telegram-cdn.org', 'tdesktop.com', 'telesco.pe',
+	'kws2.web.telegram.org', 'kws2.offshor.co.uk', 'kws2.pclead.co.uk'
+];
 // rpcd-mod-ucode may reinitialize this module between calls. Keep one bounded
 // Preview candidate in volatile /tmp so the immediately-following Validate can
 // run native checks against the exact candidate instead of compiling the same
@@ -390,6 +396,43 @@ function add_manager_list_binding(lists, reference, target, role) {
 	runtime_descriptor_set(lists, target, descriptor);
 }
 
+function manager_safety_domain(value) {
+	let domain = lc(trim('' + (value != null ? value : '')));
+	return length(domain) >= 3 && length(domain) <= 253 && index(domain, '.') > 0
+		&& match(domain, /^[a-z0-9][a-z0-9.-]*[a-z0-9]$/) ? domain : null;
+}
+
+function manager_safety_has(values, wanted) {
+	for (let value in values) if (value == wanted) return true;
+	return false;
+}
+
+function manager_safety_policy() {
+	let domains = [];
+	for (let value in MANAGER_TELEGRAM_DOMAINS) {
+		let domain = manager_safety_domain(value);
+		if (domain != null && !manager_safety_has(domains, domain)) push(domains, domain);
+	}
+	// Custom CF and Worker endpoints are manager-owned proxy infrastructure too.
+	// Read only the two documented, non-secret config fields; the default pool
+	// remains covered by the observed canonical endpoints above.
+	let raw = null;
+	try { raw = readfile('/etc/tg-ws-proxy/config.conf'); } catch (e) { raw = null; }
+	if (is_string(raw)) {
+		for (let line in split(raw, '\n')) {
+			let text = trim(line), equal = index(text, '=');
+			if (equal < 1) continue;
+			let key = substr(text, 0, equal);
+			if (key != 'CF_DOMAINS' && key != 'CF_WORKER_DOMAINS') continue;
+			for (let item in split(substr(text, equal + 1), ',')) {
+				let domain = manager_safety_domain(item);
+				if (domain != null && !manager_safety_has(domains, domain)) push(domains, domain);
+			}
+		}
+	}
+	return { hostlistExcludeDomains: join(',', domains), ipsetExclude: MANAGER_TELEGRAM_IPSET };
+}
+
 // Project the canonical resolver output into the descriptor shape consumed by
 // strategy-compiler.  The resolver remains the only runtime membership
 // authority; this function only adds references and never scans or writes a
@@ -401,6 +444,9 @@ function runtime_environment_with_composition(environment, composition) {
 	for (let key in (environment && environment.lists) || {}) lists[key] = environment.lists[key];
 	for (let key in (environment && environment.blobs) || {}) blobs[key] = environment.blobs[key];
 	for (let key in (environment && environment.lua) || {}) lua[key] = environment.lua[key];
+	result.managerSafety = manager_safety_policy();
+	add_manager_list_binding(lists, '/runtime-assets/lists/telegram_ips.txt',
+		MANAGER_TELEGRAM_IPSET, 'manager-telegram-ipset');
 	if (!is_object(composition) || type(composition.runtimeAssets) != 'array') {
 		result.paths = paths; result.lists = lists; result.blobs = blobs; result.lua = lua;
 		return result;

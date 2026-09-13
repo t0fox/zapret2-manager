@@ -24,6 +24,7 @@ const COMPILER_SEMANTIC_MANIFEST = {
 	profiles: 'enabled-order.reserved-new.join-new.v1',
 	pathResolution: 'bounded-roots.no-traversal.no-symlink.v1',
 	transforms: 'resolve-paths.autowrap-payloads.inject-lists.declare-blobs.v1',
+	managerSafety: 'canonical-telegram-domain-and-ip-exclusions.broad-network-profiles.v1',
 	listPlacement: 'after-last-filter-before-first-payload.v1',
 	dependencies: 'blob-lua-function-hostlist-ipset.ordered-complete.v1',
 	dependencyOutput: 'available.items.missing.structurallyCompilable.nativeValidation.v1',
@@ -306,6 +307,79 @@ function list_flags(environment, tokens) {
 	return result;
 }
 
+function csv_has(value, item) {
+	let entries = split('' + (value != null ? value : ''), ',');
+	for (let entry in entries) if (trim_ws(entry) == item) return true;
+	return false;
+}
+
+function profile_targets_telegram(tokens) {
+	// A source profile that explicitly targets Telegram is intentional (for
+	// example the upstream Telegram ipset strategy). Manager safety exclusions
+	// must not silently disable that positive scope.
+	for (let token in tokens) {
+		let info = option_info(token);
+		if (info.name != 'hostlist' && info.name != 'hostlist-domains'
+			&& info.name != 'hostlist-auto' && info.name != 'ipset'
+			&& info.name != 'ipset-ip') continue;
+		let value = lc('' + (info.value != null ? info.value : ''));
+		if (index(value, 'telegram') >= 0 || index(value, 'tdesktop') >= 0)
+			return true;
+	}
+	return false;
+}
+
+function profile_has_network_filter(tokens, name) {
+	return has_name(tokens, [name]);
+}
+
+function profile_has_datagram_scope(tokens) {
+	if (profile_has_network_filter(tokens, 'filter-tcp')
+		|| profile_has_network_filter(tokens, 'filter-udp')) return true;
+	for (let token in tokens) {
+		let info = option_info(token);
+		if (info.name == 'filter-l7' && csv_has(info.value || '', 'quic')) return true;
+	}
+	return false;
+}
+
+function has_option_value(tokens, names, value) {
+	for (let token in tokens) {
+		let info = option_info(token);
+		if (info.hasEquals && info.value == value)
+			for (let name in names) if (info.name == name) return true;
+	}
+	return false;
+}
+
+function profile_is_tls_or_host_aware(tokens) {
+	let hostAware = has_name(tokens, ['hostlist', 'hostlist-domains', 'hostlist-auto']);
+	for (let token in tokens) {
+		let info = option_info(token);
+		if (info.name == 'filter-l7' && index(',' + (info.value || '') + ',', ',tls,') >= 0)
+			return true;
+		if (info.name == 'payload' && index(',' + (info.value || '') + ',', ',tls_client_hello,') >= 0)
+			return true;
+	}
+	return hostAware;
+}
+
+function merge_manager_domain_exclude(tokens, domains) {
+	for (let i = 0; i < length(tokens); i++) {
+		let info = option_info(tokens[i]);
+		if (info.name != 'hostlist-exclude-domains' || !info.hasEquals) continue;
+		let values = trim_ws(info.value || ''), additions = split(domains, ',');
+		for (let domain in additions) {
+			domain = trim_ws(domain);
+			if (domain != '' && !csv_has(values, domain))
+				values = values == '' ? domain : values + ',' + domain;
+		}
+		tokens[i] = '--hostlist-exclude-domains=' + values;
+		return { tokens: tokens, present: true };
+	}
+	return { tokens: tokens, present: false };
+}
+
 function insert_lists(tokens, injected) {
 	if (length(injected) == 0) return tokens;
 	let payload = first_payload(tokens), at = payload != null ? payload.index : length(tokens);
@@ -318,6 +392,26 @@ function insert_lists(tokens, injected) {
 	}
 	if (at >= length(tokens)) for (let j = 0; j < length(injected); j++) push(result, injected[j]);
 	return result;
+}
+
+function manager_safety_flags(environment, tokens) {
+	let policy = is_object(environment.managerSafety) ? environment.managerSafety : null;
+	if (policy == null || profile_targets_telegram(tokens)) return tokens;
+	let injected = [], result = tokens;
+	let domains = type(policy.hostlistExcludeDomains) == 'string'
+		? trim_ws(policy.hostlistExcludeDomains) : '';
+	if (domains != '' && profile_has_network_filter(tokens, 'filter-tcp')
+		&& profile_is_tls_or_host_aware(tokens)) {
+		let merged = merge_manager_domain_exclude(result, domains);
+		result = merged.tokens;
+		if (!merged.present) push(injected, '--hostlist-exclude-domains=' + domains);
+	}
+	let ipset = type(policy.ipsetExclude) == 'string' ? trim_ws(policy.ipsetExclude) : '';
+	if (ipset != '' && profile_has_datagram_scope(result)
+		&& !has_option_value(result, ['ipset-exclude'], ipset)) {
+		push(injected, '--ipset-exclude=' + ipset);
+	}
+	return insert_lists(result, injected);
 }
 
 function add_dependency(dependencies, kind, reference, available, reason) {
@@ -688,6 +782,7 @@ function compile_normalized(strategy, environment) {
 		}
 		tokens = autowrap(tokens);
 		tokens = insert_lists(tokens, list_flags(environment, tokens));
+		tokens = manager_safety_flags(environment, tokens);
 		let values = [];
 		for (let ti = 0; ti < length(tokens); ti++) push(values, tokens[ti]);
 		let fragment = trim_ws(join(' ', values));
