@@ -193,7 +193,23 @@ for relative in \
 	usr/libexec/zapret2-manager/z2m-helperd \
 	usr/share/rpcd/ucode/zapret2-manager.uc \
 	usr/share/zapret2-manager/runtime-composition-package.json \
+	usr/share/zapret2-manager/strategies/discord-stressozz-autocircular.json \
+	usr/share/zapret2-manager/strategies/extensions.json \
 	usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua \
+	usr/share/zapret2-manager/runtime-assets/mega/blob/flowseal-active-discord-udp.bin \
+	usr/share/zapret2-manager/runtime-assets/mega/blob/quic_initial_4pda_to.bin \
+	usr/share/zapret2-manager/runtime-assets/mega/blob/stun2.bin \
+	usr/share/zapret2-manager/runtime-assets/mega/blob/tls_clienthello_sochi_park.bin \
+	usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-general.txt \
+	usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-general-user.txt \
+	usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-exclude.txt \
+	usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-exclude-user.txt \
+	usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-google.txt \
+	usr/share/zapret2-manager/runtime-assets/mega/ipset/flowseal-ipset-all.txt \
+	usr/share/zapret2-manager/runtime-assets/mega/ipset/flowseal-ipset-exclude.txt \
+	usr/share/zapret2-manager/runtime-assets/mega/ipset/bolvan-discord-subnets.txt \
+	usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/YT/List.txt \
+	usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt \
 	etc/init.d/zapret2-manager \
 	etc/hotplug.d/iface/90-zapret2-manager \
 	usr/share/rpcd/acl.d/luci-app-zapret2-manager.json \

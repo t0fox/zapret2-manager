@@ -592,3 +592,107 @@ test('list placement stays before the first payload when a later filter follows 
   assert.equal(result.ok, true);
   assert.equal(result.fragments[0], '--filter-tcp=443 --hostlist-auto=/lists/auto.txt --hostlist-exclude=/lists/netrogat.txt --payload=tls_client_hello --filter-l7=tls --lua-desync=fake');
 });
+
+test('Flowseal broad imports preserve StressOzz domainExclude semantics at the compiler boundary', () => {
+  const canonicalExclude = '/opt/zapret2/ipset/zapret-hosts-user-exclude.txt';
+  const flowsealEnvironment = {
+    ...environment,
+    paths: { ...environment.paths, domainExclude: canonicalExclude },
+  };
+  const obsolete = /flowseal-(?:list-general|list-general-user|list-exclude|list-exclude-user|ipset-all|ipset-exclude)/;
+  const cases = [
+    {
+      id: 'flowseal-general-tcp',
+      args: '--filter-tcp=80,443 --hostlist=/etc/zapret2-manager/assets/hostlist/flowseal-list-general.txt '
+        + '--hostlist=/etc/zapret2-manager/assets/hostlist/flowseal-list-general-user.txt '
+        + '--hostlist-exclude=/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude.txt '
+        + '--hostlist-exclude=/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude-user.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt '
+        + '--payload=http_req --lua-desync=fake',
+      expectsCanonicalExclude: true,
+    },
+    {
+      id: 'flowseal-quic-hostlist',
+      args: '--filter-udp=443 --hostlist=/etc/zapret2-manager/assets/hostlist/flowseal-list-general.txt '
+        + '--hostlist=/etc/zapret2-manager/assets/hostlist/flowseal-list-general-user.txt '
+        + '--hostlist-exclude=/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude.txt '
+        + '--hostlist-exclude=/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude-user.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt '
+        + '--payload=quic_initial --lua-desync=fake',
+      expectsCanonicalExclude: true,
+    },
+    {
+      id: 'flowseal-quic-ipset',
+      args: '--filter-udp=443 --ipset=/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt '
+        + '--hostlist-exclude=/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude.txt '
+        + '--hostlist-exclude=/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude-user.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt '
+        + '--payload=quic_initial --lua-desync=fake',
+      expectsCanonicalExclude: true,
+    },
+    {
+      id: 'games-flowseal',
+      args: '--filter-tcp=2302,2502,2802 --ipset=/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt '
+        + '--payload=known,unknown --lua-desync=fake',
+      expectsCanonicalExclude: false,
+    },
+    {
+      id: 'flowseal-alt5-tcp',
+      args: '--filter-l3=ipv4 --filter-tcp=80,443,2053,2083,2087,2096,8443 '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt '
+        + '--ipset-exclude=/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt '
+        + '--payload=http_req,tls_client_hello --lua-desync=fake',
+      expectsCanonicalExclude: false,
+    },
+  ];
+
+  for (const item of cases) {
+    const result = invoke('strategy_compile', strategy([{ id: item.id, args: item.args }]), flowsealEnvironment);
+    assert.equal(result.ok, true, item.id);
+    const fragment = result.fragments[0];
+    assert.doesNotMatch(fragment, obsolete, item.id);
+    if (item.expectsCanonicalExclude) {
+      assert.equal(fragment.split(`--hostlist-exclude=${canonicalExclude}`).length - 1, 1, item.id);
+    } else {
+      assert.doesNotMatch(fragment, /--hostlist-exclude=\/opt\/zapret2\/ipset\/zapret-hosts-user-exclude\.txt/, item.id);
+    }
+  }
+});
+
+test('StressOzz broad-list adaptation leaves intentional narrow YouTube and Discord scopes intact', () => {
+  const cases = [
+    '--filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media '
+      + '--payload=tls_client_hello --lua-desync=fake',
+    '--filter-tcp=443 --hostlist=/etc/zapret2-manager/assets/hostlist/flowseal-list-google.txt '
+      + '--payload=tls_client_hello --lua-desync=fake',
+    '--filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun '
+      + '--payload=all --lua-desync=fake',
+  ];
+
+  for (const args of cases) {
+    const result = invoke('strategy_compile', strategy([{ id: 'narrow', args }]), {
+      ...environment,
+      paths: { ...environment.paths, domainExclude: '/opt/zapret2/ipset/zapret-hosts-user-exclude.txt' },
+    });
+    assert.equal(result.ok, true, args);
+    assert.doesNotMatch(result.fragments[0], /zapret-hosts-user-exclude\.txt/, args);
+    assert.match(result.fragments[0], /(?:discord\.media|flowseal-list-google|filter-l7=discord,stun)/, args);
+  }
+});
+
+test('repository pins the complete live Mega Strategy snapshot used by parity audits', () => {
+  const snapshotPath = path.join(ROOT, '.superpowers/sdd/2026-09-12-mega-autocircular/live-strategy.json');
+  const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'));
+  assert.equal(snapshot.id, 'discord-stressozz-autocircular');
+  assert.equal(snapshot.revision, 11);
+  assert.equal(snapshot.profiles.length, 26);
+  for (const id of [
+    'flowseal_general_tcp', 'flowseal_quic_hostlist', 'flowseal_quic_ipset',
+    'flowseal_alt5_tcp', 'flowseal_games_tcp', 'flowseal_discord_media_tcp',
+    'flowseal_youtube_tcp',
+  ]) assert.ok(snapshot.profiles.some(profile => profile.id === id), id);
+});

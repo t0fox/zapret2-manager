@@ -19,6 +19,7 @@ const APPLY_BLOCK_PATH = getenv('Z2M_STRATEGY_APPLY_BLOCK') || APPLY_LASTGOOD_DI
 const APPLY_LEASE_PATH = getenv('Z2M_STRATEGY_APPLY_LEASE') || APPLY_LASTGOOD_DIR + '/strategy-apply-lease.json';
 const LOCK_PATH = getenv('Z2M_STRATEGY_LOCK') || '/tmp/zapret2-manager/strategy-state.lock';
 const EXTENSION_MANIFEST_PATH = getenv('Z2M_STRATEGY_EXTENSION_MANIFEST') || '/usr/share/zapret2-manager/strategies/extensions.json';
+const PACKAGE_STRATEGY_DIR = getenv('Z2M_PACKAGE_STRATEGY_DIR') || '/usr/share/zapret2-manager/strategies';
 const MAX_BYTES = 521028;
 const MAX_ID = 128;
 const MAX_NAME = 256;
@@ -160,10 +161,16 @@ export const strategy_selection_project_candidate = function(input) {
 		return error('EINPUT', 'Candidate selection projection requires a candidate catalog.');
 	if (input.selected == null) return { ok: true, selected: null, rebound: false, candidate: null };
 	let sourceId = input.selected && input.selected.sourceId,
-		expectedOrigin = sourceId == 'z2k' ? 'z2k_builtin' : sourceId == 'avatar' ? 'avatar_builtin' : sourceId == 'user' ? 'user' : null;
+		expectedOrigin = sourceId == 'z2k' ? 'z2k_builtin' : sourceId == 'avatar' ? 'avatar_builtin' : sourceId == 'user' ? 'user' : sourceId == 'package' ? 'package' : null;
 	if (!is_object(input.selected) || expectedOrigin == null
 		|| input.selected.canonicalStrategyId != input.selected.id || input.selected.origin != expectedOrigin)
 		return error('ECOMPATIBILITY', 'Strategy selection identity is not canonical.');
+	if (sourceId == 'package') {
+		let packaged = read_package_strategy(input.selected.id);
+		if (!packaged.ok || packaged.strategy.revision != input.selected.revision)
+			return error('ECOMPATIBILITY', 'Package Strategy selection is no longer authoritative.', { id: input.selected.id });
+		return { ok: true, selected: copy(input.selected), rebound: false, candidate: null };
+	}
 	if (input.candidateCatalog.verified !== true || type(input.candidateCatalog.entries) != 'array')
 		return error('ECOMPATIBILITY', 'Z2K candidate catalog is not verified.');
 	let selectedId = input.selected.canonicalStrategyId, entry = null;
@@ -225,6 +232,43 @@ function canonicalize_state(value) {
 }
 function extension_id(id) { return load_extension_ids() && extension_ids[id] == true; }
 function protected_id(id) { return catalog_id(id) || extension_id(id); }
+
+// Package-owned Strategies live in the immutable /usr/share payload.  They
+// use the existing extension identity gate, but are never copied into the
+// writable /etc Strategy directory.  This keeps the package file as the
+// source of truth while allowing the normal Strategy RPC and Apply paths to
+// consume the exact same full Profile document as user Strategies.
+function package_strategy_path(id) {
+	return safe_id(id) ? PACKAGE_STRATEGY_DIR + '/' + id + '.json' : null;
+}
+
+function read_package_strategy(id) {
+	if (!safe_id(id) || !extension_id(id)) return error('ENOENT', 'Package Strategy was not found.');
+	let result = read_document_readonly(package_strategy_path(id));
+	if (result.missing) return error('ENOENT', 'Package Strategy was not found.');
+	if (!result.ok || result.empty || !is_object(result.value))
+		return error('EINPUT', 'Package Strategy payload is invalid.');
+	let value = result.value;
+	if (value.schema !== 1 || !integer(value.revision) || value.revision < 1
+		|| !bounded_string(value.name, MAX_NAME) || value.origin != 'user'
+		|| value.is_builtin != false || type(value.profiles) != 'array'
+		|| length(value.profiles) > MAX_PROFILES || !metadata_valid(value.metadata)
+		|| !model_validate(value, 'structural').ok)
+		return error('EINPUT', 'Package Strategy schema is invalid.');
+	for (let profile in value.profiles) if (!profile_valid(profile))
+		return error('EINPUT', 'Package Strategy Profile schema is invalid.');
+	let strategy = copy(value);
+	if (!is_object(strategy)) return error('EINPUT', 'Package Strategy could not be projected.');
+	strategy.origin = 'package';
+	strategy.is_builtin = false;
+	strategy.is_extension = true;
+	strategy.packageOwned = true;
+	strategy.canonicalId = strategy.id;
+	strategy.sourceId = 'package';
+	strategy.sourceSnapshotId = 'mega-autocircular-2026-09-12';
+	strategy.sourceCommit = null;
+	return { ok: true, strategy: strategy, packagePath: package_strategy_path(id) };
+}
 
 function exact_fields(value, fields) {
 	if (!is_object(value) || length(value) != length(fields)) return false;
@@ -539,7 +583,7 @@ function selection_provenance_valid(value) {
 			'sourceId', 'sourceSnapshotId', 'sourceCommit', 'z2kCompatibilityIdentity', 'compatibilityIdentity', 'strategyDigest'])) return false;
 	} else if (!exact_fields(value, baseFields)) return false;
 	if (!safe_strategy_id(value.canonicalStrategyId) || value.canonicalStrategyId != value.id
-		|| (value.sourceId != 'avatar' && value.sourceId != 'z2k' && value.sourceId != 'user')
+		|| (value.sourceId != 'avatar' && value.sourceId != 'z2k' && value.sourceId != 'user' && value.sourceId != 'package')
 		|| !safe_strategy_id(value.sourceSnapshotId) || (value.sourceCommit != null
 			&& (!is_string(value.sourceCommit) || !match(value.sourceCommit, /^[a-f0-9]{7,40}$/)))
 		|| !sha256(value.strategyDigest)) return false;
@@ -547,6 +591,7 @@ function selection_provenance_valid(value) {
 		if (!z2k_compatibility_identity_valid(value.z2kCompatibilityIdentity)
 			|| value.compatibilityIdentity != value.z2kCompatibilityIdentity.digest) return false;
 	} else if (exists(value, 'z2kCompatibilityIdentity') || exists(value, 'compatibilityIdentity')) return false;
+	if (value.sourceId == 'package' && value.origin != 'package') return false;
 	return true;
 }
 
@@ -568,12 +613,13 @@ function identity_verified(id, origin) {
 	}
 	if (origin == 'avatar_builtin' || origin == 'z2k_builtin') return catalog_id(id);
 	if (origin == 'extension') return extension_id(id);
+	if (origin == 'package') { let result = read_package_strategy(id); return result.ok && result.strategy.origin == 'package'; }
 	return false;
 }
 
 function selected_valid(value) {
 	return value == null || (selection_provenance_valid(value) &&
-		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension') &&
+		safe_strategy_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension' || value.origin == 'package') &&
 		integer(value.revision) && sha256(value.candidateSha256) && identity_verified(value.id, value.origin));
 }
 
@@ -602,7 +648,7 @@ function selected_readonly_valid(value) {
 			|| !sha256(value.strategyDigest)) return false;
 	} else if (!selection_provenance_valid(value)) return false;
 	return safe_strategy_id(value.id)
-		&& (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension')
+		&& (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin' || value.origin == 'extension' || value.origin == 'package')
 		&& integer(value.revision) && sha256(value.candidateSha256);
 }
 
@@ -657,6 +703,9 @@ function state_mutate(expected, transform) {
 
 function read_user(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Strategy id is unsafe.');
+	let packaged = read_package_strategy(id);
+	if (packaged.ok) return packaged;
+	if (packaged.error && packaged.error.code != 'ENOENT') return packaged;
 	let path = path_for(id), result = read_document(path);
 	if (result.missing) return error('ENOENT', 'User Strategy was not found.');
 	if (!result.ok) return result;
@@ -666,6 +715,9 @@ function read_user(id) {
 
 function read_user_readonly(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Strategy id is unsafe.');
+	let packaged = read_package_strategy(id);
+	if (packaged.ok) return packaged;
+	if (packaged.error && packaged.error.code != 'ENOENT') return packaged;
 	let result = read_document_readonly(path_for(id));
 	if (result.missing) return error('ENOENT', 'User Strategy was not found.');
 	if (!result.ok) return result;
@@ -705,13 +757,21 @@ export const strategy_user_get_readonly = function(input) {
 
 export const strategy_user_list = function() {
 	if (!ensure_create_directory()) return error('EIO', 'User Strategy directory is unavailable.');
-	let names = [];
+	let names = [], packageNames = [];
 	try { names = lsdir(STRATEGY_DIR) || []; } catch (e) { return error('EIO', 'User Strategy directory could not be read.'); }
-	let result = [];
+	let result = [], emitted = {};
+	try { packageNames = lsdir(PACKAGE_STRATEGY_DIR) || []; } catch (e) { packageNames = []; }
+	for (let name in packageNames) {
+		if (!is_string(name) || length(name) < 6 || substr(name, -5) != '.json') continue;
+		let packaged = read_package_strategy(substr(name, 0, length(name) - 5));
+		if (packaged.ok) { push(result, packaged.strategy); emitted[packaged.strategy.id] = true; }
+		else if (packaged.error && packaged.error.code != 'ENOENT') return packaged;
+	}
 	for (let name in names) {
 		if (!is_string(name) || length(name) < 6 || substr(name, -5) != '.json') continue;
 		let id = substr(name, 0, length(name) - 5), user = read_user(id);
 		if (!user.ok) return user;
+		if (emitted[user.strategy.id]) continue;
 		push(result, user.strategy);
 	}
 	for (let i = 1; i < length(result); i++) {
@@ -1006,7 +1066,7 @@ export const strategy_apply_revalidate = function(input) {
 		if (digest == null || digest != input.catalogDigest) return error('ECONFLICT', 'Strategy catalog digest changed.');
 		let current = read_user(input.strategyId);
 		if (current.ok) {
-			if (current.strategy.revision != input.strategyRevision || input.strategyOrigin != 'user')
+			if (current.strategy.revision != input.strategyRevision || input.strategyOrigin != current.strategy.origin)
 				return error('ECONFLICT', 'Strategy revision changed before config mutation.');
 		} else if (!(input.strategyRevision == 0 && (input.strategyOrigin == 'avatar_builtin' || input.strategyOrigin == 'z2k_builtin') && catalog_id(input.strategyId))) {
 			return error('ECONFLICT', 'Strategy identity changed before config mutation.');
@@ -1131,6 +1191,10 @@ function selection_authoritative(value) {
 	if (!selected_valid(value)) return false;
 	if (value.origin == 'user') {
 		let current = read_user(value.id);
+		return current.ok && current.strategy.revision == value.revision;
+	}
+	if (value.origin == 'package') {
+		let current = read_package_strategy(value.id);
 		return current.ok && current.strategy.revision == value.revision;
 	}
 	return value.revision == 0 && ((value.origin == 'avatar_builtin' || value.origin == 'z2k_builtin') ? catalog_id(value.id) : extension_id(value.id));

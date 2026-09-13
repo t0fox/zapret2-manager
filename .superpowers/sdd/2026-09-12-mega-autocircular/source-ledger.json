@@ -49,6 +49,16 @@
     "liveSource": "root@192.168.1.1:/etc/zapret2-manager/strategies/discord-stressozz-autocircular.json",
     "note": "exact persisted object; current runtime is older applied revision 6 and must be reapplied through Manager before final acceptance."
   },
+  "repoSnapshot": {
+    "path": ".superpowers/sdd/2026-09-12-mega-autocircular/live-strategy.json",
+    "strategyId": "discord-stressozz-autocircular",
+    "revision": 11,
+    "profileCount": 26,
+    "enabledProfileCount": 26,
+    "capturedFrom": "root@192.168.1.1:/etc/zapret2-manager/strategies/discord-stressozz-autocircular.json",
+    "capturedAt": "2026-09-13",
+    "note": "Full live Manager strategy snapshot; JSON formatting is normalized, strategy fields and profile args are preserved."
+  },
   "items": [
     {
       "id": "stressozz-zapret2:Discord_circular",
@@ -2685,8 +2695,10 @@
       },
       {
         "source": "ACTIVE_DISCORD_UDP.bin",
-        "canonical": "quic_initial_steamcommunity_com",
-        "status": "REUSE_ALIAS"
+        "canonical": null,
+        "status": "ADD_PACKAGE",
+        "sha256": "2fe18b3bd20807d36704d0b072092ee49ae84edca907a4420ab9a0f0f28fddcf",
+        "reason": "No physical Z2K package asset with this content exists in the repository; keep the Flowseal source byte under the Mega package namespace."
       }
     ],
     "contentMissingAtBaseline": [
@@ -2698,7 +2710,39 @@
       "tls_clienthello_5ka_ru.bin",
       "tls_clienthello_sochi_park.bin"
     ],
-    "rule": "add missing content only through the existing Asset Registry/dependency lifecycle; no /opt/zapret or filesystem fallback."
+    "rule": "add missing content only through the existing Asset Registry/dependency lifecycle; no /opt/zapret or filesystem fallback.",
+    "packageMaterialization": {
+      "strategy": {
+        "packagePath": "zapret2-manager/files/usr/share/zapret2-manager/strategies/discord-stressozz-autocircular.json",
+        "revision": 11,
+        "profileCount": 26,
+        "sha256": "d376c29f8892af86691cabb47bd7a0ce8414f0bfaff048fc5a65fe330f070ccb",
+        "byteSize": 58514
+      },
+      "added": [
+        { "path": "runtime-assets/mega/blob/flowseal-active-discord-udp.bin", "sha256": "2fe18b3bd20807d36704d0b072092ee49ae84edca907a4420ab9a0f0f28fddcf", "byteSize": 1200, "sourceCommit": "6cec828910d0809863205702182a3557d9d0d0e8c3", "sourcePath": "bin/ACTIVE_DISCORD_UDP.bin", "capturePath": "/etc/zapret2-manager/assets/blob/flowseal-active-discord-udp.bin" },
+        { "path": "runtime-assets/mega/blob/stun2.bin", "sha256": "b7c2497496039c541f7337ac8536813f0a1cf52363ab2faa5213b7816d458813", "byteSize": 120, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "bin/stun2.bin", "capturePath": "/etc/zapret2-manager/assets/blob/stun2.bin" },
+        { "path": "runtime-assets/mega/blob/quic_initial_4pda_to.bin", "sha256": "e065870cb0d13152e6132807bbf42218a9e7cd8d96f5602b61674cc540f3a56e", "byteSize": 1250, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "bin/quic_initial_4pda_to.bin", "capturePath": "/etc/zapret2-manager/assets/blob/quic_initial_4pda_to.bin" },
+        { "path": "runtime-assets/mega/blob/tls_clienthello_sochi_park.bin", "sha256": "ad552922acfe029521da884ea29f4bb28bb6bdcee9b1a70b46adbfd266c11d4d", "byteSize": 244, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "bin/tls_clienthello_sochi_park.bin", "capturePath": "/etc/zapret2-manager/assets/blob/tls_clienthello_sochi_park.bin" },
+        { "path": "runtime-assets/mega/hostlist/flowseal-list-general.txt", "sha256": "5905f9f91e53142f2a5b964ce31bd01c458f2ab6f7fda0ad71b45e2919407a93", "byteSize": 1008, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-general.txt (runtime projection)", "capturePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-general.txt" },
+        { "path": "runtime-assets/mega/hostlist/flowseal-list-general-user.txt", "sha256": "1108595eb12c940de54bfe070d26b4b564c47a6643a6b832a1ff101a0fbdf615", "byteSize": 49, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-general.txt (runtime user projection)", "capturePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-general-user.txt" },
+        { "path": "runtime-assets/mega/hostlist/flowseal-list-exclude.txt", "sha256": "30a67f4af8eb7abe709db84235e1d97924d851bf4380b676a109dbe408d446e9", "byteSize": 1588, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-exclude.txt (runtime projection)", "capturePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude.txt" },
+        { "path": "runtime-assets/mega/hostlist/flowseal-list-exclude-user.txt", "sha256": "a55959f2708d2a68c84aceb2b0de737850aef9afb0c5dff55cc8ddc8318d171b", "byteSize": 19, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-exclude.txt (runtime user projection)", "capturePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude-user.txt" },
+        { "path": "runtime-assets/mega/hostlist/flowseal-list-google.txt", "sha256": "2ba93d814dca7b55e69ab88b33ba36b6e9930596af2add4fa2fdb98ba0cac7f4", "byteSize": 394, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-google.txt (runtime projection)", "capturePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-google.txt" },
+        { "path": "runtime-assets/mega/ipset/flowseal-ipset-all.txt", "sha256": "050887f9de1329575e7c6dcb22d634d44e36d7e9e4ebb2ed25242ac45c884d8d", "byteSize": 17, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/ipset-all.txt (runtime projection)", "capturePath": "/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt" },
+        { "path": "runtime-assets/mega/ipset/flowseal-ipset-exclude.txt", "sha256": "59bfca828dffa08a1d8694c03ea5378b64fa7137ca948e309a5b24c1b64c29e2", "byteSize": 126, "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/ipset-exclude.txt (runtime projection)", "capturePath": "/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt" },
+        { "path": "runtime-assets/mega/ipset/bolvan-discord-subnets.txt", "sha256": "fa0ca1ecb60eae74c343b2975280f6a6cb6cb44d965acb33ac5b9502f1c9e3dc", "byteSize": 10900, "sourceCommit": "a2ffa3455df32babf13decdc666f3a140a2ca058", "sourcePath": "50-discord destination subnet projection", "capturePath": "/etc/zapret2-manager/assets/ipset/bolvan-discord-subnets.txt" }
+      ],
+      "reused": [
+        { "path": "runtime-assets/lists/extra_strats/TCP/YT/List.txt", "sha256": "e9d2e1e18d2d7a73485b506306721171e0c264feed3546b6d964cc213eef191c", "byteSize": 2728, "sourceCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2", "sourcePath": "files/lists/extra_strats/TCP/YT/List.txt" },
+        { "path": "runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt", "sha256": "1ef28791f0404ee91a98fbe531c765b3909f36fd66991602fedbb99e46c04df1", "byteSize": 33, "sourceCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2", "sourcePath": "files/lists/extra_strats/TCP/YT_GV/List.txt" },
+        { "path": "runtime-assets/bin/quic_initial_dbankcloud_ru.bin", "source": "existing Z2K package baseline", "sha256": "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df" },
+        { "path": "runtime-assets/bin/stun.bin", "source": "existing Z2K package baseline", "sha256": "9cd5469309780ca56c0bd97266524a48c7ee529d02c3179cfecb20b260a59641" },
+        { "path": "runtime-assets/bin/tls_clienthello_4pda_to.bin", "source": "existing Z2K package baseline", "sha256": "eefeaf09dde8d69b1f176212541f63c68b314a33a335eced99a8a29f17254da8" },
+        { "path": "runtime-assets/bin/tls_clienthello_www_google_com.bin", "source": "existing Z2K package baseline", "sha256": "936c2bee4cfb80aa3c426b2dcbcc834b3fbcd1adb17172959dc569c73a14275c" },
+        { "path": "runtime-assets/bin/tls_clienthello_www_onetrust_com.bin", "source": "existing Z2K package baseline", "sha256": "4ee0870abe0a0128600b0095189987ba1d210dae8bf963bc725aff49cf922624" }
+      ]
+    }
   },
   "liveEvidence": {
     "strategyId": "discord-stressozz-autocircular",

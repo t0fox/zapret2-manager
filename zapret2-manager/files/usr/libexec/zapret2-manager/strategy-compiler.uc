@@ -23,7 +23,7 @@ const COMPILER_SEMANTIC_MANIFEST = {
 	tokenizer: 'avatar_tokenize.quote-aware.v1',
 	profiles: 'enabled-order.reserved-new.join-new.v1',
 	pathResolution: 'bounded-roots.no-traversal.no-symlink.v1',
-	transforms: 'resolve-paths.autowrap-payloads.inject-lists.declare-blobs.v1',
+	transforms: 'resolve-paths.autowrap-payloads.inject-lists.declare-blobs.flowseal-stressozz.v2',
 	managerSafety: 'canonical-telegram-domain-and-ip-exclusions.broad-network-profiles.v1',
 	listPlacement: 'after-last-filter-before-first-payload.v1',
 	dependencies: 'blob-lua-function-hostlist-ipset.ordered-complete.v1',
@@ -350,6 +350,47 @@ function has_option_value(tokens, names, value) {
 			for (let name in names) if (info.name == name) return true;
 	}
 	return false;
+}
+
+function path_leaf_is(value, leaf) {
+	if (type(value) != 'string' || type(leaf) != 'string') return false;
+	if (value == leaf) return true;
+	let suffix = '/' + leaf;
+	return length(value) > length(suffix)
+		&& substr(value, length(value) - length(suffix), length(suffix)) == suffix;
+}
+
+// StressOzz's Flowseal importer has a deliberate list boundary: broad source
+// includes and IP exclusions are removed, list-exclude.txt becomes the one
+// canonical Z2K domainExclude hostlist, and list-exclude-user.txt is removed.
+// Keep this adaptation at the source-to-compiled-argv boundary so persisted
+// user Strategies remain lossless and narrow Discord/YouTube scopes are not
+// reclassified by name or source-ledger metadata.
+function flowseal_stressozz_adaptation(tokens, environment) {
+	let paths = is_object(environment.paths) ? environment.paths : {};
+	let canonical = paths.domainExclude;
+	if (!safe_absolute_path(canonical)) return tokens;
+	let result = [], canonicalPresent = false;
+	for (let token in tokens) {
+		let info = option_info(token), value = info.hasEquals ? info.value : null;
+		if (info.name == 'hostlist' && (path_leaf_is(value, 'flowseal-list-general.txt')
+			|| path_leaf_is(value, 'flowseal-list-general-user.txt'))) continue;
+		if (info.name == 'ipset' && path_leaf_is(value, 'flowseal-ipset-all.txt')) continue;
+		if (info.name == 'ipset-exclude' && (path_leaf_is(value, 'flowseal-ipset-exclude.txt')
+			|| path_leaf_is(value, 'flowseal-ipset-exclude-user.txt')
+			|| path_leaf_is(value, 'flowseal-ipset-all.txt'))) continue;
+		if (info.name == 'hostlist-exclude' && path_leaf_is(value, 'flowseal-list-exclude-user.txt')) continue;
+		if (info.name == 'hostlist-exclude' && path_leaf_is(value, 'flowseal-list-exclude.txt')) {
+			if (!canonicalPresent) {
+				push(result, '--hostlist-exclude=' + canonical);
+				canonicalPresent = true;
+			}
+			continue;
+		}
+		if (info.name == 'hostlist-exclude' && value == canonical) canonicalPresent = true;
+		push(result, token);
+	}
+	return result;
 }
 
 function profile_is_tls_or_host_aware(tokens) {
@@ -780,6 +821,7 @@ function compile_normalized(strategy, environment) {
 				return error_result('EINPUT', 'Profile ' + enabled[i].id + ' contains a reserved --new separator');
 			push(tokens, resolve_token(tokenized.tokens[ti].value, environment));
 		}
+		tokens = flowseal_stressozz_adaptation(tokens, environment);
 		tokens = autowrap(tokens);
 		tokens = insert_lists(tokens, list_flags(environment, tokens));
 		tokens = manager_safety_flags(environment, tokens);

@@ -53,6 +53,7 @@ const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
 const MAX_TIMING_MS = 600000;
 const MANAGER_TELEGRAM_IPSET = '/opt/zapret2/lists/telegram_ips.txt';
+const MANAGER_DOMAIN_EXCLUDE = '/opt/zapret2/ipset/zapret-hosts-user-exclude.txt';
 const MANAGER_TELEGRAM_DOMAINS = [
 	'telegram.org', 't.me', 'telegram.me', 'telegram.dog', 'telegram.tips',
 	'telegramusercontent.com', 'telegram-cdn.org', 'tdesktop.com', 'telesco.pe',
@@ -387,8 +388,25 @@ function runtime_lua_aliases(lua, entry, target, descriptor) {
 	runtime_descriptor_set(lua, '@lua/' + relative, descriptor);
 }
 
+// Imported package Strategies may preserve the exact source path captured on
+// the router while composition uses a package-owned /runtime-assets target.
+// Expose both identities through the same descriptor so dependency closure
+// does not depend on rewriting the Strategy JSON.
+function runtime_captured_aliases(lists, blobs, entry) {
+	if (!is_object(entry) || !is_object(entry.provenance)
+		|| !is_string(entry.provenance.capturedRuntimePath)) return;
+	let target = runtime_target_path(entry.provenance.capturedRuntimePath);
+	let root = runtime_path_root(target, entry.kind);
+	if (target == null || root == null) return;
+	let descriptor = runtime_asset_descriptor(target, root, entry);
+	if (descriptor == null) return;
+	if (entry.kind == 'hostlist' || entry.kind == 'ipset') runtime_list_aliases(lists, entry, target, descriptor);
+	else if (entry.kind == 'blob') runtime_blob_aliases(blobs, target, entry, descriptor);
+}
+
 function add_manager_list_binding(lists, reference, target, role) {
-	let root = starts_with(target, '/etc/zapret2-manager/lists/') ? '/etc/zapret2-manager/lists' : '/opt/zapret2/lists';
+	let root = starts_with(target, '/etc/zapret2-manager/lists/') ? '/etc/zapret2-manager/lists'
+		: (starts_with(target, '/opt/zapret2/ipset/') ? '/opt/zapret2/ipset' : '/opt/zapret2/lists');
 	let descriptor = runtime_asset_descriptor(target, root, { id: role });
 	if (descriptor == null) return;
 	descriptor.infrastructureRole = role;
@@ -444,9 +462,12 @@ function runtime_environment_with_composition(environment, composition) {
 	for (let key in (environment && environment.lists) || {}) lists[key] = environment.lists[key];
 	for (let key in (environment && environment.blobs) || {}) blobs[key] = environment.blobs[key];
 	for (let key in (environment && environment.lua) || {}) lua[key] = environment.lua[key];
+	paths.domainExclude = MANAGER_DOMAIN_EXCLUDE;
 	result.managerSafety = manager_safety_policy();
 	add_manager_list_binding(lists, '/runtime-assets/lists/telegram_ips.txt',
 		MANAGER_TELEGRAM_IPSET, 'manager-telegram-ipset');
+	add_manager_list_binding(lists, MANAGER_DOMAIN_EXCLUDE,
+		MANAGER_DOMAIN_EXCLUDE, 'z2k-domain-exclude');
 	if (!is_object(composition) || type(composition.runtimeAssets) != 'array') {
 		result.paths = paths; result.lists = lists; result.blobs = blobs; result.lua = lua;
 		return result;
@@ -466,6 +487,7 @@ function runtime_environment_with_composition(environment, composition) {
 		if (entry.kind == 'hostlist' || entry.kind == 'ipset') runtime_list_aliases(lists, entry, target, descriptor);
 		else if (entry.kind == 'lua') runtime_lua_aliases(lua, entry, target, descriptor);
 		else if (entry.kind == 'blob') runtime_blob_aliases(blobs, target, entry, descriptor);
+		runtime_captured_aliases(lists, blobs, entry);
 	}
 	for (let entry in composition.externalAssets || []) {
 		if (!is_object(entry) || !is_string(entry.runtimeTarget) || !is_string(entry.kind)) continue;
@@ -475,6 +497,7 @@ function runtime_environment_with_composition(environment, composition) {
 		if (descriptor == null) continue;
 		if (entry.kind == 'hostlist' || entry.kind == 'ipset') runtime_list_aliases(lists, entry, target, descriptor);
 		else if (entry.kind == 'blob') runtime_blob_aliases(blobs, target, entry, descriptor);
+		runtime_captured_aliases(lists, blobs, entry);
 	}
 	result.paths = paths; result.lists = lists; result.blobs = blobs; result.lua = lua;
 	result.runtimeComposition = composition;
@@ -872,8 +895,12 @@ function resolve_strategy(input, currentCatalog) {
 		if (is_object(user) && user.ok == true) {
 			if (!is_object(user.strategy) || user.strategy.revision != input.revision)
 				return error_result('ECONFLICT', 'Strategy revision is stale');
-			return { ok: true, strategy: user.strategy, id: input.strategy_id, origin: 'user',
-				sourceId: 'user', canonicalStrategyId: input.strategy_id, sourceSnapshotId: null, sourceCommit: null };
+			let packageOwned = user.strategy.origin == 'package';
+			return { ok: true, strategy: user.strategy, id: input.strategy_id,
+				origin: packageOwned ? 'package' : 'user',
+				sourceId: packageOwned ? 'package' : 'user', canonicalStrategyId: input.strategy_id,
+				sourceSnapshotId: packageOwned ? user.strategy.sourceSnapshotId : null,
+				sourceCommit: packageOwned ? user.strategy.sourceCommit : null };
 		}
 		// Namespaced catalog IDs (avatar:/z2k:) are intentionally not valid
 		// user-record IDs. The readonly user lookup reports EINPUT for those

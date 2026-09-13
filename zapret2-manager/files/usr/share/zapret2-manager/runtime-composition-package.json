@@ -1,6 +1,57 @@
 {
   "schema": 1,
+  "strategies": [
+    {
+      "id": "discord-stressozz-autocircular",
+      "revision": 11,
+      "packagePath": "/usr/share/zapret2-manager/strategies/discord-stressozz-autocircular.json",
+      "contentSha256": "d376c29f8892af86691cabb47bd7a0ce8414f0bfaff048fc5a65fe330f070ccb",
+      "byteSize": 58514,
+      "sourceSnapshotId": "mega-autocircular-2026-09-12",
+      "provenance": {
+        "kind": "strategy-package",
+        "sourceLedger": ".superpowers/sdd/2026-09-12-mega-autocircular/source-ledger.json",
+        "pinnedSources": [
+          { "repository": "t0fox/zapret2-manager", "commit": "93358f1b84b2c1b74f8542424b118977781cd975" },
+          { "repository": "StressOzz/Zapret-Manager", "commit": "dfc7ed56fe3a1458007b9232f606b78b8f6dca5d" },
+          { "repository": "Flowseal/zapret-discord-youtube", "commit": "6cec828910d0809863205702182a3557d9d0e8c3" },
+          { "repository": "bol-van/zapret", "ref": "v70.5", "commit": "a2ffa3455df32babf13decdc666f3a140a2ca058" }
+        ]
+      },
+      "dependencies": [
+        "/etc/zapret2-manager/assets/hostlist/flowseal-list-general.txt",
+        "/etc/zapret2-manager/assets/hostlist/flowseal-list-general-user.txt",
+        "/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude.txt",
+        "/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude-user.txt",
+        "/etc/zapret2-manager/assets/hostlist/flowseal-list-google.txt",
+        "/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt",
+        "/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt",
+        "/etc/zapret2-manager/assets/ipset/bolvan-discord-subnets.txt",
+        "/etc/zapret2-manager/assets/blob/flowseal-active-discord-udp.bin",
+        "/etc/zapret2-manager/assets/blob/stun2.bin",
+        "/etc/zapret2-manager/assets/blob/quic_initial_4pda_to.bin",
+        "/etc/zapret2-manager/assets/blob/tls_clienthello_sochi_park.bin",
+        "/runtime-assets/lists/extra_strats/TCP/YT/List.txt",
+        "/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt",
+        "/etc/zapret2-manager/assets/blob/quic_initial_dbankcloud_ru.bin",
+        "/etc/zapret2-manager/lists/whitelist.txt"
+      ]
+    }
+  ],
   "entries": [
+    {
+      "id": "package:z2k-quic-initial-dbankcloud-ru",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "blob",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/bin/quic_initial_dbankcloud_ru.bin",
+      "contentSha256": "f7a1c1cffc8f65bd47412b7ca5588653d21eec916bb79203c9914890a62874df",
+      "byteSize": 1357,
+      "provenance": { "kind": "reused-z2k-package", "repository": "t0fox/zapret2-manager", "sourceCommit": "93358f1b84b2c1b74f8542424b118977781cd975", "sourcePath": "runtime-assets/bin/quic_initial_dbankcloud_ru.bin", "capturedRuntimePath": "/etc/zapret2-manager/assets/blob/quic_initial_dbankcloud_ru.bin" }
+    },
     {
       "id": "package:zapret-lib",
       "owner": "package",
@@ -78,6 +129,188 @@
       "contentSha256": "65077f4e8ff692955eee314aa7e80fc9e012d4c56cb75ffa5a118023a575e56b",
       "byteSize": 4016,
       "runtimeOrder": 5
+    },
+    {
+      "id": "package:mega-flowseal-active-discord-udp",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "blob",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/blob/flowseal-active-discord-udp.bin",
+      "runtimeTarget": "/runtime-assets/bin/flowseal_active_discord_udp.bin",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/blob/flowseal-active-discord-udp.bin",
+      "contentSha256": "2fe18b3bd20807d36704d0b072092ee49ae84edca907a4420ab9a0f0f28fddcf",
+      "byteSize": 1200,
+      "provenance": { "kind": "imported-flowseal", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "bin/ACTIVE_DISCORD_UDP.bin", "capturedRuntimePath": "/etc/zapret2-manager/assets/blob/flowseal-active-discord-udp.bin" }
+    },
+    {
+      "id": "package:mega-stun2",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "blob",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/blob/stun2.bin",
+      "runtimeTarget": "/runtime-assets/bin/stun2.bin",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/blob/stun2.bin",
+      "contentSha256": "b7c2497496039c541f7337ac8536813f0a1cf52363ab2faa5213b7816d458813",
+      "byteSize": 120,
+      "provenance": { "kind": "imported-flowseal", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "bin/stun2.bin", "capturedRuntimePath": "/etc/zapret2-manager/assets/blob/stun2.bin" }
+    },
+    {
+      "id": "package:mega-quic-initial-4pda-to",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "blob",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/blob/quic_initial_4pda_to.bin",
+      "runtimeTarget": "/runtime-assets/bin/quic_initial_4pda_to.bin",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/blob/quic_initial_4pda_to.bin",
+      "contentSha256": "e065870cb0d13152e6132807bbf42218a9e7cd8d96f5602b61674cc540f3a56e",
+      "byteSize": 1250,
+      "provenance": { "kind": "imported-flowseal", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "bin/quic_initial_4pda_to.bin", "capturedRuntimePath": "/etc/zapret2-manager/assets/blob/quic_initial_4pda_to.bin" }
+    },
+    {
+      "id": "package:mega-tls-clienthello-sochi-park",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "blob",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/blob/tls_clienthello_sochi_park.bin",
+      "runtimeTarget": "/runtime-assets/bin/tls_clienthello_sochi_park.bin",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/blob/tls_clienthello_sochi_park.bin",
+      "contentSha256": "ad552922acfe029521da884ea29f4bb28bb6bdcee9b1a70b46adbfd266c11d4d",
+      "byteSize": 244,
+      "provenance": { "kind": "imported-flowseal", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "bin/tls_clienthello_sochi_park.bin", "capturedRuntimePath": "/etc/zapret2-manager/assets/blob/tls_clienthello_sochi_park.bin" }
+    },
+    {
+      "id": "package:mega-flowseal-list-general",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "hostlist",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/hostlist/flowseal-list-general.txt",
+      "runtimeTarget": "/runtime-assets/lists/flowseal-list-general.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-general.txt",
+      "contentSha256": "5905f9f91e53142f2a5b964ce31bd01c458f2ab6f7fda0ad71b45e2919407a93",
+      "byteSize": 1008,
+      "provenance": { "kind": "imported-flowseal-runtime", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-general.txt", "capturedRuntimePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-general.txt" }
+    },
+    {
+      "id": "package:mega-flowseal-list-general-user",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "hostlist",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/hostlist/flowseal-list-general-user.txt",
+      "runtimeTarget": "/runtime-assets/lists/flowseal-list-general-user.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-general-user.txt",
+      "contentSha256": "1108595eb12c940de54bfe070d26b4b564c47a6643a6b832a1ff101a0fbdf615",
+      "byteSize": 49,
+      "provenance": { "kind": "imported-router-runtime", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-general.txt (runtime user projection)", "capturedRuntimePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-general-user.txt" }
+    },
+    {
+      "id": "package:mega-flowseal-list-exclude",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "hostlist",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/hostlist/flowseal-list-exclude.txt",
+      "runtimeTarget": "/runtime-assets/lists/flowseal-list-exclude.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-exclude.txt",
+      "contentSha256": "30a67f4af8eb7abe709db84235e1d97924d851bf4380b676a109dbe408d446e9",
+      "byteSize": 1588,
+      "provenance": { "kind": "imported-flowseal-runtime", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-exclude.txt", "capturedRuntimePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude.txt" }
+    },
+    {
+      "id": "package:mega-flowseal-list-exclude-user",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "hostlist",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/hostlist/flowseal-list-exclude-user.txt",
+      "runtimeTarget": "/runtime-assets/lists/flowseal-list-exclude-user.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-exclude-user.txt",
+      "contentSha256": "a55959f2708d2a68c84aceb2b0de737850aef9afb0c5dff55cc8ddc8318d171b",
+      "byteSize": 19,
+      "provenance": { "kind": "imported-router-runtime", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-exclude.txt (runtime user projection)", "capturedRuntimePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-exclude-user.txt" }
+    },
+    {
+      "id": "package:mega-flowseal-list-google",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "hostlist",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/hostlist/flowseal-list-google.txt",
+      "runtimeTarget": "/runtime-assets/lists/flowseal-list-google.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/hostlist/flowseal-list-google.txt",
+      "contentSha256": "2ba93d814dca7b55e69ab88b33ba36b6e9930596af2add4fa2fdb98ba0cac7f4",
+      "byteSize": 394,
+      "provenance": { "kind": "imported-flowseal-runtime", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/list-google.txt", "capturedRuntimePath": "/etc/zapret2-manager/assets/hostlist/flowseal-list-google.txt" }
+    },
+    {
+      "id": "package:mega-flowseal-ipset-all",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "ipset",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/ipset/flowseal-ipset-all.txt",
+      "runtimeTarget": "/runtime-assets/ipset/flowseal-ipset-all.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/ipset/flowseal-ipset-all.txt",
+      "contentSha256": "050887f9de1329575e7c6dcb22d634d44e36d7e9e4ebb2ed25242ac45c884d8d",
+      "byteSize": 17,
+      "provenance": { "kind": "imported-flowseal-runtime", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/ipset-all.txt (runtime projection)", "capturedRuntimePath": "/etc/zapret2-manager/assets/ipset/flowseal-ipset-all.txt" }
+    },
+    {
+      "id": "package:mega-flowseal-ipset-exclude",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "ipset",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/ipset/flowseal-ipset-exclude.txt",
+      "runtimeTarget": "/runtime-assets/ipset/flowseal-ipset-exclude.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/ipset/flowseal-ipset-exclude.txt",
+      "contentSha256": "59bfca828dffa08a1d8694c03ea5378b64fa7137ca948e309a5b24c1b64c29e2",
+      "byteSize": 126,
+      "provenance": { "kind": "imported-flowseal-runtime", "repository": "Flowseal/zapret-discord-youtube", "sourceCommit": "6cec828910d0809863205702182a3557d9d0e8c3", "sourcePath": "lists/ipset-exclude.txt (runtime projection)", "capturedRuntimePath": "/etc/zapret2-manager/assets/ipset/flowseal-ipset-exclude.txt" }
+    },
+    {
+      "id": "package:mega-bolvan-discord-subnets",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "ipset",
+      "type": "package-static",
+      "sourcePath": "runtime-assets/mega/ipset/bolvan-discord-subnets.txt",
+      "runtimeTarget": "/runtime-assets/ipset/bolvan-discord-subnets.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/mega/ipset/bolvan-discord-subnets.txt",
+      "contentSha256": "fa0ca1ecb60eae74c343b2975280f6a6cb6cb44d965acb33ac5b9502f1c9e3dc",
+      "byteSize": 10900,
+      "provenance": { "kind": "imported-router-runtime", "repository": "bol-van/zapret", "sourceCommit": "a2ffa3455df32babf13decdc666f3a140a2ca058", "sourcePath": "50-discord destination subnet projection", "capturedRuntimePath": "/etc/zapret2-manager/assets/ipset/bolvan-discord-subnets.txt" }
+    },
+    {
+      "id": "package:z2k-extra-strats-youtube",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "hostlist",
+      "type": "package-static",
+      "sourcePath": "files/lists/extra_strats/TCP/YT/List.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra_strats/TCP/YT/List.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/YT/List.txt",
+      "contentSha256": "e9d2e1e18d2d7a73485b506306721171e0c264feed3546b6d964cc213eef191c",
+      "byteSize": 2728,
+      "provenance": { "kind": "reused-z2k-package", "repository": "necronicle/z2k", "sourceCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2", "sourcePath": "files/lists/extra_strats/TCP/YT/List.txt" }
+    },
+    {
+      "id": "package:z2k-extra-strats-youtube-gv",
+      "owner": "package",
+      "role": "dependency",
+      "kind": "hostlist",
+      "type": "package-static",
+      "sourcePath": "files/lists/extra_strats/TCP/YT_GV/List.txt",
+      "runtimeTarget": "/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt",
+      "packagePath": "/usr/share/zapret2-manager/runtime-assets/lists/extra_strats/TCP/YT_GV/List.txt",
+      "contentSha256": "1ef28791f0404ee91a98fbe531c765b3909f36fd66991602fedbb99e46c04df1",
+      "byteSize": 33,
+      "provenance": { "kind": "reused-z2k-package", "repository": "necronicle/z2k", "sourceCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2", "sourcePath": "files/lists/extra_strats/TCP/YT_GV/List.txt" }
     }
   ]
 }

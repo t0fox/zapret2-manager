@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager-full
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=163
+PKG_RELEASE:=164
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKG_FLAGS:=nonshared
@@ -136,9 +136,16 @@ if [ "$$index_ok" -ne 1 ]; then
   : > /etc/zapret2-manager/catalog/repair-required
   logger -t zapret2-manager -p daemon.err "catalog read index unavailable after install; run strategies_catalog_reload to repair"
 fi
+# Materialize the package-owned Strategy sidecars even when this is a
+# manager-only install; their canonical /etc paths are part of the Strategy
+# contract and must not depend on an old router copy.
+package_asset_sync_out="$$(/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh --package-assets 2>&1)" || {
+  logger -t zapret2-manager -p daemon.err "package Strategy asset sync failed during install: $$package_asset_sync_out"
+  exit 1
+}
 # If an official Engine is already present, materialize the package-owned
-# runtime bridge before any service restart. The manager-only install must
-# remain non-invasive: do not create an /opt/zapret2 tree without the Engine.
+# runtime bridge before any service restart. The manager-only install remains
+# non-invasive with respect to /opt/zapret2.
 if [ -x /opt/zapret2/nfq2/nfqws2 ]; then
   runtime_sync_out="$$(/usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh 2>&1)" || {
     logger -t zapret2-manager -p daemon.err "runtime asset sync failed during install: $$runtime_sync_out"

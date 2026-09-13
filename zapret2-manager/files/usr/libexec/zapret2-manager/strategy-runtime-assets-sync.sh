@@ -24,11 +24,35 @@ BASE=${Z2M_RUNTIME_BASE:-/opt/zapret2}
 STATE_ROOT=${Z2M_MANAGER_STATE_ROOT:-/etc/zapret2-manager/state}
 STATE_DIR="$STATE_ROOT/autocircular"
 ETC_ROOT=${Z2M_MANAGER_ETC_ROOT:-/etc/zapret2-manager}
-ASSET_ROOT=${Z2M_MANAGER_ASSET_ROOT:-/etc/zapret2-manager/assets}
+ASSET_ROOT=${Z2M_MANAGER_ASSET_ROOT:-$ETC_ROOT/assets}
 ACTIVATION_SNAPSHOT=${Z2M_RUNTIME_ACTIVATION_SNAPSHOT:-/etc/zapret2-manager/runtime-assets.snapshot}
 ACTIVATION_PREVIOUS_SNAPSHOT="${ACTIVATION_SNAPSHOT}.previous"
 ACTIVATION_PREVIOUS_STATE="${ACTIVATION_SNAPSHOT}.previous-state"
 BLOCKED_LIFECYCLE_ASSETS=0
+
+# Package-owned Strategy sidecars are also useful on a manager-only install:
+# their canonical /etc paths must not depend on an Engine having been
+# installed already.  This mode uses the same materializer, but deliberately
+# does not create /opt/zapret2 or touch Engine-owned state.
+package_assets_only() {
+	[ -d "$SRC/mega" ] || { printf '{"ok":false,"missing":["SRC:%s/mega"],"mismatched":[],"count":0}\n' "$SRC"; return 1; }
+	for _kind in blob hostlist ipset; do
+		mkdir -p "$ASSET_ROOT/$_kind"
+		for _src in "$SRC/mega/$_kind"/*; do
+			[ -f "$_src" ] || continue
+			cp "$_src" "$ASSET_ROOT/$_kind/${_src##*/}"
+			chmod 0644 "$ASSET_ROOT/$_kind/${_src##*/}"
+		done
+	done
+	# This file is a package-reused Z2K blob referenced through an explicit
+	# legacy /etc path in the imported Strategy; keep one package source byte.
+	if [ -f "$SRC/bin/quic_initial_dbankcloud_ru.bin" ]; then
+		mkdir -p "$ASSET_ROOT/blob"
+		cp "$SRC/bin/quic_initial_dbankcloud_ru.bin" "$ASSET_ROOT/blob/quic_initial_dbankcloud_ru.bin"
+		chmod 0644 "$ASSET_ROOT/blob/quic_initial_dbankcloud_ru.bin"
+	fi
+	printf '{"ok":true,"scope":"package-strategy-assets"}\n'
+}
 
 runtime_asset_mode() {
 	case "$1" in
@@ -315,6 +339,10 @@ activate_resolved() {
 }
 
 case "${1:-}" in
+	--package-assets)
+		package_assets_only
+		exit $?
+		;;
 	--activate-registry)
 		activation "${2:-}"
 		exit $?
@@ -455,7 +483,31 @@ copy_if_missing_or_custom() {
 	else chmod 0644 "$_dst"; fi
 }
 
+materialize_package_assets() {
+	for _kind in blob hostlist ipset; do
+		[ -d "$SRC/mega/$_kind" ] || continue
+		mkdir -p "$ASSET_ROOT/$_kind"
+		for _src in "$SRC/mega/$_kind"/*; do
+			[ -f "$_src" ] || continue
+			copy_if_missing_or_custom "$_src" "$ASSET_ROOT/$_kind/${_src##*/}"
+			if [ "$_kind" = blob ]; then
+				copy_if_missing_or_custom "$_src" "$BASE/files/fake/${_src##*/}"
+			fi
+		done
+	done
+	# The imported Flowseal spelling is hyphenated in /etc but the Strategy
+	# refers to the same blob by its nfqws2 underscore stem.
+	if [ -f "$SRC/mega/blob/flowseal-active-discord-udp.bin" ]; then
+		copy_if_missing_or_custom "$SRC/mega/blob/flowseal-active-discord-udp.bin" "$BASE/files/fake/flowseal_active_discord_udp.bin"
+	fi
+	if [ -f "$SRC/bin/quic_initial_dbankcloud_ru.bin" ]; then
+		mkdir -p "$ASSET_ROOT/blob"
+		copy_if_missing_or_custom "$SRC/bin/quic_initial_dbankcloud_ru.bin" "$ASSET_ROOT/blob/quic_initial_dbankcloud_ru.bin"
+	fi
+}
+
 materialize() {
+	materialize_package_assets
 	for _src in "$SRC"/bin/*; do
 		[ -f "$_src" ] || continue
 		copy_if_missing_or_custom "$_src" "$BASE/files/fake/${_src##*/}"
@@ -468,13 +520,17 @@ materialize() {
 		fi
 		copy_if_missing_or_custom "$_src" "$BASE/lua/${_src##*/}"
 	done
-	for _src in "$SRC"/lists/*; do
-		[ -f "$_src" ] || continue
-		# The catalog carries the option kind; keeping the bundled file in both
-		# trusted roots makes a missing kind mapping impossible at Apply time.
-		copy_if_missing_or_custom "$_src" "$BASE/lists/${_src##*/}"
-		copy_if_missing_or_custom "$_src" "$BASE/ipset/${_src##*/}"
-	done
+	if [ -d "$SRC/lists" ]; then
+		find "$SRC/lists" -type f -print | while IFS= read -r _src; do
+			_rel=${_src#"$SRC/lists/"}
+			mkdir -p "$BASE/lists/$(dirname "$_rel")"
+			copy_if_missing_or_custom "$_src" "$BASE/lists/$_rel"
+			case "$_rel" in
+				*/*) ;;
+				*) copy_if_missing_or_custom "$_src" "$BASE/ipset/${_src##*/}" ;;
+			esac
+		done
+	fi
 }
 
 verify() {
@@ -512,6 +568,18 @@ verify() {
 		fi
 		add_verdict "$_src" "$BASE/lua/${_src##*/}"
 	done
+	# Mega package sidecars have their own canonical manager-owned paths.  Keep
+	# them in the same bounded verification report as the ordinary package
+	# baseline, including the mandatory exclude files.
+	for _kind in blob hostlist ipset; do
+		for _src in "$SRC/mega/$_kind"/*; do
+			[ -f "$_src" ] || continue
+			add_verdict "$_src" "$ASSET_ROOT/$_kind/${_src##*/}"
+		done
+	done
+	if [ -f "$SRC/bin/quic_initial_dbankcloud_ru.bin" ]; then
+		add_verdict "$SRC/bin/quic_initial_dbankcloud_ru.bin" "$ASSET_ROOT/blob/quic_initial_dbankcloud_ru.bin"
+	fi
 	# Lists are user-owned after install (restored from backup and never
 	# overwritten): their content is a user-data concern, not a manager
 	# baseline integrity concern.
@@ -521,6 +589,11 @@ verify() {
 			copy_if_missing_or_custom "$_src" "$BASE/lists/${_src##*/}"
 			copy_if_missing_or_custom "$_src" "$BASE/ipset/${_src##*/}"
 		fi
+	done
+	for _src in "$SRC/lists/extra_strats/TCP/YT/List.txt" "$SRC/lists/extra_strats/TCP/YT_GV/List.txt"; do
+		[ -f "$_src" ] || continue
+		_rel=${_src#"$SRC/lists/"}
+		add_verdict "$_src" "$BASE/lists/$_rel"
 	done
 	ok=1
 	[ -z "$missing" ] || ok=0
@@ -548,7 +621,7 @@ case "${1:-}" in
 	exit 0
 	;;
 *)
-	printf 'usage: %s [--verify|--activate-resolved consumer input]\n' "$0" >&2
+	printf 'usage: %s [--package-assets|--verify|--activate-resolved consumer input]\n' "$0" >&2
 	exit 2
 	;;
 esac
