@@ -49,7 +49,9 @@ if (cmd == 'status') {
 } else if (cmd == 'tiktok-status') {
 	print(sprintf("%J", service_dns_tiktok_status()) + '\n');
 } else if (cmd == 'tiktok-check') {
-	print(sprintf("%J", service_dns_tiktok_check()) + '\n');
+	let file = ARGV[1], raw = file ? readfile(file) : null, obj = null;
+	if (raw) { try { obj = json(raw); } catch (e) {} }
+	print(sprintf("%J", obj ? service_dns_tiktok_check({ args: obj }) : service_dns_tiktok_check()) + '\n');
 } else if (cmd == 'tiktok-set-async') {
 	let file = ARGV[1], raw = file ? readfile(file) : null, obj = null;
 	if (raw) { try { obj = json(raw); } catch (e) {} }

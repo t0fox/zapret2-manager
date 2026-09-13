@@ -4,7 +4,7 @@
 
 import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { dns_provider_catalog_get } from './dns-provider-catalog.uc';
-import { tiktok_domain_catalog, tiktok_parse_nslookup, tiktok_resolved_candidates, tiktok_state_migrate } from './service-dns-tiktok-model.uc';
+import { tiktok_domain_catalog, tiktok_parse_nslookup, tiktok_resolved_candidates, tiktok_candidate_pool, tiktok_curated_candidates, tiktok_hysteresis_decision, tiktok_lease_valid, tiktok_should_fast_path, tiktok_state_migrate } from './service-dns-tiktok-model.uc';
 let uci = require('uci');
 
 const DATASET_PATH = '/usr/libexec/zapret2-manager/catalog/service-dns-profiles.json';
@@ -20,6 +20,12 @@ const TIKTOK_FAILOVER_THRESHOLD = 2;
 const TIKTOK_RECOVERY_THRESHOLD = 3;
 const TIKTOK_MAX_PROBES = 12;
 const TIKTOK_SUCCESS_TARGET = 4;
+const TIKTOK_RESOLVER_LIMIT = 16;
+const TIKTOK_DNS_QUERY_TIMEOUT_SEC = 3;
+const TIKTOK_STABILITY_PROBES = 2;
+const TIKTOK_SELECTED_LEASE_SECONDS = 3600;
+const TIKTOK_HYSTERESIS_RELATIVE = 0.75;
+const TIKTOK_HYSTERESIS_ABSOLUTE_MS = 40;
 
 function create_job_dir(dir) { try { mkdir(JOBS_DIR); } catch (e) {} try { mkdir(dir); } catch (e) {} return stat(dir) != null; }
 function run(cmd) { if (substr(cmd, 0, 12) == 'mkdir-child ') return { out: '', rc: create_job_dir(substr(cmd, 12)) ? 0 : 1 }; let p = popen(cmd + ' 2>&1', 'r'); if (!p) return { out: '', rc: -1 }; let out = p.read('all') || ''; return { out: out, rc: p.close() }; }
@@ -143,41 +149,77 @@ function tiktok_system_resolvers() {
 	}
 	return out;
 }
-function tiktok_domain_resolutions() {
-	let out = [], catalog = tiktok_domain_catalog(), resolvers = tiktok_system_resolvers();
-	for (let i = 0; i < length(catalog); i++) {
-		let source = catalog[i], domain = lc(trim(source.domain || ''));
-		if (!valid_domain(domain) || source.enabled === false) continue;
-		if (!length(resolvers)) {
-			push(out, { domain: domain, mode: source.mode || 'generic', provenance: source.provenance || 'canonical-domain-source', resolver: null, resolverOwner: 'system-wan', status: 'unavailable', addresses: [], ttl: null, error: 'system resolver unavailable' });
-			continue;
-		}
-		for (let j = 0; j < length(resolvers); j++) {
-			let resolver = resolvers[j], query = bounded_run('/usr/bin/nslookup ' + shell_quote(domain) + ' ' + shell_quote(resolver), 5), parsed = tiktok_parse_nslookup(query.out || '', resolver);
-			push(out, { domain: domain, mode: source.mode || 'generic', provenance: source.provenance || 'canonical-domain-source', resolver: resolver, resolverOwner: 'system-wan', status: parsed.status, addresses: parsed.addresses, ttl: null, queryRc: query.rc, durationMs: null, error: parsed.status == 'resolved' ? null : (query.rc ? 'nslookup failed' : 'no valid DNS answer') });
+function tiktok_timestamp_ms() {
+	let result = run('date +%s%3N'), value = trim(result.out || ''), found = match(value, /^(\d+)$/);
+	return found ? int(found[1]) : time() * 1000;
+}
+function tiktok_resolver_sources(d) {
+	let out = [], seen = {};
+	function add(resolver, source, providerId, owner) {
+		if (!valid_ip(resolver) || seen[resolver]) return;
+		seen[resolver] = true;
+		push(out, { resolver: resolver, source: source, providerId: providerId || null, resolverOwner: owner || 'system-wan' });
+	}
+	let system = tiktok_system_resolvers();
+	for (let i = 0; i < length(system); i++) add(system[i], 'system-wan', null, 'system-wan');
+	let providers = d && type(d.providers) == 'array' ? d.providers : null;
+	if (!providers) {
+		let catalog = dns_provider_catalog_get();
+		providers = catalog && catalog.ok === true && type(catalog.providers) == 'array' ? catalog.providers : [];
+	}
+	if (type(providers) == 'array') {
+		for (let i = 0; i < length(providers) && length(out) < TIKTOK_RESOLVER_LIMIT; i++) {
+			let provider = providers[i] || {}, addresses = provider.ipv4 || [];
+			for (let j = 0; j < length(addresses) && length(out) < TIKTOK_RESOLVER_LIMIT; j++)
+				add(addresses[j], 'provider-catalog:' + (provider.id || 'unknown'), provider.id || null, 'dns-provider-catalog');
 		}
 	}
 	return out;
 }
-function tiktok_resolution_snapshot() {
-	let resolutions = tiktok_domain_resolutions(), candidates = tiktok_resolved_candidates(resolutions), resolvers = tiktok_system_resolvers(), resolved = 0, unavailable = 0;
+function tiktok_domain_resolutions(d, resolverSources) {
+	let out = [], catalog = tiktok_domain_catalog(), resolvers = resolverSources || tiktok_resolver_sources(d);
+	for (let i = 0; i < length(catalog); i++) {
+		let source = catalog[i], domain = lc(trim(source.domain || ''));
+		if (!valid_domain(domain) || source.enabled === false) continue;
+		if (!length(resolvers)) {
+			push(out, { domain: domain, mode: source.mode || 'generic', provenance: source.provenance || 'canonical-domain-source', source: 'system-wan', resolver: null, resolverOwner: 'system-wan', status: 'unavailable', addresses: [], cname: null, ttl: null, durationMs: null, error: 'no DNS resolver available' });
+			continue;
+		}
+		for (let j = 0; j < length(resolvers); j++) {
+			let resolver = resolvers[j].resolver || resolvers[j], resolverSource = resolvers[j].source || 'system-wan', resolverOwner = resolvers[j].resolverOwner || 'system-wan', started = tiktok_timestamp_ms(), query = bounded_run('/usr/bin/nslookup ' + shell_quote(domain) + ' ' + shell_quote(resolver), TIKTOK_DNS_QUERY_TIMEOUT_SEC), parsed = tiktok_parse_nslookup(query.out || '', resolver), durationMs = tiktok_timestamp_ms() - started;
+			push(out, { domain: domain, mode: source.mode || 'generic', provenance: source.provenance || 'canonical-domain-source', source: resolverSource, resolver: resolver, resolverOwner: resolverOwner, providerId: resolvers[j].providerId || null, status: parsed.status, addresses: parsed.addresses, cname: parsed.cname || null, ttl: null, queryRc: query.rc, durationMs: durationMs >= 0 ? durationMs : null, error: parsed.status == 'resolved' ? null : (query.rc ? 'nslookup failed' : 'no valid DNS answer') });
+		}
+	}
+	return out;
+}
+function tiktok_resolution_snapshot(d) {
+	let resolverSources = tiktok_resolver_sources(d), resolutions = tiktok_domain_resolutions(d, resolverSources), candidates = tiktok_candidate_pool(resolutions, tiktok_curated_candidates()), resolvers = [], resolved = 0, unavailable = 0;
+	for (let i = 0; i < length(resolverSources); i++) push(resolvers, resolverSources[i].resolver);
 	for (let i = 0; i < length(resolutions); i++) { if (resolutions[i].status == 'resolved') resolved++; if (resolutions[i].status == 'unavailable') unavailable++; }
-	return { domainCandidates: tiktok_domain_catalog(), resolutions: resolutions, candidates: candidates, resolvers: resolvers, resolverOwner: 'system-wan', status: resolved ? 'resolved' : (unavailable ? 'unavailable' : 'empty') };
+	return { domainCandidates: tiktok_domain_catalog(), resolutions: resolutions, candidates: candidates, resolvers: resolvers, resolverSources: resolverSources, resolverOwner: 'system-wan+provider-catalog', status: resolved ? 'resolved' : (unavailable ? 'unavailable' : 'empty') };
 }
 function tiktok_candidate_ips(candidates) { let out = []; for (let i = 0; i < length(candidates || []); i++) if (candidates[i] && valid_ip(candidates[i].ip)) push(out, candidates[i].ip); return out; }
+function tiktok_header(raw, name) {
+	let wanted = lc(name) + ':', lines = split(raw || '', '\n');
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i] || '');
+		if (substr(lc(line), 0, length(wanted)) == wanted) return trim(substr(line, length(name) + 1));
+	}
+	return null;
+}
 function tiktok_probe(candidate) {
 	let item = type(candidate) == 'object' ? candidate : { ip: candidate }, ip = trim(item.ip || '');
 	if (!valid_ip(ip)) return { ip: ip, ok: false, reason: 'invalid-ip' };
-	let resolveTarget = TIKTOK_AUTO_HOST + ':443:' + ip, url = 'https://' + TIKTOK_AUTO_HOST + '/', command = '/usr/bin/curl --ipv4 --silent --show-error --output /dev/null --stderr /dev/null --connect-timeout 4 --max-time 7 --write-out ' + shell_quote('%{http_code}|%{time_connect}|%{time_appconnect}|%{time_total}') + ' --resolve ' + shell_quote(resolveTarget) + ' ' + shell_quote(url);
-	let result = run(command), fields = split(trim(result.out || ''), '|'), tlsMs = length(fields) > 2 ? (+fields[2] * 1000) : 0, totalMs = length(fields) > 3 ? (+fields[3] * 1000) : 0;
-	return { ip: ip, ok: result.rc == 0 && tlsMs > 0, tcp443: result.rc == 0, tlsSni: tlsMs > 0, httpStatus: fields[0] || null, latencyMs: totalMs > 0 ? int(totalMs) : null, tlsLatencyMs: tlsMs > 0 ? int(tlsMs) : null, sourceDomains: copy(item.sourceDomains || []), modes: copy(item.modes || []), sourceDomain: item.sourceDomain || (length(item.sourceDomains || []) ? item.sourceDomains[0] : null), mode: item.mode || (length(item.modes || []) ? item.modes[0] : null), reason: result.rc == 0 && tlsMs > 0 ? 'verified' : 'tcp-or-tls-failed' };
+	let resolveTarget = TIKTOK_AUTO_HOST + ':443:' + ip, url = 'https://' + TIKTOK_AUTO_HOST + '/', marker = 'Z2M_TIKTOK_METRICS:', command = '/usr/bin/curl --ipv4 --silent --show-error --dump-header - --output /dev/null --stderr /dev/null --connect-timeout 4 --max-time 7 --write-out ' + shell_quote('\n' + marker + '%{http_code}|%{time_connect}|%{time_appconnect}|%{time_total}') + ' --resolve ' + shell_quote(resolveTarget) + ' ' + shell_quote(url);
+	let result = run(command), raw = result.out || '', metric = match(raw, /Z2M_TIKTOK_METRICS:([^\n]*)/), fields = metric ? split(trim(metric[1]), '|') : [], connectMs = length(fields) > 1 ? (+fields[1] * 1000) : 0, tlsMs = length(fields) > 2 ? (+fields[2] * 1000) : 0, totalMs = length(fields) > 3 ? (+fields[3] * 1000) : 0, ok = result.rc == 0 && tlsMs > 0, pop = tiktok_header(raw, 'X-77-POP'), cache = tiktok_header(raw, 'X-77-Cache'), server = tiktok_header(raw, 'Server');
+	return { ip: ip, ok: ok, verified: ok, health: ok ? 'healthy' : 'dead', tcp443: result.rc == 0, tlsSni: tlsMs > 0, httpStatus: fields[0] || null, connectLatencyMs: connectMs > 0 ? int(connectMs) : null, latencyMs: totalMs > 0 ? int(totalMs) : null, totalLatencyMs: totalMs > 0 ? int(totalMs) : null, tlsLatencyMs: tlsMs > 0 ? int(tlsMs) : null, headers: { 'X-77-POP': pop, 'X-77-Cache': cache, Server: server }, x77Pop: pop, x77Cache: cache, server: server, sourceDomains: copy(item.sourceDomains || []), modes: copy(item.modes || []), sources: copy(item.sources || []), resolvers: copy(item.resolvers || []), sourceDomain: item.sourceDomain || (length(item.sourceDomains || []) ? item.sourceDomains[0] : null), mode: item.mode || (length(item.modes || []) ? item.modes[0] : null), dnsObserved: item.dnsObserved === true, curatedObserved: item.curatedObserved === true, geoHint: item.geoHint || null, reason: ok ? 'verified' : 'tcp-or-tls-failed' };
 }
 function tiktok_probe_best(state, d, snapshot, skipCurrent) {
 	let fresh = snapshot || tiktok_resolution_snapshot(), candidates = fresh.candidates || [], observations = [], best = null, auto = tiktok_state_migrate(state.tiktokAuto || {}), current = auto.selectedCandidate || (valid_ip(auto.selectedIp) ? { ip: auto.selectedIp, mode: 'legacy', provenance: 'legacy-state' } : null);
 	if (!skipCurrent && current) {
 		let currentObservation = tiktok_probe(current);
 		push(observations, currentObservation);
-		if (currentObservation.ok) return { ok: true, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: observations, selected: currentObservation };
+		if (currentObservation.ok) return { ok: true, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverSources: fresh.resolverSources || [], resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: observations, selected: currentObservation };
 	}
 	for (let i = 0; i < length(candidates) && i < TIKTOK_MAX_PROBES; i++) {
 		if (current && candidates[i].ip == current.ip) continue;
@@ -188,12 +230,14 @@ function tiktok_probe_best(state, d, snapshot, skipCurrent) {
 		for (let j = 0; j < length(observations); j++) if (observations[j].ok) successful++;
 		if (successful >= TIKTOK_SUCCESS_TARGET) break;
 	}
-	if (!best) return { ok: false, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: observations, selected: null };
+	if (!best) return { ok: false, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverSources: fresh.resolverSources || [], resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: observations, selected: null };
 	let repeat = tiktok_probe(best), repeated = [];
 	for (let k = 0; k < length(observations); k++) push(repeated, observations[k]);
 	push(repeated, repeat);
-	if (!repeat.ok) return { ok: false, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: repeated, selected: null, rejected: best.ip };
-	return { ok: true, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: repeated, selected: repeat };
+	if (!repeat.ok) return { ok: false, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverSources: fresh.resolverSources || [], resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: repeated, selected: null, rejected: best.ip };
+	repeat.stable = true;
+	repeat.stabilityProbes = TIKTOK_STABILITY_PROBES;
+	return { ok: true, candidates: tiktok_candidate_ips(candidates), resolvedCandidates: candidates, resolutions: fresh.resolutions, resolvers: fresh.resolvers, resolverSources: fresh.resolverSources || [], resolverOwner: fresh.resolverOwner, resolutionStatus: fresh.status, observations: repeated, selected: repeat };
 }
 function tiktok_override(state) { let auto = state.tiktokAuto || {}, selected = auto.selectedCandidate && auto.selectedCandidate.ip ? auto.selectedCandidate.ip : auto.selectedIp; return auto.enabled && valid_ip(selected) ? [address_entry(TIKTOK_AUTO_HOST, selected)] : []; }
 function lock(op) { if (stat(LOCK_FILE)) { try { let l = json(readfile(LOCK_FILE)); if (l && l.operationId != op) return l; } catch (e) {} } writefile(LOCK_FILE, sprintf('%J', { operationId: op, phase: 'queued', updatedAt: now() }) + '\n'); return null; }
@@ -262,14 +306,16 @@ function enqueue_native_apply(input, internal) {
 export const service_dns_providers = function(req) { let d = dataset(); return d.ok ? { ok: true, providers: d.data.providers, profiles: d.data.profiles, providerRevision: d.data.providerRevision || 0, generatedAt: d.data.generatedAt || now() } : err('ETARGET', 'dataset unavailable', { detail: d.error || null }); };
 export const service_dns_status = function(req) { let state = state_load(), d = dataset(), active = active_dnsmasq(), snap = active ? uci_snapshot(active) : null, rollbackAvailable = false; if (!d.ok) return err('ETARGET', 'dataset unavailable', { detail: d.error || null }); let normalized = normalize_state(state, d.data); if (!normalized.ok) return normalized; state = normalized.state; if (state.lastOperation && state.lastOperation.operationId) { let f = JOBS_DIR + '/' + state.lastOperation.operationId + '/job.json'; if (stat(f)) { try { let j = json(readfile(f)); rollbackAvailable = j.finished === true && j.phase == 'success' && type(j.previousState) == 'string' && type(j.nativeUciPrecondition) == 'object'; } catch (e) {} } } let runtimeForwardingVerified = false; return { ok: true, selections: state.selections || {}, applied: state.applied ? state.applied.selections || {} : {}, appliedRevision: state.applied ? state.applied.revision || 0 : 0, draftRevision: state.draftRevision || 0, rollbackAvailable: rollbackAvailable, pending: state.pending || null, runtime: { backend: 'dnsmasq-uci', dnsmasqRunning: active != null, effectiveConfig: active ? active.configPath : null, runtimeForwardingVerified: runtimeForwardingVerified }, managedServerEntries: state.applied ? state.applied.managedServerEntries || [] : [], externalServerEntries: snap ? snap.server : [], managedAddressEntries: state.applied ? state.applied.managedAddressEntries || [] : [], externalAddressEntries: snap ? snap.address : [], tiktokAuto: state.tiktokAuto || { enabled: false, state: 'off' }, events: state.events || [] }; };
 export const service_dns_set = function(req) { let input = req && req.args ? req.args : req || {}, state = state_load(), d = dataset(); if (type(input.selections) != 'object') return err('EINPUT', 'selections must be an object'); if (!d.ok) return err('ETARGET', 'dataset unavailable', { detail: d.error || null }); let mapped = canonical_selections(input.selections, d.data); if (length(mapped.invalid)) return err('EINPUT', 'service DNS selection references an unavailable provider or service profile', { invalid: mapped.invalid }); state.selections = mapped.selections; state.draftRevision = (state.draftRevision || 0) + 1; if (!state_save(state)) return err('ESTATE', 'draft state write failed'); return { ok: true, draftRevision: state.draftRevision, selections: state.selections }; };
-function tiktok_store_resolution(auto, result) {
+function tiktok_store_resolution(auto, result, discoveredAt) {
 	auto.domainCandidates = result.domainCandidates || tiktok_domain_catalog();
 	auto.resolvedCandidates = result.resolvedCandidates || result.candidates || [];
 	auto.candidates = tiktok_candidate_ips(auto.resolvedCandidates);
 	auto.resolutions = result.resolutions || [];
 	auto.resolver = result.resolvers || null;
+	auto.resolverSources = result.resolverSources || [];
 	auto.resolverOwner = result.resolverOwner || 'system-wan';
 	auto.resolutionStatus = result.resolutionStatus || result.status || 'empty';
+	if (discoveredAt != null) auto.lastDiscoveryAt = discoveredAt;
 }
 function tiktok_current_candidate(auto) {
 	if (type(auto.selectedCandidate) == 'object' && valid_ip(auto.selectedCandidate.ip)) return auto.selectedCandidate;
@@ -277,18 +323,20 @@ function tiktok_current_candidate(auto) {
 	return null;
 }
 function tiktok_probe_record(at, source, result) {
-	return { at: at, source: source, resolutionStatus: result.resolutionStatus || result.status || null, resolverOwner: result.resolverOwner || 'system-wan', observations: result.observations || [], candidateCount: length(result.candidates || []) };
+	return { at: at, source: source, resolutionStatus: result.resolutionStatus || result.status || null, resolverOwner: result.resolverOwner || 'system-wan', observations: result.observations || [], candidateCount: length(result.candidates || []), stable: result.selected ? result.selected.stable === true : false };
 }
-function tiktok_set_selected(auto, selected) {
+function tiktok_set_selected(auto, selected, at) {
 	if (!selected || !valid_ip(selected.ip)) return;
 	auto.selectedCandidate = selected;
 	auto.selectedIp = selected.ip;
 	auto.latencyMs = selected.latencyMs || null;
 	auto.managed = true;
+	auto.selectedAt = at || time();
+	auto.lastVerifiedAt = at || time();
 }
 export const service_dns_tiktok_status = function(req) {
-	let state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off' }), selected = tiktok_current_candidate(auto);
-	return { ok: true, host: TIKTOK_AUTO_HOST, owner: TIKTOK_AUTO_OWNER, enabled: auto.enabled === true, state: auto.state || (auto.enabled ? 'degraded' : 'off'), selectedIp: selected ? selected.ip : null, selectedCandidate: selected || null, latencyMs: auto.latencyMs || null, candidates: auto.candidates || [], domainCandidates: auto.domainCandidates || tiktok_domain_catalog(), resolvedCandidates: auto.resolvedCandidates || [], resolutions: auto.resolutions || [], resolver: auto.resolver || null, resolverOwner: auto.resolverOwner || 'system-wan', resolutionStatus: auto.resolutionStatus || 'unknown', lastProbe: auto.lastProbe || null, lastFailover: auto.lastFailover || null, failureCount: auto.failureCount || 0, recoveryCount: auto.recoveryCount || 0, override: selected && auto.enabled ? { host: TIKTOK_AUTO_HOST, ip: selected.ip, owner: TIKTOK_AUTO_OWNER, managed: auto.managed !== false } : null };
+	let state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off' }), selected = tiktok_current_candidate(auto), currentState = auto.state || (auto.enabled ? 'degraded' : 'off');
+	return { ok: true, host: TIKTOK_AUTO_HOST, owner: TIKTOK_AUTO_OWNER, enabled: auto.enabled === true, state: currentState, health: currentState, selectedIp: selected ? selected.ip : null, selectedCandidate: selected || null, latencyMs: auto.latencyMs || null, candidates: auto.candidates || [], domainCandidates: auto.domainCandidates || tiktok_domain_catalog(), resolvedCandidates: auto.resolvedCandidates || [], resolutions: auto.resolutions || [], resolver: auto.resolver || null, resolverSources: auto.resolverSources || [], resolverOwner: auto.resolverOwner || 'system-wan', resolutionStatus: auto.resolutionStatus || 'unknown', selectedAt: auto.selectedAt || null, lastVerifiedAt: auto.lastVerifiedAt || null, lastDiscoveryAt: auto.lastDiscoveryAt || null, lastEvaluationAt: auto.lastEvaluationAt || null, leaseSeconds: TIKTOK_SELECTED_LEASE_SECONDS, leaseValid: selected ? tiktok_lease_valid(auto, time(), TIKTOK_SELECTED_LEASE_SECONDS) : false, hysteresis: { relative: TIKTOK_HYSTERESIS_RELATIVE, absoluteMs: TIKTOK_HYSTERESIS_ABSOLUTE_MS }, lastProbe: auto.lastProbe || null, lastFailover: auto.lastFailover || null, failureCount: auto.failureCount || 0, recoveryCount: auto.recoveryCount || 0, override: selected && auto.enabled ? { host: TIKTOK_AUTO_HOST, ip: selected.ip, owner: TIKTOK_AUTO_OWNER, managed: auto.managed !== false } : null };
 };
 export const service_dns_tiktok_set = function(req) {
 	let input = req && req.args ? req.args : req || {}, state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off', failureCount: 0, recoveryCount: 0 }), enabled = input.enabled === true, previous = tiktok_current_candidate(auto);
@@ -311,11 +359,12 @@ export const service_dns_tiktok_set = function(req) {
 	}
 	let d = dataset();
 	if (!d.ok) return err('ETARGET', 'service DNS dataset unavailable');
-	let result = tiktok_probe_best({ tiktokAuto: auto }, d.data), nowValue = now();
-	tiktok_store_resolution(auto, result);
+	let result = tiktok_probe_best({ tiktokAuto: auto }, d.data), nowValue = now(), evaluatedAt = time();
+	tiktok_store_resolution(auto, result, evaluatedAt);
+	auto.lastEvaluationAt = evaluatedAt;
 	auto.lastProbe = tiktok_probe_record(nowValue, 'system-wan-domain-resolution+target-probe', result);
 	if (result.ok && result.selected) {
-		tiktok_set_selected(auto, result.selected);
+		tiktok_set_selected(auto, result.selected, evaluatedAt);
 		auto.state = 'healthy';
 	} else if (previous) {
 		auto.selectedCandidate = previous;
@@ -342,66 +391,82 @@ export const service_dns_tiktok_set = function(req) {
 	return queued;
 };
 export const service_dns_tiktok_check = function(req) {
-	let state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off' });
+	let input = req && req.args ? req.args : req || {}, force = input.force === true || input.explicitCheck === true || !req, scheduled = input.scheduled === true, state = state_load(), auto = tiktok_state_migrate(state.tiktokAuto || { enabled: false, state: 'off' });
 	if (auto.enabled !== true) return service_dns_tiktok_status();
 	let d = dataset();
 	if (!d.ok) return err('ETARGET', 'service DNS dataset unavailable');
-	let snapshot = tiktok_resolution_snapshot(), current = tiktok_current_candidate(auto), currentObservation = current ? tiktok_probe(current) : { ok: false, reason: 'no-selected-candidate' }, nowValue = now();
-	tiktok_store_resolution(auto, snapshot);
+	let evaluatedAt = time(), nowValue = now(), current = tiktok_current_candidate(auto), fastObservation = null, leaseValid = current && tiktok_lease_valid(auto, evaluatedAt, TIKTOK_SELECTED_LEASE_SECONDS), fastPath = tiktok_should_fast_path({ health: auto.state || 'unknown', leaseValid: leaseValid, explicitCheck: force, scheduled: scheduled });
+	if (fastPath) {
+		fastObservation = tiktok_probe(current);
+		auto.lastEvaluationAt = evaluatedAt;
+		if (fastObservation.ok) {
+			auto.failureCount = 0;
+			auto.recoveryCount = 0;
+			auto.state = 'healthy';
+			auto.lastVerifiedAt = evaluatedAt;
+			if (!auto.selectedAt) auto.selectedAt = evaluatedAt;
+			auto.lastProbe = tiktok_probe_record(nowValue, 'current-ip-fast-path', { resolutionStatus: auto.resolutionStatus, resolverOwner: auto.resolverOwner, candidates: auto.candidates, observations: [fastObservation] });
+			state.tiktokAuto = auto;
+			if (!state_save(state)) return err('ESTATE', 'TikTok health state write failed');
+			return service_dns_tiktok_status();
+		}
+		auto.failureCount = (auto.failureCount || 0) + 1;
+		auto.recoveryCount = 0;
+	}
+	let snapshot = tiktok_resolution_snapshot(d.data), currentObservation = fastObservation || (current ? tiktok_probe(current) : { ok: false, health: 'dead', reason: 'no-selected-candidate' });
+	tiktok_store_resolution(auto, snapshot, evaluatedAt);
+	auto.lastEvaluationAt = evaluatedAt;
 	if (currentObservation.ok) {
 		auto.failureCount = 0;
-		if (snapshot.status == 'resolved' && length(snapshot.candidates || [])) {
-			auto.recoveryCount = (auto.recoveryCount || 0) + 1;
-			auto.state = 'healthy';
-		} else {
-			auto.recoveryCount = 0;
-			auto.state = 'degraded';
+		auto.recoveryCount = 0;
+		auto.lastVerifiedAt = evaluatedAt;
+		if (!auto.selectedAt) auto.selectedAt = evaluatedAt;
+		auto.state = 'healthy';
+		let result = tiktok_probe_best({ tiktokAuto: auto }, d.data, snapshot, true), observations = [currentObservation];
+		for (let i = 0; i < length(result.observations || []); i++) push(observations, result.observations[i]);
+		if (result.ok && result.selected) {
+			let decision = tiktok_hysteresis_decision({ ip: current.ip, health: 'healthy', latencyMs: currentObservation.latencyMs }, result.selected);
+			if (decision.action == 'switch') {
+				auto.lastFailover = { at: nowValue, from: current.ip, to: result.selected.ip, sourceDomain: result.selected.sourceDomain || null, mode: result.selected.mode || null, reason: decision.reason, relativeThreshold: TIKTOK_HYSTERESIS_RELATIVE, absoluteThresholdMs: TIKTOK_HYSTERESIS_ABSOLUTE_MS };
+				tiktok_set_selected(auto, result.selected, evaluatedAt);
+				auto.state = 'healthy';
+			}
 		}
-		auto.lastProbe = tiktok_probe_record(nowValue, 'system-wan-domain-resolution+target-probe', { resolutionStatus: snapshot.status, resolverOwner: snapshot.resolverOwner, candidates: snapshot.candidates, observations: [currentObservation] });
-		if (auto.recoveryCount >= TIKTOK_RECOVERY_THRESHOLD) {
-			if (auto.managed === true && !(state.applied && length(state.applied.managedAddressEntries || []))) auto.legacyManagedAddressMigration = true;
-			auto.selectedIp = null;
-			auto.selectedCandidate = null;
-			auto.latencyMs = null;
-			auto.state = 'healthy';
-			auto.managed = false;
-			auto.lastFailover = { at: nowValue, action: 'removed-owned-override', reason: 'normal DNS recovered repeatedly', threshold: TIKTOK_RECOVERY_THRESHOLD };
-			state.tiktokAuto = auto;
-			if (!state_save(state)) return err('ESTATE', 'TikTok recovery state write failed');
-			let recoveryOp = 'tiktok-recover-' + trim(run('date +%s').out) + '-auto', queuedRecovery = enqueue_native_apply({ operationId: recoveryOp }, recoveryOp);
-			queuedRecovery.ok = true;
-			queuedRecovery.recovered = true;
-			return queuedRecovery;
-		}
+		auto.lastProbe = tiktok_probe_record(nowValue, 'domain-resolution+target-probe', { resolutionStatus: snapshot.status, resolverOwner: snapshot.resolverOwner, candidates: snapshot.candidates, observations: observations, selected: result.selected });
 		state.tiktokAuto = auto;
 		if (!state_save(state)) return err('ESTATE', 'TikTok health state write failed');
-		let synced = tiktok_apply_override_if_needed(state);
-		if (synced && synced.ok === false) return synced;
-		if (synced && synced.accepted) {
-			let syncedStatus = service_dns_tiktok_status();
-			syncedStatus.apply = synced;
-			return syncedStatus;
+		if (result.ok && result.selected && auto.selectedIp == result.selected.ip) {
+			let op = 'tiktok-evaluate-' + trim(run('date +%s').out) + '-auto', queued = enqueue_native_apply({ operationId: op }, op);
+			queued.ok = true;
+			queued.evaluated = true;
+			queued.selected = result.selected;
+			return queued;
 		}
 		return service_dns_tiktok_status();
 	}
-	auto.failureCount = (auto.failureCount || 0) + 1;
+	if (!fastPath) auto.failureCount = (auto.failureCount || 0) + 1;
 	auto.recoveryCount = 0;
 	if (!current || auto.failureCount >= TIKTOK_FAILOVER_THRESHOLD) {
 		let result = tiktok_probe_best({ tiktokAuto: auto }, d.data, snapshot, true);
-		tiktok_store_resolution(auto, result);
-		auto.lastProbe = tiktok_probe_record(nowValue, 'system-wan-domain-resolution+target-probe', result);
-		if (result.ok && result.selected && (!current || result.selected.ip != current.ip)) {
-			auto.lastFailover = { at: nowValue, from: current ? current.ip : null, to: result.selected.ip, sourceDomain: result.selected.sourceDomain || null, mode: result.selected.mode || null, reason: current ? 'consecutive probe failures' : 'verified initial candidate', threshold: current ? TIKTOK_FAILOVER_THRESHOLD : null };
-			tiktok_set_selected(auto, result.selected);
-			auto.failureCount = 0;
-			auto.state = current ? 'failover' : 'healthy';
-			state.tiktokAuto = auto;
-			if (!state_save(state)) return err('ESTATE', 'TikTok failover state write failed');
-			let op = (current ? 'tiktok-failover-' : 'tiktok-select-') + trim(run('date +%s').out) + '-auto', queued = enqueue_native_apply({ operationId: op }, op);
-			queued.ok = true;
-			queued.failover = !!current;
-			queued.selected = result.selected;
-			return queued;
+		tiktok_store_resolution(auto, result, evaluatedAt);
+		auto.lastProbe = tiktok_probe_record(nowValue, 'domain-resolution+target-probe', result);
+		if (result.ok && result.selected) {
+			let decision = tiktok_hysteresis_decision({ ip: current ? current.ip : null, health: 'dead', latencyMs: currentObservation.latencyMs }, result.selected);
+			if (decision.action == 'switch') {
+				auto.lastFailover = { at: nowValue, from: current ? current.ip : null, to: result.selected.ip, sourceDomain: result.selected.sourceDomain || null, mode: result.selected.mode || null, reason: current ? 'consecutive probe failures' : 'verified initial candidate', threshold: current ? TIKTOK_FAILOVER_THRESHOLD : null };
+				tiktok_set_selected(auto, result.selected);
+				auto.failureCount = 0;
+				auto.selectedAt = evaluatedAt;
+				auto.lastVerifiedAt = evaluatedAt;
+				auto.state = 'healthy';
+				state.tiktokAuto = auto;
+				if (!state_save(state)) return err('ESTATE', 'TikTok failover state write failed');
+				let op = (current ? 'tiktok-failover-' : 'tiktok-select-') + trim(run('date +%s').out) + '-auto', queued = enqueue_native_apply({ operationId: op }, op);
+				queued.ok = true;
+				queued.failover = !!current;
+				queued.selected = result.selected;
+				return queued;
+			}
 		}
 	}
 	auto.state = 'degraded';

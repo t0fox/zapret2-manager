@@ -202,7 +202,17 @@ function tiktokResolutionSummary(auto) {
   return { domains: domains, addressCount: addresses.length, domainCount: domains.length };
 }
 function tiktokModeLabel(mode) {
-  return ({ cla: _('CLA'), ies: _('IES'), generic: _('общий CDN'), legacy: _('legacy') })[String(mode || '').toLowerCase()] || display(mode);
+  return ({ direct: _('основной v77'), cla: _('CLA'), ies: _('IES'), generic: _('общий CDN'), legacy: _('legacy'), curated: _('fallback') })[String(mode || '').toLowerCase()] || display(mode);
+}
+function tiktokObservationSummary(auto) {
+  var candidates = asArray(auto && auto.resolvedCandidates), dns = 0, curated = 0;
+  candidates.forEach(function (candidate) {
+    if (candidate && candidate.dnsObserved === true) dns++;
+    if (candidate && candidate.curatedObserved === true) curated++;
+  });
+  var selected = tiktokSelectedCandidate(auto);
+  var headers = selected && selected.headers || {};
+  return { dns: dns, curated: curated, pop: selected && (selected.x77Pop || headers['X-77-POP']) || null, cache: selected && (selected.x77Cache || headers['X-77-Cache']) || null };
 }
 function selectedProviderId(dns, providers) {
   var selected = dns && (dns.selectedProviderId || dns.providerId || dns.selectedProvider || dns.provider && (dns.provider.id || dns.provider.providerId));
@@ -266,7 +276,7 @@ function scheduleTiktokAutoCheck(ctx) {
   if (state.tiktokAutoBusy || state.tiktokOperation || !state.tiktokAuto || state.tiktokAuto.enabled !== true || !ctx.api.dns.serviceTiktokCheck) return;
   state.tiktokAutoTimer = window.setTimeout(function () {
     state.tiktokAutoTimer = null;
-    ctx.api.dns.serviceTiktokCheck().then(function () {
+    ctx.api.dns.serviceTiktokCheck(edit(ctx.api.dns.serviceTiktokCheck, { scheduled: true })).then(function () {
       return ctx.api.dns.serviceTiktokStatus ? ctx.api.dns.serviceTiktokStatus() : null;
     }).then(function (status) {
       if (status) state.tiktokAutoLocal = status;
@@ -1658,6 +1668,7 @@ function render(ctx) {
           var auto = state.tiktokAuto || {};
           var selectedCandidate = tiktokSelectedCandidate(auto);
           var resolutionSummary = tiktokResolutionSummary(auto);
+          var observationSummary = tiktokObservationSummary(auto);
           var domainCandidates = asArray(auto.domainCandidates);
           var sourceDomains = domainCandidates.map(function (candidate) { return candidate && candidate.domain || candidate; }).filter(Boolean);
           var sourceDomain = selectedCandidate && selectedCandidate.sourceDomain || '';
@@ -1720,7 +1731,13 @@ function render(ctx) {
               E('span', {}, _('Резолвер: ') + display(asArray(auto.resolver).join(', ') || auto.resolver)),
               E('span', {}, _('Владелец резолвера: ') + display(auto.resolverOwner)),
               E('span', {}, _('Статус DNS: ') + display(auto.resolutionStatus)),
-              E('span', {}, _('Режим выбранного: ') + tiktokModeLabel(selectedMode))
+              E('span', {}, _('Режим выбранного: ') + tiktokModeLabel(selectedMode)),
+              E('span', {}, _('Наблюдения: DNS ') + observationSummary.dns + ' · fallback ' + observationSummary.curated),
+              E('span', {}, _('X-77-POP: ') + display(observationSummary.pop)),
+              E('span', {}, _('X-77-Cache: ') + display(observationSummary.cache)),
+              E('span', {}, _('Состояние: ') + display(auto.health || auto.state)),
+              E('span', {}, _('Lease: ') + (auto.leaseValid === true ? _('действует') : _('истёк или неизвестен'))),
+              E('span', {}, _('Проверен: ') + display(auto.lastVerifiedAt))
             ]),
             E('strong', { 'class': 'z2m-service-dns-tiktok-detail-title' }, _('Разрешённые адреса')),
             resolvedRows.length ? E('ul', { 'class': 'z2m-service-dns-tiktok-resolved' }, resolvedRows) : E('p', { 'class': 'z2m-dim' }, _('Адреса ещё не получены.')),

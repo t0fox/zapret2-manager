@@ -705,7 +705,12 @@ function service_dns_apply_method(req)     { return cli_edit_action(SERVICE_DNS_
 function service_dns_apply_status_method(req) { return cli_edit_action(SERVICE_DNS_CLI, 'apply-status', req, 'service_dns'); }
 function service_dns_tiktok_set_async_method(req) { return cli_edit_action(SERVICE_DNS_CLI, 'tiktok-set-async', req, 'service_dns_tiktok_async'); }
 function service_dns_tiktok_status_method(req) { return cli_action(SERVICE_DNS_CLI, 'tiktok-status'); }
-function service_dns_tiktok_check_method(req) { return cli_action(SERVICE_DNS_CLI, 'tiktok-check'); }
+function service_dns_tiktok_check_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	return edit == null ? cli_action(SERVICE_DNS_CLI, 'tiktok-check') : cli_edit_action(SERVICE_DNS_CLI, 'tiktok-check', req, 'service_dns_tiktok_check');
+}
 function service_dns_rollback_method(req)  { return cli_action(SERVICE_DNS_CLI, 'rollback'); }
 
 // Signature: top-level key == ubus object name (matches ACL). Methods nested.
